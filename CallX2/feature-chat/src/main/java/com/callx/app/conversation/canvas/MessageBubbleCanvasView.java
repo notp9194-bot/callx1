@@ -1184,6 +1184,20 @@ public class MessageBubbleCanvasView extends View {
     final Rect replyThumbSrcRect = new Rect();
     final RectF replyThumbDstRect = new RectF();
 
+    // ── Big story/reel-reaction emoji badge (Instagram-style) ─────────
+    // Set via setBigReactionEmoji() whenever this bubble is a "You
+    // reacted 😍 to their story/reel" message (a normal text message
+    // whose replyToId is "status_"+id and whose text is a single emoji
+    // — see MessagePagingAdapter#isStoryReactionEmojiMessage). Instead of
+    // the emoji only showing as small plain text under the tiny reply
+    // quote box, it's additionally painted large, overlapping the bottom-
+    // left corner of the quoted thumbnail — matching Instagram DM's
+    // reacted-to-story bubble.
+    boolean bigReactionBadge = false;
+    String bigReactionEmoji;
+    Paint bigReactionBadgeBgPaint;
+    TextPaint bigReactionEmojiPaint;
+
     StaticLayout replySenderLayout;
     StaticLayout replyTextLayout;
     final RectF replyBoxRect = new RectF();
@@ -3454,7 +3468,33 @@ public class MessageBubbleCanvasView extends View {
         this.replySenderLayout = null;
         this.replyTextLayout = null;
         this.replyBoxHeight = 0;
+        this.bigReactionBadge = false;
+        this.bigReactionEmoji = null;
         requestLayoutIfSizeChanged();
+        invalidate();
+    }
+
+    /**
+     * Marks (or clears, passing null) this bubble as a story/reel-reaction
+     * message so drawReplyPreview() paints `emoji` large, overlapping the
+     * bottom-left corner of the quoted thumbnail (Instagram DM "reacted to
+     * their story" look) instead of relying solely on the small plain-text
+     * emoji under the quote box. Purely additive to the existing reply-
+     * preview draw — no measure/layout change, since it's drawn within the
+     * already-computed replyThumbDstRect. Safe to call before or after
+     * setReply(); only invalidate()s.
+     */
+    public void setBigReactionEmoji(@Nullable String emoji) {
+        boolean want = emoji != null && !emoji.isEmpty();
+        if (this.bigReactionBadge == want && java.util.Objects.equals(this.bigReactionEmoji, emoji)) return;
+        this.bigReactionBadge = want;
+        this.bigReactionEmoji = emoji;
+        if (want && bigReactionEmojiPaint == null) {
+            bigReactionBadgeBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            bigReactionBadgeBgPaint.setColor(0xFF1A1A1A);
+            bigReactionEmojiPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+            bigReactionEmojiPaint.setTextAlign(Paint.Align.CENTER);
+        }
         invalidate();
     }
 
@@ -5380,7 +5420,28 @@ public class MessageBubbleCanvasView extends View {
             replyThumbSrcRect.set(0, 0, replyThumb.getWidth(), replyThumb.getHeight());
             replyThumbDstRect.set(thumbLeft, thumbTop, thumbLeft + thumbSize, thumbTop + thumbSize);
             canvas.drawBitmap(replyThumb, replyThumbSrcRect, replyThumbDstRect, null);
+
+            if (bigReactionBadge && bigReactionEmoji != null && bigReactionEmojiPaint != null) {
+                drawBigReactionBadge(canvas);
+            }
         }
+    }
+
+    /**
+     * Instagram DM "reacted to their story" badge: a dark circular chip,
+     * ~58% of the thumbnail's size, centered on the thumbnail's bottom-left
+     * corner with the reaction emoji painted large inside it. See
+     * setBigReactionEmoji().
+     */
+    private void drawBigReactionBadge(Canvas canvas) {
+        float badgeR = replyThumbDstRect.width() * 0.34f;
+        float cx = replyThumbDstRect.left;
+        float cy = replyThumbDstRect.bottom;
+        canvas.drawCircle(cx, cy, badgeR, bigReactionBadgeBgPaint);
+        bigReactionEmojiPaint.setTextSize(badgeR * 1.15f);
+        Paint.FontMetrics fm = bigReactionEmojiPaint.getFontMetrics();
+        float baselineY = cy - (fm.ascent + fm.descent) / 2f;
+        canvas.drawText(bigReactionEmoji, cx, baselineY, bigReactionEmojiPaint);
     }
 
     final RectF gateIconArcRect = new RectF();

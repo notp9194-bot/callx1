@@ -30,6 +30,16 @@
           android:layout_height="match_parent"
           android:visibility="gone"/>
 
+      <!-- Instagram-style floating reaction replay — plays once when this
+           status/reel-as-status has received emoji reactions. Purely
+           visual, never intercepts touch. See
+           StatusViewerActivity#playReactionBurstIfAny(). -->
+      <com.callx.app.reaction.FloatingReactionOverlayView
+          android:id="@+id/reaction_burst_overlay"
+          android:layout_width="match_parent"
+          android:layout_height="match_parent"
+          android:visibility="gone"/>
+
       <!-- Text status -->
       <FrameLayout
           android:id="@+id/fl_text_status"

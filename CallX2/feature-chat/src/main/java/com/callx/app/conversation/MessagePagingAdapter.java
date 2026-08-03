@@ -3311,6 +3311,13 @@ public class MessagePagingAdapter
             cv.clearReply();
         }
 
+        // Instagram-style big emoji badge: only for story/reel-reaction
+        // messages (replyToId = "status_"+id, text = a single emoji) —
+        // see StatusViewerActivity#sendReactionToChat. Every other reply
+        // (normal text/media replies, and reactions whose text isn't a
+        // lone emoji) keeps the plain small quote-box text as before.
+        cv.setBigReactionEmoji(isStoryReactionEmojiMessage(m) ? m.text : null);
+
         // ── Reaction badge ──
         String reactionsText = formatReactions(m.reactions);
         if (reactionsText != null) cv.setReactions(reactionsText);
@@ -6571,6 +6578,47 @@ public class MessagePagingAdapter
      * A change in readBy count triggers PAYLOAD_READ_BY so only the
      * "Seen by" strip is redrawn instead of a full rebind.
      */
+    /**
+     * True for a "You reacted 😍 to their story/reel" message: a plain text
+     * message whose replyToId points at a status/reel-as-status
+     * (StatusReplyBottomSheet/StatusViewerActivity#sendReactionToChat both
+     * stamp replyToId = "status_"+id) and whose text is exactly one emoji
+     * (no caption typed alongside it). Used to trigger the big Instagram-
+     * style reaction badge instead of the plain small quote-box text.
+     */
+    private static boolean isStoryReactionEmojiMessage(Message m) {
+        if (m.replyToId == null || !m.replyToId.startsWith("status_")) return false;
+        if (m.type != null && !"text".equals(m.type)) return false;
+        return isSingleEmojiText(m.text);
+    }
+
+    /** Single-pass, allocation-free check that `raw` is exactly one emoji
+     *  (optionally followed by a variation-selector/ZWJ sequence) and
+     *  nothing else — mirrors ChatEmojiBurstController#isEmojiOnly's
+     *  codepoint-range approach but requires exactly one emoji "unit". */
+    private static boolean isSingleEmojiText(String raw) {
+        if (raw == null) return false;
+        int len = raw.length();
+        if (len == 0 || len > 16) return false;
+        int i = 0;
+        int emojiUnits = 0;
+        while (i < len) {
+            int cp = raw.codePointAt(i);
+            int charCount = Character.charCount(cp);
+            if (cp == 0xFE0F || cp == 0x200D) { i += charCount; continue; }
+            boolean isEmojiCp = (cp >= 0x1F300 && cp <= 0x1FAFF)
+                    || (cp >= 0x2600 && cp <= 0x27BF)
+                    || (cp >= 0x1F1E6 && cp <= 0x1F1FF)
+                    || (cp >= 0x2190 && cp <= 0x21FF)
+                    || (cp >= 0x2B00 && cp <= 0x2BFF);
+            if (!isEmojiCp) return false;
+            emojiUnits++;
+            if (emojiUnits > 1) return false;
+            i += charCount;
+        }
+        return emojiUnits == 1;
+    }
+
     private static boolean readByCountEquals(@NonNull com.callx.app.models.Message a,
                                               @NonNull com.callx.app.models.Message b) {
         int cA = (a.readBy != null) ? a.readBy.size() : 0;

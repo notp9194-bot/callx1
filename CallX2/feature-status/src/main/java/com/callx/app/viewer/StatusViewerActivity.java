@@ -80,6 +80,10 @@ import com.callx.app.utils.AlertDialogStyler;
       private ActivityStatusViewerBinding binding;
       private final List<StatusItem> items         = new ArrayList<>();
       private final List<String>     seenInSession  = new ArrayList<>();
+      // Instagram-style floating-emoji replay: guards against re-triggering
+      // the burst every time showCurrent() re-runs for the same status
+      // (e.g. swiping back to a previously-viewed segment in this session).
+      private final java.util.Set<String> reactionBurstPlayedFor = new java.util.HashSet<>();
       private int     idx         = 0;
       private ExoPlayer player;
       private final Handler  handler      = new Handler(Looper.getMainLooper());
@@ -293,6 +297,7 @@ import com.callx.app.utils.AlertDialogStyler;
           updateHeaderTimestamp(s);
           updateSeenByInfo(s);
           updateExpiryLabel(s);
+          playReactionBurstIfAny(s);
           crossFadeIn();
           if (s.id != null && !s.id.isEmpty() && myUid != null && !myUid.equals(ownerUid))
               if (!seenInSession.contains(s.id)) seenInSession.add(s.id);
@@ -1385,6 +1390,37 @@ import com.callx.app.utils.AlertDialogStyler;
        * status_-prefixed tap-to-reopen-status handling — no new bubble
        * type needed.
        */
+      /**
+       * Instagram-style one-shot floating-emoji replay: checks whether the
+       * status currently on screen has any recorded reactions
+       * (statusReactions/{ownerUid}/{statusId}/*, written by
+       * sendReactionToChat()) and, if so, plays the burst on
+       * reaction_burst_overlay. Fires at most once per status per viewer
+       * session (see reactionBurstPlayedFor). Cheap single-value read —
+       * no listener kept alive, since the burst is a one-shot replay, not
+       * a live indicator.
+       */
+      private void playReactionBurstIfAny(StatusItem s) {
+          if (s == null || s.id == null || s.id.isEmpty() || ownerUid == null) return;
+          if (!reactionBurstPlayedFor.add(s.id)) return; // already played this session
+          com.callx.app.reaction.FloatingReactionOverlayView overlay = binding.reactionBurstOverlay;
+          if (overlay == null) return;
+          FirebaseDatabase.getInstance().getReference("statusReactions")
+                  .child(ownerUid).child(s.id)
+                  .addListenerForSingleValueEvent(new ValueEventListener() {
+                      @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                          if (!snap.exists()) return;
+                          List<String> emojis = new ArrayList<>();
+                          for (DataSnapshot child : snap.getChildren()) {
+                              String emoji = child.getValue(String.class);
+                              if (emoji != null && !emoji.isEmpty()) emojis.add(emoji);
+                          }
+                          if (!emojis.isEmpty()) overlay.playBurst(emojis);
+                      }
+                      @Override public void onCancelled(@NonNull DatabaseError e) {}
+                  });
+      }
+
       private void sendReactionToChat(StatusItem reactedStatus, String emoji) {
           if (myUid == null || ownerUid == null || reactedStatus == null) return;
           String chatId = FirebaseUtils.getChatId(myUid, ownerUid);
@@ -1405,11 +1441,22 @@ import com.callx.app.utils.AlertDialogStyler;
                   : ("image".equals(reactedStatus.type) ? reactedStatus.mediaUrl : null);
           if (thumb != null) data.put("replyToMediaUrl", thumb);
           FirebaseUtils.getMessagesRef(chatId).child(msgId).setValue(data);
+
+          // NEW: mirrors reels' reelReactions/{reelId}/{uid}=emoji pattern —
+          // lets the status owner's replay of this status (or the reel it
+          // was shared from) trigger the Instagram-style floating-emoji
+          // burst (see playReactionBurstIfAny()), same as reel reactions
+          // already do via ReelSocialController#loadLiveReactionCounts().
+          if (reactedStatus.id != null && !reactedStatus.id.isEmpty()) {
+              FirebaseDatabase.getInstance().getReference("statusReactions")
+                      .child(ownerUid).child(reactedStatus.id).child(myUid).setValue(emoji);
+          }
       }
       private int dpToPx(int dp) {
           return Math.round(dp * getResources().getDisplayMetrics().density);
       }
       private void releasePlayer() {
           if (player != null) { player.release(); player = null; }
+          if (binding != null && binding.reactionBurstOverlay != null) binding.reactionBurstOverlay.stop();
       }
   }

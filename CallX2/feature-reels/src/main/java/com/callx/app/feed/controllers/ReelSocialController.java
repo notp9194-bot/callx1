@@ -56,6 +56,12 @@ public class ReelSocialController {
     private LinearLayout layoutReactions;
     private LinearLayout layoutLiveReactions;
     private ImageView   ivLikeAnim;
+    private com.callx.app.reaction.FloatingReactionOverlayView reactionBurstOverlay;
+    // Guards the Instagram-style floating-emoji replay to once per bind
+    // (loadLiveReactionCounts' listener re-fires on every reaction change,
+    // which is correct for the live count chips but would otherwise
+    // replay the burst repeatedly for the same viewing session).
+    private boolean reactionBurstPlayed = false;
 
     // Floating liker avatars
     private FrameLayout      llLikersAvatarRow;
@@ -120,6 +126,7 @@ public class ReelSocialController {
         flLiker1          = root.findViewById(R.id.fl_liker_1);
         flLiker2          = root.findViewById(R.id.fl_liker_2);
         flLiker3          = root.findViewById(R.id.fl_liker_3);
+        reactionBurstOverlay = root.findViewById(R.id.reel_reaction_burst_overlay);
     }
 
     // ── Accessors ─────────────────────────────────────────────────────────
@@ -738,6 +745,14 @@ public class ReelSocialController {
                 List<Map.Entry<String, Integer>> list = new ArrayList<>(counts.entrySet());
                 list.sort((a, b) -> b.getValue().compareTo(a.getValue()));
                 displayLiveReactions(list.subList(0, Math.min(3, list.size())));
+
+                // Instagram-style one-shot floating replay: fires the first
+                // time this reel's reactions load with at least one emoji
+                // on it, per bind — not on every subsequent live update.
+                if (!reactionBurstPlayed && !counts.isEmpty() && reactionBurstOverlay != null) {
+                    reactionBurstPlayed = true;
+                    reactionBurstOverlay.playBurst(new ArrayList<>(counts.keySet()));
+                }
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
@@ -772,6 +787,8 @@ public class ReelSocialController {
             FirebaseDatabase.getInstance().getReference("reelReactions")
                 .child(reel.reelId).removeEventListener(reactionsListener);
         reactionsListener = null;
+        reactionBurstPlayed = false;
+        if (reactionBurstOverlay != null) reactionBurstOverlay.stop();
     }
 
     // ── Release ───────────────────────────────────────────────────────────

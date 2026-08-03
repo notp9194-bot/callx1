@@ -1105,5 +1105,14 @@
               android:textSize="12sp"/>
       </LinearLayout>
 
+    <!-- Instagram-style floating reaction replay — plays once when this
+         reel has received emoji reactions. Purely visual, never
+         intercepts touch. See ReelSocialController#loadLiveReactionCounts(). -->
+    <com.callx.app.reaction.FloatingReactionOverlayView
+        android:id="@+id/reel_reaction_burst_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"/>
+
   
 </FrameLayout>
