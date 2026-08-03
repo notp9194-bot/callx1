@@ -571,6 +571,70 @@
 
             </LinearLayout>
 
+            <!-- ── Allow sharing (Status Repost, v56) ── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="16dp">
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:src="@drawable/ic_repost"
+                    android:tint="@color/text_secondary"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Allow sharing"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="14sp"/>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:tag="toggle_allow_sharing"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"/>
+
+            </LinearLayout>
+
+            <!-- ── Ring color (avatar highlight ring, same picker as Highlights) ── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="16dp">
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:src="@drawable/ic_status_star"
+                    android:tint="@color/text_secondary"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Avatar ring color"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="14sp"/>
+
+                <com.google.android.material.button.MaterialButton
+                    android:tag="btn_ring_color"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:text="⚪ Ring color"
+                    app:cornerRadius="18dp"/>
+
+            </LinearLayout>
+
             <!-- ── Post button ── -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_post"

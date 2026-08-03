@@ -186,7 +186,7 @@
         <activity android:name="com.callx.app.social.StoryReshareActivity" 
             android:exported="false" 
             android:screenOrientation="portrait" 
-            android:theme="@style/Theme.AppCompat.NoActionBar" 
+            android:theme="@style/Theme.CallX.NoActionBar" 
             android:windowSoftInputMode="adjustResize"/>
 
         <!-- BUG FIX: these two were never actually declared here despite the

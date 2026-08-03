@@ -12,6 +12,7 @@ package com.callx.app.feed;
   import com.callx.app.models.StatusItem;
   import com.callx.app.utils.StatusCloseFriendsManager;
   import com.callx.app.utils.StatusMuteManager;
+  import com.callx.app.utils.HighlightRingDrawable;
   import de.hdodenhof.circleimageview.CircleImageView;
   import java.text.SimpleDateFormat;
   import java.util.*;
@@ -392,6 +393,7 @@ package com.callx.app.feed;
           } else {
               StatusItem latest = myStatuses.get(myStatuses.size() - 1);
               h.ring.setVisibility(View.VISIBLE);
+              applyRingStyle(h.ring, latest, ctx, false);
               h.tvName.setText("My Status");
               String timeSub = timeFmt.format(new java.util.Date(latest.timestamp != null ? latest.timestamp : 0));
               h.tvSub.setText(timeSub + " \u00B7 " + myStatuses.size() + " update"
@@ -411,6 +413,28 @@ package com.callx.app.feed;
           }
       }
 
+      // ── Custom avatar ring color (NEW) ──────────────────────────────────────
+      /**
+       * When the given status carries a custom ringColor (set in NewStatusActivity
+       * via the same HighlightRingColorPickerBottomSheet used for Highlight albums),
+       * paints the avatar ring in that color/mode instead of the default
+       * seen/unseen ring drawable. Leaves the default ring untouched when no
+       * custom color was picked (ringColor null/empty), or on a bad hex value.
+       */
+      private void applyRingStyle(ImageView ring, StatusItem item, Context ctx, boolean isMuted) {
+          if (ring == null || item == null) return;
+          String color = item.ringColor;
+          if (color == null || color.isEmpty()) return; // keep default ring drawable/resource
+          try {
+              int parsedColor = android.graphics.Color.parseColor(color);
+              float density = ctx.getResources().getDisplayMetrics().density;
+              ring.setBackground(HighlightRingDrawable.withStrokeDp(parsedColor, item.ringMode, 2.5f, density));
+              ring.setAlpha(isMuted ? 0.4f : 1f);
+          } catch (IllegalArgumentException ignored) {
+              // Invalid/unparseable hex — silently keep the default ring.
+          }
+      }
+
       // ── Contact row ───────────────────────────────────────────────────────
       private void bindContact(ContactVH h, Entry e, Context ctx, boolean isMuted) {
           if (e == null) return;
@@ -425,6 +449,7 @@ package com.callx.app.feed;
           h.ring.setBackgroundResource(isMuted ? R.drawable.circle_status_seen
                   : e.unseenCount > 0 ? R.drawable.circle_status_unseen : R.drawable.circle_status_seen);
           h.ring.setAlpha(isMuted ? 0.4f : 1f);
+          applyRingStyle(h.ring, e.latestItem, ctx, isMuted);
 
           // FIX: unseen badge properly shown
           if (h.tvBadge != null) {

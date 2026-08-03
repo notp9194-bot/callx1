@@ -222,6 +222,20 @@ public class StatusItem {
      */
     public boolean allowSharing = true;
 
+    // ── Custom avatar ring color (mirrors the Highlights ring-color-picker) ──
+    /**
+     * Optional custom ring color/mode for THIS status, picked in
+     * NewStatusActivity via HighlightRingColorPickerBottomSheet — same sheet
+     * used for highlight albums. When set, viewers see this color as the
+     * ring around the owner's avatar on the status-tab card instead of the
+     * default seen/unseen ring. Empty string ("") = use the default ring.
+     */
+    public String ringColor = "";
+    /** {@link com.callx.app.utils.HighlightRingDrawable#MODE_SOLID} or
+     *  {@link com.callx.app.utils.HighlightRingDrawable#MODE_DOMINANT};
+     *  only meaningful when ringColor is non-empty. */
+    public String ringMode = "";
+
     /** Convert to Firebase Map (preserves all fields, excludes nulls). */
     @Exclude
     public Map<String, Object> toMap() {
@@ -276,6 +290,8 @@ public class StatusItem {
         if (locationLat != 0)         m.put("locationLat", locationLat);
         if (locationLng != 0)         m.put("locationLng", locationLng);
         m.put("allowSharing",         allowSharing);
+        if (ringColor != null && !ringColor.isEmpty()) m.put("ringColor", ringColor);
+        if (ringMode  != null && !ringMode.isEmpty())  m.put("ringMode",  ringMode);
         // Reshare fields (only written when non-empty)
         if (resharedFromType != null && !resharedFromType.isEmpty())
             m.put("resharedFromType", resharedFromType);

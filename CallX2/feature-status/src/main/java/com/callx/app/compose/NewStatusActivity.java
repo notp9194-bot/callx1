@@ -96,6 +96,11 @@ public class NewStatusActivity extends AppCompatActivity {
     private String  selectedTextAlign  = "center";
     /** Whether viewers may repost this status to their own story (mirrors WA "Allow sharing"). Default: on. */
     private boolean allowSharing      = true;
+    /** Custom avatar-ring color/mode for this status (picked via the same
+     *  HighlightRingColorPickerBottomSheet used for Highlight albums).
+     *  Null = use the app's default seen/unseen ring. */
+    private String  selectedRingColor = null;
+    private String  selectedRingMode  = null;
     // ── Scheduling (v27) ────────────────────────────────────────────────
     // > 0 when the user picked "Schedule" instead of posting immediately —
     // read once by saveStatus()/saveBatchStatus() and reset after use.
@@ -195,6 +200,7 @@ public class NewStatusActivity extends AppCompatActivity {
         setupExpiryButton();
         setupCloseFriendsToggle();
         setupAllowSharingToggle();
+        setupRingColorButton();
         setupTextAlignButtons();
         setupTextInput();
         setupStickerOverlayFrame();
@@ -980,6 +986,32 @@ public class NewStatusActivity extends AppCompatActivity {
         }
         // If toggle doesn't exist in the current layout, allowSharing stays true (safe default)
     }
+    // ── Ring color button (NEW — reuses the Highlights ring-color-picker) ──
+    /**
+     * Looks for a Button/View tagged "btn_ring_color" in the layout. Tapping
+     * it opens the exact same {@link com.callx.app.highlights.HighlightRingColorPickerBottomSheet}
+     * used to color a Highlights album, so the picked color/mode is saved on
+     * THIS status (item.ringColor / item.ringMode) and shows up as a custom
+     * ring around the owner's avatar on every viewer's status-tab card.
+     */
+    private void setupRingColorButton() {
+        View btn = binding.getRoot().findViewWithTag("btn_ring_color");
+        if (btn == null) return;
+        updateRingColorLabel(btn);
+        btn.setOnClickListener(v ->
+            com.callx.app.highlights.HighlightRingColorPickerBottomSheet.show(
+                this, selectedRingColor, selectedRingMode, selectedRingColor != null,
+                (colorHex, mode) -> {
+                    selectedRingColor = colorHex;
+                    selectedRingMode  = mode;
+                    updateRingColorLabel(btn);
+                }));
+    }
+    private void updateRingColorLabel(View btn) {
+        if (btn instanceof Button) {
+            ((Button) btn).setText(selectedRingColor != null ? "\u26AA Ring color set" : "\u26AA Ring color");
+        }
+    }
     // ── Text align buttons (NEW) ──────────────────────────────────────────
     private void setupTextAlignButtons() {
         View btnLeft   = binding.getRoot().findViewWithTag("btn_align_left");
@@ -1346,6 +1378,8 @@ public class NewStatusActivity extends AppCompatActivity {
         item.privacyList      = privacyUids.isEmpty() ? null : new ArrayList<>(privacyUids);
         item.isCloseFriends   = isCloseFriends;
         item.allowSharing     = allowSharing;
+        item.ringColor        = selectedRingColor != null ? selectedRingColor : "";
+        item.ringMode         = selectedRingMode  != null ? selectedRingMode  : "";
         item.expiryHours      = selectedExpiryHours;
         item.timestamp        = now;
         item.expiresAt        = StatusCustomExpiryHelper.computeExpiresAt(selectedExpiryHours);
@@ -1545,6 +1579,8 @@ public class NewStatusActivity extends AppCompatActivity {
         item.privacyList    = privacyUids.isEmpty() ? null : new ArrayList<>(privacyUids);
         item.isCloseFriends = isCloseFriends;
         item.allowSharing   = allowSharing;
+        item.ringColor      = selectedRingColor != null ? selectedRingColor : "";
+        item.ringMode       = selectedRingMode  != null ? selectedRingMode  : "";
         item.expiryHours    = selectedExpiryHours;
         item.timestamp      = now;
         item.expiresAt      = StatusCustomExpiryHelper.computeExpiresAt(selectedExpiryHours);
