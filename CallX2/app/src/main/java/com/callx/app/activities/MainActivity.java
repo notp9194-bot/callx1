@@ -235,6 +235,11 @@ public class MainActivity extends AppCompatActivity
                 // (always, in both display modes); phone status/nav bar
                 // visibility depends on the chosen Reels display mode.
                 applyReelsTabChrome(position == TAB_REELS);
+                // WhatsApp-style: the app header (title/search/bell/avatar +
+                // X/YouTube/Games entry) only belongs on the Chats tab. Status,
+                // Groups and Calls each have their own top area (or none) —
+                // Reels is skipped here since it already fully owns its chrome.
+                updateHeaderVisibilityForTab(position);
                 // ── Reel playback: pause when leaving, resume when entering ──
                 // Track previous tab so we know whether user is going TO or FROM Reels
                 notifyReelsTabVisibility(position == TAB_REELS, position);
@@ -354,6 +359,7 @@ public class MainActivity extends AppCompatActivity
             notifyReelsTabVisibility(isReelsTab, currentTab);
         }
         applyReelsTabChrome(isReelsTab);
+        updateHeaderVisibilityForTab(currentTab);
         // Feature 1: Return to Call Banner
         updateReturnToCallBanner();
     }
@@ -1187,6 +1193,43 @@ public class MainActivity extends AppCompatActivity
           // staying visually collapsed after a window inset toggle).
           binding.getRoot().requestLayout();
       }
+
+    /**
+     * WhatsApp-level behaviour: the app's own top header — title, search,
+     * notification bell, avatar menu, and the X / YouTube / Games entry
+     * chips — is Chats-specific chrome, not a generic app-wide bar. In
+     * WhatsApp itself each tab (Chats, Updates/Status, Communities, Calls)
+     * owns its own top area; here that means the shared header only shows
+     * on the Chats tab and is hidden everywhere else (Status, Groups,
+     * Calls each already render their own in-fragment top bar where
+     * needed — e.g. Status's search field).
+     *
+     * The Reels tab is intentionally skipped: it already fully owns its
+     * chrome (header AND bottom nav both hidden) via applyReelsTabChrome()
+     * / setMainNavVisible(), so re-touching the header here would fight
+     * that logic. Bottom nav is never touched by this method — it must
+     * stay visible on every non-Reels tab so the user can still switch tabs.
+     */
+    private void updateHeaderVisibilityForTab(int position) {
+        if (position == TAB_REELS) return; // Reels owns its own chrome fully
+
+        boolean showHeader = (position == TAB_CHATS);
+        int vis = showHeader ? android.view.View.VISIBLE : android.view.View.GONE;
+
+        android.view.View appBar = binding.getRoot().findViewById(R.id.app_bar_layout);
+        if (appBar != null) appBar.setVisibility(vis);
+
+        // Only the top margin changes here — bottom margin (bottom nav
+        // space) is left alone since the nav bar stays visible on all
+        // non-Reels tabs.
+        float density = getResources().getDisplayMetrics().density;
+        ViewGroup.MarginLayoutParams lp =
+            (ViewGroup.MarginLayoutParams) binding.viewPager.getLayoutParams();
+        lp.topMargin = showHeader ? (int) (56 * density) : 0;
+        binding.viewPager.setLayoutParams(lp);
+
+        binding.getRoot().requestLayout();
+    }
 
     /**
      * Applies the correct combination of chrome for the current tab.
