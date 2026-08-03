@@ -258,10 +258,20 @@ public class StatusStickerPickerSheet extends BottomSheetDialogFragment {
             String soundId = data.getStringExtra("audio_id");
             String title   = data.getStringExtra("audio_title");
             String artist  = data.getStringExtra("audio_artist");
-            // Preview-only stream (audio_preview_url) — never the full-quality
-            // audio_url, since that's meant for actual reel composition, not
-            // for a viewer just tapping to listen to the sticker.
-            String soundUrl= data.getStringExtra("audio_preview_url");
+            // Prefer the preview-only stream (audio_preview_url); it's short
+            // and lighter to stream for a viewer just glancing at the status.
+            // BUG FIX: many tracks in Trending Audio have no previewAudioUrl
+            // generated yet (see ReelTrendingAudioActivity's hasPreview flag —
+            // "Use" was never gated on it), so soundUrl was silently ending up
+            // "" and the status viewer's music-sticker autoplay had nothing to
+            // play — no sound at all when the status opened. Fall back to the
+            // full-quality audio_url so the sticker always has something to
+            // play, same as SoundDetailFragment already does elsewhere.
+            String previewUrl = data.getStringExtra("audio_preview_url");
+            String fullUrl    = data.getStringExtra("audio_url");
+            String soundUrl   = (previewUrl != null && !previewUrl.isEmpty())
+                    ? previewUrl
+                    : (fullUrl != null ? fullUrl : "");
             String coverUrl= data.getStringExtra("audio_cover_url");
 
             if (title == null || title.trim().isEmpty()) {

@@ -2760,10 +2760,12 @@ public class MessageBubbleCanvasView extends View {
 
         // Reel-share now sits inside a normal chat bubble (same cache
         // scheme as the text/media bind methods) instead of floating
-        // bubbleless.
-        int cacheKey = (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
+        // bubbleless. Uses the same sharper MEDIA_TAIL_RADIUS_DP corner as
+        // bindMedia() (bit 2 in the cache key, same as there) so the thin
+        // frame reads identically to an image/video bubble.
+        int cacheKey = 1 << 2 | (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
         if (cacheKey != lastCacheKey || bubbleDrawable == null) {
-            bubbleDrawable = buildBubbleDrawable(ctx, sent);
+            bubbleDrawable = buildBubbleDrawable(ctx, sent, MEDIA_TAIL_RADIUS_DP);
             lastCacheKey = cacheKey;
         }
 
@@ -4073,11 +4075,14 @@ public class MessageBubbleCanvasView extends View {
         } else if (isReelShare) {
             // ── Reel-share card, now inside a normal chat bubble ──
             // caption is an overlay INSIDE the card (bottom gradient), so
-            // bubbleHeight is replyBox + real vPad top/bottom + the card —
-            // same padding scheme as image/video, unlike the old
-            // exact-fit-to-card sizing.
+            // bubbleHeight is replyBox + a thin inset top/bottom + the card —
+            // MEDIA_TIGHT_INSET_DP, same tight WhatsApp-style frame as a
+            // single image/video bubble (was the full hPad/vPad before,
+            // which made this bubble's frame noticeably thicker than an
+            // image bubble's).
             int cardW = Math.round(REEL_CARD_WIDTH_DP * density);
             int cardH = Math.round(REEL_CARD_HEIGHT_DP * density);
+            int reelTightPad = Math.round(MEDIA_TIGHT_INSET_DP * density);
 
             if (reelHasCaption) {
                 int captionMaxW = Math.max(1, cardW
@@ -4094,7 +4099,11 @@ public class MessageBubbleCanvasView extends View {
             }
 
             bubbleContentWidth = Math.max(cardW, replyBoxContentWidth);
-            bubbleHeight = replyBoxHeight + replyGap + vPad + cardH + vPad;
+            bubbleHeight = replyBoxHeight + replyGap + reelTightPad + cardH + reelTightPad;
+            // Drives the shared "bubbleWidth = bubbleContentWidth + pad*2"
+            // formula below with the same thin pad instead of the default
+            // hPad, so the horizontal frame matches the top/bottom one.
+            mediaWidthPad = reelTightPad;
 
         } else if (isContact) {
             // ── Contact-share card (fixed 165dp wide, wrap_content height) ──
@@ -4655,10 +4664,12 @@ public class MessageBubbleCanvasView extends View {
         if (isReelShare) {
             int cardW = Math.round(REEL_CARD_WIDTH_DP * density);
             int cardH = Math.round(REEL_CARD_HEIGHT_DP * density);
-            float cardTop = bubbleTop + replyBoxHeight + replyGap + vPad;
-            // Card now sits inset inside the bubble by the normal hPad/vPad,
-            // same as image/media — bubbleDrawable shows as a frame around it.
-            reelCardRect.set(bubbleLeft + hPad, cardTop, bubbleLeft + hPad + cardW, cardTop + cardH);
+            int reelTightPad = Math.round(MEDIA_TIGHT_INSET_DP * density);
+            float cardTop = bubbleTop + replyBoxHeight + replyGap + reelTightPad;
+            // Card sits inset inside the bubble by the thin MEDIA_TIGHT_INSET_DP
+            // pad — same tight frame as image/media — bubbleDrawable shows as
+            // a slim hairline frame around it instead of the old thick hPad/vPad gap.
+            reelCardRect.set(bubbleLeft + reelTightPad, cardTop, bubbleLeft + reelTightPad + cardW, cardTop + cardH);
 
             float avatarSize = REEL_AVATAR_SIZE_DP * density;
             float headerPadH = REEL_HEADER_PAD_H_DP * density;
