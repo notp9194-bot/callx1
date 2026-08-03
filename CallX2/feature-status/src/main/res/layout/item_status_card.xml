@@ -75,12 +75,17 @@
         </FrameLayout>
     </com.google.android.material.card.MaterialCardView>
 
-    <!-- Avatar + ring, overlapping the top edge of the card -->
+    <!-- Avatar + ring, overlapping the top edge of the card.
+         background = transparent oval so the elevation shadow (if any) follows
+         the round shape instead of defaulting to a rectangle; elevation is set
+         higher than the card's 6dp so this always draws in front of it. -->
     <FrameLayout
         android:id="@+id/fl_avatar"
         android:layout_width="48dp"
         android:layout_height="48dp"
-        android:layout_gravity="center_horizontal|top">
+        android:layout_gravity="center_horizontal|top"
+        android:background="@drawable/bg_avatar_oval_outline"
+        android:elevation="8dp">
 
         <ImageView
             android:id="@+id/ring"
