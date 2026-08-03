@@ -86,6 +86,11 @@ import com.callx.app.utils.AlertDialogStyler;
       private final java.util.Set<String> reactionBurstPlayedFor = new java.util.HashSet<>();
       private int     idx         = 0;
       private ExoPlayer player;
+      // Separate audio-only player for a 🎵 music sticker's linked preview
+      // clip — independent of `player` above (which only ever holds the
+      // status's own video track). Autoplays as soon as the status carrying
+      // the sticker is shown, mirrors Instagram/WhatsApp behaviour.
+      private android.media.MediaPlayer musicPlayer;
       private final Handler  handler      = new Handler(Looper.getMainLooper());
       private Runnable       progressRunner;
       private boolean        paused       = false;
@@ -490,6 +495,41 @@ import com.callx.app.utils.AlertDialogStyler;
           binding.tvLocationTag.setVisibility(View.GONE);
           binding.flStickerOverlay.removeAllViews();
           stickerZoomScrim = null; // just got removed along with everything else above
+          releaseMusicPlayer(); // stop the previous status's music sticker before the next one renders
+      }
+
+      // ── Music sticker inline autoplay ────────────────────────────────────
+      // Starts playing a music sticker's linked preview clip as soon as the
+      // status carrying it is shown. Uses its own MediaPlayer (not the
+      // ExoPlayer `player` field, which is reserved for the status's own
+      // video track) so a music sticker plays regardless of whether the
+      // status itself is a photo, text card, video, or gif.
+      private void startMusicStickerAudio(String url) {
+          releaseMusicPlayer();
+          try {
+              musicPlayer = new android.media.MediaPlayer();
+              musicPlayer.setAudioAttributes(new android.media.AudioAttributes.Builder()
+                      .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                      .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                      .build());
+              musicPlayer.setDataSource(url);
+              // Loop so the clip keeps playing even if it's shorter than however
+              // long the viewer ends up spending on this status.
+              musicPlayer.setLooping(true);
+              musicPlayer.setVolume(isMuted ? 0f : 1f, isMuted ? 0f : 1f);
+              musicPlayer.setOnPreparedListener(mp -> { if (!paused) mp.start(); });
+              musicPlayer.setOnErrorListener((mp, what, extra) -> { releaseMusicPlayer(); return true; });
+              musicPlayer.prepareAsync();
+          } catch (Exception e) {
+              // Bad/unreachable preview URL — sticker just stays silent, never crash the viewer.
+              releaseMusicPlayer();
+          }
+      }
+      private void releaseMusicPlayer() {
+          if (musicPlayer != null) {
+              try { musicPlayer.release(); } catch (Exception ignored) {}
+              musicPlayer = null;
+          }
       }
 
       // ── Interactive stickers (music/countdown/quiz/question) ────────────────
@@ -575,6 +615,15 @@ import com.callx.app.utils.AlertDialogStyler;
                               @Override public void onCancelled(DatabaseError e) {}
                           });
                       }
+                  }
+
+                  if ("music".equals(sticker.getStickerType())) {
+                      // Autoplay the sticker's preview clip the instant the status
+                      // appears — WhatsApp/Instagram-style. Independent of whether
+                      // it's linked to a real Reels track (tap-to-open still only
+                      // applies when isMusicLinkedToReelSound() is true, below).
+                      String soundUrl = sticker.getMusicSoundUrl();
+                      if (soundUrl != null && !soundUrl.isEmpty()) startMusicStickerAudio(soundUrl);
                   }
 
                   if ("music".equals(sticker.getStickerType()) && sticker.isMusicLinkedToReelSound()) {
@@ -941,11 +990,13 @@ import com.callx.app.utils.AlertDialogStyler;
       private void pauseProgress() {
           if (paused) return; paused = true;
           if (player != null) player.setPlayWhenReady(false);
+          if (musicPlayer != null) { try { if (musicPlayer.isPlaying()) musicPlayer.pause(); } catch (Exception ignored) {} }
           stopProgress();
       }
       private void resumeProgress() {
           if (!paused) return; paused = false;
           if (player != null) player.setPlayWhenReady(true);
+          if (musicPlayer != null) { try { if (!musicPlayer.isPlaying()) musicPlayer.start(); } catch (Exception ignored) {} }
           if (idx < items.size()) {
               StatusItem s = items.get(idx);
               long total;
@@ -1281,6 +1332,7 @@ import com.callx.app.utils.AlertDialogStyler;
           binding.btnMute.setOnClickListener(v -> {
               isMuted = !isMuted;
               if (player != null) player.setVolume(isMuted ? 0f : 1f);
+              if (musicPlayer != null) { try { musicPlayer.setVolume(isMuted ? 0f : 1f, isMuted ? 0f : 1f); } catch (Exception ignored) {} }
               binding.btnMute.setImageResource(isMuted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
           });
       }
@@ -1457,6 +1509,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       private void releasePlayer() {
           if (player != null) { player.release(); player = null; }
+          releaseMusicPlayer();
           if (binding != null && binding.reactionBurstOverlay != null) binding.reactionBurstOverlay.stop();
       }
   }

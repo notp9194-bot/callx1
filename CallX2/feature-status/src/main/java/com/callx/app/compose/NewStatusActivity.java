@@ -134,14 +134,6 @@ public class NewStatusActivity extends AppCompatActivity {
     private LinearLayout stickerSizeBar;
     private com.callx.app.stickers.StatusStickerOverlayView selectedSticker;
 
-    // ── v239: Trending Audio for Status ──────────────────────────────────
-    /** Launches ReelTrendingAudioActivity to pick a song for the status. */
-    private ActivityResultLauncher<Intent> trendingAudioLauncher;
-    /** JSON of the currently attached music sticker (null if none). */
-    private String pendingMusicStickerJson = null;
-    /** Direct reference to the music sticker view currently in stickerOverlayFrame. */
-    private com.callx.app.stickers.StatusStickerOverlayView musicStickerView = null;
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -203,11 +195,6 @@ public class NewStatusActivity extends AppCompatActivity {
         setupTextAlignButtons();
         setupTextInput();
         setupStickerOverlayFrame();
-        // v239: register trending-audio result handler
-        trendingAudioLauncher = registerForActivityResult(
-                new ActivityResultContracts.StartActivityForResult(),
-                this::handleTrendingAudioResult);
-        setupMusicEditBar();
         // v216: Layout picker launcher — receives URIs + layoutStyle from StatusLayoutPickerActivity.
         //
         // BUG FIX (the original root cause of "layout badal ke ek-ek photo ho
@@ -361,115 +348,6 @@ public class NewStatusActivity extends AppCompatActivity {
         if (toastMsg != null && !toastMsg.isEmpty()) {
             Toast.makeText(this, toastMsg, Toast.LENGTH_SHORT).show();
         }
-    }
-
-    // ── v239: Music Edit Bar (Trending Audio icon at top of media editing) ──
-
-    /**
-     * Hooks up the music icon button in the media editing toolbar (top of the
-     * media preview) and the "remove music" button in the badge bar (bottom).
-     * Called once from onCreate, after setupStickerOverlayFrame().
-     */
-    private void setupMusicEditBar() {
-        if (binding.btnMusicEdit != null) {
-            binding.btnMusicEdit.setOnClickListener(v -> openTrendingAudioForStatus());
-        }
-        if (binding.btnMusicBadgeRemove != null) {
-            binding.btnMusicBadgeRemove.setOnClickListener(v -> removeMusicSticker());
-        }
-    }
-
-    /**
-     * Launches ReelTrendingAudioActivity so the user can pick a trending song.
-     * Uses class-name Intent (no compile-time dependency on feature-reels,
-     * same pattern as openReelCamera).
-     */
-    private void openTrendingAudioForStatus() {
-        try {
-            Intent intent = new Intent();
-            intent.setClassName(getPackageName(), "com.callx.app.music.ReelTrendingAudioActivity");
-            if (intent.resolveActivity(getPackageManager()) == null) {
-                toast("Music library is not available on this build");
-                return;
-            }
-            trendingAudioLauncher.launch(intent);
-        } catch (Exception e) {
-            toast("Could not open music library");
-        }
-    }
-
-    /**
-     * Handles the result from ReelTrendingAudioActivity.
-     * Reads the standard RESULT_AUDIO_* keys, builds a music-sticker JSON,
-     * and attaches it to the status preview exactly as a manually added
-     * 🎵 Music sticker would be — replacing any previously attached song.
-     */
-    private void handleTrendingAudioResult(androidx.activity.result.ActivityResult result) {
-        if (result.getResultCode() != RESULT_OK || result.getData() == null) return;
-        Intent data = result.getData();
-        String title      = data.getStringExtra("audio_title");
-        String artist     = data.getStringExtra("audio_artist");
-        String url        = data.getStringExtra("audio_url");
-        String id         = data.getStringExtra("audio_id");
-        String coverUrl   = data.getStringExtra("audio_cover_url");
-        String previewUrl = data.getStringExtra("audio_preview_url");
-        if (title == null || title.isEmpty()) return;
-        try {
-            org.json.JSONObject musicJson = new org.json.JSONObject();
-            musicJson.put("type",            "music");
-            musicJson.put("song",            title);
-            musicJson.put("artist",          artist     != null ? artist     : "");
-            musicJson.put("soundId",         id         != null ? id         : "");
-            musicJson.put("soundUrl",        url        != null ? url        : "");
-            musicJson.put("coverUrl",        coverUrl   != null ? coverUrl   : "");
-            musicJson.put("previewAudioUrl", previewUrl != null ? previewUrl : "");
-            String json = musicJson.toString();
-            // Replace any previously selected song
-            if (pendingMusicStickerJson != null) {
-                addedStickerJsons.remove(pendingMusicStickerJson);
-                if (musicStickerView != null && stickerOverlayFrame != null) {
-                    stickerOverlayFrame.removeView(musicStickerView);
-                    musicStickerView = null;
-                }
-            }
-            pendingMusicStickerJson = json;
-            addedStickerJsons.add(json);
-            addStickerOverlay(json);
-            // Keep reference to the sticker view we just added
-            if (stickerOverlayFrame != null && stickerOverlayFrame.getChildCount() > 0) {
-                View lastChild = stickerOverlayFrame.getChildAt(stickerOverlayFrame.getChildCount() - 1);
-                if (lastChild instanceof com.callx.app.stickers.StatusStickerOverlayView) {
-                    musicStickerView = (com.callx.app.stickers.StatusStickerOverlayView) lastChild;
-                }
-            }
-            // Show the badge bar so the user can see / remove the selected song
-            showMusicBadge(title, artist);
-        } catch (Exception e) {
-            toast("Could not attach music");
-        }
-    }
-
-    /** Shows the bottom music badge with the song name + artist. */
-    private void showMusicBadge(String title, String artist) {
-        if (binding.musicBadgeBar == null) return;
-        String label = (artist != null && !artist.isEmpty())
-            ? title + "  ·  " + artist
-            : title;
-        binding.tvMusicBadgeTitle.setText(label);
-        binding.musicBadgeBar.setVisibility(View.VISIBLE);
-    }
-
-    /** Removes the currently attached music sticker and hides the badge bar. */
-    private void removeMusicSticker() {
-        if (pendingMusicStickerJson != null) {
-            addedStickerJsons.remove(pendingMusicStickerJson);
-            pendingMusicStickerJson = null;
-        }
-        if (musicStickerView != null && stickerOverlayFrame != null) {
-            stickerOverlayFrame.removeView(musicStickerView);
-            musicStickerView = null;
-        }
-        if (binding.musicBadgeBar != null) binding.musicBadgeBar.setVisibility(View.GONE);
     }
 
     /** Open the sticker type picker sheet. */
@@ -969,25 +847,8 @@ public class NewStatusActivity extends AppCompatActivity {
             musicJson.put("soundId",  soundId  != null ? soundId  : "");
             musicJson.put("soundUrl", soundUrl != null ? soundUrl : "");
             String json = musicJson.toString();
-            // Replace any existing music sticker (e.g. user already picked one from the icon)
-            if (pendingMusicStickerJson != null) {
-                addedStickerJsons.remove(pendingMusicStickerJson);
-                if (musicStickerView != null && stickerOverlayFrame != null) {
-                    stickerOverlayFrame.removeView(musicStickerView);
-                    musicStickerView = null;
-                }
-            }
-            pendingMusicStickerJson = json;
             addedStickerJsons.add(json);
             addStickerOverlay(json);
-            // Track the new sticker view so it can be replaced or removed later
-            if (stickerOverlayFrame != null && stickerOverlayFrame.getChildCount() > 0) {
-                View lastChild = stickerOverlayFrame.getChildAt(stickerOverlayFrame.getChildCount() - 1);
-                if (lastChild instanceof com.callx.app.stickers.StatusStickerOverlayView) {
-                    musicStickerView = (com.callx.app.stickers.StatusStickerOverlayView) lastChild;
-                }
-            }
-            showMusicBadge(soundTitle, null);
         } catch (Exception ignored) {}
     }
 
@@ -1295,8 +1156,6 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.btnDiscardMedia.setVisibility(View.VISIBLE);
         // Also show the overlay frame (so stickers are visible over the image)
         if (stickerOverlayFrame != null) stickerOverlayFrame.setVisibility(View.VISIBLE);
-        // v239: show editing top toolbar (music icon etc.)
-        if (binding.mediaEditToolbar != null) binding.mediaEditToolbar.setVisibility(View.VISIBLE);
         // v238 BUG FIX: .centerCrop() here forcibly cropped the bitmap itself
         // regardless of the ImageView's own scaleType — switched to
         // .fitCenter() so the full photo/layout collage is always visible,
@@ -1310,8 +1169,6 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.ivVideoHint.setVisibility(View.VISIBLE);
         binding.btnDiscardMedia.setVisibility(View.VISIBLE);
         if (stickerOverlayFrame != null) stickerOverlayFrame.setVisibility(View.VISIBLE);
-        // v239: show editing top toolbar (music icon etc.)
-        if (binding.mediaEditToolbar != null) binding.mediaEditToolbar.setVisibility(View.VISIBLE);
         Glide.with(this).load(uri).fitCenter().into(binding.ivPreview);
         binding.captionGroup.setVisibility(View.VISIBLE);
         hideBgColorPicker();
@@ -1322,14 +1179,6 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.ivVideoHint.setVisibility(View.GONE);
         binding.btnDiscardMedia.setVisibility(View.GONE);
         binding.captionGroup.setVisibility(View.GONE);
-        // v239: hide editing toolbar and music badge; also clear any attached music sticker
-        if (binding.mediaEditToolbar != null) binding.mediaEditToolbar.setVisibility(View.GONE);
-        if (binding.musicBadgeBar != null)    binding.musicBadgeBar.setVisibility(View.GONE);
-        if (pendingMusicStickerJson != null) {
-            addedStickerJsons.remove(pendingMusicStickerJson);
-            pendingMusicStickerJson = null;
-        }
-        musicStickerView = null;
         showBgColorPicker();
     }
 

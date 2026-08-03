@@ -5437,7 +5437,7 @@ public class MessageBubbleCanvasView extends View {
         float badgeR = replyThumbDstRect.width() * 0.68f; // doubled per user request (was 0.34f)
         float cx = replyThumbDstRect.left;
         float cy = replyThumbDstRect.bottom;
-        canvas.drawCircle(cx, cy, badgeR, bigReactionBadgeBgPaint);
+        // Circle background removed per user request — only the emoji itself is drawn now.
         bigReactionEmojiPaint.setTextSize(badgeR * 1.15f);
         Paint.FontMetrics fm = bigReactionEmojiPaint.getFontMetrics();
         float baselineY = cy - (fm.ascent + fm.descent) / 2f;
