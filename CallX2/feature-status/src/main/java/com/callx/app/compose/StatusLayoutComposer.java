@@ -36,7 +36,13 @@ public class StatusLayoutComposer {
 
     private static final int CANVAS_W = 1080;
     private static final int CANVAS_H = 1920;
-    private static final int GAP_PX   = 6;
+    // FIX (black patti / black line across status thumbnail): GAP_PX used to be 6,
+    // leaving a raw, undrawn strip between cells. Since the canvas background was
+    // opaque black and the final file is compressed as JPEG (no alpha channel),
+    // that gap — and any unfilled cell — always rendered as a solid black bar,
+    // most visible as a horizontal line right through the middle of 2-row/2-column
+    // layouts. Cells are now drawn edge-to-edge with no gap.
+    private static final int GAP_PX   = 0;
 
     /** Renders uris (in slot order) into a single JPEG per the given layout style; returns the temp file.
      *  Overload kept for callers with no per-photo adjustment (plain auto-crop per cell). */
@@ -62,12 +68,21 @@ public class StatusLayoutComposer {
         List<RectF> rects = slotRects(style, CANVAS_W, CANVAS_H, GAP_PX);
         Bitmap out = Bitmap.createBitmap(CANVAS_W, CANVAS_H, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(out);
-        canvas.drawColor(Color.BLACK);
+        // FIX (black patti): white backdrop instead of black. With GAP_PX now 0 this
+        // backdrop should never actually show, but it's a safe fallback for any
+        // sub-pixel rounding — a hairline white seam is invisible, a black one isn't.
+        canvas.drawColor(Color.WHITE);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
 
-        int count = Math.min(uris.size(), rects.size());
-        for (int i = 0; i < count; i++) {
-            Bitmap cell = decodeSampled(context, uris.get(i), 720, 1280);
+        // FIX (black patti when fewer photos than cells): previously any cell beyond
+        // uris.size() was left completely undrawn, i.e. a solid black rectangle in
+        // the final JPEG. Now we cycle back through the supplied photos so every
+        // cell always has an image — no cell is ever left blank/black.
+        int cellCount = rects.size();
+        for (int i = 0; i < cellCount; i++) {
+            if (uris.isEmpty()) break;
+            Uri uri = uris.get(i % uris.size());
+            Bitmap cell = decodeSampled(context, uri, 720, 1280);
             if (cell == null) continue;
             float scale = (scales != null && i < scales.length) ? scales[i] : 1f;
             float panX  = (panXs  != null && i < panXs.length)  ? panXs[i]  : 0f;

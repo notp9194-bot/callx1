@@ -96,10 +96,18 @@ public class CrashReportActivity extends AppCompatActivity {
         subtitle.setPadding(0, 0, 0, dp(12));
         root.addView(subtitle);
 
+        // FIX: long traces (deep cause chains ending in "... N more") were
+        // getting visually cut off — the ScrollView existed but wasn't
+        // guaranteed to size/scroll correctly for very long content on every
+        // device. fillViewport + an explicit match-parent-width child forces
+        // it to always be fully scrollable to the last line of the trace.
         ScrollView scrollView = new ScrollView(this);
         scrollView.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         scrollView.setBackgroundColor(Color.parseColor("#F5F5F5"));
+        scrollView.setFillViewport(true);
+        scrollView.setScrollbarFadingEnabled(false);
+        scrollView.setVerticalScrollBarEnabled(true);
 
         TextView tvTrace = new TextView(this);
         tvTrace.setText(finalTrace);
@@ -107,6 +115,8 @@ public class CrashReportActivity extends AppCompatActivity {
         tvTrace.setTextSize(12);
         tvTrace.setTypeface(android.graphics.Typeface.MONOSPACE);
         tvTrace.setPadding(dp(12), dp(12), dp(12), dp(12));
+        tvTrace.setLayoutParams(new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         scrollView.addView(tvTrace);
         root.addView(scrollView);
 

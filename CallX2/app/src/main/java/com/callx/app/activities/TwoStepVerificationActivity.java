@@ -79,7 +79,6 @@ public class TwoStepVerificationActivity extends AppCompatActivity {
             buildSetupFlow(root, full);
         }
 
-        setContentView(tb);
         LinearLayout outer = new LinearLayout(this);
         outer.setOrientation(LinearLayout.VERTICAL);
         outer.addView(tb);
