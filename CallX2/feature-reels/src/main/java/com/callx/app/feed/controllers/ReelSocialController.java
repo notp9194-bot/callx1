@@ -28,6 +28,7 @@ import com.google.firebase.database.Transaction;
 import com.google.firebase.database.ValueEventListener;
 import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -421,6 +422,41 @@ public class ReelSocialController {
         FirebaseUtils.getReelReactionsRef(reel.reelId).child(myUid).setValue(emoji);
         if (delegate.isAdded() && delegate.getContext() != null)
             Toast.makeText(delegate.requireContext(), emoji, Toast.LENGTH_SHORT).show();
+
+        // BUG FIX: this used to only write the reelReactions/{reelId}/{uid}
+        // node (for the live counts strip + burst replay) and never sent
+        // anything to chat at all — so the reel owner never saw "you
+        // reacted 😍 to their reel" show up as a message, unlike status
+        // reactions (see StatusViewerActivity#sendReactionToChat). Mirrors
+        // that same shape, using the "reel_"+reelId replyToId convention
+        // ReelStickerReplyHelper#sendDm already uses for other reel DMs —
+        // MessagePagingAdapter#isStoryReactionEmojiMessage recognizes both
+        // prefixes, so this renders through the same big-badge bubble UI.
+        if (!myUid.equals(reel.uid)) sendReactionToChat(myUid, reel, emoji);
+    }
+
+    private void sendReactionToChat(String myUid, ReelModel reel, String emoji) {
+        String ownerUid = reel.uid;
+        if (ownerUid == null || ownerUid.isEmpty()) return;
+        String chatId = FirebaseUtils.getChatId(myUid, ownerUid);
+        DatabaseReference msgRef = FirebaseUtils.getMessagesRef(chatId).push();
+        String msgId = msgRef.getKey();
+        if (msgId == null) return;
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("id",                msgId);
+        data.put("senderId",          myUid);
+        data.put("text",              emoji);
+        data.put("type",              "text");
+        data.put("timestamp",         com.google.firebase.database.ServerValue.TIMESTAMP);
+        data.put("seen",              false);
+        data.put("replyToType",       "reel");
+        data.put("replyToText",       "\uD83C\uDFA5 Reel"); // 🎥
+        data.put("replyToSenderName", reel.ownerName != null ? reel.ownerName : "");
+        data.put("replyToId",         "reel_" + reel.reelId);
+        String thumb = reel.effectiveThumbUrl();
+        if (thumb != null && !thumb.isEmpty()) data.put("replyToMediaUrl", thumb);
+        msgRef.setValue(data);
     }
 
     // ── View count ────────────────────────────────────────────────────────
@@ -738,9 +774,13 @@ public class ReelSocialController {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (!delegate.isAdded() || delegate.getContext() == null) return;
                 Map<String, Integer> counts = new LinkedHashMap<>();
+                List<String> allReactionEmojis = new ArrayList<>();
                 for (DataSnapshot s : snap.getChildren()) {
                     String emoji = s.getValue(String.class);
-                    if (emoji != null) counts.merge(emoji, 1, Integer::sum);
+                    if (emoji != null) {
+                        counts.merge(emoji, 1, Integer::sum);
+                        allReactionEmojis.add(emoji); // one entry per reactor, not just per distinct emoji
+                    }
                 }
                 List<Map.Entry<String, Integer>> list = new ArrayList<>(counts.entrySet());
                 list.sort((a, b) -> b.getValue().compareTo(a.getValue()));
@@ -749,9 +789,13 @@ public class ReelSocialController {
                 // Instagram-style one-shot floating replay: fires the first
                 // time this reel's reactions load with at least one emoji
                 // on it, per bind — not on every subsequent live update.
-                if (!reactionBurstPlayed && !counts.isEmpty() && reactionBurstOverlay != null) {
+                // Pass one entry per reactor (allReactionEmojis) rather than
+                // counts.keySet() (distinct emoji only) — the burst used to
+                // look just as sparse for 1 reaction as for 30 of the same
+                // emoji since only the distinct type was ever spawned.
+                if (!reactionBurstPlayed && !allReactionEmojis.isEmpty() && reactionBurstOverlay != null) {
                     reactionBurstPlayed = true;
-                    reactionBurstOverlay.playBurst(new ArrayList<>(counts.keySet()));
+                    reactionBurstOverlay.playBurst(allReactionEmojis);
                 }
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}

@@ -39,10 +39,17 @@ public class FloatingReactionOverlayView extends FrameLayout {
 
     /** Total wall-clock time the burst spawns new particles for. */
     private static final long SPAWN_WINDOW_MS = 3200L;
-    /** Gap between two consecutive particle spawns. */
-    private static final long SPAWN_INTERVAL_MS = 260L;
+    /** Gap between two consecutive particle spawns — cut to a third (was
+     *  260L) to roughly triple how many emoji appear per burst. */
+    private static final long SPAWN_INTERVAL_MS = 87L;
     /** How long one particle takes to rise + fade from bottom to top. */
     private static final long PARTICLE_RISE_MS = 2600L;
+    /** Fraction of PARTICLE_RISE_MS spent ramping alpha 0→1 at the start —
+     *  kept short so particles reach full opacity almost immediately
+     *  instead of looking dim while they rise (see spawnParticle()). */
+    private static final float FADE_IN_FRACTION = 0.12f;
+    /** Fraction of PARTICLE_RISE_MS spent ramping alpha 1→0 at the end. */
+    private static final float FADE_OUT_FRACTION = 0.30f;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Random random = new Random();
@@ -106,7 +113,10 @@ public class FloatingReactionOverlayView extends FrameLayout {
         handler.removeCallbacks(spawnTick);
         for (int i = getChildCount() - 1; i >= 0; i--) {
             View child = getChildAt(i);
-            child.animate().cancel();
+            Object tag = child.getTag();
+            if (tag instanceof android.animation.ValueAnimator) {
+                ((android.animation.ValueAnimator) tag).cancel();
+            }
         }
         removeAllViews();
         setVisibility(View.GONE);
@@ -142,37 +152,51 @@ public class FloatingReactionOverlayView extends FrameLayout {
         lp.bottomMargin = -size; // start just below the visible bottom edge
         particle.setLayoutParams(lp);
         particle.setAlpha(0f);
-        particle.setRotation(random.nextInt(21) - 10); // -10°..+10°
+        float startRotation = random.nextInt(21) - 10; // -10°..+10°
+        particle.setRotation(startRotation);
         addView(particle);
 
         // Horizontal drift: a gentle sideways sway, randomized left or right.
         float driftX = (random.nextBoolean() ? 1f : -1f) * (dp(18) + random.nextInt(dp(28)));
         float riseDistance = getHeight() > 0 ? getHeight() + size : dp(600);
+        float endRotation = startRotation + (random.nextBoolean() ? 18f : -18f);
 
-        particle.animate()
-                .translationYBy(-riseDistance)
-                .translationXBy(driftX)
-                .rotationBy(random.nextBoolean() ? 18f : -18f)
-                .alpha(1f)
-                .setDuration(PARTICLE_RISE_MS)
-                .setInterpolator(new android.view.animation.LinearInterpolator())
-                .setListener(new AnimatorListenerAdapter() {
-                    @Override public void onAnimationEnd(Animator animation) {
-                        // Fade the last stretch out — done via a second short
-                        // animator chained on alpha only, kept simple by
-                        // just removing the view once risen fully (already
-                        // mostly transparent-looking against busy content;
-                        // explicit fade-out below for a clean finish).
-                        removeViewSafely(particle);
-                    }
-                })
-                .start();
+        // A single ValueAnimator drives translation/rotation/alpha together
+        // for the particle's whole lifetime. Previously this was two
+        // separate ViewPropertyAnimator calls (one for rise+fade-in, a
+        // second queued via postDelayed for fade-out) — starting the
+        // second animate() call mid-flight silently cancelled/froze the
+        // first one's translationY/rotation, so particles would stop
+        // rising partway up the screen (looked like they vanished around
+        // the middle of the screen) while also spending most of their
+        // visible life at a low, linearly-ramping alpha (looked dim).
+        // Driving everything from one animator's onUpdate fixes both.
+        android.animation.ValueAnimator anim = android.animation.ValueAnimator.ofFloat(0f, 1f);
+        anim.setDuration(PARTICLE_RISE_MS);
+        anim.setInterpolator(new android.view.animation.LinearInterpolator());
+        anim.addUpdateListener(a -> {
+            float t = (float) a.getAnimatedValue();
+            particle.setTranslationY(-riseDistance * t);
+            particle.setTranslationX(driftX * t);
+            particle.setRotation(startRotation + (endRotation - startRotation) * t);
 
-        // Fade out over the final 35% of the rise so it doesn't pop off abruptly.
-        handler.postDelayed(() -> {
-            if (particle.getParent() == null) return;
-            particle.animate().alpha(0f).setDuration((long) (PARTICLE_RISE_MS * 0.35f)).start();
-        }, (long) (PARTICLE_RISE_MS * 0.65f));
+            float alpha;
+            if (t < FADE_IN_FRACTION) {
+                alpha = t / FADE_IN_FRACTION; // quick ramp to full opacity
+            } else if (t > 1f - FADE_OUT_FRACTION) {
+                alpha = (1f - t) / FADE_OUT_FRACTION; // ease out near the top
+            } else {
+                alpha = 1f; // fully opaque for the bulk of the rise
+            }
+            particle.setAlpha(Math.max(0f, Math.min(1f, alpha)));
+        });
+        anim.addListener(new AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(Animator animation) {
+                removeViewSafely(particle);
+            }
+        });
+        particle.setTag(anim);
+        anim.start();
     }
 
     private void removeViewSafely(View v) {

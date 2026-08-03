@@ -6581,13 +6581,16 @@ public class MessagePagingAdapter
     /**
      * True for a "You reacted 😍 to their story/reel" message: a plain text
      * message whose replyToId points at a status/reel-as-status
-     * (StatusReplyBottomSheet/StatusViewerActivity#sendReactionToChat both
-     * stamp replyToId = "status_"+id) and whose text is exactly one emoji
-     * (no caption typed alongside it). Used to trigger the big Instagram-
-     * style reaction badge instead of the plain small quote-box text.
+     * (StatusReplyBottomSheet/StatusViewerActivity#sendReactionToChat stamp
+     * replyToId = "status_"+id; ReelSocialController#sendReaction stamps
+     * replyToId = "reel_"+id, same convention ReelStickerReplyHelper
+     * already uses for reel DMs) and whose text is exactly one emoji (no
+     * caption typed alongside it). Used to trigger the big Instagram-style
+     * reaction badge instead of the plain small quote-box text.
      */
     private static boolean isStoryReactionEmojiMessage(Message m) {
-        if (m.replyToId == null || !m.replyToId.startsWith("status_")) return false;
+        if (m.replyToId == null) return false;
+        if (!m.replyToId.startsWith("status_") && !m.replyToId.startsWith("reel_")) return false;
         if (m.type != null && !"text".equals(m.type)) return false;
         return isSingleEmojiText(m.text);
     }

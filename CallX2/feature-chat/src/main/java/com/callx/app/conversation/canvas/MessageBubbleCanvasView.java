@@ -5429,12 +5429,12 @@ public class MessageBubbleCanvasView extends View {
 
     /**
      * Instagram DM "reacted to their story" badge: a dark circular chip,
-     * ~58% of the thumbnail's size, centered on the thumbnail's bottom-left
-     * corner with the reaction emoji painted large inside it. See
-     * setBigReactionEmoji().
+     * ~136% of the thumbnail's size (doubled per user request), centered on
+     * the thumbnail's bottom-left corner with the reaction emoji painted
+     * large inside it. See setBigReactionEmoji().
      */
     private void drawBigReactionBadge(Canvas canvas) {
-        float badgeR = replyThumbDstRect.width() * 0.34f;
+        float badgeR = replyThumbDstRect.width() * 0.68f; // doubled per user request (was 0.34f)
         float cx = replyThumbDstRect.left;
         float cy = replyThumbDstRect.bottom;
         canvas.drawCircle(cx, cy, badgeR, bigReactionBadgeBgPaint);
