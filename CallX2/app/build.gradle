@@ -201,8 +201,12 @@ dependencies {
     implementation 'androidx.documentfile:documentfile:1.0.1'
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
 
-    // Linked Devices: QR generation + QR scanning (zxing-android-embedded already
-    // pulls in zxing:core via feature-chat; CameraX is already provided by feature-reels).
+    // Linked Devices: LinkDeviceQrActivity generates QR directly with zxing core;
+    // activity_scan_qr_to_link.xml's databinding needs PreviewView → camera-core+camera-view.
+    // camera-camera2/camera-lifecycle/camera-video NOT needed here (already in feature-reels).
+    implementation 'com.google.zxing:core:3.5.3'
+    implementation 'androidx.camera:camera-core:1.3.1'
+    implementation 'androidx.camera:camera-view:1.3.1'
     implementation 'androidx.biometric:biometric:1.1.0'
     implementation 'androidx.security:security-crypto:1.1.0-alpha06'
 
