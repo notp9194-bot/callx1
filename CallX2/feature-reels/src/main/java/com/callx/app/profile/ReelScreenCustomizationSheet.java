@@ -70,7 +70,7 @@ public class ReelScreenCustomizationSheet extends BottomSheetDialogFragment {
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setStyle(STYLE_NORMAL, com.google.android.material.R.style.Theme_Material3_BottomSheetDialog);
+        setStyle(STYLE_NORMAL, com.google.android.material.R.style.Theme_MaterialComponents_BottomSheetDialog);
     }
 
     @Nullable
@@ -134,7 +134,7 @@ public class ReelScreenCustomizationSheet extends BottomSheetDialogFragment {
             btn.setMinWidth(dp(54));
             btn.setMinHeight(dp(44));
             btn.setGravity(Gravity.CENTER);
-            btn.setLineSpacingMultiplier(1.1f);
+            ((android.widget.TextView) btn).setLineSpacingMultiplier(1.1f);
             GradientDrawable btnBg = new GradientDrawable();
             btnBg.setCornerRadius(dp(10));
             if (i == 0) {
