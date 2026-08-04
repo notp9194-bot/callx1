@@ -447,7 +447,13 @@ package com.callx.app.feed;
           try {
               int parsedColor = android.graphics.Color.parseColor(color);
               float density = ctx.getResources().getDisplayMetrics().density;
-              ring.setBackground(HighlightRingDrawable.withStrokeDp(parsedColor, item.ringMode, 2.5f, density));
+              // BUG FIX: this ImageView's default ring (circle_status_unseen) is set via
+              // android:src in the layout, not android:background — src always draws ON
+              // TOP of background, so setBackground() here was invisible, silently hidden
+              // behind the static default ring image. That's why a custom color never
+              // showed up for anyone viewing the status: setImageDrawable() is what
+              // actually replaces the visible ring.
+              ring.setImageDrawable(HighlightRingDrawable.withStrokeDp(parsedColor, item.ringMode, 2.5f, density));
               ring.setAlpha(isMuted ? 0.4f : 1f);
           } catch (IllegalArgumentException ignored) {
               // Invalid/unparseable hex — silently keep the default ring.
@@ -465,7 +471,14 @@ package com.callx.app.feed;
           else
               h.ivAvatar.setImageResource(R.drawable.ic_person);
 
-          h.ring.setBackgroundResource(isMuted ? R.drawable.circle_status_seen
+          // BUG FIX: same src-vs-background layering issue as applyRingStyle() —
+          // the ring ImageView's default state is an android:src drawable, which
+          // always paints over a background, so this seen/unseen swap was
+          // silently invisible too. setImageResource() is the one that's
+          // actually visible; also clear any leftover custom-color background
+          // from a previous bind so it doesn't peek out from behind.
+          h.ring.setBackground(null);
+          h.ring.setImageResource(isMuted ? R.drawable.circle_status_seen
                   : e.unseenCount > 0 ? R.drawable.circle_status_unseen : R.drawable.circle_status_seen);
           h.ring.setAlpha(isMuted ? 0.4f : 1f);
           applyRingStyle(h.ring, e.latestItem, ctx, isMuted);
@@ -684,7 +697,13 @@ package com.callx.app.feed;
                   h.ivAddBadge.setVisibility(View.VISIBLE);
               } else {
                   h.ring.setVisibility(View.VISIBLE);
-                  h.ring.setBackgroundResource(c.isMuted ? R.drawable.circle_status_seen
+                  // BUG FIX: ring ImageView's default drawable is set via android:src
+                  // in item_status_card.xml, which always paints over a background —
+                  // setBackgroundResource()/setBackground() here were both invisible,
+                  // hidden behind that static src image. setImageResource()/
+                  // setImageDrawable() are what actually change what's on screen.
+                  h.ring.setBackground(null);
+                  h.ring.setImageResource(c.isMuted ? R.drawable.circle_status_seen
                           : c.unseen || c.isMine ? R.drawable.circle_status_unseen : R.drawable.circle_status_seen);
                   h.ring.setAlpha(c.isMuted ? 0.4f : 1f);
                   // Custom ring color/gradient (picked via HighlightRingColorPickerBottomSheet
@@ -694,7 +713,7 @@ package com.callx.app.feed;
                       try {
                           int customColor = android.graphics.Color.parseColor(c.ringColor);
                           float density = ctx.getResources().getDisplayMetrics().density;
-                          h.ring.setBackground(HighlightRingDrawable.withStrokeDp(customColor, c.ringMode, 2.5f, density));
+                          h.ring.setImageDrawable(HighlightRingDrawable.withStrokeDp(customColor, c.ringMode, 2.5f, density));
                           h.ring.setAlpha(c.isMuted ? 0.4f : 1f);
                       } catch (IllegalArgumentException ignored) {
                           // Invalid/unparseable hex — keep the default ring resource set above.
