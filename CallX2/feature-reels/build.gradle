@@ -88,5 +88,9 @@ dependencies {
     // falls back to a plain translucent background (see
     // applyStatsBoxGlassStyle() in UserReelsActivity.java) since RenderScript
     // is deprecated and this app's minSdk is 23.
-    implementation 'com.github.Dimezis:BlurView:version-3.0.0'
+    // NOTE: pinned to version-3.2.0, not 3.0.0 — RenderEffectBlur was
+    // temporarily unavailable/deprecated around the 3.0.0 tag and was only
+    // un-deprecated + reimplemented as the recommended API in later tags
+    // (build failed with "cannot find symbol: class RenderEffectBlur" on 3.0.0).
+    implementation 'com.github.Dimezis:BlurView:version-3.2.0'
 }
