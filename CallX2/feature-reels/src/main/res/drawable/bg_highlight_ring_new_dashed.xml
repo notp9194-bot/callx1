@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dashed ring for the "New" (add highlight) button — matches the
+     dotted-circle "+" bubble shown in the target design. A plain
+     <shape><stroke dashWidth/dashGap> only renders as dashed when the
+     View has a software layer (it's ignored by hardware-accelerated
+     drawing), so HighlightsRowAdapter sets ringBg's layer type to
+     LAYER_TYPE_SOFTWARE when applying this drawable. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <stroke
+        android:width="1.5dp"
+        android:color="#9E9E9E"
+        android:dashWidth="4dp"
+        android:dashGap="3dp"/>
+    <solid android:color="@android:color/transparent"/>
+</shape>

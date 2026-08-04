@@ -37,4 +37,10 @@
          (values-night/colors.xml), Instagram-style. Was hardcoded #FFFFFF
          before, which stayed white even in dark mode. -->
     <color name="reel_grid_gutter">#FFFFFF</color>
+
+    <!-- "View All Reels" pill button (UserReelsActivity) — solid black
+         pill with bright green text/icon, same in light & dark mode by
+         design (it floats over the reel thumbnails, not app chrome). -->
+    <color name="view_all_reels_bg">#000000</color>
+    <color name="view_all_reels_ripple">#3300F260</color>
 </resources>

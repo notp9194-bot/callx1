@@ -261,7 +261,11 @@ public class HighlightsRowAdapter
         tvName.setLayoutParams(tnLp);
         tvName.setGravity(Gravity.CENTER);
         tvName.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11f);
-        tvName.setTextColor(Color.parseColor("#111111"));
+        // Was hardcoded #111111 (near-black) — invisible against a dark-mode
+        // background since it never adapted with the theme. Resolve
+        // ?attr/colorOnSurface instead, same pattern as resolveSurfaceColor()
+        // below (white text in dark mode, dark text in light mode).
+        tvName.setTextColor(resolveOnSurfaceColor(ctx));
         tvName.setSingleLine(true);
         tvName.setMaxWidth(dp(ctx, 76));
         tvName.setEllipsize(TextUtils.TruncateAt.END);
@@ -274,8 +278,16 @@ public class HighlightsRowAdapter
     // ── Bind helpers ──────────────────────────────────────────────────
 
     private void bindNewButton(HVH h) {
-        // Ring → dashed gray
-        h.ringBg.setBackground(ctx(h).getDrawable(R.drawable.bg_highlight_ring_seen));
+        // Ring → dashed gray (matches the dotted "+" circle in the target
+        // design). Was bg_highlight_ring_seen — a *solid* gray stroke, not
+        // dashed, so it never matched. Dashed <stroke> only renders on a
+        // software layer (hardware layers ignore dashWidth/dashGap), so
+        // force LAYER_TYPE_SOFTWARE on this view; bindAlbum() below runs
+        // for every non-"New" item and doesn't touch layerType, so it's
+        // reset back to the default (HARDWARE) whenever the view is
+        // recycled into a real album.
+        h.ringBg.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        h.ringBg.setBackground(ctx(h).getDrawable(R.drawable.bg_highlight_ring_new_dashed));
 
         // Cover → circle with "+". In dark mode the old #F0F0F0 circle stayed
         // a near-white blob (wrong — the request is for it to read as a dark
@@ -303,6 +315,12 @@ public class HighlightsRowAdapter
 
     private void bindAlbum(HVH h, HighlightAlbum album, int position) {
         Context ctx = ctx(h);
+        // Undo the software layer bindNewButton() forces for the dashed
+        // ring — a recycled ViewHolder that was previously the "New"
+        // button would otherwise keep rendering this view (and its Glide
+        // cover image) on a software layer, which is slower and can look
+        // slightly different than hardware-accelerated drawing.
+        h.ringBg.setLayerType(View.LAYER_TYPE_NONE, null);
 
         // Ring color — user's custom color (solid or dominant-gradient) if the
         // album has one set (statusHighlightMeta/{uid}/{albumId}/ringColor+ringMode),
@@ -448,6 +466,20 @@ public class HighlightsRowAdapter
             return tv.data;
         } catch (Exception e) {
             return Color.WHITE;
+        }
+    }
+
+    /** Resolves ?attr/colorOnSurface — the theme's default text color
+     *  (dark in light mode, light in dark mode). See resolveSurfaceColor's
+     *  javadoc above for why hardcoded literals break dark mode here. */
+    private static int resolveOnSurfaceColor(Context ctx) {
+        try {
+            android.util.TypedValue tv = new android.util.TypedValue();
+            ctx.getTheme().resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true);
+            if (tv.resourceId != 0) return ctx.getResources().getColor(tv.resourceId, ctx.getTheme());
+            return tv.data;
+        } catch (Exception e) {
+            return Color.parseColor("#111111");
         }
     }
 

@@ -1075,23 +1075,36 @@
 
 
       <!-- ── View All Reels Button ────────────────────────────────────── -->
+      <!-- Solid black pill, bright-green bold text + trailing chevron —
+           intentionally identical in light & dark mode (floats over reel
+           thumbnails, not app chrome). See view_all_reels_bg/_ripple and
+           green_accent in colors.xml. -->
       <com.google.android.material.button.MaterialButton
           android:id="@+id/btn_view_all_reels"
-          style="@style/Widget.Material3.Button.OutlinedButton"
-          android:layout_width="match_parent"
-          android:layout_height="48dp"
-          android:layout_gravity="bottom"
+          style="@style/Widget.Material3.Button"
+          android:layout_width="wrap_content"
+          android:layout_height="52dp"
+          android:layout_gravity="bottom|center_horizontal"
           android:layout_margin="16dp"
-          android:layout_marginBottom="16dp"
+          android:minWidth="200dp"
+          android:paddingStart="24dp"
+          android:paddingEnd="24dp"
           android:text="View All Reels"
-          android:textSize="14sp"
-          android:fontFamily="sans-serif-medium"
+          android:textSize="15sp"
+          android:textAllCaps="false"
+          android:fontFamily="sans-serif-bold"
           android:visibility="gone"
           app:layout_anchor="@id/content_container"
           app:layout_anchorGravity="bottom"
-          app:strokeColor="@color/brand_primary"
-          app:rippleColor="@color/brand_primary"
-          android:textColor="@color/brand_primary"
-          android:elevation="4dp"/>
+          app:cornerRadius="26dp"
+          app:backgroundTint="@color/view_all_reels_bg"
+          app:rippleColor="@color/view_all_reels_ripple"
+          android:textColor="@color/green_accent"
+          app:icon="@drawable/ic_chevron_right"
+          app:iconTint="@color/green_accent"
+          app:iconGravity="textEnd"
+          app:iconPadding="4dp"
+          app:iconSize="20dp"
+          android:elevation="6dp"/>
 
   </androidx.coordinatorlayout.widget.CoordinatorLayout>

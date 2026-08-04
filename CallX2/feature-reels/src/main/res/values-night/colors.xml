@@ -34,4 +34,9 @@
 
     <!-- Reel grid gutter — black in dark mode, Instagram-style. -->
     <color name="reel_grid_gutter">#000000</color>
+
+    <!-- "View All Reels" pill button (UserReelsActivity) — same solid
+         black + green look as light mode, intentional (see values/colors.xml). -->
+    <color name="view_all_reels_bg">#000000</color>
+    <color name="view_all_reels_ripple">#3300F260</color>
 </resources>
