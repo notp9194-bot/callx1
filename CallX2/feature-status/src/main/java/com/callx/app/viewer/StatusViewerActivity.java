@@ -126,6 +126,8 @@ import com.callx.app.utils.AlertDialogStyler;
           setupTouchZones();
           setupCloseButton();
           setupReactionButton();
+          setupLikeHeartButton();
+          setupQuickReactionOverlay();
           setupReplyButton();
           setupMoreButton();
           setupMuteButton();
@@ -1284,13 +1286,18 @@ import com.callx.app.utils.AlertDialogStyler;
       // ── Navigation ────────────────────────────────────────────────────────
       private void next()     { releasePlayer(); stopProgress(); idx++; showCurrent(); }
       private void previous() { releasePlayer(); stopProgress(); idx = Math.max(0, idx - 1); showCurrent(); }
-      // ── Swipe down ────────────────────────────────────────────────────────
+      // ── Swipe down / swipe up ────────────────────────────────────────────
       private void setupSwipeDownGesture() {
           swipeDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
               @Override public boolean onFling(MotionEvent e1, @NonNull MotionEvent e2, float vx, float vy) {
                   if (e1 == null) return false;
                   float dy = e2.getRawY() - e1.getRawY();
                   if (dy > 120 && Math.abs(vy) > 100) { finishWithAnimation(); return true; }
+                  // Swipe UP — WhatsApp/Instagram-style quick reaction picker
+                  // (see screenshot ref): a large emoji grid appears above the
+                  // reply bar and the reply box gets keyboard focus, exactly
+                  // like swiping up on a status there does.
+                  if (dy < -120 && vy < -100) { openQuickReactionOverlay(); return true; }
                   return false;
               }
           });
@@ -1348,6 +1355,121 @@ import com.callx.app.utils.AlertDialogStyler;
                   updateSeenByInfo(current);
                   resumeProgress();
               });
+          });
+      }
+      /**
+       * WhatsApp-style quick-like: a single tap on the heart icon sends a ❤️
+       * reaction immediately — no bottom sheet, no picker — with a small
+       * bounce + a one-shot floating-heart burst for feedback. Tapping again
+       * removes the like (toggle), same as tapping the same emoji twice in
+       * the full picker already does via StatusReactionBottomSheet.
+       */
+      /**
+       * Swipe-up quick reaction overlay — WhatsApp/Instagram-style: a dark
+       * scrim with a big 3x2 emoji grid appears above the reply bar, and the
+       * reply box gets keyboard focus at the same time. Tapping an emoji
+       * reacts immediately using the same Firebase write + chat-message path
+       * as the quick-like heart; tapping the scrim outside the card dismisses
+       * without reacting.
+       */
+      private void setupQuickReactionOverlay() {
+          if (binding.flQuickReactionOverlay == null) return;
+          // Can't react to your own status — same restriction as btn_react/btn_like_heart.
+          if (myUid != null && myUid.equals(ownerUid)) return;
+          View.OnClickListener emojiClick = v -> {
+              Object tag = v.getTag();
+              if (tag == null) { closeQuickReactionOverlay(); return; }
+              sendQuickReaction(tag.toString());
+              closeQuickReactionOverlay();
+          };
+          if (binding.tvQr1 != null) binding.tvQr1.setOnClickListener(emojiClick);
+          if (binding.tvQr2 != null) binding.tvQr2.setOnClickListener(emojiClick);
+          if (binding.tvQr3 != null) binding.tvQr3.setOnClickListener(emojiClick);
+          if (binding.tvQr4 != null) binding.tvQr4.setOnClickListener(emojiClick);
+          if (binding.tvQr5 != null) binding.tvQr5.setOnClickListener(emojiClick);
+          if (binding.tvQr6 != null) binding.tvQr6.setOnClickListener(emojiClick);
+          // Tap anywhere on the dim scrim outside the card dismisses without reacting.
+          binding.flQuickReactionOverlay.setOnClickListener(v -> closeQuickReactionOverlay());
+          // Swallow taps on the card itself so they don't bubble to the scrim above.
+          if (binding.llQuickReactionCard != null) binding.llQuickReactionCard.setOnClickListener(v -> {});
+      }
+      private void openQuickReactionOverlay() {
+          if (binding.flQuickReactionOverlay == null) return;
+          if (myUid != null && myUid.equals(ownerUid)) return; // owner can't react to own status
+          pauseProgress();
+          binding.flQuickReactionOverlay.setAlpha(0f);
+          binding.flQuickReactionOverlay.setVisibility(View.VISIBLE);
+          binding.flQuickReactionOverlay.animate().alpha(1f).setDuration(150).start();
+          if (binding.llQuickReactionCard != null) {
+              binding.llQuickReactionCard.setScaleX(0.85f);
+              binding.llQuickReactionCard.setScaleY(0.85f);
+              binding.llQuickReactionCard.animate().scaleX(1f).scaleY(1f).setDuration(180).start();
+          }
+          // Bring up the reply keyboard at the same time, matching the
+          // reference swipe-up behaviour.
+          if (binding.etReply != null) {
+              binding.etReply.requestFocus();
+              android.view.inputmethod.InputMethodManager imm =
+                      (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+              if (imm != null) imm.showSoftInput(binding.etReply, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+          }
+      }
+      private void closeQuickReactionOverlay() {
+          if (binding.flQuickReactionOverlay == null) return;
+          binding.flQuickReactionOverlay.animate().alpha(0f).setDuration(120)
+                  .withEndAction(() -> binding.flQuickReactionOverlay.setVisibility(View.GONE)).start();
+          android.view.inputmethod.InputMethodManager imm =
+                  (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+          if (imm != null && binding.etReply != null) imm.hideSoftInputFromWindow(binding.etReply.getWindowToken(), 0);
+          if (binding.etReply != null) binding.etReply.clearFocus();
+          resumeProgress();
+      }
+      /** Shared by the emoji grid and can be reused anywhere a one-tap emoji reaction is needed. */
+      private void sendQuickReaction(String emoji) {
+          StatusItem current = idx < items.size() ? items.get(idx) : null;
+          if (current == null || myUid == null) return;
+          String existing = current.getReaction(myUid);
+          boolean isNew = !emoji.equals(existing);
+          StatusSeenTracker.reactTo(current.ownerUid, current.id, emoji, existing, newEmoji -> {
+              if (current.reactions == null) current.reactions = new HashMap<>();
+              if (newEmoji == null) current.reactions.remove(myUid);
+              else current.reactions.put(myUid, newEmoji);
+              updateSeenByInfo(current);
+          });
+          if (isNew) {
+              sendReactionToChat(current, emoji);
+              if (binding.reactionBurstOverlay != null) binding.reactionBurstOverlay.playBurst(emoji);
+          }
+      }
+      private void setupLikeHeartButton() {
+          if (binding.btnLikeHeart == null) return;
+          if (myUid != null && myUid.equals(ownerUid)) {
+              binding.btnLikeHeart.setVisibility(View.GONE);
+              return;
+          }
+          binding.btnLikeHeart.setOnClickListener(v -> {
+              StatusItem current = idx < items.size() ? items.get(idx) : null;
+              if (current == null || myUid == null) return;
+              String existing = current.getReaction(myUid);
+              boolean alreadyLiked = LIKE_EMOJI.equals(existing);
+              // Small bounce for tactile feedback on every tap, like/unlike alike.
+              v.animate().scaleX(1.3f).scaleY(1.3f).setDuration(120)
+                      .withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(120).start())
+                      .start();
+              // Same Firebase write StatusReactionBottomSheet uses — toggles off
+              // automatically when the emoji passed in matches the existing one.
+              StatusSeenTracker.reactTo(current.ownerUid, current.id, LIKE_EMOJI, existing, newEmoji -> {
+                  if (current.reactions == null) current.reactions = new HashMap<>();
+                  if (newEmoji == null) current.reactions.remove(myUid);
+                  else current.reactions.put(myUid, newEmoji);
+                  updateSeenByInfo(current);
+              });
+              if (!alreadyLiked) {
+                  // Only announce a NEW like in the 1:1 chat, same as the full
+                  // picker does — not on toggle-off.
+                  sendReactionToChat(current, LIKE_EMOJI);
+                  if (binding.reactionBurstOverlay != null) binding.reactionBurstOverlay.playBurst(LIKE_EMOJI);
+              }
           });
       }
       private void setupReplyButton() {
@@ -1582,6 +1704,7 @@ import com.callx.app.utils.AlertDialogStyler;
           });
       }
       // ── Seen-by info ──────────────────────────────────────────────────────
+      private static final String LIKE_EMOJI = "\u2764\uFE0F"; // ❤️
       private void updateSeenByInfo(StatusItem s) {
           if (myUid != null && myUid.equals(ownerUid)) {
               int count = s.getViewCount();
@@ -1599,6 +1722,14 @@ import com.callx.app.utils.AlertDialogStyler;
                   binding.btnReact.setContentDescription("React (" + myReaction + ")");
               }
           }
+          updateLikeHeartIcon(s);
+      }
+      /** Keeps the quick-like heart filled/outline in sync with whether I've already ❤️'d this status. */
+      private void updateLikeHeartIcon(StatusItem s) {
+          if (binding.btnLikeHeart == null) return;
+          boolean liked = s != null && LIKE_EMOJI.equals(s.getReaction(myUid));
+          binding.btnLikeHeart.setImageResource(liked ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
+          binding.btnLikeHeart.setContentDescription(liked ? "Remove like" : "Like status");
       }
       private String buildReactionSummary(StatusItem s) {
           if (s.reactions == null || s.reactions.isEmpty()) return "";

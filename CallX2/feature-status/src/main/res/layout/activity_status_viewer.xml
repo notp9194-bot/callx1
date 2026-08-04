@@ -318,6 +318,7 @@
 
       <!-- Bottom chrome -->
       <LinearLayout
+          android:id="@+id/ll_bottom_chrome"
           android:layout_width="match_parent"
           android:layout_height="wrap_content"
           android:layout_gravity="bottom"
@@ -407,6 +408,19 @@
                   android:background="?attr/selectableItemBackgroundBorderless"
                   android:contentDescription="React"/>
 
+              <!-- WhatsApp-style quick-like: single tap sends a ❤️ reaction
+                   immediately (no picker); tap again to remove it. Long-press
+                   still opens the full emoji picker via btn_react above. -->
+              <ImageButton
+                  android:id="@+id/btn_like_heart"
+                  android:layout_width="44dp"
+                  android:layout_height="44dp"
+                  android:layout_marginStart="4dp"
+                  android:padding="9dp"
+                  android:src="@drawable/ic_heart"
+                  android:background="?attr/selectableItemBackgroundBorderless"
+                  android:contentDescription="Like status"/>
+
               <ImageButton
                   android:id="@+id/btn_send_reply"
                   android:layout_width="44dp"
@@ -420,5 +434,92 @@
           </LinearLayout>
 
       </LinearLayout>
+
+      <!-- Swipe-up-to-react overlay — WhatsApp/Instagram style. Hidden by
+           default; StatusViewerActivity#openQuickReactionOverlay() shows this
+           (and focuses the reply box, opening the keyboard) when the viewer
+           swipes up over the status content. Tapping an emoji sends that
+           reaction immediately (same Firebase write + chat message as the
+           quick-like heart) and dismisses everything; tapping the dimmed
+           scrim outside the card dismisses without reacting. -->
+      <FrameLayout
+          android:id="@+id/fl_quick_reaction_overlay"
+          android:layout_width="match_parent"
+          android:layout_height="match_parent"
+          android:background="#99000000"
+          android:clickable="true"
+          android:focusable="true"
+          android:visibility="gone">
+
+          <LinearLayout
+              android:id="@+id/ll_quick_reaction_card"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:layout_gravity="center_horizontal|bottom"
+              android:layout_marginBottom="118dp"
+              android:orientation="vertical"
+              android:background="@drawable/bg_quick_reaction_card"
+              android:paddingHorizontal="14dp"
+              android:paddingVertical="12dp"
+              android:gravity="center"
+              android:clickable="true"
+              android:focusable="true">
+
+              <LinearLayout
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal"
+                  android:gravity="center">
+
+                  <TextView android:id="@+id/tv_qr_1" android:tag="\uD83D\uDE02"
+                      android:layout_width="52dp" android:layout_height="52dp"
+                      android:gravity="center" android:textSize="30sp"
+                      android:text="\uD83D\uDE02"
+                      android:background="?attr/selectableItemBackgroundBorderless"
+                      android:clickable="true" android:focusable="true"/>
+                  <TextView android:id="@+id/tv_qr_2" android:tag="\uD83D\uDE2E"
+                      android:layout_width="52dp" android:layout_height="52dp"
+                      android:gravity="center" android:textSize="30sp"
+                      android:text="\uD83D\uDE2E"
+                      android:background="?attr/selectableItemBackgroundBorderless"
+                      android:clickable="true" android:focusable="true"/>
+                  <TextView android:id="@+id/tv_qr_3" android:tag="\uD83D\uDE0D"
+                      android:layout_width="52dp" android:layout_height="52dp"
+                      android:gravity="center" android:textSize="30sp"
+                      android:text="\uD83D\uDE0D"
+                      android:background="?attr/selectableItemBackgroundBorderless"
+                      android:clickable="true" android:focusable="true"/>
+              </LinearLayout>
+
+              <LinearLayout
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal"
+                  android:gravity="center"
+                  android:layout_marginTop="2dp">
+
+                  <TextView android:id="@+id/tv_qr_4" android:tag="\uD83D\uDE22"
+                      android:layout_width="52dp" android:layout_height="52dp"
+                      android:gravity="center" android:textSize="30sp"
+                      android:text="\uD83D\uDE22"
+                      android:background="?attr/selectableItemBackgroundBorderless"
+                      android:clickable="true" android:focusable="true"/>
+                  <TextView android:id="@+id/tv_qr_5" android:tag="\uD83D\uDC4F"
+                      android:layout_width="52dp" android:layout_height="52dp"
+                      android:gravity="center" android:textSize="30sp"
+                      android:text="\uD83D\uDC4F"
+                      android:background="?attr/selectableItemBackgroundBorderless"
+                      android:clickable="true" android:focusable="true"/>
+                  <TextView android:id="@+id/tv_qr_6" android:tag="\uD83D\uDD25"
+                      android:layout_width="52dp" android:layout_height="52dp"
+                      android:gravity="center" android:textSize="30sp"
+                      android:text="\uD83D\uDD25"
+                      android:background="?attr/selectableItemBackgroundBorderless"
+                      android:clickable="true" android:focusable="true"/>
+              </LinearLayout>
+
+          </LinearLayout>
+
+      </FrameLayout>
 
   </FrameLayout>
