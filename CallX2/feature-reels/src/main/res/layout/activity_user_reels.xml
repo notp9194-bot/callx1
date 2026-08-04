@@ -198,21 +198,24 @@
 
                     <!-- Stats card: Reels | Followers | Following (screenshot-2 style)
                          Screen 1 (Default) = flat bg_profile_stats_card, no blur.
-                         Screen 2 (Glass)    = layout_stats_blur becomes VISIBLE behind
-                         layout_stats_card and layout_stats_card's background switches to
-                         a transparent rounded+bordered drawable — see
-                         applyStatsBoxGlassStyle() in UserReelsActivity.java. -->
+                         Screen 2 (Glass)    = layout_stats_blur (a plain ImageView) becomes
+                         VISIBLE behind layout_stats_card, holding a one-shot snapshot of
+                         whatever sits behind the card with android.graphics.RenderEffect's
+                         native blur applied (API 31+) — see applyStatsBoxGlassStyle() in
+                         UserReelsActivity.java. No third-party blur library involved. -->
                     <FrameLayout
                         android:id="@+id/layout_stats_wrapper"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content">
 
-                        <!-- Glass backdrop blur — GONE unless Stats Box style = Glass -->
-                        <eightbitlab.com.blurview.BlurView
+                        <!-- Glass backdrop blur snapshot — GONE unless Stats Box style = Glass -->
+                        <ImageView
                             android:id="@+id/layout_stats_blur"
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:visibility="gone"/>
+                            android:scaleType="centerCrop"
+                            android:visibility="gone"
+                            android:contentDescription="@null"/>
 
                         <LinearLayout
                             android:id="@+id/layout_stats_card"

@@ -114,9 +114,9 @@ public class UserReelsActivity extends AppCompatActivity
     private android.animation.ValueAnimator storyRingRevealAnimator;
     private TextView        tvName, tvDisplayName, tvUsername, tvCreatorBadge, tvReelCount, tvFollowers, tvFollowing, tvBio;
     // ── Stats Box (Screen 1 = flat text / Screen 2 = rounded glass card) ──
-    private FrameLayout                       layoutStatsWrapper;
-    private LinearLayout                      layoutStatsCard;
-    private eightbitlab.com.blurview.BlurView  layoutStatsBlur;
+    private FrameLayout    layoutStatsWrapper;
+    private LinearLayout   layoutStatsCard;
+    private ImageView      layoutStatsBlur; // holds a blurred snapshot bitmap, Glass style only
     private ImageView       ivVerifiedHeader;
     private TextView        tvMutualFollowers;
     private LinearLayout    layoutMutualFollowers;
@@ -4502,8 +4502,8 @@ public class UserReelsActivity extends AppCompatActivity
      *   0 = Default (Screen 1) → plain text row, flat {@code bg_profile_stats_card}, no blur.
      *   1 = Glass   (Screen 2) → rounded glass card: centered stats, translucent
      *       fill, 1dp semi-transparent white border, 20–24dp corner radius,
-     *       and a real backdrop blur ({@link eightbitlab.com.blurview.BlurView})
-     *       of whatever sits behind it (avatar / header background).
+     *       and a real backdrop blur (native {@code android.graphics.RenderEffect},
+     *       API 31+ — no third-party blur library) of whatever sits behind it.
      * 2 = Card and 3 = Outline reuse the same rounded-card visuals as Glass
      * but without/with different fill so the existing "Card"/"Outline"
      * picker options in ReelScreenCustomizationSheet aren't dead ends.
@@ -4518,10 +4518,7 @@ public class UserReelsActivity extends AppCompatActivity
             // Screen 1 — Default: restore the flat XML background, no blur.
             layoutStatsCard.setBackgroundResource(R.drawable.bg_profile_stats_card);
             layoutStatsCard.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            if (layoutStatsBlur != null) {
-                layoutStatsBlur.setVisibility(android.view.View.GONE);
-                stopStatsBlur();
-            }
+            clearStatsBlur();
             return;
         }
 
@@ -4549,44 +4546,89 @@ public class UserReelsActivity extends AppCompatActivity
         // aligned stats") instead of the default center_vertical-only gravity.
         layoutStatsCard.setGravity(android.view.Gravity.CENTER);
 
-        if (style != 1 || layoutStatsBlur == null) {
-            if (layoutStatsBlur != null) { layoutStatsBlur.setVisibility(android.view.View.GONE); stopStatsBlur(); }
+        if (style != 1) {
+            clearStatsBlur();
             return;
         }
 
         // ── Glass backdrop blur ──────────────────────────────────────────
-        // RenderEffectBlur needs API 31+. Below that we skip the live blur
-        // and keep the translucent card fill above as the fallback — real
-        // backdrop blur isn't available without the (deprecated/removed)
-        // RenderScript path on this app's minSdk 23.
-        layoutStatsBlur.setVisibility(android.view.View.VISIBLE);
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S && blurSourceRoot != null) {
-            try {
-                android.graphics.drawable.Drawable windowBg = getWindow().getDecorView().getBackground();
-                layoutStatsBlur.setupWith((android.view.ViewGroup) blurSourceRoot,
-                                new eightbitlab.com.blurview.RenderEffectBlur())
-                        .setFrameClearDrawable(windowBg)
-                        .setBlurRadius(18f);
-                layoutStatsBlur.setClipToOutline(true);
-                android.graphics.drawable.GradientDrawable blurShape = new android.graphics.drawable.GradientDrawable();
-                blurShape.setCornerRadius(radiusPx);
-                blurShape.setColor(android.graphics.Color.WHITE);
-                layoutStatsBlur.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
-                layoutStatsBlur.setBackground(blurShape);
-                layoutStatsBlur.setOverlayColor(0x14FFFFFF);
-            } catch (Exception ignored) {
-                layoutStatsBlur.setVisibility(android.view.View.GONE);
-            }
+        // No third-party library: on API 31+ we take a one-shot snapshot of
+        // whatever sits behind layout_stats_wrapper, run it through the
+        // platform's own android.graphics.RenderEffect blur, and drop the
+        // result into layout_stats_blur (a plain ImageView) behind the card.
+        // Below API 31 there's no native blur engine available (RenderScript
+        // is deprecated), so we just keep the translucent card fill above as
+        // the fallback — no crash, just a slightly less "frosted" look.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+                && layoutStatsBlur != null && layoutStatsWrapper != null) {
+            final float finalRadiusPx = radiusPx;
+            layoutStatsWrapper.post(() -> captureAndBlurStatsBackdrop(finalRadiusPx));
         } else {
-            // Pre-API31 fallback — no live blur engine available.
-            layoutStatsBlur.setVisibility(android.view.View.GONE);
+            clearStatsBlur();
         }
     }
 
-    /** Releases the BlurView's per-frame capture/draw listener when leaving Glass style or the screen. */
-    private void stopStatsBlur() {
+    /**
+     * Snapshots the view directly behind {@code layoutStatsWrapper} (its
+     * parent, with the wrapper itself hidden for the draw pass so it doesn't
+     * capture its own content), blurs that snapshot with
+     * {@link android.graphics.RenderEffect}, and shows it in
+     * {@code layoutStatsBlur} — API 31+ only, called post-layout.
+     */
+    private void captureAndBlurStatsBackdrop(float radiusPx) {
+        if (isFinishing() || isDestroyed()) return;
+        if (layoutStatsWrapper == null || layoutStatsBlur == null) return;
+        android.view.View parent = (android.view.View) layoutStatsWrapper.getParent();
+        int w = layoutStatsWrapper.getWidth();
+        int h = layoutStatsWrapper.getHeight();
+        if (parent == null || w <= 0 || h <= 0 || parent.getWidth() <= 0 || parent.getHeight() <= 0) {
+            clearStatsBlur();
+            return;
+        }
+        try {
+            android.graphics.Bitmap full = android.graphics.Bitmap.createBitmap(
+                    parent.getWidth(), parent.getHeight(), android.graphics.Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas canvas = new android.graphics.Canvas(full);
+            int prevVisibility = layoutStatsWrapper.getVisibility();
+            layoutStatsWrapper.setVisibility(android.view.View.INVISIBLE);
+            parent.draw(canvas);
+            layoutStatsWrapper.setVisibility(prevVisibility);
+
+            int left = Math.max(0, (int) layoutStatsWrapper.getX());
+            int top = Math.max(0, (int) layoutStatsWrapper.getY());
+            int right = Math.min(full.getWidth(), left + w);
+            int bottom = Math.min(full.getHeight(), top + h);
+            if (right <= left || bottom <= top) { clearStatsBlur(); return; }
+
+            android.graphics.Bitmap cropped = android.graphics.Bitmap.createBitmap(
+                    full, left, top, right - left, bottom - top);
+            full.recycle();
+
+            layoutStatsBlur.setImageBitmap(cropped);
+            layoutStatsBlur.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(
+                    radiusPx, radiusPx, android.graphics.Shader.TileMode.CLAMP));
+            layoutStatsBlur.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
+            android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+            shape.setCornerRadius(radiusPx);
+            shape.setColor(android.graphics.Color.WHITE);
+            layoutStatsBlur.setBackground(shape);
+            layoutStatsBlur.setClipToOutline(true);
+            layoutStatsBlur.setVisibility(android.view.View.VISIBLE);
+        } catch (Exception ignored) {
+            clearStatsBlur();
+        }
+    }
+
+    /** Hides the blur backdrop and releases its bitmap/RenderEffect. */
+    private void clearStatsBlur() {
         if (layoutStatsBlur == null) return;
-        try { layoutStatsBlur.setBlurEnabled(false); } catch (Exception ignored) {}
+        layoutStatsBlur.setVisibility(android.view.View.GONE);
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                layoutStatsBlur.setRenderEffect(null);
+            }
+            layoutStatsBlur.setImageDrawable(null);
+        } catch (Exception ignored) {}
     }
 
     /** Opens Liked/Saved reels full-screen (they're no longer tabs on this screen). */
@@ -4646,7 +4688,7 @@ public class UserReelsActivity extends AppCompatActivity
         dismissPreviewDialog();
         stopAvatarAnimation();
         cancelStoryRingReveal();
-        stopStatsBlur();
+        clearStatsBlur();
         dbExecutor.shutdown();
         // Remove persistent Firebase listeners to avoid memory/network leaks
         if (reelCountLiveListener != null && targetUid != null) {
