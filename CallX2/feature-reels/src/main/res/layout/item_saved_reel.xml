@@ -48,5 +48,25 @@
           android:src="@drawable/ic_double_tick_blue"
           android:background="@drawable/circle_primary"
           android:padding="3dp" android:contentDescription="Selected" android:visibility="gone"/>
+      <!-- Multi-image/clip carousel indicator (Instagram-style stack icon,
+           top-right) — shown when the reel has more than one photoUrls entry. -->
+      <ImageView android:id="@+id/iv_stack_indicator"
+          android:layout_width="16dp" android:layout_height="16dp"
+          android:layout_gravity="top|end"
+          android:layout_marginTop="6dp" android:layout_marginEnd="6dp"
+          android:src="@drawable/ic_carousel_stack"
+          android:contentDescription="Multiple items"
+          android:visibility="gone"/>
+      <!-- Double-tap-to-like burst — Instagram-style big heart, center of
+           cell, hidden until ReelGridAdapter#playDoubleTapHeart() fires it. -->
+      <ImageView android:id="@+id/iv_double_tap_heart"
+          android:layout_width="56dp" android:layout_height="56dp"
+          android:layout_gravity="center"
+          android:src="@drawable/ic_heart_filled"
+          android:tint="#FFFFFF"
+          android:alpha="0"
+          android:elevation="4dp"
+          android:contentDescription="Liked"
+          android:visibility="gone"/>
   </FrameLayout>
   

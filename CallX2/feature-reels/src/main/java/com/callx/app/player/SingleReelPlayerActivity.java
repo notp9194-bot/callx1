@@ -93,6 +93,18 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
     private boolean showSoundActions;
     private String  soundId, soundTitle, soundUrl;
 
+    /**
+     * Mirrors the grid's scale-up "pinch zoom" open animation (see
+     * UserReelsActivity#openPlayerAt) on the way back out — a quick
+     * shrink+fade instead of the default flat activity swap, so entering
+     * and leaving the player feel like one continuous zoom gesture.
+     */
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.reel_player_fade_in_fast, R.anim.reel_player_exit_scale_down);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);

@@ -82,4 +82,7 @@ dependencies {
 
     // Room – needed because UserReelsActivity accesses AppDatabase from :core
     implementation 'androidx.room:room-runtime:2.6.1'
+
+    // Lottie – illustrated/animated empty states (UserReelsActivity grid tabs)
+    implementation 'com.airbnb.android:lottie:6.4.0'
 }

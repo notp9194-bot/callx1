@@ -22,4 +22,10 @@
          (Speed action lives only in the 3-dot "More" menu now), but
          ReelPlayerController still holds a nullable reference to it. -->
     <item name="btn_speed"               type="id"/>
+
+    <!-- ReelGridAdapter long-press "peek" gesture — tag key used to stash the
+         pending peek-trigger Runnable on the grid cell's itemView so it can
+         be cancelled from onViewRecycled() if the cell is recycled mid-touch
+         (fast fling while a finger is still down elsewhere, multi-touch). -->
+    <item name="tag_peek_runnable"        type="id"/>
 </resources>

@@ -63,6 +63,12 @@ public class HighlightsRowAdapter
          *  only meaningful when ringColor is non-null. */
         public String  ringMode;
 
+        /** Transient, client-side only (never persisted/read from Firebase):
+         *  true for an album UserReelsActivity noticed appearing since the
+         *  last load — drives a looping gradient-ring pulse (see
+         *  {@link #startNewRingPulse}) until the user taps it. */
+        public boolean justAdded = false;
+
         /** Normal album */
         public HighlightAlbum(String albumId, String albumName,
                                String coverUrl, String coverBgColor, int itemCount) {
@@ -278,6 +284,7 @@ public class HighlightsRowAdapter
     // ── Bind helpers ──────────────────────────────────────────────────
 
     private void bindNewButton(HVH h) {
+        stopRingPulse(h); // a recycled VH may have been mid-pulse as a real album
         // Ring → dashed gray (matches the dotted "+" circle in the target
         // design). Was bg_highlight_ring_seen — a *solid* gray stroke, not
         // dashed, so it never matched. Dashed <stroke> only renders on a
@@ -376,7 +383,24 @@ public class HighlightsRowAdapter
         h.tvName.setText(album.albumName != null ? album.albumName : album.albumId);
         h.tvName.setTypeface(null, Typeface.NORMAL);
 
-        h.root.setOnClickListener(v -> { if (listener != null) listener.onAlbumClicked(album); });
+        // Gradient-ring pulse for an album that just appeared (e.g. right
+        // after CreateHighlightActivity) — stops the moment the user taps it.
+        if (album.justAdded) startNewRingPulse(h);
+        else                 stopRingPulse(h);
+
+        h.root.setOnClickListener(v -> {
+            if (album.justAdded) {
+                album.justAdded = false;
+                stopRingPulse(h);
+            }
+            if (listener != null) listener.onAlbumClicked(album);
+        });
+
+        // "Tap to expand" — a quick overshoot pop on the ring+cover before
+        // the tap is handled, giving the same little zoom-in feel Instagram's
+        // highlight bubbles have when you open one, instead of a flat/instant
+        // click. Returns false so the click/long-click listeners above still fire.
+        applyTapExpandFeedback(h.ringFrame);
 
         if (isSelf) {
             h.root.setOnLongClickListener(v -> {
@@ -388,12 +412,72 @@ public class HighlightsRowAdapter
         }
     }
 
+    /**
+     * Loops a subtle scale "breathing" pulse (1.0 → 1.08 → 1.0) on the ring
+     * frame so a freshly-added highlight visibly stands out from the rest of
+     * the row, similar to Instagram's brighter ring on unseen highlights.
+     * Cancels any previous pulse on this ViewHolder first (recycled views).
+     */
+    private static void startNewRingPulse(HVH h) {
+        stopRingPulse(h);
+        if (h.ringFrame == null) return;
+        android.animation.ValueAnimator anim = android.animation.ValueAnimator.ofFloat(1f, 1.08f, 1f);
+        anim.setDuration(1100);
+        anim.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        anim.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+        anim.addUpdateListener(a -> {
+            float v = (float) a.getAnimatedValue();
+            h.ringFrame.setScaleX(v);
+            h.ringFrame.setScaleY(v);
+        });
+        anim.start();
+        h.activePulseAnimator = anim;
+    }
+
+    private static void stopRingPulse(HVH h) {
+        if (h.activePulseAnimator != null) {
+            h.activePulseAnimator.cancel();
+            h.activePulseAnimator = null;
+        }
+        if (h.ringFrame != null) { h.ringFrame.setScaleX(1f); h.ringFrame.setScaleY(1f); }
+    }
+
+    /** Press-down slightly, release with a brief overshoot "pop" past 1.0 before settling. */
+    private static void applyTapExpandFeedback(View ring) {
+        if (ring == null) return;
+        ring.setOnTouchListener((view, event) -> {
+            switch (event.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    view.animate().scaleX(0.92f).scaleY(0.92f).setDuration(90).start();
+                    break;
+                case android.view.MotionEvent.ACTION_UP:
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    view.animate().scaleX(1.12f).scaleY(1.12f).setDuration(110)
+                        .withEndAction(() -> view.animate()
+                                .scaleX(1f).scaleY(1f).setDuration(120)
+                                .setInterpolator(new android.view.animation.OvershootInterpolator())
+                                .start())
+                        .start();
+                    break;
+            }
+            return false;
+        });
+    }
+
     // ── Preload-ahead ─────────────────────────────────────────────────
 
     @Override
     public void onViewAttachedToWindow(@NonNull HVH holder) {
         super.onViewAttachedToWindow(holder);
         preloadAhead(holder.getAdapterPosition());
+    }
+
+    @Override
+    public void onViewDetachedFromWindow(@NonNull HVH holder) {
+        super.onViewDetachedFromWindow(holder);
+        // Don't leave a pulse ValueAnimator running against a recycled/
+        // off-screen ViewHolder — it'll be restarted on rebind if still needed.
+        stopRingPulse(holder);
     }
 
     /** Warms Glide's disk cache for the next few highlight covers past fromPosition. */
@@ -412,16 +496,21 @@ public class HighlightsRowAdapter
 
     static class HVH extends RecyclerView.ViewHolder {
         final LinearLayout root;
+        final View         ringFrame;
         final View         ringBg;
         final ImageView    ivCover;
         final TextView     tvName;
+        /** Non-null while a "new highlight" pulse loop is running on this
+         *  bound ViewHolder — see {@link #startNewRingPulse}/{@link #stopRingPulse}. */
+        android.animation.ValueAnimator activePulseAnimator;
 
         HVH(LinearLayout root, Context ctx) {
             super(root);
-            this.root    = root;
-            this.ringBg  = root.findViewWithTag("ring_bg");
-            this.ivCover = root.findViewWithTag("iv_cover");
-            this.tvName  = root.findViewWithTag("tv_name");
+            this.root      = root;
+            this.ringFrame = root.findViewWithTag("ring_frame");
+            this.ringBg    = root.findViewWithTag("ring_bg");
+            this.ivCover   = root.findViewWithTag("iv_cover");
+            this.tvName    = root.findViewWithTag("tv_name");
         }
     }
 

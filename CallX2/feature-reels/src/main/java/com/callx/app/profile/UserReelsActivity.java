@@ -7,7 +7,6 @@ import com.callx.app.followers.FollowingListActivity;
 import com.callx.app.followers.MutualFollowersActivity;
 
 import android.animation.ObjectAnimator;
-import android.app.Dialog;
 import android.content.Intent;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -15,12 +14,9 @@ import android.os.Bundle;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.media3.common.MediaItem;
-import androidx.media3.common.Player;
-import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.ui.PlayerView;
 import com.google.android.material.appbar.AppBarLayout;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -53,6 +49,11 @@ import android.animation.AnimatorSet;
 import android.os.Handler;
 import android.os.Looper;
 import java.util.*;
+
+// Advance features: grid-open zoom transition, skeleton crossfade, header parallax
+import android.app.ActivityOptions;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 
 /**
  * UserReelsActivity — Full production reel profile screen.
@@ -102,6 +103,10 @@ public class UserReelsActivity extends AppCompatActivity
     // holds the DATA constant (0/3/4). Used to compute swipe-left/right's
     // next/previous tab.
     private int activeTabPosition = 0;
+    // Previous tab STRIP position, used only to compute the slide direction
+    // for slideSwapGridContent() — -1 means "no tab switch has happened
+    // yet" (skip the slide on the very first onTabSelected at cold start).
+    private int lastTabStripPosition = -1;
 
     // Views
     private CircleImageView ivAvatar;
@@ -210,6 +215,11 @@ public class UserReelsActivity extends AppCompatActivity
     private Integer lastAppliedRvReelsBgColor = null;
     private Integer lastAppliedRvSeriesBgColor = null;
     private TextView        tvEmptyTitle, tvEmptySubtitle;
+    // Illustrated empty-state animation + its static fallback (see
+    // setupEmptyStateLottie() and refreshEmptyState()).
+    private com.airbnb.lottie.LottieAnimationView lottieEmpty;
+    private ImageView       ivEmptyIcon;
+    private boolean         emptyLottieFailed = false;
     private Button          btnFollow;
     private Button          btnMessageCta;
     private android.view.View btnCtaCall;
@@ -231,6 +241,10 @@ public class UserReelsActivity extends AppCompatActivity
     private android.view.View                         dividerHighlights;
     private HighlightsRowAdapter                      highlightsAdapter;
     private final java.util.List<HighlightsRowAdapter.HighlightAlbum> highlightAlbums = new java.util.ArrayList<>();
+    // Used by loadHighlights() to detect newly-appeared albums (pulses their
+    // ring — see HighlightsRowAdapter.HighlightAlbum#justAdded).
+    private final java.util.Set<String> knownHighlightAlbumIds = new java.util.HashSet<>();
+    private boolean highlightsLoadedOnce = false;
 
     // ── Avatar peek animation fields ──────────────────────────────────────
     private CircleImageView ivAnimChat, ivAnimX, ivAnimYoutube;
@@ -259,6 +273,9 @@ public class UserReelsActivity extends AppCompatActivity
     private View            btnRepostSection;
     private View            btnSeriesSection;
     private com.google.android.material.appbar.AppBarLayout appBarLayout;
+    // Avatar frame — parallax + blur target for the profile header collapse
+    // (see setupHeaderParallax()).
+    private View frameAvatarParallax;
     // Lets the plain (non-scrollable) layoutEmpty view participate in the same
     // CoordinatorLayout nested-scroll chain that rvReels uses natively — see
     // setupSwipeBetweenTabs() / the touch listener below for why this is needed.
@@ -308,8 +325,7 @@ public class UserReelsActivity extends AppCompatActivity
     private ValueEventListener reelCountLiveListener = null;
 
     private ReelModel         pinnedReel = null;
-    private Dialog            previewDialog;
-    private ExoPlayer         previewPlayer;
+    private ReelPeekPreviewController peekController;
     private SwipeAwareGridLayoutManager gridLayoutManager;
     // Series-tab grid also needs to disable its own vertical scroll while a
     // horizontal tab-swipe is in progress (see SwipeAwareGridLayoutManager).
@@ -381,6 +397,7 @@ public class UserReelsActivity extends AppCompatActivity
 
         bindViews();
         setupHeader();
+        setupHeaderParallax();
         setupScrollPagination();
         setupTabs();
         setupFilterChips();
@@ -464,6 +481,9 @@ public class UserReelsActivity extends AppCompatActivity
         ivMutual3            = findViewById(R.id.iv_mutual_3);
         tvEmptyTitle         = findViewById(R.id.tv_empty_title);
         tvEmptySubtitle      = findViewById(R.id.tv_empty_subtitle);
+        lottieEmpty          = findViewById(R.id.lottie_empty);
+        ivEmptyIcon          = findViewById(R.id.iv_empty_icon);
+        setupEmptyStateLottie();
         btnFollow            = findViewById(R.id.btn_follow);
         btnBack              = findViewById(R.id.btn_back);
         btnShareProfile      = findViewById(R.id.btn_share_profile);
@@ -509,6 +529,7 @@ public class UserReelsActivity extends AppCompatActivity
         layoutYoutube    = findViewById(R.id.layout_youtube);
         layoutOtherLink  = findViewById(R.id.layout_other_link);
         appBarLayout     = findViewById(R.id.app_bar);
+        frameAvatarParallax = findViewById(R.id.frame_avatar_parallax);
         hsvBioLinks       = findViewById(R.id.hsv_bio_links);
         llBioChips        = findViewById(R.id.ll_bio_chips);
         layoutProfileSong = findViewById(R.id.layout_profile_song);
@@ -561,6 +582,11 @@ public class UserReelsActivity extends AppCompatActivity
             pos -> { if (isMultiSelect) toggleSelection(pos); else openPlayerAt(pos); },
             this, this
         );
+        peekController = new ReelPeekPreviewController(this);
+        adapter.setLongPressReleaseListener(pos -> dismissPreviewDialog());
+        // Instagram-style quick-like: double-tap a grid cell to like without
+        // opening the player. See likeReelFromGrid() below.
+        adapter.setOnDoubleTapLikeListener(this::likeReelFromGrid);
 
         // Series tab setup
         seriesAdapter = new UserSeriesGridAdapter(this);
@@ -631,6 +657,50 @@ public class UserReelsActivity extends AppCompatActivity
             ivAvatar.setOnClickListener(v -> openStatusIfAvailable());
             ivAvatar.setOnLongClickListener(v -> { showAvatarZoom(targetPhoto, targetName); return true; });
         }
+    }
+
+    /**
+     * LinkedIn/Instagram-style depth on header collapse: as the AppBarLayout
+     * collapses (user scrolls the grid up), the collapsible header content
+     * (child 0 — avatar/stats/bio row) scrolls up at a slightly SLOWER rate
+     * than the actual scroll (a classic parallax offset), fading out as it
+     * goes; the avatar itself additionally scales down and — on API 31+ —
+     * gains a soft blur that increases with collapse fraction, so it reads
+     * as receding into depth rather than just sliding off. Everything resets
+     * cleanly back to normal the moment the header re-expands.
+     */
+    private void setupHeaderParallax() {
+        if (appBarLayout == null || appBarLayout.getChildCount() == 0) return;
+        final View headerContent = appBarLayout.getChildAt(0); // the scroll|exitUntilCollapsed child
+        appBarLayout.addOnOffsetChangedListener((layout, verticalOffset) -> {
+            int totalRange = layout.getTotalScrollRange();
+            if (totalRange <= 0) return;
+            float fraction = Math.min(1f, Math.abs(verticalOffset) / (float) totalRange);
+
+            // Parallax: header content trails the real scroll (moves up
+            // slower), giving it depth instead of scrolling 1:1 with the grid.
+            headerContent.setTranslationY(verticalOffset * 0.45f);
+            headerContent.setAlpha(Math.max(0f, 1f - fraction * 1.3f));
+
+            if (frameAvatarParallax != null) {
+                float scale = 1f - (fraction * 0.22f);
+                frameAvatarParallax.setScaleX(scale);
+                frameAvatarParallax.setScaleY(scale);
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    try {
+                        if (fraction <= 0.01f) {
+                            frameAvatarParallax.setRenderEffect(null);
+                        } else {
+                            float blurPx = 1f + fraction * 11f; // up to ~12px at full collapse
+                            frameAvatarParallax.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(
+                                    blurPx, blurPx, android.graphics.Shader.TileMode.CLAMP));
+                        }
+                    } catch (Throwable ignored) {
+                        // Older/odd devices that report S+ but reject the effect — skip blur, keep scale/parallax.
+                    }
+                }
+            }
+        });
     }
 
     // ── Scroll listener for header collapse + pagination ────────────────────
@@ -833,30 +903,43 @@ public class UserReelsActivity extends AppCompatActivity
         if (tabLayout == null) return;
         tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override public void onTabSelected(TabLayout.Tab tab) {
-                activeTabPosition = tab.getPosition();
-                activeTab = VISIBLE_TAB_DATA[activeTabPosition];
-                exitMultiSelectMode();
-                // FIX: previously the header's collapsed/expanded scroll
-                // state just carried over across tabs — scroll down on
-                // Reels to collapse the header, switch to Liked, and it's
-                // still collapsed there even though Liked hasn't been
-                // scrolled at all. Instagram resets the header on every tab
-                // change; do the same here so each tab always starts fresh.
-                if (appBarLayout != null) appBarLayout.setExpanded(true, true);
-                boolean isSeries = (activeTab == TAB_SERIES);
-                if (rvSeries != null) rvSeries.setVisibility(isSeries ? android.view.View.VISIBLE : android.view.View.GONE);
-                if (rvReels  != null) rvReels.setVisibility(isSeries  ? android.view.View.GONE   : android.view.View.VISIBLE);
-                // BUG FIX: the adapter is one shared instance across the
-                // Reels/Liked/Saved/Repost tabs, so it must be re-pointed at
-                // THIS tab's own backing list every time the tab changes —
-                // otherwise it keeps showing whichever list it was last
-                // pointed at (e.g. Liked/Saved/Repost all showing Reels).
-                if (!isSeries) adapter.setDataList(activeTabData());
-                if (isSeries ? seriesTabData.isEmpty() : activeTabData().isEmpty()) loadCurrentTab(true);
-                else { refreshEmptyState(); updateViewAllButton(); }
-                // Each tab keeps its OWN accent color — re-apply whichever
-                // color (or default) belongs to the tab we just switched to.
-                applyGridAccentColorForActiveTab();
+                int newPos = tab.getPosition();
+                // Direction for the ViewPager2-style slide: +1 moving right
+                // (tab strip position increases), -1 moving left. No slide
+                // (direct swap) on the very first tab selection at cold start.
+                int direction = (lastTabStripPosition < 0) ? 0
+                        : (newPos > lastTabStripPosition ? 1 : (newPos < lastTabStripPosition ? -1 : 0));
+                lastTabStripPosition = newPos;
+
+                Runnable applyTabSwitch = () -> {
+                    activeTabPosition = newPos;
+                    activeTab = VISIBLE_TAB_DATA[activeTabPosition];
+                    exitMultiSelectMode();
+                    // FIX: previously the header's collapsed/expanded scroll
+                    // state just carried over across tabs — scroll down on
+                    // Reels to collapse the header, switch to Liked, and it's
+                    // still collapsed there even though Liked hasn't been
+                    // scrolled at all. Instagram resets the header on every tab
+                    // change; do the same here so each tab always starts fresh.
+                    if (appBarLayout != null) appBarLayout.setExpanded(true, true);
+                    boolean isSeries = (activeTab == TAB_SERIES);
+                    if (rvSeries != null) rvSeries.setVisibility(isSeries ? android.view.View.VISIBLE : android.view.View.GONE);
+                    if (rvReels  != null) rvReels.setVisibility(isSeries  ? android.view.View.GONE   : android.view.View.VISIBLE);
+                    // BUG FIX: the adapter is one shared instance across the
+                    // Reels/Liked/Saved/Repost tabs, so it must be re-pointed at
+                    // THIS tab's own backing list every time the tab changes —
+                    // otherwise it keeps showing whichever list it was last
+                    // pointed at (e.g. Liked/Saved/Repost all showing Reels).
+                    if (!isSeries) adapter.setDataList(activeTabData());
+                    if (isSeries ? seriesTabData.isEmpty() : activeTabData().isEmpty()) loadCurrentTab(true);
+                    else { refreshEmptyState(); updateViewAllButton(); }
+                    // Each tab keeps its OWN accent color — re-apply whichever
+                    // color (or default) belongs to the tab we just switched to.
+                    applyGridAccentColorForActiveTab();
+                };
+
+                if (direction == 0) applyTabSwitch.run();
+                else slideSwapGridContent(direction, applyTabSwitch);
             }
             @Override public void onTabUnselected(TabLayout.Tab tab) {}
             @Override public void onTabReselected(TabLayout.Tab tab) {
@@ -1078,6 +1161,52 @@ public class UserReelsActivity extends AppCompatActivity
         if (tabLayout == null) return;
         TabLayout.Tab t = tabLayout.getTabAt(newPos);
         if (t != null) t.select();
+    }
+
+    /**
+     * ViewPager2-style slide between grid tabs: whichever grid is currently
+     * showing (rv_reels for Reels/Repost/Duet/Collab/Liked/Saved, rv_series
+     * for Series) slides out in {@code direction} while fading, THEN
+     * {@code applyTabSwitch} runs (swaps the adapter's backing list /
+     * toggles rv_reels↔rv_series visibility / kicks off loadCurrentTab — all
+     * the existing tab-change logic, untouched), and finally whichever grid
+     * ends up visible slides in from the opposite side. Both the tab-strip
+     * click path and the existing drag-swipe path funnel through
+     * TabLayout.Tab#select() → onTabSelected(), so this one place animates
+     * both without duplicating the direction math at the gesture layer.
+     */
+    private void slideSwapGridContent(int direction, Runnable applyTabSwitch) {
+        View outgoing = (activeTab == TAB_SERIES) ? rvSeries : rvReels;
+        if (outgoing == null || outgoing.getWidth() <= 0) {
+            applyTabSwitch.run(); // not laid out yet (e.g. very early) — just swap
+            return;
+        }
+        float distance = outgoing.getWidth() * 0.35f; // subtle slide, not a full-screen page turn
+        outgoing.animate().cancel();
+        outgoing.animate()
+                .translationX(-direction * distance)
+                .alpha(0f)
+                .setDuration(120)
+                .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                .withEndAction(() -> {
+                    outgoing.setTranslationX(0f);
+                    outgoing.setAlpha(1f);
+
+                    applyTabSwitch.run();
+
+                    View incoming = (activeTab == TAB_SERIES) ? rvSeries : rvReels;
+                    if (incoming == null) return;
+                    incoming.animate().cancel();
+                    incoming.setTranslationX(direction * distance);
+                    incoming.setAlpha(0f);
+                    incoming.animate()
+                            .translationX(0f)
+                            .alpha(1f)
+                            .setDuration(200)
+                            .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                            .start();
+                })
+                .start();
     }
 
     private void setupSwipeBetweenTabs() {
@@ -1656,9 +1785,20 @@ public class UserReelsActivity extends AppCompatActivity
                     if (itemCount == 0) continue; // skip empty albums
                     if (albumName == null || albumName.isEmpty()) albumName = toDisplayName(albumId);
 
-                    highlightAlbums.add(new HighlightsRowAdapter.HighlightAlbum(
-                            albumId, albumName, coverUrl, coverBgColor, itemCount));
+                    HighlightsRowAdapter.HighlightAlbum album = new HighlightsRowAdapter.HighlightAlbum(
+                            albumId, albumName, coverUrl, coverBgColor, itemCount);
+                    // Pulse the ring for any album that wasn't here on the
+                    // previous load (e.g. just created via CreateHighlightActivity) —
+                    // never on the very first load of this screen, or every
+                    // existing highlight would pulse the moment the profile opens.
+                    if (highlightsLoadedOnce && !knownHighlightAlbumIds.contains(albumId)) {
+                        album.justAdded = true;
+                    }
+                    highlightAlbums.add(album);
                 }
+                knownHighlightAlbumIds.clear();
+                for (HighlightsRowAdapter.HighlightAlbum a : highlightAlbums) knownHighlightAlbumIds.add(a.albumId);
+                highlightsLoadedOnce = true;
 
                 runOnUiThread(() -> {
                     boolean hasContent = !highlightAlbums.isEmpty() || isSelf;
@@ -2177,12 +2317,12 @@ public class UserReelsActivity extends AppCompatActivity
                           if (layoutEmpty != null) {
                               tvEmptyTitle.setText("No Series Yet");
                               tvEmptySubtitle.setText("This creator hasn't started a Duet Series");
-                              layoutEmpty.setVisibility(View.VISIBLE);
+                              showEmptyLayout(true);
                           }
                           seriesLoaded = true;
                           return;
                       }
-                      if (layoutEmpty != null) layoutEmpty.setVisibility(View.GONE);
+                      if (layoutEmpty != null) showEmptyLayout(false);
 
                       // Fetch each seriesId's full DuetSeriesModel
                       java.util.List<DuetSeriesModel> fetched = new java.util.ArrayList<>();
@@ -2207,7 +2347,7 @@ public class UserReelsActivity extends AppCompatActivity
                                           seriesAdapter.setItems(seriesTabData);
                                           if (progressBar != null) progressBar.setVisibility(View.GONE);
                                           if (layoutEmpty != null)
-                                              layoutEmpty.setVisibility(fetched.isEmpty() ? View.VISIBLE : View.GONE);
+                                              showEmptyLayout(fetched.isEmpty());
                                           seriesLoaded = true;
                                       }
                                   }
@@ -2298,7 +2438,7 @@ public class UserReelsActivity extends AppCompatActivity
     private void showSkeleton() {
         adapter.setSkeletonMode(true);
         adapter.notifyDataSetChanged();
-        if (layoutEmpty != null) layoutEmpty.setVisibility(View.GONE);
+        showEmptyLayout(false);
     }
 
     private void fetchAndAppend(List<String> ids, List<ReelModel> target,
@@ -2454,10 +2594,17 @@ public class UserReelsActivity extends AppCompatActivity
     private void finishLoading(boolean refresh, int tab, int insertStart, int insertCount) {
         if (isFinishing() || isDestroyed()) return;
         isLoadingMore = false;
+        boolean wasSkeleton = adapter.isSkeletonMode();
         adapter.setSkeletonMode(false);
         if (tab == activeTab) {
             if (refresh) {
-                adapter.notifyDataSetChanged();
+                if (wasSkeleton) {
+                    // Skeleton → real content: crossfade instead of the old
+                    // instant notifyDataSetChanged() swap.
+                    crossfadeSkeletonToContent(() -> adapter.notifyDataSetChanged());
+                } else {
+                    adapter.notifyDataSetChanged();
+                }
             } else if (insertCount > 0) {
                 adapter.notifyItemRangeInserted(insertStart, insertCount);
             }
@@ -2468,10 +2615,100 @@ public class UserReelsActivity extends AppCompatActivity
         if (!tabData.isEmpty()) cacheGridPage(tab, tabData);
     }
 
+    /**
+     * Crossfades the shimmer skeleton grid into the real loaded content
+     * instead of the old abrupt swap: snapshots rv_reels exactly as it looks
+     * right now (still showing skeleton cells), runs {@code swapDataAndNotify}
+     * to bind the real data underneath, then overlays the snapshot on top and
+     * fades it out — so the shimmer visibly dissolves into the thumbnails
+     * instead of popping. Falls back to an instant swap if anything about the
+     * snapshot/overlay can't be done safely (view not laid out yet, etc.).
+     */
+    private void crossfadeSkeletonToContent(Runnable swapDataAndNotify) {
+        if (rvReels == null || isFinishing() || isDestroyed()
+                || rvReels.getWidth() <= 0 || rvReels.getHeight() <= 0) {
+            swapDataAndNotify.run();
+            return;
+        }
+        Bitmap snapshot;
+        try {
+            snapshot = Bitmap.createBitmap(rvReels.getWidth(), rvReels.getHeight(), Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(snapshot);
+            rvReels.draw(c);
+        } catch (Throwable t) {
+            swapDataAndNotify.run();
+            return;
+        }
+
+        swapDataAndNotify.run(); // real thumbnails are bound underneath now
+
+        try {
+            ViewGroup decor = (ViewGroup) getWindow().getDecorView();
+            ImageView overlay = new ImageView(this);
+            overlay.setImageBitmap(snapshot);
+            overlay.setScaleType(ImageView.ScaleType.FIT_XY);
+
+            int[] loc = new int[2];
+            rvReels.getLocationInWindow(loc);
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(rvReels.getWidth(), rvReels.getHeight());
+            lp.leftMargin = loc[0];
+            lp.topMargin  = loc[1];
+            decor.addView(overlay, lp);
+
+            overlay.animate()
+                    .alpha(0f)
+                    .setDuration(280)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                    .withEndAction(() -> {
+                        ViewGroup p = (ViewGroup) overlay.getParent();
+                        if (p != null) p.removeView(overlay);
+                    })
+                    .start();
+        } catch (Throwable ignored) {
+            // Data is already swapped correctly — worst case is no crossfade.
+        }
+    }
+
+    /**
+     * One-time wiring for the illustrated empty-state animation. If the
+     * Lottie asset ever fails to load/parse on a device, we fall back to the
+     * plain static icon that used to be the only option — the empty state
+     * never ends up showing nothing.
+     */
+    private void setupEmptyStateLottie() {
+        if (lottieEmpty == null) return;
+        lottieEmpty.setFailureListener(t -> {
+            emptyLottieFailed = true;
+            lottieEmpty.setVisibility(View.GONE);
+            if (ivEmptyIcon != null) ivEmptyIcon.setVisibility(View.VISIBLE);
+        });
+    }
+
+    /**
+     * Single source of truth for showing/hiding the empty-state block —
+     * used by refreshEmptyState() (Reels/Liked/Saved/Repost/Duet/Collab tabs)
+     * and loadSeriesTab()/showSkeleton() so the Lottie illustration and its
+     * static fallback stay correctly in sync everywhere layoutEmpty toggles.
+     */
+    private void showEmptyLayout(boolean show) {
+        if (layoutEmpty != null) layoutEmpty.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (!show) {
+            if (lottieEmpty != null) lottieEmpty.pauseAnimation();
+            return;
+        }
+        if (!emptyLottieFailed && lottieEmpty != null) {
+            lottieEmpty.setVisibility(View.VISIBLE);
+            if (ivEmptyIcon != null) ivEmptyIcon.setVisibility(View.GONE);
+            if (!lottieEmpty.isAnimating()) lottieEmpty.playAnimation();
+        } else if (ivEmptyIcon != null) {
+            ivEmptyIcon.setVisibility(View.VISIBLE);
+        }
+    }
+
     private void refreshEmptyState() {
         if (activeTab == TAB_SERIES) return; // series tab manages own empty state
         boolean empty = activeTabData().isEmpty() && !adapter.hasPinned();
-        if (layoutEmpty != null) layoutEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
+        showEmptyLayout(empty);
         if (rvReels != null) rvReels.setVisibility(empty ? View.GONE : View.VISIBLE);
         if (tvEmptyTitle == null) return;
         switch (activeTab) {
@@ -2494,6 +2731,64 @@ public class UserReelsActivity extends AppCompatActivity
                 tvEmptyTitle.setText("No Reels Yet");
                 if (tvEmptySubtitle != null) tvEmptySubtitle.setText("This creator hasn't posted any reels yet.");
         }
+    }
+
+    // ── Grid quick-like (double-tap) ─────────────────────────────────────
+
+    /**
+     * Instagram-style double-tap-to-like from the grid: never unlikes —
+     * a repeat double-tap on an already-liked reel just re-plays the heart
+     * burst (handled purely in ReelGridAdapter) with no extra write here.
+     * Mirrors the Firebase write pattern in ReelSocialController#toggleLike()
+     * so like counts/notifications stay consistent with the player screen.
+     */
+    private void likeReelFromGrid(int adapterPosition) {
+        if (adapter == null) return;
+        final ReelModel targetReel;
+        if (adapter.hasPinned() && adapterPosition == 0) {
+            targetReel = pinnedReel;
+        } else {
+            int dataIdx = adapter.hasPinned() ? adapterPosition - 1 : adapterPosition;
+            List<ReelModel> data = activeTabData();
+            if (dataIdx < 0 || dataIdx >= data.size()) return;
+            targetReel = data.get(dataIdx);
+        }
+        if (targetReel == null || targetReel.reelId == null) return;
+
+        final String myUid = safeMyUid();
+        if (myUid == null) return;
+        final int finalAdapterPosition = adapterPosition;
+
+        DatabaseReference likeRef = FirebaseUtils.getReelLikesRef(targetReel.reelId).child(myUid);
+        likeRef.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                if (isFinishing() || isDestroyed() || snap.exists()) return; // already liked — heart burst is enough
+
+                DatabaseReference countRef = FirebaseUtils.getReelsRef().child(targetReel.reelId).child("likesCount");
+                DatabaseReference likedByUserRef = FirebaseUtils.getReelLikedByUserRef(myUid).child(targetReel.reelId);
+                likeRef.setValue(true);
+                likedByUserRef.setValue(System.currentTimeMillis());
+                countRef.runTransaction(new Transaction.Handler() {
+                    @NonNull @Override public Transaction.Result doTransaction(@NonNull MutableData d) {
+                        Integer c = d.getValue(Integer.class);
+                        d.setValue(c != null ? c + 1 : 1);
+                        return Transaction.success(d);
+                    }
+                    @Override public void onComplete(@Nullable DatabaseError e, boolean committed, @Nullable DataSnapshot s) {}
+                });
+
+                targetReel.likesCount = targetReel.likesCount + 1;
+                if (adapter != null) adapter.notifyItemChanged(finalAdapterPosition);
+
+                if (targetReel.uid != null && !targetReel.uid.equals(myUid)) {
+                    String myName = FirebaseUtils.getCurrentName();
+                    com.callx.app.utils.PushNotify.notifyReelLike(
+                        targetReel.uid, myUid, myName, targetReel.reelId,
+                        targetReel.thumbUrl != null ? targetReel.thumbUrl : "");
+                }
+            }
+            @Override public void onCancelled(@NonNull DatabaseError error) {}
+        });
     }
 
     // ── Open player ───────────────────────────────────────────────────────
@@ -2520,32 +2815,87 @@ public class UserReelsActivity extends AppCompatActivity
         intent.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, safeIdx);
         intent.putExtra(SingleReelPlayerActivity.EXTRA_TITLE,
             targetName != null ? targetName + "'s Reels" : "Reels");
-        startActivity(intent);
+
+        // ── Grid → player open animation ────────────────────────────────
+        // Instagram-style "pinch zoom" reveal: the tapped thumbnail scales
+        // up from its exact on-screen rect to fill the player, instead of
+        // the plain default activity swap. Uses ActivityOptions'
+        // makeScaleUpAnimation (framework-native, no fragile shared-element
+        // matching needed across the player's ViewPager2/Fragment views).
+        startActivity(intent, buildGridOpenTransitionBundle(adapterPos));
     }
 
-    // ── Long press ────────────────────────────────────────────────────────
+    /**
+     * Builds the scale-up reveal options anchored to the tapped grid cell's
+     * thumbnail, if it's currently laid out and on-screen. Falls back to a
+     * plain (no-bundle) launch if the ViewHolder/thumbnail can't be resolved
+     * — e.g. the tap happened right as the view was being recycled.
+     */
+    private android.os.Bundle buildGridOpenTransitionBundle(int adapterPos) {
+        try {
+            if (rvReels == null) return null;
+            RecyclerView.ViewHolder holder = rvReels.findViewHolderForAdapterPosition(adapterPos);
+            if (holder == null) return null;
+            View thumb = holder.itemView.findViewById(R.id.iv_thumb);
+            if (thumb == null) thumb = holder.itemView.findViewById(R.id.iv_pinned_thumb);
+            if (thumb == null || thumb.getWidth() <= 0 || thumb.getHeight() <= 0) return null;
+            int[] loc = new int[2];
+            thumb.getLocationOnScreen(loc);
+            ActivityOptions options = ActivityOptions.makeScaleUpAnimation(
+                    thumb, 0, 0, thumb.getWidth(), thumb.getHeight());
+            return options.toBundle();
+        } catch (Throwable t) {
+            return null; // safe fallback — plain startActivity(intent, null) below
+        }
+    }
+
+    // ── Long press → peek preview ───────────────────────────────────────
+    //
+    // Fires the instant a press-and-hold crosses the system long-press
+    // timeout (see ReelGridAdapter#wireItemInteractions) — this is the
+    // "peek START" edge. The matching "peek END" edge (finger lifted) is
+    // wired to dismissPreviewDialog() via setLongPressReleaseListener() in
+    // onCreate. A quick tap never reaches this method at all.
 
     @Override
     public void onLongPress(int adapterPos) {
         List<ReelModel> data = activeTabData();
         int reelIdx = adapter.hasPinned() ? adapterPos - 1 : adapterPos;
 
-        // Long-pressing the pinned reel tile (adapter position 0) has no
-        // matching entry in `data` (reelIdx would be -1), so it used to
-        // fall through to enterMultiSelectMode() instead of offering an
-        // unpin option. Route it to the same options sheet directly.
-        if (isSelf && activeTab == TAB_REELS && adapter.hasPinned() && adapterPos == 0 && pinnedReel != null) {
-            showAnalyticsSheet(pinnedReel, adapterPos);
+        ReelModel reel;
+        // Self's own Reels tab gets a management-oriented secondary action
+        // (Insights/Pin/Share/Delete) instead of multi-select — same rule
+        // the old immediate-dialog behavior used.
+        boolean ownerContext = isSelf && activeTab == TAB_REELS;
+
+        if (ownerContext && adapter.hasPinned() && adapterPos == 0 && pinnedReel != null) {
+            reel = pinnedReel;
+        } else if (reelIdx >= 0 && reelIdx < data.size()) {
+            reel = data.get(reelIdx);
+        } else {
+            reel = null;
+        }
+
+        if (reel == null) { enterMultiSelectMode(adapterPos); return; }
+
+        if (reel.videoUrl == null || reel.videoUrl.isEmpty()) {
+            // Nothing to preview — fall back straight to the old immediate action.
+            if (ownerContext) showAnalyticsSheet(reel, adapterPos);
+            else enterMultiSelectMode(adapterPos);
             return;
         }
-        if (isSelf && activeTab == TAB_REELS && reelIdx >= 0 && reelIdx < data.size()) {
-            showAnalyticsSheet(data.get(reelIdx), adapterPos);
-            return;
-        }
-        if (reelIdx < 0 || reelIdx >= data.size()) { enterMultiSelectMode(adapterPos); return; }
-        ReelModel reel = data.get(reelIdx);
-        if (reel.videoUrl == null || reel.videoUrl.isEmpty()) { enterMultiSelectMode(adapterPos); return; }
-        showVideoPreviewDialog(reel, adapterPos);
+
+        final ReelModel finalReel = reel;
+        String secondaryLabel  = ownerContext ? "Options" : "Select";
+        int    secondaryIconId = ownerContext ? R.drawable.ic_more_vert : R.drawable.ic_check_circle;
+
+        peekController.show(reel, secondaryLabel, secondaryIconId, new ReelPeekPreviewController.Callback() {
+            @Override public void onWatchFull() { openPlayerAt(adapterPos); }
+            @Override public void onSecondaryAction() {
+                if (ownerContext) showAnalyticsSheet(finalReel, adapterPos);
+                else enterMultiSelectMode(adapterPos);
+            }
+        });
     }
 
     // ── Analytics sheet (Feature 15) ──────────────────────────────────────
@@ -2584,53 +2934,13 @@ public class UserReelsActivity extends AppCompatActivity
             "Cancel");
     }
 
-    // ── Video preview dialog (Feature 4) ──────────────────────────────────
-
-    private void showVideoPreviewDialog(ReelModel reel, int adapterPos) {
-        dismissPreviewDialog();
-        previewDialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
-        previewDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        previewDialog.setContentView(R.layout.dialog_reel_preview);
-        Window w = previewDialog.getWindow();
-        if (w != null) w.setLayout(
-            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
-
-        PlayerView playerView = previewDialog.findViewById(R.id.preview_player_view);
-        TextView   tvCap      = previewDialog.findViewById(R.id.tv_preview_caption);
-        TextView   tvDur      = previewDialog.findViewById(R.id.tv_preview_duration);
-        View       btnSelect  = previewDialog.findViewById(R.id.btn_preview_select);
-        View       btnPlay    = previewDialog.findViewById(R.id.btn_preview_play);
-
-        if (tvCap != null && reel.caption != null && !reel.caption.isEmpty()) {
-            tvCap.setText(reel.caption); tvCap.setVisibility(View.VISIBLE);
-        }
-        if (tvDur != null && reel.duration > 0) {
-            int s = (reel.duration / 1000) % 60, m = reel.duration / 60000;
-            tvDur.setText(String.format(Locale.getDefault(), "%d:%02d", m, s));
-        }
-
-        previewPlayer = new ExoPlayer.Builder(this).build();
-        previewPlayer.setVolume(0f);
-        previewPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
-        if (playerView != null) playerView.setPlayer(previewPlayer);
-        previewPlayer.setMediaItem(MediaItem.fromUri(reel.videoUrl));
-        previewPlayer.prepare();
-        previewPlayer.setPlayWhenReady(true);
-
-        if (btnSelect != null) btnSelect.setOnClickListener(v -> {
-            dismissPreviewDialog(); enterMultiSelectMode(adapterPos);
-        });
-        if (btnPlay != null) btnPlay.setOnClickListener(v -> {
-            dismissPreviewDialog(); openPlayerAt(adapterPos);
-        });
-        previewDialog.setOnDismissListener(d -> dismissPreviewDialog());
-        previewDialog.show();
-    }
+    // ── Peek preview dismiss ────────────────────────────────────────────
+    // Kept under its original name (called from onPause/onDestroy/the
+    // adapter's release-callback) — now just closes the peek popup instead
+    // of the old full-screen Dialog + ExoPlayer pair it used to own.
 
     private void dismissPreviewDialog() {
-        if (previewPlayer != null) { previewPlayer.release(); previewPlayer = null; }
-        if (previewDialog != null && previewDialog.isShowing()) previewDialog.dismiss();
-        previewDialog = null;
+        if (peekController != null) peekController.dismiss();
     }
 
     // ── Multi-select (Feature 5) ──────────────────────────────────────────
@@ -4378,7 +4688,7 @@ public class UserReelsActivity extends AppCompatActivity
             this, photoUrl, name, R.drawable.ic_person, R.drawable.ic_close);
     }
 
-    @Override protected void onPause()  { super.onPause();  dismissPreviewDialog(); stopAvatarAnimation(); }
+    @Override protected void onPause()  { super.onPause();  dismissPreviewDialog(); stopAvatarAnimation(); if (lottieEmpty != null) lottieEmpty.pauseAnimation(); }
 
     /**
      * ✅ Instagram approach: on every resume AFTER the first (i.e. returning
@@ -4390,6 +4700,10 @@ public class UserReelsActivity extends AppCompatActivity
     protected void onResume() {
         super.onResume();
         loadAvatarAndStartAnimation();
+        if (lottieEmpty != null && layoutEmpty != null
+                && layoutEmpty.getVisibility() == View.VISIBLE && !emptyLottieFailed) {
+            lottieEmpty.resumeAnimation();
+        }
         if (!isFirstResume && isSelf && activeTab == TAB_REELS) {
             silentRefreshReels();
         }
@@ -4406,6 +4720,7 @@ public class UserReelsActivity extends AppCompatActivity
         dismissPreviewDialog();
         stopAvatarAnimation();
         cancelStoryRingReveal();
+        if (lottieEmpty != null) lottieEmpty.cancelAnimation();
         dbExecutor.shutdown();
         // Remove persistent Firebase listeners to avoid memory/network leaks
         if (reelCountLiveListener != null && targetUid != null) {
