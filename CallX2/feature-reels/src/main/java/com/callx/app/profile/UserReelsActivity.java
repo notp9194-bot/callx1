@@ -123,7 +123,8 @@ public class UserReelsActivity extends AppCompatActivity
     private android.widget.HorizontalScrollView hsvBioLinks;
     private LinearLayout    llBioChips;
     // ── Profile Song pill (Instagram-style) ───────────────────────────────────
-    private View            layoutProfileSong;
+    private View            layoutProfileSong;      // outer section row (controls visibility)
+    private View            layoutProfileSongPill;  // inner pill visual (carries bg_song_pill + accent color)
     private TextView        tvProfileSongName;
     private View            layoutAddSongStub;   // isSelf + no song → "Add a song" stub
     // Custom accent color for the profile-song strip (picked via the shared
@@ -510,9 +511,10 @@ public class UserReelsActivity extends AppCompatActivity
         appBarLayout     = findViewById(R.id.app_bar);
         hsvBioLinks       = findViewById(R.id.hsv_bio_links);
         llBioChips        = findViewById(R.id.ll_bio_chips);
-        layoutProfileSong = findViewById(R.id.layout_profile_song);
-        tvProfileSongName = findViewById(R.id.tv_profile_song_name);
-        layoutAddSongStub = findViewById(R.id.layout_add_song_stub);
+        layoutProfileSong     = findViewById(R.id.layout_profile_song);
+        layoutProfileSongPill = findViewById(R.id.layout_profile_song_pill);
+        tvProfileSongName     = findViewById(R.id.tv_profile_song_name);
+        layoutAddSongStub     = findViewById(R.id.layout_add_song_stub);
         btnMessageCta     = findViewById(R.id.btn_message_cta);
         btnCtaCall       = findViewById(R.id.btn_cta_call);
         layoutInstagramCta = findViewById(R.id.layout_instagram_cta);
@@ -3665,8 +3667,11 @@ public class UserReelsActivity extends AppCompatActivity
         } else {
             bg = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_song_pill);
         }
-        if (layoutProfileSong  != null) layoutProfileSong.setBackground(bg);
-        if (layoutAddSongStub  != null) layoutAddSongStub.setBackground(bg != null ? bg.getConstantState().newDrawable().mutate() : null);
+        // Apply to the INNER pill view (not the outer section wrapper) so accent
+        // color shapes correctly to the pill bounds, not the full-width row.
+        View pillTarget = layoutProfileSongPill != null ? layoutProfileSongPill : layoutProfileSong;
+        if (pillTarget != null) pillTarget.setBackground(bg);
+        if (layoutAddSongStub != null) layoutAddSongStub.setBackground(bg != null ? bg.getConstantState().newDrawable().mutate() : null);
     }
 
     /**

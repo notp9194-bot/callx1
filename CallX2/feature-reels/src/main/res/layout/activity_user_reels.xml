@@ -353,49 +353,84 @@
                     android:gravity="center_vertical"/>
             </HorizontalScrollView>
 
-            <!-- ── Instagram-style Profile Song pill (Screenshot 1 / 2 style) ──
+            <!-- ── Instagram-style Profile Song row (Screenshot 1 / 2 style) ──
                  Hidden by default. UserReelsActivity shows it when the user has
-                 a profileSong set. Tap → SoundDetailBottomSheet (Screenshot 3/4).
-                 Long-press (isSelf) → common rainbow color picker to recolor
-                 the strip; tap also offers Replace/Remove for isSelf.
-                 Thin, premium pill: 26dp tall, theme-aware hairline border via
-                 bg_song_pill.xml / drawable-night/bg_song_pill.xml. -->
+                 a profileSong set. Row = [pill (music icon + name + play)] + [waveform bars].
+                 The outer wrapper controls visibility; the inner pill carries the
+                 bg_song_pill background + click/long-click listeners.
+                 Tap → SoundDetailBottomSheet. isSelf: tap → Open/Replace/Remove menu.
+            -->
             <LinearLayout
                 android:id="@+id/layout_profile_song"
-                android:layout_width="wrap_content"
-                android:layout_height="26dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:paddingStart="12dp"
-                android:paddingEnd="14dp"
-                android:layout_marginStart="16dp"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
                 android:layout_marginTop="6dp"
                 android:layout_marginBottom="4dp"
-                android:background="@drawable/bg_song_pill"
                 android:clickable="true"
                 android:focusable="true"
                 android:foreground="?attr/selectableItemBackground"
                 android:visibility="gone">
 
-                <ImageView
-                    android:layout_width="14dp"
-                    android:layout_height="14dp"
-                    android:src="@drawable/ic_play"
-                    android:tint="?attr/colorOnSurface"
-                    android:layout_marginEnd="6dp"
-                    android:contentDescription="Now playing"/>
+                <!-- Visual pill: music icon + song name + play chevron
+                     Default bg_song_pill applied here; Java overwrites with accent color when set. -->
+                <LinearLayout
+                    android:id="@+id/layout_profile_song_pill"
+                    android:layout_width="0dp"
+                    android:layout_height="30dp"
+                    android:layout_weight="1"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:background="@drawable/bg_song_pill"
+                    android:clipToOutline="true">
 
-                <TextView
-                    android:id="@+id/tv_profile_song_name"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textSize="12.5sp"
-                    android:textColor="?attr/colorOnSurface"
-                    android:fontFamily="sans-serif-medium"
-                    android:maxWidth="220dp"
-                    android:maxLines="1"
-                    android:ellipsize="end"
-                    android:text="Song name..."/>
+                    <!-- Music note icon -->
+                    <ImageView
+                        android:layout_width="13dp"
+                        android:layout_height="13dp"
+                        android:src="@drawable/ic_music"
+                        android:tint="?attr/colorOnSurface"
+                        android:layout_marginEnd="5dp"
+                        android:contentDescription="Now playing"/>
+
+                    <!-- Song name (flexible, takes remaining pill width) -->
+                    <TextView
+                        android:id="@+id/tv_profile_song_name"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textSize="12.5sp"
+                        android:textColor="?attr/colorOnSurface"
+                        android:fontFamily="sans-serif-medium"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:text="Song name..."/>
+
+                    <!-- Play chevron icon (right inside pill) -->
+                    <ImageView
+                        android:layout_width="11dp"
+                        android:layout_height="11dp"
+                        android:layout_marginStart="6dp"
+                        android:src="@drawable/ic_play"
+                        android:tint="?attr/colorOnSurface"
+                        android:contentDescription="Play"/>
+                </LinearLayout>
+
+                <!-- Animated waveform bars (Instagram-style audio visualizer, right of pill) -->
+                <ImageView
+                    android:id="@+id/iv_song_waveform"
+                    android:layout_width="32dp"
+                    android:layout_height="26dp"
+                    android:layout_marginStart="10dp"
+                    android:src="@drawable/ic_waveform_bars"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="Audio waveform"/>
+
             </LinearLayout>
 
             <!-- ── isSelf: empty song stub pill — tap to add a song ──
@@ -405,7 +440,7 @@
             <LinearLayout
                 android:id="@+id/layout_add_song_stub"
                 android:layout_width="wrap_content"
-                android:layout_height="26dp"
+                android:layout_height="30dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:paddingStart="12dp"
