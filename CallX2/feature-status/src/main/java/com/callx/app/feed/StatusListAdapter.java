@@ -74,6 +74,10 @@ package com.callx.app.feed;
            *  {@link com.callx.app.utils.HighlightRingDrawable#MODE_DOMINANT};
            *  only meaningful when ringColor is non-empty. */
           public final String  ringMode;
+          /** v236: true only for the trailing "Hidden" tile appended to the
+           *  carousel when the user has 1+ hidden contacts. Every other field
+           *  is unused/blank on that tile — StatusCardAdapter special-cases it. */
+          public final boolean isHiddenTile;
           public CardItem(boolean isMine, boolean hasStatus, String ownerUid, String ownerName,
                           String ownerPhoto, String thumbUrl, String bgColor,
                           boolean unseen, boolean isMuted) {
@@ -83,17 +87,30 @@ package com.callx.app.feed;
           public CardItem(boolean isMine, boolean hasStatus, String ownerUid, String ownerName,
                           String ownerPhoto, String thumbUrl, String bgColor,
                           boolean unseen, boolean isMuted, String ringColor, String ringMode) {
-              this.isMine     = isMine;
-              this.hasStatus  = hasStatus;
-              this.ownerUid   = ownerUid;
-              this.ownerName  = ownerName;
-              this.ownerPhoto = ownerPhoto;
-              this.thumbUrl   = thumbUrl;
-              this.bgColor    = bgColor;
-              this.unseen     = unseen;
-              this.isMuted    = isMuted;
-              this.ringColor  = ringColor;
-              this.ringMode   = ringMode;
+              this(isMine, hasStatus, ownerUid, ownerName, ownerPhoto, thumbUrl, bgColor,
+                      unseen, isMuted, ringColor, ringMode, false);
+          }
+          public CardItem(boolean isMine, boolean hasStatus, String ownerUid, String ownerName,
+                          String ownerPhoto, String thumbUrl, String bgColor,
+                          boolean unseen, boolean isMuted, String ringColor, String ringMode,
+                          boolean isHiddenTile) {
+              this.isMine       = isMine;
+              this.hasStatus    = hasStatus;
+              this.ownerUid     = ownerUid;
+              this.ownerName    = ownerName;
+              this.ownerPhoto   = ownerPhoto;
+              this.thumbUrl     = thumbUrl;
+              this.bgColor      = bgColor;
+              this.unseen       = unseen;
+              this.isMuted      = isMuted;
+              this.ringColor    = ringColor;
+              this.ringMode     = ringMode;
+              this.isHiddenTile = isHiddenTile;
+          }
+          /** v236: factory for the trailing "Hidden" tile. */
+          public static CardItem hiddenTile() {
+              return new CardItem(false, true, "__hidden__", "Hidden",
+                      null, null, null, false, false, null, null, true);
           }
       }
 
@@ -166,6 +183,8 @@ package com.callx.app.feed;
       private List<Entry> lastUnseen = new ArrayList<>();
       private List<Entry> lastSeen   = new ArrayList<>();
       private List<Entry> lastMuted  = new ArrayList<>();
+      private int lastHiddenCount    = 0; // v236
+      private Runnable onHiddenCardClick; // v236
       private final SimpleDateFormat timeFmt =
               new SimpleDateFormat("HH:mm", Locale.getDefault());
 
@@ -201,6 +220,9 @@ package com.callx.app.feed;
 
       public void setHighlightClickListener(HighlightClickListener l) { this.onHighlightClick = l; }
 
+      /** v236: called when the trailing "Hidden" carousel tile is tapped. */
+      public void setOnHiddenCardClickListener(Runnable l) { this.onHiddenCardClick = l; }
+
       // ── FIX: Update highlights strip data ────────────────────────────────
       public void updateHighlights(List<HighlightAlbum> albums) {
           this.highlights = albums != null ? albums : new ArrayList<>();
@@ -209,21 +231,27 @@ package com.callx.app.feed;
 
       // ── Data update ───────────────────────────────────────────────────────
       public void update(List<Entry> unseen, List<Entry> seen) {
-          update(unseen, seen, new ArrayList<>());
+          update(unseen, seen, new ArrayList<>(), 0);
       }
 
       public void update(List<Entry> unseen, List<Entry> seen, List<Entry> muted) {
+          update(unseen, seen, muted, 0);
+      }
+
+      /** v236: hiddenCount appends a trailing "Hidden" tile to the carousel when > 0. */
+      public void update(List<Entry> unseen, List<Entry> seen, List<Entry> muted, int hiddenCount) {
           final int prevMyCount = myStatusCount;
           myStatusCount = myStatuses.size();
-          lastUnseen = unseen; lastSeen = seen; lastMuted = muted;
-          List<FlatItem> next = buildFlatItems(unseen, seen, muted);
+          lastUnseen = unseen; lastSeen = seen; lastMuted = muted; lastHiddenCount = hiddenCount;
+          List<FlatItem> next = buildFlatItems(unseen, seen, muted, hiddenCount);
           dispatchDiff(next, prevMyCount);
       }
 
       // v27: builds the "My status" tile + all contact statuses into one CardItem list
       // that's rendered as a single horizontal scrolling carousel (WhatsApp-style cards),
       // instead of the old vertical "My status" row + "Recent/Viewed updates" list rows.
-      private List<CardItem> buildCarouselItems(List<Entry> unseen, List<Entry> seen) {
+      // v236: optionally appends a trailing "Hidden" tile at the very end.
+      private List<CardItem> buildCarouselItems(List<Entry> unseen, List<Entry> seen, int hiddenCount) {
           List<CardItem> cards = new ArrayList<>();
           if (myStatuses.isEmpty()) {
               cards.add(new CardItem(true, false, myUid, "My Status", null, null, null, false, false));
@@ -235,6 +263,7 @@ package com.callx.app.feed;
           }
           for (Entry e : unseen) cards.add(entryToCard(e, true));
           for (Entry e : seen)   cards.add(entryToCard(e, false));
+          if (hiddenCount > 0)   cards.add(CardItem.hiddenTile());
           return cards;
       }
 
@@ -248,14 +277,15 @@ package com.callx.app.feed;
                   unseen, e.isMuted, ringColor, ringMode);
       }
 
-      private List<FlatItem> buildFlatItems(List<Entry> unseen, List<Entry> seen, List<Entry> muted) {
+      private List<FlatItem> buildFlatItems(List<Entry> unseen, List<Entry> seen, List<Entry> muted, int hiddenCount) {
           List<FlatItem> next = new ArrayList<>();
           // FIX: Highlights strip at very top (if any exist)
           if (!highlights.isEmpty()) {
               next.add(new FlatItem(ITEM_HIGHLIGHTS, null, null));
           }
           // v27: My-status + contacts now render as one horizontal card carousel
-          next.add(new FlatItem(ITEM_CAROUSEL, buildCarouselItems(unseen, seen)));
+          // v236: trailing "Hidden" tile appended inside the carousel when hiddenCount > 0
+          next.add(new FlatItem(ITEM_CAROUSEL, buildCarouselItems(unseen, seen, hiddenCount)));
           if (!muted.isEmpty()) {
               next.add(new FlatItem(ITEM_MUT_HDR, "Muted", null));
               for (Entry e : muted) next.add(new FlatItem(ITEM_MUT_ROW, null, e));
@@ -268,7 +298,7 @@ package com.callx.app.feed;
           // rather than re-parsing the flat list (carousel no longer exposes rows).
           final int prevMyCount = myStatusCount;
           myStatusCount = myStatuses.size();
-          List<FlatItem> next = buildFlatItems(lastUnseen, lastSeen, lastMuted);
+          List<FlatItem> next = buildFlatItems(lastUnseen, lastSeen, lastMuted, lastHiddenCount);
           dispatchDiff(next, prevMyCount);
       }
 
@@ -375,7 +405,9 @@ package com.callx.app.feed;
                       new LinearLayoutManager(h.itemView.getContext(), LinearLayoutManager.HORIZONTAL, false));
           }
           StatusCardAdapter cardAdapter = new StatusCardAdapter(cards, card -> {
-              if (card.isMine) {
+              if (card.isHiddenTile) {
+                  if (onHiddenCardClick != null) onHiddenCardClick.run();
+              } else if (card.isMine) {
                   if (card.hasStatus) { if (onMyStatusClick != null) onMyStatusClick.run(); }
                   else                { if (onAddStatusClick != null) onAddStatusClick.run(); }
               } else if (!card.isMuted && onContactClick != null) {
@@ -386,7 +418,8 @@ package com.callx.app.feed;
                           android.widget.Toast.LENGTH_SHORT).show();
               }
           }, card -> {
-              if (!card.isMine && onLongPress != null) onLongPress.onLongPress(card.ownerUid, card.ownerName, card.isMuted);
+              if (!card.isMine && !card.isHiddenTile && onLongPress != null)
+                  onLongPress.onLongPress(card.ownerUid, card.ownerName, card.isMuted);
           });
           h.rvCarousel.setAdapter(cardAdapter);
       }
@@ -671,6 +704,29 @@ package com.callx.app.feed;
           @Override public void onBindViewHolder(@NonNull VH h, int pos) {
               CardItem c = cards.get(pos);
               Context ctx = h.itemView.getContext();
+
+              // v236: trailing "Hidden" tile — eye-off icon, no ring/badge/thumb, own click path
+              if (c.isHiddenTile) {
+                  h.tvName.setText("Hidden");
+                  h.ivBg.setImageResource(com.callx.app.core.R.drawable.ic_eye_off);
+                  h.ivBg.setScaleType(ImageView.ScaleType.CENTER);
+                  h.ivBg.setBackgroundColor(android.graphics.Color.parseColor("#2A2A2A"));
+                  h.ivBg.setColorFilter(android.graphics.Color.parseColor("#99FFFFFF"));
+                  h.ring.setVisibility(View.GONE);
+                  h.ivAvatar.setVisibility(View.GONE);
+                  h.ivAddBadge.setVisibility(View.GONE);
+                  if (h.flAvatar != null) h.flAvatar.setVisibility(View.GONE);
+                  h.itemView.setOnClickListener(v -> { if (onClick != null) onClick.accept(c); });
+                  h.itemView.setOnLongClickListener(null);
+                  return;
+              }
+              // Reset flags a recycled hidden-tile VH may have left behind
+              h.ivBg.setScaleType(ImageView.ScaleType.CENTER_CROP);
+              h.ivBg.setColorFilter(null);
+              h.ivBg.setBackgroundColor(android.graphics.Color.parseColor("#3A3A3A"));
+              h.ring.setVisibility(View.VISIBLE);
+              h.ivAvatar.setVisibility(View.VISIBLE);
+              if (h.flAvatar != null) h.flAvatar.setVisibility(View.VISIBLE);
 
               h.tvName.setText(c.isMine ? "My Status" : (c.ownerName != null ? c.ownerName : ""));
 

@@ -266,6 +266,14 @@
             android:name="com.callx.app.highlights.CreateHighlightActivity"
             android:theme="@style/Theme.CallX"
             android:exported="false"/>
+
+        <!-- v236: Hidden updates — list of contacts whose statuses have been
+             hidden via long-press → "Hide" on the Status carousel. Reached by
+             tapping the trailing "Hidden" tile at the end of that carousel. -->
+        <activity
+            android:name="com.callx.app.hidden.StatusHiddenUpdatesActivity"
+            android:theme="@style/Theme.CallX"
+            android:exported="false"/>
     </application>
 
 </manifest>

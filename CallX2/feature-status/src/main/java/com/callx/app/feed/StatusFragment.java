@@ -155,6 +155,7 @@ public class StatusFragment extends BaseFragment {
             },
             (ownerUid, ownerName, isMuted) -> showContactContextMenu(ownerUid, ownerName, isMuted)
         );
+        statusAdapter.setOnHiddenCardClickListener(this::openHiddenUpdates); // v236
         // v50 FIX: Highlights strip removed from the Status tab. Highlights are
         // already surfaced on the profile screen (UserReelsActivity), so showing
         // them again here was redundant. We simply stop wiring the click listener
@@ -510,10 +511,12 @@ public class StatusFragment extends BaseFragment {
 
     private void rebuildStatusAdapter() {
         if (getContext() == null) return;
-        Set<String> mutedSet = StatusMuteManager.getMutedSet(getContext());
+        Set<String> mutedSet  = StatusMuteManager.getMutedSet(getContext());
+        Set<String> hiddenSet = StatusHideManager.getHiddenSet(getContext()); // v236
         List<StatusListAdapter.Entry> unseen = new ArrayList<>();
         List<StatusListAdapter.Entry> seen   = new ArrayList<>();
         List<StatusListAdapter.Entry> muted  = new ArrayList<>();
+        List<StatusListAdapter.Entry> hidden = new ArrayList<>(); // v236
         for (Map.Entry<String, List<StatusItem>> e : statusMap.entrySet()) {
             String uid = e.getKey();
             List<StatusItem> items2 = e.getValue();
@@ -529,21 +532,26 @@ public class StatusFragment extends BaseFragment {
             String latestReaction = null;
             if (latest.reactions != null && !latest.reactions.isEmpty())
                 latestReaction = latest.reactions.values().iterator().next();
-            boolean isMutedContact = mutedSet.contains(uid);
+            boolean isMutedContact  = mutedSet.contains(uid);
+            boolean isHiddenContact = hiddenSet.contains(uid); // v236
             boolean isCF = StatusCloseFriendsManager.isCloseFriend(getContext(), uid);
             StatusListAdapter.Entry entry = new StatusListAdapter.Entry(
                 uid, latest.ownerName, latest.ownerPhoto,
                 latest.timestamp, items2.size(), unseenCount,
                 latest, isMutedContact, latestReaction, isCF);
-            if (isMutedContact)       muted.add(entry);
+            // v236: hidden takes priority — a hidden contact never shows in the
+            // main carousel or the Muted section, only inside "Hidden updates".
+            if (isHiddenContact)      hidden.add(entry);
+            else if (isMutedContact)  muted.add(entry);
             else if (unseenCount > 0) unseen.add(entry);
             else                      seen.add(entry);
         }
         Comparator<StatusListAdapter.Entry> byTime = (a, b) -> Long.compare(
             b.latestTimestamp == null ? 0 : b.latestTimestamp,
             a.latestTimestamp == null ? 0 : a.latestTimestamp);
-        unseen.sort(byTime); seen.sort(byTime); muted.sort(byTime);
-        statusAdapter.update(unseen, seen, muted);
+        unseen.sort(byTime); seen.sort(byTime); muted.sort(byTime); hidden.sort(byTime);
+        lastHiddenEntries = hidden; // v236 — kept for the Hidden updates screen
+        statusAdapter.update(unseen, seen, muted, hidden.size());
         if (mediaPreloader != null) {
             for (StatusListAdapter.Entry en : unseen) {
                 List<StatusItem> it = statusMap.get(en.ownerUid);
@@ -552,12 +560,56 @@ public class StatusFragment extends BaseFragment {
         }
     }
 
+    // ── v236: Hide status feature ───────────────────────────────────────────
+    private List<StatusListAdapter.Entry> lastHiddenEntries = new ArrayList<>();
+
+    private void openHiddenUpdates() {
+        if (getContext() == null || lastHiddenEntries.isEmpty()) return;
+        ArrayList<String> uids = new ArrayList<>();
+        ArrayList<String> names = new ArrayList<>();
+        ArrayList<String> photos = new ArrayList<>();
+        long[] timestamps = new long[lastHiddenEntries.size()];
+        for (int i = 0; i < lastHiddenEntries.size(); i++) {
+            StatusListAdapter.Entry en = lastHiddenEntries.get(i);
+            uids.add(en.ownerUid);
+            names.add(en.ownerName != null ? en.ownerName : "");
+            photos.add(en.ownerPhoto != null ? en.ownerPhoto : "");
+            timestamps[i] = en.latestTimestamp != null ? en.latestTimestamp : 0L;
+        }
+        Intent i = new Intent(requireContext(),
+            com.callx.app.hidden.StatusHiddenUpdatesActivity.class);
+        i.putStringArrayListExtra(com.callx.app.hidden.StatusHiddenUpdatesActivity.EXTRA_UIDS, uids);
+        i.putStringArrayListExtra(com.callx.app.hidden.StatusHiddenUpdatesActivity.EXTRA_NAMES, names);
+        i.putStringArrayListExtra(com.callx.app.hidden.StatusHiddenUpdatesActivity.EXTRA_PHOTOS, photos);
+        i.putExtra(com.callx.app.hidden.StatusHiddenUpdatesActivity.EXTRA_TIMESTAMPS, timestamps);
+        startActivity(i);
+    }
+
+    /** v236: confirm dialog shown from the long-press menu's "Hide" option — matches
+     *  the WhatsApp-style "Hide X's statuses?" alert. On confirm, the contact drops out
+     *  of the main list/Muted section immediately and only appears under "Hidden updates". */
+    private void confirmHideContact(String ownerUid, String ownerName) {
+        if (getContext() == null) return;
+        String name = ownerName != null && !ownerName.isEmpty() ? ownerName : "this contact";
+        AlertDialogStyler.showReusableConfirm(requireContext(), "hide_status_confirm",
+            AlertDialogStyler.DialogSize.WIDE,
+            "Hide " + name + "'s statuses?",
+            "New statuses from " + name + " won't appear under recent updates anymore.",
+            "Hide", () -> {
+                StatusHideManager.hide(getContext(), ownerUid);
+                rebuildStatusAdapter();
+            },
+            null, null,
+            "Cancel");
+    }
+
     private void showContactContextMenu(String ownerUid, String ownerName, boolean isMuted) {
         if (getContext() == null) return;
         boolean isCF  = StatusCloseFriendsManager.isCloseFriend(getContext(), ownerUid);
         String muteLabel = isMuted ? "Unmute " + ownerName : "Mute " + ownerName;
         String cfLabel   = isCF   ? "Remove from Close Friends" : "Add to Close Friends ⭐";
-        String[] options = {muteLabel, cfLabel, "Cancel"};
+        String hideLabel = "Hide " + ownerName; // v236
+        String[] options = {muteLabel, cfLabel, hideLabel, "Cancel"};
         AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(requireContext())
             .setItems(options, (d, which) -> {
                 if (which == 0) {
@@ -575,6 +627,8 @@ public class StatusFragment extends BaseFragment {
                             : ownerName + " removed from Close Friends",
                         Toast.LENGTH_SHORT).show();
                     rebuildStatusAdapter();
+                } else if (which == 2) {
+                    confirmHideContact(ownerUid, ownerName); // v236
                 }
             }).create());
     }
