@@ -472,19 +472,19 @@
                   android:orientation="horizontal"
                   android:gravity="center">
 
-                  <TextView android:id="@+id/tv_qr_1" android:tag="\uD83D\uDE02"
+                  <TextView android:id="@+id/tv_qr_1" android:tag="\uD83D\uDE02" android:textColor="#FFFFFFFF"
                       android:layout_width="52dp" android:layout_height="52dp"
                       android:gravity="center" android:textSize="30sp"
                       android:text="\uD83D\uDE02"
                       android:background="?attr/selectableItemBackgroundBorderless"
                       android:clickable="true" android:focusable="true"/>
-                  <TextView android:id="@+id/tv_qr_2" android:tag="\uD83D\uDE2E"
+                  <TextView android:id="@+id/tv_qr_2" android:tag="\uD83D\uDE2E" android:textColor="#FFFFFFFF"
                       android:layout_width="52dp" android:layout_height="52dp"
                       android:gravity="center" android:textSize="30sp"
                       android:text="\uD83D\uDE2E"
                       android:background="?attr/selectableItemBackgroundBorderless"
                       android:clickable="true" android:focusable="true"/>
-                  <TextView android:id="@+id/tv_qr_3" android:tag="\uD83D\uDE0D"
+                  <TextView android:id="@+id/tv_qr_3" android:tag="\uD83D\uDE0D" android:textColor="#FFFFFFFF"
                       android:layout_width="52dp" android:layout_height="52dp"
                       android:gravity="center" android:textSize="30sp"
                       android:text="\uD83D\uDE0D"
@@ -499,19 +499,19 @@
                   android:gravity="center"
                   android:layout_marginTop="2dp">
 
-                  <TextView android:id="@+id/tv_qr_4" android:tag="\uD83D\uDE22"
+                  <TextView android:id="@+id/tv_qr_4" android:tag="\uD83D\uDE22" android:textColor="#FFFFFFFF"
                       android:layout_width="52dp" android:layout_height="52dp"
                       android:gravity="center" android:textSize="30sp"
                       android:text="\uD83D\uDE22"
                       android:background="?attr/selectableItemBackgroundBorderless"
                       android:clickable="true" android:focusable="true"/>
-                  <TextView android:id="@+id/tv_qr_5" android:tag="\uD83D\uDC4F"
+                  <TextView android:id="@+id/tv_qr_5" android:tag="\uD83D\uDC4F" android:textColor="#FFFFFFFF"
                       android:layout_width="52dp" android:layout_height="52dp"
                       android:gravity="center" android:textSize="30sp"
                       android:text="\uD83D\uDC4F"
                       android:background="?attr/selectableItemBackgroundBorderless"
                       android:clickable="true" android:focusable="true"/>
-                  <TextView android:id="@+id/tv_qr_6" android:tag="\uD83D\uDD25"
+                  <TextView android:id="@+id/tv_qr_6" android:tag="\uD83D\uDD25" android:textColor="#FFFFFFFF"
                       android:layout_width="52dp" android:layout_height="52dp"
                       android:gravity="center" android:textSize="30sp"
                       android:text="\uD83D\uDD25"

@@ -4073,16 +4073,18 @@ public class MessageBubbleCanvasView extends View {
             bubbleHeight = replyBoxHeight + replyGap + mediaTightVPad + mediaH + mediaTightVPad + captionBlockHeight;
 
         } else if (isReelShare) {
-            // ── Reel-share card, now inside a normal chat bubble ──
-            // caption is an overlay INSIDE the card (bottom gradient), so
-            // bubbleHeight is replyBox + a thin inset top/bottom + the card —
-            // MEDIA_TIGHT_INSET_DP, same tight WhatsApp-style frame as a
-            // single image/video bubble (was the full hPad/vPad before,
-            // which made this bubble's frame noticeably thicker than an
-            // image bubble's).
+            // ── Reel-share card — bubbleless (matches legacy
+            // layout_msg_reel_share.xml: "No bubble background — ll_bubble
+            // bg is set to null at runtime for reel_share type") and the
+            // same precedent as the contact/location cards below. No tight-
+            // inset frame here: an earlier pass wrapped this in the normal
+            // chat bubbleDrawable with a thin MEDIA_TIGHT_INSET_DP margin,
+            // but that background's own corner/tail shape doesn't match the
+            // card's REEL_CORNER_RADIUS_DP rounding, so it peeked out from
+            // behind the card's rounded corners. Card sits flush against
+            // bubbleLeft/bubbleTop with no background drawn beneath it.
             int cardW = Math.round(REEL_CARD_WIDTH_DP * density);
             int cardH = Math.round(REEL_CARD_HEIGHT_DP * density);
-            int reelTightPad = Math.round(MEDIA_TIGHT_INSET_DP * density);
 
             if (reelHasCaption) {
                 int captionMaxW = Math.max(1, cardW
@@ -4098,12 +4100,12 @@ public class MessageBubbleCanvasView extends View {
                 reelCaptionLayout = null;
             }
 
-            bubbleContentWidth = Math.max(cardW, replyBoxContentWidth);
-            bubbleHeight = replyBoxHeight + replyGap + reelTightPad + cardH + reelTightPad;
-            // Drives the shared "bubbleWidth = bubbleContentWidth + pad*2"
-            // formula below with the same thin pad instead of the default
-            // hPad, so the horizontal frame matches the top/bottom one.
-            mediaWidthPad = reelTightPad;
+            bubbleContentWidth = Math.max(cardW - hPad * 2, replyBoxContentWidth);
+            bubbleHeight = replyBoxHeight + replyGap + cardH;
+            // mediaWidthPad left at its default (-1 → falls back to hPad in
+            // the shared "bubbleWidth = bubbleContentWidth + pad*2" formula
+            // below), same as the contact/location cards, so bubbleWidth
+            // resolves to exactly cardW with no extra frame.
 
         } else if (isContact) {
             // ── Contact-share card (fixed 165dp wide, wrap_content height) ──
@@ -4664,12 +4666,11 @@ public class MessageBubbleCanvasView extends View {
         if (isReelShare) {
             int cardW = Math.round(REEL_CARD_WIDTH_DP * density);
             int cardH = Math.round(REEL_CARD_HEIGHT_DP * density);
-            int reelTightPad = Math.round(MEDIA_TIGHT_INSET_DP * density);
-            float cardTop = bubbleTop + replyBoxHeight + replyGap + reelTightPad;
-            // Card sits inset inside the bubble by the thin MEDIA_TIGHT_INSET_DP
-            // pad — same tight frame as image/media — bubbleDrawable shows as
-            // a slim hairline frame around it instead of the old thick hPad/vPad gap.
-            reelCardRect.set(bubbleLeft + reelTightPad, cardTop, bubbleLeft + reelTightPad + cardW, cardTop + cardH);
+            float cardTop = bubbleTop + replyBoxHeight + replyGap;
+            // Bubbleless — card sits flush at the bubble's own left edge,
+            // same precedent as the contact-card rect below. No inset pad:
+            // there's no bubbleDrawable frame behind it to inset from.
+            reelCardRect.set(bubbleLeft, cardTop, bubbleLeft + cardW, cardTop + cardH);
 
             float avatarSize = REEL_AVATAR_SIZE_DP * density;
             float headerPadH = REEL_HEADER_PAD_H_DP * density;
@@ -4989,15 +4990,19 @@ public class MessageBubbleCanvasView extends View {
     /** All bubble drawing logic, called from onDraw. Extracted so we can draw
      *  into either a Picture-recording canvas or the real canvas. */
     private void drawBubbleContent(Canvas canvas) {
-        if (!isContact && !isLocation && !isViewOnce && !isSeenBubble && !isCallEntry) {
-            // Contact and location cards are bubbleless again (matches
-            // WhatsApp/Instagram — the card itself is the full visual,
-            // an extra bubble frame just adds wasted padding). View-once
-            // (own per-variant solid colour, self-painted), seen-
-            // notification, and call-entry stay bubbleless too — system-
-            // style pills/cards, not regular message content.
-            // Reel-share and file still draw the normal bubble behind them
-            // (file was a genuine missing-background bug fix).
+        if (!isContact && !isLocation && !isReelShare && !isViewOnce && !isSeenBubble && !isCallEntry) {
+            // Contact, location, and reel-share cards are bubbleless
+            // (matches WhatsApp/Instagram — the card itself is the full
+            // visual, an extra bubble frame just adds wasted padding, and
+            // for reel-share the bubbleDrawable's own corner/tail shape
+            // doesn't match the card's rounding, so it peeked out from
+            // behind the card's rounded corners — see the reel-share
+            // measure/position blocks above). View-once (own per-variant
+            // solid colour, self-painted), seen-notification, and
+            // call-entry stay bubbleless too — system-style pills/cards,
+            // not regular message content.
+            // File still draws the normal bubble behind it (that was a
+            // genuine missing-background bug fix, unrelated to this one).
             bubbleDrawable.setBounds(
                     (int) bubbleRect.left, (int) bubbleRect.top,
                     (int) bubbleRect.right, (int) bubbleRect.bottom);

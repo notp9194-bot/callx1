@@ -26,7 +26,6 @@ import com.callx.app.cache.StatusVideoCacheManager;
 import com.callx.app.cache.CacheManager;
 import com.callx.app.cache.NetworkCacheHelper;
 import com.callx.app.cache.StatusCacheManager;
-import com.callx.app.services.StatusBackgroundService;
 import com.callx.app.sync.SyncWorker;
 import com.callx.app.utils.AppLockManager;
 import com.callx.app.utils.Constants;
@@ -229,7 +228,7 @@ public class CallxApp extends Application {
             // User photo URL Firebase listener
             cacheMyPhotoUrl();
 
-            // Cache system: CacheManager, SyncWorker, StatusCacheManager, StatusBackgroundService
+            // Cache system: CacheManager, SyncWorker, StatusCacheManager
             initCacheSystem();
 
             // v32 Unified Video Cache — replaces 4 separate caches (was 1150MB total)
@@ -354,14 +353,17 @@ public class CallxApp extends Application {
                 StatusCacheManager.getInstance(this).startListening(uid);
             }
 
-            if (FirebaseAuth.getInstance().getCurrentUser() != null) {
-                Intent svc = new Intent(this, StatusBackgroundService.class);
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(svc);
-                } else {
-                    startService(svc);
-                }
-            }
+            // WhatsApp-level approach: don't run a permanent foreground
+            // service just to "watch" for new statuses — that's what kept
+            // the sticky "Watching for new statuses…" notification alive
+            // in the tray the whole time the app was ever opened once.
+            // CallxMessagingService#showStatus() already posts the status
+            // notification directly from the FCM "status" push (including
+            // the app-killed case, since FCM wakes the process on its own)
+            // — StatusBackgroundService's realtime listeners were fully
+            // redundant with that path and never actually got started by
+            // it. Left the service class/manifest entry in place in case
+            // it's wired up again later; just no longer auto-started here.
             Log.d(TAG, "Ultra Advanced Cache System initialized");
         } catch (Exception e) {
             Log.w(TAG, "Cache init error: " + e.getMessage());
