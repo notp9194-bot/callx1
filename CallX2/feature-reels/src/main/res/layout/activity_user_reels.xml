@@ -196,13 +196,31 @@
                             android:visibility="gone"/>
                     </LinearLayout>
 
-                    <!-- Stats card: Reels | Followers | Following (screenshot-2 style) -->
-                    <LinearLayout
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:paddingTop="10dp" android:paddingBottom="10dp"
-                        android:background="@drawable/bg_profile_stats_card">
+                    <!-- Stats card: Reels | Followers | Following (screenshot-2 style)
+                         Screen 1 (Default) = flat bg_profile_stats_card, no blur.
+                         Screen 2 (Glass)    = layout_stats_blur becomes VISIBLE behind
+                         layout_stats_card and layout_stats_card's background switches to
+                         a transparent rounded+bordered drawable — see
+                         applyStatsBoxGlassStyle() in UserReelsActivity.java. -->
+                    <FrameLayout
+                        android:id="@+id/layout_stats_wrapper"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content">
+
+                        <!-- Glass backdrop blur — GONE unless Stats Box style = Glass -->
+                        <eightbitlab.com.blurview.BlurView
+                            android:id="@+id/layout_stats_blur"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:visibility="gone"/>
+
+                        <LinearLayout
+                            android:id="@+id/layout_stats_card"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center"
+                            android:paddingTop="10dp" android:paddingBottom="10dp"
+                            android:background="@drawable/bg_profile_stats_card">
 
                         <!-- Reels count -->
                         <LinearLayout
@@ -267,7 +285,8 @@
                                 android:textSize="11sp"
                                 android:textColor="?attr/colorOnSurfaceVariant"/>
                         </LinearLayout>
-                    </LinearLayout>
+                        </LinearLayout>
+                    </FrameLayout>
                 </LinearLayout>
             </LinearLayout>
 

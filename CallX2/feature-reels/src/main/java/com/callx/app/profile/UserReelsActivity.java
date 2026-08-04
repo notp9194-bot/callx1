@@ -113,6 +113,10 @@ public class UserReelsActivity extends AppCompatActivity
     private Runnable        storyRingRevealRunnable;
     private android.animation.ValueAnimator storyRingRevealAnimator;
     private TextView        tvName, tvDisplayName, tvUsername, tvCreatorBadge, tvReelCount, tvFollowers, tvFollowing, tvBio;
+    // ── Stats Box (Screen 1 = flat text / Screen 2 = rounded glass card) ──
+    private FrameLayout                       layoutStatsWrapper;
+    private LinearLayout                      layoutStatsCard;
+    private eightbitlab.com.blurview.BlurView  layoutStatsBlur;
     private ImageView       ivVerifiedHeader;
     private TextView        tvMutualFollowers;
     private LinearLayout    layoutMutualFollowers;
@@ -437,6 +441,9 @@ public class UserReelsActivity extends AppCompatActivity
         tvReelCount          = findViewById(R.id.tv_reel_count);
         tvFollowers          = findViewById(R.id.tv_followers);
         tvFollowing          = findViewById(R.id.tv_following);
+        layoutStatsWrapper   = findViewById(R.id.layout_stats_wrapper);
+        layoutStatsCard      = findViewById(R.id.layout_stats_card);
+        layoutStatsBlur      = findViewById(R.id.layout_stats_blur);
         tvBio                = findViewById(R.id.tv_bio);
         // FIX: tv_bio was clickable in XML (and its comment said "tap to
         // expand") but no click listener actually existed anywhere — tapping
@@ -4433,6 +4440,10 @@ public class UserReelsActivity extends AppCompatActivity
         if (tvFollowers  != null) tvFollowers.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, statsNumSize);
         if (tvFollowing  != null) tvFollowing.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, statsNumSize);
 
+        // ── 5b. Stats Box style — Screen 1 (Default/flat text) vs
+        //        Screen 2 (rounded glass card with backdrop blur) ─────────
+        applyStatsBoxGlassStyle(cp, rootView);
+
         // ── 10. Tabs — indicator color / height ───────────────────────────
         String tabActiveColor = cp.getString(ReelScreenCustomizationPrefs.KEY_TAB_ACTIVE_COLOR,
                 ReelScreenCustomizationPrefs.DEF_TAB_ACTIVE_COLOR);
@@ -4484,6 +4495,98 @@ public class UserReelsActivity extends AppCompatActivity
         if (layoutProfileSong != null) {
             layoutProfileSong.setVisibility(playerShow ? android.view.View.VISIBLE : android.view.View.GONE);
         }
+    }
+
+    /**
+     * Stats Box style switch — reads {@code KEY_STATS_BOX_STYLE}:
+     *   0 = Default (Screen 1) → plain text row, flat {@code bg_profile_stats_card}, no blur.
+     *   1 = Glass   (Screen 2) → rounded glass card: centered stats, translucent
+     *       fill, 1dp semi-transparent white border, 20–24dp corner radius,
+     *       and a real backdrop blur ({@link eightbitlab.com.blurview.BlurView})
+     *       of whatever sits behind it (avatar / header background).
+     * 2 = Card and 3 = Outline reuse the same rounded-card visuals as Glass
+     * but without/with different fill so the existing "Card"/"Outline"
+     * picker options in ReelScreenCustomizationSheet aren't dead ends.
+     */
+    private void applyStatsBoxGlassStyle(ReelScreenCustomizationPrefs cp, android.view.View blurSourceRoot) {
+        if (layoutStatsCard == null) return;
+        int style = cp.getInt(ReelScreenCustomizationPrefs.KEY_STATS_BOX_STYLE,
+                ReelScreenCustomizationPrefs.DEF_STATS_BOX_STYLE);
+        float density = getResources().getDisplayMetrics().density;
+
+        if (style == 0) {
+            // Screen 1 — Default: restore the flat XML background, no blur.
+            layoutStatsCard.setBackgroundResource(R.drawable.bg_profile_stats_card);
+            layoutStatsCard.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            if (layoutStatsBlur != null) {
+                layoutStatsBlur.setVisibility(android.view.View.GONE);
+                stopStatsBlur();
+            }
+            return;
+        }
+
+        // Screen 2 (Glass) and the Card/Outline variants all get the rounded
+        // card treatment; only the fill/border differ.
+        int cornerRadiusDp = cp.getInt(ReelScreenCustomizationPrefs.KEY_STATS_CORNER_RADIUS,
+                ReelScreenCustomizationPrefs.DEF_STATS_CORNER_RADIUS);
+        // Glass card spec calls for a 20–24dp radius specifically — clamp into
+        // that band for style==1 rather than trusting an unrelated saved value.
+        if (style == 1 && (cornerRadiusDp < 20 || cornerRadiusDp > 24)) cornerRadiusDp = 22;
+        float radiusPx = cornerRadiusDp * density;
+
+        boolean borderEnable = style == 1 || cp.getBoolean(ReelScreenCustomizationPrefs.KEY_STATS_BORDER_ENABLE,
+                ReelScreenCustomizationPrefs.DEF_STATS_BORDER_ENABLE);
+        int borderWidthPx = (int) (1 * density); // spec: 1dp border for the glass card
+        int borderColor = 0x33FFFFFF; // semi-transparent white
+
+        android.graphics.drawable.GradientDrawable card = new android.graphics.drawable.GradientDrawable();
+        card.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        card.setCornerRadius(radiusPx);
+        card.setColor(style == 1 ? 0x1FFFFFFF : 0x33000000); // faint frosted fill vs plain "Card" fill
+        if (borderEnable) card.setStroke(borderWidthPx, borderColor);
+        layoutStatsCard.setBackground(card);
+        // Center-align the three stat columns within the card (spec: "Center
+        // aligned stats") instead of the default center_vertical-only gravity.
+        layoutStatsCard.setGravity(android.view.Gravity.CENTER);
+
+        if (style != 1 || layoutStatsBlur == null) {
+            if (layoutStatsBlur != null) { layoutStatsBlur.setVisibility(android.view.View.GONE); stopStatsBlur(); }
+            return;
+        }
+
+        // ── Glass backdrop blur ──────────────────────────────────────────
+        // RenderEffectBlur needs API 31+. Below that we skip the live blur
+        // and keep the translucent card fill above as the fallback — real
+        // backdrop blur isn't available without the (deprecated/removed)
+        // RenderScript path on this app's minSdk 23.
+        layoutStatsBlur.setVisibility(android.view.View.VISIBLE);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S && blurSourceRoot != null) {
+            try {
+                android.graphics.drawable.Drawable windowBg = getWindow().getDecorView().getBackground();
+                layoutStatsBlur.setupWith((android.view.ViewGroup) blurSourceRoot,
+                                new eightbitlab.com.blurview.RenderEffectBlur())
+                        .setFrameClearDrawable(windowBg)
+                        .setBlurRadius(18f);
+                layoutStatsBlur.setClipToOutline(true);
+                android.graphics.drawable.GradientDrawable blurShape = new android.graphics.drawable.GradientDrawable();
+                blurShape.setCornerRadius(radiusPx);
+                blurShape.setColor(android.graphics.Color.WHITE);
+                layoutStatsBlur.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
+                layoutStatsBlur.setBackground(blurShape);
+                layoutStatsBlur.setOverlayColor(0x14FFFFFF);
+            } catch (Exception ignored) {
+                layoutStatsBlur.setVisibility(android.view.View.GONE);
+            }
+        } else {
+            // Pre-API31 fallback — no live blur engine available.
+            layoutStatsBlur.setVisibility(android.view.View.GONE);
+        }
+    }
+
+    /** Releases the BlurView's per-frame capture/draw listener when leaving Glass style or the screen. */
+    private void stopStatsBlur() {
+        if (layoutStatsBlur == null) return;
+        try { layoutStatsBlur.setBlurEnabled(false); } catch (Exception ignored) {}
     }
 
     /** Opens Liked/Saved reels full-screen (they're no longer tabs on this screen). */
@@ -4543,6 +4646,7 @@ public class UserReelsActivity extends AppCompatActivity
         dismissPreviewDialog();
         stopAvatarAnimation();
         cancelStoryRingReveal();
+        stopStatsBlur();
         dbExecutor.shutdown();
         // Remove persistent Firebase listeners to avoid memory/network leaks
         if (reelCountLiveListener != null && targetUid != null) {
