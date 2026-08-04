@@ -7,6 +7,7 @@ import com.callx.app.utils.AlertDialogStyler;
   import android.os.Handler;
   import android.os.Looper;
   import android.text.TextUtils;
+  import android.util.Log;
   import android.view.*;
   import android.view.animation.*;
   import android.widget.*;
@@ -62,6 +63,10 @@ import com.callx.app.utils.AlertDialogStyler;
    *   Analytics, Highlights, Delete, Archive, Cross-fade, Keep screen ON.
    */
   public class StatusViewerActivity extends AppCompatActivity {
+      // Debug tag for the repost-crash + music-sticker-autoplay investigation.
+      // Filter logcat with "StatusViewerDbg" to trace exactly which branch a
+      // given status/sticker takes and why (adb logcat -s StatusViewerDbg).
+      private static final String DBG = "StatusViewerDbg";
       public static final String EXTRA_OWNER_UID  = "ownerUid";
       public static final String EXTRA_OWNER_NAME = "ownerName";
       /** Optional — set by ChatActivity when opened from a reply/reaction
@@ -184,9 +189,22 @@ import com.callx.app.utils.AlertDialogStyler;
                   @Override public void onDataChange(@NonNull DataSnapshot snap) {
                       long now = System.currentTimeMillis();
                       for (DataSnapshot c : snap.getChildren()) {
-                          StatusItem s = c.getValue(StatusItem.class);
+                          StatusItem s;
+                          try {
+                              s = c.getValue(StatusItem.class);
+                          } catch (Exception parseErr) {
+                              // A single malformed child used to silently vanish from the
+                              // list (or worse, crash the whole onDataChange before any
+                              // items were added) with zero trace of which row or why.
+                              Log.e(DBG, "load() failed to parse status child key=" + c.getKey(), parseErr);
+                              CrashReporter.report(StatusViewerActivity.this, "StatusViewer.load.parseChild", parseErr);
+                              continue;
+                          }
                           if (s == null || Boolean.TRUE.equals(s.deleted)) continue;
                           if (s.expiresAt != null && s.expiresAt < now) continue;
+                          Log.d(DBG, "load() added item id=" + s.id + " type=" + s.type
+                                  + " resharedMediaType=" + s.resharedMediaType
+                                  + " hasMediaUrl=" + (s.mediaUrl != null && !s.mediaUrl.isEmpty()));
                           items.add(s);
                       }
                       if (items.isEmpty()) {
@@ -332,22 +350,45 @@ import com.callx.app.utils.AlertDialogStyler;
               case "gif": case "sticker": showGifStatus(s); break;
               case "reel_reshare": case "post_reshare": case "channel_post_reshare":
               case "status_reshare":
-                  // Show as video if mediaUrl present, else thumbnail, else fall
-                  // back to rendering the original text-status content (a
-                  // reposted plain-text status has no media at all) instead of
-                  // skipping past it — skipping was closing the viewer outright
-                  // when this was the only status in the list.
                   // Wrapped in try/catch + reported: this is the exact code path
                   // behind the "repost dekhte waqt silent crash" reports — any
                   // exception here now shows the crash screen with a trace
                   // instead of leaving the viewer stuck/blank with no clue why.
                   try {
-                      if (s.mediaUrl != null && !s.mediaUrl.isEmpty()) { showVideoStatus(s); }
-                      else if (s.thumbnailUrl != null && !s.thumbnailUrl.isEmpty()) { showImageStatusFromUrl(s.thumbnailUrl, s.caption); }
+                      // ROOT CAUSE of the repost crash: this used to be
+                      // "mediaUrl present -> showVideoStatus()" unconditionally.
+                      // A reshare's own `type` (status_reshare/reel_reshare/...)
+                      // never says whether the underlying media is a photo or a
+                      // video, so an image repost was being handed to ExoPlayer,
+                      // which errored out immediately and left/broke the viewer.
+                      // resharedMediaType (added by StoryReshareActivity at
+                      // repost time) now tells us the real type; for OLD reshare
+                      // rows saved before this field existed, fall back to a
+                      // file-extension guess instead of assuming "video".
+                      boolean looksLikeVideo;
+                      if (s.resharedMediaType != null && !s.resharedMediaType.isEmpty()) {
+                          looksLikeVideo = "video".equals(s.resharedMediaType);
+                          Log.d(DBG, "reshareRender id=" + s.id + " using resharedMediaType=" + s.resharedMediaType);
+                      } else {
+                          looksLikeVideo = looksLikeVideoUrl(s.mediaUrl);
+                          Log.d(DBG, "reshareRender id=" + s.id + " resharedMediaType MISSING (legacy row) — guessed from URL, looksLikeVideo=" + looksLikeVideo);
+                      }
+                      Log.d(DBG, "reshareRender id=" + s.id + " type=" + s.type
+                              + " mediaUrl=" + (s.mediaUrl == null ? "null" : "present")
+                              + " thumbnailUrl=" + (s.thumbnailUrl == null ? "null" : "present")
+                              + " resharedThumbnailUrl=" + (s.resharedThumbnailUrl == null ? "null" : "present")
+                              + " text=" + (s.text == null || s.text.isEmpty() ? "empty" : "present"));
+
+                      if (s.mediaUrl != null && !s.mediaUrl.isEmpty() && looksLikeVideo) {
+                          showVideoStatus(s);
+                      } else if (s.mediaUrl != null && !s.mediaUrl.isEmpty()) {
+                          showImageStatusFromUrl(s.mediaUrl, s.caption);
+                      } else if (s.thumbnailUrl != null && !s.thumbnailUrl.isEmpty()) { showImageStatusFromUrl(s.thumbnailUrl, s.caption); }
                       else if (s.resharedThumbnailUrl != null && !s.resharedThumbnailUrl.isEmpty()) { showImageStatusFromUrl(s.resharedThumbnailUrl, s.caption); }
                       else if (s.text != null && !s.text.isEmpty()) { showTextStatus(s); }
                       else { showUnavailableFallback(); }
                   } catch (Exception e) {
+                      Log.e(DBG, "reshareRender CRASH for id=" + s.id + " type=" + s.type, e);
                       CrashReporter.report(this, "StatusViewer.reshareRender", e);
                       showUnavailableFallback();
                   }
@@ -417,6 +458,16 @@ import com.callx.app.utils.AlertDialogStyler;
               android.widget.Toast.makeText(this, "Could not open original post",
                   android.widget.Toast.LENGTH_SHORT).show();
           }
+      }
+
+      /** Best-effort guess for legacy reshare rows with no resharedMediaType saved. */
+      private boolean looksLikeVideoUrl(String url) {
+          if (url == null || url.isEmpty()) return false;
+          String u = url.toLowerCase(Locale.ROOT);
+          int q = u.indexOf('?');
+          if (q >= 0) u = u.substring(0, q);
+          return u.endsWith(".mp4") || u.endsWith(".mov") || u.endsWith(".3gp")
+                  || u.endsWith(".webm") || u.endsWith(".mkv");
       }
 
       // ── Content renderers ─────────────────────────────────────────────────
@@ -523,6 +574,7 @@ import com.callx.app.utils.AlertDialogStyler;
           }
           player.setVolume(isMuted ? 0f : 1f);
           long estimated = s.durationSec > 0 ? Math.min(s.durationSec * 1000L, 30_000L) : 15_000L;
+          final String statusIdForLog = s.id;
           player.addListener(new Player.Listener() {
               @Override public void onPlaybackStateChanged(int state) {
                   if (state == Player.STATE_READY) {
@@ -530,6 +582,22 @@ import com.callx.app.utils.AlertDialogStyler;
                       long dur = (real > 0 && real != Long.MIN_VALUE) ? Math.min(real, 30_000L) : estimated;
                       stopProgress(); startProgress(dur);
                   } else if (state == Player.STATE_ENDED) { next(); }
+              }
+              // Previously unhandled — ExoPlayer delivers a bad/unsupported
+              // media URL (e.g. a reshared IMAGE wrongly routed here, a dead
+              // link, unsupported codec) as an async onPlayerError, not a
+              // thrown exception, so it slipped past every try/catch in
+              // showCurrent() and just left the viewer stuck on a frozen
+              // black frame with the progress bar paused forever — which is
+              // exactly what "screen closes / misbehaves right after
+              // opening" looks like from the user's side. Now logged and
+              // recovered: skip to the next status instead of hanging.
+              @Override public void onPlayerError(@NonNull PlaybackException error) {
+                  Log.e(DBG, "showVideoStatus onPlayerError id=" + statusIdForLog
+                          + " mediaUrl=" + s.mediaUrl + " errorCode=" + error.errorCode, error);
+                  CrashReporter.reportSilently(StatusViewerActivity.this,
+                          "StatusViewer.showVideoStatus.onPlayerError", error);
+                  next();
               }
           });
           player.prepare(); player.setPlayWhenReady(true);
@@ -556,6 +624,7 @@ import com.callx.app.utils.AlertDialogStyler;
       // video track) so a music sticker plays regardless of whether the
       // status itself is a photo, text card, video, or gif.
       private void startMusicStickerAudio(String url) {
+          Log.d(DBG, "startMusicStickerAudio url=" + url + " isMuted=" + isMuted + " paused=" + paused);
           releaseMusicPlayer();
           try {
               musicPlayer = new android.media.MediaPlayer();
@@ -568,7 +637,10 @@ import com.callx.app.utils.AlertDialogStyler;
               // long the viewer ends up spending on this status.
               musicPlayer.setLooping(true);
               musicPlayer.setVolume(isMuted ? 0f : 1f, isMuted ? 0f : 1f);
-              musicPlayer.setOnPreparedListener(mp -> { if (!paused) mp.start(); });
+              musicPlayer.setOnPreparedListener(mp -> {
+                  Log.d(DBG, "startMusicStickerAudio prepared, paused=" + paused + " -> " + (!paused ? "starting" : "NOT starting (viewer paused)"));
+                  if (!paused) mp.start();
+              });
               musicPlayer.setOnErrorListener((mp, what, extra) -> {
                   // This is the most likely real cause of "music sticker never
                   // plays, no error shown" — bad/expired URL, unsupported codec,
@@ -587,6 +659,41 @@ import com.callx.app.utils.AlertDialogStyler;
               releaseMusicPlayer();
           }
       }
+      /**
+       * Fallback lookup for music-sticker autoplay: mirrors
+       * SoundDetailFragment#loadSoundDataFromMusicLibrary() — tracks picked
+       * from Trending Audio's "Music" tab live under musicLibrary/{soundId},
+       * not sounds/{soundId}. Without this, autoplay stayed silent for any
+       * sticker built from a Music-tab track while manually tapping it (which
+       * opens the full sheet — same two-step lookup) still played fine.
+       */
+      private void resolveFromMusicLibrary(String soundId, int requestedIdx) {
+          FirebaseUtils.getMusicLibraryRef().child(soundId)
+                  .addListenerForSingleValueEvent(new ValueEventListener() {
+              @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                  if (idx != requestedIdx) return; // swiped away while this was in flight
+                  if (!snap.exists()) {
+                      Log.d(DBG, "musicSticker autoplay: soundId=" + soundId + " not found in musicLibrary/ either — giving up silently");
+                      return;
+                  }
+                  String resolved = null;
+                  for (String key : new String[]{"previewAudioUrl", "audioUrl"}) {
+                      String u = snap.child(key).getValue(String.class);
+                      if (u != null && !u.isEmpty()) { resolved = u; break; }
+                  }
+                  if (resolved != null) {
+                      Log.d(DBG, "musicSticker autoplay: resolved from musicLibrary/" + soundId);
+                      startMusicStickerAudio(resolved);
+                  } else {
+                      Log.d(DBG, "musicSticker autoplay: musicLibrary/" + soundId + " exists but has no audio field");
+                  }
+              }
+              @Override public void onCancelled(@NonNull DatabaseError e) {
+                  Log.e(DBG, "musicSticker autoplay: musicLibrary/" + soundId + " lookup cancelled", e.toException());
+              }
+          });
+      }
+
       private void releaseMusicPlayer() {
           if (musicPlayer != null) {
               try { musicPlayer.release(); } catch (Exception ignored) {}
@@ -685,15 +792,15 @@ import com.callx.app.utils.AlertDialogStyler;
                       // it's linked to a real Reels track (tap-to-open still only
                       // applies when isMusicLinkedToReelSound() is true, below).
                       String soundUrl = sticker.getMusicSoundUrl();
+                      Log.d(DBG, "musicSticker autoplay: soundId=" + sticker.getMusicSoundId()
+                              + " directSoundUrl=" + (soundUrl == null || soundUrl.isEmpty() ? "empty" : "present"));
                       if (soundUrl != null && !soundUrl.isEmpty()) {
                           startMusicStickerAudio(soundUrl);
                       } else {
                           // Composer usually only stores the soundId, not a direct
                           // playable URL — that's why tapping the sticker to open the
-                          // Sound Detail sheet has audio (it resolves the URL from the
-                          // "sounds/{soundId}" node) while autoplay above stayed silent.
-                          // Do the same resolution here so autoplay actually has
-                          // something to play.
+                          // Sound Detail sheet has audio (it resolves the URL) while
+                          // autoplay above stayed silent. Resolve it the same way here.
                           String soundId = sticker.getMusicSoundId();
                           if (soundId != null && !soundId.isEmpty()) {
                               final int requestedIdx = idx;
@@ -704,14 +811,35 @@ import com.callx.app.utils.AlertDialogStyler;
                                       // time this lookup returns — don't start audio
                                       // for a status that's no longer showing.
                                       if (idx != requestedIdx) return;
+                                      if (!snap.exists()) {
+                                          // ROOT CAUSE of "Ad status music sticker never
+                                          // autoplays": tracks picked from Trending Audio's
+                                          // "Music" tab live under the musicLibrary node, NOT
+                                          // sounds/{soundId} — this exact fallback is why
+                                          // tapping the sticker (which opens the full Sound
+                                          // Detail sheet, and THAT sheet checks musicLibrary
+                                          // too) plays fine while autoplay here stayed silent.
+                                          Log.d(DBG, "musicSticker autoplay: soundId=" + soundId
+                                                  + " not found under sounds/, trying musicLibrary/");
+                                          resolveFromMusicLibrary(soundId, requestedIdx);
+                                          return;
+                                      }
                                       String resolved = null;
-                                      for (String key : new String[]{"audioUrl", "audio_url", "url"}) {
+                                      for (String key : new String[]{"previewAudioUrl", "audioUrl", "audio_url", "url"}) {
                                           String u = snap.child(key).getValue(String.class);
                                           if (u != null && !u.isEmpty()) { resolved = u; break; }
                                       }
-                                      if (resolved != null) startMusicStickerAudio(resolved);
+                                      if (resolved != null) {
+                                          Log.d(DBG, "musicSticker autoplay: resolved from sounds/" + soundId);
+                                          startMusicStickerAudio(resolved);
+                                      } else {
+                                          Log.d(DBG, "musicSticker autoplay: sounds/" + soundId + " exists but no audio field, trying musicLibrary/");
+                                          resolveFromMusicLibrary(soundId, requestedIdx);
+                                      }
                                   }
-                                  @Override public void onCancelled(@NonNull DatabaseError e) {}
+                                  @Override public void onCancelled(@NonNull DatabaseError e) {
+                                      Log.e(DBG, "musicSticker autoplay: sounds/" + soundId + " lookup cancelled", e.toException());
+                                  }
                               });
                           }
                       }

@@ -275,6 +275,14 @@ public class StoryReshareActivity extends AppCompatActivity {
         data.put("resharedFromOwnerName", ownerName);
         data.put("resharedFromOwnerAvatar", ownerAvatar);
         data.put("resharedThumbnailUrl", thumbUrl);
+        // BUG FIX (silent-crash-on-repost): the reshare's own "type" is always
+        // "status_reshare"/"reel_reshare"/etc — it never tells the viewer
+        // whether the underlying media is a photo or a video. StatusViewerActivity
+        // used to assume "mediaUrl present -> must be a video" and always opened
+        // an ExoPlayer for it, which broke/hung the moment someone reposted an
+        // IMAGE status. Persist the real media type here so the viewer can
+        // render the correct type instead of guessing.
+        data.put("resharedMediaType", mediaType != null ? mediaType : "image");
         data.put("attribution", "Originally posted by @" + ownerName);
         // Preserve the original text-status content so the viewer can render
         // something even when mediaUrl/thumbnailUrl are both empty (plain

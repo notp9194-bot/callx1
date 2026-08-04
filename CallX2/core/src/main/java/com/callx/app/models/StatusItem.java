@@ -213,6 +213,16 @@ public class StatusItem {
     public float  cardStickerY           = 0.35f;
     /** Background hex color chosen for a text/card-style reshare story */
     public String reshareBackgroundColor = "";
+    /**
+     * "video" or "image" — the ORIGINAL content's real media type, set by
+     * StoryReshareActivity at repost time. Needed because a reshare's own
+     * "type" is always "status_reshare"/"reel_reshare"/etc regardless of
+     * whether the underlying media is a photo or a video, so the viewer
+     * can't tell from "type" alone whether to open an ExoPlayer or an
+     * ImageView for s.mediaUrl. Empty for reshares created before this
+     * field existed — viewer falls back to a URL-extension guess for those.
+     */
+    public String resharedMediaType = "";
 
     // ── Status Repost / Allow-Sharing ──────────────────────────────────────
     /**
@@ -313,6 +323,8 @@ public class StatusItem {
         if (cardStickerY != 0.35f) m.put("cardStickerY", cardStickerY);
         if (reshareBackgroundColor != null && !reshareBackgroundColor.isEmpty())
             m.put("reshareBackgroundColor", reshareBackgroundColor);
+        if (resharedMediaType != null && !resharedMediaType.isEmpty())
+            m.put("resharedMediaType", resharedMediaType);
         return m;
     }
 }
