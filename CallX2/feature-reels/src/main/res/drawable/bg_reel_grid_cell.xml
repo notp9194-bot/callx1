@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    bg_reel_grid_cell.xml
+    Rounded-rect background for grid/pinned reel cells.
+    Used together with android:clipToOutline="true" on the cell root so the
+    thumbnail ImageView (and any overlays) get clipped to these rounded
+    corners — gives the Instagram-style "rounded square" grid look instead
+    of hard-edged rectangles. The elevation on the cell also derives its
+    shadow shape from this same outline, so the shadow is rounded too.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#000000" />
+    <corners android:radius="8dp" />
+</shape>

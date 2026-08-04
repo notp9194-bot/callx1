@@ -40,7 +40,10 @@
 
     <!-- "View All Reels" pill button (UserReelsActivity) — solid black
          pill with bright green text/icon, same in light & dark mode by
-         design (it floats over the reel thumbnails, not app chrome). -->
-    <color name="view_all_reels_bg">#000000</color>
+         design (it floats over the reel thumbnails, not app chrome).
+         view_all_reels_bg darkened slightly off pure black + a thin
+         translucent green stroke for a "premium" outlined-chip look. -->
+    <color name="view_all_reels_bg">#0D0D0D</color>
     <color name="view_all_reels_ripple">#3300F260</color>
+    <color name="view_all_reels_stroke">#4D00F260</color>
 </resources>

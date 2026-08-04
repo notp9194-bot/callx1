@@ -15,6 +15,7 @@ package com.callx.app.profile;
   import android.widget.TextView;
   import androidx.annotation.NonNull;
   import androidx.fragment.app.Fragment;
+  import androidx.recyclerview.widget.GridLayoutManager;
   import androidx.recyclerview.widget.RecyclerView;
   import com.bumptech.glide.Glide;
   import com.bumptech.glide.RequestManager;
@@ -116,17 +117,69 @@ package com.callx.app.profile;
       private final int gridThumbSize;
       private final int pinnedThumbSize;
 
-      /** White 1dp separator: RecyclerView bg=#FFFFFF, item bg=#000000 → gap shows as white lines. */
+      /**
+       * Symmetric grid spacing (Instagram-style): equal gap between every
+       * cell AND on the outer left/right edges — replaces the old
+       * top+left-only 1dp offset, which left no gap on the right/bottom of
+       * each cell and gave the last row no bottom margin at all.
+       *
+       * Uses GridLayoutManager's own SpanSizeLookup so it stays correct
+       * even for the full-width pinned hero cell (spanSize == spanCount),
+       * which gets edge-to-edge sides and just a bottom gap like a normal
+       * row separator.
+       */
       public static class WhiteGridDecoration extends RecyclerView.ItemDecoration {
-          private final int gap;
+          private final int spacing;
           public WhiteGridDecoration(Context ctx) {
-              gap = Math.round(ctx.getResources().getDisplayMetrics().density);
+              spacing = Math.round(2 * ctx.getResources().getDisplayMetrics().density);
           }
           @Override
           public void getItemOffsets(@NonNull Rect out, @NonNull View view,
                                      @NonNull RecyclerView parent, @NonNull RecyclerView.State state) {
-              out.set(gap, gap, 0, 0);
+              RecyclerView.LayoutManager lm = parent.getLayoutManager();
+              int position = parent.getChildAdapterPosition(view);
+              if (position == RecyclerView.NO_POSITION || !(lm instanceof GridLayoutManager)) {
+                  out.set(spacing, spacing, spacing, spacing);
+                  return;
+              }
+              GridLayoutManager glm = (GridLayoutManager) lm;
+              int spanCount = glm.getSpanCount();
+              GridLayoutManager.SpanSizeLookup lookup = glm.getSpanSizeLookup();
+              int spanSize = lookup.getSpanSize(position);
+
+              if (spanSize >= spanCount) {
+                  // Full-width cell (pinned hero card): flush sides, same
+                  // vertical rhythm as every other row.
+                  out.set(0, 0, 0, spacing);
+                  return;
+              }
+
+              int spanIndex = lookup.getSpanIndex(position, spanCount);
+              out.left   = spacing - (spanIndex * spacing / spanCount);
+              out.right  = ((spanIndex + 1) * spacing / spanCount);
+              out.top    = 0;
+              out.bottom = spacing; // every row — including the last — gets a bottom gap
           }
+      }
+
+      /**
+       * Instagram-style press feedback: subtle scale-down while pressed,
+       * springs back on release/cancel. Returns false so the existing
+       * click/long-click listeners on the same view keep working normally.
+       */
+      private static void applyPressFeedback(View v) {
+          v.setOnTouchListener((view, event) -> {
+              switch (event.getActionMasked()) {
+                  case android.view.MotionEvent.ACTION_DOWN:
+                      view.animate().scaleX(0.96f).scaleY(0.96f).setDuration(100).start();
+                      break;
+                  case android.view.MotionEvent.ACTION_UP:
+                  case android.view.MotionEvent.ACTION_CANCEL:
+                      view.animate().scaleX(1f).scaleY(1f).setDuration(120).start();
+                      break;
+              }
+              return false;
+          });
       }
 
       public ReelGridAdapter(Context context, List<ReelModel> reels, OnItemClickListener clickListener) {
@@ -291,6 +344,7 @@ package com.callx.app.profile;
 
           h.itemView.setOnClickListener(v -> { if (clickListener != null) clickListener.onItemClick(holder.getAdapterPosition()); });
           h.itemView.setOnLongClickListener(v -> { if (longPressListener != null) longPressListener.onLongPress(holder.getAdapterPosition()); return true; });
+          applyPressFeedback(h.itemView);
       }
 
       private void bindPinned(PinnedVH h) {
@@ -317,6 +371,7 @@ package com.callx.app.profile;
           if (h.tvViews    != null) h.tvViews.setText(formatCount(pinnedReel.viewsCount));
           h.itemView.setOnClickListener(v -> { if (clickListener != null) clickListener.onItemClick(0); });
           h.itemView.setOnLongClickListener(v -> { if (longPressListener != null) longPressListener.onLongPress(0); return true; });
+          applyPressFeedback(h.itemView);
       }
 
       private String formatCount(int n) {

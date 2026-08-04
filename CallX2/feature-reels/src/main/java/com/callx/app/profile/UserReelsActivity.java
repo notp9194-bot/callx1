@@ -112,12 +112,7 @@ public class UserReelsActivity extends AppCompatActivity
     private final Handler   storyRingHandler = new Handler(Looper.getMainLooper());
     private Runnable        storyRingRevealRunnable;
     private android.animation.ValueAnimator storyRingRevealAnimator;
-    private TextView        tvName, tvDisplayName, tvUsername, tvCreatorBadge, tvReelCount, tvFollowers, tvFollowing, tvBio;
-    // ── Stats Box (Screen 1 = flat text / Screen 2 = rounded glass card) ──
-    private FrameLayout    layoutStatsWrapper;
-    private LinearLayout   layoutStatsCard;
-    private ImageView      layoutStatsBlur; // holds a blurred snapshot bitmap, Glass style only
-    private ImageView       ivVerifiedHeader;
+    private TextView        tvName, tvDisplayName, tvReelCount, tvFollowers, tvFollowing, tvBio;
     private TextView        tvMutualFollowers;
     private LinearLayout    layoutMutualFollowers;
     private CircleImageView ivMutual1, ivMutual2, ivMutual3;
@@ -127,8 +122,7 @@ public class UserReelsActivity extends AppCompatActivity
     private android.widget.HorizontalScrollView hsvBioLinks;
     private LinearLayout    llBioChips;
     // ── Profile Song pill (Instagram-style) ───────────────────────────────────
-    private View            layoutProfileSong;      // outer section row (controls visibility)
-    private View            layoutProfileSongPill;  // inner pill visual (carries bg_song_pill + accent color)
+    private View            layoutProfileSong;
     private TextView        tvProfileSongName;
     private View            layoutAddSongStub;   // isSelf + no song → "Add a song" stub
     // Custom accent color for the profile-song strip (picked via the shared
@@ -160,7 +154,7 @@ public class UserReelsActivity extends AppCompatActivity
     // thumbnail separator lines for whichever RecyclerView is showing
     // (rvReels for Reels/Liked/Saved/Repost, rvSeries for Series) — those
     // "lines" are really just the RecyclerView's background showing
-    // through the 1dp item gaps (see WhiteGridDecoration).
+    // through the symmetric item gaps (see WhiteGridDecoration).
     // (Legacy field kept only to read a one-time fallback default written
     // by earlier app versions under the old single "gridAccentColor" key
     // — used only for the Reels tab if it has no per-tab color yet.)
@@ -255,6 +249,11 @@ public class UserReelsActivity extends AppCompatActivity
     private ImageButton     btnShareSelected, btnDeleteSelected, btnCancelSelect, btnDeleteAll;
     private View            layoutPrivateAccount;
     private View            btnViewAllReels;
+    // Tracks the button's current animated show/hide state (separate from
+    // whether it's *eligible* to show based on data) so onScroll doesn't
+    // re-trigger an animation every single frame while scrolling.
+    private boolean         viewAllButtonEligible = false;
+    private boolean         viewAllButtonShown    = false;
     private View            layoutFollowersClick;
     private View            layoutFollowingClick;
     private View            btnRepostSection;
@@ -415,8 +414,6 @@ public class UserReelsActivity extends AppCompatActivity
         loadAccountPrivacy();
         setupStatsClicks();
         loadAvatarAndStartAnimation();
-        // Apply ultra-advanced screen customization on first load
-        applyScreenCustomization();
     }
 
     // ── Bind views ────────────────────────────────────────────────────────
@@ -435,15 +432,9 @@ public class UserReelsActivity extends AppCompatActivity
         }
         tvName               = findViewById(R.id.tv_name);
         tvDisplayName        = findViewById(R.id.tv_display_name);
-        tvUsername           = findViewById(R.id.tv_username);
-        tvCreatorBadge       = findViewById(R.id.tv_creator_badge);
-        ivVerifiedHeader     = findViewById(R.id.iv_verified_header);
         tvReelCount          = findViewById(R.id.tv_reel_count);
         tvFollowers          = findViewById(R.id.tv_followers);
         tvFollowing          = findViewById(R.id.tv_following);
-        layoutStatsWrapper   = findViewById(R.id.layout_stats_wrapper);
-        layoutStatsCard      = findViewById(R.id.layout_stats_card);
-        layoutStatsBlur      = findViewById(R.id.layout_stats_blur);
         tvBio                = findViewById(R.id.tv_bio);
         // FIX: tv_bio was clickable in XML (and its comment said "tap to
         // expand") but no click listener actually existed anywhere — tapping
@@ -520,10 +511,9 @@ public class UserReelsActivity extends AppCompatActivity
         appBarLayout     = findViewById(R.id.app_bar);
         hsvBioLinks       = findViewById(R.id.hsv_bio_links);
         llBioChips        = findViewById(R.id.ll_bio_chips);
-        layoutProfileSong     = findViewById(R.id.layout_profile_song);
-        layoutProfileSongPill = findViewById(R.id.layout_profile_song_pill);
-        tvProfileSongName     = findViewById(R.id.tv_profile_song_name);
-        layoutAddSongStub     = findViewById(R.id.layout_add_song_stub);
+        layoutProfileSong = findViewById(R.id.layout_profile_song);
+        tvProfileSongName = findViewById(R.id.tv_profile_song_name);
+        layoutAddSongStub = findViewById(R.id.layout_add_song_stub);
         btnMessageCta     = findViewById(R.id.btn_message_cta);
         btnCtaCall       = findViewById(R.id.btn_cta_call);
         layoutInstagramCta = findViewById(R.id.layout_instagram_cta);
@@ -995,7 +985,7 @@ public class UserReelsActivity extends AppCompatActivity
      *    black/white).
      *  - The visible grid's background (rvSeries for the Series tab,
      *    rvReels for every other tab) → the picked color, which is what
-     *    actually shows through the 1dp gaps WhiteGridDecoration leaves
+     *    actually shows through the gaps WhiteGridDecoration leaves
      *    between thumbnails (those gaps have never drawn their own color
      *    — they just reveal whatever's behind them).
      * Null/empty hex resets both back to the original theme-aware defaults.
@@ -1862,17 +1852,8 @@ public class UserReelsActivity extends AppCompatActivity
         FirebaseUtils.getUserRef(targetUid).child("isVerified")
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    boolean verified = Boolean.TRUE.equals(snap.getValue(Boolean.class));
-                    if (ivVerified != null) ivVerified.setVisibility(verified ? View.VISIBLE : View.GONE);
-                    if (ivVerifiedHeader != null) ivVerifiedHeader.setVisibility(verified ? View.VISIBLE : View.GONE);
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
-        FirebaseUtils.getUserRef(targetUid).child("isCreator")
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (tvCreatorBadge != null)
-                        tvCreatorBadge.setVisibility(
+                    if (ivVerified != null)
+                        ivVerified.setVisibility(
                             Boolean.TRUE.equals(snap.getValue(Boolean.class))
                                 ? View.VISIBLE : View.GONE);
                 }
@@ -2370,15 +2351,79 @@ public class UserReelsActivity extends AppCompatActivity
               i.putExtra(AllReelsFullActivity.EXTRA_TAB,   activeTab);
               startActivity(i);
           });
+          // Starts hidden (alpha=0, GONE per XML) — reveal is entirely
+          // scroll-driven, see the OnScrollListener below.
+          viewAllButtonShown = false;
+          if (rvReels != null) {
+              rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
+                  @Override
+                  public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                      if (!viewAllButtonEligible) return;
+                      // Scrolled away from the very top → reveal; back at the
+                      // top → hide. canScrollVertically(-1) is cheap (no
+                      // allocation) and re-evaluated on every scroll delta,
+                      // so this stays in sync during fast flings too.
+                      boolean scrolledDown = recyclerView.canScrollVertically(-1);
+                      if (scrolledDown) showViewAllButtonAnimated();
+                      else              hideViewAllButtonAnimated();
+                  }
+              });
+          }
           updateViewAllButton();
       }
 
       private void updateViewAllButton() {
           if (btnViewAllReels == null) return;
           List<ReelModel> data = activeTabData();
-          // Show "View All" if we loaded a full page (likely more exist) or if any data exists
-          boolean show = !data.isEmpty();
-          btnViewAllReels.setVisibility(show ? View.VISIBLE : View.GONE);
+          // Eligible to show "View All" if we loaded a full page (likely
+          // more exist) or if any data exists — actual visibility is then
+          // driven by scroll position (see showViewAllButtonAnimated /
+          // hideViewAllButtonAnimated), never a hard on/off here.
+          viewAllButtonEligible = !data.isEmpty();
+          if (!viewAllButtonEligible) {
+              hideViewAllButtonAnimated();
+              return;
+          }
+          // Data/tab may have just changed under an already-scrolled grid
+          // (e.g. tab switch) — sync immediately to the current scroll
+          // position instead of waiting for the next scroll event.
+          boolean scrolledDown = rvReels != null && rvReels.canScrollVertically(-1);
+          if (scrolledDown) showViewAllButtonAnimated();
+          else               hideViewAllButtonAnimated();
+      }
+
+      /** Smoothly fades + slides the pill up into view. No-op if already shown. */
+      private void showViewAllButtonAnimated() {
+          if (btnViewAllReels == null || viewAllButtonShown) return;
+          viewAllButtonShown = true;
+          btnViewAllReels.animate().cancel();
+          if (btnViewAllReels.getVisibility() != View.VISIBLE) {
+              btnViewAllReels.setAlpha(0f);
+              btnViewAllReels.setScaleX(0.9f);
+              btnViewAllReels.setScaleY(0.9f);
+              btnViewAllReels.setTranslationY(24f);
+              btnViewAllReels.setVisibility(View.VISIBLE);
+          }
+          btnViewAllReels.animate()
+                  .alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
+                  .setDuration(220)
+                  .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                  .start();
+      }
+
+      /** Smoothly fades + slides the pill back down out of view. No-op if already hidden. */
+      private void hideViewAllButtonAnimated() {
+          if (btnViewAllReels == null || !viewAllButtonShown) return;
+          viewAllButtonShown = false;
+          btnViewAllReels.animate().cancel();
+          btnViewAllReels.animate()
+                  .alpha(0f).scaleX(0.9f).scaleY(0.9f).translationY(24f)
+                  .setDuration(160)
+                  .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                  .withEndAction(() -> {
+                      if (!viewAllButtonShown) btnViewAllReels.setVisibility(View.GONE);
+                  })
+                  .start();
       }
 
       private List<ReelModel> dataForTab(int tab) {
@@ -3676,11 +3721,8 @@ public class UserReelsActivity extends AppCompatActivity
         } else {
             bg = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_song_pill);
         }
-        // Apply to the INNER pill view (not the outer section wrapper) so accent
-        // color shapes correctly to the pill bounds, not the full-width row.
-        View pillTarget = layoutProfileSongPill != null ? layoutProfileSongPill : layoutProfileSong;
-        if (pillTarget != null) pillTarget.setBackground(bg);
-        if (layoutAddSongStub != null) layoutAddSongStub.setBackground(bg != null ? bg.getConstantState().newDrawable().mutate() : null);
+        if (layoutProfileSong  != null) layoutProfileSong.setBackground(bg);
+        if (layoutAddSongStub  != null) layoutAddSongStub.setBackground(bg != null ? bg.getConstantState().newDrawable().mutate() : null);
     }
 
     /**
@@ -3774,7 +3816,6 @@ public class UserReelsActivity extends AppCompatActivity
             .addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 String name      = snap.child("displayName").getValue(String.class);
-                String username  = snap.child("username").getValue(String.class);
                 String photo     = snap.child("photoUrl").getValue(String.class);
                 String photoThumb = snap.child("thumbUrl").getValue(String.class);
                 String bio       = snap.child("bio").getValue(String.class);
@@ -3784,14 +3825,6 @@ public class UserReelsActivity extends AppCompatActivity
                 String twitter   = snap.child("twitterHandle").getValue(String.class);
 
                 if (name != null) { targetName = name; if (tvName != null) tvName.setText(name); if (tvDisplayName != null) tvDisplayName.setText(name); }
-                if (tvUsername != null) {
-                    if (username != null && !username.isEmpty()) {
-                        tvUsername.setText("@" + username);
-                        tvUsername.setVisibility(View.VISIBLE);
-                    } else {
-                        tvUsername.setVisibility(View.GONE);
-                    }
-                }
                 if (photo != null && !photo.isEmpty()) {
                     targetPhoto = photo;
                     String displayPhoto = (photoThumb != null && !photoThumb.isEmpty()) ? photoThumb : photo;
@@ -4283,8 +4316,6 @@ public class UserReelsActivity extends AppCompatActivity
             if (isSelf)  menu.getMenu().add(0, 13, 0, "🎵 Song Strip Color");
             if (isSelf)  menu.getMenu().add(0, 14, 0, "🌈 Bio Strip Color");
             if (isSelf)  menu.getMenu().add(0, 9, 0, "Default Colour");
-            // ── Ultra-Advanced Screen Customization (all users) ───────────
-            menu.getMenu().add(0, 15, 0, "🎨 Screen Customization");
             if (!isSelf) menu.getMenu().add(0, 3, 0, "Report User");
             if (!isSelf) menu.getMenu().add(0, 7, 0, "About this account");
             menu.setOnMenuItemClickListener(item -> {
@@ -4306,7 +4337,6 @@ public class UserReelsActivity extends AppCompatActivity
                     case 14: openBioStripColorMenuEntry(); break;
                     case 10: openLikedOrSavedFullScreen(1); break; // AllReelsFullActivity.TAB_LIKED
                     case 11: openLikedOrSavedFullScreen(2); break; // AllReelsFullActivity.TAB_SAVED
-                    case 15: openScreenCustomization(); break;
                     case 8: {
                         boolean newState = !com.callx.app.docked.DockedPlayerSettings.isEnabled(this);
                         com.callx.app.docked.DockedPlayerSettings.setEnabled(this, newState);
@@ -4320,315 +4350,6 @@ public class UserReelsActivity extends AppCompatActivity
             });
             menu.show();
         });
-    }
-
-    // ── Screen Customization ──────────────────────────────────────────────
-
-    /**
-     * Opens the ultra-advanced ReelScreenCustomizationSheet covering all
-     * 12 sections (Theme, Avatar, Username, Bio, Stats, Links, Player,
-     * Highlights, TopBar, Tabs, Grid, Extra) + Bonus (Export/Import/Presets).
-     */
-    private void openScreenCustomization() {
-        if (isFinishing() || isDestroyed()) return;
-        ReelScreenCustomizationSheet sheet = ReelScreenCustomizationSheet.newInstance();
-        sheet.setOnCustomizationChangedListener(this::applyScreenCustomization);
-        sheet.show(getSupportFragmentManager(), "screen_customization");
-    }
-
-    /**
-     * Reads ALL settings from ReelScreenCustomizationPrefs and applies them
-     * to the live views on this screen.  Called immediately after any setting
-     * changes in the customization sheet and on onCreate() via onResume().
-     */
-    private void applyScreenCustomization() {
-        if (isFinishing() || isDestroyed()) return;
-        ReelScreenCustomizationPrefs cp = new ReelScreenCustomizationPrefs(this);
-
-        // ── 1. Background ─────────────────────────────────────────────────
-        int bgStyle = cp.getInt(ReelScreenCustomizationPrefs.KEY_BG_STYLE,
-                ReelScreenCustomizationPrefs.DEF_BG_STYLE);
-        String bgColorHex = cp.getString(ReelScreenCustomizationPrefs.KEY_BG_COLOR,
-                ReelScreenCustomizationPrefs.DEF_BG_COLOR);
-        android.view.View rootView = getWindow().getDecorView().getRootView();
-        if (rootView != null) {
-            if (bgStyle == 0) { // Solid
-                try {
-                    rootView.setBackgroundColor(android.graphics.Color.parseColor(
-                            bgColorHex.isEmpty() ? "#FFFFFF" : bgColorHex));
-                } catch (Exception ignored) {}
-            } else if (bgStyle == 1) { // Gradient
-                String c1 = cp.getString(ReelScreenCustomizationPrefs.KEY_GRADIENT_COLOR1, ReelScreenCustomizationPrefs.DEF_GRADIENT_COLOR1);
-                String c2 = cp.getString(ReelScreenCustomizationPrefs.KEY_GRADIENT_COLOR2, ReelScreenCustomizationPrefs.DEF_GRADIENT_COLOR2);
-                try {
-                    android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable(
-                            android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-                            new int[]{android.graphics.Color.parseColor(c1),
-                                      android.graphics.Color.parseColor(c2)});
-                    rootView.setBackground(gd);
-                } catch (Exception ignored) {}
-            }
-        }
-
-        // ── 2. Avatar border ──────────────────────────────────────────────
-        if (ivAvatar != null) {
-            boolean borderEnable = cp.getBoolean(ReelScreenCustomizationPrefs.KEY_AVATAR_BORDER_ENABLE,
-                    ReelScreenCustomizationPrefs.DEF_AVATAR_BORDER_ENABLE);
-            int borderWidth = cp.getInt(ReelScreenCustomizationPrefs.KEY_AVATAR_BORDER_WIDTH,
-                    ReelScreenCustomizationPrefs.DEF_AVATAR_BORDER_WIDTH);
-            String borderC1 = cp.getString(ReelScreenCustomizationPrefs.KEY_AVATAR_BORDER_COLOR1,
-                    ReelScreenCustomizationPrefs.DEF_AVATAR_BORDER_COLOR1);
-            if (borderEnable && !borderC1.isEmpty()) {
-                try {
-                    ivAvatar.setBorderWidth(borderWidth);
-                    ivAvatar.setBorderColor(android.graphics.Color.parseColor(borderC1));
-                } catch (Exception ignored) {}
-            } else {
-                ivAvatar.setBorderWidth(0);
-            }
-        }
-
-        // ── 3. Username color / size ───────────────────────────────────────
-        String usernameColor = cp.getString(ReelScreenCustomizationPrefs.KEY_USERNAME_COLOR,
-                ReelScreenCustomizationPrefs.DEF_USERNAME_COLOR);
-        int usernameSize = cp.getInt(ReelScreenCustomizationPrefs.KEY_USERNAME_SIZE,
-                ReelScreenCustomizationPrefs.DEF_USERNAME_SIZE);
-        if (tvUsername != null && !usernameColor.isEmpty()) {
-            try { tvUsername.setTextColor(android.graphics.Color.parseColor(usernameColor)); } catch (Exception ignored) {}
-        }
-        if (tvUsername != null) tvUsername.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, usernameSize);
-        if (tvName != null && !usernameColor.isEmpty()) {
-            try { tvName.setTextColor(android.graphics.Color.parseColor(usernameColor)); } catch (Exception ignored) {}
-        }
-        if (tvName != null) tvName.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, usernameSize);
-
-        // Verified badge visibility
-        boolean badgeShow = cp.getBoolean(ReelScreenCustomizationPrefs.KEY_BADGE_SHOW,
-                ReelScreenCustomizationPrefs.DEF_BADGE_SHOW);
-        if (ivVerified != null) ivVerified.setVisibility(badgeShow ? android.view.View.VISIBLE : android.view.View.GONE);
-        if (ivVerifiedHeader != null) ivVerifiedHeader.setVisibility(badgeShow ? android.view.View.VISIBLE : android.view.View.GONE);
-
-        // ── 4. Bio text color / size ───────────────────────────────────────
-        String bioColor = cp.getString(ReelScreenCustomizationPrefs.KEY_BIO_TEXT_COLOR,
-                ReelScreenCustomizationPrefs.DEF_BIO_TEXT_COLOR);
-        int bioSize = cp.getInt(ReelScreenCustomizationPrefs.KEY_BIO_SIZE,
-                ReelScreenCustomizationPrefs.DEF_BIO_SIZE);
-        int bioMaxLines = cp.getInt(ReelScreenCustomizationPrefs.KEY_BIO_MAX_LINES,
-                ReelScreenCustomizationPrefs.DEF_BIO_MAX_LINES);
-        if (tvBio != null) {
-            if (!bioColor.isEmpty()) {
-                try { tvBio.setTextColor(android.graphics.Color.parseColor(bioColor)); } catch (Exception ignored) {}
-            }
-            tvBio.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, bioSize);
-            tvBio.setMaxLines(bioMaxLines);
-        }
-
-        // ── 5. Stats numbers / labels color / size ────────────────────────
-        String statsNumColor = cp.getString(ReelScreenCustomizationPrefs.KEY_STATS_NUM_COLOR,
-                ReelScreenCustomizationPrefs.DEF_STATS_NUM_COLOR);
-        int statsNumSize = cp.getInt(ReelScreenCustomizationPrefs.KEY_STATS_NUM_SIZE,
-                ReelScreenCustomizationPrefs.DEF_STATS_NUM_SIZE);
-        if (!statsNumColor.isEmpty()) {
-            try {
-                int c = android.graphics.Color.parseColor(statsNumColor);
-                if (tvReelCount  != null) tvReelCount.setTextColor(c);
-                if (tvFollowers  != null) tvFollowers.setTextColor(c);
-                if (tvFollowing  != null) tvFollowing.setTextColor(c);
-            } catch (Exception ignored) {}
-        }
-        if (tvReelCount  != null) tvReelCount.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, statsNumSize);
-        if (tvFollowers  != null) tvFollowers.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, statsNumSize);
-        if (tvFollowing  != null) tvFollowing.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, statsNumSize);
-
-        // ── 5b. Stats Box style — Screen 1 (Default/flat text) vs
-        //        Screen 2 (rounded glass card with backdrop blur) ─────────
-        applyStatsBoxGlassStyle(cp, rootView);
-
-        // ── 10. Tabs — indicator color / height ───────────────────────────
-        String tabActiveColor = cp.getString(ReelScreenCustomizationPrefs.KEY_TAB_ACTIVE_COLOR,
-                ReelScreenCustomizationPrefs.DEF_TAB_ACTIVE_COLOR);
-        String tabBgColor = cp.getString(ReelScreenCustomizationPrefs.KEY_TAB_BAR_BG_COLOR,
-                ReelScreenCustomizationPrefs.DEF_TAB_BAR_BG_COLOR);
-        if (tabLayout != null) {
-            if (!tabActiveColor.isEmpty()) {
-                try {
-                    tabLayout.setSelectedTabIndicatorColor(android.graphics.Color.parseColor(tabActiveColor));
-                } catch (Exception ignored) {}
-            }
-            if (!tabBgColor.isEmpty()) {
-                try {
-                    tabLayout.setBackgroundColor(android.graphics.Color.parseColor(tabBgColor));
-                } catch (Exception ignored) {}
-            }
-        }
-
-        // ── 11. Grid columns ──────────────────────────────────────────────
-        int gridCols = cp.getInt(ReelScreenCustomizationPrefs.KEY_GRID_COLUMNS,
-                ReelScreenCustomizationPrefs.DEF_GRID_COLUMNS);
-        if (gridCols < 2) gridCols = 2;
-        if (gridCols > 3) gridCols = 3;
-        if (gridLayoutManager != null && gridLayoutManager.getSpanCount() != gridCols) {
-            final int finalCols = gridCols;
-            gridLayoutManager.setSpanCount(finalCols);
-            if (adapter != null) adapter.notifyDataSetChanged();
-        }
-
-        // Grid background color
-        String gridBgColor = cp.getString(ReelScreenCustomizationPrefs.KEY_GRID_BG_COLOR,
-                ReelScreenCustomizationPrefs.DEF_GRID_BG_COLOR);
-        if (rvReels != null && !gridBgColor.isEmpty()) {
-            try { rvReels.setBackgroundColor(android.graphics.Color.parseColor(gridBgColor)); } catch (Exception ignored) {}
-        }
-
-        // ── 12. Screen padding ────────────────────────────────────────────
-        int screenPad = cp.getInt(ReelScreenCustomizationPrefs.KEY_SCREEN_PADDING,
-                ReelScreenCustomizationPrefs.DEF_SCREEN_PADDING);
-        if (screenPad > 0) {
-            int padPx = (int)(screenPad * getResources().getDisplayMetrics().density);
-            android.view.View contentRoot = findViewById(android.R.id.content);
-            if (contentRoot != null) contentRoot.setPadding(padPx, 0, padPx, 0);
-        }
-
-        // ── Player show/hide ──────────────────────────────────────────────
-        boolean playerShow = cp.getBoolean(ReelScreenCustomizationPrefs.KEY_PLAYER_SHOW,
-                ReelScreenCustomizationPrefs.DEF_PLAYER_SHOW);
-        if (layoutProfileSong != null) {
-            layoutProfileSong.setVisibility(playerShow ? android.view.View.VISIBLE : android.view.View.GONE);
-        }
-    }
-
-    /**
-     * Stats Box style switch — reads {@code KEY_STATS_BOX_STYLE}:
-     *   0 = Default (Screen 1) → plain text row, flat {@code bg_profile_stats_card}, no blur.
-     *   1 = Glass   (Screen 2) → rounded glass card: centered stats, translucent
-     *       fill, 1dp semi-transparent white border, 20–24dp corner radius,
-     *       and a real backdrop blur (native {@code android.graphics.RenderEffect},
-     *       API 31+ — no third-party blur library) of whatever sits behind it.
-     * 2 = Card and 3 = Outline reuse the same rounded-card visuals as Glass
-     * but without/with different fill so the existing "Card"/"Outline"
-     * picker options in ReelScreenCustomizationSheet aren't dead ends.
-     */
-    private void applyStatsBoxGlassStyle(ReelScreenCustomizationPrefs cp, android.view.View blurSourceRoot) {
-        if (layoutStatsCard == null) return;
-        int style = cp.getInt(ReelScreenCustomizationPrefs.KEY_STATS_BOX_STYLE,
-                ReelScreenCustomizationPrefs.DEF_STATS_BOX_STYLE);
-        float density = getResources().getDisplayMetrics().density;
-
-        if (style == 0) {
-            // Screen 1 — Default: restore the flat XML background, no blur.
-            layoutStatsCard.setBackgroundResource(R.drawable.bg_profile_stats_card);
-            layoutStatsCard.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            clearStatsBlur();
-            return;
-        }
-
-        // Screen 2 (Glass) and the Card/Outline variants all get the rounded
-        // card treatment; only the fill/border differ.
-        int cornerRadiusDp = cp.getInt(ReelScreenCustomizationPrefs.KEY_STATS_CORNER_RADIUS,
-                ReelScreenCustomizationPrefs.DEF_STATS_CORNER_RADIUS);
-        // Glass card spec calls for a 20–24dp radius specifically — clamp into
-        // that band for style==1 rather than trusting an unrelated saved value.
-        if (style == 1 && (cornerRadiusDp < 20 || cornerRadiusDp > 24)) cornerRadiusDp = 22;
-        float radiusPx = cornerRadiusDp * density;
-
-        boolean borderEnable = style == 1 || cp.getBoolean(ReelScreenCustomizationPrefs.KEY_STATS_BORDER_ENABLE,
-                ReelScreenCustomizationPrefs.DEF_STATS_BORDER_ENABLE);
-        int borderWidthPx = (int) (1 * density); // spec: 1dp border for the glass card
-        int borderColor = 0x33FFFFFF; // semi-transparent white
-
-        android.graphics.drawable.GradientDrawable card = new android.graphics.drawable.GradientDrawable();
-        card.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
-        card.setCornerRadius(radiusPx);
-        card.setColor(style == 1 ? 0x1FFFFFFF : 0x33000000); // faint frosted fill vs plain "Card" fill
-        if (borderEnable) card.setStroke(borderWidthPx, borderColor);
-        layoutStatsCard.setBackground(card);
-        // Center-align the three stat columns within the card (spec: "Center
-        // aligned stats") instead of the default center_vertical-only gravity.
-        layoutStatsCard.setGravity(android.view.Gravity.CENTER);
-
-        if (style != 1) {
-            clearStatsBlur();
-            return;
-        }
-
-        // ── Glass backdrop blur ──────────────────────────────────────────
-        // No third-party library: on API 31+ we take a one-shot snapshot of
-        // whatever sits behind layout_stats_wrapper, run it through the
-        // platform's own android.graphics.RenderEffect blur, and drop the
-        // result into layout_stats_blur (a plain ImageView) behind the card.
-        // Below API 31 there's no native blur engine available (RenderScript
-        // is deprecated), so we just keep the translucent card fill above as
-        // the fallback — no crash, just a slightly less "frosted" look.
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
-                && layoutStatsBlur != null && layoutStatsWrapper != null) {
-            final float finalRadiusPx = radiusPx;
-            layoutStatsWrapper.post(() -> captureAndBlurStatsBackdrop(finalRadiusPx));
-        } else {
-            clearStatsBlur();
-        }
-    }
-
-    /**
-     * Snapshots the view directly behind {@code layoutStatsWrapper} (its
-     * parent, with the wrapper itself hidden for the draw pass so it doesn't
-     * capture its own content), blurs that snapshot with
-     * {@link android.graphics.RenderEffect}, and shows it in
-     * {@code layoutStatsBlur} — API 31+ only, called post-layout.
-     */
-    private void captureAndBlurStatsBackdrop(float radiusPx) {
-        if (isFinishing() || isDestroyed()) return;
-        if (layoutStatsWrapper == null || layoutStatsBlur == null) return;
-        android.view.View parent = (android.view.View) layoutStatsWrapper.getParent();
-        int w = layoutStatsWrapper.getWidth();
-        int h = layoutStatsWrapper.getHeight();
-        if (parent == null || w <= 0 || h <= 0 || parent.getWidth() <= 0 || parent.getHeight() <= 0) {
-            clearStatsBlur();
-            return;
-        }
-        try {
-            android.graphics.Bitmap full = android.graphics.Bitmap.createBitmap(
-                    parent.getWidth(), parent.getHeight(), android.graphics.Bitmap.Config.ARGB_8888);
-            android.graphics.Canvas canvas = new android.graphics.Canvas(full);
-            int prevVisibility = layoutStatsWrapper.getVisibility();
-            layoutStatsWrapper.setVisibility(android.view.View.INVISIBLE);
-            parent.draw(canvas);
-            layoutStatsWrapper.setVisibility(prevVisibility);
-
-            int left = Math.max(0, (int) layoutStatsWrapper.getX());
-            int top = Math.max(0, (int) layoutStatsWrapper.getY());
-            int right = Math.min(full.getWidth(), left + w);
-            int bottom = Math.min(full.getHeight(), top + h);
-            if (right <= left || bottom <= top) { clearStatsBlur(); return; }
-
-            android.graphics.Bitmap cropped = android.graphics.Bitmap.createBitmap(
-                    full, left, top, right - left, bottom - top);
-            full.recycle();
-
-            layoutStatsBlur.setImageBitmap(cropped);
-            layoutStatsBlur.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(
-                    radiusPx, radiusPx, android.graphics.Shader.TileMode.CLAMP));
-            layoutStatsBlur.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
-            android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
-            shape.setCornerRadius(radiusPx);
-            shape.setColor(android.graphics.Color.WHITE);
-            layoutStatsBlur.setBackground(shape);
-            layoutStatsBlur.setClipToOutline(true);
-            layoutStatsBlur.setVisibility(android.view.View.VISIBLE);
-        } catch (Exception ignored) {
-            clearStatsBlur();
-        }
-    }
-
-    /** Hides the blur backdrop and releases its bitmap/RenderEffect. */
-    private void clearStatsBlur() {
-        if (layoutStatsBlur == null) return;
-        layoutStatsBlur.setVisibility(android.view.View.GONE);
-        try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                layoutStatsBlur.setRenderEffect(null);
-            }
-            layoutStatsBlur.setImageDrawable(null);
-        } catch (Exception ignored) {}
     }
 
     /** Opens Liked/Saved reels full-screen (they're no longer tabs on this screen). */
@@ -4676,9 +4397,6 @@ public class UserReelsActivity extends AppCompatActivity
             // Picks up any album just created/added-to via CreateHighlightActivity.
             loadHighlights();
         }
-        // Re-apply screen customization on every resume (in case prefs changed
-        // while the user was in the customization sheet or elsewhere).
-        applyScreenCustomization();
         isFirstResume = false;
     }
 
@@ -4688,7 +4406,6 @@ public class UserReelsActivity extends AppCompatActivity
         dismissPreviewDialog();
         stopAvatarAnimation();
         cancelStoryRingReveal();
-        clearStatsBlur();
         dbExecutor.shutdown();
         // Remove persistent Firebase listeners to avoid memory/network leaks
         if (reelCountLiveListener != null && targetUid != null) {

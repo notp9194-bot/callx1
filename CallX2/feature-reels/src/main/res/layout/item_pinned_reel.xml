@@ -3,7 +3,9 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="220dp"
-    android:background="#000000"
+    android:background="@drawable/bg_reel_grid_cell"
+    android:clipToOutline="true"
+    android:elevation="2dp"
     android:foreground="?attr/selectableItemBackground">
 
     <!-- Background thumbnail (16:9-ish hero image) -->
