@@ -134,7 +134,7 @@ public class ReelScreenCustomizationSheet extends BottomSheetDialogFragment {
             btn.setMinWidth(dp(54));
             btn.setMinHeight(dp(44));
             btn.setGravity(Gravity.CENTER);
-            ((android.widget.TextView) btn).setLineSpacingMultiplier(1.1f);
+
             GradientDrawable btnBg = new GradientDrawable();
             btnBg.setCornerRadius(dp(10));
             if (i == 0) {
