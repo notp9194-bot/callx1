@@ -411,6 +411,8 @@ public class UserReelsActivity extends AppCompatActivity
         loadAccountPrivacy();
         setupStatsClicks();
         loadAvatarAndStartAnimation();
+        // Apply ultra-advanced screen customization on first load
+        applyScreenCustomization();
     }
 
     // ── Bind views ────────────────────────────────────────────────────────
@@ -4274,6 +4276,8 @@ public class UserReelsActivity extends AppCompatActivity
             if (isSelf)  menu.getMenu().add(0, 13, 0, "🎵 Song Strip Color");
             if (isSelf)  menu.getMenu().add(0, 14, 0, "🌈 Bio Strip Color");
             if (isSelf)  menu.getMenu().add(0, 9, 0, "Default Colour");
+            // ── Ultra-Advanced Screen Customization (all users) ───────────
+            menu.getMenu().add(0, 15, 0, "🎨 Screen Customization");
             if (!isSelf) menu.getMenu().add(0, 3, 0, "Report User");
             if (!isSelf) menu.getMenu().add(0, 7, 0, "About this account");
             menu.setOnMenuItemClickListener(item -> {
@@ -4295,6 +4299,7 @@ public class UserReelsActivity extends AppCompatActivity
                     case 14: openBioStripColorMenuEntry(); break;
                     case 10: openLikedOrSavedFullScreen(1); break; // AllReelsFullActivity.TAB_LIKED
                     case 11: openLikedOrSavedFullScreen(2); break; // AllReelsFullActivity.TAB_SAVED
+                    case 15: openScreenCustomization(); break;
                     case 8: {
                         boolean newState = !com.callx.app.docked.DockedPlayerSettings.isEnabled(this);
                         com.callx.app.docked.DockedPlayerSettings.setEnabled(this, newState);
@@ -4308,6 +4313,177 @@ public class UserReelsActivity extends AppCompatActivity
             });
             menu.show();
         });
+    }
+
+    // ── Screen Customization ──────────────────────────────────────────────
+
+    /**
+     * Opens the ultra-advanced ReelScreenCustomizationSheet covering all
+     * 12 sections (Theme, Avatar, Username, Bio, Stats, Links, Player,
+     * Highlights, TopBar, Tabs, Grid, Extra) + Bonus (Export/Import/Presets).
+     */
+    private void openScreenCustomization() {
+        if (isFinishing() || isDestroyed()) return;
+        ReelScreenCustomizationSheet sheet = ReelScreenCustomizationSheet.newInstance();
+        sheet.setOnCustomizationChangedListener(this::applyScreenCustomization);
+        sheet.show(getSupportFragmentManager(), "screen_customization");
+    }
+
+    /**
+     * Reads ALL settings from ReelScreenCustomizationPrefs and applies them
+     * to the live views on this screen.  Called immediately after any setting
+     * changes in the customization sheet and on onCreate() via onResume().
+     */
+    private void applyScreenCustomization() {
+        if (isFinishing() || isDestroyed()) return;
+        ReelScreenCustomizationPrefs cp = new ReelScreenCustomizationPrefs(this);
+
+        // ── 1. Background ─────────────────────────────────────────────────
+        int bgStyle = cp.getInt(ReelScreenCustomizationPrefs.KEY_BG_STYLE,
+                ReelScreenCustomizationPrefs.DEF_BG_STYLE);
+        String bgColorHex = cp.getString(ReelScreenCustomizationPrefs.KEY_BG_COLOR,
+                ReelScreenCustomizationPrefs.DEF_BG_COLOR);
+        android.view.View rootView = getWindow().getDecorView().getRootView();
+        if (rootView != null) {
+            if (bgStyle == 0) { // Solid
+                try {
+                    rootView.setBackgroundColor(android.graphics.Color.parseColor(
+                            bgColorHex.isEmpty() ? "#FFFFFF" : bgColorHex));
+                } catch (Exception ignored) {}
+            } else if (bgStyle == 1) { // Gradient
+                String c1 = cp.getString(ReelScreenCustomizationPrefs.KEY_GRADIENT_COLOR1, ReelScreenCustomizationPrefs.DEF_GRADIENT_COLOR1);
+                String c2 = cp.getString(ReelScreenCustomizationPrefs.KEY_GRADIENT_COLOR2, ReelScreenCustomizationPrefs.DEF_GRADIENT_COLOR2);
+                try {
+                    android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable(
+                            android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                            new int[]{android.graphics.Color.parseColor(c1),
+                                      android.graphics.Color.parseColor(c2)});
+                    rootView.setBackground(gd);
+                } catch (Exception ignored) {}
+            }
+        }
+
+        // ── 2. Avatar border ──────────────────────────────────────────────
+        if (ivAvatar != null) {
+            boolean borderEnable = cp.getBoolean(ReelScreenCustomizationPrefs.KEY_AVATAR_BORDER_ENABLE,
+                    ReelScreenCustomizationPrefs.DEF_AVATAR_BORDER_ENABLE);
+            int borderWidth = cp.getInt(ReelScreenCustomizationPrefs.KEY_AVATAR_BORDER_WIDTH,
+                    ReelScreenCustomizationPrefs.DEF_AVATAR_BORDER_WIDTH);
+            String borderC1 = cp.getString(ReelScreenCustomizationPrefs.KEY_AVATAR_BORDER_COLOR1,
+                    ReelScreenCustomizationPrefs.DEF_AVATAR_BORDER_COLOR1);
+            if (borderEnable && !borderC1.isEmpty()) {
+                try {
+                    ivAvatar.setBorderWidth(borderWidth);
+                    ivAvatar.setBorderColor(android.graphics.Color.parseColor(borderC1));
+                } catch (Exception ignored) {}
+            } else {
+                ivAvatar.setBorderWidth(0);
+            }
+        }
+
+        // ── 3. Username color / size ───────────────────────────────────────
+        String usernameColor = cp.getString(ReelScreenCustomizationPrefs.KEY_USERNAME_COLOR,
+                ReelScreenCustomizationPrefs.DEF_USERNAME_COLOR);
+        int usernameSize = cp.getInt(ReelScreenCustomizationPrefs.KEY_USERNAME_SIZE,
+                ReelScreenCustomizationPrefs.DEF_USERNAME_SIZE);
+        if (tvUsername != null && !usernameColor.isEmpty()) {
+            try { tvUsername.setTextColor(android.graphics.Color.parseColor(usernameColor)); } catch (Exception ignored) {}
+        }
+        if (tvUsername != null) tvUsername.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, usernameSize);
+        if (tvName != null && !usernameColor.isEmpty()) {
+            try { tvName.setTextColor(android.graphics.Color.parseColor(usernameColor)); } catch (Exception ignored) {}
+        }
+        if (tvName != null) tvName.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, usernameSize);
+
+        // Verified badge visibility
+        boolean badgeShow = cp.getBoolean(ReelScreenCustomizationPrefs.KEY_BADGE_SHOW,
+                ReelScreenCustomizationPrefs.DEF_BADGE_SHOW);
+        if (ivVerified != null) ivVerified.setVisibility(badgeShow ? android.view.View.VISIBLE : android.view.View.GONE);
+        if (ivVerifiedHeader != null) ivVerifiedHeader.setVisibility(badgeShow ? android.view.View.VISIBLE : android.view.View.GONE);
+
+        // ── 4. Bio text color / size ───────────────────────────────────────
+        String bioColor = cp.getString(ReelScreenCustomizationPrefs.KEY_BIO_TEXT_COLOR,
+                ReelScreenCustomizationPrefs.DEF_BIO_TEXT_COLOR);
+        int bioSize = cp.getInt(ReelScreenCustomizationPrefs.KEY_BIO_SIZE,
+                ReelScreenCustomizationPrefs.DEF_BIO_SIZE);
+        int bioMaxLines = cp.getInt(ReelScreenCustomizationPrefs.KEY_BIO_MAX_LINES,
+                ReelScreenCustomizationPrefs.DEF_BIO_MAX_LINES);
+        if (tvBio != null) {
+            if (!bioColor.isEmpty()) {
+                try { tvBio.setTextColor(android.graphics.Color.parseColor(bioColor)); } catch (Exception ignored) {}
+            }
+            tvBio.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, bioSize);
+            tvBio.setMaxLines(bioMaxLines);
+        }
+
+        // ── 5. Stats numbers / labels color / size ────────────────────────
+        String statsNumColor = cp.getString(ReelScreenCustomizationPrefs.KEY_STATS_NUM_COLOR,
+                ReelScreenCustomizationPrefs.DEF_STATS_NUM_COLOR);
+        int statsNumSize = cp.getInt(ReelScreenCustomizationPrefs.KEY_STATS_NUM_SIZE,
+                ReelScreenCustomizationPrefs.DEF_STATS_NUM_SIZE);
+        if (!statsNumColor.isEmpty()) {
+            try {
+                int c = android.graphics.Color.parseColor(statsNumColor);
+                if (tvReelCount  != null) tvReelCount.setTextColor(c);
+                if (tvFollowers  != null) tvFollowers.setTextColor(c);
+                if (tvFollowing  != null) tvFollowing.setTextColor(c);
+            } catch (Exception ignored) {}
+        }
+        if (tvReelCount  != null) tvReelCount.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, statsNumSize);
+        if (tvFollowers  != null) tvFollowers.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, statsNumSize);
+        if (tvFollowing  != null) tvFollowing.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, statsNumSize);
+
+        // ── 10. Tabs — indicator color / height ───────────────────────────
+        String tabActiveColor = cp.getString(ReelScreenCustomizationPrefs.KEY_TAB_ACTIVE_COLOR,
+                ReelScreenCustomizationPrefs.DEF_TAB_ACTIVE_COLOR);
+        String tabBgColor = cp.getString(ReelScreenCustomizationPrefs.KEY_TAB_BAR_BG_COLOR,
+                ReelScreenCustomizationPrefs.DEF_TAB_BAR_BG_COLOR);
+        if (tabLayout != null) {
+            if (!tabActiveColor.isEmpty()) {
+                try {
+                    tabLayout.setSelectedTabIndicatorColor(android.graphics.Color.parseColor(tabActiveColor));
+                } catch (Exception ignored) {}
+            }
+            if (!tabBgColor.isEmpty()) {
+                try {
+                    tabLayout.setBackgroundColor(android.graphics.Color.parseColor(tabBgColor));
+                } catch (Exception ignored) {}
+            }
+        }
+
+        // ── 11. Grid columns ──────────────────────────────────────────────
+        int gridCols = cp.getInt(ReelScreenCustomizationPrefs.KEY_GRID_COLUMNS,
+                ReelScreenCustomizationPrefs.DEF_GRID_COLUMNS);
+        if (gridCols < 2) gridCols = 2;
+        if (gridCols > 3) gridCols = 3;
+        if (gridLayoutManager != null && gridLayoutManager.getSpanCount() != gridCols) {
+            final int finalCols = gridCols;
+            gridLayoutManager.setSpanCount(finalCols);
+            if (adapter != null) adapter.notifyDataSetChanged();
+        }
+
+        // Grid background color
+        String gridBgColor = cp.getString(ReelScreenCustomizationPrefs.KEY_GRID_BG_COLOR,
+                ReelScreenCustomizationPrefs.DEF_GRID_BG_COLOR);
+        if (rvReels != null && !gridBgColor.isEmpty()) {
+            try { rvReels.setBackgroundColor(android.graphics.Color.parseColor(gridBgColor)); } catch (Exception ignored) {}
+        }
+
+        // ── 12. Screen padding ────────────────────────────────────────────
+        int screenPad = cp.getInt(ReelScreenCustomizationPrefs.KEY_SCREEN_PADDING,
+                ReelScreenCustomizationPrefs.DEF_SCREEN_PADDING);
+        if (screenPad > 0) {
+            int padPx = (int)(screenPad * getResources().getDisplayMetrics().density);
+            android.view.View contentRoot = findViewById(android.R.id.content);
+            if (contentRoot != null) contentRoot.setPadding(padPx, 0, padPx, 0);
+        }
+
+        // ── Player show/hide ──────────────────────────────────────────────
+        boolean playerShow = cp.getBoolean(ReelScreenCustomizationPrefs.KEY_PLAYER_SHOW,
+                ReelScreenCustomizationPrefs.DEF_PLAYER_SHOW);
+        if (layoutProfileSong != null) {
+            layoutProfileSong.setVisibility(playerShow ? android.view.View.VISIBLE : android.view.View.GONE);
+        }
     }
 
     /** Opens Liked/Saved reels full-screen (they're no longer tabs on this screen). */
@@ -4355,6 +4531,9 @@ public class UserReelsActivity extends AppCompatActivity
             // Picks up any album just created/added-to via CreateHighlightActivity.
             loadHighlights();
         }
+        // Re-apply screen customization on every resume (in case prefs changed
+        // while the user was in the customization sheet or elsewhere).
+        applyScreenCustomization();
         isFirstResume = false;
     }
 
