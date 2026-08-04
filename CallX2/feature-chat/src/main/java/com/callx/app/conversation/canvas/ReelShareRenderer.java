@@ -2,6 +2,8 @@ package com.callx.app.conversation.canvas;
 
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RectF;
 import android.text.TextUtils;
 
 /**
@@ -29,14 +31,51 @@ final class ReelShareRenderer {
     private float lastUsernameMaxW = -1f;
     private String cachedUsernameDisplay;
 
+    // Rounded-rect clip path for the whole card — mirrors the legacy XML's
+    // android:clipToOutline="true" on ll_reel_share, which clipped every
+    // child (including the top/bottom gradient Views) to the card's rounded
+    // outline. The gradients here are plain rectangular Drawables, so
+    // without this clip they paint square corners on top of the already-
+    // rounded thumbnail underneath — that's what made the card's corners
+    // look "cut"/un-rounded even after the background-bubble mismatch was
+    // fixed. Rebuilt only when reelCardRect's bounds actually change (same
+    // recompute-on-change pattern as the username cache above), not on
+    // every draw().
+    private final Path clipPath = new Path();
+    private float lastClipLeft = Float.NaN, lastClipTop, lastClipRight, lastClipBottom;
+
     ReelShareRenderer(MessageBubbleCanvasView host) {
         this.host = host;
+    }
+
+    private void ensureClipPath(float r) {
+        RectF cardRect = host.reelCardRect;
+        if (cardRect.left == lastClipLeft && cardRect.top == lastClipTop
+                && cardRect.right == lastClipRight && cardRect.bottom == lastClipBottom) {
+            return;
+        }
+        clipPath.reset();
+        clipPath.addRoundRect(cardRect, r, r, Path.Direction.CW);
+        lastClipLeft = cardRect.left;
+        lastClipTop = cardRect.top;
+        lastClipRight = cardRect.right;
+        lastClipBottom = cardRect.bottom;
     }
 
     void draw(Canvas canvas) {
         float r = MessageBubbleCanvasView.REEL_CORNER_RADIUS_DP * host.density;
 
-        // ── Thumbnail (or placeholder), clipped to the card's rounded shape ──
+        // Clip everything about the card (thumbnail, both gradients, the
+        // avatar/username header, play glyph, caption + label) to the
+        // card's rounded outline so none of it can paint past the rounded
+        // corners. The timestamp/tick pill is drawn after restore() below,
+        // outside this clip — it has its own separate rounded-pill shape
+        // and sits well inside the card, away from the outer corners.
+        canvas.save();
+        ensureClipPath(r);
+        canvas.clipPath(clipPath);
+
+        // ── Thumbnail (or placeholder) ──
         if (host.reelThumbBitmap != null) {
             float scale = Math.max(host.reelCardRect.width() / host.reelThumbBitmap.getWidth(),
                     host.reelCardRect.height() / host.reelThumbBitmap.getHeight());
@@ -122,6 +161,8 @@ final class ReelShareRenderer {
             host.reelCaptionLayout.draw(canvas);
             canvas.restore();
         }
+
+        canvas.restore();
 
         // ── Timestamp/tick pill — always shown, bottom-end corner ──
         float rr = MessageBubbleCanvasView.MEDIA_PILL_CORNER_DP * host.density;
