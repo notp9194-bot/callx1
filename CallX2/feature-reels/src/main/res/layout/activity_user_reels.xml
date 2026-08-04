@@ -140,45 +140,80 @@
                     android:orientation="vertical"
                     android:layout_marginStart="12dp">
 
-                    <!-- Display name — own row, aligned above Reels column (1st of 3 weighted cols) -->
+                    <!-- Display name + verified badge (screenshot-2 style) -->
                     <LinearLayout
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:layout_marginBottom="6dp">
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="2dp">
 
                         <TextView android:id="@+id/tv_display_name"
                             android:layout_width="0dp" android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:gravity="start"
                             android:text="username"
-                            android:textSize="14sp"
+                            android:textSize="19sp"
                             android:fontFamily="sans-serif-bold"
                             android:textColor="?attr/colorOnSurface"
                             android:maxLines="1" android:ellipsize="end"/>
 
-                        <View android:layout_width="0dp" android:layout_height="0dp"
-                            android:layout_weight="1"/>
-
-                        <View android:layout_width="0dp" android:layout_height="0dp"
-                            android:layout_weight="1"/>
+                        <ImageView android:id="@+id/iv_verified_header"
+                            android:layout_width="16dp" android:layout_height="16dp"
+                            android:layout_marginStart="4dp"
+                            android:src="@drawable/ic_verified"
+                            android:tint="@color/brand_primary"
+                            android:contentDescription="Verified"
+                            android:visibility="gone"/>
                     </LinearLayout>
 
-                    <!-- Stats: Reels | Followers | Following -->
+                    <!-- @username + Creator badge (screenshot-2 style) -->
                     <LinearLayout
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:gravity="start">
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="8dp">
+
+                        <TextView android:id="@+id/tv_username"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:gravity="start"
+                            android:textSize="13sp"
+                            android:fontFamily="sans-serif"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:maxLines="1" android:ellipsize="end"
+                            android:maxWidth="140dp"
+                            android:visibility="gone"/>
+
+                        <TextView android:id="@+id/tv_creator_badge"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:layout_marginStart="6dp"
+                            android:paddingStart="8dp" android:paddingEnd="8dp"
+                            android:paddingTop="2dp" android:paddingBottom="2dp"
+                            android:text="Creator"
+                            android:textSize="11sp"
+                            android:fontFamily="sans-serif-medium"
+                            android:textColor="#FFFFFF"
+                            android:background="@drawable/bg_creator_badge"
+                            android:visibility="gone"/>
+                    </LinearLayout>
+
+                    <!-- Stats card: Reels | Followers | Following (screenshot-2 style) -->
+                    <LinearLayout
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingTop="10dp" android:paddingBottom="10dp"
+                        android:background="@drawable/bg_profile_stats_card">
 
                         <!-- Reels count -->
                         <LinearLayout
                             android:layout_width="0dp" android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:orientation="vertical"
-                            android:gravity="start">
+                            android:gravity="center_horizontal">
                             <TextView android:id="@+id/tv_reel_count"
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="0"
-                                android:textSize="18sp"
+                                android:textSize="17sp"
                                 android:fontFamily="sans-serif-bold"
                                 android:textColor="?attr/colorOnSurface"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -187,18 +222,21 @@
                                 android:textColor="?attr/colorOnSurfaceVariant"/>
                         </LinearLayout>
 
+                        <View android:layout_width="1dp" android:layout_height="26dp"
+                            android:background="?attr/colorOnSurfaceVariant" android:alpha="0.25"/>
+
                         <!-- Followers count (clickable) -->
                         <LinearLayout android:id="@+id/layout_followers_click"
                             android:layout_width="0dp" android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:orientation="vertical"
-                            android:gravity="start"
+                            android:gravity="center_horizontal"
                             android:clickable="true" android:focusable="true"
                             android:foreground="?attr/selectableItemBackground">
                             <TextView android:id="@+id/tv_followers"
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="0"
-                                android:textSize="18sp"
+                                android:textSize="17sp"
                                 android:fontFamily="sans-serif-bold"
                                 android:textColor="?attr/colorOnSurface"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -207,18 +245,21 @@
                                 android:textColor="?attr/colorOnSurfaceVariant"/>
                         </LinearLayout>
 
+                        <View android:layout_width="1dp" android:layout_height="26dp"
+                            android:background="?attr/colorOnSurfaceVariant" android:alpha="0.25"/>
+
                         <!-- Following count (clickable) -->
                         <LinearLayout android:id="@+id/layout_following_click"
                             android:layout_width="0dp" android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:orientation="vertical"
-                            android:gravity="start"
+                            android:gravity="center_horizontal"
                             android:clickable="true" android:focusable="true"
                             android:foreground="?attr/selectableItemBackground">
                             <TextView android:id="@+id/tv_following"
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="0"
-                                android:textSize="18sp"
+                                android:textSize="17sp"
                                 android:fontFamily="sans-serif-bold"
                                 android:textColor="?attr/colorOnSurface"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"

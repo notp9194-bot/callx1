@@ -112,7 +112,8 @@ public class UserReelsActivity extends AppCompatActivity
     private final Handler   storyRingHandler = new Handler(Looper.getMainLooper());
     private Runnable        storyRingRevealRunnable;
     private android.animation.ValueAnimator storyRingRevealAnimator;
-    private TextView        tvName, tvDisplayName, tvReelCount, tvFollowers, tvFollowing, tvBio;
+    private TextView        tvName, tvDisplayName, tvUsername, tvCreatorBadge, tvReelCount, tvFollowers, tvFollowing, tvBio;
+    private ImageView       ivVerifiedHeader;
     private TextView        tvMutualFollowers;
     private LinearLayout    layoutMutualFollowers;
     private CircleImageView ivMutual1, ivMutual2, ivMutual3;
@@ -427,6 +428,9 @@ public class UserReelsActivity extends AppCompatActivity
         }
         tvName               = findViewById(R.id.tv_name);
         tvDisplayName        = findViewById(R.id.tv_display_name);
+        tvUsername           = findViewById(R.id.tv_username);
+        tvCreatorBadge       = findViewById(R.id.tv_creator_badge);
+        ivVerifiedHeader     = findViewById(R.id.iv_verified_header);
         tvReelCount          = findViewById(R.id.tv_reel_count);
         tvFollowers          = findViewById(R.id.tv_followers);
         tvFollowing          = findViewById(R.id.tv_following);
@@ -1847,8 +1851,17 @@ public class UserReelsActivity extends AppCompatActivity
         FirebaseUtils.getUserRef(targetUid).child("isVerified")
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (ivVerified != null)
-                        ivVerified.setVisibility(
+                    boolean verified = Boolean.TRUE.equals(snap.getValue(Boolean.class));
+                    if (ivVerified != null) ivVerified.setVisibility(verified ? View.VISIBLE : View.GONE);
+                    if (ivVerifiedHeader != null) ivVerifiedHeader.setVisibility(verified ? View.VISIBLE : View.GONE);
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+        FirebaseUtils.getUserRef(targetUid).child("isCreator")
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (tvCreatorBadge != null)
+                        tvCreatorBadge.setVisibility(
                             Boolean.TRUE.equals(snap.getValue(Boolean.class))
                                 ? View.VISIBLE : View.GONE);
                 }
@@ -3747,6 +3760,7 @@ public class UserReelsActivity extends AppCompatActivity
             .addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 String name      = snap.child("displayName").getValue(String.class);
+                String username  = snap.child("username").getValue(String.class);
                 String photo     = snap.child("photoUrl").getValue(String.class);
                 String photoThumb = snap.child("thumbUrl").getValue(String.class);
                 String bio       = snap.child("bio").getValue(String.class);
@@ -3756,6 +3770,14 @@ public class UserReelsActivity extends AppCompatActivity
                 String twitter   = snap.child("twitterHandle").getValue(String.class);
 
                 if (name != null) { targetName = name; if (tvName != null) tvName.setText(name); if (tvDisplayName != null) tvDisplayName.setText(name); }
+                if (tvUsername != null) {
+                    if (username != null && !username.isEmpty()) {
+                        tvUsername.setText("@" + username);
+                        tvUsername.setVisibility(View.VISIBLE);
+                    } else {
+                        tvUsername.setVisibility(View.GONE);
+                    }
+                }
                 if (photo != null && !photo.isEmpty()) {
                     targetPhoto = photo;
                     String displayPhoto = (photoThumb != null && !photoThumb.isEmpty()) ? photoThumb : photo;
