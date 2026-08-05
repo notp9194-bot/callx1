@@ -28,4 +28,12 @@
          be cancelled from onViewRecycled() if the cell is recycled mid-touch
          (fast fling while a finger is still down elsewhere, multi-touch). -->
     <item name="tag_peek_runnable"        type="id"/>
+
+    <!-- ReelCommentsAdapter avatar binding — two independent tag keys on the
+         same CircleImageView: which uid the row's avatar is currently FOR
+         (stale-async-callback guard when a row gets recycled mid-fetch) and
+         which URL is already loaded/loading (skip redundant Glide calls on
+         an unchanged rebind). -->
+    <item name="tag_avatar_uid"           type="id"/>
+    <item name="tag_avatar_url"           type="id"/>
 </resources>

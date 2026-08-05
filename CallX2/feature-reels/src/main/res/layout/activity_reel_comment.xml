@@ -152,6 +152,26 @@
             android:clipToPadding="false"
             android:paddingBottom="8dp"/>
 
+        <!-- Shown briefly while an older comments page is being fetched
+             (triggered by scrolling near the top of the list). -->
+        <TextView
+            android:id="@+id/tv_loading_older"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="8dp"
+            android:text="Loading earlier comments…"
+            android:textSize="11sp"
+            android:textColor="@color/text_muted"
+            android:fontFamily="sans-serif-medium"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:background="@drawable/bg_sort_chip"
+            android:elevation="4dp"
+            android:visibility="gone"/>
+
         <TextView
             android:id="@+id/pill_new_comments"
             android:layout_width="wrap_content"

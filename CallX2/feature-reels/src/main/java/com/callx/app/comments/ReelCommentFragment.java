@@ -49,13 +49,16 @@ import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.MutableData;
+import com.google.firebase.database.Query;
 import com.google.firebase.database.Transaction;
 import com.google.firebase.database.ValueEventListener;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * ReelCommentFragment — "single source of truth" for the reel comment UI
@@ -116,6 +119,7 @@ public class ReelCommentFragment extends Fragment {
     private View           layoutMentionSuggestions;
     private LinearLayout   containerMentionSuggestions;
     private TextView       pillNewComments;
+    private TextView       tvLoadingOlder;
 
     // ── State ────────────────────────────────────────────────────────────────
     private String reelId  = "";
@@ -186,6 +190,69 @@ public class ReelCommentFragment extends Fragment {
         refreshHandler.postDelayed(refreshRunnable, REFRESH_DEBOUNCE_MS);
     }
 
+    // ── Pagination (PERF) ────────────────────────────────────────────────────
+    // Instagram never downloads an entire comment thread up front — a viral
+    // reel can have tens of thousands of comments, and a plain
+    // ChildEventListener on "reelComments/{reelId}" fires onChildAdded once
+    // per EXISTING comment (huge parse + bandwidth cost, and REFRESH_DEBOUNCE_MS
+    // above only coalesces the *UI* refresh, not the network/parse work).
+    // Instead we live-listen to only the most recent PAGE_SIZE comments and
+    // page older ones in on demand as the user scrolls up — exactly like
+    // Instagram's comment sheet. Ordered by KEY (not a "timestamp" child):
+    // comment IDs are Firebase push() keys, which are already chronologically
+    // sortable, so this needs no extra ".indexOn" rule in the Firebase console.
+    private static final int PAGE_SIZE = 40;
+    private final Set<String> loadedCommentIds = new HashSet<>();
+    private String  oldestLoadedKey = null;
+    private boolean hasMoreOlder    = true;
+    private boolean loadingOlder    = false;
+    private Query    commentsQuery;
+
+    /** Triggered by the scroll listener once the user nears the top of the
+     *  loaded list — fetches the next older page as a one-off read (NOT a
+     *  live listener, so it doesn't grow the realtime bandwidth footprint). */
+    private void maybeLoadOlderComments() {
+        if (!initialLoadSettled || loadingOlder || !hasMoreOlder
+                || oldestLoadedKey == null || reelId.isEmpty()) return;
+        loadingOlder = true;
+        showLoadingOlder(true);
+
+        Query olderPage = FirebaseUtils.getReelCommentsRef(reelId)
+            .orderByKey().endBefore(oldestLoadedKey).limitToLast(PAGE_SIZE);
+
+        olderPage.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snapshot) {
+                if (!isAdded()) return;
+                List<ReelComment> older = new ArrayList<>();
+                for (DataSnapshot child : snapshot.getChildren()) {
+                    ReelComment c = safeParseComment(child);
+                    if (c == null || TextUtils.isEmpty(c.text)) continue;
+                    if (!loadedCommentIds.add(c.commentId)) continue; // dup guard
+                    registerMentionCandidate(c.uid, c.ownerName);
+                    older.add(c);
+                }
+                if (!older.isEmpty()) {
+                    // Query is ascending by key, so the first child returned
+                    // is the oldest of this page — that becomes our new floor.
+                    oldestLoadedKey = older.get(0).commentId;
+                    allComments.addAll(0, older);
+                }
+                hasMoreOlder = older.size() >= PAGE_SIZE;
+                loadingOlder = false;
+                showLoadingOlder(false);
+                if (!older.isEmpty()) applyFilterAndSort();
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {
+                loadingOlder = false;
+                showLoadingOlder(false);
+            }
+        });
+    }
+
+    private void showLoadingOlder(boolean show) {
+        if (tvLoadingOlder != null) tvLoadingOlder.setVisibility(show ? View.VISIBLE : View.GONE);
+    }
+
     // ── Firebase ─────────────────────────────────────────────────────────────
     private DatabaseReference  commentsRef;
     private ChildEventListener commentsListener;
@@ -234,7 +301,13 @@ public class ReelCommentFragment extends Fragment {
         else showEmpty(true);
 
         if (rvComments != null) {
-            rvComments.postDelayed(() -> initialLoadSettled = true, 1200);
+            rvComments.postDelayed(() -> {
+                initialLoadSettled = true;
+                // If the live window's initial burst came back under a full
+                // page, that IS every comment on this reel — nothing older
+                // to page in, so skip wiring up load-more entirely.
+                hasMoreOlder = allComments.size() >= PAGE_SIZE;
+            }, 1200);
         }
     }
 
@@ -249,8 +322,8 @@ public class ReelCommentFragment extends Fragment {
         saveDraft();
         refreshHandler.removeCallbacksAndMessages(null);
         try {
-            if (commentsListener != null && commentsRef != null)
-                commentsRef.removeEventListener(commentsListener);
+            if (commentsListener != null && commentsQuery != null)
+                commentsQuery.removeEventListener(commentsListener);
         } catch (Exception ignored) {}
         super.onDestroyView();
     }
@@ -288,6 +361,7 @@ public class ReelCommentFragment extends Fragment {
         layoutMentionSuggestions    = root.findViewById(R.id.layout_mention_suggestions);
         containerMentionSuggestions = root.findViewById(R.id.container_mention_suggestions);
         pillNewComments = root.findViewById(R.id.pill_new_comments);
+        tvLoadingOlder  = root.findViewById(R.id.tv_loading_older);
 
         // Same button closes either mode — finish() for the fullscreen host,
         // dismiss() for the sheet host — see setOnCloseListener callers.
@@ -373,6 +447,30 @@ public class ReelCommentFragment extends Fragment {
             RecycledViewPool pool = new RecycledViewPool();
             pool.setMaxRecycledViews(0, 20);
             rvComments.setRecycledViewPool(pool);
+
+            // PERF/UX: the default DefaultItemAnimator plays a brief fade
+            // "change" animation on every notifyItemChanged — including
+            // payload-only like/reaction updates — which reads as a flicker
+            // during a burst of live activity. Instagram's comment rows
+            // never blink; they just update in place. Insert/remove
+            // animations (new comment arriving, a delete) are kept.
+            RecyclerView.ItemAnimator rvAnim = rvComments.getItemAnimator();
+            if (rvAnim instanceof RecyclerView.SimpleItemAnimator) {
+                ((RecyclerView.SimpleItemAnimator) rvAnim).setSupportsChangeAnimations(false);
+            }
+
+            // PERF: page older comments in as the user nears the top of the
+            // currently-loaded window, instead of ever downloading the full
+            // thread — see maybeLoadOlderComments().
+            rvComments.addOnScrollListener(new RecyclerView.OnScrollListener() {
+                @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                    if (dy >= 0) return; // only care about scrolling UP
+                    LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
+                    if (lm != null && lm.findFirstVisibleItemPosition() <= 4) {
+                        maybeLoadOlderComments();
+                    }
+                }
+            });
 
             attachSwipeToReply(rvComments);
         }
@@ -801,16 +899,23 @@ public class ReelCommentFragment extends Fragment {
             });
     }
 
-    // ── Load comments (ChildEventListener) ───────────────────────────────────
+    // ── Load comments (paginated ChildEventListener — see PAGE_SIZE note) ────
 
     private void loadComments() {
-        commentsRef = FirebaseUtils.getReelCommentsRef(reelId);
+        commentsRef   = FirebaseUtils.getReelCommentsRef(reelId);
+        // PERF: live-listen to only the most recent PAGE_SIZE comments —
+        // older ones are paged in on demand by maybeLoadOlderComments().
+        commentsQuery = commentsRef.orderByKey().limitToLast(PAGE_SIZE);
 
         commentsListener = new ChildEventListener() {
             @Override
             public void onChildAdded(@NonNull DataSnapshot s, @Nullable String prev) {
                 ReelComment c = safeParseComment(s);
                 if (c == null || TextUtils.isEmpty(c.text)) return;
+                if (!loadedCommentIds.add(c.commentId)) return; // dup / window re-add guard
+                if (oldestLoadedKey == null || c.commentId.compareTo(oldestLoadedKey) < 0) {
+                    oldestLoadedKey = c.commentId;
+                }
                 registerMentionCandidate(c.uid, c.ownerName);
                 boolean wasNearBottom = isNearBottom();
                 allComments.add(c);
@@ -842,8 +947,15 @@ public class ReelCommentFragment extends Fragment {
 
             @Override
             public void onChildRemoved(@NonNull DataSnapshot s) {
+                // NOTE: this also fires when a comment simply ages out of the
+                // live PAGE_SIZE window (a newer one pushed it out) — not just
+                // on a real delete, since Firebase can't tell us which. With
+                // PAGE_SIZE=40 that only happens once 40 newer comments land
+                // during a single viewing session, an acceptable trade-off
+                // for not ever downloading the full thread.
                 String removedId = s.getKey();
                 if (removedId == null) return;
+                loadedCommentIds.remove(removedId);
                 for (int i = 0; i < allComments.size(); i++) {
                     if (removedId.equals(allComments.get(i).commentId)) {
                         allComments.remove(i);
@@ -857,7 +969,7 @@ public class ReelCommentFragment extends Fragment {
             @Override public void onCancelled(@NonNull DatabaseError e) { showEmpty(true); }
         };
 
-        commentsRef.addChildEventListener(commentsListener);
+        commentsQuery.addChildEventListener(commentsListener);
     }
 
     @Nullable

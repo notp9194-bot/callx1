@@ -59,6 +59,22 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     // CircleImageView, we request 2x for retina sharpness.
     private static final int AVATAR_SIZE_DP = 36;
 
+    // PERF: RequestOptions was rebuilt with `new RequestOptions().circleCrop()
+    // .override(...)` on EVERY avatar bind. Since the target size is fixed
+    // for every comment row, build it once lazily and reuse the same
+    // instance for every Glide.load() call instead.
+    private static volatile RequestOptions avatarRequestOptions;
+
+    private static RequestOptions avatarRequestOptions(Context ctx) {
+        RequestOptions opts = avatarRequestOptions;
+        if (opts == null) {
+            int sizePx = AvatarUrlBuilder.dpToPx(ctx, AVATAR_SIZE_DP) * 2;
+            opts = new RequestOptions().circleCrop().override(sizePx, sizePx);
+            avatarRequestOptions = opts;
+        }
+        return opts;
+    }
+
     // ── Listener ──────────────────────────────────────────────────────────
     public interface OnCommentActionListener {
         void onLikeComment(ReelComment comment, int position);
@@ -254,23 +270,24 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
 
         // ── Story ring (unseen status indicator) ─────────────────────
         StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
-        boolean hasStory = c.uid != null && (scm.hasUnseen(c.uid) || scm.hasStatus(c.uid));
+        // PERF: was calling hasUnseen()/hasStatus() up to 3x per bind (once
+        // for hasStory, then again inside the if/else below) — compute each
+        // exactly once and reuse.
+        boolean hasUnseenStory = c.uid != null && scm.hasUnseen(c.uid);
+        boolean hasAnyStatus   = c.uid != null && scm.hasStatus(c.uid);
+        boolean hasStory = hasUnseenStory || hasAnyStatus;
+        h.hasStory = hasStory; // read by the constructor-level click listener
 
         if (h.ivStoryRing != null && c.uid != null) {
             // FIX v39: seamless gradient ring (story_ring_insta_gradient.xml had a
             // visible seam — see StoryRingGradientDrawable doc).
-            if (scm.hasUnseen(c.uid)) {
-                h.ivStoryRing.setBackground(com.callx.app.utils.StoryRingGradientDrawable
-                        .withStrokeDp(2.5f, ctx.getResources().getDisplayMetrics().density));
-                h.ivStoryRing.setVisibility(android.view.View.VISIBLE);
-            } else if (scm.hasStatus(c.uid)) {
+            if (hasUnseenStory || hasAnyStatus) {
                 h.ivStoryRing.setBackground(com.callx.app.utils.StoryRingGradientDrawable
                         .withStrokeDp(2.5f, ctx.getResources().getDisplayMetrics().density));
                 h.ivStoryRing.setVisibility(android.view.View.VISIBLE);
             } else {
                 h.ivStoryRing.setVisibility(android.view.View.GONE);
             }
-            h.ivStoryRing.setOnClickListener(v -> openCommentStatus(ctx, c));
         }
 
         // ── Name ────────────────────────────────────────────────────────
@@ -303,7 +320,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
 
         // ── Emoji reaction strip ────────────────────────────────────────
         if (h.layoutReactions != null) {
-            bindReactions(ctx, h.layoutReactions, c);
+            bindReactions(h, c);
         }
 
         // ── Like button ─────────────────────────────────────────────────
@@ -323,30 +340,12 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         }
 
         // ── Click listeners ─────────────────────────────────────────────
-        // (ring click already set above)
-
-        h.ivAvatar.setOnClickListener(v -> {
-            if (hasStory) openCommentStatus(ctx, c);
-            else if (listener != null) listener.onAvatarClick(c);
-        });
-
-        h.btnLike.setOnClickListener(v -> {
-            if (listener != null) listener.onLikeComment(c, h.getAdapterPosition());
-        });
-
-        h.btnReply.setOnClickListener(v -> {
-            if (listener != null) listener.onReplyComment(c);
-        });
-
-        h.tvViewReplies.setOnClickListener(v -> {
-            if (listener != null)
-                listener.onViewReplies(c, h.containerReplies, h.tvViewReplies);
-        });
-
-        h.itemView.setOnLongClickListener(v -> {
-            if (listener != null) showContextMenu(ctx, c, h.getAdapterPosition());
-            return true;
-        });
+        // PERF: all click/long-click listeners below are attached ONCE in
+        // VH's constructor (they read h.boundComment / getAdapterPosition()
+        // live) instead of a fresh lambda being allocated here on every
+        // single bind — same fix as the double-tap GestureDetector already
+        // gets. During a fast fling a recycled row rebinds constantly, so
+        // this removes 5 allocations × every bind × every visible row.
 
         // ── Double-tap comment text to like (Instagram parity) ────────────
         // PERF: the actual GestureDetector is created ONCE in VH's
@@ -403,6 +402,12 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     }
 
     private void bindAvatar(Context ctx, CircleImageView iv, String uid, String photoUrl) {
+        // PERF/correctness: tag the row with which uid its avatar is FOR,
+        // checked by the async Firebase fallback below before it applies a
+        // result — otherwise a slow lookup for a row that's since been
+        // recycled to a different comment can land the wrong avatar mid-fling.
+        iv.setTag(R.id.tag_avatar_uid, uid);
+
         if (photoUrl != null && !photoUrl.isEmpty()) {
             avatarCache.put(uid, photoUrl);
             loadAvatarInto(ctx, iv, photoUrl);
@@ -432,7 +437,11 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
                     String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
                     if (p != null && !p.isEmpty()) {
                         avatarCache.put(uid, p);
-                        loadAvatarInto(ctx, iv, p);
+                        // Stale-callback guard: only apply if this row is
+                        // still showing the comment we fetched for.
+                        if (uid.equals(iv.getTag(R.id.tag_avatar_uid))) {
+                            loadAvatarInto(ctx, iv, p);
+                        }
                     }
                 }
                 @Override
@@ -442,16 +451,23 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
 
     private void loadAvatarInto(Context ctx, CircleImageView iv, String url) {
         try {
+            // PERF: skip the Glide call entirely if this exact URL is
+            // already what's loaded/loading into this recycled row — avoids
+            // redundant request-building work when a row rebinds with
+            // unchanged avatar data (e.g. a like/reaction-only refresh that
+            // still routes through a full bind for some other reason).
+            Object lastUrl = iv.getTag(R.id.tag_avatar_url);
+            if (url.equals(lastUrl)) return;
+            iv.setTag(R.id.tag_avatar_url, url);
+
             // Routed through the central AvatarUrlBuilder — exact size,
             // 2x retina, auto-format Cloudinary variant — and .override()
-            // pins the Glide decode size so RecyclerView recycling never
-            // decodes larger than the 36dp circle needs.
-            int sizePx = AvatarUrlBuilder.dpToPx(ctx, AVATAR_SIZE_DP) * 2;
+            // (via the shared, cached RequestOptions) pins the Glide decode
+            // size so RecyclerView recycling never decodes larger than the
+            // 36dp circle needs.
             String resizedUrl = AvatarUrlBuilder.build(ctx, url, AVATAR_SIZE_DP);
             Glide.with(ctx).load(resizedUrl)
-                .apply(new RequestOptions()
-                    .circleCrop()
-                    .override(sizePx, sizePx))
+                .apply(avatarRequestOptions(ctx))
                 .placeholder(R.drawable.ic_person)
                 .error(R.drawable.ic_person)
                 .into(iv);
@@ -459,12 +475,18 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     }
 
     // ── Emoji reaction strip ──────────────────────────────────────────────
+    // PERF: reaction chips used to be built with `new TextView(ctx)` +
+    // layout.removeAllViews()/addView() on EVERY full bind — allocating up
+    // to 3 fresh Views (plus their measure/layout pass) each time a row with
+    // reactions scrolls back on screen. VH now owns a fixed pool of 3 chip
+    // TextViews created once in its constructor; binding just updates their
+    // text/visibility/click target, no view creation or layout-tree churn.
 
-    private void bindReactions(Context ctx, LinearLayout layout, ReelComment c) {
-        layout.removeAllViews();
-
+    private void bindReactions(VH h, ReelComment c) {
+        LinearLayout layout = h.layoutReactions;
         if (c.reactions == null || c.reactions.isEmpty()) {
             layout.setVisibility(View.GONE);
+            for (TextView chip : h.reactionChips) chip.setVisibility(View.GONE);
             return;
         }
 
@@ -474,52 +496,32 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             counts.merge(emoji, 1, Integer::sum);
         }
 
-        // Sort by count desc, take top 3
+        // Sort by count desc, take top N (pool size)
         List<Map.Entry<String, Integer>> sorted = new ArrayList<>(counts.entrySet());
         Collections.sort(sorted, (a, b) -> b.getValue().compareTo(a.getValue()));
 
-        int max = Math.min(3, sorted.size());
-        int dp4 = dp(ctx, 4);
-        int dp8 = dp(ctx, 8);
-        int dp2 = dp(ctx, 2);
-
-        for (int i = 0; i < max; i++) {
+        int max = Math.min(h.reactionChips.length, sorted.size());
+        for (int i = 0; i < h.reactionChips.length; i++) {
+            TextView chip = h.reactionChips[i];
+            if (i >= max) {
+                chip.setVisibility(View.GONE);
+                continue;
+            }
             Map.Entry<String, Integer> entry = sorted.get(i);
-
-            TextView chip = new TextView(ctx);
-            chip.setText(entry.getKey() + " " + entry.getValue());
-            chip.setTextSize(11f);
-            chip.setTextColor(0xFF5B5BF6);
-            chip.setBackgroundResource(R.drawable.bg_reaction_chip);
-            chip.setPadding(dp8, dp2, dp8, dp2);
-
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.setMargins(0, dp4, dp4, 0);
-            chip.setLayoutParams(lp);
-
-            // Tap chip → react with same emoji
             final String emoji = entry.getKey();
+            chip.setText(emoji + " " + entry.getValue());
+            chip.setVisibility(View.VISIBLE);
+            // Tap chip → react with same emoji. h.getAdapterPosition() reads
+            // the CURRENT position at click time (cheap, O(1)) instead of
+            // the old getAdapterPositionOf() linear scan over every comment.
             chip.setOnClickListener(v -> {
-                int pos = getAdapterPositionOf(c);
-                if (listener != null && pos >= 0)
-                    listener.onReactComment(c, emoji, pos);
+                int pos = h.getAdapterPosition();
+                if (listener != null && pos != RecyclerView.NO_POSITION && h.boundComment != null)
+                    listener.onReactComment(h.boundComment, emoji, pos);
             });
-
-            layout.addView(chip);
         }
 
         layout.setVisibility(View.VISIBLE);
-    }
-
-    private int getAdapterPositionOf(ReelComment c) {
-        List<ReelComment> items = items();
-        for (int i = 0; i < items.size(); i++) {
-            if (items.get(i).commentId != null
-                && items.get(i).commentId.equals(c.commentId)) return i;
-        }
-        return -1;
     }
 
     private int dp(Context ctx, int dp) {
@@ -597,9 +599,18 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         LinearLayout layoutReactions;
         View rowPin;
 
+        /** Fixed pool of reaction chip views, created once and reused for
+         *  the life of this recycled ViewHolder — see bindReactions(). */
+        TextView[] reactionChips;
+
         /** Which comment this recycled row currently displays — refreshed
-         *  every bind, read by the single reused GestureDetector below. */
+         *  every bind, read by every listener below (all attached once,
+         *  here in the constructor, instead of freshly per bind). */
         ReelComment boundComment;
+        /** Whether boundComment's author currently has an active/unseen
+         *  status ring — refreshed every bind, read by the avatar/ring
+         *  click listener below. */
+        boolean hasStory;
 
         VH(@NonNull View v, @NonNull ReelCommentsAdapter adapter) {
             super(v);
@@ -619,6 +630,26 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             containerReplies= v.findViewById(R.id.container_replies);
             layoutReactions = v.findViewById(R.id.layout_reactions);
 
+            // PERF: 3 reaction chip TextViews built ONCE here (not per bind)
+            // — see bindReactions().
+            Context ctx = v.getContext();
+            int dp4 = adapter.dp(ctx, 4), dp8 = adapter.dp(ctx, 8), dp2 = adapter.dp(ctx, 2);
+            reactionChips = new TextView[3];
+            for (int i = 0; i < reactionChips.length; i++) {
+                TextView chip = new TextView(ctx);
+                chip.setTextSize(11f);
+                chip.setTextColor(0xFF5B5BF6);
+                chip.setBackgroundResource(R.drawable.bg_reaction_chip);
+                chip.setPadding(dp8, dp2, dp8, dp2);
+                chip.setVisibility(View.GONE);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.setMargins(0, dp4, dp4, 0);
+                chip.setLayoutParams(lp);
+                reactionChips[i] = chip;
+                if (layoutReactions != null) layoutReactions.addView(chip);
+            }
+
             // PERF: built ONCE per row (not per bind) and reused for the
             // life of this recycled ViewHolder — see onBindViewHolder note.
             final GestureDetector doubleTapDetector = new GestureDetector(
@@ -631,6 +662,44 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             tvText.setOnTouchListener((view, event) -> {
                 doubleTapDetector.onTouchEvent(event);
                 return false;
+            });
+
+            // PERF: every listener below is attached ONCE here rather than
+            // reassigned on every onBindViewHolder call — during a fast
+            // fling a recycled row rebinds constantly, so a fresh lambda
+            // per bind per listener adds up fast. Each one reads the LIVE
+            // boundComment / getAdapterPosition() at click time instead.
+            if (ivStoryRing != null) {
+                ivStoryRing.setOnClickListener(v2 -> {
+                    if (boundComment != null) adapter.openCommentStatus(v2.getContext(), boundComment);
+                });
+            }
+
+            ivAvatar.setOnClickListener(v2 -> {
+                if (boundComment == null) return;
+                if (hasStory) adapter.openCommentStatus(v2.getContext(), boundComment);
+                else if (adapter.listener != null) adapter.listener.onAvatarClick(boundComment);
+            });
+
+            btnLike.setOnClickListener(v2 -> {
+                if (boundComment != null && adapter.listener != null)
+                    adapter.listener.onLikeComment(boundComment, getAdapterPosition());
+            });
+
+            btnReply.setOnClickListener(v2 -> {
+                if (boundComment != null && adapter.listener != null)
+                    adapter.listener.onReplyComment(boundComment);
+            });
+
+            tvViewReplies.setOnClickListener(v2 -> {
+                if (boundComment != null && adapter.listener != null)
+                    adapter.listener.onViewReplies(boundComment, containerReplies, tvViewReplies);
+            });
+
+            itemView.setOnLongClickListener(v2 -> {
+                if (boundComment != null && adapter.listener != null)
+                    adapter.showContextMenu(v2.getContext(), boundComment, getAdapterPosition());
+                return true;
             });
         }
     }
