@@ -466,6 +466,10 @@ public class ReelPhotoSlideshowController {
         if (reel.photoCaptions != null && index < reel.photoCaptions.size()) {
             caption = reel.photoCaptions.get(index);
         }
+        // Same guard as ReelUiController — photoCaptions come straight off the
+        // Firebase POJO (reflection-set, bypasses ReelModel's constructor
+        // truncation), so cap here right before it hits the TextView.
+        caption = com.callx.app.models.ReelModel.safeCaption(caption);
         if (caption != null && !caption.isEmpty()) {
             tvCaptionOverlay.setText(caption);
             if (tvCaptionOverlay.getVisibility() != View.VISIBLE) {

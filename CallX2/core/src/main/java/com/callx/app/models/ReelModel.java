@@ -508,7 +508,7 @@ public class ReelModel {
         this.ownerPhoto   = ownerPhoto;
         this.videoUrl     = videoUrl;
         this.thumbUrl     = thumbUrl;
-        this.caption      = caption;
+        this.caption      = safeCaption(caption);
         this.musicName    = musicName;
         this.timestamp    = timestamp;
         this.duration     = duration;
@@ -643,11 +643,32 @@ public class ReelModel {
         totalSlideshowDurationMs = total;
     }
 
+    /** Hard cap on caption length we'll ever hand to a UI widget (setText).
+     *  Guards against malformed/huge Firebase data (or a bad write anywhere
+     *  upstream) turning into a multi-hundred-KB TextView/EditText saved
+     *  instance state on this screen — which is exactly what blows past the
+     *  Binder transaction limit and throws TransactionTooLargeException when
+     *  the Activity is stopped. 4000 chars is already far beyond anything a
+     *  real caption needs. */
+    public static final int MAX_CAPTION_CHARS = 4000;
+
+    /** Max hashtag chips we'll ever render for one caption — protects
+     *  against a caption stuffed with thousands of "#tag" tokens spawning
+     *  thousands of chip views in ReelUiController.renderHashtags(). */
+    private static final int MAX_HASHTAGS = 30;
+
+    /** Truncates to MAX_CAPTION_CHARS, safe for null input. */
+    public static String safeCaption(String text) {
+        if (text == null) return null;
+        if (text.length() <= MAX_CAPTION_CHARS) return text;
+        return text.substring(0, MAX_CAPTION_CHARS) + "…";
+    }
+
     public static List<String> extractHashtags(String text) {
         List<String> tags = new ArrayList<>();
         if (text == null || text.isEmpty()) return tags;
         Matcher m = Pattern.compile("#(\\w+)").matcher(text);
-        while (m.find()) tags.add(m.group(1).toLowerCase());
+        while (m.find() && tags.size() < MAX_HASHTAGS) tags.add(m.group(1).toLowerCase());
         return tags;
     }
 

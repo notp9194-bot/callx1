@@ -4,9 +4,9 @@ import androidx.annotation.Nullable;
 
 import com.callx.app.models.ReelModel;
 
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * ReelUiStateCache — PERF advance: "precompute next reel's UI state (like
@@ -51,14 +51,32 @@ public final class ReelUiStateCache {
         }
     }
 
-    private static final Map<String, State> cache = new ConcurrentHashMap<>();
+    /** Bound on entry count. The comment above (kept for history) argued this
+     *  didn't need an LRU because the prewarm window is "a handful at a
+     *  time" — true in steady state, but a long scroll session across a big
+     *  feed with switchFeed()/loadMoreReels() churn still only ever *adds*
+     *  entries, never removes them, so the map grows for the lifetime of the
+     *  process. Capping it with access-order eviction keeps the intended
+     *  "cheap prewarm cache" behavior while putting a hard ceiling on it. */
+    private static final int MAX_ENTRIES = 64;
+
+    private static final Object lock = new Object();
+    private static final Map<String, State> cache =
+        new LinkedHashMap<String, State>(MAX_ENTRIES, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, State> eldest) {
+                return size() > MAX_ENTRIES;
+            }
+        };
 
     private ReelUiStateCache() { }
 
     @Nullable
     public static State get(@Nullable String reelId) {
         if (reelId == null) return null;
-        return cache.get(reelId);
+        synchronized (lock) {
+            return cache.get(reelId);
+        }
     }
 
     /** Computes and stores the state for a single reel — safe to call off the main thread. */
@@ -68,13 +86,23 @@ public final class ReelUiStateCache {
         String shares   = formatCount(reel.sharesCount);
         String repost   = formatCount(reel.repostCount);
 
-        String captionText = reel.caption != null ? reel.caption : "";
+        // Guard: reel.caption is Firebase-POJO-mapped (reflection-set,
+        // bypasses ReelModel's constructor truncation) so it can still be
+        // huge here. Cap it before it gets cached and later handed straight
+        // to a TextView by ReelUiController — an oversized caption ending up
+        // as a View's saved instance state is what trips
+        // TransactionTooLargeException when the Activity is stopped.
+        String captionText = ReelModel.safeCaption(reel.caption != null ? reel.caption : "");
         if (reel.duetOf != null && !reel.duetOf.isEmpty()) {
             captionText = "\uD83D\uDD00 Duet \u00B7 " + captionText;
         }
 
         State state = new State(likes, comments, shares, repost, captionText);
-        if (reel.reelId != null) cache.put(reel.reelId, state);
+        if (reel.reelId != null) {
+            synchronized (lock) {
+                cache.put(reel.reelId, state);
+            }
+        }
         return state;
     }
 
@@ -86,6 +114,8 @@ public final class ReelUiStateCache {
     }
 
     public static void clear() {
-        cache.clear();
+        synchronized (lock) {
+            cache.clear();
+        }
     }
 }

@@ -195,6 +195,14 @@ public class ReelUiController {
             captionText = reel.caption != null ? reel.caption : "";
             if (reel.duetOf != null && !reel.duetOf.isEmpty()) captionText = "🔀 Duet · " + captionText;
         }
+        // Guard: Firebase POJO mapping (DataSnapshot.getValue(ReelModel.class))
+        // sets `caption` via reflection, bypassing the ReelModel constructor's
+        // truncation — so a malformed/huge caption in the DB can still reach
+        // here untouched. Cap it right before it hits a View, since an
+        // oversized TextView is what turns into a multi-hundred-KB saved
+        // instance state and trips TransactionTooLargeException when this
+        // fragment's Activity is stopped.
+        captionText = com.callx.app.models.ReelModel.safeCaption(captionText);
         if (tvCaption != null) tvCaption.setText(captionText);
 
         // Duet Series chip

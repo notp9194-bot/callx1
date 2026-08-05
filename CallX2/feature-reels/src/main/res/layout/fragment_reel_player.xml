@@ -8,6 +8,7 @@
     <!-- Full-screen video surface -->
     <androidx.media3.ui.PlayerView
         android:id="@+id/player_view"
+        android:saveEnabled="false"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:focusable="false"
@@ -22,6 +23,7 @@
     -->
     <androidx.viewpager2.widget.ViewPager2
         android:id="@+id/vp_photos"
+        android:saveEnabled="false"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="gone"/>
@@ -29,6 +31,7 @@
     <!-- Thumbnail placeholder (shown before video loads) -->
     <ImageView
         android:id="@+id/iv_thumb"
+        android:saveEnabled="false"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="centerCrop"
@@ -44,6 +47,7 @@
     -->
     <FrameLayout
         android:id="@+id/fl_video_sticker_layer"
+        android:saveEnabled="false"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:clipChildren="false"/>
@@ -56,6 +60,7 @@
     -->
     <LinearLayout
         android:id="@+id/ll_story_progress"
+        android:saveEnabled="false"
         android:layout_width="match_parent"
         android:layout_height="4dp"
         android:layout_gravity="top"
@@ -69,6 +74,7 @@
     <!-- Photo counter pill: "2 / 5" — centered at top, Instagram-style -->
     <TextView
         android:id="@+id/tv_photo_counter"
+        android:saveEnabled="false"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
@@ -103,6 +109,7 @@
          Modern frosted card with rounded corners, Instagram-style. -->
     <TextView
         android:id="@+id/tv_caption_overlay"
+        android:saveEnabled="false"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
@@ -126,6 +133,7 @@
     <!-- Instagram-style dot page indicator — pill active + circle inactive -->
     <LinearLayout
         android:id="@+id/ll_dot_indicator"
+        android:saveEnabled="false"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
@@ -635,6 +643,7 @@
         <!-- Caption -->
         <TextView
             android:id="@+id/tv_caption"
+        android:saveEnabled="false"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
@@ -743,6 +752,7 @@
 
                 <TextView
                     android:id="@+id/reel_pinned_comment_text"
+        android:saveEnabled="false"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:ellipsize="end"
@@ -991,6 +1001,7 @@
 
             <TextView
                 android:id="@+id/tv_repost_attribution"
+        android:saveEnabled="false"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Reposted from @creator"
@@ -1002,6 +1013,7 @@
 
             <TextView
                 android:id="@+id/tv_repost_caption_preview"
+        android:saveEnabled="false"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="#CE93D8"

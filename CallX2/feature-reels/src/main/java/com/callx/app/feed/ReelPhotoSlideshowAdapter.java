@@ -631,6 +631,7 @@ public class ReelPhotoSlideshowAdapter
 
     private void bindCaption(@NonNull PhotoVH h, @Nullable String caption,
                              @Nullable String styleJson) {
+        caption = com.callx.app.models.ReelModel.safeCaption(caption);
         if (caption == null || caption.isEmpty()) {
             h.tvCaption.setVisibility(View.GONE);
             h.vCaptionGradient.setVisibility(View.GONE);

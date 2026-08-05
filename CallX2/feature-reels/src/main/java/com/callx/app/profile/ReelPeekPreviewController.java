@@ -73,6 +73,7 @@ public class ReelPeekPreviewController {
     private ExoPlayer    player;
     private boolean      showing = false;
     private boolean      optionsExpanded = false;
+    private boolean      muted = true;
     private View         cardPeekOptions;
 
     public ReelPeekPreviewController(Activity activity) {
@@ -107,8 +108,11 @@ public class ReelPeekPreviewController {
         TextView btnSecondary   = content.findViewById(R.id.btn_peek_secondary);
         CardView cardOptions    = content.findViewById(R.id.card_peek_options);
         LinearLayout optionsRow = content.findViewById(R.id.layout_peek_options_rows);
+        View muteBadge          = content.findViewById(R.id.layout_peek_mute_badge);
+        android.widget.ImageView ivMuteIcon = content.findViewById(R.id.iv_peek_mute_icon);
         cardPeekOptions = cardOptions;
         optionsExpanded = false;
+        muted = true; // every peek opens muted, same as before this change
 
         if (tvCaption != null) {
             boolean has = reel.caption != null && !reel.caption.trim().isEmpty();
@@ -218,8 +222,31 @@ public class ReelPeekPreviewController {
             });
             player.prepare();
             player.setPlayWhenReady(true);
+
+            // Tap the mini player to toggle sound on/off — mirrors the main
+            // reel player's tap-to-mute. Starts muted (see the ULTRA data
+            // note above); tapping flips it, and the badge icon/tint flips
+            // with it so the current state is always visible at a glance.
+            playerView.setOnClickListener(v -> toggleMute(muteBadge, ivMuteIcon));
         } else if (loading != null) {
             loading.setVisibility(View.GONE);
+        }
+    }
+
+    /** Flips the mini player's mute state and updates the badge to match. */
+    private void toggleMute(View muteBadge, android.widget.ImageView ivMuteIcon) {
+        if (player == null) return;
+        muted = !muted;
+        player.setVolume(muted ? 0f : 1f);
+        if (ivMuteIcon != null) {
+            ivMuteIcon.setImageResource(muted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
+            ivMuteIcon.setContentDescription(muted ? "Muted" : "Unmuted");
+        }
+        if (muteBadge != null) {
+            // Same pill background either way — just tint it to show state,
+            // matching the reel feed's mute button treatment (gold when on).
+            muteBadge.setBackgroundResource(R.drawable.bg_reel_count);
+            muteBadge.setAlpha(muted ? 0.85f : 1f);
         }
     }
 

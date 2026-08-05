@@ -30,10 +30,13 @@
         android:orientation="vertical"
         android:gravity="center_horizontal">
 
-        <!-- Mini video preview card -->
+        <!-- Mini video preview card — sized 20% larger than the original
+             230x330dp per user request (230*1.2≈276dp, 330*1.2=396dp).
+             card_peek_actions/card_peek_options below stay the same width as
+             this card so the stacked cards still line up. -->
         <androidx.cardview.widget.CardView
             android:id="@+id/card_peek"
-            android:layout_width="230dp"
+            android:layout_width="276dp"
             android:layout_height="wrap_content"
             app:cardCornerRadius="18dp"
             app:cardElevation="16dp"
@@ -42,12 +45,14 @@
 
             <FrameLayout
                 android:layout_width="match_parent"
-                android:layout_height="330dp">
+                android:layout_height="396dp">
 
                 <androidx.media3.ui.PlayerView
                     android:id="@+id/peek_player_view"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
+                    android:clickable="true"
+                    android:focusable="true"
                     app:use_controller="false"
                     app:resize_mode="zoom"
                     android:background="#000000"/>
@@ -60,8 +65,12 @@
                     android:layout_gravity="center"
                     android:indeterminateTint="#FFFFFF"/>
 
-                <!-- Muted badge (top-left) -->
+                <!-- Mute/unmute badge (top-left) — tapping the player toggles
+                     sound; icon + background flip between the muted (dim)
+                     and unmuted (brand-tinted) look so the state is obvious
+                     at a glance, mirroring the reel feed's mute affordance. -->
                 <LinearLayout
+                    android:id="@+id/layout_peek_mute_badge"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="top|start"
@@ -75,6 +84,7 @@
                     android:paddingBottom="3dp">
 
                     <ImageView
+                        android:id="@+id/iv_peek_mute_icon"
                         android:layout_width="11dp"
                         android:layout_height="11dp"
                         android:src="@drawable/ic_volume_off"
@@ -162,7 +172,7 @@
         <!-- Quick-action sheet below the card, iOS-context-menu style -->
         <androidx.cardview.widget.CardView
             android:id="@+id/card_peek_actions"
-            android:layout_width="230dp"
+            android:layout_width="276dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             app:cardCornerRadius="14dp"
@@ -230,7 +240,7 @@
              own reel). Starts GONE; toggled by tapping "Options" above. -->
         <androidx.cardview.widget.CardView
             android:id="@+id/card_peek_options"
-            android:layout_width="230dp"
+            android:layout_width="276dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:visibility="gone"
