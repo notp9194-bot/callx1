@@ -73,6 +73,20 @@ package com.callx.app.profile;
 
       public boolean isEmpty() { return items.isEmpty(); }
 
+      // ULTRA: this adapter shares a RecycledViewPool with ReelGridAdapter
+      // (rv_reels / rv_series only ever show one at a time — see
+      // UserReelsActivity.gridSharedViewPool). RecycledViewPool keys purely
+      // by the int viewType, so this MUST never collide with
+      // ReelGridAdapter.TYPE_SKELETON/TYPE_REEL/TYPE_PINNED (0/1/2) or the
+      // pool would hand back a SkeletonVH/ReelVH/PinnedVH here and crash on
+      // cast. Offset well clear of that range.
+      public static final int TYPE_SERIES_CARD = 100;
+
+      @Override
+      public int getItemViewType(int position) {
+          return TYPE_SERIES_CARD;
+      }
+
       @NonNull
       @Override
       public SeriesCardVH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {

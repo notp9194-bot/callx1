@@ -328,6 +328,24 @@ public class UserReelsActivity extends AppCompatActivity
 
     private ReelModel         pinnedReel = null;
     private ReelPeekPreviewController peekController;
+    // ULTRA: rv_reels and rv_series are both photo/video grids shown one
+    // tab at a time (only one is ever on-screen), so their off-screen
+    // ViewHolders can safely share ONE RecycledViewPool instead of each
+    // RecyclerView keeping (and cold-inflating into) its own — switching
+    // tabs reuses already-inflated+bound views instead of re-inflating.
+    // Safe because ReelGridAdapter's view types (0/1/2 — see TYPE_SKELETON/
+    // TYPE_REEL/TYPE_PINNED) and UserSeriesGridAdapter's (offset to 100 —
+    // see its getItemViewType()) never overlap, so the pool never hands a
+    // ReelVH back to the series adapter or vice versa.
+    private final RecyclerView.RecycledViewPool gridSharedViewPool = new RecyclerView.RecycledViewPool();
+    {
+        // Default pool cap is 5 per viewType — bump TYPE_REEL since a 3-col
+        // grid can have well over 5 off-screen cells cached at once (matches
+        // the setItemViewCacheSize(12) used on both rvReels/rvSeries).
+        gridSharedViewPool.setMaxRecycledViews(ReelGridAdapter.TYPE_REEL, 14);
+        gridSharedViewPool.setMaxRecycledViews(ReelGridAdapter.TYPE_PINNED, 2);
+        gridSharedViewPool.setMaxRecycledViews(UserSeriesGridAdapter.TYPE_SERIES_CARD, 10);
+    }
     private SwipeAwareGridLayoutManager gridLayoutManager;
     // Series-tab grid also needs to disable its own vertical scroll while a
     // horizontal tab-swipe is in progress (see SwipeAwareGridLayoutManager).
@@ -605,6 +623,8 @@ public class UserReelsActivity extends AppCompatActivity
             rvSeries.setItemAnimator(null);
             rvSeries.setItemViewCacheSize(12);
             seriesLayoutManager.setInitialPrefetchItemCount(6);
+            seriesLayoutManager.setItemPrefetchEnabled(true);
+            rvSeries.setRecycledViewPool(gridSharedViewPool);
             seriesAdapter.setOnSeriesClickListener(series -> {
                 Intent si = new Intent(this, com.callx.app.social.DuetSeriesActivity.class);
                 si.putExtra(com.callx.app.social.DuetSeriesActivity.EXTRA_SERIES_ID, series.seriesId);
@@ -644,6 +664,8 @@ public class UserReelsActivity extends AppCompatActivity
         // re-inflating/re-binding (default cache size is 2).
         rvReels.setItemViewCacheSize(12);
         gridLayoutManager.setInitialPrefetchItemCount(9);
+        gridLayoutManager.setItemPrefetchEnabled(true);
+        rvReels.setRecycledViewPool(gridSharedViewPool);
         setupGlidePreloader();
         setupSwipeBetweenTabs();
 
@@ -744,6 +766,20 @@ public class UserReelsActivity extends AppCompatActivity
      * manual AppBarLayout.setExpanded() driving is needed (that was causing
      * scroll flicker/junk by fighting the native nested-scroll animation).
      */
+    // ULTRA (scroll throttle): pagination's threshold check itself is cheap
+    // (a boolean + two int reads), but calling loadCurrentTab() as soon as
+    // that threshold is crossed means it can fire mid-fling — right when
+    // the fling is fastest and least likely to actually land near that
+    // position, and right when we least want to spend main-thread/network
+    // budget on a Firebase read. Debounce it: onScrolled only *schedules* a
+    // check ~120ms out and cancels/reschedules on every subsequent scroll
+    // event, so it only truly runs once the finger/fling has settled down.
+    // onScrollStateChanged(IDLE) short-circuits straight to the check the
+    // moment scrolling actually stops, instead of waiting out the delay.
+    private static final long PAGINATION_DEBOUNCE_MS = 120L;
+    private final Handler paginationDebounceHandler = new Handler(Looper.getMainLooper());
+    private final Runnable paginationCheckRunnable = this::maybeLoadNextPage;
+
     private void setupScrollPagination() {
           rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
               @Override
@@ -754,17 +790,33 @@ public class UserReelsActivity extends AppCompatActivity
                   // scroll flags). Manually calling appBarLayout.setExpanded(..., true)
                   // here as well fights that ongoing touch-driven offset animation and
                   // is what was causing the scroll/flicker/junk pattern — removed.
+                  paginationDebounceHandler.removeCallbacks(paginationCheckRunnable);
+                  paginationDebounceHandler.postDelayed(paginationCheckRunnable, PAGINATION_DEBOUNCE_MS);
+              }
 
-                  if (isLoadingMore) return;
-                  if (!getCurrentTabHasMore()) return;
-                  int total       = gridLayoutManager.getItemCount();
-                  int lastVisible = gridLayoutManager.findLastVisibleItemPosition();
-                  if (lastVisible >= total - 6) {
-                      loadCurrentTab(false);
+              @Override
+              public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                  if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                      // Fling/drag has actually stopped — check right away
+                      // instead of waiting out the debounce delay.
+                      paginationDebounceHandler.removeCallbacks(paginationCheckRunnable);
+                      maybeLoadNextPage();
                   }
               }
           });
       }
+
+    /** Runs the actual pagination threshold check — called only once scrolling has settled (see setupScrollPagination). */
+    private void maybeLoadNextPage() {
+        if (isFinishing() || isDestroyed()) return;
+        if (isLoadingMore) return;
+        if (!getCurrentTabHasMore()) return;
+        int total       = gridLayoutManager.getItemCount();
+        int lastVisible = gridLayoutManager.findLastVisibleItemPosition();
+        if (lastVisible >= total - 6) {
+            loadCurrentTab(false);
+        }
+    }
 
     private boolean getCurrentTabHasMore() {
         switch (activeTab) {
@@ -4768,6 +4820,7 @@ public class UserReelsActivity extends AppCompatActivity
         dismissPreviewDialog();
         stopAvatarAnimation();
         cancelStoryRingReveal();
+        paginationDebounceHandler.removeCallbacks(paginationCheckRunnable);
         if (lottieEmpty != null) lottieEmpty.cancelAnimation();
         dbExecutor.shutdown();
         // Remove persistent Firebase listeners to avoid memory/network leaks

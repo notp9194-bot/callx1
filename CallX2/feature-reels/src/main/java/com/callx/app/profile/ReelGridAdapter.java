@@ -520,15 +520,55 @@ package com.callx.app.profile;
           }
       }
 
-      public void setPinnedReel(ReelModel reel)    { this.pinnedReel = reel; notifyDataSetChanged(); }
+      /**
+       * ULTRA: was a full notifyDataSetChanged() — rebound every visible cell
+       * (re-decoded every thumbnail) just to change the ONE pinned slot.
+       * Now dispatches only the minimal structural change:
+       *  - pin added where there wasn't one  → notifyItemInserted(0)
+       *  - pin removed                        → notifyItemRemoved(0)
+       *  - pin content changed (still pinned) → notifyItemChanged(0)
+       *  - no pin before/after                → nothing to do
+       */
+      public void setPinnedReel(ReelModel reel) {
+          boolean hadPinned = hasPinned();
+          this.pinnedReel = reel;
+          boolean hasPinnedNow = hasPinned();
+          if (!hadPinned && hasPinnedNow)      notifyItemInserted(0);
+          else if (hadPinned && !hasPinnedNow) notifyItemRemoved(0);
+          else if (hadPinned && hasPinnedNow)  notifyItemChanged(0);
+      }
       public boolean hasPinned()                    { return pinnedReel != null && !skeletonMode; }
       private int reelIndexFor(int pos)             { return hasPinned() ? pos - 1 : pos; }
       public void setSkeletonMode(boolean s)        { this.skeletonMode = s; }
       public boolean isSkeletonMode()                { return this.skeletonMode; }
       public void setShowViewsOverlay(boolean show) { this.showViewsOverlay = show; }
-      public void setMultiSelectMode(boolean e)     { this.multiSelectMode = e; if (!e) clearSelections(); else notifyDataSetChanged(); }
+      /**
+       * ULTRA: entering multi-select needs every VISIBLE cell to rebind (a
+       * checkbox overlay appears on each), so a full rebind is unavoidable —
+       * but notifyItemRangeChanged(content-only) is lighter than
+       * notifyDataSetChanged() since it skips RecyclerView's structural
+       * re-evaluation (no need to re-check span/type/stable-id layout) and
+       * lets the ItemAnimator run a plain change animation instead of a
+       * full adapter reset. Leaving multi-select just clears selections,
+       * which already only touches the previously-selected cells.
+       */
+      public void setMultiSelectMode(boolean e) {
+          this.multiSelectMode = e;
+          if (!e) clearSelections();
+          else if (getItemCount() > 0) notifyItemRangeChanged(0, getItemCount());
+      }
       public void setSelected(int pos, boolean sel) { if (sel) selectedPositions.put(pos, true); else selectedPositions.remove(pos); }
-      public void clearSelections()                 { selectedPositions.clear(); notifyDataSetChanged(); }
+      /**
+       * ULTRA: was notifyDataSetChanged() on every "clear" — rebound the
+       * WHOLE grid to undo checkmarks on a handful of cells. Now only the
+       * cells that were actually selected get notified.
+       */
+      public void clearSelections() {
+          if (selectedPositions.isEmpty()) return;
+          List<Integer> toClear = new ArrayList<>(selectedPositions.keySet());
+          selectedPositions.clear();
+          for (int pos : toClear) notifyItemChanged(pos);
+      }
       public int  getSelectedCount()                { return selectedPositions.size(); }
 
       @Override public int getItemViewType(int pos) {
@@ -543,21 +583,50 @@ package com.callx.app.profile;
 
       @NonNull @Override
       public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup p, int type) {
-          LayoutInflater inf = LayoutInflater.from(context);
-          if (type == TYPE_SKELETON) return new SkeletonVH(inf.inflate(R.layout.item_reel_skeleton, p, false));
-          if (type == TYPE_PINNED)   return new PinnedVH(inf.inflate(R.layout.item_pinned_reel, p, false));
-          View reelView = inf.inflate(R.layout.item_saved_reel, p, false);
-          // Height fixed here, once, instead of measured+applied on every
-          // onViewAttachedToWindow() — see precomputedCellHeightPx.
-          ViewGroup.LayoutParams lp = reelView.getLayoutParams();
-          if (lp == null) lp = new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, precomputedCellHeightPx);
-          else lp.height = precomputedCellHeightPx;
-          reelView.setLayoutParams(lp);
-          return new ReelVH(reelView);
+          // ULTRA (profiling): named Trace section so Perfetto/Systrace shows
+          // inflation as its own slice, separate from bind/image-decode work
+          // below — lets you see at a glance in the trace whether a jank
+          // frame's time was spent HERE (inflate + layout) or in the Glide
+          // section inside onBindViewHolder. No-op / negligible cost when no
+          // trace is being captured.
+          android.os.Trace.beginSection("ReelGridAdapter.onCreateViewHolder");
+          try {
+              LayoutInflater inf = LayoutInflater.from(context);
+              if (type == TYPE_SKELETON) return new SkeletonVH(inf.inflate(R.layout.item_reel_skeleton, p, false));
+              if (type == TYPE_PINNED)   return new PinnedVH(inf.inflate(R.layout.item_pinned_reel, p, false));
+              View reelView = inf.inflate(R.layout.item_saved_reel, p, false);
+              // Height fixed here, once, instead of measured+applied on every
+              // onViewAttachedToWindow() — see precomputedCellHeightPx.
+              ViewGroup.LayoutParams lp = reelView.getLayoutParams();
+              if (lp == null) lp = new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, precomputedCellHeightPx);
+              else lp.height = precomputedCellHeightPx;
+              reelView.setLayoutParams(lp);
+              return new ReelVH(reelView);
+          } finally {
+              android.os.Trace.endSection();
+          }
       }
 
       @Override
       public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
+          // ULTRA (profiling): whole bind wrapped so it's visible as a slice
+          // per row in Perfetto; the Glide setup call is wrapped separately
+          // inside so that slice specifically shows request-building cost
+          // (NOT the actual bitmap decode — Glide decodes off the main
+          // thread on a background executor, so decode itself won't show up
+          // as main-thread jank here; if THIS slice is wide, it's inflation/
+          // bind-side work, if frames still drop with this slice narrow,
+          // suspect decode/upload-to-GPU on Glide's own threads instead —
+          // check Perfetto's "GlideModule" / Glide-thread tracks for that).
+          android.os.Trace.beginSection("ReelGridAdapter.onBindViewHolder");
+          try {
+              bindViewHolderInternal(holder, position);
+          } finally {
+              android.os.Trace.endSection();
+          }
+      }
+
+      private void bindViewHolderInternal(@NonNull RecyclerView.ViewHolder holder, int position) {
           if (holder instanceof SkeletonVH) { ((SkeletonVH) holder).shimmer.startShimmer(); return; }
           if (holder instanceof PinnedVH)   { bindPinned((PinnedVH) holder); return; }
           if (!(holder instanceof ReelVH))  return;
@@ -567,15 +636,20 @@ package com.callx.app.profile;
           ReelModel r = displayList.get(idx);
 
           if (r.thumbUrl != null && !r.thumbUrl.isEmpty()) {
-              String gridUrl = CloudinaryUploader.deriveThumbUrl(r.thumbUrl, gridThumbSize, "webp");
-              String blurUrl = CloudinaryUploader.deriveThumbUrl(r.thumbUrl, BLUR_THUMB_SIZE, "webp");
-              Drawable blurPlaceholder = blurHashPlaceholder(r.blurHash);
-              glideRequests
-                      .load(gridUrl)
-                      .thumbnail(glideRequests.load(blurUrl).apply(GRID_OPTIONS))
-                      .apply(GRID_OPTIONS)
-                      .placeholder(blurPlaceholder != null ? blurPlaceholder : context.getDrawable(R.drawable.ic_reels))
-                      .into(h.ivThumb);
+              android.os.Trace.beginSection("ReelGridAdapter.glideRequestSetup");
+              try {
+                  String gridUrl = CloudinaryUploader.deriveThumbUrl(r.thumbUrl, gridThumbSize, "webp");
+                  String blurUrl = CloudinaryUploader.deriveThumbUrl(r.thumbUrl, BLUR_THUMB_SIZE, "webp");
+                  Drawable blurPlaceholder = blurHashPlaceholder(r.blurHash);
+                  glideRequests
+                          .load(gridUrl)
+                          .thumbnail(glideRequests.load(blurUrl).apply(GRID_OPTIONS))
+                          .apply(GRID_OPTIONS)
+                          .placeholder(blurPlaceholder != null ? blurPlaceholder : context.getDrawable(R.drawable.ic_reels))
+                          .into(h.ivThumb);
+              } finally {
+                  android.os.Trace.endSection();
+              }
           } else h.ivThumb.setImageResource(R.drawable.ic_reels);
 
           if (h.tvCaption != null) {

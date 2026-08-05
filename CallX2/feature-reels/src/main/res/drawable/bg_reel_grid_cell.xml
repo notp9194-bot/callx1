@@ -5,8 +5,9 @@
     Used together with android:clipToOutline="true" on the cell root so the
     thumbnail ImageView (and any overlays) get clipped to these rounded
     corners — gives the Instagram-style "rounded square" grid look instead
-    of hard-edged rectangles. The elevation on the cell also derives its
-    shadow shape from this same outline, so the shadow is rounded too.
+    of hard-edged rectangles. (Cell elevation/shadow was removed — see
+    item_saved_reel.xml/item_pinned_reel.xml — this shape now only serves
+    the outline-clip, not a shadow.)
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">

@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Feature 6: Pinned / Featured Reel card — spans all 3 columns at top of Reels tab -->
+<!-- ULTRA (overdraw fix): elevation removed — same reasoning as
+     item_saved_reel.xml, this card sits flush against the grid below it so
+     its shadow was never visible either. clipToOutline (rounded corners)
+     kept. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="220dp"
     android:background="@drawable/bg_reel_grid_cell"
     android:clipToOutline="true"
-    android:elevation="2dp"
     android:foreground="?attr/selectableItemBackground">
 
     <!-- Background thumbnail (16:9-ish hero image) -->
