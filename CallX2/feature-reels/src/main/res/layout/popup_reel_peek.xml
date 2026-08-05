@@ -60,14 +60,6 @@
                     android:layout_gravity="center"
                     android:indeterminateTint="#FFFFFF"/>
 
-                <!-- Bottom gradient + caption/stat overlay -->
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="96dp"
-                    android:layout_gravity="bottom"
-                    android:background="@drawable/gradient_reel_bottom"
-                    android:rotation="180"/>
-
                 <!-- Muted badge (top-left) -->
                 <LinearLayout
                     android:layout_width="wrap_content"

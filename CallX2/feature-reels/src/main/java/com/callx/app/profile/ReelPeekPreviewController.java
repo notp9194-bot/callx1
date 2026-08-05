@@ -15,12 +15,12 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.cardview.widget.CardView;
-import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
 import com.callx.app.models.ReelModel;
+import com.callx.app.player.AdaptiveStreamingManager;
 import com.callx.app.reels.R;
 
 import java.util.List;
@@ -32,10 +32,14 @@ import java.util.Locale;
  * card + a compact quick-action sheet, shown centered over a dimmed scrim
  * without navigating away from the grid.
  *
- * Lifecycle is driven entirely by the two edges of the hold gesture that
- * ReelGridAdapter reports back to the Activity:
- *   show()    — hold crossed the long-press timeout (ReelGridAdapter.LongPressListener)
- *   dismiss() — finger lifted / gesture cancelled (ReelGridAdapter.LongPressReleaseListener)
+ * show() fires the moment the hold crosses the long-press timeout
+ * (ReelGridAdapter.LongPressListener). Unlike a typical "hold to peek,
+ * release to close" gesture, dismiss() is NOT tied to the finger lifting —
+ * UserReelsActivity no longer wires ReelGridAdapter.LongPressReleaseListener
+ * to close this popup, so the preview stays open after release. It closes
+ * only when the user taps the dimmed scrim OUTSIDE the mini player/card
+ * (see the scrim click listener in show() below), taps "Watch Reel", or the
+ * host activity tears it down (onPause/onDestroy/tab switch).
  *
  * ULTRA: long-press now does ONLY this — the mini player preview. It no
  * longer also fires an AlertDialog or multi-select alongside itself (that
@@ -176,10 +180,31 @@ public class ReelPeekPreviewController {
         }
         if (scrim != null) scrim.animate().alpha(1f).setDuration(180).start();
 
-        // Muted, looping preview — same convention as the full-screen preview
-        // and grid thumbnails elsewhere in this Activity.
-        if (reel.videoUrl != null && !reel.videoUrl.isEmpty() && playerView != null) {
-            player = new ExoPlayer.Builder(activity).build();
+        // Muted, looping preview — ULTRA DATA OPTIMIZATION: this card is only
+        // ~230dp wide, so there is zero visual benefit to pulling 720p/1080p
+        // bytes for it. Reuses the app's existing AdaptiveStreamingManager
+        // (same cache pool + tuned buffering as the main reel player) so:
+        //   • pickLowDataUrl() hands it the smallest asset the reel actually
+        //     has (HLS manifest > explicit 480p > original) — for progressive
+        //     MP4s a bitrate cap alone can't reduce bytes downloaded (there's
+        //     only one rendition), so picking the smallest FILE is what
+        //     actually saves data; for an HLS manifest the Q360P cap below
+        //     then also stops ExoPlayer's adaptive selection from stepping
+        //     up to a higher-bitrate segment.
+        //   • QualityCap.Q360P caps resolution/bitrate for HLS/DASH sources.
+        //   • UnifiedVideoCacheManager-backed CacheDataSource means a reel
+        //     peeked more than once (or already partially cached from the
+        //     main feed/player) is served from disk, not re-downloaded.
+        //   • Network-tier-aware LoadControl keeps the upfront buffer small
+        //     instead of eagerly reading far ahead of an on-screen preview
+        //     the user might dismiss in under a second.
+        // Only ONE peek player ever exists at a time — dismiss() releases it
+        // (see below) before a new one is ever built, so no more than the
+        // single actively-shown preview is ever pulling network data.
+        if (hasPreviewableVideo(reel) && playerView != null) {
+            String previewUrl = pickLowDataUrl(reel);
+            player = AdaptiveStreamingManager.get(activity)
+                    .buildPlayer(previewUrl, AdaptiveStreamingManager.QualityCap.Q360P, null);
             player.setVolume(0f);
             player.setRepeatMode(Player.REPEAT_MODE_ONE);
             playerView.setPlayer(player);
@@ -191,12 +216,35 @@ public class ReelPeekPreviewController {
                     }
                 }
             });
-            player.setMediaItem(MediaItem.fromUri(reel.videoUrl));
             player.prepare();
             player.setPlayWhenReady(true);
         } else if (loading != null) {
             loading.setVisibility(View.GONE);
         }
+    }
+
+    /** True if the reel has ANY playable source for the mini preview. */
+    private boolean hasPreviewableVideo(ReelModel reel) {
+        return (reel.hlsManifestUrl != null && !reel.hlsManifestUrl.isEmpty())
+                || (reel.videoUrl  != null && !reel.videoUrl.isEmpty())
+                || (reel.video480  != null && !reel.video480.isEmpty())
+                || (reel.video720  != null && !reel.video720.isEmpty())
+                || (reel.video1080 != null && !reel.video1080.isEmpty());
+    }
+
+    /**
+     * Smallest-byte-footprint URL available for this reel's mini preview.
+     * Priority: HLS adaptive manifest (so the Q360P cap can actually
+     * restrict which segments get fetched) > explicit 480p rendition >
+     * 720p > 1080p > original videoUrl as the last resort — covers reels
+     * that only populated the higher-quality fields.
+     */
+    private String pickLowDataUrl(ReelModel reel) {
+        if (reel.hlsManifestUrl != null && !reel.hlsManifestUrl.isEmpty()) return reel.hlsManifestUrl;
+        if (reel.video480  != null && !reel.video480.isEmpty())  return reel.video480;
+        if (reel.videoUrl  != null && !reel.videoUrl.isEmpty())  return reel.videoUrl;
+        if (reel.video720  != null && !reel.video720.isEmpty())  return reel.video720;
+        return reel.video1080;
     }
 
     /** Builds one small row per PeekOption into container — tapping a row dismisses the whole peek then runs its action. */

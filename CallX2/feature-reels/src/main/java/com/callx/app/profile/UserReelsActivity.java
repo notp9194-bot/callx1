@@ -603,7 +603,12 @@ public class UserReelsActivity extends AppCompatActivity
             this, this
         );
         peekController = new ReelPeekPreviewController(this);
-        adapter.setLongPressReleaseListener(pos -> dismissPreviewDialog());
+        // NOTE: previously this closed the mini video player the instant the
+        // user's finger lifted off the long-pressed cell — no longer wired.
+        // The peek popup now stays open after release; it only closes when
+        // the user taps OUTSIDE the mini player (the dimmed scrim area —
+        // see ReelPeekPreviewController#show()'s scrim click listener), taps
+        // "Watch Reel", or the activity is paused/destroyed/tab-switched.
         // Instagram-style quick-like: double-tap a grid cell to like without
         // opening the player. See likeReelFromGrid() below.
         adapter.setOnDoubleTapLikeListener(this::likeReelFromGrid);
@@ -2943,9 +2948,11 @@ public class UserReelsActivity extends AppCompatActivity
     //
     // Fires the instant a press-and-hold crosses the system long-press
     // timeout (see ReelGridAdapter#wireItemInteractions) — this is the
-    // "peek START" edge. The matching "peek END" edge (finger lifted) is
-    // wired to dismissPreviewDialog() via setLongPressReleaseListener() in
-    // onCreate. A quick tap never reaches this method at all.
+    // "peek START" edge. Finger release/lift is NOT wired to close the
+    // peek anymore — the popup stays open after release and only closes
+    // via a tap outside the mini player (its scrim), "Watch Reel", or the
+    // activity's own dismissPreviewDialog() calls (onPause/onDestroy/tab
+    // switch). A quick tap never reaches this method at all.
     //
     // ULTRA: long-press now ONLY opens the mini player peek — it no longer
     // ALSO immediately fires the "Reel Options" AlertDialog or multi-select
@@ -2957,18 +2964,45 @@ public class UserReelsActivity extends AppCompatActivity
     // tapping "Options" inside the peek, not before it. Multi-select is no
     // longer reachable from long-press at all — see setupMoreMenu() → "Select".
 
+    /**
+     * True if the reel has ANY playable source for the long-press mini
+     * preview — mirrors ReelPeekPreviewController#hasPreviewableVideo().
+     * BUG FIX: previously this gate checked ONLY reel.videoUrl, so reels
+     * whose videoUrl happened to be empty (relying on hlsManifestUrl /
+     * video480 / video720 / video1080 instead) silently failed to open the
+     * mini player on long-press — this is why the feature "worked on some
+     * reels but not others". Photo-slideshow reels (no video field at all)
+     * still correctly get no preview.
+     */
+    private boolean hasPreviewableVideo(ReelModel reel) {
+        if (reel == null) return false;
+        return (reel.hlsManifestUrl != null && !reel.hlsManifestUrl.isEmpty())
+                || (reel.videoUrl   != null && !reel.videoUrl.isEmpty())
+                || (reel.video480   != null && !reel.video480.isEmpty())
+                || (reel.video720   != null && !reel.video720.isEmpty())
+                || (reel.video1080  != null && !reel.video1080.isEmpty());
+    }
+
     @Override
     public void onLongPress(int adapterPos) {
         List<ReelModel> data = activeTabData();
         int reelIdx = adapter.hasPinned() ? adapterPos - 1 : adapterPos;
-
-        ReelModel reel;
         // Self's own Reels tab gets management options (Insights/Pin/Share/
         // Delete) in the peek's compact card; anyone else's reel just gets
         // the plain mini-player preview with no options row.
         boolean ownerContext = isSelf && activeTab == TAB_REELS;
 
-        if (ownerContext && adapter.hasPinned() && adapterPos == 0 && pinnedReel != null) {
+        ReelModel reel;
+        // BUG FIX: the pinned reel occupies adapter position 0 for EVERY
+        // viewer (owner or not) whenever one is set — it was previously
+        // only resolved here when `ownerContext` was true, so long-pressing
+        // the pinned card silently did nothing on anyone else's profile
+        // (adapterPos==0 → reelIdx==-1 → falls through to `reel = null`
+        // below). The pinned reel itself should always resolve; only the
+        // owner-only MANAGEMENT OPTIONS (Insights/Pin/Share/Delete) stay
+        // gated behind ownerContext, further down.
+        boolean isPinnedCell = adapter.hasPinned() && adapterPos == 0 && pinnedReel != null;
+        if (isPinnedCell) {
             reel = pinnedReel;
         } else if (reelIdx >= 0 && reelIdx < data.size()) {
             reel = data.get(reelIdx);
@@ -2978,7 +3012,7 @@ public class UserReelsActivity extends AppCompatActivity
 
         if (reel == null) return;
 
-        if (reel.videoUrl == null || reel.videoUrl.isEmpty()) {
+        if (!hasPreviewableVideo(reel)) {
             // Nothing to preview — owner still gets the options card via a
             // reel with no video is rare/unexpected for this screen, so
             // just no-op rather than falling back to a dialog/multi-select.
