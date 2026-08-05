@@ -9,10 +9,12 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.DecelerateInterpolator;
+import android.widget.LinearLayout;
 import android.widget.PopupWindow;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import androidx.cardview.widget.CardView;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -21,6 +23,7 @@ import androidx.media3.ui.PlayerView;
 import com.callx.app.models.ReelModel;
 import com.callx.app.reels.R;
 
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -33,22 +36,40 @@ import java.util.Locale;
  * ReelGridAdapter reports back to the Activity:
  *   show()    — hold crossed the long-press timeout (ReelGridAdapter.LongPressListener)
  *   dismiss() — finger lifted / gesture cancelled (ReelGridAdapter.LongPressReleaseListener)
- * A quick-action tap inside the card dismisses itself before invoking its
- * callback, so callers never need to call dismiss() redundantly there.
+ *
+ * ULTRA: long-press now does ONLY this — the mini player preview. It no
+ * longer also fires an AlertDialog or multi-select alongside itself (that
+ * was the bug: both used to fire together on the same long-press). Any
+ * per-reel management options (Insights/Pin/Share/Delete) are passed in via
+ * the `options` list and rendered as a second small tight card
+ * (card_peek_options) in this SAME popup, below the actions sheet — its own
+ * area, separate from the mini player — instead of a system AlertDialog.
+ * Multi-select is no longer reachable from long-press at all; it now lives
+ * in the 3-dot menu (see UserReelsActivity#setupMoreMenu()).
  */
 public class ReelPeekPreviewController {
+
+    /** One row in the compact options card (card_peek_options). */
+    public static class PeekOption {
+        public final String label;
+        public final int    iconRes;
+        public final Runnable action;
+        public PeekOption(String label, int iconRes, Runnable action) {
+            this.label = label; this.iconRes = iconRes; this.action = action;
+        }
+    }
 
     public interface Callback {
         /** "Watch Reel" tapped. */
         void onWatchFull();
-        /** Secondary action tapped — meaning depends on the label passed to show(). */
-        void onSecondaryAction();
     }
 
     private final Activity activity;
     private PopupWindow popupWindow;
     private ExoPlayer    player;
     private boolean      showing = false;
+    private boolean      optionsExpanded = false;
+    private View         cardPeekOptions;
 
     public ReelPeekPreviewController(Activity activity) {
         this.activity = activity;
@@ -57,28 +78,33 @@ public class ReelPeekPreviewController {
     public boolean isShowing() { return showing; }
 
     /**
-     * @param reel             reel to preview — no-op if null or lacking a video URL to preview.
-     * @param secondaryLabel   label for the second quick-action row, e.g. "Options" for the
-     *                         owner's own reel (opens the analytics/pin/delete sheet) or
-     *                         "Select" for anyone else's (enters multi-select).
-     * @param secondaryIconRes drawable resource id for that row's icon (0 for none).
+     * @param reel     reel to preview — no-op if null or lacking a video URL to preview.
+     * @param options  management options shown in the compact card below the
+     *                 actions sheet when "Options" is tapped (e.g. Insights/
+     *                 Pin/Share/Delete for the reel owner). Pass null or an
+     *                 empty list to hide the "Options" row entirely — used
+     *                 for reels the current user doesn't manage.
      */
-    public void show(ReelModel reel, String secondaryLabel, int secondaryIconRes, Callback callback) {
+    public void show(ReelModel reel, List<PeekOption> options, Callback callback) {
         if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         if (reel == null) return;
         dismiss(); // only one peek at a time
 
         View content = LayoutInflater.from(activity).inflate(R.layout.popup_reel_peek, null, false);
-        View scrim            = content.findViewById(R.id.view_peek_scrim);
-        View peekContent       = content.findViewById(R.id.layout_peek_content);
-        PlayerView playerView  = content.findViewById(R.id.peek_player_view);
-        ProgressBar loading    = content.findViewById(R.id.peek_loading);
-        TextView tvCaption     = content.findViewById(R.id.tv_peek_caption);
-        TextView tvDuration    = content.findViewById(R.id.tv_peek_duration);
-        TextView tvViews       = content.findViewById(R.id.tv_peek_views);
-        TextView tvLikes       = content.findViewById(R.id.tv_peek_likes);
-        TextView btnPlay       = content.findViewById(R.id.btn_peek_play);
-        TextView btnSecondary  = content.findViewById(R.id.btn_peek_secondary);
+        View scrim              = content.findViewById(R.id.view_peek_scrim);
+        View peekContent        = content.findViewById(R.id.layout_peek_content);
+        PlayerView playerView   = content.findViewById(R.id.peek_player_view);
+        ProgressBar loading     = content.findViewById(R.id.peek_loading);
+        TextView tvCaption      = content.findViewById(R.id.tv_peek_caption);
+        TextView tvDuration     = content.findViewById(R.id.tv_peek_duration);
+        TextView tvViews        = content.findViewById(R.id.tv_peek_views);
+        TextView tvLikes        = content.findViewById(R.id.tv_peek_likes);
+        TextView btnPlay        = content.findViewById(R.id.btn_peek_play);
+        TextView btnSecondary   = content.findViewById(R.id.btn_peek_secondary);
+        CardView cardOptions    = content.findViewById(R.id.card_peek_options);
+        LinearLayout optionsRow = content.findViewById(R.id.layout_peek_options_rows);
+        cardPeekOptions = cardOptions;
+        optionsExpanded = false;
 
         if (tvCaption != null) {
             boolean has = reel.caption != null && !reel.caption.trim().isEmpty();
@@ -95,13 +121,12 @@ public class ReelPeekPreviewController {
         if (tvViews != null)  tvViews.setText(formatCount(Math.max(reel.viewsCount, 0)));
         if (tvLikes != null)  tvLikes.setText(formatCount(Math.max(reel.likesCount, 0)));
 
+        boolean hasOptions = options != null && !options.isEmpty();
         if (btnSecondary != null) {
-            if (secondaryLabel != null) {
-                btnSecondary.setText(secondaryLabel);
-                if (secondaryIconRes != 0) {
-                    btnSecondary.setCompoundDrawablesWithIntrinsicBounds(secondaryIconRes, 0, 0, 0);
-                }
+            if (hasOptions) {
                 btnSecondary.setVisibility(View.VISIBLE);
+                if (optionsRow != null) buildOptionRows(optionsRow, options, cardOptions);
+                btnSecondary.setOnClickListener(v -> toggleOptionsCard(cardOptions));
             } else {
                 btnSecondary.setVisibility(View.GONE);
             }
@@ -109,9 +134,6 @@ public class ReelPeekPreviewController {
 
         if (btnPlay != null) {
             btnPlay.setOnClickListener(v -> { dismiss(); if (callback != null) callback.onWatchFull(); });
-        }
-        if (btnSecondary != null) {
-            btnSecondary.setOnClickListener(v -> { dismiss(); if (callback != null) callback.onSecondaryAction(); });
         }
         if (scrim != null) scrim.setOnClickListener(v -> dismiss());
 
@@ -125,7 +147,14 @@ public class ReelPeekPreviewController {
         content.setFocusableInTouchMode(true);
         content.setOnKeyListener((v, keyCode, event) -> {
             if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
-                dismiss();
+                // First back press just collapses the options card (if open)
+                // instead of closing the whole preview, matching the "tight
+                // card, separate area" feel — second press closes the peek.
+                if (optionsExpanded && cardOptions != null) {
+                    toggleOptionsCard(cardOptions);
+                } else {
+                    dismiss();
+                }
                 return true;
             }
             return false;
@@ -170,9 +199,63 @@ public class ReelPeekPreviewController {
         }
     }
 
+    /** Builds one small row per PeekOption into container — tapping a row dismisses the whole peek then runs its action. */
+    private void buildOptionRows(LinearLayout container, List<PeekOption> options, CardView cardOptions) {
+        container.removeAllViews();
+        LayoutInflater inf = LayoutInflater.from(activity);
+        for (int i = 0; i < options.size(); i++) {
+            PeekOption opt = options.get(i);
+            TextView row = new TextView(activity);
+            int heightPx = (int) (42 * activity.getResources().getDisplayMetrics().density);
+            int padPx    = (int) (16 * activity.getResources().getDisplayMetrics().density);
+            row.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, heightPx));
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(padPx, 0, padPx, 0);
+            row.setText(opt.label);
+            row.setTextColor(0xFF1C1C1C);
+            row.setTextSize(13.5f);
+            row.setBackgroundResource(android.R.drawable.list_selector_background);
+            if (opt.iconRes != 0) {
+                row.setCompoundDrawablesWithIntrinsicBounds(opt.iconRes, 0, 0, 0);
+                row.setCompoundDrawablePadding((int) (10 * activity.getResources().getDisplayMetrics().density));
+            }
+            row.setOnClickListener(v -> { dismiss(); if (opt.action != null) opt.action.run(); });
+            container.addView(row);
+            if (i < options.size() - 1) {
+                View divider = new View(activity);
+                divider.setLayoutParams(new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        (int) (0.6f * activity.getResources().getDisplayMetrics().density)));
+                divider.setBackgroundColor(0xFFD9D9D9);
+                container.addView(divider);
+            }
+        }
+    }
+
+    /** Expands/collapses the compact options card in place — mini player keeps playing underneath the whole time. */
+    private void toggleOptionsCard(CardView cardOptions) {
+        if (cardOptions == null) return;
+        optionsExpanded = !optionsExpanded;
+        if (optionsExpanded) {
+            cardOptions.setAlpha(0f);
+            cardOptions.setVisibility(View.VISIBLE);
+            cardOptions.setScaleY(0.85f);
+            cardOptions.animate().alpha(1f).scaleY(1f)
+                    .setDuration(140).setInterpolator(new DecelerateInterpolator()).start();
+        } else {
+            cardOptions.animate().alpha(0f).scaleY(0.85f)
+                    .setDuration(120)
+                    .withEndAction(() -> cardOptions.setVisibility(View.GONE))
+                    .start();
+        }
+    }
+
     /** Safe to call any number of times, including when nothing is showing. */
     public void dismiss() {
         showing = false;
+        optionsExpanded = false;
+        cardPeekOptions = null;
         if (player != null) {
             try { player.release(); } catch (Throwable ignored) {}
             player = null;

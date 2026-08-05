@@ -2946,6 +2946,16 @@ public class UserReelsActivity extends AppCompatActivity
     // "peek START" edge. The matching "peek END" edge (finger lifted) is
     // wired to dismissPreviewDialog() via setLongPressReleaseListener() in
     // onCreate. A quick tap never reaches this method at all.
+    //
+    // ULTRA: long-press now ONLY opens the mini player peek — it no longer
+    // ALSO immediately fires the "Reel Options" AlertDialog or multi-select
+    // alongside it (that was the bug: both used to fire together the moment
+    // you long-pressed, on the same gesture). Management options for the
+    // owner's own reel (Insights/Pin/Share/Delete) are now rendered as a
+    // compact card INSIDE the peek popup itself (see
+    // ReelPeekPreviewController's card_peek_options) — reachable only by
+    // tapping "Options" inside the peek, not before it. Multi-select is no
+    // longer reachable from long-press at all — see setupMoreMenu() → "Select".
 
     @Override
     public void onLongPress(int adapterPos) {
@@ -2953,9 +2963,9 @@ public class UserReelsActivity extends AppCompatActivity
         int reelIdx = adapter.hasPinned() ? adapterPos - 1 : adapterPos;
 
         ReelModel reel;
-        // Self's own Reels tab gets a management-oriented secondary action
-        // (Insights/Pin/Share/Delete) instead of multi-select — same rule
-        // the old immediate-dialog behavior used.
+        // Self's own Reels tab gets management options (Insights/Pin/Share/
+        // Delete) in the peek's compact card; anyone else's reel just gets
+        // the plain mini-player preview with no options row.
         boolean ownerContext = isSelf && activeTab == TAB_REELS;
 
         if (ownerContext && adapter.hasPinned() && adapterPos == 0 && pinnedReel != null) {
@@ -2966,52 +2976,37 @@ public class UserReelsActivity extends AppCompatActivity
             reel = null;
         }
 
-        if (reel == null) { enterMultiSelectMode(adapterPos); return; }
+        if (reel == null) return;
 
         if (reel.videoUrl == null || reel.videoUrl.isEmpty()) {
-            // Nothing to preview — fall back straight to the old immediate action.
-            if (ownerContext) showAnalyticsSheet(reel, adapterPos);
-            else enterMultiSelectMode(adapterPos);
+            // Nothing to preview — owner still gets the options card via a
+            // reel with no video is rare/unexpected for this screen, so
+            // just no-op rather than falling back to a dialog/multi-select.
             return;
         }
 
         final ReelModel finalReel = reel;
-        String secondaryLabel  = ownerContext ? "Options" : "Select";
-        int    secondaryIconId = ownerContext ? R.drawable.ic_more_vert : R.drawable.ic_check_circle;
+        List<ReelPeekPreviewController.PeekOption> options = new ArrayList<>();
+        if (ownerContext) {
+            boolean isPinned = pinnedReel != null && finalReel.reelId != null
+                    && finalReel.reelId.equals(pinnedReel.reelId);
+            options.add(new ReelPeekPreviewController.PeekOption("View Insights", R.drawable.ic_eye, () ->
+                    ReelAnalyticsBottomSheet.newInstance(finalReel).show(getSupportFragmentManager(), "analytics")));
+            options.add(new ReelPeekPreviewController.PeekOption(
+                    isPinned ? "Unpin Reel" : "Pin Reel", R.drawable.ic_pin, () -> {
+                        if (isPinned) unpinReel(); else pinReel(finalReel.reelId);
+                    }));
+            options.add(new ReelPeekPreviewController.PeekOption("Share", R.drawable.ic_share_reel, this::shareProfile));
+            options.add(new ReelPeekPreviewController.PeekOption("Delete", R.drawable.ic_delete, () ->
+                    confirmDeleteSingleReel(finalReel)));
+        }
 
-        peekController.show(reel, secondaryLabel, secondaryIconId, new ReelPeekPreviewController.Callback() {
-            @Override public void onWatchFull() { openPlayerAt(adapterPos); }
-            @Override public void onSecondaryAction() {
-                if (ownerContext) showAnalyticsSheet(finalReel, adapterPos);
-                else enterMultiSelectMode(adapterPos);
-            }
-        });
-
-        // Match the Reels tab: long-press opens the options menu directly
-        // instead of needing an extra tap on the peek dialog's secondary
-        // button — mini player preview keeps running underneath while the
-        // options sheet is up, so both work off the same long-press.
-        if (ownerContext) showAnalyticsSheet(finalReel, adapterPos);
-        else enterMultiSelectMode(adapterPos);
+        peekController.show(reel, options, () -> openPlayerAt(adapterPos));
     }
 
     // ── Analytics sheet (Feature 15) ──────────────────────────────────────
-
-    private void showAnalyticsSheet(ReelModel reel, int adapterPos) {
-        boolean isPinned = pinnedReel != null && reel.reelId != null && reel.reelId.equals(pinnedReel.reelId);
-        AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
-            .setTitle("Reel Options")
-            .setItems(new String[]{"View Insights", isPinned ? "Unpin Reel" : "Pin Reel", "Share", "Delete"}, (d, which) -> {
-                switch (which) {
-                    case 0:
-                        ReelAnalyticsBottomSheet.newInstance(reel)
-                            .show(getSupportFragmentManager(), "analytics"); break;
-                    case 1: if (isPinned) unpinReel(); else pinReel(reel.reelId); break;
-                    case 2: shareProfile(); break;
-                    case 3: confirmDeleteSingleReel(reel); break;
-                }
-            }).create());
-    }
+    // Kept as a helper so the individual PeekOption actions above (and any
+    // other callers) can still reuse the confirm-delete flow etc.
 
     private void confirmDeleteSingleReel(ReelModel reel) {
         AlertDialogStyler.showReusableConfirm(this, "delete_single_reel",
@@ -3059,7 +3054,11 @@ public class UserReelsActivity extends AppCompatActivity
         isMultiSelect = true;
         adapter.setMultiSelectMode(true);
         if (layoutMultiSelectBar != null) layoutMultiSelectBar.setVisibility(View.VISIBLE);
-        toggleSelection(initialPos);
+        // ULTRA: entry point moved from long-press to the 3-dot menu (see
+        // setupMoreMenu() → "Select") — that entry has no specific cell the
+        // user pressed, so it calls this with -1 to just arm select mode
+        // without pre-selecting anything.
+        if (initialPos >= 0) toggleSelection(initialPos);
     }
 
     private void exitMultiSelectMode() {
@@ -4706,6 +4705,12 @@ public class UserReelsActivity extends AppCompatActivity
             PopupMenu menu = new PopupMenu(this, btnMore);
             menu.getMenu().add(0, 1, 0, "Share Profile");
             menu.getMenu().add(0, 2, 0, "Copy Profile Link");
+            // ULTRA: multi-select entry point moved here from long-press
+            // (long-press is now ONLY the mini-player peek — see
+            // onLongPress()). Hidden on the Series tab (no multi-select
+            // support there) and when the current grid is empty.
+            boolean canSelect = activeTab != TAB_SERIES && !activeTabData().isEmpty();
+            if (canSelect) menu.getMenu().add(0, 15, 0, "☑️ Select");
             // Liked/Saved moved out of the tab strip (which now shows just
             // Reels/Repost/Duet, Instagram-style) and into here — opens
             // straight into AllReelsFullActivity instead of switching this
@@ -4742,6 +4747,7 @@ public class UserReelsActivity extends AppCompatActivity
                     case 6: deleteAllReels(); break;
                     case 7: openAboutAccount(); break;
                     case 9: resetAllColorsToDefault(); break;
+                    case 15: enterMultiSelectMode(-1); break;
                     case 12: openGridAccentColorPicker(activeTab); break;
                     case 13: openStripColorPicker(); break;
                     case 14: openBioStripColorMenuEntry(); break;
