@@ -37,8 +37,12 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.ListPreloader;
+import com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader;
 import com.bumptech.glide.load.resource.bitmap.CircleCrop;
 import com.bumptech.glide.request.RequestOptions;
+import androidx.transition.AutoTransition;
+import androidx.transition.TransitionManager;
 import com.callx.app.player.SingleReelPlayerActivity;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
@@ -114,6 +118,18 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private boolean isLoadingMoreReels = false;
     private boolean hasMoreReels       = true;
     private ChildEventListener soundReelsLiveListener = null;
+
+    // ── Grid layout manager (UserReelsActivity-style swipe-aware) ─────────────
+    private SoundDetailGridLayoutManager soundReelsLayoutManager;
+
+    // ── Debounced reels pagination (ported from UserReelsActivity) ────────────
+    // Calling loadMoreReelsForSound() as soon as the threshold is crossed means
+    // it can fire mid-fling — right when we least want a Firebase read. A 120ms
+    // debounce means it only runs once the finger/fling has settled. IDLE short-
+    // circuits straight to the check so it fires immediately when scrolling stops.
+    private static final long REELS_PAGINATION_DEBOUNCE_MS = 120L;
+    private final Handler     reelsPaginationHandler  = new Handler(Looper.getMainLooper());
+    private final Runnable    reelsPaginationRunnable = this::maybeLoadMoreReels;
 
     // ── Views ─────────────────────────────────────────────────────────────────
     private View         viewDragHandle;
@@ -246,6 +262,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         loadCreatorProfile();
         setupClickListeners();
         checkIfSaved();
+        setupReelGridParallax(); // UserReelsActivity-style cover parallax on scroll
     }
 
     @Override
@@ -299,6 +316,8 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     public void onDestroyView() {
         seekHandler.removeCallbacksAndMessages(null);
         mainHandler.removeCallbacksAndMessages(null);
+        // Cancel any pending debounced pagination check (UserReelsActivity pattern)
+        reelsPaginationHandler.removeCallbacksAndMessages(null);
         stopDiscAnimation();
         stopWaveAnimation();
         releasePlayer();
@@ -374,8 +393,26 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         btnFloatingSave       = v.findViewById(R.id.btn_floating_save);
         scrollSoundDetail     = v.findViewById(R.id.scroll_sound_detail);
 
-        if (rvReels   != null) {
-            rvReels.setLayoutManager(new GridLayoutManager(requireContext(), 3));
+        if (rvReels != null) {
+            // ── UserReelsActivity-style perf setup ─────────────────────────
+            soundReelsLayoutManager = new SoundDetailGridLayoutManager(requireContext(), 3);
+            soundReelsLayoutManager.setItemPrefetchEnabled(true);
+            soundReelsLayoutManager.setInitialPrefetchItemCount(9);
+            rvReels.setLayoutManager(soundReelsLayoutManager);
+
+            // ULTRA (from UserReelsActivity): bounds are match_parent / fixed →
+            // RecyclerView skips the extra measure pass setHasFixedSize(false) triggers.
+            rvReels.setHasFixedSize(true);
+            // ULTRA: disable default per-cell fade animation — photo grid cells
+            // don't need cross-fade on insert/remove (same choice as UserReelsActivity).
+            rvReels.setItemAnimator(null);
+            // ULTRA: cache more off-screen ViewHolders so fast flings and
+            // fresh-page appends reuse already-bound views instead of re-inflating.
+            rvReels.setItemViewCacheSize(12);
+            // Must stay enabled so NestedScrollView/CoordinatorLayout intercepts
+            // vertical events and the header can collapse properly.
+            rvReels.setNestedScrollingEnabled(true);
+
             // Match UserReelsActivity's bordered grid: white RV background + 1dp
             // padding/gap decoration so each square thumbnail shows a thin
             // white border, same as the profile reels grid.
@@ -700,15 +737,21 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         });
         rvReels.setAdapter(reelThumbAdapter);
 
+        // ── NestedScrollView listener — floating actions visibility only ───
+        // Pagination is handled entirely by the RecyclerView scroll listener
+        // below (debounced, like UserReelsActivity) so the NestedScrollView
+        // listener no longer fires loadMoreReelsForSound() mid-fling.
         if (scrollSoundDetail != null) {
             scrollSoundDetail.setOnScrollChangeListener((NestedScrollView.OnScrollChangeListener)
-                (sv, scrollX, scrollY, oldX, oldY) -> {
-                    updateFloatingActionsVisibility();
-                    if (scrollY <= oldY || isLoadingMoreReels || !hasMoreReels) return;
-                    int contentH = sv.getChildAt(0) != null ? sv.getChildAt(0).getHeight() : 0;
-                    if (scrollY + sv.getHeight() >= contentH - 600) loadMoreReelsForSound();
-                });
+                (sv, scrollX, scrollY, oldX, oldY) -> updateFloatingActionsVisibility());
         }
+
+        // ── Debounced RecyclerView scroll pagination (UserReelsActivity) ──
+        setupReelsScrollPagination();
+
+        // ── Glide preloader — warm upcoming thumbnails (UserReelsActivity) ─
+        setupGlidePreloaderForReels();
+
         loadMoreReelsForSound();
     }
 
@@ -1439,5 +1482,197 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private static String firstOf(DataSnapshot snap, String... keys) {
         for (String k : keys) { String v = snap.child(k).getValue(String.class); if (v != null && !v.isEmpty()) return v; }
         return null;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Debounced RecyclerView scroll pagination  (ported from UserReelsActivity)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Attaches an OnScrollListener to rvReels that debounces the pagination
+     * threshold check by 120 ms (same constant as UserReelsActivity).
+     *
+     * onScrolled() only *schedules* the check, cancelling any previously
+     * scheduled one, so rapid scroll events (fast flings, nested-scroll
+     * delivery) collapse into a single Firebase read once motion settles.
+     * onScrollStateChanged(IDLE) short-circuits directly so the check fires
+     * the instant scrolling actually stops instead of waiting out the delay.
+     */
+    private void setupReelsScrollPagination() {
+        if (rvReels == null) return;
+        rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                if (dy <= 0) return; // scrolling up — no next-page needed
+                reelsPaginationHandler.removeCallbacks(reelsPaginationRunnable);
+                reelsPaginationHandler.postDelayed(reelsPaginationRunnable, REELS_PAGINATION_DEBOUNCE_MS);
+            }
+
+            @Override
+            public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    // Fling/drag has actually stopped — check right away
+                    reelsPaginationHandler.removeCallbacks(reelsPaginationRunnable);
+                    maybeLoadMoreReels();
+                }
+            }
+        });
+    }
+
+    /**
+     * Runs the actual threshold check — only once scrolling has settled.
+     * Mirrors UserReelsActivity#maybeLoadNextPage() but adapted for the
+     * reels-within-sound-detail grid.
+     */
+    private void maybeLoadMoreReels() {
+        if (isGone() || soundReelsLayoutManager == null) return;
+        if (isLoadingMoreReels || !hasMoreReels) return;
+        int total       = soundReelsLayoutManager.getItemCount();
+        int lastVisible = soundReelsLayoutManager.findLastVisibleItemPosition();
+        // Load next page when the user is within 6 items of the end (3-column
+        // grid → that's ~2 rows), same threshold as UserReelsActivity.
+        if (lastVisible >= total - 6) loadMoreReelsForSound();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Glide RecyclerViewPreloader  (ported from UserReelsActivity)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Pre-warm upcoming thumbnails into Glide's cache based on scroll direction,
+     *  so cells are already decoded by the time they scroll into view. */
+    private void setupGlidePreloaderForReels() {
+        if (rvReels == null || reelThumbAdapter == null || isGone()) return;
+        // Size each preload request to the same dimensions the adapter uses
+        final int thumbPx = (int) (requireContext().getResources().getDisplayMetrics().widthPixels / 3f);
+        ListPreloader.PreloadSizeProvider<String> sizeProvider =
+                (item, adapterPosition, perItemPosition) -> new int[]{thumbPx, thumbPx};
+        ListPreloader.PreloadModelProvider<String> modelProvider =
+                new ListPreloader.PreloadModelProvider<String>() {
+                    @androidx.annotation.NonNull
+                    @Override
+                    public java.util.List<String> getPreloadItems(int position) {
+                        if (position < 0 || position >= reelItems.size()) return java.util.Collections.emptyList();
+                        String url = reelItems.get(position).thumbnailUrl;
+                        return (url != null && !url.isEmpty()) ? java.util.Collections.singletonList(url)
+                                : java.util.Collections.emptyList();
+                    }
+                    @androidx.annotation.Nullable
+                    @Override
+                    public com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable> getPreloadRequestBuilder(
+                            @androidx.annotation.NonNull String item) {
+                        return Glide.with(SoundDetailFragment.this)
+                                .load(item)
+                                .apply(new RequestOptions().centerCrop().override(thumbPx, thumbPx));
+                    }
+                };
+        RecyclerViewPreloader<String> preloader = new RecyclerViewPreloader<>(
+                Glide.with(this), modelProvider, sizeProvider, /* maxPreload= */ 6);
+        rvReels.addOnScrollListener(preloader);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Cover / header parallax  (ported from UserReelsActivity#setupHeaderParallax)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * As the user scrolls down through the NestedScrollView, the cover art
+     * (ivSoundCover / ivDiscRing) trails the scroll at 45% speed and fades
+     * out — giving depth instead of sliding 1:1 with content. This mirrors
+     * the avatar parallax in UserReelsActivity#setupHeaderParallax().
+     *
+     * On API 31+ the disc cover additionally gains a gentle blur that grows
+     * with scroll depth, so it reads as receding rather than just moving.
+     */
+    private void setupReelGridParallax() {
+        if (scrollSoundDetail == null || ivSoundCover == null) return;
+        scrollSoundDetail.getViewTreeObserver().addOnScrollChangedListener(() -> {
+            if (isGone()) return;
+            int scrollY    = scrollSoundDetail.getScrollY();
+            // Estimate the "header" height as the cover image's height (fallback 300dp).
+            float headerH  = ivSoundCover.getHeight();
+            if (headerH <= 0) {
+                headerH = requireContext().getResources().getDisplayMetrics().density * 300f;
+            }
+            float fraction = Math.min(1f, scrollY / headerH);
+
+            // Parallax: cover trails at 45% of actual scroll speed
+            float translateY = scrollY * 0.45f;
+            ivSoundCover.setTranslationY(translateY);
+            ivSoundCover.setAlpha(Math.max(0f, 1f - fraction * 1.3f));
+
+            if (ivDiscRing != null) {
+                ivDiscRing.setTranslationY(translateY);
+                ivDiscRing.setAlpha(Math.max(0f, 1f - fraction * 1.3f));
+                // Scale down slightly as it disappears (UserReelsActivity avatar effect)
+                float scale = 1f - (fraction * 0.18f);
+                ivDiscRing.setScaleX(scale);
+                ivDiscRing.setScaleY(scale);
+
+                // Blur on API 31+ (same as UserReelsActivity#setupHeaderParallax)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    try {
+                        if (fraction <= 0.01f) {
+                            ivDiscRing.setRenderEffect(null);
+                        } else {
+                            float blurPx = 1f + fraction * 10f;
+                            ivDiscRing.setRenderEffect(
+                                android.graphics.RenderEffect.createBlurEffect(
+                                    blurPx, blurPx, android.graphics.Shader.TileMode.CLAMP));
+                        }
+                    } catch (Throwable ignored) {}
+                }
+            }
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Idle-frame deferral  (ported from UserReelsActivity#runWhenMainThreadIdle)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Runs {@code r} only once the main thread's message queue is completely
+     * idle — i.e. only AFTER the current frame has been measured/laid out/
+     * drawn and delivered to the system. Use for low-urgency work (analytics
+     * pings, non-critical pre-loads) so it can never contend with the frame
+     * the user is waiting to see. Self-removing (returns false from IdleHandler).
+     */
+    private static void runWhenMainThreadIdle(Runnable r) {
+        android.os.Looper.myQueue().addIdleHandler(() -> { r.run(); return false; });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SoundDetailGridLayoutManager  (ported from UserReelsActivity#SwipeAwareGridLayoutManager)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * GridLayoutManager variant whose vertical scrolling can be suspended on
+     * demand — e.g. while a parent horizontal swipe gesture owns the touch
+     * stream. In SoundDetailFragment this also ensures that
+     * canScrollVertically() always returns true even when content is shorter
+     * than the RecyclerView, so NestedScrollView / CoordinatorLayout always
+     * receives nested-scroll events and the floating action bar
+     * appears/disappears correctly regardless of grid size.
+     *
+     * Ported 1-to-1 from UserReelsActivity.SwipeAwareGridLayoutManager.
+     */
+    private static class SoundDetailGridLayoutManager extends GridLayoutManager {
+        private volatile boolean verticalScrollEnabled = true;
+
+        SoundDetailGridLayoutManager(android.content.Context ctx, int spanCount) {
+            super(ctx, spanCount);
+        }
+
+        /** Call with false at the start of a horizontal swipe, true when it ends. */
+        void setVerticalScrollEnabled(boolean enabled) {
+            verticalScrollEnabled = enabled;
+        }
+
+        @Override
+        public boolean canScrollVertically() {
+            // Always report scrollable so NestedScrollView keeps receiving
+            // nested-scroll events even when the grid content is short — this
+            // fixes the floating action bar not hiding when there are few reels.
+            return verticalScrollEnabled;
+        }
     }
 }
