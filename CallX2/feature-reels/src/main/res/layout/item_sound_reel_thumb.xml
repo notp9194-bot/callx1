@@ -2,19 +2,26 @@
 <!--
     item_sound_reel_thumb — grid cell used by SoundDetailActivity /
     SoundDetailSheetFragment's "Reels with this sound" grid (ReelThumbAdapter),
-    styled to match Instagram's audio-page reel grid:
-      • square, edge-to-edge tile
+    styled to match UserReelsActivity's profile reel grid (item_saved_reel.xml):
+      • rounded-square tile (@drawable/bg_reel_grid_cell + clipToOutline)
       • small dark "Original" pill, top-left — only on the original
         creator's tile (ReelThumbAdapter shows it when isOriginalCreator)
       • eye icon + view count, bottom-left overlay
 -->
+<!-- ULTRA (overdraw fix, ported from item_saved_reel.xml): no elevation on
+     the cell root — cells sit edge-to-edge (WhiteGridDecoration draws only
+     in the gap between them, see SoundDetailFragment#bindViews), so a
+     per-cell drop shadow would be invisible under the neighboring cell 99%
+     of the time while still costing every on-screen/cached cell an extra
+     shadow draw pass per frame during scroll. clipToOutline stays — that's
+     the rounded-corner clip, unrelated to any shadow. -->
 <FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="?attr/selectableItemBackground"
-    android:clickable="true"
-    android:focusable="true">
+    android:background="@drawable/bg_reel_grid_cell"
+    android:clipToOutline="true"
+    android:foreground="?attr/selectableItemBackground">
 
     <ImageView
         android:id="@+id/iv_media_thumb"

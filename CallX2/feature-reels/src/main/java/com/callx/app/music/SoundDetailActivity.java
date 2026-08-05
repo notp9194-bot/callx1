@@ -91,6 +91,29 @@ public class SoundDetailActivity extends AppCompatActivity {
         private final java.util.List<ReelThumbItem> items;
         private final OnItemClick listener;
         private OnItemLongPress longPressListener;
+
+        // ── Cell height (ported from UserReelsActivity's ReelGridAdapter) ──
+        // Same formula as the profile reel grid: cell width = screen width
+        // split across a 3-column span (minus the same 2dp gutter
+        // WhiteGridDecoration reserves), height = that width at a 16:9
+        // ratio. Computed ONCE (cached statically — it's the same for every
+        // instance of this adapter within a process) and applied directly
+        // in onCreateViewHolder(), so every "Reels with this sound" grid
+        // (SoundDetailFragment, SoundDetailBottomSheet) now matches the
+        // profile grid's tall, modern card size instead of the old fixed
+        // 160dp wrap_content tile.
+        private static final int GRID_SPAN_COUNT = 3;
+        private static int cachedCellHeightPx = -1;
+
+        private static int resolveCellHeightPx(android.content.Context ctx) {
+            if (cachedCellHeightPx > 0) return cachedCellHeightPx;
+            android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+            int spacingPx   = Math.round(2 * dm.density); // matches WhiteGridDecoration
+            int cellWidthPx = (dm.widthPixels - spacingPx * (GRID_SPAN_COUNT + 1)) / GRID_SPAN_COUNT;
+            cachedCellHeightPx = Math.round(cellWidthPx * 16f / 9f);
+            return cachedCellHeightPx;
+        }
+
         public ReelThumbAdapter() { items = new java.util.ArrayList<>(); listener = null; }
         public ReelThumbAdapter(java.util.List<ReelThumbItem> items, OnItemClick listener) {
             this.items = items != null ? items : new java.util.ArrayList<>();
@@ -113,6 +136,14 @@ public class SoundDetailActivity extends AppCompatActivity {
             // square tile + top-left "Original" pill + bottom-left eye/view-count.
             android.view.View v = android.view.LayoutInflater.from(parent.getContext())
                 .inflate(com.callx.app.reels.R.layout.item_sound_reel_thumb, parent, false);
+            // Apply the precomputed 16:9 cell height once at creation time —
+            // no post()/re-measure needed (same pattern as UserReelsActivity).
+            android.view.ViewGroup.LayoutParams lp = v.getLayoutParams();
+            int cellHeight = resolveCellHeightPx(parent.getContext());
+            if (lp == null) lp = new android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, cellHeight);
+            else lp.height = cellHeight;
+            v.setLayoutParams(lp);
             return new VH(v);
         }
 
