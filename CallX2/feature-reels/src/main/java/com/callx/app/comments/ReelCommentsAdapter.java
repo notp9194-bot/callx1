@@ -30,7 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import de.hdodenhof.circleimageview.CircleImageView;
+import android.widget.ImageView;
 import com.callx.app.cache.StatusCacheManager;
 
 /**
@@ -56,20 +56,25 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     private static final LruCache<String, String> avatarCache = new LruCache<>(200);
 
     // Avatar decode/target size in px — comment avatar is a fixed 36dp
-    // CircleImageView, we request 2x for retina sharpness.
+    // rounded-square tile (matches UserReelsActivity's grid cell corner
+    // style — see item_reel_comment.xml), we request 2x for retina sharpness.
     private static final int AVATAR_SIZE_DP = 36;
 
     // PERF: RequestOptions was rebuilt with `new RequestOptions().circleCrop()
     // .override(...)` on EVERY avatar bind. Since the target size is fixed
     // for every comment row, build it once lazily and reuse the same
     // instance for every Glide.load() call instead.
+    // NOTE: no .circleCrop() here — the avatar is now clipped to a rounded
+    // SQUARE (same @drawable/bg_reel_grid_cell + clipToOutline used by the
+    // profile reel grid, see item_reel_comment.xml) via the ImageView itself,
+    // not via a Glide bitmap transform, so plain centerCrop is correct here.
     private static volatile RequestOptions avatarRequestOptions;
 
     private static RequestOptions avatarRequestOptions(Context ctx) {
         RequestOptions opts = avatarRequestOptions;
         if (opts == null) {
             int sizePx = AvatarUrlBuilder.dpToPx(ctx, AVATAR_SIZE_DP) * 2;
-            opts = new RequestOptions().circleCrop().override(sizePx, sizePx);
+            opts = new RequestOptions().override(sizePx, sizePx);
             avatarRequestOptions = opts;
         }
         return opts;
@@ -401,7 +406,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         }
     }
 
-    private void bindAvatar(Context ctx, CircleImageView iv, String uid, String photoUrl) {
+    private void bindAvatar(Context ctx, ImageView iv, String uid, String photoUrl) {
         // PERF/correctness: tag the row with which uid its avatar is FOR,
         // checked by the async Firebase fallback below before it applies a
         // result — otherwise a slow lookup for a row that's since been
@@ -449,7 +454,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             });
     }
 
-    private void loadAvatarInto(Context ctx, CircleImageView iv, String url) {
+    private void loadAvatarInto(Context ctx, ImageView iv, String url) {
         try {
             // PERF: skip the Glide call entirely if this exact URL is
             // already what's loaded/loading into this recycled row — avoids
@@ -590,7 +595,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     // ── ViewHolder ────────────────────────────────────────────────────────
 
     static class VH extends RecyclerView.ViewHolder {
-        CircleImageView ivAvatar;
+        ImageView ivAvatar;
         android.widget.ImageView ivStoryRing;
         TextView tvName, tvText, tvTime, tvLikes, btnReply, tvViewReplies;
         TextView tvEdited, tvAuthorBadge, tvCreatorLiked;

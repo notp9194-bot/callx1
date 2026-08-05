@@ -33,10 +33,13 @@
                 android:padding="12dp"
                 android:gravity="center_vertical">
 
-                <de.hdodenhof.circleimageview.CircleImageView
+                <ImageView
                     android:id="@+id/iv_vr_commenter_avatar"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
+                    android:scaleType="centerCrop"
+                    android:background="@drawable/bg_reel_grid_cell"
+                    android:clipToOutline="true"
                     android:src="@drawable/ic_person"/>
 
                 <LinearLayout

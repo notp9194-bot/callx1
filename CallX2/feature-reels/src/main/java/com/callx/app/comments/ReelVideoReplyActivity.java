@@ -23,7 +23,6 @@ import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.reels.R;
 import com.callx.app.models.ReelComment;
 import com.callx.app.utils.FirebaseUtils;
@@ -65,7 +64,7 @@ public class ReelVideoReplyActivity extends AppCompatActivity {
     private static final int REQ_PERMS  = 601;
     private static final int MAX_SEC    = 60;
 
-    private de.hdodenhof.circleimageview.CircleImageView ivCommenterAvatar;
+    private android.widget.ImageView ivCommenterAvatar;
     private TextView      tvCommenterName, tvCommentText;
     private PreviewView   previewView;
     private ImageButton   btnClose, btnRecord, btnFlip;
@@ -128,8 +127,10 @@ public class ReelVideoReplyActivity extends AppCompatActivity {
         tvCommenterName.setText(commenterName != null ? commenterName : "Someone");
         tvCommentText.setText(commentText != null ? commentText : "");
         if (commenterPhoto != null && !commenterPhoto.isEmpty()) {
+            // Rounded-square tile (same @drawable/bg_reel_grid_cell +
+            // clipToOutline as the profile reel grid) — no circleCropTransform,
+            // the View itself provides the corner clip.
             Glide.with(this).load(commenterPhoto)
-                .apply(RequestOptions.circleCropTransform())
                 .placeholder(R.drawable.ic_person)
                 .override(96, 96)
                 .into(ivCommenterAvatar);

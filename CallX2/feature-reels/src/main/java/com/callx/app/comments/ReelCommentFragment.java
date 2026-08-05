@@ -33,14 +33,12 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.recyclerview.widget.RecyclerView.RecycledViewPool;
 
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.models.ReelComment;
 import com.callx.app.models.ReelReply;
 import com.callx.app.reels.R;
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.workers.ReelCommentNotifWorker;
-import de.hdodenhof.circleimageview.CircleImageView;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.database.ChildEventListener;
@@ -1371,7 +1369,7 @@ public class ReelCommentFragment extends Fragment {
             View v = LayoutInflater.from(requireContext())
                 .inflate(R.layout.item_reel_reply, container, false);
 
-            CircleImageView ivAvatar = v.findViewById(R.id.iv_avatar);
+            android.widget.ImageView ivAvatar = v.findViewById(R.id.iv_avatar);
             TextView tvName     = v.findViewById(R.id.tv_name);
             TextView tvText     = v.findViewById(R.id.tv_text);
             TextView tvTime     = v.findViewById(R.id.tv_time);
@@ -1432,7 +1430,7 @@ public class ReelCommentFragment extends Fragment {
         }
     }
 
-    private void bindReplyAvatar(CircleImageView iv, @Nullable String uid, @Nullable String photoUrl) {
+    private void bindReplyAvatar(android.widget.ImageView iv, @Nullable String uid, @Nullable String photoUrl) {
         iv.setImageResource(R.drawable.ic_person);
         String url = photoUrl;
         if ((url == null || url.isEmpty()) && uid != null && !uid.isEmpty()) {
@@ -1453,10 +1451,12 @@ public class ReelCommentFragment extends Fragment {
         if (url != null && !url.isEmpty()) loadReplyAvatarInto(iv, url);
     }
 
-    private void loadReplyAvatarInto(CircleImageView iv, String url) {
+    private void loadReplyAvatarInto(android.widget.ImageView iv, String url) {
         try {
+            // Rounded-square tile (same @drawable/bg_reel_grid_cell +
+            // clipToOutline as the profile reel grid) — no .circleCrop()
+            // here, the View itself provides the corner clip.
             Glide.with(requireContext()).load(url)
-                .apply(new RequestOptions().circleCrop())
                 .placeholder(R.drawable.ic_person)
                 .error(R.drawable.ic_person)
                 .into(iv);
