@@ -31,6 +31,7 @@ import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.recyclerview.widget.RecyclerView.RecycledViewPool;
+import androidx.recyclerview.widget.SimpleItemAnimator;
 
 import com.bumptech.glide.Glide;
 import com.callx.app.models.ReelComment;
@@ -453,8 +454,8 @@ public class ReelCommentFragment extends Fragment {
             // never blink; they just update in place. Insert/remove
             // animations (new comment arriving, a delete) are kept.
             RecyclerView.ItemAnimator rvAnim = rvComments.getItemAnimator();
-            if (rvAnim instanceof RecyclerView.SimpleItemAnimator) {
-                ((RecyclerView.SimpleItemAnimator) rvAnim).setSupportsChangeAnimations(false);
+            if (rvAnim instanceof SimpleItemAnimator) {
+                ((SimpleItemAnimator) rvAnim).setSupportsChangeAnimations(false);
             }
 
             // PERF: page older comments in as the user nears the top of the
