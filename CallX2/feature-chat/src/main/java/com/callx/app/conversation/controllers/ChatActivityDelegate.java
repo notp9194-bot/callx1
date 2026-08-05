@@ -1,6 +1,7 @@
 package com.callx.app.conversation.controllers;
 
 import android.app.Activity;
+import android.net.Uri;
 import com.callx.app.chat.databinding.ActivityChatBinding;
 import com.callx.app.conversation.MessagePagingAdapter;
 import com.callx.app.db.AppDatabase;
@@ -99,6 +100,9 @@ public interface ChatActivityDelegate extends ChatSearchController.SearchDelegat
 
     // ── Wallpaper picker launcher ─────────────────────────────────────────
     void launchWallpaperPicker();
+
+    // ── Wallpaper picker result (image URI chosen by user) ────────────────
+    void onWallpaperPicked(Uri uri);
 
     // ── Poll creation ─────────────────────────────────────────────────────
     void launchPollCreator();
