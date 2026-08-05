@@ -21,10 +21,14 @@ package com.callx.app.profile;
   import android.widget.ImageView;
   import android.widget.TextView;
   import androidx.annotation.NonNull;
+  import androidx.annotation.Nullable;
   import androidx.fragment.app.Fragment;
+  import androidx.recyclerview.widget.DiffUtil;
   import androidx.recyclerview.widget.GridLayoutManager;
   import androidx.recyclerview.widget.RecyclerView;
   import com.bumptech.glide.Glide;
+  import com.bumptech.glide.ListPreloader;
+  import com.bumptech.glide.RequestBuilder;
   import com.bumptech.glide.RequestManager;
   import com.bumptech.glide.load.DecodeFormat;
   import com.bumptech.glide.load.engine.DiskCacheStrategy;
@@ -35,12 +39,15 @@ package com.callx.app.profile;
   import com.callx.app.utils.CloudinaryUploader;
   import com.callx.app.utils.BlurHash;
   import java.util.ArrayList;
+  import java.util.Collections;
   import java.util.HashMap;
   import java.util.List;
   import java.util.Locale;
   import java.util.Map;
+  import java.util.Objects;
 
-  public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+  public class ReelGridAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>
+          implements ListPreloader.PreloadModelProvider<String> {
 
       public static final int TYPE_SKELETON = 0;
       public static final int TYPE_REEL     = 1;
@@ -65,7 +72,10 @@ package com.callx.app.profile;
       // How many upcoming grid cells to warm into Glide's disk cache while
       // the user is still looking at earlier cells — by the time they scroll
       // to them the thumb is already cached, so no fetch pause / jank.
-      private static final int PRELOAD_AHEAD      = 6;
+      // Public — the host screen passes this straight to Glide's
+      // RecyclerViewPreloader as its maxPreload value (see
+      // UserReelsActivity#setupGlidePreloader()), so both stay in sync.
+      public static final int PRELOAD_AHEAD        = 6;
       // Small square decode size — enough to look like a soft blur once
       // stretched to the cell; bigger buys no visible detail for a BlurHash
       // source (it only has a handful of cosine components to begin with).
@@ -144,6 +154,19 @@ package com.callx.app.profile;
       // flips mid-scroll; re-create the adapter/screen to re-resolve).
       private final int gridThumbSize;
       private final int pinnedThumbSize;
+
+      // ── Precomputed cell height (no runtime measure) ────────────────────
+      // Old approach measured holder.itemView.getWidth() inside a post{}
+      // callback on every single onViewAttachedToWindow() and then called
+      // setLayoutParams() — that's an extra layout pass triggered on every
+      // cell attach while scrolling, a real source of scroll jank on a 3-
+      // column grid. Instead, the cell width (screen width / span count,
+      // minus the same gutter WhiteGridDecoration reserves) is computed
+      // ONCE per adapter instance, and the 16:9 height derived from it is
+      // applied directly at creation time in onCreateViewHolder() — no
+      // post(), no re-measure, no per-attach layout pass.
+      private static final int GRID_SPAN_COUNT = 3;
+      private final int precomputedCellHeightPx;
 
       /**
        * Symmetric grid spacing (Instagram-style): equal gap between every
@@ -353,6 +376,7 @@ package com.callx.app.profile;
           this.gridThumbSize   = resolveThumbSize(context, GRID_THUMB_SIZE_WIFI, GRID_THUMB_SIZE_CELLULAR);
           this.pinnedThumbSize = resolveThumbSize(context, PINNED_THUMB_SIZE_WIFI, PINNED_THUMB_SIZE_CELLULAR);
           this.touchSlopPx     = ViewConfiguration.get(context).getScaledTouchSlop();
+          this.precomputedCellHeightPx = computeCellHeightPx(context);
       }
 
       /**
@@ -378,6 +402,17 @@ package com.callx.app.profile;
           this.gridThumbSize   = resolveThumbSize(context, GRID_THUMB_SIZE_WIFI, GRID_THUMB_SIZE_CELLULAR);
           this.pinnedThumbSize = resolveThumbSize(context, PINNED_THUMB_SIZE_WIFI, PINNED_THUMB_SIZE_CELLULAR);
           this.touchSlopPx     = ViewConfiguration.get(context).getScaledTouchSlop();
+          this.precomputedCellHeightPx = computeCellHeightPx(context);
+      }
+
+      /** Cell width = screen width split across GRID_SPAN_COUNT columns (matching
+       *  WhiteGridDecoration's gutter), height = that width at a 16:9 ratio —
+       *  computed once so every cell gets its final height at creation time. */
+      private static int computeCellHeightPx(Context ctx) {
+          android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+          int spacingPx  = Math.round(2 * dm.density); // matches WhiteGridDecoration
+          int cellWidthPx = (dm.widthPixels - spacingPx * (GRID_SPAN_COUNT + 1)) / GRID_SPAN_COUNT;
+          return Math.round(cellWidthPx * 16f / 9f);
       }
 
       /** Optional — enables the long-press "peek" mini preview popup's dismiss callback. */
@@ -418,15 +453,71 @@ package com.callx.app.profile;
        * one tab must never carry over and hide items on another tab.
        */
       public void setDataList(List<ReelModel> newReels) {
+          List<ReelModel> oldSnapshot = new ArrayList<>(displayList);
           this.reels = newReels;
           this.displayList = newReels;
-          notifyDataSetChanged();
+          diffDataSetChanged(oldSnapshot);
       }
 
       /** Called by filter chips to show a subset. Pass null to show all. */
       public void setFilteredData(List<ReelModel> filtered) {
+          List<ReelModel> oldSnapshot = new ArrayList<>(displayList);
           this.displayList = (filtered != null) ? filtered : reels;
-          notifyDataSetChanged();
+          diffDataSetChanged(oldSnapshot);
+      }
+
+      // ── DiffUtil-based refresh ───────────────────────────────────────────
+      // Replaces the old notifyDataSetChanged() (full rebind of every visible
+      // cell — every thumbnail re-decoded/re-bound even for rows that didn't
+      // change) on the tab-switch/filter/delete paths. Callers pass the
+      // list's content as it was BEFORE their mutation; this diffs it
+      // against the current (post-mutation) displayList and dispatches only
+      // the actual inserts/removes/changes, so RecyclerView can run its own
+      // move/fade animations on just the affected rows instead of a hard
+      // full-grid rebind.
+      public void diffDataSetChanged(List<ReelModel> oldSnapshot) {
+          List<Object> oldSnap = buildDiffSnapshot(oldSnapshot);
+          List<Object> newSnap = buildDiffSnapshot(displayList);
+          DiffUtil.DiffResult result = DiffUtil.calculateDiff(new ReelDiffCallback(oldSnap, newSnap));
+          result.dispatchUpdatesTo(this);
+      }
+
+      /** Snapshot list = [pinned marker if present] + data, so diff positions map 1:1 to adapter positions. */
+      private List<Object> buildDiffSnapshot(List<ReelModel> data) {
+          List<Object> snap = new ArrayList<>(data.size() + 1);
+          if (hasPinned()) snap.add(pinnedReel);
+          snap.addAll(data);
+          return snap;
+      }
+
+      /** Identity = reelId (or same pinned-marker reference); content = the fields the grid cell actually shows. */
+      private static class ReelDiffCallback extends DiffUtil.Callback {
+          private final List<Object> oldList, newList;
+          ReelDiffCallback(List<Object> oldList, List<Object> newList) {
+              this.oldList = oldList; this.newList = newList;
+          }
+          @Override public int getOldListSize() { return oldList.size(); }
+          @Override public int getNewListSize() { return newList.size(); }
+          @Override public boolean areItemsTheSame(int oldPos, int newPos) {
+              Object o = oldList.get(oldPos), n = newList.get(newPos);
+              if (o instanceof ReelModel && n instanceof ReelModel) {
+                  String oid = ((ReelModel) o).reelId, nid = ((ReelModel) n).reelId;
+                  return oid != null && oid.equals(nid);
+              }
+              return o == n;
+          }
+          @Override public boolean areContentsTheSame(int oldPos, int newPos) {
+              Object o = oldList.get(oldPos), n = newList.get(newPos);
+              if (o instanceof ReelModel && n instanceof ReelModel) {
+                  ReelModel a = (ReelModel) o, b = (ReelModel) n;
+                  return a.likesCount == b.likesCount
+                          && a.commentsCount == b.commentsCount
+                          && a.viewsCount == b.viewsCount
+                          && Objects.equals(a.caption, b.caption)
+                          && Objects.equals(a.thumbUrl, b.thumbUrl);
+              }
+              return true;
+          }
       }
 
       public void setPinnedReel(ReelModel reel)    { this.pinnedReel = reel; notifyDataSetChanged(); }
@@ -455,7 +546,14 @@ package com.callx.app.profile;
           LayoutInflater inf = LayoutInflater.from(context);
           if (type == TYPE_SKELETON) return new SkeletonVH(inf.inflate(R.layout.item_reel_skeleton, p, false));
           if (type == TYPE_PINNED)   return new PinnedVH(inf.inflate(R.layout.item_pinned_reel, p, false));
-          return new ReelVH(inf.inflate(R.layout.item_saved_reel, p, false));
+          View reelView = inf.inflate(R.layout.item_saved_reel, p, false);
+          // Height fixed here, once, instead of measured+applied on every
+          // onViewAttachedToWindow() — see precomputedCellHeightPx.
+          ViewGroup.LayoutParams lp = reelView.getLayoutParams();
+          if (lp == null) lp = new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, precomputedCellHeightPx);
+          else lp.height = precomputedCellHeightPx;
+          reelView.setLayoutParams(lp);
+          return new ReelVH(reelView);
       }
 
       @Override
@@ -575,35 +673,40 @@ package com.callx.app.profile;
 
       @Override public void onViewAttachedToWindow(@NonNull RecyclerView.ViewHolder holder) {
           super.onViewAttachedToWindow(holder);
-          if (!(holder instanceof PinnedVH)) {
-              holder.itemView.post(() -> {
-                  int w = holder.itemView.getWidth();
-                  if (w > 0) {
-                      ViewGroup.LayoutParams lp = holder.itemView.getLayoutParams();
-                      lp.height = (int)(w * 16f / 9f);
-                      holder.itemView.setLayoutParams(lp);
-                  }
-              });
-          }
-          if (holder instanceof ReelVH) {
-              preloadAhead(holder.getAdapterPosition());
-          }
+          // Cell height is now fixed at creation time (see onCreateViewHolder /
+          // precomputedCellHeightPx) — no per-attach measure+relayout here
+          // anymore. Thumbnail preloading is likewise no longer done manually
+          // per-attach: Glide's RecyclerViewPreloader (wired by the host
+          // screen via getPreloadItems()/getPreloadRequestBuilder() below)
+          // does this more precisely, based on actual scroll direction and
+          // velocity instead of a fixed "next N" guess.
       }
 
-      /** Warms Glide's disk cache for the next few grid cells past fromPosition. */
-      private void preloadAhead(int fromPosition) {
-          if (fromPosition < 0 || skeletonMode) return;
-          int lastAdapterPos = displayList.size() - 1 + (hasPinned() ? 1 : 0);
-          int end = Math.min(fromPosition + PRELOAD_AHEAD, lastAdapterPos);
-          for (int pos = fromPosition + 1; pos <= end; pos++) {
-              int idx = reelIndexFor(pos);
-              if (idx < 0 || idx >= displayList.size()) continue;
-              String thumb = displayList.get(idx).thumbUrl;
-              if (thumb == null || thumb.isEmpty()) continue;
-              String preloadUrl = CloudinaryUploader.deriveThumbUrl(thumb, gridThumbSize, "webp");
-              glideRequests.load(preloadUrl).apply(GRID_OPTIONS).preload();
-          }
+      // ── Glide RecyclerViewPreloader hooks ───────────────────────────────
+      // Implements ListPreloader.PreloadModelProvider<String> so the host
+      // screen can hand this adapter straight to a RecyclerViewPreloader
+      // (see UserReelsActivity#setupGlidePreloader()) instead of the old
+      // manual "warm the next 6 cells on attach" approach — the preloader
+      // itself decides how far ahead to fetch based on real scroll speed.
+
+      @NonNull @Override
+      public List<String> getPreloadItems(int position) {
+          if (skeletonMode) return Collections.emptyList();
+          int idx = reelIndexFor(position);
+          if (idx < 0 || idx >= displayList.size()) return Collections.emptyList();
+          ReelModel r = displayList.get(idx);
+          if (r == null || r.thumbUrl == null || r.thumbUrl.isEmpty()) return Collections.emptyList();
+          return Collections.singletonList(CloudinaryUploader.deriveThumbUrl(r.thumbUrl, gridThumbSize, "webp"));
       }
+
+      @Nullable @Override
+      public RequestBuilder<?> getPreloadRequestBuilder(@NonNull String item) {
+          return glideRequests.load(item).apply(GRID_OPTIONS);
+      }
+
+      /** Thumb pixel size Glide should decode to while preloading — matches the real bind size. */
+      public int getGridThumbSizePx() { return gridThumbSize; }
+
       @Override public void onViewDetachedFromWindow(@NonNull RecyclerView.ViewHolder holder) {
           super.onViewDetachedFromWindow(holder);
           if (holder instanceof SkeletonVH) ((SkeletonVH)holder).shimmer.stopShimmer();

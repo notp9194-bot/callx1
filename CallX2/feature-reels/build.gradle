@@ -73,6 +73,9 @@ dependencies {
     implementation 'com.linkedin.android.litr:litr:1.5.1'
     implementation 'com.github.bumptech.glide:glide:4.16.0'
     annotationProcessor 'com.github.bumptech.glide:compiler:4.16.0'
+    // RecyclerViewPreloader — bulk-preloads upcoming grid thumbnails ahead
+    // of scroll instead of the old per-cell attach-time preload.
+    implementation 'com.github.bumptech.glide:recyclerview-integration:4.16.0'
     implementation 'de.hdodenhof:circleimageview:3.1.0'
     implementation 'com.google.guava:guava:31.1-android'
     implementation 'com.facebook.shimmer:shimmer:0.5.0'

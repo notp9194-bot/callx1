@@ -24,6 +24,8 @@ import androidx.core.view.ViewCompat;
 import com.google.android.material.tabs.TabLayout;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.ListPreloader;
+import com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.callx.app.reels.R;
 import com.callx.app.profile.ReelGridAdapter;
@@ -642,6 +644,7 @@ public class UserReelsActivity extends AppCompatActivity
         // re-inflating/re-binding (default cache size is 2).
         rvReels.setItemViewCacheSize(12);
         gridLayoutManager.setInitialPrefetchItemCount(9);
+        setupGlidePreloader();
         setupSwipeBetweenTabs();
 
         // Instagram-style CTA buttons visible only for other users
@@ -657,6 +660,28 @@ public class UserReelsActivity extends AppCompatActivity
             ivAvatar.setOnClickListener(v -> openStatusIfAvailable());
             ivAvatar.setOnLongClickListener(v -> { showAvatarZoom(targetPhoto, targetName); return true; });
         }
+    }
+
+    /**
+     * Glide RecyclerViewPreloader — replaces the old manual "warm the next
+     * N cells" call that used to run inside the adapter's
+     * onViewAttachedToWindow(). This scroll listener watches rv_reels'
+     * actual scroll direction/velocity and asks the adapter (via
+     * ReelGridAdapter#getPreloadItems/getPreloadRequestBuilder) which
+     * upcoming thumbnails to warm into Glide's cache — so by the time a
+     * cell scrolls into view its thumbnail is typically already decoded,
+     * instead of popping in as the user scrolls past it.
+     */
+    private void setupGlidePreloader() {
+        if (rvReels == null || adapter == null) return;
+        ListPreloader.PreloadSizeProvider<String> sizeProvider =
+                (item, adapterPosition, perItemPosition) -> {
+                    int size = adapter.getGridThumbSizePx();
+                    return new int[]{size, size};
+                };
+        RecyclerViewPreloader<String> preloader = new RecyclerViewPreloader<>(
+                Glide.with(this), adapter, sizeProvider, ReelGridAdapter.PRELOAD_AHEAD);
+        rvReels.addOnScrollListener(preloader);
     }
 
     /**
@@ -1183,6 +1208,16 @@ public class UserReelsActivity extends AppCompatActivity
         }
         float distance = outgoing.getWidth() * 0.35f; // subtle slide, not a full-screen page turn
         outgoing.animate().cancel();
+        // PERF: promote to a hardware layer for the duration of the slide —
+        // translationX+alpha on a RecyclerView otherwise re-draws/re-
+        // composites every visible child on every animation frame. A
+        // hardware layer rasterizes the view ONCE into a GPU texture and
+        // then just cheaply transforms/blends that texture per frame,
+        // which is what keeps this slide smooth on a media-heavy grid.
+        // Always turned back to LAYER_TYPE_NONE once the animation ends —
+        // layers cost GPU memory and must not be left on for normal
+        // (non-animating) scrolling.
+        outgoing.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         outgoing.animate()
                 .translationX(-direction * distance)
                 .alpha(0f)
@@ -1191,6 +1226,7 @@ public class UserReelsActivity extends AppCompatActivity
                 .withEndAction(() -> {
                     outgoing.setTranslationX(0f);
                     outgoing.setAlpha(1f);
+                    outgoing.setLayerType(View.LAYER_TYPE_NONE, null);
 
                     applyTabSwitch.run();
 
@@ -1199,11 +1235,13 @@ public class UserReelsActivity extends AppCompatActivity
                     incoming.animate().cancel();
                     incoming.setTranslationX(direction * distance);
                     incoming.setAlpha(0f);
+                    incoming.setLayerType(View.LAYER_TYPE_HARDWARE, null);
                     incoming.animate()
                             .translationX(0f)
                             .alpha(1f)
                             .setDuration(200)
                             .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                            .withEndAction(() -> incoming.setLayerType(View.LAYER_TYPE_NONE, null))
                             .start();
                 })
                 .start();
@@ -2896,6 +2934,13 @@ public class UserReelsActivity extends AppCompatActivity
                 else enterMultiSelectMode(adapterPos);
             }
         });
+
+        // Match the Reels tab: long-press opens the options menu directly
+        // instead of needing an extra tap on the peek dialog's secondary
+        // button — mini player preview keeps running underneath while the
+        // options sheet is up, so both work off the same long-press.
+        if (ownerContext) showAnalyticsSheet(finalReel, adapterPos);
+        else enterMultiSelectMode(adapterPos);
     }
 
     // ── Analytics sheet (Feature 15) ──────────────────────────────────────
@@ -2925,8 +2970,9 @@ public class UserReelsActivity extends AppCompatActivity
                 FirebaseUtils.getReelsRef().child(reel.reelId).removeValue();
                 FirebaseUtils.getReelsByUserRef(targetUid).child(reel.reelId).removeValue();
                 if (pinnedReel != null && reel.reelId.equals(pinnedReel.reelId)) unpinReel();
+                List<ReelModel> oldSnapshot = new ArrayList<>(reelsTabData);
                 reelsTabData.remove(reel);
-                adapter.notifyDataSetChanged();
+                adapter.diffDataSetChanged(oldSnapshot);
                 refreshEmptyState();
                 Toast.makeText(this, "Deleted", Toast.LENGTH_SHORT).show();
             },
@@ -3023,9 +3069,10 @@ public class UserReelsActivity extends AppCompatActivity
                     FirebaseUtils.db().getReference("userReels").child(myUid).child(id).removeValue();
                     if (pinnedReel != null && id.equals(pinnedReel.reelId)) unpinReel();
                 }
+                List<ReelModel> oldSnapshot = new ArrayList<>(activeTabData());
                 activeTabData().removeIf(r -> selectedReelIds.contains(r.reelId));
                 exitMultiSelectMode();
-                adapter.notifyDataSetChanged();
+                adapter.diffDataSetChanged(oldSnapshot);
                 refreshEmptyState();
                 Toast.makeText(this, "Deleted successfully", Toast.LENGTH_SHORT).show();
             },
@@ -3054,9 +3101,10 @@ public class UserReelsActivity extends AppCompatActivity
                     FirebaseUtils.db().getReference("userReels").child(myUid).child(r.reelId).removeValue();
                 }
                 if (pinnedReel != null) unpinReel();
+                List<ReelModel> oldSnapshot = new ArrayList<>(data);
                 data.clear();
                 exitMultiSelectMode();
-                adapter.notifyDataSetChanged();
+                adapter.diffDataSetChanged(oldSnapshot);
                 refreshEmptyState();
                 Toast.makeText(this, "All reels deleted", Toast.LENGTH_SHORT).show();
             },
