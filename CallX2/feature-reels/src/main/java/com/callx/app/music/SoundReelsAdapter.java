@@ -57,7 +57,7 @@ public class SoundReelsAdapter extends RecyclerView.Adapter<SoundReelsAdapter.VH
              .override(holder.ivThumb.getWidth() > 0 ? holder.ivThumb.getWidth() : 300,
                        holder.ivThumb.getHeight() > 0 ? holder.ivThumb.getHeight() : 300)
              .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-             .placeholder(R.drawable.ic_reel_placeholder)
+             .placeholder(R.drawable.ic_music_note)
              .into(holder.ivThumb);
         holder.tvViews.setText(formatCount(item.viewsCount));
         holder.itemView.setOnClickListener(v -> listener.onItemClick(position));
