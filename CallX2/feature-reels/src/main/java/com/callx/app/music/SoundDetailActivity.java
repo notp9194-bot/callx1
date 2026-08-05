@@ -86,13 +86,18 @@ public class SoundDetailActivity extends AppCompatActivity {
     /** RecyclerView adapter displaying reel thumbnail images for this sound. */
     public static class ReelThumbAdapter extends androidx.recyclerview.widget.RecyclerView.Adapter<ReelThumbAdapter.VH> {
         public interface OnItemClick { void onClick(int position); }
+        /** Mirrors UserReelsActivity's grid long-press → mini-player peek. */
+        public interface OnItemLongPress { void onLongPress(int position); }
         private final java.util.List<ReelThumbItem> items;
         private final OnItemClick listener;
+        private OnItemLongPress longPressListener;
         public ReelThumbAdapter() { items = new java.util.ArrayList<>(); listener = null; }
         public ReelThumbAdapter(java.util.List<ReelThumbItem> items, OnItemClick listener) {
             this.items = items != null ? items : new java.util.ArrayList<>();
             this.listener = listener;
         }
+
+        public void setOnItemLongPress(OnItemLongPress l) { this.longPressListener = l; }
 
         public void setItems(java.util.List<ReelThumbItem> data) {
             items.clear();
@@ -121,6 +126,13 @@ public class SoundDetailActivity extends AppCompatActivity {
             if (h.tvOriginal != null)
                 h.tvOriginal.setVisibility(item.isOriginalCreator ? android.view.View.VISIBLE : android.view.View.GONE);
             h.itemView.setOnClickListener(v -> { int p = h.getAdapterPosition(); if (p >= 0 && listener != null) listener.onClick(p); });
+            // ULTRA (UserReelsActivity pattern): long-press → mini-player
+            // peek preview instead of (or before) opening the full player.
+            h.itemView.setOnLongClickListener(v -> {
+                int p = h.getAdapterPosition();
+                if (p >= 0 && longPressListener != null) { longPressListener.onLongPress(p); return true; }
+                return false;
+            });
         }
 
         private static String formatViews(long n) {

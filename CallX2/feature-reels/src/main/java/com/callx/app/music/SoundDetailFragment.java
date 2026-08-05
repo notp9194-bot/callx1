@@ -162,6 +162,10 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private final List<SoundDetailActivity.ReelThumbItem> reelItems    = new ArrayList<>();
     private final List<SoundDetailActivity.RelatedItem>   relatedItems = new ArrayList<>();
     private SoundDetailActivity.ReelThumbAdapter reelThumbAdapter;
+    // ULTRA (UserReelsActivity pattern): long-press on a grid cell opens the
+    // same muted-looping "mini player" peek popup as the profile reel grid,
+    // instead of jumping straight into the full-screen player.
+    private com.callx.app.profile.ReelPeekPreviewController peekController;
 
     // ── Player ────────────────────────────────────────────────────────────────
     private ExoPlayer exoPlayer;
@@ -255,6 +259,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         bindViews(view);
         applyMode();          // drag handle + close icon based on isSheet
         showShimmer(true);
+        peekController = new com.callx.app.profile.ReelPeekPreviewController(requireActivity());
         populateSoundInfo();
         loadSoundData();
         loadReelsForSound();
@@ -310,6 +315,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     public void onPause() {
         super.onPause();
         if (isPlaying) pausePlayback();
+        if (peekController != null) peekController.dismiss();
     }
 
     @Override
@@ -322,6 +328,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         stopWaveAnimation();
         releasePlayer();
         detachLiveListener();
+        if (peekController != null) peekController.dismiss();
         super.onDestroyView();
     }
 
@@ -734,6 +741,35 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             i.putExtra(SingleReelPlayerActivity.EXTRA_SOUND_TITLE, soundTitle);
             i.putExtra(SingleReelPlayerActivity.EXTRA_SOUND_URL,   soundUrl);
             startActivity(i);
+        });
+        // ULTRA (UserReelsActivity pattern): long-press → muted-looping mini
+        // player peek instead of jumping straight to the full player. Reuses
+        // the exact same ReelPeekPreviewController as the profile reel grid
+        // so both screens share one look/behavior — no duplicate popup code.
+        reelThumbAdapter.setOnItemLongPress(position -> {
+            if (isGone() || position < 0 || position >= reelItems.size()) return;
+            SoundDetailActivity.ReelThumbItem item = reelItems.get(position);
+            if (item.videoUrl == null || item.videoUrl.isEmpty()) return; // nothing to preview
+
+            com.callx.app.models.ReelModel previewReel = new com.callx.app.models.ReelModel();
+            previewReel.reelId    = item.reelId;
+            previewReel.uid       = item.uid;
+            previewReel.videoUrl  = item.videoUrl;
+            previewReel.thumbUrl  = item.thumbnailUrl;
+            previewReel.viewsCount = (int) item.viewsCount;
+
+            peekController.show(previewReel, null, () -> {
+                ArrayList<String> ids = new ArrayList<>();
+                for (SoundDetailActivity.ReelThumbItem r : reelItems) ids.add(r.reelId);
+                Intent i = new Intent(requireContext(), SingleReelPlayerActivity.class);
+                i.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
+                i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, position);
+                i.putExtra(SingleReelPlayerActivity.EXTRA_SHOW_SOUND_ACTIONS, true);
+                i.putExtra(SingleReelPlayerActivity.EXTRA_SOUND_ID,    soundId);
+                i.putExtra(SingleReelPlayerActivity.EXTRA_SOUND_TITLE, soundTitle);
+                i.putExtra(SingleReelPlayerActivity.EXTRA_SOUND_URL,   soundUrl);
+                startActivity(i);
+            });
         });
         rvReels.setAdapter(reelThumbAdapter);
 
