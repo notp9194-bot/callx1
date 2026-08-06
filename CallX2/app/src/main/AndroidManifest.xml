@@ -67,6 +67,11 @@
             android:launchMode="singleInstance"/>
 
         <activity
+            android:name=".activities.PerformanceReportActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX"/>
+
+        <activity
             android:name=".activities.MainActivity"
             android:exported="true"
             android:launchMode="singleTop"

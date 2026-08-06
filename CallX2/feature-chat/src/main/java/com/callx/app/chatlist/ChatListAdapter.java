@@ -349,8 +349,20 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         }
     }
 
+    // PERF MONITOR: real per-row bind timing, feeds the Chat List "Performance"
+    // report (3-dot menu → Performance). Wrapping the whole method instead of
+    // instrumenting inline avoids touching every early-return branch below.
     @Override
     public void onBindViewHolder(@NonNull VH h, int pos) {
+        long __t0 = com.callx.app.perf.PerformanceMonitor.get().beginBind();
+        try {
+            onBindViewHolderTimed(h, pos);
+        } finally {
+            com.callx.app.perf.PerformanceMonitor.get().endBind(__t0);
+        }
+    }
+
+    private void onBindViewHolderTimed(@NonNull VH h, int pos) {
         List<User> list = differ.getCurrentList();
         User u = list.get(pos);
         Context ctx = h.itemView.getContext();

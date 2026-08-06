@@ -1592,6 +1592,9 @@ public class MainActivity extends AppCompatActivity
         // "Broadcast List" sirf Chat tab pe visible ho
         android.view.MenuItem broadcast = menu.findItem(R.id.action_broadcast_list);
         if (broadcast != null) broadcast.setVisible(pos == TAB_CHATS);
+        // "Performance" report sirf Chat tab pe visible ho
+        android.view.MenuItem performance = menu.findItem(R.id.action_performance_report);
+        if (performance != null) performance.setVisible(pos == TAB_CHATS);
         return super.onPrepareOptionsMenu(menu);
     }
 
@@ -1603,6 +1606,11 @@ public class MainActivity extends AppCompatActivity
         if (id == R.id.action_broadcast_list) {
             startActivity(new Intent(this,
                 com.callx.app.broadcast.BroadcastListsActivity.class));
+            return true;
+        }
+
+        if (id == R.id.action_performance_report) {
+            startActivity(new Intent(this, PerformanceReportActivity.class));
             return true;
         }
 

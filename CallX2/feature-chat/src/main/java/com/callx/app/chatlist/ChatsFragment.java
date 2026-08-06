@@ -166,6 +166,11 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         viewModel    = new ViewModelProvider(requireActivity()).get(ChatListViewModel.class);
         viewModel.folders.observe(getViewLifecycleOwner(), folders -> setupFolderTabs(folders));
 
+        // PERF MONITOR: marks the start of this screen's data-load window —
+        // feeds the "Performance" report (3-dot menu). Ended in
+        // diffUpdateContacts() the first time real data actually lands.
+        com.callx.app.perf.PerformanceMonitor.get().markChatListLoadStart();
+
         // v15 FIX 1: Pehle Room se load karo (offline ke liye instant display)
         loadFromRoom();
 
@@ -472,6 +477,25 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         specialRequestsRef.addValueEventListener(specialRequestsListener);
     }
 
+    // PERF MONITOR: real android.view.FrameMetrics tracking only while this
+    // tab is actually the one on screen (API 24+; older devices simply won't
+    // populate the frame-jank section of the report — never faked).
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (android.os.Build.VERSION.SDK_INT >= 24 && getActivity() != null) {
+            com.callx.app.perf.PerformanceMonitor.get().attachFrameTracking(getActivity());
+        }
+    }
+
+    @Override
+    public void onPause() {
+        if (android.os.Build.VERSION.SDK_INT >= 24 && getActivity() != null) {
+            com.callx.app.perf.PerformanceMonitor.get().detachFrameTracking(getActivity());
+        }
+        super.onPause();
+    }
+
     @Override
     public void onDestroyView() {
         if (contactsRef != null && contactsListener != null) {
@@ -510,6 +534,10 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         contacts.clear();
         contacts.addAll(newList);
         if (adapter != null) adapter.submitList(new ArrayList<>(contacts));
+        // PERF MONITOR: no-op after the first call each load-cycle (guarded
+        // internally via loadStartNanos == 0 check) — closes the load-time
+        // window opened in onCreateView.
+        com.callx.app.perf.PerformanceMonitor.get().markChatListLoadEnd();
     }
 
     // ── SelectionListener callbacks ─────────────────────────────────────────
