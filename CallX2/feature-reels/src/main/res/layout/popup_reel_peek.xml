@@ -14,7 +14,23 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Dim scrim behind the peek card — alpha animated in/out in code. -->
+    <!-- Instagram-style blurred backdrop — a blurred screenshot of whatever
+         was on screen the instant before the peek opened (grid of reel
+         thumbnails), captured + blurred in ReelPeekPreviewController and
+         dropped in here. Starts empty/transparent; fades in once the
+         background thread finishes blurring (~one frame later). -->
+    <ImageView
+        android:id="@+id/iv_peek_blur_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:alpha="0"
+        android:contentDescription="@null"/>
+
+    <!-- Dim scrim on TOP of the blurred backdrop — only partially opaque now
+         (animates to SCRIM_MAX_ALPHA, not 1f) so the blur underneath still
+         shows through, matching Instagram's long-press peek look instead of
+         a flat black dim. -->
     <View
         android:id="@+id/view_peek_scrim"
         android:layout_width="match_parent"
@@ -30,13 +46,14 @@
         android:orientation="vertical"
         android:gravity="center_horizontal">
 
-        <!-- Mini video preview card — sized 20% larger than the original
-             230x330dp per user request (230*1.2≈276dp, 330*1.2=396dp).
-             card_peek_actions/card_peek_options below stay the same width as
-             this card so the stacked cards still line up. -->
+        <!-- Mini video preview card — bumped another 20% per user request,
+             on top of the previous 230x330dp -> 276x396dp pass. New size:
+             276*1.2≈331dp, 396*1.2≈475dp. card_peek_actions/card_peek_options
+             below stay the same width as this card so the stacked cards
+             still line up. -->
         <androidx.cardview.widget.CardView
             android:id="@+id/card_peek"
-            android:layout_width="276dp"
+            android:layout_width="331dp"
             android:layout_height="wrap_content"
             app:cardCornerRadius="18dp"
             app:cardElevation="16dp"
@@ -45,7 +62,7 @@
 
             <FrameLayout
                 android:layout_width="match_parent"
-                android:layout_height="396dp">
+                android:layout_height="475dp">
 
                 <androidx.media3.ui.PlayerView
                     android:id="@+id/peek_player_view"
@@ -172,7 +189,7 @@
         <!-- Quick-action sheet below the card, iOS-context-menu style -->
         <androidx.cardview.widget.CardView
             android:id="@+id/card_peek_actions"
-            android:layout_width="276dp"
+            android:layout_width="331dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             app:cardCornerRadius="14dp"
@@ -240,7 +257,7 @@
              own reel). Starts GONE; toggled by tapping "Options" above. -->
         <androidx.cardview.widget.CardView
             android:id="@+id/card_peek_options"
-            android:layout_width="276dp"
+            android:layout_width="331dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:visibility="gone"

@@ -1,14 +1,19 @@
 package com.callx.app.profile;
 
 import android.app.Activity;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.DecelerateInterpolator;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
 import android.widget.ProgressBar;
@@ -28,9 +33,9 @@ import java.util.Locale;
 
 /**
  * Owns the Instagram/iOS-style long-press "peek" popup used by
- * UserReelsActivity's grid: a small floating, muted-looping video preview
- * card + a compact quick-action sheet, shown centered over a dimmed scrim
- * without navigating away from the grid.
+ * UserReelsActivity's grid: a small floating video preview card + a
+ * compact quick-action sheet, shown centered over a dimmed scrim without
+ * navigating away from the grid.
  *
  * show() fires the moment the hold crosses the long-press timeout
  * (ReelGridAdapter.LongPressListener). Unlike a typical "hold to peek,
@@ -38,8 +43,8 @@ import java.util.Locale;
  * UserReelsActivity no longer wires ReelGridAdapter.LongPressReleaseListener
  * to close this popup, so the preview stays open after release. It closes
  * only when the user taps the dimmed scrim OUTSIDE the mini player/card
- * (see the scrim click listener in show() below), taps "Watch Reel", or the
- * host activity tears it down (onPause/onDestroy/tab switch).
+ * (see the scrim click listener below), taps "Watch Reel", or the host
+ * activity tears it down (onPause/onDestroy/tab switch).
  *
  * ULTRA: long-press now does ONLY this — the mini player preview. It no
  * longer also fires an AlertDialog or multi-select alongside itself (that
@@ -48,10 +53,31 @@ import java.util.Locale;
  * the `options` list and rendered as a second small tight card
  * (card_peek_options) in this SAME popup, below the actions sheet — its own
  * area, separate from the mini player — instead of a system AlertDialog.
- * Multi-select is no longer reachable from long-press at all; it now lives
+ * Multi-select is no longer reachable from long-press at all — it now lives
  * in the 3-dot menu (see UserReelsActivity#setupMoreMenu()).
+ *
+ * FAST-SWITCH UPGRADE: when show() is called again WHILE a peek is already
+ * up (the user fast long-pressed a different grid cell before dismissing
+ * the current one), the popup is no longer torn down and rebuilt from
+ * scratch. Instead switchTo() reuses the same PopupWindow/content view and
+ * preloads the new reel's preview in the background — the reel that was
+ * already playing keeps playing right up until the new one is actually
+ * ready, at which point they're swapped and the old player is released.
+ * A monotonically-updated `pendingToken` makes sure that if the user keeps
+ * fast-switching, only the most recently requested reel ever wins the swap.
  */
 public class ReelPeekPreviewController {
+
+    /**
+     * Backdrop blur tuning — Instagram-style: the scrim no longer goes fully
+     * opaque, it stops at SCRIM_MAX_ALPHA so the blurred screenshot behind it
+     * (iv_peek_blur_bg) still shows through. BLUR_DOWNSCALE shrinks the
+     * captured screenshot before blurring (cheap + blur hides the softness),
+     * BLUR_RADIUS is the box-blur radius applied to that shrunk copy.
+     */
+    private static final float SCRIM_MAX_ALPHA = 0.55f;
+    private static final int   BLUR_DOWNSCALE  = 4;
+    private static final int   BLUR_RADIUS     = 14;
 
     /** One row in the compact options card (card_peek_options). */
     public static class PeekOption {
@@ -68,13 +94,30 @@ public class ReelPeekPreviewController {
         void onWatchFull();
     }
 
+    /**
+     * Remembers the mute state across peeks — shared process-wide (static)
+     * rather than per-controller-instance, so muting/unmuting the preview
+     * on the profile grid also carries over to the SoundDetail mini
+     * player and vice versa, and reopening a peek never silently resets
+     * back to muted. Defaults to muted for a brand-new app process, same
+     * as the original behavior.
+     */
+    private static boolean lastMuted = true;
+
     private final Activity activity;
     private PopupWindow popupWindow;
-    private ExoPlayer    player;
+    private View         currentContent;   // reused across fast switches; null once dismissed
+    private ExoPlayer    player;           // currently visible/playing preview
+    private ExoPlayer    pendingPlayer;    // preloading preview for a reel we're switching to
+    private String       pendingToken;     // guards stale preload callbacks on rapid re-switching
     private boolean      showing = false;
     private boolean      optionsExpanded = false;
-    private boolean      muted = true;
+    private boolean      muted = lastMuted;
     private View         cardPeekOptions;
+
+    private ReelModel        currentReel;
+    private List<PeekOption> currentOptions;
+    private Callback         currentCallback;
 
     public ReelPeekPreviewController(Activity activity) {
         this.activity = activity;
@@ -93,55 +136,38 @@ public class ReelPeekPreviewController {
     public void show(ReelModel reel, List<PeekOption> options, Callback callback) {
         if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         if (reel == null) return;
-        dismiss(); // only one peek at a time
 
+        if (showing && popupWindow != null && currentContent != null) {
+            // A peek is already open — fast long-press onto another grid
+            // cell lands here instead of dismiss()+rebuild.
+            switchTo(reel, options, callback);
+            return;
+        }
+        buildAndShow(reel, options, callback);
+    }
+
+    // ── First open of the popup ─────────────────────────────────────────
+
+    private void buildAndShow(ReelModel reel, List<PeekOption> options, Callback callback) {
         View content = LayoutInflater.from(activity).inflate(R.layout.popup_reel_peek, null, false);
+        currentContent = content;
+
         View scrim              = content.findViewById(R.id.view_peek_scrim);
+        ImageView blurBg        = content.findViewById(R.id.iv_peek_blur_bg);
         View peekContent        = content.findViewById(R.id.layout_peek_content);
         PlayerView playerView   = content.findViewById(R.id.peek_player_view);
         ProgressBar loading     = content.findViewById(R.id.peek_loading);
-        TextView tvCaption      = content.findViewById(R.id.tv_peek_caption);
-        TextView tvDuration     = content.findViewById(R.id.tv_peek_duration);
-        TextView tvViews        = content.findViewById(R.id.tv_peek_views);
-        TextView tvLikes        = content.findViewById(R.id.tv_peek_likes);
         TextView btnPlay        = content.findViewById(R.id.btn_peek_play);
-        TextView btnSecondary   = content.findViewById(R.id.btn_peek_secondary);
-        CardView cardOptions    = content.findViewById(R.id.card_peek_options);
-        LinearLayout optionsRow = content.findViewById(R.id.layout_peek_options_rows);
         View muteBadge          = content.findViewById(R.id.layout_peek_mute_badge);
         android.widget.ImageView ivMuteIcon = content.findViewById(R.id.iv_peek_mute_icon);
-        cardPeekOptions = cardOptions;
-        optionsExpanded = false;
-        muted = true; // every peek opens muted, same as before this change
 
-        if (tvCaption != null) {
-            boolean has = reel.caption != null && !reel.caption.trim().isEmpty();
-            if (has) { tvCaption.setText(reel.caption.trim()); tvCaption.setVisibility(View.VISIBLE); }
-        }
-        if (tvDuration != null) {
-            if (reel.duration > 0) {
-                int s = (reel.duration / 1000) % 60, m = reel.duration / 60000;
-                tvDuration.setText(String.format(Locale.getDefault(), "%d:%02d", m, s));
-            } else {
-                tvDuration.setVisibility(View.GONE);
-            }
-        }
-        if (tvViews != null)  tvViews.setText(formatCount(Math.max(reel.viewsCount, 0)));
-        if (tvLikes != null)  tvLikes.setText(formatCount(Math.max(reel.likesCount, 0)));
-
-        boolean hasOptions = options != null && !options.isEmpty();
-        if (btnSecondary != null) {
-            if (hasOptions) {
-                btnSecondary.setVisibility(View.VISIBLE);
-                if (optionsRow != null) buildOptionRows(optionsRow, options, cardOptions);
-                btnSecondary.setOnClickListener(v -> toggleOptionsCard(cardOptions));
-            } else {
-                btnSecondary.setVisibility(View.GONE);
-            }
-        }
+        bindStaticContent(content, reel, options, callback);
 
         if (btnPlay != null) {
-            btnPlay.setOnClickListener(v -> { dismiss(); if (callback != null) callback.onWatchFull(); });
+            btnPlay.setOnClickListener(v -> {
+                dismiss();
+                if (currentCallback != null) currentCallback.onWatchFull();
+            });
         }
         if (scrim != null) scrim.setOnClickListener(v -> dismiss());
 
@@ -152,14 +178,21 @@ public class ReelPeekPreviewController {
         popupWindow.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         popupWindow.setAnimationStyle(0);
 
+        // Grab + blur a screenshot of whatever's on screen RIGHT NOW (the
+        // grid, still un-obscured — the popup hasn't been shown yet) so
+        // iv_peek_blur_bg has an Instagram-style blurred backdrop instead of
+        // a flat dim. Must happen before showAtLocation() below, or we'd be
+        // capturing the popup itself.
+        captureAndBlurBackdrop(blurBg, popupWindow);
+
         content.setFocusableInTouchMode(true);
         content.setOnKeyListener((v, keyCode, event) -> {
             if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
                 // First back press just collapses the options card (if open)
                 // instead of closing the whole preview, matching the "tight
                 // card, separate area" feel — second press closes the peek.
-                if (optionsExpanded && cardOptions != null) {
-                    toggleOptionsCard(cardOptions);
+                if (optionsExpanded && cardPeekOptions != null) {
+                    toggleOptionsCard((CardView) cardPeekOptions);
                 } else {
                     dismiss();
                 }
@@ -182,34 +215,157 @@ public class ReelPeekPreviewController {
             peekContent.animate().scaleX(1f).scaleY(1f).alpha(1f)
                     .setDuration(180).setInterpolator(new DecelerateInterpolator()).start();
         }
-        if (scrim != null) scrim.animate().alpha(1f).setDuration(180).start();
+        // Only dims to SCRIM_MAX_ALPHA (not fully opaque) so the blurred
+        // backdrop underneath stays visible, iOS/Instagram peek-style.
+        if (scrim != null) scrim.animate().alpha(SCRIM_MAX_ALPHA).setDuration(180).start();
 
-        // Muted, looping preview — ULTRA DATA OPTIMIZATION: this card is only
-        // ~230dp wide, so there is zero visual benefit to pulling 720p/1080p
-        // bytes for it. Reuses the app's existing AdaptiveStreamingManager
-        // (same cache pool + tuned buffering as the main reel player) so:
-        //   • pickLowDataUrl() hands it the smallest asset the reel actually
-        //     has (HLS manifest > explicit 480p > original) — for progressive
-        //     MP4s a bitrate cap alone can't reduce bytes downloaded (there's
-        //     only one rendition), so picking the smallest FILE is what
-        //     actually saves data; for an HLS manifest the Q360P cap below
-        //     then also stops ExoPlayer's adaptive selection from stepping
-        //     up to a higher-bitrate segment.
-        //   • QualityCap.Q360P caps resolution/bitrate for HLS/DASH sources.
-        //   • UnifiedVideoCacheManager-backed CacheDataSource means a reel
-        //     peeked more than once (or already partially cached from the
-        //     main feed/player) is served from disk, not re-downloaded.
-        //   • Network-tier-aware LoadControl keeps the upfront buffer small
-        //     instead of eagerly reading far ahead of an on-screen preview
-        //     the user might dismiss in under a second.
-        // Only ONE peek player ever exists at a time — dismiss() releases it
-        // (see below) before a new one is ever built, so no more than the
-        // single actively-shown preview is ever pulling network data.
-        if (hasPreviewableVideo(reel) && playerView != null) {
-            String previewUrl = pickLowDataUrl(reel);
+        startPlayerForCurrentReel(reel, playerView, loading, muteBadge, ivMuteIcon, false);
+    }
+
+    // ── Fast switch to a different reel while already showing ──────────
+
+    private void switchTo(ReelModel reel, List<PeekOption> options, Callback callback) {
+        View content = currentContent;
+        if (content == null) { buildAndShow(reel, options, callback); return; }
+
+        PlayerView playerView   = content.findViewById(R.id.peek_player_view);
+        ProgressBar loading     = content.findViewById(R.id.peek_loading);
+        View muteBadge          = content.findViewById(R.id.layout_peek_mute_badge);
+        android.widget.ImageView ivMuteIcon = content.findViewById(R.id.iv_peek_mute_icon);
+
+        bindStaticContent(content, reel, options, callback);
+
+        // Any expanded options card belonged to the previous reel's action
+        // list — collapse it instantly rather than animate, since its rows
+        // have already been rebuilt for the new reel by bindStaticContent().
+        View cardOptions = content.findViewById(R.id.card_peek_options);
+        if (cardOptions != null) cardOptions.setVisibility(View.GONE);
+
+        startPlayerForCurrentReel(reel, playerView, loading, muteBadge, ivMuteIcon, true);
+    }
+
+    /** Text/counts/options card — shared between the first build and every fast switch. */
+    private void bindStaticContent(View content, ReelModel reel, List<PeekOption> options, Callback callback) {
+        currentReel = reel;
+        currentOptions = options;
+        currentCallback = callback;
+        optionsExpanded = false;
+
+        TextView tvCaption      = content.findViewById(R.id.tv_peek_caption);
+        TextView tvDuration     = content.findViewById(R.id.tv_peek_duration);
+        TextView tvViews        = content.findViewById(R.id.tv_peek_views);
+        TextView tvLikes        = content.findViewById(R.id.tv_peek_likes);
+        TextView btnSecondary   = content.findViewById(R.id.btn_peek_secondary);
+        CardView cardOptions    = content.findViewById(R.id.card_peek_options);
+        LinearLayout optionsRow = content.findViewById(R.id.layout_peek_options_rows);
+        cardPeekOptions = cardOptions;
+
+        if (tvCaption != null) {
+            boolean has = reel.caption != null && !reel.caption.trim().isEmpty();
+            if (has) {
+                tvCaption.setText(reel.caption.trim());
+                tvCaption.setVisibility(View.VISIBLE);
+            } else {
+                // Explicit GONE matters now that the same TextView is reused
+                // across fast switches — a caption left over from the
+                // previous reel would otherwise stay visible on one that has
+                // none of its own.
+                tvCaption.setVisibility(View.GONE);
+            }
+        }
+        if (tvDuration != null) {
+            if (reel.duration > 0) {
+                int s = (reel.duration / 1000) % 60, m = reel.duration / 60000;
+                tvDuration.setText(String.format(Locale.getDefault(), "%d:%02d", m, s));
+                tvDuration.setVisibility(View.VISIBLE);
+            } else {
+                tvDuration.setVisibility(View.GONE);
+            }
+        }
+        if (tvViews != null)  tvViews.setText(formatCount(Math.max(reel.viewsCount, 0)));
+        if (tvLikes != null)  tvLikes.setText(formatCount(Math.max(reel.likesCount, 0)));
+
+        boolean hasOptions = options != null && !options.isEmpty();
+        if (cardOptions != null) cardOptions.setVisibility(View.GONE);
+        if (btnSecondary != null) {
+            if (hasOptions) {
+                btnSecondary.setVisibility(View.VISIBLE);
+                if (optionsRow != null) buildOptionRows(optionsRow, options, cardOptions);
+                btnSecondary.setOnClickListener(v -> toggleOptionsCard(cardOptions));
+            } else {
+                btnSecondary.setVisibility(View.GONE);
+            }
+        }
+    }
+
+    /**
+     * Starts (isSwitch == false) or preload-swaps (isSwitch == true) the
+     * preview player for `reel`.
+     *
+     * ULTRA DATA OPTIMIZATION (unchanged from before): this card is only
+     * ~230dp wide, so there is zero visual benefit to pulling 720p/1080p
+     * bytes for it. Reuses the app's existing AdaptiveStreamingManager
+     * (same cache pool + tuned buffering as the main reel player) so:
+     *   • pickLowDataUrl() hands it the smallest asset the reel actually
+     *     has (HLS manifest > explicit 480p > original) — for progressive
+     *     MP4s a bitrate cap alone can't reduce bytes downloaded (there's
+     *     only one rendition), so picking the smallest FILE is what
+     *     actually saves data; for an HLS manifest the Q360P cap below
+     *     then also stops ExoPlayer's adaptive selection from stepping
+     *     up to a higher-bitrate segment.
+     *   • QualityCap.Q360P caps resolution/bitrate for HLS/DASH sources.
+     *   • UnifiedVideoCacheManager-backed CacheDataSource means a reel
+     *     peeked more than once (or already partially cached from the
+     *     main feed/player) is served from disk, not re-downloaded.
+     *   • Network-tier-aware LoadControl keeps the upfront buffer small
+     *     instead of eagerly reading far ahead of an on-screen preview
+     *     the user might dismiss in under a second.
+     *
+     * FAST-SWITCH PATH (isSwitch == true): builds the new reel's player
+     * and lets it buffer in the background WHILE the previous reel's
+     * player keeps playing on-screen. Only once the new player reaches
+     * STATE_READY do we swap PlayerView over to it and release the old
+     * one — so back-to-back long-presses across the grid crossfade
+     * smoothly instead of hard-cutting to a blank/spinner card. A
+     * `pendingToken` check means only the most-recently-requested reel
+     * ever gets swapped in, even if the user switches several times
+     * before any one of them finishes buffering.
+     */
+    private void startPlayerForCurrentReel(ReelModel reel, PlayerView playerView, ProgressBar loading,
+                                            View muteBadge, android.widget.ImageView ivMuteIcon,
+                                            boolean isSwitch) {
+        // Reflect the remembered/current mute state on the badge right
+        // away — this no longer force-resets to "muted" on every open (see
+        // the `muted` field / lastMuted above), so the icon must match
+        // whatever `muted` actually holds at this point.
+        if (ivMuteIcon != null) {
+            ivMuteIcon.setImageResource(muted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
+            ivMuteIcon.setContentDescription(muted ? "Muted" : "Unmuted");
+        }
+        if (muteBadge != null) {
+            muteBadge.setBackgroundResource(R.drawable.bg_reel_count);
+            muteBadge.setAlpha(muted ? 0.85f : 1f);
+        }
+
+        if (!hasPreviewableVideo(reel) || playerView == null) {
+            releasePendingPlayer();
+            if (isSwitch && player != null) {
+                try { player.release(); } catch (Throwable ignored) {}
+                player = null;
+                playerView.setPlayer(null);
+            }
+            if (loading != null) loading.setVisibility(View.GONE);
+            return;
+        }
+
+        String previewUrl = pickLowDataUrl(reel);
+
+        if (!isSwitch) {
+            // First open of this popup — nothing else is playing yet, so
+            // just build and attach directly, same as before.
             player = AdaptiveStreamingManager.get(activity)
                     .buildPlayer(previewUrl, AdaptiveStreamingManager.QualityCap.Q360P, null);
-            player.setVolume(0f);
+            player.setVolume(muted ? 0f : 1f);
             player.setRepeatMode(Player.REPEAT_MODE_ONE);
             playerView.setPlayer(player);
             final ProgressBar loadingRef = loading;
@@ -222,14 +378,167 @@ public class ReelPeekPreviewController {
             });
             player.prepare();
             player.setPlayWhenReady(true);
-
-            // Tap the mini player to toggle sound on/off — mirrors the main
-            // reel player's tap-to-mute. Starts muted (see the ULTRA data
-            // note above); tapping flips it, and the badge icon/tint flips
-            // with it so the current state is always visible at a glance.
             playerView.setOnClickListener(v -> toggleMute(muteBadge, ivMuteIcon));
-        } else if (loading != null) {
-            loading.setVisibility(View.GONE);
+            return;
+        }
+
+        // Fast switch: preload in the background, keep the old one playing
+        // until the new one is ready.
+        releasePendingPlayer();
+        final String token = (reel.reelId != null) ? reel.reelId : String.valueOf(System.identityHashCode(reel));
+        pendingToken = token;
+        if (loading != null) loading.setVisibility(View.VISIBLE);
+
+        final ExoPlayer newPlayer = AdaptiveStreamingManager.get(activity)
+                .buildPlayer(previewUrl, AdaptiveStreamingManager.QualityCap.Q360P, null);
+        newPlayer.setVolume(muted ? 0f : 1f);
+        newPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
+        pendingPlayer = newPlayer;
+
+        final ProgressBar loadingRef = loading;
+        final PlayerView playerViewRef = playerView;
+        newPlayer.addListener(new Player.Listener() {
+            @Override public void onPlaybackStateChanged(int state) {
+                if (state == Player.STATE_READY && pendingPlayer == newPlayer && token.equals(pendingToken)) {
+                    // Still the most-recently-requested reel — swap it in
+                    // and let go of whatever was showing before.
+                    if (player != null) {
+                        try { player.release(); } catch (Throwable ignored) {}
+                    }
+                    player = newPlayer;
+                    pendingPlayer = null;
+                    playerViewRef.setPlayer(player);
+                    if (loadingRef != null) loadingRef.setVisibility(View.GONE);
+                }
+            }
+        });
+        newPlayer.prepare();
+        newPlayer.setPlayWhenReady(true);
+        playerView.setOnClickListener(v -> toggleMute(muteBadge, ivMuteIcon));
+    }
+
+    // ── Instagram-style blurred backdrop ────────────────────────────────
+
+    /**
+     * Captures a shrunk screenshot of the activity's decor view (the screen
+     * as it looks right before the peek popup goes up), box-blurs it on a
+     * background thread, then fades it into `target`. Pure Java/software —
+     * no RenderScript or RenderEffect (API 31+ only) dependency — so it
+     * works across the app's full minSdk range.
+     *
+     * The capture itself (view.draw) must run synchronously on the main
+     * thread, but it draws directly into an already-downscaled bitmap
+     * (canvas scaled by 1/BLUR_DOWNSCALE) so it's cheap — the blur math,
+     * which is the actually expensive part, runs off the main thread.
+     *
+     * `builtPopup` guards against setting a bitmap into a popup the user
+     * already dismissed by the time the background blur finishes (fast
+     * long-press + quick release/tap-outside).
+     */
+    private void captureAndBlurBackdrop(ImageView target, PopupWindow builtPopup) {
+        if (target == null) return;
+        View decor = activity.getWindow().getDecorView();
+        int w = decor.getWidth();
+        int h = decor.getHeight();
+        if (w <= 0 || h <= 0) return;
+
+        int sw = Math.max(1, w / BLUR_DOWNSCALE);
+        int sh = Math.max(1, h / BLUR_DOWNSCALE);
+
+        Bitmap small;
+        try {
+            small = Bitmap.createBitmap(sw, sh, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(small);
+            canvas.scale(1f / BLUR_DOWNSCALE, 1f / BLUR_DOWNSCALE);
+            decor.draw(canvas);
+        } catch (Throwable t) {
+            // Screenshotting can fail on some OEM skins/secure windows —
+            // just skip the blur, scrim alone still dims the screen fine.
+            return;
+        }
+
+        final int fullW = w, fullH = h;
+        new Thread(() -> {
+            try {
+                boxBlur(small, BLUR_RADIUS);
+                final Bitmap blurred = Bitmap.createScaledBitmap(small, fullW, fullH, true);
+                if (!small.isRecycled()) small.recycle();
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    // Bail if this popup isn't the one currently showing —
+                    // avoids stamping a stale screenshot onto a reused/
+                    // discarded content view.
+                    if (popupWindow != builtPopup || !showing) return;
+                    target.setImageBitmap(blurred);
+                    target.animate().alpha(1f).setDuration(160)
+                            .setInterpolator(new DecelerateInterpolator()).start();
+                });
+            } catch (Throwable ignored) {
+                // Best-effort — a failed blur just leaves the plain scrim.
+            }
+        }).start();
+    }
+
+    /**
+     * Separable two-pass box blur (horizontal then vertical), applied
+     * in-place. Same approach as ReelBlurTransformation's photo-reel
+     * backdrop blur — simple, correct, and fast on the small (downscaled)
+     * bitmap this is called with.
+     */
+    private static void boxBlur(Bitmap bmp, int radius) {
+        int w = bmp.getWidth();
+        int h = bmp.getHeight();
+        int[] pix = new int[w * h];
+        bmp.getPixels(pix, 0, w, 0, 0, w, h);
+        int[] tmp = new int[w * h];
+
+        for (int y = 0; y < h; y++) {
+            int rowOff = y * w;
+            for (int x = 0; x < w; x++) {
+                long rsum = 0, gsum = 0, bsum = 0;
+                int count = 0;
+                int xStart = Math.max(0, x - radius);
+                int xEnd   = Math.min(w - 1, x + radius);
+                for (int nx = xStart; nx <= xEnd; nx++) {
+                    int c = pix[rowOff + nx];
+                    rsum += (c >> 16) & 0xff;
+                    gsum += (c >>  8) & 0xff;
+                    bsum +=  c        & 0xff;
+                    count++;
+                }
+                tmp[rowOff + x] = (pix[rowOff + x] & 0xff000000)
+                        | ((int) (rsum / count) << 16)
+                        | ((int) (gsum / count) <<  8)
+                        |  (int) (bsum / count);
+            }
+        }
+
+        for (int x = 0; x < w; x++) {
+            for (int y = 0; y < h; y++) {
+                long rsum = 0, gsum = 0, bsum = 0;
+                int count = 0;
+                int yStart = Math.max(0, y - radius);
+                int yEnd   = Math.min(h - 1, y + radius);
+                for (int ny = yStart; ny <= yEnd; ny++) {
+                    int c = tmp[ny * w + x];
+                    rsum += (c >> 16) & 0xff;
+                    gsum += (c >>  8) & 0xff;
+                    bsum +=  c        & 0xff;
+                    count++;
+                }
+                pix[y * w + x] = (tmp[y * w + x] & 0xff000000)
+                        | ((int) (rsum / count) << 16)
+                        | ((int) (gsum / count) <<  8)
+                        |  (int) (bsum / count);
+            }
+        }
+
+        bmp.setPixels(pix, 0, w, 0, 0, w, h);
+    }
+
+    private void releasePendingPlayer() {
+        if (pendingPlayer != null) {
+            try { pendingPlayer.release(); } catch (Throwable ignored) {}
+            pendingPlayer = null;
         }
     }
 
@@ -237,6 +546,7 @@ public class ReelPeekPreviewController {
     private void toggleMute(View muteBadge, android.widget.ImageView ivMuteIcon) {
         if (player == null) return;
         muted = !muted;
+        lastMuted = muted; // remember it for the next peek — on this screen or the other one
         player.setVolume(muted ? 0f : 1f);
         if (ivMuteIcon != null) {
             ivMuteIcon.setImageResource(muted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
@@ -331,6 +641,12 @@ public class ReelPeekPreviewController {
         showing = false;
         optionsExpanded = false;
         cardPeekOptions = null;
+        pendingToken = null;
+        currentContent = null;
+        currentReel = null;
+        currentOptions = null;
+        currentCallback = null;
+        releasePendingPlayer();
         if (player != null) {
             try { player.release(); } catch (Throwable ignored) {}
             player = null;

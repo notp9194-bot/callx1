@@ -284,13 +284,7 @@ public class ChatMediaController {
                         activity.getContentResolver().takePersistableUriPermission(
                                 uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     } catch (SecurityException ignored) {}
-                    // Bug fix: picked URI was previously discarded — refreshWallpaper()
-                    // just re-reads whatever was already saved (nothing, on first pick),
-                    // so the chosen image never actually got applied. Now we hand the
-                    // URI to the scope dialog (This chat / Global / Remove), same as
-                    // GroupChatActivity already does, which actually persists it via
-                    // ChatWallpaperManager before refreshing the view.
-                    delegate.onWallpaperPicked(uri);
+                    delegate.refreshWallpaper();
                 });
 
         cameraCapturer = activity.registerForActivityResult(

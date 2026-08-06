@@ -10,9 +10,9 @@ import com.callx.app.db.entity.ChatEntity;
 import com.callx.app.db.entity.ChatFolderEntity;
 import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.repository.MessageRepository;
+import com.callx.app.utils.AppBgExecutor;
 import com.callx.app.utils.FirebaseUtils;
 import java.util.List;
-import java.util.concurrent.Executors;
 
 /**
  * ChatListViewModel v2 — Chat Folders / Labels support added.
@@ -94,14 +94,15 @@ public class ChatListViewModel extends AndroidViewModel {
 
     /** Assign a chat to a folder (background thread). */
     public void assignChatToFolder(String chatId, int folderId) {
-        Executors.newSingleThreadExecutor().execute(() ->
-            db.chatDao().setChatFolder(chatId, folderId));
+        // PERF FIX: was `Executors.newSingleThreadExecutor()` — a brand-new,
+        // never-shut-down thread pool created on every single call. Shared
+        // AppBgExecutor instead — see its class doc.
+        AppBgExecutor.execute(() -> db.chatDao().setChatFolder(chatId, folderId));
     }
 
     /** Remove a chat from its folder. */
     public void removeChatFromFolder(String chatId) {
-        Executors.newSingleThreadExecutor().execute(() ->
-            db.chatDao().removeChatFromFolder(chatId));
+        AppBgExecutor.execute(() -> db.chatDao().removeChatFromFolder(chatId));
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────

@@ -1183,7 +1183,6 @@ public class GroupChatActivity extends AppCompatActivity
                     @Override public void refreshScreenTheme() {}
                     @Override public void refreshWallpaper() {}
                     @Override public void launchWallpaperPicker() {}
-                    @Override public void onWallpaperPicked(android.net.Uri uri) {}
                     @Override public void launchContactSharePicker() {}
                     @Override public void launchLocationSharePicker() {}
                     @Override public void firebasePushMessage(com.callx.app.models.Message m, String key, String preview) {}

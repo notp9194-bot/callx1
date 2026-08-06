@@ -174,6 +174,18 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     private static final ConcurrentHashMap<String, Long> sLastPreloadAt = new ConcurrentHashMap<>();
     private static final long PRELOAD_COOLDOWN_MS = 30_000L;
 
+    // PERF: how long a row has to stay bound before we actually attach its
+    // typing listener / fire its preload — see onBindViewHolder(VH, int).
+    private static final long BIND_SETTLE_DELAY_MS = 180L;
+
+    /** Cancels this VH's deferred typing-attach/preload if it hasn't fired yet. */
+    private void cancelPendingBindWork(VH h) {
+        if (h.pendingBindRunnable != null) {
+            h.itemView.removeCallbacks(h.pendingBindRunnable);
+            h.pendingBindRunnable = null;
+        }
+    }
+
     private void preloadChatIfDue(Context ctx, User u) {
         if (u == null || u.uid == null || myUid == null) return;
         String chatId = FirebaseUtils.getChatId(myUid, u.uid);
@@ -343,8 +355,6 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         User u = list.get(pos);
         Context ctx = h.itemView.getContext();
 
-        preloadChatIfDue(ctx, u);
-
         h.nameTimeView.setName(u.name == null ? "User" : u.name);
 
         Long when = u.lastMessageAt != null ? u.lastMessageAt : u.lastSeen;
@@ -394,7 +404,30 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
         h.isTypingNow = false;
         applySelectionVisuals(h, u);
-        attachTypingListener(h, u);
+
+        // PERF FIX: attaching a live Firebase typing listener (and kicking
+        // off preloadChatIfDue's delta sync) used to happen synchronously,
+        // right here, on EVERY full bind. During a fast fling RecyclerView
+        // binds+recycles rows continuously — each attach/detach of a real
+        // ValueEventListener is genuine main-thread work, and it was firing
+        // for rows the user's thumb blew straight past in under 100ms.
+        // That churn was the main contributor to the reported scroll jank.
+        //
+        // Fix: defer both by BIND_SETTLE_DELAY_MS via the row's own
+        // Handler (View#postDelayed, tied to the view's Looper — no extra
+        // Handler object needed). onViewRecycled()/a fresh bind cancels
+        // this via cancelPendingBindWork() if the row gets recycled again
+        // before it fires — so a row that only flashes past during a fling
+        // never pays either cost. A row the user actually stops on (list
+        // idle, or just slow-scrolling past it) settles for 180ms and then
+        // gets its typing listener + preload exactly as before.
+        cancelPendingBindWork(h);
+        final User boundUser = u;
+        h.pendingBindRunnable = () -> {
+            attachTypingListener(h, boundUser);
+            preloadChatIfDue(ctx, boundUser);
+        };
+        h.itemView.postDelayed(h.pendingBindRunnable, BIND_SETTLE_DELAY_MS);
 
         if (h.callButtonsView != null) {
             h.callButtonsView.setListeners(
@@ -564,6 +597,10 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             try { Glide.with(h.ivAvatar.getContext()).clear(h.ivAvatar); }
             catch (Exception ignored) {}
         }
+        // Row never settled long enough to attach in the first place —
+        // drop the pending work instead of letting it fire against a VH
+        // that's about to show a different contact.
+        cancelPendingBindWork(h);
         detachTypingListener(h);
         h.isTypingNow = false;
     }
@@ -742,6 +779,9 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         DatabaseReference  typingRef;
         ValueEventListener typingListener;
         boolean isTypingNow = false;
+        // PERF: deferred typing-attach/preload runnable — see
+        // cancelPendingBindWork() / BIND_SETTLE_DELAY_MS below.
+        Runnable pendingBindRunnable;
 
         VH(View v) {
             super(v);

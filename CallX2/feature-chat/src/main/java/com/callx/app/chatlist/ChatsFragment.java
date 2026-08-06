@@ -31,8 +31,8 @@ import de.hdodenhof.circleimageview.CircleImageView;
 import androidx.lifecycle.ViewModelProvider;
 
 import java.util.*;
-import java.util.concurrent.Executors;
 import com.callx.app.conversation.ChatActivity;
+import com.callx.app.utils.AppBgExecutor;
 
 /**
  * ChatsFragment v21 — Delete / Delete-All System
@@ -263,7 +263,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             return;
         }
         // Filter by folderId in background via Room, then update UI
-        Executors.newSingleThreadExecutor().execute(() -> {
+        AppBgExecutor.execute(() -> {
             if (getContext() == null) return;
             List<ChatEntity> folderChats = AppDatabase.getInstance(requireContext())
                 .chatDao().getChatsForFolder(folderId).getValue();
@@ -305,7 +305,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         if (getContext() == null) return;
         AppDatabase db = AppDatabase.getInstance(getContext());
 
-        Executors.newSingleThreadExecutor().execute(() -> {
+        AppBgExecutor.execute(() -> {
             List<ChatEntity> cached = db.chatDao().getAllChatsSync();
             if (cached == null || cached.isEmpty()) return;
 
@@ -387,7 +387,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
                 if (getContext() != null && !toSave.isEmpty()) {
                     AppDatabase db = AppDatabase.getInstance(getContext());
-                    Executors.newSingleThreadExecutor().execute(() ->
+                    AppBgExecutor.execute(() ->
                         db.chatDao().insertChats(toSave));
                 }
 
@@ -563,7 +563,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // Room DB se remove (background thread)
         if (getContext() != null) {
             AppDatabase db = AppDatabase.getInstance(getContext());
-            Executors.newSingleThreadExecutor().execute(() -> {
+            AppBgExecutor.execute(() -> {
                 for (User u : selected) {
                     if (u.uid != null) {
                         db.chatDao().deleteByPartnerUid(u.uid);
@@ -618,7 +618,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // Room DB completely clear karo
         if (getContext() != null) {
             AppDatabase db = AppDatabase.getInstance(getContext());
-            Executors.newSingleThreadExecutor().execute(() ->
+            AppBgExecutor.execute(() ->
                 db.chatDao().deleteAllChats());
         }
 

@@ -44,6 +44,7 @@ import com.bumptech.glide.request.RequestOptions;
 import androidx.transition.AutoTransition;
 import androidx.transition.TransitionManager;
 import com.callx.app.player.SingleReelPlayerActivity;
+import com.callx.app.profile.ReelPeekPreviewController;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.ReelFirebaseUtils;
@@ -166,6 +167,11 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     // same muted-looping "mini player" peek popup as the profile reel grid,
     // instead of jumping straight into the full-screen player.
     private com.callx.app.profile.ReelPeekPreviewController peekController;
+    // Feature-parity fix: cached so an owner long-press doesn't hit Firebase
+    // on every single peek — loaded once (lazily, on first owner long-press
+    // in this screen instance) and kept in sync locally on pin/unpin/delete.
+    private String  cachedPinnedReelId;
+    private boolean pinnedReelIdLoaded = false;
 
     // ── Player ────────────────────────────────────────────────────────────────
     private ExoPlayer exoPlayer;
@@ -746,6 +752,13 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         // player peek instead of jumping straight to the full player. Reuses
         // the exact same ReelPeekPreviewController as the profile reel grid
         // so both screens share one look/behavior — no duplicate popup code.
+        //
+        // FEATURE-PARITY FIX: previously always passed `null` for options,
+        // so the owner-management card (Insights/Pin/Share/Delete) only
+        // ever appeared from UserReelsActivity's own Reels tab, never here
+        // — even when the reel under long-press belongs to the current
+        // user. Now builds the same options list UserReelsActivity does
+        // whenever item.uid matches the signed-in user.
         reelThumbAdapter.setOnItemLongPress(position -> {
             if (isGone() || position < 0 || position >= reelItems.size()) return;
             SoundDetailActivity.ReelThumbItem item = reelItems.get(position);
@@ -758,7 +771,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             previewReel.thumbUrl  = item.thumbnailUrl;
             previewReel.viewsCount = (int) item.viewsCount;
 
-            peekController.show(previewReel, null, () -> {
+            ReelPeekPreviewController.Callback onWatchFull = () -> {
                 ArrayList<String> ids = new ArrayList<>();
                 for (SoundDetailActivity.ReelThumbItem r : reelItems) ids.add(r.reelId);
                 Intent i = new Intent(requireContext(), SingleReelPlayerActivity.class);
@@ -769,6 +782,20 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                 i.putExtra(SingleReelPlayerActivity.EXTRA_SOUND_TITLE, soundTitle);
                 i.putExtra(SingleReelPlayerActivity.EXTRA_SOUND_URL,   soundUrl);
                 startActivity(i);
+            };
+
+            String myUid = FirebaseUtils.getCurrentUid();
+            boolean ownerContext = myUid != null && myUid.equals(item.uid);
+            if (!ownerContext) {
+                peekController.show(previewReel, null, onWatchFull);
+                return;
+            }
+
+            ensurePinnedReelIdLoaded(myUid, () -> {
+                if (isGone()) return;
+                List<ReelPeekPreviewController.PeekOption> options =
+                        buildOwnerPeekOptions(item, previewReel, myUid, position);
+                peekController.show(previewReel, options, onWatchFull);
             });
         });
         rvReels.setAdapter(reelThumbAdapter);
@@ -958,6 +985,105 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                 .removeEventListener(soundReelsLiveListener);
         } catch (Exception ignored) {}
         soundReelsLiveListener = null;
+    }
+
+    // ── Owner peek options (feature-parity with UserReelsActivity) ─────────
+    // Mirrors UserReelsActivity#onLongPress()'s ownerContext branch and its
+    // pinReel()/unpinReel()/confirmDeleteSingleReel() helpers, scoped to
+    // this fragment's own reelItems list + adapter instead of that
+    // Activity's diffing adapter.
+
+    /** Loads reelPinned/{uid} once per screen instance, then runs `then`. */
+    private void ensurePinnedReelIdLoaded(String uid, Runnable then) {
+        if (pinnedReelIdLoaded) { then.run(); return; }
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reelPinned").child(uid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    cachedPinnedReelId = snap.getValue(String.class);
+                    pinnedReelIdLoaded = true;
+                    then.run();
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    pinnedReelIdLoaded = true; // don't retry every peek on a transient failure
+                    then.run();
+                }
+            });
+    }
+
+    private List<ReelPeekPreviewController.PeekOption> buildOwnerPeekOptions(
+            SoundDetailActivity.ReelThumbItem item, com.callx.app.models.ReelModel previewReel,
+            String myUid, int position) {
+        List<ReelPeekPreviewController.PeekOption> options = new ArrayList<>();
+        boolean isPinned = item.reelId != null && item.reelId.equals(cachedPinnedReelId);
+
+        options.add(new ReelPeekPreviewController.PeekOption("View Insights", R.drawable.ic_eye, () ->
+                com.callx.app.analytics.ReelAnalyticsBottomSheet.newInstance(previewReel)
+                        .show(requireActivity().getSupportFragmentManager(), "analytics")));
+        options.add(new ReelPeekPreviewController.PeekOption(
+                isPinned ? "Unpin Reel" : "Pin Reel", R.drawable.ic_pin, () -> {
+                    if (isPinned) unpinOwnedReel(myUid); else pinOwnedReel(myUid, item.reelId);
+                }));
+        options.add(new ReelPeekPreviewController.PeekOption("Share", R.drawable.ic_share_reel, () ->
+                shareOwnedReel(item)));
+        options.add(new ReelPeekPreviewController.PeekOption("Delete", R.drawable.ic_delete, () ->
+                confirmDeleteOwnedReel(item, position)));
+        return options;
+    }
+
+    private void pinOwnedReel(String myUid, String reelId) {
+        if (isGone() || reelId == null) return;
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reelPinned").child(myUid).setValue(reelId)
+            .addOnSuccessListener(v -> {
+                cachedPinnedReelId = reelId;
+                if (isAdded()) Toast.makeText(requireContext(), "Reel pinned!", Toast.LENGTH_SHORT).show();
+            });
+    }
+
+    private void unpinOwnedReel(String myUid) {
+        if (isGone()) return;
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("reelPinned").child(myUid).removeValue()
+            .addOnSuccessListener(v -> {
+                cachedPinnedReelId = null;
+                if (isAdded()) Toast.makeText(requireContext(), "Pinned reel removed", Toast.LENGTH_SHORT).show();
+            });
+    }
+
+    private void shareOwnedReel(SoundDetailActivity.ReelThumbItem item) {
+        if (isGone() || item.reelId == null) return;
+        Intent i = new Intent(requireContext(), com.callx.app.social.ReelShareSheetActivity.class);
+        i.putExtra(com.callx.app.social.ReelShareSheetActivity.EXTRA_REEL_ID,   item.reelId);
+        i.putExtra(com.callx.app.social.ReelShareSheetActivity.EXTRA_VIDEO_URL, item.videoUrl);
+        i.putExtra(com.callx.app.social.ReelShareSheetActivity.EXTRA_THUMB_URL, item.thumbnailUrl);
+        i.putExtra(com.callx.app.social.ReelShareSheetActivity.EXTRA_OWNER_UID, item.uid);
+        startActivity(i);
+    }
+
+    private void confirmDeleteOwnedReel(SoundDetailActivity.ReelThumbItem item, int position) {
+        if (!isAdded()) return;
+        AlertDialogStyler.showReusableConfirm(requireActivity(), "delete_single_reel_sound_detail",
+            AlertDialogStyler.DialogSize.DEFAULT,
+            "Delete Reel",
+            "This reel will be permanently deleted.",
+            "Delete", () -> {
+                if (isGone() || item.reelId == null) return;
+                FirebaseUtils.getReelsRef().child(item.reelId).removeValue();
+                if (item.uid != null) FirebaseUtils.getReelsByUserRef(item.uid).child(item.reelId).removeValue();
+                if (!soundId.isEmpty())
+                    FirebaseUtils.db().getReference("sounds").child(soundId).child("reels").child(item.reelId).removeValue();
+                if (item.reelId.equals(cachedPinnedReelId)) unpinOwnedReel(item.uid);
+
+                int idx = reelItems.indexOf(item);
+                if (idx >= 0) {
+                    reelItems.remove(idx);
+                    if (reelThumbAdapter != null) reelThumbAdapter.notifyItemRemoved(idx);
+                }
+                if (isAdded()) Toast.makeText(requireContext(), "Deleted", Toast.LENGTH_SHORT).show();
+            },
+            null, null,
+            "Cancel");
     }
 
     private void sortAndApplyReelItems() {

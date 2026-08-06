@@ -112,6 +112,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
@@ -193,7 +194,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // PERF FIX: 2 → 4. On chat open, getMessageCount / getLastSyncTimestamp /
     // LastMessagesCache-seeding all queue on this pool; 2 threads was enough
     // to serialize them on low-end devices and add visible delay.
-    private final Executor       ioExecutor = Executors.newFixedThreadPool(4);
+    // PERF FIX: was `Executor` backed by newFixedThreadPool(4) with NO
+    // shutdown() anywhere — every ChatActivity open (tap into a chat, back
+    // out, tap another — completely normal WhatsApp-style usage) spun up 4
+    // brand-new live threads that were never released. Over a session of
+    // opening even 15-20 chats that's 60-80 leaked non-daemon threads
+    // sitting in memory (~1MB stack each) and competing for CPU scheduling
+    // app-wide — degrading the chat LIST's scroll performance and every
+    // later chat screen's load time too, not just this one. Typed as
+    // ExecutorService now so onDestroy() below can actually shut it down.
+    private final ExecutorService ioExecutor = Executors.newFixedThreadPool(4);
 
     // ── Firebase ───────────────────────────────────────────────────────────
     private DatabaseReference  messagesRef;
@@ -1053,6 +1063,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Feature: clean up search highlights + mention watcher
         if (searchController  != null) searchController.onDestroy();
         if (mentionController != null) mentionController.onDestroy();
+
+        // PERF FIX: release this Activity's 4-thread ioExecutor. shutdown()
+        // (not shutdownNow()) lets any already-queued write/flush task
+        // finish instead of being killed mid-write, but stops the pool from
+        // sitting around forever accepting nothing — see field comment.
+        ioExecutor.shutdown();
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1091,7 +1107,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override public void refreshScreenTheme()               { themeController.applyScreenTheme(); }
     @Override public void refreshWallpaper()                 { themeController.applyWallpaper(); }
     @Override public void launchWallpaperPicker()            { mediaController.launchWallpaperPicker(); }
-    @Override public void onWallpaperPicked(android.net.Uri uri) { themeController.showWallpaperScopeDialog(uri); }
     @Override public void launchPollCreator()                { pollController.showCreatePollDialog(); }
     @Override public void launchContactSharePicker()         { contactShareController.launch(); }
     @Override public void launchLocationSharePicker()        { locationShareController.launch(); }
