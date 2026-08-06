@@ -23,14 +23,20 @@ import java.util.concurrent.Executors;
  * screen being the obvious cause.
  *
  * Fix: one small shared pool, reused by every call site below instead of
- * spinning up a new one each time. Bounded (3 threads) since this is only
+ * spinning up a new one each time. Bounded (4 threads) since this is only
  * ever used for quick, low-frequency background writes — not for anything
  * throughput-sensitive (Paging/message sync already have their own
  * dedicated executors).
+ *
+ * SIZE NOTE: bumped 3 → 4 when ChatMessageSender's per-send Room insert
+ * (previously its own always-leaked thread) was folded into this pool —
+ * that call site is higher-frequency than the others (fires on every
+ * message send), so one extra thread keeps it from queuing behind
+ * unrelated folder/backup/export writes during a fast send burst.
  */
 public final class AppBgExecutor {
 
-    private static final Executor INSTANCE = Executors.newFixedThreadPool(3);
+    private static final Executor INSTANCE = Executors.newFixedThreadPool(4);
 
     private AppBgExecutor() {}
 

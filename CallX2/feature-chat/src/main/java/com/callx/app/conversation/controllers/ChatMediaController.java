@@ -165,9 +165,18 @@ public class ChatMediaController {
     /**
      * Feature 2 (pause/resume): call from Activity.onDestroy() to release
      * the ConnectivityManager callback and shut down the upload thread pool.
+     *
+     * PERF FIX (thread leak): this method existed but was NEVER CALLED from
+     * ChatActivity.onDestroy() — every chat opened+closed leaked
+     * mediaQueryExecutor's single thread AND uploadQueue's cached thread
+     * pool forever (ChatActivity never referenced this method at all). See
+     * ChatActivity.onDestroy() for the missing call site fix. Also added:
+     * shutting down mediaQueryExecutor here, which this method never did
+     * even when eventually invoked.
      */
     public void destroy() {
         if (uploadQueue != null) uploadQueue.destroy();
+        mediaQueryExecutor.shutdownNow();
     }
 
     // ── Feature 5: Per-item cancel ──────────────────────────────────────────
@@ -195,7 +204,11 @@ public class ChatMediaController {
      * this they stay as invisible indefinite spinners forever.
      */
     public void onChatResumed(String chatId) {
-        Executors.newSingleThreadExecutor().execute(() -> {
+        // PERF FIX: was `Executors.newSingleThreadExecutor().execute(...)` —
+        // a brand-new, never-shutdown thread pool created every single time
+        // a chat resumes (every foreground, every nav-back into the chat).
+        // Routed through the shared AppBgExecutor instead (see its class doc).
+        com.callx.app.utils.AppBgExecutor.execute(() -> {
             java.util.List<com.callx.app.db.entity.MessageEntity> stuck =
                     AppDatabase.getInstance(activity).messageDao()
                             .getUploadingMessages(chatId);
@@ -1388,7 +1401,7 @@ public class ChatMediaController {
         // the main thread, then persist the thumbnail URL into Room so the
         // adapter reloads the cell with a real frame preview instead of the
         // grey placeholder it showed for the first ~50 ms.
-        Executors.newSingleThreadExecutor().execute(() -> {
+        com.callx.app.utils.AppBgExecutor.execute(() -> {
             String localThumb = extractVideoThumb(uri);
             if (localThumb != null && pending.thumbnailUrl == null) {
                 String thumbFileUri = "file://" + localThumb;
@@ -1612,7 +1625,7 @@ public class ChatMediaController {
         final int total = uris.size();
 
         // Step 1: extract video thumbs in background (fast), then proceed on UI thread.
-        Executors.newSingleThreadExecutor().execute(() -> {
+        com.callx.app.utils.AppBgExecutor.execute(() -> {
             // Pre-compute per-item MIME and video thumbs off the main thread.
             final String[] mimeTypes = new String[total];
             final String[] localThumbPaths = new String[total]; // null if not video / extraction failed
@@ -1856,7 +1869,7 @@ public class ChatMediaController {
         // Persist latest mediaItemsJson so the bubble shows the real URL for
         // this cell while the remaining items are still in progress.
         String updatedJson = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(liveItems);
-        Executors.newSingleThreadExecutor().execute(() ->
+        com.callx.app.utils.AppBgExecutor.execute(() ->
                 AppDatabase.getInstance(activity).messageDao()
                         .updateMediaItemsJson(groupId, updatedJson));
 
@@ -1934,7 +1947,7 @@ public class ChatMediaController {
         cancelledIds.remove(m.id);
 
         m.status = "uploading";
-        Executors.newSingleThreadExecutor().execute(() ->
+        com.callx.app.utils.AppBgExecutor.execute(() ->
                 AppDatabase.getInstance(activity).messageDao().updateStatus(m.id, "uploading"));
 
         // Flip the bubble back to the spinner immediately.

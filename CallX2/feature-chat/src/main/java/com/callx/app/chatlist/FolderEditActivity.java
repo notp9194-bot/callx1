@@ -11,10 +11,10 @@ import com.callx.app.chat.R;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.dao.ChatFolderDao;
 import com.callx.app.db.entity.ChatFolderEntity;
+import com.callx.app.utils.AppBgExecutor;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.Executors;
 
 /**
  * FolderEditActivity — Create or edit a Telegram-style Chat Folder.
@@ -109,7 +109,7 @@ public class FolderEditActivity extends AppCompatActivity {
     // ─── Load existing folder ────────────────────────────────────────────────
 
     private void loadFolder() {
-        Executors.newSingleThreadExecutor().execute(() -> {
+        AppBgExecutor.execute(() -> {
             editingFolder = dao.getFolder(folderId);
             if (editingFolder == null) { finish(); return; }
             runOnUiThread(() -> {
@@ -147,7 +147,7 @@ public class FolderEditActivity extends AppCompatActivity {
         if (folder.createdAt == 0) folder.createdAt = System.currentTimeMillis();
 
         btnSave.setEnabled(false);
-        Executors.newSingleThreadExecutor().execute(() -> {
+        AppBgExecutor.execute(() -> {
             if (editingFolder != null) {
                 dao.updateFolder(folder);
             } else {
@@ -167,7 +167,7 @@ public class FolderEditActivity extends AppCompatActivity {
                 "Folder Delete Karein?",
                 "\"" + editingFolder.name + "\" folder delete ho jayega. Chats safe rahenge.",
                 "Delete", () ->
-                    Executors.newSingleThreadExecutor().execute(() -> {
+                    AppBgExecutor.execute(() -> {
                         dao.deleteFolder(editingFolder);
                         runOnUiThread(this::finish);
                     }),

@@ -10,6 +10,7 @@ import com.callx.app.models.Message;
 import com.callx.app.utils.ChatPrivacyManager;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.PushNotify;
+import com.callx.app.utils.AppBgExecutor;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.ValueEventListener;
@@ -17,7 +18,6 @@ import com.google.firebase.database.ValueEventListener;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Executors;
 
 /**
  * Handles text-message sending, Firebase push, local-first Room insert,
@@ -88,7 +88,7 @@ public class ChatMessageSender {
         // message still triggers the old top-jump bug even though
         // receiving is now fixed. See ChatActivity#severPagingIfAtBottom().
         boolean willReanchor = delegate.severPagingIfAtBottom();
-        Executors.newSingleThreadExecutor().execute(() -> {
+        AppBgExecutor.execute(() -> {
             AppDatabase.getInstance(delegate.getActivity()).messageDao().insertMessage(entity);
             if (willReanchor) delegate.reanchorPagingToBottom();
         });
@@ -126,7 +126,7 @@ public class ChatMessageSender {
                     // above — this status update bypasses the buffered
                     // flush path too.
                     boolean willReanchor = delegate.severPagingIfAtBottom();
-                    Executors.newSingleThreadExecutor().execute(() -> {
+                    AppBgExecutor.execute(() -> {
                         AppDatabase.getInstance(delegate.getActivity())
                                 .messageDao().updateStatus(key, "sent");
                         if (willReanchor) delegate.reanchorPagingToBottom();
@@ -197,7 +197,7 @@ public class ChatMessageSender {
     // ── Retry pending on reconnect ─────────────────────────────────────────
 
     public void retryPendingMessages() {
-        Executors.newSingleThreadExecutor().execute(() -> {
+        AppBgExecutor.execute(() -> {
             AppDatabase db = AppDatabase.getInstance(delegate.getActivity());
             List<MessageEntity> pending = db.messageDao().getPendingMessages(delegate.getChatId());
             if (pending == null || pending.isEmpty()) return;
@@ -260,7 +260,7 @@ public class ChatMessageSender {
      */
     public void insertSecurityEventIfPending(String partnerUid, String partnerDisplayName) {
         if (partnerUid == null || partnerUid.isEmpty()) return;
-        Executors.newSingleThreadExecutor().execute(() -> {
+        AppBgExecutor.execute(() -> {
             com.callx.app.utils.E2EEncryptionManager e2e =
                     com.callx.app.utils.E2EEncryptionManager.getInstance(delegate.getActivity());
             if (!e2e.hasPendingSecurityAlert(partnerUid)) return;
@@ -397,7 +397,7 @@ public class ChatMessageSender {
         // pushMessage() — this is a direct Room write outside the buffered
         // flushPendingRoomWrites() path. See ChatActivity#severPagingIfAtBottom().
         boolean willReanchor = delegate.severPagingIfAtBottom();
-        Executors.newSingleThreadExecutor().execute(() -> {
+        AppBgExecutor.execute(() -> {
             AppDatabase.getInstance(delegate.getActivity()).messageDao().insertMessage(entity);
             if (willReanchor) delegate.reanchorPagingToBottom();
         });
@@ -427,7 +427,7 @@ public class ChatMessageSender {
         entity.mediaLocalPath = m.mediaLocalPath; // kept for local-first render, see doc above
 
         boolean willReanchor = delegate.severPagingIfAtBottom();
-        Executors.newSingleThreadExecutor().execute(() -> {
+        AppBgExecutor.execute(() -> {
             AppDatabase.getInstance(delegate.getActivity()).messageDao().insertMessage(entity);
             if (willReanchor) delegate.reanchorPagingToBottom();
         });
@@ -448,7 +448,7 @@ public class ChatMessageSender {
      */
     public void markMediaFailed(String messageId) {
         if (messageId == null) return;
-        Executors.newSingleThreadExecutor().execute(() ->
+        AppBgExecutor.execute(() ->
                 AppDatabase.getInstance(delegate.getActivity())
                         .messageDao().updateStatus(messageId, "failed"));
     }

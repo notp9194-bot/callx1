@@ -16,13 +16,13 @@ import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.GroupEntity;
 import com.callx.app.models.Group;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.AppBgExecutor;
 import com.bumptech.glide.Glide;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.firebase.database.*;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Executors;
 
 /**
  * GroupsFragment v16 — Offline-First
@@ -122,7 +122,7 @@ public class GroupsFragment extends Fragment {
         if (getContext() == null) return;
         AppDatabase db = AppDatabase.getInstance(getContext());
 
-        Executors.newSingleThreadExecutor().execute(() -> {
+        AppBgExecutor.execute(() -> {
             List<GroupEntity> cached = db.groupDao().getAllGroupsSync();
             if (cached == null || cached.isEmpty()) return;
 
@@ -213,7 +213,7 @@ public class GroupsFragment extends Fragment {
                                     if (isAdded() && adapter != null) diffUpdateGroups(fetched);
                                     if (isAdded() && getContext() != null && !toSave.isEmpty()) {
                                         AppDatabase db = AppDatabase.getInstance(getContext());
-                                        Executors.newSingleThreadExecutor().execute(() ->
+                                        AppBgExecutor.execute(() ->
                                             db.groupDao().insertGroups(toSave));
                                     }
                                 }

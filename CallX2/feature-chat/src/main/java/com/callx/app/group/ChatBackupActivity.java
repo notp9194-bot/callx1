@@ -19,6 +19,7 @@ import java.io.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
@@ -51,7 +52,11 @@ public class ChatBackupActivity extends AppCompatActivity {
     private boolean isGroup = false;
     private SwitchCompat swMedia;
     private TextView tvLastBackup, tvBackupSize, tvBackupCount;
-    private final Executor io = Executors.newSingleThreadExecutor();
+    // PERF FIX (thread leak): was declared as the bare `Executor` interface
+    // (no shutdown() method) and this Activity had NO onDestroy() override
+    // at all — every "Backup / Export" screen opened+closed leaked this
+    // thread forever. Now ExecutorService + shut down in onDestroy() below.
+    private final ExecutorService io = Executors.newSingleThreadExecutor();
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -292,5 +297,14 @@ public class ChatBackupActivity extends AppCompatActivity {
     @Override public boolean onOptionsItemSelected(MenuItem item) {
         if (item.getItemId() == android.R.id.home) { onBackPressed(); return true; }
         return super.onOptionsItemSelected(item);
+    }
+
+    // PERF FIX (thread leak): this Activity never overrode onDestroy(), so
+    // `io`'s worker thread was never shut down — every backup/export screen
+    // visit leaked one permanently-parked thread.
+    @Override
+    protected void onDestroy() {
+        io.shutdownNow();
+        super.onDestroy();
     }
 }

@@ -35,6 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import com.callx.app.conversation.ChatActivity;
 import com.callx.app.utils.AppBgExecutor;
+import com.callx.app.utils.UiCriticalReadExecutor;
 
 /**
  * ChatsFragment v21 — Delete / Delete-All System
@@ -329,9 +330,18 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
     private void loadFromRoom() {
         if (getContext() == null) return;
-        AppDatabase db = AppDatabase.getInstance(getContext());
+        // PERF FIX v237: AppDatabase.getInstance() moved off the caller
+        // (main) thread and into the background task below, and routed
+        // through UiCriticalReadExecutor instead of the shared AppBgExecutor
+        // — see that class's doc. This is the Chat List's very first-paint
+        // read; it must never wait behind an unrelated queued write (folder
+        // assignment, chat delete, message-send insert) on a shared pool,
+        // and it must never risk touching AppDatabase.getInstance()'s cold
+        // path on the main thread.
+        android.content.Context appCtx = getContext().getApplicationContext();
 
-        AppBgExecutor.execute(() -> {
+        UiCriticalReadExecutor.execute(() -> {
+            AppDatabase db = AppDatabase.getInstance(appCtx);
             List<ChatEntity> cached = db.chatDao().getAllChatsSync();
             if (cached == null || cached.isEmpty()) return;
 

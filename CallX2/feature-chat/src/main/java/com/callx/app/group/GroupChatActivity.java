@@ -60,6 +60,7 @@ import android.net.NetworkRequest;
 
 import java.util.*;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import com.callx.app.conversation.ChatActivity;
 import com.callx.app.conversation.controllers.ChatContactShareController;
@@ -108,7 +109,13 @@ public class GroupChatActivity extends AppCompatActivity
     // ── Paging 3 (FIX #7) ─────────────────────────────────────────────────
     private MessagePagingAdapter pagingAdapter;
     private AppDatabase          db;
-    private final Executor       ioExecutor = Executors.newFixedThreadPool(2);
+    // PERF FIX (thread leak): was declared as the bare `Executor` interface,
+    // which has no shutdown() method — so even though this Activity has an
+    // onDestroy(), there was no way to call shutdown on this field without a
+    // cast, and nobody added one. Every GroupChatActivity opened+closed
+    // leaked 2 permanently-parked threads. Now typed as ExecutorService and
+    // shut down in onDestroy() below (see the `ioExecutor.shutdown()` call).
+    private final ExecutorService ioExecutor = Executors.newFixedThreadPool(2);
 
     // ── Firebase refs ──────────────────────────────────────────────────────
     private DatabaseReference  groupMessagesRef;
@@ -368,7 +375,10 @@ public class GroupChatActivity extends AppCompatActivity
         startRealtimeListener();
 
         // DB background mein
-        java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
+        // PERF FIX: was a brand-new, never-shutdown single-thread executor
+        // created on every GroupChatActivity open — routed through the
+        // shared AppBgExecutor instead (see its class doc).
+        com.callx.app.utils.AppBgExecutor.execute(() -> {
             db = AppDatabase.getInstance(this);
             runOnUiThread(this::onGroupDbReady);
         });
@@ -638,6 +648,14 @@ public class GroupChatActivity extends AppCompatActivity
         if (groupMentionController != null) groupMentionController.onDestroy();
         if (groupScheduledController != null) groupScheduledController.release();
         editHistoryController = null;
+
+        // PERF FIX (thread leak): neither of these thread pools was ever
+        // shut down — ioExecutor (2 threads) and attachMediaExecutor
+        // (1 thread) stayed permanently alive after this Activity was
+        // destroyed. Every group chat opened+closed leaked 3 threads.
+        ioExecutor.shutdown();
+        attachMediaExecutor.shutdownNow();
+
         super.onDestroy();
     }
 

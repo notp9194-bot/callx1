@@ -17,10 +17,10 @@ import com.callx.app.db.AppDatabase;
 import com.callx.app.db.dao.SavedMessageDao;
 import com.callx.app.db.entity.SavedMessageEntity;
 import de.hdodenhof.circleimageview.CircleImageView;
+import com.callx.app.utils.AppBgExecutor;
 
 import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.concurrent.Executors;
 
 /**
  * GlobalSavedMessagesActivity — Telegram-style "Saved Messages" screen.
@@ -98,7 +98,7 @@ public class GlobalSavedMessagesActivity extends AppCompatActivity {
     // ─── Data ─────────────────────────────────────────────────────────────────
 
     private void loadData() {
-        Executors.newSingleThreadExecutor().execute(() -> {
+        AppBgExecutor.execute(() -> {
             List<SavedMessageEntity> list = dao.getAllSavedSync();
             runOnUiThread(() -> {
                 allItems.clear();
@@ -146,7 +146,7 @@ public class GlobalSavedMessagesActivity extends AppCompatActivity {
                 "unsave_message", com.callx.app.utils.AlertDialogStyler.DialogSize.DEFAULT,
                 "Remove from Saved?", "Yeh message saved list se hata diya jayega.",
                 "Remove", () -> {
-                    Executors.newSingleThreadExecutor().execute(() -> {
+                    AppBgExecutor.execute(() -> {
                         dao.deleteSaved(item.id);
                         runOnUiThread(() -> {
                             allItems.remove(item);
@@ -175,7 +175,7 @@ public class GlobalSavedMessagesActivity extends AppCompatActivity {
             .setView(et)
             .setPositiveButton("Save", (d, w) -> {
                 String note = et.getText().toString().trim();
-                Executors.newSingleThreadExecutor().execute(() -> {
+                AppBgExecutor.execute(() -> {
                     dao.updateNote(item.id, note.isEmpty() ? null : note);
                     item.note = note.isEmpty() ? null : note;
                     runOnUiThread(adapter::notifyDataSetChanged);

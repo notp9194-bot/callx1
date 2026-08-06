@@ -1064,6 +1064,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (searchController  != null) searchController.onDestroy();
         if (mentionController != null) mentionController.onDestroy();
 
+        // PERF FIX (ROOT CAUSE of the "50 active threads" / GC-pressure
+        // report): ChatMediaController.destroy() existed and correctly shuts
+        // down mediaQueryExecutor + the upload queue's cached thread pool —
+        // but nothing in this Activity ever called it. Every single chat the
+        // user opened and closed leaked that thread pool permanently (the
+        // ExecutorService objects themselves were also never eligible for
+        // GC since their non-daemon worker threads keep them referenced).
+        // A normal session opening a dozen-plus chats easily explains a
+        // climbing, never-shrinking thread count everywhere in the app,
+        // including on the Chat List screen's own diagnostics.
+        if (mediaController != null) mediaController.destroy();
+
         // PERF FIX: release this Activity's 4-thread ioExecutor. shutdown()
         // (not shutdownNow()) lets any already-queued write/flush task
         // finish instead of being killed mid-write, but stops the pool from

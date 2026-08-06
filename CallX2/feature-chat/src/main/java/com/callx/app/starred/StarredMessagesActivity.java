@@ -16,12 +16,12 @@ import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.models.Message;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.AppBgExecutor;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Executors;
 
 /**
  * Feature 7: Starred Messages screen.
@@ -98,7 +98,7 @@ public class StarredMessagesActivity extends AppCompatActivity
     // ── OFFLINE FIX: Room se starred messages load karo ──────────────────────
     private void loadFromRoom() {
         AppDatabase db = AppDatabase.getInstance(getApplicationContext());
-        Executors.newSingleThreadExecutor().execute(() -> {
+        AppBgExecutor.execute(() -> {
             List<MessageEntity> all = db.messageDao().getStarredMessagesSync();
             if (all == null || all.isEmpty()) return;
 
@@ -223,7 +223,7 @@ public class StarredMessagesActivity extends AppCompatActivity
                     : FirebaseUtils.getMessagesRef(chatId);
             ref.child(m.id).child("starred").setValue(false);
         }
-        Executors.newSingleThreadExecutor().execute(() ->
+        AppBgExecutor.execute(() ->
             AppDatabase.getInstance(getApplicationContext())
                 .messageDao().updateStarred(m.id, false));
 

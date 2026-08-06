@@ -26,7 +26,7 @@ import com.callx.app.models.Group;
 import com.callx.app.models.Message;
 import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.FirebaseUtils;
-import java.util.concurrent.Executors;
+import com.callx.app.utils.AppBgExecutor;
 import com.google.android.material.appbar.AppBarLayout;
 import com.google.android.material.tabs.TabLayout;
 import com.google.firebase.auth.FirebaseAuth;
@@ -300,7 +300,7 @@ public class GroupInfoActivity extends AppCompatActivity {
     // ── Firebase: Load group data ─────────────────────────────────────────
     private void loadGroupData() {
         // v18 IMPROVEMENT 3: Room se pehle load karo — offline blank screen fix
-        Executors.newSingleThreadExecutor().execute(() -> {
+        AppBgExecutor.execute(() -> {
             AppDatabase db = AppDatabase.getInstance(getApplicationContext());
             GroupEntity cached = db.groupDao().getGroup(groupId);
             if (cached != null) {
@@ -372,7 +372,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                 setAdminMode(adminByMap || adminByField);
 
                 // v18 IMPROVEMENT 3: Room mein update karo for next offline visit
-                Executors.newSingleThreadExecutor().execute(() -> {
+                AppBgExecutor.execute(() -> {
                     AppDatabase db = AppDatabase.getInstance(getApplicationContext());
                     GroupEntity entity = db.groupDao().getGroup(groupId);
                     if (entity == null) entity = new GroupEntity();

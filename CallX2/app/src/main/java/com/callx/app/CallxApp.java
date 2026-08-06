@@ -170,9 +170,34 @@ public class CallxApp extends Application {
         // Fix: build it on its OWN thread, started first thing, so SQLCipher
         // init begins at the earliest possible moment (process start) and
         // races independently of every other background task below.
+        //
+        // PERF FIX v237 — Chat List "Load time 378ms vs 150ms target":
+        // AppDatabase.getInstance() itself (Room.databaseBuilder(...).build())
+        // is CHEAP — it's just object construction, no I/O. The real cost
+        // (SQLCipher/Keystore init, opening the .db file, running the 16
+        // migrations' schema-hash validation across ~20 entities) only
+        // happens lazily, on whichever thread makes the FIRST ACTUAL DAO
+        // query. This thread only ever called getInstance() and never
+        // touched a DAO — so that entire cost was silently deferred to
+        // whatever screen the user opened first. In a normal cold start
+        // that's the Chat List (default tab), so ChatsFragment.loadFromRoom()
+        // was the one eating the full DB-open tax on top of its own tiny
+        // 11-row query — exactly the gap between the reported 378ms and the
+        // 150ms target. Same trick already applied to Glide below (see
+        // "PERF FIX" comment on the Glide warm-up) — do the identical thing
+        // for Room: run one trivial, real DAO call here so the file-open +
+        // migration-validation cost is paid on this background thread,
+        // BEFORE the user ever reaches the Chat List, instead of on the
+        // Chat List's own timed load-start→load-end window.
         new Thread(() -> {
             try {
-                com.callx.app.db.AppDatabase.getInstance(CallxApp.this);
+                com.callx.app.db.AppDatabase db =
+                        com.callx.app.db.AppDatabase.getInstance(CallxApp.this);
+                // Cheapest possible real query — forces SQLiteOpenHelper to
+                // actually open/create/migrate the file right here. Result
+                // is thrown away; only the "DB is genuinely open" side
+                // effect matters.
+                db.chatDao().getChatCount();
                 Log.d(TAG, "AppDatabase (SQLCipher) warm-up complete");
             } catch (Exception e) {
                 Log.w(TAG, "AppDatabase warm-up failed (will retry on first use): " + e.getMessage());
