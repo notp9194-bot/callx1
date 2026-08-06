@@ -15,6 +15,28 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/*
+ * v92 ROOT-CAUSE FIX — cache-key width mismatch (Ultra Diagnostics: Name 43%,
+ * Message 55% hit ratio).
+ *
+ * The cache key is rawText + width. Reads (ChatRowContentView.onDraw) compute
+ * width as the row's REAL measured column width minus whatever that specific
+ * row reserves for its time label / read ticks. Writes (this file, v89) used
+ * to compute width as one GLOBAL estimate (screenWidth − a fixed 130dp/104dp
+ * guess) that never subtracted the per-row time-string width, tick-state
+ * width, or the unread-badge/call-buttons column — all of which vary row to
+ * row. Two different formulas producing the "same" width only by coincidence
+ * → most rows missed the cache and paid the onDraw()-time ellipsize() cost
+ * anyway, defeating the whole point of precomputing.
+ *
+ * Fix: precomputeOne() below now derives width with the EXACT same formula
+ * ChatRowContentView/item_chat.xml actually use — same dp constants, same
+ * per-row inputs (unread count, selection mode, tick state, time string) —
+ * so a precomputed entry's key is bit-for-bit identical to the key onDraw()
+ * will look up. See computeRowContentWidth()/precomputeOne() for the full
+ * derivation.
+ */
+
 /**
  * ChatListTextPrecompute — v89 background text ellipsis pre-computation.
  *
@@ -38,9 +60,10 @@ import java.util.concurrent.Executors;
  * ════════════════════════════════════════════════════════════════════════════
  *
  *  [Main thread]  ChatListAdapter.submitList(newList)
- *                   └── ChatListTextPrecompute.precompute(list, nameW, msgW)
+ *                   └── ChatListTextPrecompute.precompute(list, myUid, res, isSelecting)
  *                         └── sPool.execute( background task )
  *                                 └── for each User:
+ *                                       computeRowContentWidth(u) → exact per-row width
  *                                       TextUtils.ellipsize(name, ...)  → sNameCache
  *                                       TextUtils.ellipsize(preview, ...) → sMsgCache
  *
@@ -79,8 +102,23 @@ public final class ChatListTextPrecompute {
     private static final char  KEY_SEP    = '\u00A7'; // § — safe separator
     private static final int   NAME_CACHE = 300;      // fits ~300 unique names
     private static final int   MSG_CACHE  = 300;      // fits ~300 unique previews
-    private static final float NAME_SP    = 16f;      // MUST match ChatListNameTimeView
-    private static final float MSG_SP     = 14f;      // MUST match ChatListLastMessageView
+    private static final float NAME_SP    = 16f;      // MUST match ChatRowContentView
+    private static final float MSG_SP     = 14f;      // MUST match ChatRowContentView
+    private static final float TIME_SP    = 11f;      // MUST match ChatRowContentView
+
+    // v92: geometry constants — MUST match item_chat.xml + ChatRowContentView +
+    // ChatListUnreadBadgeView + ChatListCallButtonsView exactly, or cache keys
+    // drift out of sync with the real draw-time width again.
+    private static final float NAME_TIME_GAP_DP = 8f;   // ChatRowContentView.nameTimeGapPx
+    private static final float TICK_SIZE_DP     = 12f;  // ChatRowContentView tick size
+    private static final float TICK_GAP_DP      = 4f;   // ChatRowContentView tick gap
+    // item_chat.xml: 14dp*2 row padding + 58dp avatar box + 14dp rowContent
+    // marginStart + 8dp meta-column marginStart = fixed reserved width before
+    // the (variable) badge/call-buttons meta column is subtracted.
+    private static final float ROW_FIXED_RESERVED_DP = 14f * 2 + 58f + 14f + 8f;
+    private static final float CALL_BTN_WIDTH_DP = 34f * 2 + 6f; // ChatListCallButtonsView.onMeasure
+    private static final float BADGE_MIN_DP      = 20f;          // ChatListUnreadBadgeView.MIN_SIZE_DP
+    private static final float BADGE_PAD_H_DP    = 6f;           // ChatListUnreadBadgeView.PAD_H_DP
 
     // ── Shared caches (LruCache is thread-safe for get/put) ──────────────────
     private static final LruCache<String, CharSequence> sNameCache =
@@ -95,6 +133,8 @@ public final class ChatListTextPrecompute {
     // ── TextPaint clones (read-only after init) ───────────────────────────────
     private static volatile TextPaint sNamePaint;
     private static volatile TextPaint sMsgPaint;
+    private static volatile TextPaint sTimePaint;  // v92: for exact time-string width
+    private static volatile TextPaint sBadgePaint; // v92: for exact badge-pill width
     private static volatile boolean   sReady = false;
 
     private ChatListTextPrecompute() {}
@@ -124,30 +164,16 @@ public final class ChatListTextPrecompute {
             sMsgPaint = new TextPaint(flags);
             sMsgPaint.setTextSize(MSG_SP * sp);
 
+            sTimePaint = new TextPaint(flags);
+            sTimePaint.setTextSize(TIME_SP * sp);
+            sTimePaint.setTypeface(Typeface.DEFAULT);
+
+            sBadgePaint = new TextPaint(flags);
+            sBadgePaint.setTextSize(TIME_SP * sp); // badge TEXT_SIZE_SP is also 11f
+            sBadgePaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+
             sReady = true;
         }
-    }
-
-    /**
-     * Estimate the available width for the contact name field.
-     *
-     * Layout: [8dp pad] [50dp avatar] [8dp gap] [name........] [8dp gap] [~48dp time] [8dp pad]
-     * Reserved ≈ 130dp → nameWidth = screenWidth − 130dp
-     */
-    public static int estimateNameWidth(Resources res) {
-        DisplayMetrics dm = res.getDisplayMetrics();
-        return (int) (dm.widthPixels - 130f * dm.density);
-    }
-
-    /**
-     * Estimate the available width for the last-message preview field.
-     *
-     * Layout: [8dp pad] [50dp avatar] [8dp gap] [message......] [8dp gap] [~30dp badge] [8dp pad]
-     * Reserved ≈ 104dp → msgWidth = screenWidth − 104dp
-     */
-    public static int estimateMsgWidth(Resources res) {
-        DisplayMetrics dm = res.getDisplayMetrics();
-        return (int) (dm.widthPixels - 104f * dm.density);
     }
 
     /**
@@ -155,17 +181,26 @@ public final class ChatListTextPrecompute {
      * Only computes entries absent from the cache.
      * Safe to call on the main thread — all heavy work runs off-thread.
      *
+     * v92: width is no longer passed in as a single global estimate — it's
+     * derived PER USER inside precomputeOne(), from the exact same geometry
+     * ChatRowContentView will use at draw time (screen width, that user's
+     * unread badge, whether call buttons are showing, their time label, and
+     * their read-tick state). This is what makes the cache actually hit.
+     *
      * @param users       list from the latest {@code submitList()} call
-     * @param nameWidthPx estimated name field width in px (see {@link #estimateNameWidth})
-     * @param msgWidthPx  estimated message field width in px (see {@link #estimateMsgWidth})
+     * @param myUid       current user's uid (needed to resolve read-tick state)
+     * @param res         Resources, for screen width / density
+     * @param isSelecting whether the list is currently in selection mode
+     *                    (hides badges/call-buttons, changing row geometry)
      */
-    public static void precompute(List<User> users, int nameWidthPx, int msgWidthPx) {
-        if (!sReady || users == null || users.isEmpty()) return;
+    public static void precompute(List<User> users, String myUid, Resources res, boolean isSelecting) {
+        if (!sReady || users == null || users.isEmpty() || res == null) return;
         // Snapshot to avoid holding a live reference to an AsyncListDiffer-managed list
         final User[] snapshot = users.toArray(new User[0]);
+        final DisplayMetrics dm = res.getDisplayMetrics();
         sPool.execute(() -> {
             for (User u : snapshot) {
-                if (u != null) precomputeOne(u, nameWidthPx, msgWidthPx);
+                if (u != null) precomputeOne(u, myUid, dm, isSelecting);
             }
         });
     }
@@ -224,7 +259,58 @@ public final class ChatListTextPrecompute {
 
     // ── Private ───────────────────────────────────────────────────────────────
 
-    private static void precomputeOne(User u, int nameWidthPx, int msgWidthPx) {
+    /**
+     * v92: exact row-content width for this specific user — the fixed part
+     * (padding/avatar/margins) plus whatever THIS row's meta column (unread
+     * badge and/or call buttons) actually reserves. Mirrors item_chat.xml's
+     * LinearLayout math + ChatListUnreadBadgeView/ChatListCallButtonsView's
+     * own onMeasure() formulas exactly.
+     */
+    private static int computeRowContentWidth(User u, DisplayMetrics dm, boolean isSelecting) {
+        float density = dm.density;
+
+        long unread = u.unread == null ? 0 : u.unread;
+        boolean badgeVisible = unread > 0 && !isSelecting;
+        float badgeWidthPx = 0f;
+        if (badgeVisible) {
+            String label = unread > 99 ? "99+" : String.valueOf(unread);
+            float textW = sBadgePaint.measureText(label);
+            badgeWidthPx = Math.max(BADGE_MIN_DP * density, textW + BADGE_PAD_H_DP * 2 * density);
+        }
+        float callBtnWidthPx = isSelecting ? 0f : CALL_BTN_WIDTH_DP * density;
+        float metaWidthPx = Math.max(badgeWidthPx, callBtnWidthPx);
+
+        float reservedPx = ROW_FIXED_RESERVED_DP * density + metaWidthPx;
+        return (int) (dm.widthPixels - reservedPx);
+    }
+
+    private static void precomputeOne(User u, String myUid, DisplayMetrics dm, boolean isSelecting) {
+        int rowWidthPx = computeRowContentWidth(u, dm, isSelecting);
+        float density = dm.density;
+
+        // ── Row 1: name avail width = row width − time label (exact, same as
+        // ChatRowContentView.onDraw's `w - timeW - gap`) ────────────────────
+        Long when = u.lastMessageAt != null ? u.lastMessageAt : u.lastSeen;
+        String timeStr = (when != null && when > 0) ? ChatListTimeCache.getFormatted(when) : "";
+        float timeW = timeStr.isEmpty() ? 0f : sTimePaint.measureText(timeStr);
+        float nameGapPx = NAME_TIME_GAP_DP * density;
+        int nameWidthPx = (int) (rowWidthPx - timeW - (timeW > 0f ? nameGapPx : 0f));
+
+        // ── Row 2: message avail width = row width − read-tick reservation
+        // (exact, same tri-state as updateReadStatusTicks()/onDraw). Special-
+        // request badge text and active-selection text are rare transient UI
+        // states not modeled here — those rows simply fall back to the cold
+        // ellipsize() path exactly as designed, no correctness impact. ────
+        float tickReservedPx = 0f;
+        boolean iAmLastSender = myUid != null && u.uid != null && myUid.equals(u.lastMessageSenderUid);
+        if (!isSelecting && iAmLastSender && u.lastMessageStatus != null) {
+            float tickSizePx = TICK_SIZE_DP * density;
+            float tickGapPx  = TICK_GAP_DP * density;
+            float span = "sent".equals(u.lastMessageStatus) ? tickSizePx : tickSizePx * 1.35f;
+            tickReservedPx = span + tickGapPx;
+        }
+        int msgWidthPx = (int) Math.max(0f, rowWidthPx - tickReservedPx);
+
         // ── Name ──────────────────────────────────────────────────────────────
         String name    = u.name != null ? u.name : "User";
         String nameKey = name + KEY_SEP + nameWidthPx;

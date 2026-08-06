@@ -131,19 +131,18 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     // ── v83: AsyncListDiffer — owns the list, runs diff on a bg thread ────────
     private final AsyncListDiffer<User> differ = new AsyncListDiffer<>(this, DIFF_CALLBACK);
 
-    // v89: estimated field widths — set once in onAttachedToRecyclerView
-    private int mEstimatedNameWidth = 0;
-    private int mEstimatedMsgWidth  = 0;
+    // v92: Resources held for precompute() calls — width is now derived
+    // per-user/per-call (screen width + that row's own badge/tick/time
+    // state) instead of a single fixed estimate. See ChatListTextPrecompute.
+    private android.content.res.Resources mRes;
 
     @Override
     public void onAttachedToRecyclerView(@NonNull RecyclerView recyclerView) {
         super.onAttachedToRecyclerView(recyclerView);
-        // Initialise TextPaint clones and width estimates for the precompute cache.
+        // Initialise TextPaint clones for the precompute cache.
         // Called once when the adapter is first attached; safe to call multiple times.
-        android.content.res.Resources res = recyclerView.getContext().getResources();
-        ChatListTextPrecompute.init(res);
-        mEstimatedNameWidth = ChatListTextPrecompute.estimateNameWidth(res);
-        mEstimatedMsgWidth  = ChatListTextPrecompute.estimateMsgWidth(res);
+        mRes = recyclerView.getContext().getResources();
+        ChatListTextPrecompute.init(mRes);
     }
 
     /**
@@ -151,8 +150,10 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
      * thread, then dispatches the minimal insert/remove/change operations to
      * this adapter on the main thread — the main thread never blocks.
      *
-     * v89: Also kicks off background text pre-computation for all items so
-     * that onDraw() finds every ellipsized string already cached.
+     * v89/v92: Also kicks off background text pre-computation for all items so
+     * that onDraw() finds every ellipsized string already cached — using the
+     * EXACT per-row width formula onDraw() will use (fixes the cache-key
+     * mismatch that caused low hit ratios: see ChatListTextPrecompute).
      */
     public void submitList(List<User> newList) {
         List<User> safe = newList == null ? Collections.emptyList() : newList;
@@ -160,8 +161,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         // Precompute runs on a background thread — main thread returns immediately.
         // By the time the diff result dispatches onBindViewHolder, most entries
         // will already be cached (precompute completes in ~10–50 ms for 100 rows).
-        if (mEstimatedNameWidth > 0) {
-            ChatListTextPrecompute.precompute(safe, mEstimatedNameWidth, mEstimatedMsgWidth);
+        if (mRes != null) {
+            ChatListTextPrecompute.precompute(safe, myUid, mRes, isSelecting);
         }
     }
 
@@ -332,7 +333,11 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View v = LayoutInflater.from(parent.getContext())
                 .inflate(R.layout.item_chat, parent, false);
-        return new VH(v);
+        VH h = new VH(v);
+        // v92: install every click/long-click listener ONCE per VH here,
+        // instead of re-allocating them on every bind — see installStaticListeners().
+        installStaticListeners(h);
+        return h;
     }
 
     /**
@@ -374,6 +379,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         if ((flags & CHANGE_IDENTITY) != 0) { onBindViewHolder(h, pos); return; }
 
         User u = differ.getCurrentList().get(pos);
+        h.boundUser = u; // v92: keep listeners' view of "current row" fresh on partial binds
 
         if ((flags & CHANGE_TIME) != 0) {
             Long when = u.lastMessageAt != null ? u.lastMessageAt : u.lastSeen;
@@ -405,6 +411,16 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         List<User> list = differ.getCurrentList();
         User u = list.get(pos);
         Context ctx = h.itemView.getContext();
+
+        // v92 PERF FIX: click/long-click listeners used to be freshly
+        // allocated (6-7 lambdas capturing u/ctx/hasStory) on EVERY full
+        // bind — Ultra Diagnostics flagged high GC count/pause time and
+        // traced it to exactly this pattern ("per-row allocations in
+        // onBindViewHolder"). Listeners are now installed ONCE per VH (see
+        // installStaticListeners(), called from onCreateViewHolder) and
+        // simply read h.boundUser / h.hasStoryNow at click time — so a bind
+        // is now a cheap field write instead of 6-7 allocations.
+        h.boundUser = u;
 
         h.nameTimeView.setName(u.name == null ? "User" : u.name);
 
@@ -443,20 +459,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
         StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
         boolean hasStory = u.uid != null && (scm.hasUnseen(u.uid) || scm.hasStatus(u.uid));
-
-        if (h.storyRingView != null && u.uid != null) {
-            h.storyRingView.setOnClickListener(v -> {
-                if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
-                // Story ring click always opens story/status if available, else bottom sheet
-                if (hasStory) {
-                    openStatusOrChat(ctx, u);
-                } else if (avatarClickListener != null) {
-                    avatarClickListener.onAvatarClick(u);
-                } else {
-                    openChat(ctx, u);
-                }
-            });
-        }
+        h.hasStoryNow = hasStory; // read by the story-ring listener installed once in onCreateViewHolder
 
         h.isTypingNow = false;
         applySelectionVisuals(h, u);
@@ -487,10 +490,52 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         };
         h.itemView.postDelayed(h.pendingBindRunnable, BIND_SETTLE_DELAY_MS);
 
+        // v92: call-buttons / avatar / item click+long-click listeners are
+        // installed ONCE per VH — see installStaticListeners(), called from
+        // onCreateViewHolder(). They read h.boundUser (set above) instead of
+        // a per-bind captured `u`, so no lambdas are allocated here anymore.
+    }
+
+    /**
+     * v92 PERF FIX: installs every click/long-click listener for a row ONCE,
+     * when the VH is created, instead of re-allocating 6-7 lambdas on every
+     * single bind (the previous behaviour). Each listener reads the row's
+     * CURRENT state off the VH (h.boundUser, h.hasStoryNow) and current
+     * adapter position (h.getAdapterPosition()) at click time, so it stays
+     * correct across rebinds/recycling without needing to be reinstalled.
+     *
+     * This directly targets the "GC count/time traces back to per-row
+     * allocations in onBindViewHolder" root cause the Ultra Diagnostics
+     * screen flagged (42 ART GCs / 1798 ms total pause, 157 ms worst
+     * main-thread lag) — a fast-scrolling list used to allocate 6-7 throwaway
+     * lambda objects per row, per bind; a VH now allocates them exactly once
+     * for its whole lifetime in the RecyclerView.
+     */
+    private void installStaticListeners(VH h) {
+        if (h.storyRingView != null) {
+            h.storyRingView.setOnClickListener(v -> {
+                User u = h.boundUser;
+                if (u == null || u.uid == null) return;
+                Context ctx = h.itemView.getContext();
+                if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
+                // Story ring click always opens story/status if available, else bottom sheet
+                if (h.hasStoryNow) {
+                    openStatusOrChat(ctx, u);
+                } else if (avatarClickListener != null) {
+                    avatarClickListener.onAvatarClick(u);
+                } else {
+                    openChat(ctx, u);
+                }
+            });
+        }
+
         if (h.callButtonsView != null) {
             h.callButtonsView.setListeners(
                 () -> {
+                    User u = h.boundUser;
+                    if (u == null) return;
                     if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
+                    Context ctx = h.itemView.getContext();
                     Intent i = new Intent().setClassName(ctx.getPackageName(),
                             "com.callx.app.call.CallActivity");
                     i.putExtra("partnerUid", u.uid);
@@ -500,7 +545,10 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
                     ctx.startActivity(i);
                 },
                 () -> {
+                    User u = h.boundUser;
+                    if (u == null) return;
                     if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
+                    Context ctx = h.itemView.getContext();
                     Intent i = new Intent().setClassName(ctx.getPackageName(),
                             "com.callx.app.call.CallActivity");
                     i.putExtra("partnerUid", u.uid);
@@ -513,10 +561,13 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         }
 
         h.ivAvatar.setOnClickListener(v -> {
+            User u = h.boundUser;
+            if (u == null) return;
+            Context ctx = h.itemView.getContext();
             if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
             // Story-first behavior: if user has active story/status, open it (Instagram style).
             // Only show contact bottom sheet when no story is available.
-            if (hasStory) {
+            if (h.hasStoryNow) {
                 openStatusOrChat(ctx, u);
             } else if (avatarClickListener != null) {
                 avatarClickListener.onAvatarClick(u);
@@ -526,17 +577,23 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         });
 
         h.ivAvatar.setOnLongClickListener(v -> {
+            User u = h.boundUser;
+            if (u == null) return true;
             if (isSelecting) return true;
-            showAvatarZoom(ctx, u.photoUrl, u.name);
+            showAvatarZoom(h.itemView.getContext(), u.photoUrl, u.name);
             return true;
         });
 
         h.itemView.setOnClickListener(v -> {
+            User u = h.boundUser;
+            if (u == null) return;
             if (isSelecting) toggleSelection(h.getAdapterPosition());
-            else openChat(ctx, u);
+            else openChat(h.itemView.getContext(), u);
         });
 
         h.itemView.setOnLongClickListener(v -> {
+            User u = h.boundUser;
+            if (u == null) return true;
             if (!isSelecting) {
                 isSelecting = true;
                 if (u.uid != null) selectedUids.add(u.uid);
@@ -666,6 +723,10 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         cancelPendingBindWork(h);
         detachTypingListener(h);
         h.isTypingNow = false;
+        // v92: drop the stale user ref so a click that races the recycle
+        // (view detached but tap already in flight) becomes a safe no-op
+        // instead of acting on the wrong contact.
+        h.boundUser = null;
     }
 
     private void updateReadStatusTicks(VH h, User u, boolean isSelecting, boolean isSpecial) {
@@ -867,6 +928,10 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         // PERF: deferred typing-attach/preload runnable — see
         // cancelPendingBindWork() / BIND_SETTLE_DELAY_MS below.
         Runnable pendingBindRunnable;
+        // v92: current row state, read by listeners installed ONCE in
+        // installStaticListeners() instead of being re-captured every bind.
+        User boundUser;
+        boolean hasStoryNow = false;
 
         VH(View v) {
             super(v);
