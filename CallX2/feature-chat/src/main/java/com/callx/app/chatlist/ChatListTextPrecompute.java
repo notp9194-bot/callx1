@@ -191,6 +191,37 @@ public final class ChatListTextPrecompute {
         return sMsgCache.get(rawText + KEY_SEP + widthPx);
     }
 
+    // ── ULTRA DIAGNOSTICS: live cache efficiency stats ────────────────────────
+    // LruCache already tracks hitCount()/missCount()/size()/maxSize() internally
+    // for free — these are real counters accumulated since process start, not
+    // sampled or estimated. A low hit ratio here directly explains onDraw()-time
+    // ellipsize() fallbacks (the "cold-start fallback" path in the flow above).
+    public static final class CacheStats {
+        public final int nameHits, nameMisses, nameSize, nameMax;
+        public final int msgHits, msgMisses, msgSize, msgMax;
+        CacheStats(int nameHits, int nameMisses, int nameSize, int nameMax,
+                   int msgHits, int msgMisses, int msgSize, int msgMax) {
+            this.nameHits = nameHits; this.nameMisses = nameMisses;
+            this.nameSize = nameSize; this.nameMax = nameMax;
+            this.msgHits = msgHits; this.msgMisses = msgMisses;
+            this.msgSize = msgSize; this.msgMax = msgMax;
+        }
+        public double nameHitRatio() {
+            int total = nameHits + nameMisses;
+            return total == 0 ? 1.0 : (double) nameHits / total;
+        }
+        public double msgHitRatio() {
+            int total = msgHits + msgMisses;
+            return total == 0 ? 1.0 : (double) msgHits / total;
+        }
+    }
+
+    public static CacheStats getCacheStats() {
+        return new CacheStats(
+                sNameCache.hitCount(), sNameCache.missCount(), sNameCache.size(), sNameCache.maxSize(),
+                sMsgCache.hitCount(), sMsgCache.missCount(), sMsgCache.size(), sMsgCache.maxSize());
+    }
+
     // ── Private ───────────────────────────────────────────────────────────────
 
     private static void precomputeOne(User u, int nameWidthPx, int msgWidthPx) {

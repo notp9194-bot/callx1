@@ -81,4 +81,20 @@ public final class ChatListTimeCache {
     public static void invalidate() {
         sCache.evictAll();
     }
+
+    // ── ULTRA DIAGNOSTICS: live cache efficiency stats ────────────────────────
+    public static final class CacheStats {
+        public final int hits, misses, size, maxSize;
+        CacheStats(int hits, int misses, int size, int maxSize) {
+            this.hits = hits; this.misses = misses; this.size = size; this.maxSize = maxSize;
+        }
+        public double hitRatio() {
+            int total = hits + misses;
+            return total == 0 ? 1.0 : (double) hits / total;
+        }
+    }
+
+    public static CacheStats getCacheStats() {
+        return new CacheStats(sCache.hitCount(), sCache.missCount(), sCache.size(), sCache.maxSize());
+    }
 }

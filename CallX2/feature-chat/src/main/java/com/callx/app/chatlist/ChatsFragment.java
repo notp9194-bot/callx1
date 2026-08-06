@@ -141,6 +141,13 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         rv.setClipToPadding(false);
         rv.setClipChildren(false);
 
+        // ULTRA DIAGNOSTICS: register the live RecyclerView so the
+        // "🔬 Ultra Advanced Diagnostics" screen can inspect real,
+        // currently-attached RV state (child count, pool occupancy,
+        // cache size) instead of guessing from config alone. WeakReference
+        // inside PerformanceMonitor — never keeps this fragment's view alive.
+        com.callx.app.perf.PerformanceMonitor.get().attachChatListRecyclerView(rv);
+
         // Avatar click → contact bottom sheet (same as Calls tab)
         adapter.setOnAvatarClickListener(u -> showContactBottomSheet(u));
 

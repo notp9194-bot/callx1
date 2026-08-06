@@ -106,6 +106,19 @@ public class PerformanceReportActivity extends AppCompatActivity {
         setContentView(scroll);
 
         renderReport();
+
+        Button ultraBtn = new Button(this);
+        ultraBtn.setText("🔬 Open Ultra Advanced Diagnostics");
+        ultraBtn.setOnClickListener(v ->
+                startActivity(new android.content.Intent(this, UltraDiagnosticsActivity.class)));
+        LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        int uPad = dp(16);
+        ulp.leftMargin = uPad;
+        ulp.rightMargin = uPad;
+        ulp.topMargin = dp(4);
+        ulp.bottomMargin = dp(20);
+        outer.addView(ultraBtn, ulp);
     }
 
     @Override

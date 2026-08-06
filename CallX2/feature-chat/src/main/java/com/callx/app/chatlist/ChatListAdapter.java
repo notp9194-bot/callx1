@@ -35,6 +35,7 @@ import com.google.firebase.database.ValueEventListener;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * ChatListAdapter v83
@@ -637,6 +638,24 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         }
     }
 
+    // ── ULTRA DIAGNOSTICS: Firebase typing-listener leak counters ────────────
+    // attachTypingListener/detachTypingListener are the only two places a
+    // "typing" ValueEventListener ever gets added/removed for this adapter.
+    // sActiveTypingListeners is the live net count (attaches − detaches) —
+    // it should always stay bounded near the visible/cached row count
+    // (≈ setItemViewCacheSize + pool size). If it keeps climbing while
+    // scrolling, that's a real Firebase listener leak, not a guess.
+    // Static because RecycledViewPool/ViewModel can outlive any one adapter
+    // instance (v87 activity-scoped pool) — the count must track the whole
+    // app session, not just one ChatListAdapter object.
+    private static final AtomicInteger sActiveTypingListeners = new AtomicInteger(0);
+    private static final AtomicInteger sTotalTypingAttaches   = new AtomicInteger(0);
+    private static final AtomicInteger sTotalTypingDetaches   = new AtomicInteger(0);
+
+    public static int getActiveTypingListenerCount() { return sActiveTypingListeners.get(); }
+    public static int getTotalTypingAttaches()        { return sTotalTypingAttaches.get(); }
+    public static int getTotalTypingDetaches()        { return sTotalTypingDetaches.get(); }
+
     private void attachTypingListener(VH h, User u) {
         detachTypingListener(h);
         if (u.uid == null || myUid == null) return;
@@ -658,11 +677,15 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         ref.addValueEventListener(listener);
         h.typingRef = ref;
         h.typingListener = listener;
+        sActiveTypingListeners.incrementAndGet();
+        sTotalTypingAttaches.incrementAndGet();
     }
 
     private void detachTypingListener(VH h) {
         if (h.typingRef != null && h.typingListener != null) {
             h.typingRef.removeEventListener(h.typingListener);
+            sActiveTypingListeners.decrementAndGet();
+            sTotalTypingDetaches.incrementAndGet();
         }
         h.typingRef = null;
         h.typingListener = null;

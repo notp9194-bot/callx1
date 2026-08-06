@@ -1595,6 +1595,9 @@ public class MainActivity extends AppCompatActivity
         // "Performance" report sirf Chat tab pe visible ho
         android.view.MenuItem performance = menu.findItem(R.id.action_performance_report);
         if (performance != null) performance.setVisible(pos == TAB_CHATS);
+        // "Ultra Advanced Diagnostics" sirf Chat tab pe visible ho
+        android.view.MenuItem ultraDiag = menu.findItem(R.id.action_ultra_diagnostics);
+        if (ultraDiag != null) ultraDiag.setVisible(pos == TAB_CHATS);
         return super.onPrepareOptionsMenu(menu);
     }
 
@@ -1611,6 +1614,11 @@ public class MainActivity extends AppCompatActivity
 
         if (id == R.id.action_performance_report) {
             startActivity(new Intent(this, PerformanceReportActivity.class));
+            return true;
+        }
+
+        if (id == R.id.action_ultra_diagnostics) {
+            startActivity(new Intent(this, UltraDiagnosticsActivity.class));
             return true;
         }
 

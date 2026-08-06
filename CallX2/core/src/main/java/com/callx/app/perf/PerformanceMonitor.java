@@ -5,17 +5,21 @@ import android.os.Build;
 import android.os.Debug;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.StrictMode;
 import android.view.Display;
 import android.view.FrameMetrics;
 import android.view.Window;
 
 import androidx.annotation.RequiresApi;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.db.AppDatabase;
 import com.callx.app.utils.AppBgExecutor;
 
+import java.lang.ref.WeakReference;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * PerformanceMonitor — real, on-device performance instrumentation for the
@@ -158,6 +162,122 @@ public final class PerformanceMonitor {
             new Handler(Looper.getMainLooper()).post(() -> { if (cb != null) cb.onResult(finalMs, finalCount); });
         });
     }
+
+    // ── ULTRA ADVANCED DIAGNOSTICS ADDITIONS ─────────────────────────────────
+    // Everything below feeds UltraDiagnosticsActivity ("🔬 Ultra Advanced
+    // Diagnostics" — Chat List → 3-dot menu, or the button inside the
+    // regular "⚡ Performance" report). Same philosophy as the section
+    // above: every number is a REAL, live measurement, never simulated.
+
+    // ── Live handle to the Chat List's actual RecyclerView + Adapter ────────
+    // Registered by ChatsFragment right after it finishes RecyclerView setup
+    // (setLayoutManager/setAdapter/setRecycledViewPool etc). WeakReference so
+    // this never keeps the fragment's view alive after it's destroyed.
+    private WeakReference<RecyclerView> chatListRvRef;
+
+    /** Call from ChatsFragment.onCreateView() once RV setup is complete. */
+    public void attachChatListRecyclerView(RecyclerView rv) {
+        chatListRvRef = new WeakReference<>(rv);
+    }
+
+    /** Returns the live Chat List RecyclerView, or null if the screen isn't currently alive. */
+    public RecyclerView getChatListRecyclerView() {
+        return chatListRvRef != null ? chatListRvRef.get() : null;
+    }
+
+    // ── Main-thread responsiveness probe ─────────────────────────────────────
+    // Posts a burst of Handler messages to the MAIN LOOPER and measures the
+    // real delay between "when it was scheduled" and "when it actually ran".
+    // On a healthy main thread this is ~0-1ms; if something upstream (a big
+    // Firebase callback, a synchronous DB read, GC) is hogging the thread,
+    // this probe is delayed by exactly that amount — a live, ground-truth
+    // ANR-risk signal, not a guess.
+    public interface MainThreadProbeCallback { void onResult(long avgLagMs, long maxLagMs, int samples); }
+
+    public void probeMainThreadResponsiveness(int samples, MainThreadProbeCallback cb) {
+        Handler mainHandler = new Handler(Looper.getMainLooper());
+        long[] lags = new long[samples];
+        int[] done = {0};
+        for (int i = 0; i < samples; i++) {
+            long scheduledAtNanos = System.nanoTime();
+            mainHandler.post(() -> {
+                long lagMs = (System.nanoTime() - scheduledAtNanos) / 1_000_000L;
+                lags[done[0]] = lagMs;
+                done[0]++;
+                if (done[0] == samples) {
+                    long sum = 0, max = 0;
+                    for (long v : lags) { sum += v; if (v > max) max = v; }
+                    if (cb != null) cb.onResult(sum / samples, max, samples);
+                }
+            });
+        }
+    }
+
+    // ── GC stats (real ART runtime counters, API 23+) ────────────────────────
+    public static final class GcStats {
+        public final long gcCount, gcTimeMs, bytesAllocated;
+        public final boolean available;
+        GcStats(long gcCount, long gcTimeMs, long bytesAllocated, boolean available) {
+            this.gcCount = gcCount; this.gcTimeMs = gcTimeMs;
+            this.bytesAllocated = bytesAllocated; this.available = available;
+        }
+    }
+
+    /** Live ART GC counters for THIS process since it started — real, not estimated. */
+    public GcStats getGcStats() {
+        if (Build.VERSION.SDK_INT < 23) return new GcStats(0, 0, 0, false);
+        try {
+            long count = parseStatSafe(Debug.getRuntimeStat("art.gc.gc-count"));
+            long timeMs = parseStatSafe(Debug.getRuntimeStat("art.gc.gc-time"));
+            long bytes = parseStatSafe(Debug.getRuntimeStat("art.gc.bytes-allocated"));
+            return new GcStats(count, timeMs, bytes, true);
+        } catch (Exception e) {
+            return new GcStats(0, 0, 0, false);
+        }
+    }
+
+    private long parseStatSafe(String s) {
+        if (s == null || s.isEmpty()) return 0;
+        try { return Long.parseLong(s.trim()); } catch (NumberFormatException e) { return 0; }
+    }
+
+    /** Live thread count for this process — a runaway executor/listener leak shows up here. */
+    public int getActiveThreadCount() {
+        return Thread.activeCount();
+    }
+
+    // ── StrictMode live scan (opt-in, session-scoped, restores prior policy) ─
+    // OFF by default — only armed while UltraDiagnosticsActivity is running a
+    // scan, and the previous thread policy is restored the moment the scan
+    // ends or the screen closes. This never changes normal app behaviour.
+    private final AtomicInteger strictModeViolations = new AtomicInteger(0);
+    private StrictMode.ThreadPolicy previousThreadPolicy;
+    private volatile boolean strictModeScanActive = false;
+
+    @RequiresApi(28)
+    public void startStrictModeScan() {
+        if (Build.VERSION.SDK_INT < 28 || strictModeScanActive) return;
+        strictModeScanActive = true;
+        strictModeViolations.set(0);
+        previousThreadPolicy = StrictMode.getThreadPolicy();
+        StrictMode.setThreadPolicy(new StrictMode.ThreadPolicy.Builder()
+                .detectDiskReads()
+                .detectDiskWrites()
+                .detectNetwork()
+                .detectCustomSlowCalls()
+                .penaltyListener(AppBgExecutor.get(), v -> strictModeViolations.incrementAndGet())
+                .build());
+    }
+
+    public void stopStrictModeScan() {
+        if (!strictModeScanActive) return;
+        strictModeScanActive = false;
+        if (previousThreadPolicy != null) StrictMode.setThreadPolicy(previousThreadPolicy);
+    }
+
+    public boolean isStrictModeScanSupported() { return Build.VERSION.SDK_INT >= 28; }
+    public boolean isStrictModeScanActive() { return strictModeScanActive; }
+    public int getStrictModeViolationCount() { return strictModeViolations.get(); }
 
     // ── Aggregated report ─────────────────────────────────────────────────
     public static final class Stat {

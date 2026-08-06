@@ -17,4 +17,9 @@
         android:title="⚡ Performance"
         app:showAsAction="never"/>
 
+    <!-- Ultra Advanced Diagnostics — chat tab pe hi dikhega -->
+    <item android:id="@+id/action_ultra_diagnostics"
+        android:title="🔬 Ultra Advanced Diagnostics"
+        app:showAsAction="never"/>
+
 </menu>
