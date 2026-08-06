@@ -31,6 +31,8 @@ import de.hdodenhof.circleimageview.CircleImageView;
 import androidx.lifecycle.ViewModelProvider;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import com.callx.app.conversation.ChatActivity;
 import com.callx.app.utils.AppBgExecutor;
 
@@ -56,7 +58,19 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     private LinearLayout llSelectionBar;
     private TextView tvSelectedCount;
 
-    private final Set<String> specialRequestUids = new HashSet<>();
+    // PERF FIX: now read from a background thread inside
+    // processContactsSnapshot()'s sort comparator while loadSpecialRequests()
+    // still writes it on the main thread — plain HashSet isn't safe across
+    // that, so this is a thread-safe set now (ConcurrentHashMap#newKeySet).
+    private final Set<String> specialRequestUids = ConcurrentHashMap.newKeySet();
+
+    // PERF FIX: AppBgExecutor is a 3-thread pool, so if onDataChange() fires
+    // twice in quick succession (two Firebase updates close together) the two
+    // background jobs it spawns can finish OUT OF ORDER — without this guard
+    // an older snapshot's result could land on the UI after a newer one and
+    // briefly show stale data. Each dispatch stamps a ticket; only the result
+    // matching the latest ticket is applied, older ones are dropped silently.
+    private final AtomicLong contactsSyncSeq = new AtomicLong(0);
 
     // Feature 1: Chat Folders
     private HorizontalScrollView hsvFolders;
@@ -364,64 +378,110 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
         contactsListener = new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot snap) {
-                // Build newList separately so diffUpdate can diff old vs new
-                List<User> newList = new ArrayList<>();
-                List<ChatEntity> toSave = new ArrayList<>();
-
-                for (DataSnapshot c : snap.getChildren()) {
-                    User u = c.getValue(User.class);
-                    if (u != null) {
-                        if (u.uid == null) u.uid = c.getKey();
-                        if ((u.name == null || u.name.isEmpty()
-                                || u.photoUrl == null) && u.uid != null) {
-                            enrichContactFromUsers(u, uid);
-                        }
-                        newList.add(u);
-
-                        ChatEntity entity = new ChatEntity();
-                        entity.chatId       = uid + "_contact_" + (u.uid != null ? u.uid : "");
-                        entity.type         = "private";
-                        entity.partnerUid   = u.uid;
-                        entity.partnerName  = u.name;
-                        entity.partnerPhoto = u.photoUrl;
-                        entity.partnerThumb = u.thumbUrl;
-                        entity.lastMessage  = u.lastMessage;
-                        entity.lastMessageAt = u.lastMessageAt;
-                        entity.unread       = u.unread;
-                        entity.lastMessageType      = u.lastMessageType;
-                        entity.lastMessageStatus    = u.lastMessageStatus;
-                        entity.lastMessageSenderUid = u.lastMessageSenderUid;
-                        entity.lastMessageId        = u.lastMessageId;
-                        entity.syncedAt     = System.currentTimeMillis();
-                        toSave.add(entity);
-                    }
-                }
-
-                if (getContext() != null && !toSave.isEmpty()) {
-                    AppDatabase db = AppDatabase.getInstance(getContext());
-                    AppBgExecutor.execute(() ->
-                        db.chatDao().insertChats(toSave));
-                }
-
-                // FIX #5: Sort newList, then diffUpdate — contacts list is the source of truth
-                Collections.sort(newList, (a, b) -> {
-                    boolean aS = a.uid != null && specialRequestUids.contains(a.uid);
-                    boolean bS = b.uid != null && specialRequestUids.contains(b.uid);
-                    if (aS != bS) return aS ? -1 : 1;
-                    long la = a.lastMessageAt != null ? a.lastMessageAt :
-                              (a.lastSeen != null ? a.lastSeen : 0L);
-                    long lb = b.lastMessageAt != null ? b.lastMessageAt :
-                              (b.lastSeen != null ? b.lastSeen : 0L);
-                    return Long.compare(lb, la);
-                });
-                diffUpdateContacts(newList);
-                if (emptyState != null)
-                    emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
+                // PERF FIX: see processContactsSnapshot() doc below — this
+                // hands ALL the CPU work off the main thread. Firebase always
+                // delivers this callback ON the main thread, so anything run
+                // synchronously right here is a guaranteed main-thread stall.
+                // ticket taken on the main thread (in onDataChange's natural
+                // call order) so out-of-order background completions can be
+                // detected and dropped — see contactsSyncSeq.
+                long ticket = contactsSyncSeq.incrementAndGet();
+                AppBgExecutor.execute(() -> processContactsSnapshot(snap, uid, ticket));
             }
             @Override public void onCancelled(DatabaseError e) {}
         };
         contactsRef = FirebaseUtils.getContactsRef(uid);
         contactsRef.addValueEventListener(contactsListener);
+    }
+
+    /**
+     * PERF FIX — ROOT CAUSE of most of the reported "main-thread lag = 154ms"
+     * and a chunk of the janky-frame rate:
+     *
+     * Firebase's ValueEventListener ALWAYS calls onDataChange() on the main
+     * thread. This method used to run entirely inside that callback:
+     *   • c.getValue(User.class) — reflection-based deserialization, once
+     *     per contact in the snapshot
+     *   • building a full List<ChatEntity> for the Room save
+     *   • Collections.sort() over the ENTIRE contact list
+     *
+     * None of that touches a View — it's pure CPU/object-allocation work —
+     * but because it ran inside the main-thread callback, it blocked the UI
+     * thread for however long that took. And this callback doesn't fire
+     * once: it fires on every single change anywhere under this user's
+     * "contacts" node (a tick flipping sent→delivered, one new message,
+     * anything), so the stall could land at any moment — including mid-
+     * fling, where it shows up as a dropped/janky frame, and the in-app
+     * Performance report's main-thread responsiveness probe (a Handler.post
+     * round-trip) is delayed by exactly this amount whenever it happens to
+     * be scheduled behind this work.
+     *
+     * Fix: run all of it here, on AppBgExecutor's background thread. Only
+     * the final step — diffUpdateContacts(), which touches the adapter/
+     * RecyclerView — hops back to the main thread, and even that is cheap:
+     * AsyncListDiffer computes the actual diff on its own background
+     * executor, so the main-thread hop is just handing off a List reference.
+     */
+    private void processContactsSnapshot(DataSnapshot snap, String uid, long ticket) {
+        List<User> newList = new ArrayList<>();
+        List<ChatEntity> toSave = new ArrayList<>();
+
+        for (DataSnapshot c : snap.getChildren()) {
+            User u = c.getValue(User.class);
+            if (u == null) continue;
+            if (u.uid == null) u.uid = c.getKey();
+            if ((u.name == null || u.name.isEmpty()
+                    || u.photoUrl == null) && u.uid != null) {
+                enrichContactFromUsers(u, uid);
+            }
+            newList.add(u);
+
+            ChatEntity entity = new ChatEntity();
+            entity.chatId       = uid + "_contact_" + (u.uid != null ? u.uid : "");
+            entity.type         = "private";
+            entity.partnerUid   = u.uid;
+            entity.partnerName  = u.name;
+            entity.partnerPhoto = u.photoUrl;
+            entity.partnerThumb = u.thumbUrl;
+            entity.lastMessage  = u.lastMessage;
+            entity.lastMessageAt = u.lastMessageAt;
+            entity.unread       = u.unread;
+            entity.lastMessageType      = u.lastMessageType;
+            entity.lastMessageStatus    = u.lastMessageStatus;
+            entity.lastMessageSenderUid = u.lastMessageSenderUid;
+            entity.lastMessageId        = u.lastMessageId;
+            entity.syncedAt     = System.currentTimeMillis();
+            toSave.add(entity);
+        }
+
+        if (getContext() != null && !toSave.isEmpty()) {
+            // Already running on a background thread (AppBgExecutor) —
+            // no need to hop to yet another executor for this.
+            AppDatabase.getInstance(getContext()).chatDao().insertChats(toSave);
+        }
+
+        // FIX #5: Sort newList, then diffUpdate — contacts list is the source of truth
+        Collections.sort(newList, (a, b) -> {
+            boolean aS = a.uid != null && specialRequestUids.contains(a.uid);
+            boolean bS = b.uid != null && specialRequestUids.contains(b.uid);
+            if (aS != bS) return aS ? -1 : 1;
+            long la = a.lastMessageAt != null ? a.lastMessageAt :
+                      (a.lastSeen != null ? a.lastSeen : 0L);
+            long lb = b.lastMessageAt != null ? b.lastMessageAt :
+                      (b.lastSeen != null ? b.lastSeen : 0L);
+            return Long.compare(lb, la);
+        });
+
+        if (getActivity() == null) return;
+        getActivity().runOnUiThread(() -> {
+            // Drop this result if a newer snapshot has already been
+            // dispatched — prevents an out-of-order background completion
+            // from briefly showing stale data (see contactsSyncSeq).
+            if (ticket != contactsSyncSeq.get()) return;
+            diffUpdateContacts(newList);
+            if (emptyState != null)
+                emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
+        });
     }
 
     private void enrichContactFromUsers(User u, String myUid) {

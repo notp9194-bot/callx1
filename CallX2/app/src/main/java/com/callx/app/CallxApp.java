@@ -225,6 +225,24 @@ public class CallxApp extends Application {
             // Firebase persistence already enabled synchronously above
             // (must run before any FirebaseDatabase.getInstance() call).
 
+            // PERF FIX: warm up Glide's singleton HERE, off the main thread,
+            // instead of letting it happen for free on the Chat List's first
+            // row bind. Glide.get(context) triggers the same one-time cost
+            // that used to land inside ChatListAdapter.onBindViewHolder()
+            // for whichever row bound first — GlideBuilder/registry setup,
+            // disk cache directory creation + journal open, memory cache
+            // allocation. That one-time tax was showing up as a real ~30ms
+            // outlier in the Chat List's row-bind p99 (see Ultra Advanced
+            // Diagnostics → Row Bind Cost). Doing it here means it's already
+            // paid for, on a background thread, by the time the user ever
+            // scrolls to the Chats tab.
+            try {
+                com.bumptech.glide.Glide.get(CallxApp.this);
+                Log.d(TAG, "Glide warm-up complete");
+            } catch (Exception e) {
+                Log.w(TAG, "Glide warm-up failed (will fall back to lazy init on first use): " + e.getMessage());
+            }
+
             // User photo URL Firebase listener
             cacheMyPhotoUrl();
 

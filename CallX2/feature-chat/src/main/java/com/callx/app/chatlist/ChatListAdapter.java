@@ -230,6 +230,9 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     private final Set<String> selectedUids = new HashSet<>();
 
     private static final String PAYLOAD_SELECTION = "payload_selection";
+    // PERF FIX: dedicated payload for special-request badge flips — see
+    // setSpecialRequestSenders() below.
+    private static final String PAYLOAD_SPECIAL = "payload_special";
 
     // v83: constructor no longer takes a List<User> — caller uses submitList().
     public ChatListAdapter(SelectionListener listener) {
@@ -278,9 +281,42 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         return uid != null ? uid.hashCode() : position;
     }
 
+    /**
+     * PERF FIX (root cause of a big chunk of the reported scroll jank /
+     * main-thread lag): this used to end with a blanket
+     * {@code notifyItemRangeChanged(0, getItemCount())} — NO payload — which
+     * forces every currently-attached row through the FULL
+     * {@code onBindViewHolder(h, pos)} path: a fresh Glide request per
+     * avatar, every click/long-click listener rebuilt, and (worst of all)
+     * cancelPendingBindWork() + a brand-new 180ms postDelayed typing-
+     * listener-attach/preload reschedule for EVERY visible row. This fires
+     * on every single "specialRequests" Firebase update — completely
+     * bypassing the partial-bind (payload) system the rest of this adapter
+     * was built around — so if it landed mid-fling it was real, synchronous
+     * main-thread work stacked on top of whatever the user was already
+     * scrolling through.
+     *
+     * Fix: diff the old vs. new sender set and only touch rows whose
+     * special-badge state actually FLIPPED, using the same lightweight
+     * partial-bind path selection already uses (applySelectionVisuals only —
+     * no avatar reload, no listener churn).
+     */
     public void setSpecialRequestSenders(Set<String> set) {
-        this.specialRequestSenders = set == null ? new HashSet<>() : set;
-        notifyItemRangeChanged(0, getItemCount());
+        Set<String> newSet = set == null ? new HashSet<>() : set;
+        Set<String> oldSet = this.specialRequestSenders;
+        if (oldSet.equals(newSet)) return; // nothing actually changed — skip entirely
+        this.specialRequestSenders = newSet;
+
+        List<User> list = differ.getCurrentList();
+        for (int i = 0; i < list.size(); i++) {
+            String uid = list.get(i).uid;
+            if (uid == null) continue;
+            boolean wasSpecial = oldSet.contains(uid);
+            boolean isSpecial  = newSet.contains(uid);
+            if (wasSpecial != isSpecial) {
+                notifyItemChanged(i, PAYLOAD_SPECIAL);
+            }
+        }
     }
 
     public void setOnAvatarClickListener(OnAvatarClickListener listener) {
@@ -319,8 +355,10 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     public void onBindViewHolder(@NonNull VH h, int pos, @NonNull List<Object> payloads) {
         if (payloads.isEmpty()) { onBindViewHolder(h, pos); return; }
 
-        // Selection mode is always a full applySelectionVisuals pass
-        if (payloads.contains(PAYLOAD_SELECTION)) {
+        // Selection mode / special-badge flip are both a lightweight
+        // applySelectionVisuals-only pass — no avatar reload, no listener
+        // rebuild, no typing-listener reschedule.
+        if (payloads.contains(PAYLOAD_SELECTION) || payloads.contains(PAYLOAD_SPECIAL)) {
             applySelectionVisuals(h, differ.getCurrentList().get(pos));
             return;
         }
@@ -395,8 +433,13 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         } else {
             h.ivAvatar.setImageResource(R.drawable.ic_person);
         }
-        // v85: pre-warm Glide decode for next contact so it's ready before the row scrolls in
-        preloadAdjacentAvatar(ctx, list, pos);
+        // v85: pre-warm Glide decode for next contact — DEFERRED below along
+        // with the typing listener (see BIND_SETTLE_DELAY_MS comment) instead
+        // of firing synchronously on every bind. Building a second Glide
+        // request on every single bind doubled Glide's main-thread request-
+        // build cost per row; deferring it means a row that just flashes
+        // past during a fast fling never pays this cost at all — only rows
+        // the user actually settles on do.
 
         StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
         boolean hasStory = u.uid != null && (scm.hasUnseen(u.uid) || scm.hasStatus(u.uid));
@@ -436,9 +479,11 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         // gets its typing listener + preload exactly as before.
         cancelPendingBindWork(h);
         final User boundUser = u;
+        final User nextUser = (pos + 1 < list.size()) ? list.get(pos + 1) : null;
         h.pendingBindRunnable = () -> {
             attachTypingListener(h, boundUser);
             preloadChatIfDue(ctx, boundUser);
+            preloadAdjacentAvatar(ctx, nextUser);
         };
         h.itemView.postDelayed(h.pendingBindRunnable, BIND_SETTLE_DELAY_MS);
 
@@ -565,13 +610,18 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
     /**
      * v85: Pre-warm Glide decode for the next contact's avatar so it is already
-     * in memory/disk-cache before that row scrolls into view. Only fires for
-     * pos+1 (one step ahead) and is a no-op if the URL is null/empty.
+     * in memory/disk-cache before that row scrolls into view.
+     *
+     * v91: Now called from the deferred BIND_SETTLE_DELAY_MS runnable (same
+     * settle-delay pattern as attachTypingListener/preloadChatIfDue) instead
+     * of synchronously on every bind — see the call site in
+     * onBindViewHolderTimed(). Takes the next User directly (captured at
+     * bind time) rather than (list, pos), since the adapter's list can be
+     * re-diffed during the 180ms settle window and a stale position would
+     * silently preload the wrong row.
      */
-    private void preloadAdjacentAvatar(Context ctx, List<User> list, int pos) {
-        int next = pos + 1;
-        if (next >= list.size()) return;
-        User adj = list.get(next);
+    private void preloadAdjacentAvatar(Context ctx, User adj) {
+        if (adj == null) return;
         String url = (adj.thumbUrl != null && !adj.thumbUrl.isEmpty())
                 ? adj.thumbUrl : adj.photoUrl;
         if (url == null || url.isEmpty()) return;
