@@ -141,16 +141,6 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     // placeholder" apart from "real data already showing", without changing
     // that guard's original intent.
     private boolean showingInstantSnapshotOnly = false;
-    // each call and fed into a LIMIT/OFFSET Room query. Plain OFFSET
-    // pagination breaks under concurrent writes (see ChatDao.getChatsPagedSync
-    // doc) — a row can permanently skip past the offset boundary and never
-    // get fetched. Replaced with a keyset cursor: the (lastMessageAt,
-    // chatId) of the LAST row actually rendered from Room, which is stable
-    // regardless of how many rows above it get inserted/reordered meanwhile.
-    // null == no page fetched from Room yet (first "load more" call).
-    private Long roomCursorTimestamp = null;
-    private String roomCursorChatId = null;
-    private ProgressBar pbLoadingMoreChats;
 
     // v93: scroll-ahead avatar preloading — warms Glide's disk cache for rows
     // just below the visible window (same override/format/transform signature
