@@ -164,16 +164,12 @@ public class MainActivity extends AppCompatActivity
 
         setSupportActionBar(binding.toolbar);
 
-          // ── X Module: animated entry button ─────────────────────────────────────
-          setupXEntryButton();
-          // ────────────────────────────────────────────────────────────────────────
-
-          // ── YouTube Module: animated entry button ─────────────────────────────
-          setupYouTubeEntryButton();
-
-          // ── Games Module: animated entry button ───────────────────────────────
-          setupGamesEntryButton();
-          // ────────────────────────────────────────────────────────────────────────
+          // v241: old toolbar X / YouTube / Games entry-strip buttons removed
+          // (setupXEntryButton() / setupYouTubeEntryButton() / setupGamesEntryButton()
+          // no longer called — those cards now live in the Chats tab quick-access
+          // header instead). YouTube's background notification worker still needs
+          // to run regardless of the button, so that one scheduling call is kept.
+          YouTubeNotificationWorker.schedule(this);
 
         binding.btnSearchToolbar.setOnClickListener(v -> {
             startActivity(new Intent(this, SearchActivity.class));

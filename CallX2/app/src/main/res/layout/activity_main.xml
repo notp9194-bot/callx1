@@ -82,29 +82,8 @@
                     app:civ_border_color="@color/brand_primary"/>
             </LinearLayout>
 
-            <include
-                android:id="@+id/include_x_entry"
-                layout="@layout/layout_x_entry_button"
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:layout_gravity="start"
-                android:layout_marginStart="4dp"/>
-
-            <include
-                android:id="@+id/include_yt_entry"
-                layout="@layout/layout_youtube_entry_button"
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:layout_gravity="start"
-                android:layout_marginStart="4dp"/>
-
-            <include
-                android:id="@+id/include_games_entry"
-                layout="@layout/layout_games_entry_button"
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:layout_gravity="start"
-                android:layout_marginStart="4dp"/>
+            <!-- v241: old toolbar X / YouTube / Games entry strips removed —
+                 replaced by the card-style quick-access row on the Chats tab. -->
         </androidx.appcompat.widget.Toolbar>
 
         <!-- ══ Feature 1: Return to Call Banner ══════════════════════════════
