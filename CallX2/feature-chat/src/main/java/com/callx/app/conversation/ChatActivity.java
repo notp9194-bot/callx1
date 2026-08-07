@@ -98,6 +98,7 @@ import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.models.Message;
 import com.callx.app.repository.ChatRepository;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.ChatIoExecutor;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.ChildEventListener;
@@ -112,8 +113,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * ChatActivity — 1:1 chat screen coordinator.
@@ -202,8 +201,42 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // sitting in memory (~1MB stack each) and competing for CPU scheduling
     // app-wide — degrading the chat LIST's scroll performance and every
     // later chat screen's load time too, not just this one. Typed as
-    // ExecutorService now so onDestroy() below can actually shut it down.
-    private final ExecutorService ioExecutor = Executors.newFixedThreadPool(4);
+    // WHATSAPP-STYLE FIX: was its own per-Activity `newFixedThreadPool(4)`,
+    // created in onCreate() and shutdown() in onDestroy(). Every chat opened
+    // and closed spun up and tore down 4 threads — wasteful, and the tear-down
+    // is exactly what caused the RejectedExecutionException crash fixed
+    // above (a delayed task racing onDestroy()'s shutdown() call). Now backed
+    // by ChatIoExecutor — one shared, app-lifetime pool reused by every
+    // ChatActivity/GroupChatActivity instance, same idiom as AppBgExecutor /
+    // UiCriticalReadExecutor elsewhere in the app. Never shut down by this
+    // Activity, so that whole crash class is structurally impossible now,
+    // not just guarded against.
+    private final Executor ioExecutor = ChatIoExecutor.get();
+
+    // NOTE (history): this fix originally guarded against
+    // ioExecutor.shutdown() racing a delayed post, which was the actual
+    // crash cause. ioExecutor is now ChatIoExecutor's shared, never-shut-down
+    // pool (see field above), so that specific race is gone structurally.
+    // Cancelling here is still worth doing — no point running
+    // pruneOldMessages/preloadRecentChats/controller inits for a screen the
+    // user already left — so this Handler + the removeCallbacksAndMessages()
+    // call in onDestroy() stay.
+    private final android.os.Handler deferredTaskHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+
+    // NOTE (history): originally a last-line-of-defense against
+    // RejectedExecutionException from a shut-down ioExecutor. ioExecutor is
+    // now a shared pool that's never shut down, so that specific exception
+    // can't happen here anymore — kept as a general safety net (Room/Firebase
+    // calls inside these tasks can still throw for other reasons, e.g. a
+    // detached DB after logout) rather than removed, since every call site
+    // already routes through it.
+    private void safeIoExecute(Runnable task) {
+        try {
+            ioExecutor.execute(task);
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // Task no longer matters — ignore instead of crashing.
+        }
+    }
 
     // ── Firebase ───────────────────────────────────────────────────────────
     private DatabaseReference  messagesRef;
@@ -653,7 +686,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         } else {
             // COLD PATH: pehli baar DB build ho rahi hai — background thread
             // zaroori hai taaki SQLCipher/migration I/O main thread block na kare.
-            ioExecutor.execute(() -> {
+            safeIoExecute(() -> {
                 db = AppDatabase.getInstance(this);
                 runOnUiThread(this::onDbReady);
             });
@@ -681,7 +714,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // accurate data NEXT time this chat is opened. Cheap indexed query
         // (DESC+LIMIT on chatId+timestamp index, see MessageDao), runs once
         // in the background and never touches the UI thread.
-        ioExecutor.execute(() -> {
+        safeIoExecute(() -> {
             if (db == null) return;
             java.util.List<MessageEntity> entities = db.messageDao().getLastMessagesAsc(chatId, 20);
             java.util.List<Message> models = new java.util.ArrayList<>(entities.size());
@@ -690,7 +723,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         });
 
         // Non-critical 300ms baad
-        binding.getRoot().postDelayed(() -> {
+        deferredTaskHandler.postDelayed(() -> {
             if (isFinishing() || isDestroyed()) return;
             playbackPresenceController.init();
             recordingPreviewController.init();
@@ -699,7 +732,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         }, 300);
 
         // Low-priority 600ms baad
-        binding.getRoot().postDelayed(() -> {
+        deferredTaskHandler.postDelayed(() -> {
             if (isFinishing() || isDestroyed()) return;
             pinController.init();
             scheduledSendController.init();
@@ -716,17 +749,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // messages visibly "reload" hote dikhte the. Ab yeh bhi 10s baad
         // chalega — jab tak user chat padh raha hota hai, list ko disturb
         // nahi karega.
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() ->
-            ioExecutor.execute(() -> {
+        deferredTaskHandler.postDelayed(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            safeIoExecute(() -> {
                 if (db != null) db.messageDao().pruneOldMessages(chatId, 500);
-            }), 10_000L
-        );
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-            this::scheduleExpiryCleanup, 10_000L
-        );
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() ->
-            ChatRepository.getInstance(this).preloadRecentChats(chatId), 3_000L
-        );
+            });
+        }, 10_000L);
+        deferredTaskHandler.postDelayed(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            scheduleExpiryCleanup();
+        }, 10_000L);
+        deferredTaskHandler.postDelayed(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            ChatRepository.getInstance(this).preloadRecentChats(chatId);
+        }, 3_000L);
     }
 
     @Override
@@ -1076,12 +1112,25 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // including on the Chat List screen's own diagnostics.
         if (mediaController != null) mediaController.destroy();
 
-        // PERF FIX: release this Activity's 4-thread ioExecutor. shutdown()
-        // (not shutdownNow()) lets any already-queued write/flush task
-        // finish instead of being killed mid-write, but stops the pool from
-        // sitting around forever accepting nothing — see field comment.
-        ioExecutor.shutdown();
+        // CRASH FIX (now belt-and-suspenders, not load-bearing): cancel every
+        // pending deferred post (pruneOldMessages, scheduleExpiryCleanup,
+        // preloadRecentChats, controller inits) so a destroyed Activity
+        // doesn't do pointless work after the user has left. ioExecutor is
+        // ChatIoExecutor's shared, app-lifetime pool now (see field comment)
+        // and is never shut down here, so a late callback can no longer
+        // crash with RejectedExecutionException the way it used to — this
+        // cleanup is purely about not wasting cycles on a dead screen.
+        deferredTaskHandler.removeCallbacksAndMessages(null);
+        writeFlushHandler.removeCallbacksAndMessages(null);
+
+        // WHATSAPP-STYLE FIX: ioExecutor.shutdown() removed. It used to live
+        // here (see old field comment) — this Activity's own pool was torn
+        // down on every close, which is exactly what raced deferred tasks
+        // and caused the RejectedExecutionException crash. ioExecutor is now
+        // ChatIoExecutor's shared pool, owned by the app process, not this
+        // Activity — nothing here should ever shut it down.
     }
+
 
     // ─────────────────────────────────────────────────────────────────────
     // ChatActivityDelegate IMPLEMENTATION
@@ -1315,13 +1364,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (db == null || chatId == null || binding == null) return;
         String draftText = binding.etMessage.getText() != null
                 ? binding.etMessage.getText().toString() : "";
-        ioExecutor.execute(() ->
+        safeIoExecute(() ->
                 db.chatDao().saveDraft(chatId, draftText));
     }
 
     private void restoreDraft() {
         if (db == null || chatId == null) return;
-        ioExecutor.execute(() -> {
+        safeIoExecute(() -> {
             String draft = db.chatDao().getDraft(chatId);
             if (draft != null && !draft.isEmpty()) {
                 runOnUiThread(() -> {
@@ -1342,7 +1391,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         expiryRunnable = new Runnable() {
             @Override public void run() {
                 if (db == null) return;
-                ioExecutor.execute(() -> {
+                safeIoExecute(() -> {
                     int deleted = db.messageDao().deleteExpiredMessages(System.currentTimeMillis());
                     if (deleted > 0) deleteExpiredFromFirebase();
                 });
@@ -2419,14 +2468,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // "har baar messages reload hote hain" wapas aane ka asli reason.
         // AppDatabase pehle se warm hai (app-start fix), seedha call karo —
         // koi gating ki zaroorat nahi.
-        ioExecutor.execute(() -> {
+        safeIoExecute(() -> {
             long lastTs = CacheManager.getInstance(this).getLastSyncTimestamp(chatId);
             runOnUiThread(() -> attachFirebaseListener(lastTs));
         });
     }
 
     private void startRealtimeListener() {
-        ioExecutor.execute(() -> {
+        safeIoExecute(() -> {
             long lastTs = CacheManager.getInstance(this).getLastSyncTimestamp(chatId);
             runOnUiThread(() -> attachFirebaseListener(lastTs));
         });
@@ -2649,7 +2698,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // entirely — see severPagingIfAtBottom()/reanchorPagingToBottom().
         boolean willReanchor = severPagingIfAtBottom();
 
-        ioExecutor.execute(() -> {
+        safeIoExecute(() -> {
             java.util.List<MessageEntity> entities = new java.util.ArrayList<>(upsertsSnapshot.size());
             for (Message m : upsertsSnapshot) entities.add(modelToEntity(m));
             db.messageDao().applyBufferedChanges(entities, removalsSnapshot, readSnapshot);
@@ -3022,7 +3071,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 if (presenceController != null) presenceController.clearOurTypingStatus();
                 if (liveTypingController != null) liveTypingController.clearOurPreview();
                 if (composeLinkPreview != null) composeLinkPreview.reset();
-                ioExecutor.execute(() -> {
+                safeIoExecute(() -> {
                     if (db != null && chatId != null) db.chatDao().saveDraft(chatId, "");
                 });
             });
@@ -3368,7 +3417,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         binding.etMessage.setText("");
         if (presenceController != null) presenceController.clearOurTypingStatus();
         if (liveTypingController != null) liveTypingController.clearOurPreview();
-        ioExecutor.execute(() -> {
+        safeIoExecute(() -> {
             if (db != null && chatId != null) db.chatDao().saveDraft(chatId, "");
         });
         Message m = buildOutgoing();
@@ -3856,11 +3905,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     "Delete for everyone", () -> {
                         messagesRef.child(m.id).child("deleted").setValue(true);
                         messagesRef.child(m.id).child("text").setValue("");
-                        ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
+                        safeIoExecute(() -> db.messageDao().softDelete(m.id));
                         LastMessagesCache.getInstance().removeMessage(chatId, m.id);
                     },
                     "Delete for me", () -> {
-                        ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
+                        safeIoExecute(() -> db.messageDao().softDelete(m.id));
                         LastMessagesCache.getInstance().removeMessage(chatId, m.id);
                     },
                     "Cancel");
@@ -3869,7 +3918,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     "delete_message_single_other", com.callx.app.utils.AlertDialogStyler.DialogSize.WIDE,
                     "Delete message", "Delete this message for you only?",
                     "Delete for me", () -> {
-                        ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
+                        safeIoExecute(() -> db.messageDao().softDelete(m.id));
                         LastMessagesCache.getInstance().removeMessage(chatId, m.id);
                     },
                     null, null,
@@ -4064,7 +4113,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                             messagesRef.child(m.id).child("deleted").setValue(true);
                             messagesRef.child(m.id).child("text").setValue("");
                             final String mid = m.id;
-                            ioExecutor.execute(() -> db.messageDao().softDelete(mid));
+                            safeIoExecute(() -> db.messageDao().softDelete(mid));
                             LastMessagesCache.getInstance().removeMessage(chatId, mid);
                         }
                         pagingAdapter.exitMultiSelectMode(); hideMultiSelectBar();
@@ -4072,7 +4121,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     "Delete for me", () -> {
                         for (Message m : sel) {
                             final String mid = m.id;
-                            ioExecutor.execute(() -> db.messageDao().softDelete(mid));
+                            safeIoExecute(() -> db.messageDao().softDelete(mid));
                             LastMessagesCache.getInstance().removeMessage(chatId, mid);
                         }
                         pagingAdapter.exitMultiSelectMode(); hideMultiSelectBar();
@@ -4292,7 +4341,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             MessageHighlightAnimator.scrollAndHighlight(binding.rvMessages, pos, binding.fabBackToLatest);
         } else {
             final String cId = chatId;
-            ioExecutor.execute(() -> {
+            safeIoExecute(() -> {
                 if (db == null || cId == null) {
                     runOnUiThread(() -> Toast.makeText(this, "Message not in view — scroll up to find it", Toast.LENGTH_SHORT).show());
                     return;
@@ -4748,7 +4797,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 "clear_chat", com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT,
                 "Clear chat?", "All messages will be deleted locally.",
                 "Clear", () -> {
-                    ioExecutor.execute(() -> db.messageDao().deleteAllForChat(chatId));
+                    safeIoExecute(() -> db.messageDao().deleteAllForChat(chatId));
                     CacheManager.getInstance(this).invalidateMessages(chatId);
                     Toast.makeText(this, "Chat cleared", Toast.LENGTH_SHORT).show();
                 },

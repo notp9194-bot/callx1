@@ -17,6 +17,21 @@
         android:title="⚡ Performance"
         app:showAsAction="never"/>
 
+    <!-- v251: X / YouTube / Games — moved here from the Chats tab quick-access
+         row (header_quick_access removed from fragment_chats.xml). -->
+    <item android:id="@+id/action_open_x"
+        android:title="𝕏 X"
+        app:showAsAction="never"/>
+
+    <item android:id="@+id/action_open_youtube"
+        android:title="▶️ YouTube"
+        app:showAsAction="never"/>
+
+    <item android:id="@+id/action_open_games"
+        android:title="🎮 Games"
+        app:showAsAction="never"/>
+
+
     <!-- Ultra Advanced Diagnostics — chat tab pe hi dikhega -->
     <item android:id="@+id/action_ultra_diagnostics"
         android:title="🔬 Ultra Advanced Diagnostics"

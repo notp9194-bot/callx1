@@ -1410,6 +1410,14 @@ public class MainActivity extends AppCompatActivity
         // "Ultra Advanced Diagnostics" sirf Chat tab pe visible ho
         android.view.MenuItem ultraDiag = menu.findItem(R.id.action_ultra_diagnostics);
         if (ultraDiag != null) ultraDiag.setVisible(pos == TAB_CHATS);
+        // v251: X / YouTube / Games — moved here from the Chats tab quick-access
+        // row, so sirf Chat tab pe hi visible ho (same as the row used to be).
+        android.view.MenuItem openX = menu.findItem(R.id.action_open_x);
+        if (openX != null) openX.setVisible(pos == TAB_CHATS);
+        android.view.MenuItem openYoutube = menu.findItem(R.id.action_open_youtube);
+        if (openYoutube != null) openYoutube.setVisible(pos == TAB_CHATS);
+        android.view.MenuItem openGames = menu.findItem(R.id.action_open_games);
+        if (openGames != null) openGames.setVisible(pos == TAB_CHATS);
         return super.onPrepareOptionsMenu(menu);
     }
 
@@ -1431,6 +1439,39 @@ public class MainActivity extends AppCompatActivity
 
         if (id == R.id.action_ultra_diagnostics) {
             startActivity(new Intent(this, UltraDiagnosticsActivity.class));
+            return true;
+        }
+
+        // v251: X / YouTube / Games — moved here from the Chats tab
+        // quick-access row (header_quick_access removed from
+        // fragment_chats.xml). Same target Activities the row used to open.
+        if (id == R.id.action_open_x) {
+            try {
+                startActivity(new Intent(this, com.callx.app.feed.XActivity.class));
+            } catch (Exception e) {
+                android.widget.Toast.makeText(this, "X not available",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            }
+            return true;
+        }
+
+        if (id == R.id.action_open_youtube) {
+            try {
+                startActivity(new Intent(this, com.callx.app.home.YouTubeActivity.class));
+            } catch (Exception e) {
+                android.widget.Toast.makeText(this, "YouTube not available",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            }
+            return true;
+        }
+
+        if (id == R.id.action_open_games) {
+            try {
+                startActivity(new Intent(this, com.callx.app.hub.GamesHubActivity.class));
+            } catch (Exception e) {
+                android.widget.Toast.makeText(this, "Games coming soon!",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            }
             return true;
         }
 

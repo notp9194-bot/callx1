@@ -19,7 +19,7 @@
             android:layout_height="?attr/actionBarSize"
             android:background="@color/transparent"
             app:title="CallX"
-            app:titleTextColor="@color/bar_on_background">
+            app:titleTextColor="?attr/colorOnSurface">
 
             <LinearLayout
                 android:layout_width="wrap_content"
@@ -34,7 +34,7 @@
                     android:layout_width="38dp"
                     android:layout_height="38dp"
                     android:src="@drawable/ic_search"
-                    android:tint="@color/bar_on_background"
+                    android:tint="?attr/colorOnSurface"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:layout_marginEnd="4dp"
                     android:contentDescription="Search"/>
@@ -51,7 +51,7 @@
                         android:layout_height="38dp"
                         android:layout_gravity="center"
                         android:src="@drawable/ic_notifications"
-                        android:tint="@color/bar_on_background"
+                        android:tint="?attr/colorOnSurface"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="Notifications"/>
 

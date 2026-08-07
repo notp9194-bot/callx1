@@ -60,8 +60,6 @@ import android.net.NetworkRequest;
 
 import java.util.*;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import com.callx.app.conversation.ChatActivity;
 import com.callx.app.conversation.controllers.ChatContactShareController;
 import com.callx.app.conversation.controllers.ChatLocationShareController;
@@ -113,9 +111,13 @@ public class GroupChatActivity extends AppCompatActivity
     // which has no shutdown() method — so even though this Activity has an
     // onDestroy(), there was no way to call shutdown on this field without a
     // cast, and nobody added one. Every GroupChatActivity opened+closed
-    // leaked 2 permanently-parked threads. Now typed as ExecutorService and
-    // shut down in onDestroy() below (see the `ioExecutor.shutdown()` call).
-    private final ExecutorService ioExecutor = Executors.newFixedThreadPool(2);
+    // WHATSAPP-STYLE FIX: was its own per-Activity `newFixedThreadPool(2)`,
+    // created fresh and shut down in onDestroy() every time this screen
+    // opened/closed. Now backed by ChatIoExecutor — the same shared,
+    // app-lifetime pool ChatActivity uses (see that class's field comment
+    // for the full RejectedExecutionException crash this fixes). Never shut
+    // down by this Activity anymore.
+    private final Executor ioExecutor = com.callx.app.utils.ChatIoExecutor.get();
 
     // ── Firebase refs ──────────────────────────────────────────────────────
     private DatabaseReference  groupMessagesRef;
@@ -649,11 +651,18 @@ public class GroupChatActivity extends AppCompatActivity
         if (groupScheduledController != null) groupScheduledController.release();
         editHistoryController = null;
 
-        // PERF FIX (thread leak): neither of these thread pools was ever
-        // shut down — ioExecutor (2 threads) and attachMediaExecutor
-        // (1 thread) stayed permanently alive after this Activity was
-        // destroyed. Every group chat opened+closed leaked 3 threads.
-        ioExecutor.shutdown();
+        // PERF FIX (thread leak): attachMediaExecutor (1 thread, scoped to
+        // this Activity's attach-media flow) still gets shut down here — it
+        // isn't shared, and shutdownNow() is safe for it since it's only
+        // ever used synchronously during an active attach-sheet interaction,
+        // not for delayed background posts.
+        //
+        // WHATSAPP-STYLE FIX: ioExecutor.shutdown() removed. ioExecutor is
+        // now ChatIoExecutor's shared, app-lifetime pool (see field comment)
+        // — the same one ChatActivity uses — and this Activity must not shut
+        // it down; doing so used to race delayed posts (see the 10s
+        // pruneOldMessages post in onDbReady()) and could crash with
+        // RejectedExecutionException.
         attachMediaExecutor.shutdownNow();
 
         super.onDestroy();
@@ -1236,10 +1245,12 @@ public class GroupChatActivity extends AppCompatActivity
         // thi har group chat open pe, jo messages table invalidate kar deti
         // thi aur Paging3 ko force-reload karaati thi — har baar visible
         // "reload" dikhta tha chahe data already cached ho. Ab 10s baad.
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() ->
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            if (isFinishing() || isDestroyed()) return;
             ioExecutor.execute(() -> {
                 if (db != null) db.messageDao().pruneOldMessages(groupId, 500);
-            }), 10_000L
+            });
+        }, 10_000L
         );
     }
 
