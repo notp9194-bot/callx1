@@ -120,10 +120,16 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     // (used only by the Firebase network backfill path — see
     // fetchOlderPageFromFirebase()).
     private Long oldestLoadedTimestamp = null;
-    // v96: Room-first pagination cursor — separate from oldestLoadedTimestamp.
-    // Starts at PAGE_SIZE because loadFromRoom() already consumed the Room
-    // rows at offset [0, PAGE_SIZE) for first paint.
-    private int roomPageOffset = PAGE_SIZE;
+    // v206 — EDGE-CASE FIX: was `int roomPageOffset`, advanced by PAGE_SIZE
+    // each call and fed into a LIMIT/OFFSET Room query. Plain OFFSET
+    // pagination breaks under concurrent writes (see ChatDao.getChatsPagedSync
+    // doc) — a row can permanently skip past the offset boundary and never
+    // get fetched. Replaced with a keyset cursor: the (lastMessageAt,
+    // chatId) of the LAST row actually rendered from Room, which is stable
+    // regardless of how many rows above it get inserted/reordered meanwhile.
+    // null == no page fetched from Room yet (first "load more" call).
+    private Long roomCursorTimestamp = null;
+    private String roomCursorChatId = null;
     private ProgressBar pbLoadingMoreChats;
 
     // v93: scroll-ahead avatar preloading — warms Glide's disk cache for rows
@@ -422,6 +428,50 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         }
     }
 
+    /**
+     * v208 — PERF FIX: batch-warm Glide's memory+disk cache for a whole page
+     * of avatars in one go, on the background thread that already loaded
+     * this page from Room — BEFORE the RecyclerView ever binds a single row.
+     *
+     * Previously the ONLY warming was preloadAdjacentAvatar() (v85), which
+     * fires per-row, one-ahead, from a 180ms-deferred runnable AFTER that
+     * row has already bound and rendered. That's fine for steady scrolling,
+     * but it means: first paint (loadFromRoom's initial PAGE_SIZE page) and
+     * every "load more" page's FIRST few visible rows always pay a real
+     * decode on first bind — the one-ahead preload literally cannot warm a
+     * row before it's shown, only the ones after it.
+     *
+     * Fix: as soon as a page of ChatEntity rows comes back from Room (still
+     * on the background thread — UiCriticalReadExecutor/AppBgExecutor, never
+     * the calling thread's problem), fire a Glide .preload() for every
+     * avatar in that page at once. By the time diffUpdateContacts() actually
+     * creates/binds the ViewHolders a few ms later (after the main-thread
+     * hop + AsyncListDiffer), most/all of these are already sitting in
+     * Glide's memory cache — onBindViewHolderTimed()'s .into() call becomes
+     * a cache hit instead of a decode. Uses the exact same URL resolution
+     * (resolveListAvatarUrl — thumb-only), size, format, and transform as
+     * the real bind, via ChatListAdapter's shared static helpers, so the
+     * cache key matches exactly and this warming isn't wasted.
+     *
+     * Safe to call off any background thread — Glide's .preload() does not
+     * touch a target View or need the main thread.
+     */
+    private void preloadAvatarsForPage(Context appCtx, List<User> page) {
+        if (page.isEmpty()) return;
+        int px = ChatListAdapter.getAvatarSizePx(appCtx);
+        for (User u : page) {
+            String url = ChatListAdapter.resolveListAvatarUrl(u);
+            if (url == null || url.isEmpty()) continue;
+            Glide.with(appCtx)
+                    .load(url)
+                    .override(px, px)
+                    .format(ChatListAdapter.AVATAR_FORMAT)
+                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+                    .apply(RequestOptions.circleCropTransform())
+                    .preload(px, px);
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Room se offline-first load
     // ─────────────────────────────────────────────────────────────
@@ -443,7 +493,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             // v92: only the first page — instant first paint, not the whole table.
             // Older cached chats page in the same way as fresh-from-network ones,
             // via loadMoreOlderContacts() as the user scrolls.
-            List<ChatEntity> cached = db.chatDao().getChatsPagedSync(PAGE_SIZE, 0);
+            List<ChatEntity> cached = db.chatDao().getChatsPagedSync(PAGE_SIZE);
             if (cached == null || cached.isEmpty()) return;
 
             List<User> roomUsers = new ArrayList<>();
@@ -451,6 +501,12 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 User u = entityToUser(e);
                 if (u != null) roomUsers.add(u);
             }
+            // v208: warm the avatar cache for this whole page BEFORE the
+            // main-thread hop — see preloadAvatarsForPage() doc.
+            preloadAvatarsForPage(appCtx, roomUsers);
+            // v206: seed the keyset cursor from the LAST row of this first
+            // page — loadMoreOlderContacts()'s first call reads from here.
+            ChatEntity lastRow = cached.get(cached.size() - 1);
 
             if (getActivity() != null) {
                 getActivity().runOnUiThread(() -> {
@@ -461,6 +517,12 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                         diffUpdateContacts(roomUsers);
                         if (emptyState != null)
                             emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
+                        // Only adopt this cursor if "load more" hasn't already
+                        // advanced it (e.g. a fast scroll during this async load).
+                        if (roomCursorTimestamp == null) {
+                            roomCursorTimestamp = lastRow.lastMessageAt;
+                            roomCursorChatId = lastRow.chatId;
+                        }
                     }
                 });
             }
@@ -745,23 +807,36 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         showLoadingMoreIndicator(true);
         String uid = FirebaseUtils.getCurrentUid();
         android.content.Context appCtx = getContext().getApplicationContext();
-        int offset = roomPageOffset;
+        // v206: snapshot the keyset cursor (last row actually rendered),
+        // not a numeric offset — see ChatDao.getChatsPagedSync doc.
+        Long cursorTs = roomCursorTimestamp;
+        String cursorChatId = roomCursorChatId;
 
         UiCriticalReadExecutor.execute(() -> {
             AppDatabase db = AppDatabase.getInstance(appCtx);
-            List<ChatEntity> cached = db.chatDao().getChatsPagedSync(PAGE_SIZE, offset);
+            List<ChatEntity> cached = (cursorTs != null && cursorChatId != null)
+                    ? db.chatDao().getChatsPagedSync(cursorTs, cursorChatId, PAGE_SIZE)
+                    : db.chatDao().getChatsPagedSync(PAGE_SIZE);
             List<User> roomPage = new ArrayList<>();
             for (ChatEntity e : cached) {
                 User u = entityToUser(e);
                 if (u != null) roomPage.add(u);
             }
+            // v208: warm the avatar cache for this page before the main-thread
+            // hop — same as loadFromRoom(), so "load more" scrolling gets the
+            // same instant-avatar benefit as first paint.
+            preloadAvatarsForPage(appCtx, roomPage);
 
             if (getActivity() == null) return;
             getActivity().runOnUiThread(() -> {
                 boolean roomWasCacheMiss = roomPage.isEmpty();
                 if (!roomWasCacheMiss) {
                     // Room served the page instantly — done, no network wait.
-                    roomPageOffset = offset + roomPage.size();
+                    // Advance the cursor to THIS page's last row (not a count),
+                    // so the next call is immune to any reordering above it.
+                    ChatEntity lastRow = cached.get(cached.size() - 1);
+                    roomCursorTimestamp = lastRow.lastMessageAt;
+                    roomCursorChatId = lastRow.chatId;
                     mergeOlderPage(roomPage);
                     isLoadingMoreChats = false;
                     showLoadingMoreIndicator(false);

@@ -433,11 +433,19 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         h.nameTimeView.setTime((when != null && when > 0)
                 ? ChatListTimeCache.getFormatted(when) : "");
 
-        // v90: Avatar — HARDWARE bitmap on API 26+ (GPU-resident, zero CPU→GPU upload per
-        // frame) or RGB_565 on API < 26.  Glide applies circleCrop on a software bitmap
-        // first, then promotes the result to Bitmap.Config.HARDWARE before caching.
-        String avatarUrl = (u.thumbUrl != null && !u.thumbUrl.isEmpty())
-                ? u.thumbUrl : u.photoUrl;
+        // v208 — PERF FIX: thumb-only policy for the chat list. Was
+        // `thumbUrl != null ? thumbUrl : photoUrl` — if thumbUrl was ever
+        // missing (older cached rows, sync gap) this silently fell back to
+        // decoding the FULL-resolution profile photo just to show it at
+        // 50dp. A full photo can be 10-50x the pixel data of the 100×100
+        // WebP thumb — same decode+downsample+circleCrop cost paid for a
+        // list row as for the full profile view, purely because the thumb
+        // happened to be absent for that one row. WhatsApp's list never
+        // touches the full-res image at all; a missing thumb is a
+        // placeholder, not a promotion to full-res. Full photoUrl is loaded
+        // ONLY where it's actually needed at full size — profile open,
+        // avatar zoom (see showAvatarZoom below) — never in this row bind.
+        String avatarUrl = resolveListAvatarUrl(u);
         int avatarPx = getAvatarSizePx(ctx);
         if (avatarUrl != null && !avatarUrl.isEmpty()) {
             Glide.with(ctx)
@@ -688,10 +696,39 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
      * re-diffed during the 180ms settle window and a stale position would
      * silently preload the wrong row.
      */
+    /**
+     * v208 — single source of truth for "which URL does the CHAT LIST show
+     * for this contact's avatar". Thumb-only, by design (see call site doc
+     * in onBindViewHolderTimed): never falls back to the full-res photoUrl,
+     * a missing thumb means placeholder, not a full-res decode. Package-
+     * visible + static so ChatsFragment's Room-load batch preloader (see
+     * ChatsFragment#preloadAvatarsForPage) resolves the EXACT same URL this
+     * adapter will bind — otherwise the preload would warm the wrong Glide
+     * cache key and bind time would still pay for a fresh decode.
+     */
+    static String resolveListAvatarUrl(User u) {
+        return (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : null;
+    }
+
+    /**
+     * v85: Pre-warm Glide decode for the next contact's avatar so it is already
+     * in memory/disk-cache before that row scrolls into view.
+     *
+     * v91: Now called from the deferred BIND_SETTLE_DELAY_MS runnable (same
+     * settle-delay pattern as attachTypingListener/preloadChatIfDue) instead
+     * of synchronously on every bind — see the call site in
+     * onBindViewHolderTimed(). Takes the next User directly (captured at
+     * bind time) rather than (list, pos), since the adapter's list can be
+     * re-diffed during the 180ms settle window and a stale position would
+     * silently preload the wrong row.
+     *
+     * v208: uses resolveListAvatarUrl() — thumb-only, same as the actual
+     * bind — so this never wastefully preloads a full-res photo that
+     * onBindViewHolderTimed() was never going to load anyway.
+     */
     private void preloadAdjacentAvatar(Context ctx, User adj) {
         if (adj == null) return;
-        String url = (adj.thumbUrl != null && !adj.thumbUrl.isEmpty())
-                ? adj.thumbUrl : adj.photoUrl;
+        String url = resolveListAvatarUrl(adj);
         if (url == null || url.isEmpty()) return;
         int px = getAvatarSizePx(ctx);
         Glide.with(ctx)

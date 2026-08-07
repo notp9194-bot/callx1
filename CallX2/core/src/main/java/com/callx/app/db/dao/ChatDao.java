@@ -36,13 +36,48 @@ public interface ChatDao {
     List<ChatEntity> getAllChatsSync();
 
     /**
-     * v92: paginated read for the Chat List's "load more on scroll" flow —
-     * WhatsApp-style local-DB-first pagination. Keeps first-paint + scroll
-     * work bounded to one page's worth of rows even if thousands of chats
-     * are cached, instead of inflating/diffing the entire table at once.
+     * v92: first-page read for the Chat List — instant first paint. Kept
+     * OFFSET-free (offset always 0 here) so it's fine as-is; only the
+     * "load more" continuation needs a stable cursor (see
+     * getChatsPagedSync below for why).
      */
-    @Query("SELECT * FROM chats WHERE archived = 0 OR archived IS NULL ORDER BY lastMessageAt DESC LIMIT :limit OFFSET :offset")
-    List<ChatEntity> getChatsPagedSync(int limit, int offset);
+    @Query("SELECT * FROM chats WHERE archived = 0 OR archived IS NULL ORDER BY lastMessageAt DESC, chatId DESC LIMIT :limit")
+    List<ChatEntity> getChatsPagedSync(int limit);
+
+    /**
+     * v206 — EDGE-CASE FIX: "load more" used to be `... ORDER BY
+     * lastMessageAt DESC LIMIT :limit OFFSET :offset`, with `offset`
+     * advanced by the caller after each page (roomPageOffset). Plain
+     * OFFSET pagination is NOT stable under concurrent writes: this table
+     * is being upserted live (Firebase delta sync, message sends) while
+     * the user scrolls. If any chat's `lastMessageAt` changes — or a new
+     * chat is inserted — such that it now sorts ABOVE the current offset
+     * boundary, every row's numeric position downstream shifts by one.
+     * The next OFFSET-based page then silently re-fetches one row it
+     * already showed (duplicate, caught by mergeOlderPage's uid dedupe —
+     * harmless) OR, worse, skips exactly one row that shifted out from
+     * under the old offset and is never fetched again for this session
+     * (permanent gap — NOT caught by dedupe, since a row that's never
+     * fetched can't be deduped).
+     *
+     * Fix: keyset/cursor pagination, same idiom already used for the
+     * Firebase backfill path (oldestLoadedTimestamp). Instead of "skip N
+     * rows", this asks for "rows strictly after the last row I actually
+     * saw", using that row's own (lastMessageAt, chatId) as the boundary.
+     * That boundary is stable regardless of how many rows above it get
+     * inserted/updated/reordered in the meantime — a row can only be
+     * skipped or duplicated here if its OWN (lastMessageAt, chatId) pair
+     * changes between pages, which the composite tiebreaker (chatId is
+     * immutable per chat) makes effectively impossible.
+     *
+     * cursorTs/cursorChatId should be the (lastMessageAt, chatId) of the
+     * LAST row from the previously loaded page — null cursorTs means "no
+     * cursor yet", handled by the caller via getChatsPagedSync(limit).
+     */
+    @Query("SELECT * FROM chats WHERE (archived = 0 OR archived IS NULL) " +
+           "AND (lastMessageAt < :cursorTs OR (lastMessageAt = :cursorTs AND chatId < :cursorChatId)) " +
+           "ORDER BY lastMessageAt DESC, chatId DESC LIMIT :limit")
+    List<ChatEntity> getChatsPagedSync(long cursorTs, String cursorChatId, int limit);
 
     @Query("SELECT * FROM chats WHERE chatId = :chatId LIMIT 1")
     ChatEntity getChat(String chatId);

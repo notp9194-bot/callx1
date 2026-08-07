@@ -587,6 +587,24 @@ public abstract class AppDatabase extends RoomDatabase {
                                     ctx.getApplicationContext(),
                                     AppDatabase.class,
                                     "callx_database")
+                            // v207 — PERF FIX: WAL explicitly forced instead of
+                            // relying on Room's default JournalMode.AUTOMATIC.
+                            // AUTOMATIC silently falls back to TRUNCATE mode on
+                            // low-RAM devices — and TRUNCATE mode makes readers
+                            // BLOCK behind an in-progress writer transaction.
+                            // That's a direct hit on this app's exact hot path:
+                            // ChatsFragment's Room reads (first paint, load-more,
+                            // UiCriticalReadExecutor) can land at the same moment
+                            // as a Firebase-delta insertChats() write on
+                            // AppBgExecutor. Under TRUNCATE that read would stall
+                            // until the write's transaction commits; under WAL,
+                            // readers and a writer run concurrently — the read
+                            // sees the last-committed snapshot and returns
+                            // immediately. This is exactly why WhatsApp's own
+                            // SQLite layer always runs in WAL mode. Forcing it
+                            // here removes the low-RAM-device fallback as a
+                            // source of intermittent chat-list jank.
+                            .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                             .addMigrations(
                                     MIGRATION_30_31, MIGRATION_31_32,
                                     MIGRATION_32_33, MIGRATION_33_34,
