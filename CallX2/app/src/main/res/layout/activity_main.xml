@@ -16,43 +16,96 @@
         <androidx.appcompat.widget.Toolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
+            android:layout_height="68dp"
             android:background="@color/transparent"
-            app:title="CallX"
+            app:contentInsetStart="16dp"
+            app:contentInsetEnd="12dp"
             app:titleTextColor="@color/bar_on_background">
 
+            <!-- Brand block: app icon + "CallX" + tagline (replaces plain app:title) -->
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="end"
+                android:layout_gravity="start|center_vertical"
                 android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginEnd="8dp">
+                android:gravity="center_vertical">
+
+                <ImageView
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@mipmap/ic_launcher_round"
+                    android:contentDescription="CallX"/>
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginStart="10dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="CallX"
+                        android:textColor="@color/text_primary"
+                        android:textSize="20sp"
+                        android:textStyle="bold"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Chat • Connect • Share"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Action icons: search, new chat, notifications, avatar -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end|center_vertical"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
                 <ImageButton
                     android:id="@+id/btn_search_toolbar"
                     android:layout_width="38dp"
                     android:layout_height="38dp"
+                    android:padding="8dp"
                     android:src="@drawable/ic_search"
-                    android:tint="@color/bar_on_background"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:layout_marginEnd="4dp"
+                    android:tint="@color/text_primary"
+                    android:background="@drawable/bg_circle_white"
+                    android:layout_marginEnd="8dp"
                     android:contentDescription="Search"/>
+
+                <!-- New: quick "start new chat" entry point (same destination as the
+                     Chats-tab FAB) — additive, doesn't replace any existing action. -->
+                <ImageButton
+                    android:id="@+id/btn_add_contact_toolbar"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_person_add"
+                    android:tint="@color/text_primary"
+                    android:background="@drawable/bg_circle_white"
+                    android:layout_marginEnd="8dp"
+                    android:contentDescription="New chat"/>
 
                 <!-- Notification bell with badge -->
                 <FrameLayout
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:layout_marginEnd="4dp">
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:layout_marginEnd="10dp">
 
                     <ImageButton
                         android:id="@+id/btn_notifications_toolbar"
                         android:layout_width="38dp"
                         android:layout_height="38dp"
+                        android:padding="8dp"
                         android:layout_gravity="center"
                         android:src="@drawable/ic_notifications"
-                        android:tint="@color/bar_on_background"
-                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:tint="@color/text_primary"
+                        android:background="@drawable/bg_circle_white"
                         android:contentDescription="Notifications"/>
 
                     <TextView
@@ -73,39 +126,145 @@
                         android:visibility="gone"/>
                 </FrameLayout>
 
-                <de.hdodenhof.circleimageview.CircleImageView
-                    android:id="@+id/iv_avatar_menu"
-                    android:layout_width="38dp"
-                    android:layout_height="38dp"
-                    android:src="@drawable/ic_person"
-                    app:civ_border_width="2dp"
-                    app:civ_border_color="@color/brand_primary"/>
+                <FrameLayout
+                    android:layout_width="40dp"
+                    android:layout_height="40dp">
+
+                    <de.hdodenhof.circleimageview.CircleImageView
+                        android:id="@+id/iv_avatar_menu"
+                        android:layout_width="38dp"
+                        android:layout_height="38dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_person"
+                        app:civ_border_width="2dp"
+                        app:civ_border_color="@color/brand_primary"/>
+
+                    <View
+                        android:layout_width="11dp"
+                        android:layout_height="11dp"
+                        android:layout_gravity="bottom|end"
+                        android:background="@drawable/bg_online_dot"/>
+                </FrameLayout>
             </LinearLayout>
-
-            <include
-                android:id="@+id/include_x_entry"
-                layout="@layout/layout_x_entry_button"
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:layout_gravity="start"
-                android:layout_marginStart="4dp"/>
-
-            <include
-                android:id="@+id/include_yt_entry"
-                layout="@layout/layout_youtube_entry_button"
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:layout_gravity="start"
-                android:layout_marginStart="4dp"/>
-
-            <include
-                android:id="@+id/include_games_entry"
-                layout="@layout/layout_games_entry_button"
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:layout_gravity="start"
-                android:layout_marginStart="4dp"/>
         </androidx.appcompat.widget.Toolbar>
+
+        <!-- ══ Modern quick-action row ═══════════════════════════════════════
+             WhatsApp/Instagram-style story cards: Add story, then the existing
+             X / YouTube / Games module entry points (same avatars, badges and
+             slide-in animation logic as before — only their layouts were
+             restyled into cards), plus a new "My status" shortcut.
+        ════════════════════════════════════════════════════════════════════ -->
+        <HorizontalScrollView
+            android:id="@+id/hsv_quick_actions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:overScrollMode="never"
+            android:paddingTop="6dp"
+            android:paddingBottom="10dp"
+            android:clipToPadding="false">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingEnd="8dp">
+
+                <!-- Add story -->
+                <LinearLayout
+                    android:id="@+id/card_add_story"
+                    android:layout_width="76dp"
+                    android:layout_height="94dp"
+                    android:layout_marginEnd="10dp"
+                    android:orientation="vertical"
+                    android:gravity="center_horizontal"
+                    android:paddingTop="14dp"
+                    android:paddingBottom="10dp"
+                    android:background="@drawable/bg_quickaction_card"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground">
+
+                    <FrameLayout
+                        android:layout_width="52dp"
+                        android:layout_height="52dp">
+
+                        <View
+                            android:layout_width="52dp"
+                            android:layout_height="52dp"
+                            android:background="@drawable/bg_add_story_dashed"/>
+
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_status_add"
+                            android:tint="@color/brand_primary"/>
+                    </FrameLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="Add story"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_primary"
+                        android:maxLines="1"/>
+                </LinearLayout>
+
+                <!-- X module entry — logic unchanged, view now rendered as a card -->
+                <include
+                    android:id="@+id/include_x_entry"
+                    layout="@layout/layout_x_entry_button"/>
+
+                <!-- YouTube module entry — logic unchanged, view now rendered as a card -->
+                <include
+                    android:id="@+id/include_yt_entry"
+                    layout="@layout/layout_youtube_entry_button"/>
+
+                <!-- My status -->
+                <LinearLayout
+                    android:id="@+id/card_my_status"
+                    android:layout_width="76dp"
+                    android:layout_height="94dp"
+                    android:layout_marginEnd="10dp"
+                    android:orientation="vertical"
+                    android:gravity="center_horizontal"
+                    android:paddingTop="14dp"
+                    android:paddingBottom="10dp"
+                    android:background="@drawable/bg_quickaction_card"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground">
+
+                    <de.hdodenhof.circleimageview.CircleImageView
+                        android:id="@+id/iv_my_status_avatar"
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:src="@drawable/ic_person"
+                        app:civ_border_width="2.5dp"
+                        app:civ_border_color="@color/brand_primary"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="My status"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_primary"
+                        android:maxLines="1"/>
+                </LinearLayout>
+
+                <!-- Games module entry — logic unchanged, view now rendered as a card -->
+                <include
+                    android:id="@+id/include_games_entry"
+                    layout="@layout/layout_games_entry_button"/>
+
+            </LinearLayout>
+        </HorizontalScrollView>
 
         <!-- ══ Feature 1: Return to Call Banner ══════════════════════════════
              WhatsApp-style green strip jo tab dikhta hai jab call chal rahi ho
@@ -174,7 +333,7 @@
         android:id="@+id/view_pager"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginTop="56dp"
+        android:layout_marginTop="184dp"
         android:layout_marginBottom="58dp"/>
 
     <!-- Bottom nav -->

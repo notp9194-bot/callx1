@@ -1,78 +1,101 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Games Entry Button — animated strip that slides out from the avatar in CallX header.
-  Same pattern as layout_x_entry_button.xml and layout_youtube_entry_button.xml.
-  Purple strip with gamepad emoji slides out on first load.
+  Games Entry Button — now rendered as a quick-action card (icon circle +
+  label), matching the other cards in the header row. Same view IDs as before
+  (iv_games_entry_avatar / ll_games_entry_strip / tv_games_entry_badge /
+  tv_games_entry_icon) so MainActivity's existing avatar-load and
+  slide-in-animation logic keeps working unchanged.
 -->
 <FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/games_entry_root"
-    android:layout_width="wrap_content"
-    android:layout_height="44dp"
-    android:layout_marginStart="8dp">
+    android:layout_width="76dp"
+    android:layout_height="94dp"
+    android:layout_marginEnd="10dp"
+    android:background="@drawable/bg_quickaction_card"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="?attr/selectableItemBackground">
 
-    <!-- Avatar circle — user's main profile avatar (same as app profile) -->
-    <de.hdodenhof.circleimageview.CircleImageView
-        android:id="@+id/iv_games_entry_avatar"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
-        android:layout_gravity="center_vertical|start"
-        android:elevation="4dp"
-        android:src="@drawable/ic_games_back"
-        app:civ_border_width="2dp"
-        app:civ_border_color="#6C3CF7"/>
-
-    <!--
-      Animated purple strip — slides RIGHT from behind avatar.
-      Initially translationX = -200f → animates to 0.
-    -->
     <LinearLayout
-        android:id="@+id/ll_games_entry_strip"
-        android:layout_width="wrap_content"
-        android:layout_height="28dp"
-        android:layout_gravity="center_vertical"
-        android:layout_marginStart="18dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:background="@drawable/bg_games_entry_stripe"
-        android:paddingStart="20dp"
-        android:paddingEnd="8dp"
-        android:elevation="2dp"
-        android:clipToPadding="false">
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:paddingTop="14dp"
+        android:paddingBottom="10dp">
 
-        <!-- Gamepad emoji as text icon (no extra drawable needed) -->
+        <FrameLayout
+            android:layout_width="52dp"
+            android:layout_height="52dp">
+
+            <!-- Purple brand circle with the gamepad icon -->
+            <View
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_circle_games_brand"/>
+
+            <TextView
+                android:id="@+id/tv_games_entry_icon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="🎮"
+                android:textSize="22sp"/>
+
+            <!--
+              Animated element — previously slid the strip out; now wraps the
+              small profile-avatar preview badge and still gets the same
+              translationX slide-in on load.
+            -->
+            <FrameLayout
+                android:id="@+id/ll_games_entry_strip"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="bottom|end">
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_games_entry_avatar"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:elevation="4dp"
+                    android:src="@drawable/ic_games_back"
+                    app:civ_border_width="2dp"
+                    app:civ_border_color="@android:color/white"/>
+            </FrameLayout>
+
+            <!-- Badge — reserved for future use (new games / active count) -->
+            <TextView
+                android:id="@+id/tv_games_entry_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|end"
+                android:layout_marginEnd="-4dp"
+                android:layout_marginTop="-4dp"
+                android:minWidth="16dp"
+                android:minHeight="16dp"
+                android:paddingStart="3dp"
+                android:paddingEnd="3dp"
+                android:paddingTop="1dp"
+                android:paddingBottom="1dp"
+                android:textColor="#FFFFFF"
+                android:textSize="8sp"
+                android:gravity="center"
+                android:elevation="6dp"
+                android:background="@drawable/bg_games_entry_stripe"
+                android:visibility="gone"/>
+        </FrameLayout>
+
         <TextView
-            android:id="@+id/tv_games_entry_icon"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="🎮"
-            android:textSize="14sp"/>
-
+            android:layout_marginTop="6dp"
+            android:text="Games"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:maxLines="1"/>
     </LinearLayout>
-
-    <!--
-      Badge — could show active game count / new games in future.
-      Currently hidden, reserved for future use.
-    -->
-    <TextView
-        android:id="@+id/tv_games_entry_badge"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|start"
-        android:layout_marginStart="34dp"
-        android:layout_marginTop="2dp"
-        android:minWidth="14dp"
-        android:minHeight="14dp"
-        android:paddingStart="3dp"
-        android:paddingEnd="3dp"
-        android:paddingTop="1dp"
-        android:paddingBottom="1dp"
-        android:textColor="#FFFFFF"
-        android:textSize="8sp"
-        android:gravity="center"
-        android:elevation="6dp"
-        android:background="@drawable/bg_games_entry_stripe"
-        android:visibility="gone"/>
 
 </FrameLayout>

@@ -190,6 +190,20 @@ public class MainActivity extends AppCompatActivity
             overridePendingTransition(0, 0); // Tab switch — instant 0ms
         });
 
+        // ── Header redesign: new quick-action row (Add story / My status) ──────
+        // "New chat" header icon — same destination as the Chats-tab FAB.
+        binding.btnAddContactToolbar.setOnClickListener(v ->
+            startActivity(new Intent(this, SearchActivity.class)));
+
+        // "Add story" card — opens the same status-composer as the Status tab FAB.
+        binding.cardAddStory.setOnClickListener(v ->
+            startActivity(new Intent(this, NewStatusActivity.class)));
+
+        // "My status" card — jumps straight to the Status tab.
+        binding.cardMyStatus.setOnClickListener(v ->
+            binding.viewPager.setCurrentItem(TAB_STATUS));
+        // ─────────────────────────────────────────────────────────────────────
+
         binding.viewPager.setAdapter(new ViewPagerAdapter(this));
         // FIX #LAZY: offscreenPageLimit 2 → 1 kiya gaya.
         // Pehle: Tab 0 open hone par Tab 1 + Tab 2 dono immediately load hote the.
@@ -670,12 +684,19 @@ public class MainActivity extends AppCompatActivity
                 if (name  != null) myName     = name;
                 if (photo != null) myPhotoUrl = photo;
                 String avatarUrl = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-                if (avatarUrl != null && !avatarUrl.isEmpty())
+                if (avatarUrl != null && !avatarUrl.isEmpty()) {
                     Glide.with(MainActivity.this).load(avatarUrl)
                         .apply(RequestOptions.circleCropTransform())
                         .placeholder(R.drawable.ic_person).error(R.drawable.ic_person)
                     .override(96, 96)
                         .into(binding.ivAvatarMenu);
+                    // Same avatar into the header's "My status" quick-action card.
+                    Glide.with(MainActivity.this).load(avatarUrl)
+                        .apply(RequestOptions.circleCropTransform())
+                        .placeholder(R.drawable.ic_person).error(R.drawable.ic_person)
+                        .override(96, 96)
+                        .into(binding.ivMyStatusAvatar);
+                }
             }
             @Override public void onCancelled(DatabaseError e) {}
         });

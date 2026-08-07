@@ -1,82 +1,102 @@
 <?xml version="1.0" encoding="utf-8"?>
-  <!--
-    X Entry Button — animated strip that slides out from the avatar.
-    Embed this in the Toolbar's left side (after the "CallX2" title).
-    The strip slides out on first load with a translationX animation.
-  -->
-  <FrameLayout
-      xmlns:android="http://schemas.android.com/apk/res/android"
-      xmlns:app="http://schemas.android.com/apk/res-auto"
-      android:id="@+id/x_entry_root"
-      android:layout_width="wrap_content"
-      android:layout_height="44dp"
-      android:layout_marginStart="8dp">
+<!--
+  X Entry Button — now rendered as a quick-action card (icon circle + label),
+  matching the other cards in the header row. Same view IDs as before
+  (iv_x_entry_avatar / ll_x_entry_strip / tv_x_entry_badge) so MainActivity's
+  existing avatar-load / badge / slide-in-animation logic keeps working
+  unchanged.
+-->
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/x_entry_root"
+    android:layout_width="76dp"
+    android:layout_height="94dp"
+    android:layout_marginEnd="10dp"
+    android:background="@drawable/bg_quickaction_card"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="?attr/selectableItemBackground">
 
-      <!--
-        Avatar — user/content avatar circle.
-        Sits on top of the strip (z-order: avatar covers left end of strip).
-      -->
-      <de.hdodenhof.circleimageview.CircleImageView
-          android:id="@+id/iv_x_entry_avatar"
-          android:layout_width="36dp"
-          android:layout_height="36dp"
-          android:layout_gravity="center_vertical|start"
-          android:elevation="4dp"
-          android:src="@drawable/ic_person"
-          app:civ_border_width="2dp"
-          app:civ_border_color="@color/brand_primary"/>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:paddingTop="14dp"
+        android:paddingBottom="10dp">
 
-      <!--
-        Animated strip — slides RIGHT from behind the avatar.
-        Initially translationX = -80dp (hidden behind avatar), animates to 0.
-      -->
-      <LinearLayout
-          android:id="@+id/ll_x_entry_strip"
-          android:layout_width="wrap_content"
-          android:layout_height="28dp"
-          android:layout_gravity="center_vertical"
-          android:layout_marginStart="18dp"
-          android:orientation="horizontal"
-          android:gravity="center_vertical"
-          android:background="@color/x_entry_stripe_bg"
-          android:paddingStart="20dp"
-          android:paddingEnd="8dp"
-          android:elevation="2dp"
-          android:clipToPadding="false">
+        <FrameLayout
+            android:layout_width="52dp"
+            android:layout_height="52dp">
 
-          <!-- X logo icon -->
-          <ImageView
-              android:id="@+id/iv_x_entry_icon"
-              android:layout_width="16dp"
-              android:layout_height="16dp"
-              android:src="@drawable/ic_x_logo"
-              android:contentDescription="X"
-              android:tint="@android:color/white"/>
+            <!-- Black brand circle with the X logo -->
+            <View
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_circle_x_brand"/>
 
-      </LinearLayout>
+            <ImageView
+                android:id="@+id/iv_x_entry_icon"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_x_logo"
+                android:contentDescription="X"
+                android:tint="@android:color/white"/>
 
-      <!--
-        Badge — shows unread X notification count.
-        Positioned at top-right of the X icon inside the strip.
-      -->
-      <TextView
-          android:id="@+id/tv_x_entry_badge"
-          android:layout_width="wrap_content"
-          android:layout_height="wrap_content"
-          android:layout_gravity="top|start"
-          android:layout_marginStart="34dp"
-          android:layout_marginTop="2dp"
-          android:minWidth="14dp"
-          android:minHeight="14dp"
-          android:paddingStart="3dp"
-          android:paddingEnd="3dp"
-          android:paddingTop="1dp"
-          android:paddingBottom="1dp"
-          android:textColor="#FFFFFF"
-          android:textSize="8sp"
-          android:gravity="center"
-          android:elevation="6dp"
-          android:background="@drawable/bg_x_notif_badge"
-          android:visibility="gone"/>
+            <!--
+              Animated element — previously slid the strip out; now wraps the
+              small profile-avatar preview badge and still gets the same
+              translationX slide-in on load.
+            -->
+            <FrameLayout
+                android:id="@+id/ll_x_entry_strip"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="bottom|end">
 
-  </FrameLayout>
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_x_entry_avatar"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:elevation="4dp"
+                    android:src="@drawable/ic_person"
+                    app:civ_border_width="2dp"
+                    app:civ_border_color="@android:color/white"/>
+            </FrameLayout>
+
+            <!-- Badge — shows unread X notification count -->
+            <TextView
+                android:id="@+id/tv_x_entry_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|end"
+                android:layout_marginEnd="-4dp"
+                android:layout_marginTop="-4dp"
+                android:minWidth="16dp"
+                android:minHeight="16dp"
+                android:paddingStart="3dp"
+                android:paddingEnd="3dp"
+                android:paddingTop="1dp"
+                android:paddingBottom="1dp"
+                android:textColor="#FFFFFF"
+                android:textSize="8sp"
+                android:gravity="center"
+                android:elevation="6dp"
+                android:background="@drawable/bg_x_notif_badge"
+                android:visibility="gone"/>
+        </FrameLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="X"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:maxLines="1"/>
+    </LinearLayout>
+
+</FrameLayout>
