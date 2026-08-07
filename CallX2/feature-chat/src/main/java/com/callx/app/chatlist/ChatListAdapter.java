@@ -615,16 +615,23 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         boolean selected  = u.uid != null && selectedUids.contains(u.uid);
         boolean isSpecial = u.uid != null && specialRequestSenders.contains(u.uid);
 
+        // FIX: name/time were hardcoded to a near-black literal (0xFF0F172A)
+        // regardless of theme — invisible against the dark-mode row
+        // background (@color/surface_card resolves to near-black at night).
+        // Both now resolve from theme-aware resources every bind, same as
+        // lastMsgColor below, so the row is readable in both light and dark.
+        h.nameTimeView.setTimeColor(ctx.getResources().getColor(R.color.text_muted));
+
         long unread = u.unread == null ? 0 : u.unread;
         int lastMsgColor;
         if (unread > 0 && !isSelecting) {
             h.unreadBadgeView.setBadgeCount(unread);
             lastMsgColor = ctx.getResources().getColor(R.color.text_primary);
-            h.nameTimeView.setNameColor(0xFF0F172A);
+            h.nameTimeView.setNameColor(ctx.getResources().getColor(R.color.text_primary));
         } else {
             h.unreadBadgeView.setBadgeCount(0);
             lastMsgColor = ctx.getResources().getColor(R.color.text_secondary);
-            h.nameTimeView.setNameColor(0xFF0F172A);
+            h.nameTimeView.setNameColor(ctx.getResources().getColor(R.color.text_primary));
         }
 
         if (!h.isTypingNow) {
@@ -809,7 +816,13 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     private void applyTypingRow(VH h, User u, boolean isTyping) {
         h.isTypingNow = isTyping;
         if (isTyping) {
-            h.lastMessageView.setMessageText("typing...", 0xFF0F4C3A, true);
+            // FIX: was a hardcoded dark-green literal (0xFF0F4C3A) — low
+            // contrast against the dark-mode row background. status_typing
+            // (#4CAF50, bright green) is already defined identically in both
+            // values/ and values-night/colors.xml, so it reads clearly either way.
+            Context ctx = h.itemView.getContext();
+            h.lastMessageView.setMessageText("typing...",
+                    ctx.getResources().getColor(R.color.status_typing), true);
             h.lastMessageView.setTicks(ChatListLastMessageView.TICK_NONE, 0);
         } else {
             applySelectionVisuals(h, u);

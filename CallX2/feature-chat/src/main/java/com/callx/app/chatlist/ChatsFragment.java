@@ -85,9 +85,25 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     // the most recent LIVE_SYNC_WINDOW chats (see loadContacts()); older chats
     // are paged in on demand via loadMoreOlderContacts() as the user scrolls.
     private Query contactsRef;
-    private ValueEventListener contactsListener;
+    // WhatsApp-style delta sync: ChildEventListener instead of ValueEventListener.
+    // Firebase now delivers ONE child snapshot per change (the row that actually
+    // changed) instead of re-sending the entire LIVE_SYNC_WINDOW on every tick
+    // flip / new message anywhere in the window. See loadContacts() +
+    // processContactsDelta() for the accumulate → debounce → background-process
+    // → main-thread-merge pipeline this replaces the old full-snapshot path with.
+    private ChildEventListener contactsListener;
     private DatabaseReference specialRequestsRef;
     private ValueEventListener specialRequestsListener;
+
+    // v94: pending delta accumulator for the debounce window. Written only on
+    // the main thread (inside the Firebase child callbacks, which always fire
+    // on main), read/cleared only inside pendingContactsWork right before the
+    // background hop — so no locking needed despite being "shared" state.
+    // Keyed by child key (partner uid) so a rapid burst of changes to the same
+    // row (e.g. sent→delivered→read ticks arriving within CONTACTS_DEBOUNCE_MS)
+    // coalesces to just the latest snapshot for that row, exactly once.
+    private final LinkedHashMap<String, DataSnapshot> pendingChildUpserts = new LinkedHashMap<>();
+    private final Set<String> pendingChildRemovals = new LinkedHashSet<>();
 
     // ── v92: WhatsApp-style chat-list pagination ────────────────────────────
     // Room mirrors everything ever synced from Firebase (see processContactsSnapshot
@@ -100,8 +116,14 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     private boolean isLoadingMoreChats = false;
     private boolean hasMoreOlderChats  = true;
     // Cursor: oldest lastMessageAt/lastSeen currently loaded into `contacts`.
-    // Next "load more" page fetches everything strictly older than this.
+    // Next "load more" page fetches everything strictly older than this
+    // (used only by the Firebase network backfill path — see
+    // fetchOlderPageFromFirebase()).
     private Long oldestLoadedTimestamp = null;
+    // v96: Room-first pagination cursor — separate from oldestLoadedTimestamp.
+    // Starts at PAGE_SIZE because loadFromRoom() already consumed the Room
+    // rows at offset [0, PAGE_SIZE) for first paint.
+    private int roomPageOffset = PAGE_SIZE;
     private ProgressBar pbLoadingMoreChats;
 
     // v93: scroll-ahead avatar preloading — warms Glide's disk cache for rows
@@ -645,32 +667,73 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
         String uid = FirebaseUtils.getCurrentUid();
 
-        contactsListener = new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snap) {
-                // v93: debounce — coalesce a burst of onDataChange() calls
-                // (multiple ticks/typing updates arriving close together)
-                // into a single background processing pass using only the
-                // LATEST snapshot. See CONTACTS_DEBOUNCE_MS doc above.
-                if (pendingContactsWork != null) mainHandler.removeCallbacks(pendingContactsWork);
-                pendingContactsWork = () -> {
-                    // PERF FIX: see processContactsSnapshot() doc below — this
-                    // hands ALL the CPU work off the main thread. Firebase always
-                    // delivers this callback ON the main thread, so anything run
-                    // synchronously right here is a guaranteed main-thread stall.
-                    // ticket taken on the main thread (in onDataChange's natural
-                    // call order) so out-of-order background completions can be
-                    // detected and dropped — see contactsSyncSeq.
-                    long ticket = contactsSyncSeq.incrementAndGet();
-                    AppBgExecutor.execute(() -> processContactsSnapshot(snap, uid, ticket));
-                };
-                mainHandler.postDelayed(pendingContactsWork, CONTACTS_DEBOUNCE_MS);
+        // v94: WhatsApp-level delta sync. A ValueEventListener on a
+        // limitToLast() query re-sends the ENTIRE window on every single
+        // change under it — one tick flip anywhere in the last 60 chats used
+        // to mean re-downloading and re-deserializing all 60 rows. A
+        // ChildEventListener on the exact same query gets Firebase to do the
+        // diffing server-side instead: onChildChanged fires with just the ONE
+        // row that changed, onChildAdded with just the new row, onChildRemoved
+        // with just the row that fell out of the window. This is exactly how
+        // WhatsApp's own sync layer only pushes the delta, never the whole list.
+        //
+        // Each callback only ACCUMULATES the raw DataSnapshot into
+        // pendingChildUpserts/pendingChildRemovals (cheap, main-thread, no
+        // deserialization) and (re)schedules the same debounce window used
+        // before — so a burst of several child events within
+        // CONTACTS_DEBOUNCE_MS still collapses into a single background pass,
+        // but that pass now only touches the handful of rows that actually
+        // changed instead of the whole live window.
+        contactsListener = new ChildEventListener() {
+            @Override public void onChildAdded(@NonNull DataSnapshot snap, String prevKey) {
+                if (snap.getKey() == null) return;
+                pendingChildRemovals.remove(snap.getKey());
+                pendingChildUpserts.put(snap.getKey(), snap);
+                scheduleContactsDelta(uid);
             }
-            @Override public void onCancelled(DatabaseError e) {}
+            @Override public void onChildChanged(@NonNull DataSnapshot snap, String prevKey) {
+                if (snap.getKey() == null) return;
+                pendingChildRemovals.remove(snap.getKey());
+                pendingChildUpserts.put(snap.getKey(), snap);
+                scheduleContactsDelta(uid);
+            }
+            @Override public void onChildRemoved(@NonNull DataSnapshot snap) {
+                if (snap.getKey() == null) return;
+                pendingChildUpserts.remove(snap.getKey());
+                pendingChildRemovals.add(snap.getKey());
+                scheduleContactsDelta(uid);
+            }
+            @Override public void onChildMoved(@NonNull DataSnapshot snap, String prevKey) {
+                // Ordering is decided by our own sortContactsList() (special
+                // requests float to top, then most-recent), not Firebase's
+                // orderByChild position — nothing to do here.
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         contactsRef = FirebaseUtils.getContactsRef(uid)
                 .orderByChild("lastMessageAt")
                 .limitToLast(LIVE_SYNC_WINDOW);
-        contactsRef.addValueEventListener(contactsListener);
+        contactsRef.addChildEventListener(contactsListener);
+    }
+
+    /** Debounce a burst of child events into a single background delta pass. */
+    private void scheduleContactsDelta(String uid) {
+        if (pendingContactsWork != null) mainHandler.removeCallbacks(pendingContactsWork);
+        pendingContactsWork = () -> {
+            // Snapshot + clear the accumulators here, on the main thread,
+            // right before handing off — anything arriving after this point
+            // starts a fresh accumulation window rather than racing the
+            // background pass that's about to read them.
+            List<DataSnapshot> upserts = new ArrayList<>(pendingChildUpserts.values());
+            List<String> removals = new ArrayList<>(pendingChildRemovals);
+            pendingChildUpserts.clear();
+            pendingChildRemovals.clear();
+            if (upserts.isEmpty() && removals.isEmpty()) return;
+
+            long ticket = contactsSyncSeq.incrementAndGet();
+            AppBgExecutor.execute(() -> processContactsDelta(upserts, removals, uid, ticket));
+        };
+        mainHandler.postDelayed(pendingContactsWork, CONTACTS_DEBOUNCE_MS);
     }
 
     /**
@@ -708,11 +771,21 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
      * replacing it outright — otherwise every real-time update would wipe
      * out whatever the user had already scrolled/paged into.
      */
-    private void processContactsSnapshot(DataSnapshot snap, String uid, long ticket) {
-        List<User> liveWindow = new ArrayList<>();
+    /**
+     * v94: WhatsApp-level delta processing — the background-thread twin of
+     * scheduleContactsDelta(). Unlike the old processContactsSnapshot(), the
+     * `upserts` list here is only the handful of rows that actually changed
+     * (typically 1, rarely more than a few even in a burst), not the whole
+     * LIVE_SYNC_WINDOW. Same CPU-off-main-thread discipline as before:
+     * deserialization, Room writes, and any enrichment lookups all happen
+     * here; only the final small merge + diff hops back to main.
+     */
+    private void processContactsDelta(List<DataSnapshot> upserts, List<String> removals,
+                                        String uid, long ticket) {
+        List<User> changedUsers = new ArrayList<>();
         List<ChatEntity> toSave = new ArrayList<>();
 
-        for (DataSnapshot c : snap.getChildren()) {
+        for (DataSnapshot c : upserts) {
             User u = c.getValue(User.class);
             if (u == null) continue;
             if (u.uid == null) u.uid = c.getKey();
@@ -720,7 +793,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     || u.photoUrl == null) && u.uid != null) {
                 enrichContactFromUsers(u, uid);
             }
-            liveWindow.add(u);
+            changedUsers.add(u);
             toSave.add(buildChatEntity(u, uid));
         }
 
@@ -729,59 +802,144 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             // no need to hop to yet another executor for this.
             AppDatabase.getInstance(getContext()).chatDao().insertChats(toSave);
         }
+        if (getContext() != null && !removals.isEmpty()) {
+            AppDatabase db = AppDatabase.getInstance(getContext());
+            for (String removedUid : removals) db.chatDao().deleteByPartnerUid(removedUid);
+        }
 
         if (getActivity() == null) return;
         getActivity().runOnUiThread(() -> {
-            // Drop this result if a newer snapshot has already been
-            // dispatched — prevents an out-of-order background completion
-            // from briefly showing stale data (see contactsSyncSeq).
+            // Drop this result if a newer delta has already been dispatched —
+            // prevents an out-of-order background completion from briefly
+            // showing stale data (see contactsSyncSeq).
             if (ticket != contactsSyncSeq.get()) return;
-            mergeLiveWindowUpdate(liveWindow);
+            mergeContactsDelta(changedUsers, removals);
             if (emptyState != null)
                 emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
         });
     }
 
     /**
-     * v92: merges a fresh live-window snapshot into `contacts` — entries
-     * inside the window are replaced with their latest version, entries
-     * outside it (older chats paged in via loadMoreOlderContacts()) are
-     * left untouched, then the combined list is re-sorted and diffed in.
-     * Must be called on the main thread (contacts is main-thread-owned).
+     * v94: applies a small delta (a few changed/added rows + a few removed
+     * uids) onto `contacts` in place — O(window + delta), never rebuilds the
+     * list from a full snapshot. Must be called on the main thread (contacts
+     * is main-thread-owned).
      */
-    private void mergeLiveWindowUpdate(List<User> liveWindow) {
-        Set<String> liveUids = new HashSet<>();
-        for (User u : liveWindow) if (u.uid != null) liveUids.add(u.uid);
+    /**
+     * v95: ultra-optimized delta merge. The previous version scanned the
+     * whole `contacts` window once per changed user (O(delta × window)) —
+     * fine for a single tick flip, wasteful for a burst of several rows
+     * changing inside one debounce cycle. This builds one uid→index map
+     * over the current window ONCE (O(window)), then applies every upsert/
+     * removal against it in O(1) each — O(window + delta) total, the same
+     * complexity WhatsApp's own local-DB merge step runs at.
+     */
+    private void mergeContactsDelta(List<User> changedUsers, List<String> removals) {
+        Map<String, Integer> indexByUid = new HashMap<>(contacts.size() * 2);
+        for (int i = 0; i < contacts.size(); i++) {
+            User u = contacts.get(i);
+            if (u.uid != null) indexByUid.put(u.uid, i);
+        }
 
-        List<User> merged = new ArrayList<>(liveWindow);
-        for (User existing : contacts) {
-            if (existing.uid == null || !liveUids.contains(existing.uid)) {
-                merged.add(existing);
+        if (!removals.isEmpty()) {
+            Set<String> removedSet = new HashSet<>(removals);
+            contacts.removeIf(u -> u.uid != null && removedSet.contains(u.uid));
+            // Removal shifts every index after the removed slot(s) — cheaper
+            // to just rebuild the map than track shifts, and it's still O(window).
+            if (!changedUsers.isEmpty()) {
+                indexByUid.clear();
+                for (int i = 0; i < contacts.size(); i++) {
+                    User u = contacts.get(i);
+                    if (u.uid != null) indexByUid.put(u.uid, i);
+                }
             }
         }
-        sortContactsList(merged, specialRequestUids);
-        diffUpdateContacts(merged);
+
+        for (User changed : changedUsers) {
+            if (changed.uid == null) continue;
+            Integer idx = indexByUid.get(changed.uid);
+            if (idx != null && idx < contacts.size()) {
+                contacts.set(idx, changed);
+            } else {
+                indexByUid.put(changed.uid, contacts.size());
+                contacts.add(changed);
+            }
+        }
+        sortContactsList(contacts, specialRequestUids);
+        // NOTE: diffUpdateContacts() does contacts.clear()+addAll(newList) —
+        // passing `contacts` itself here would wipe it before the addAll can
+        // read it back. Must pass a distinct list.
+        diffUpdateContacts(new ArrayList<>(contacts));
     }
 
-    // ── v92: "load more" — pages in chats older than what's currently loaded ──
+    // ── v96: Room-first "load more" — pages in chats older than what's currently loaded ──
 
     /**
-     * WhatsApp-style pagination: fetches the next PAGE_SIZE chats older than
-     * the oldest one currently loaded (a ONE-TIME read, not a live listener —
-     * older chats don't need real-time sync until the user actually opens
-     * one, exactly like WhatsApp only keeps recent conversations "hot").
-     * Result is merged into `contacts`, saved to Room, and diffed into the
-     * adapter. Safe to call repeatedly — guarded by isLoadingMoreChats /
-     * hasMoreOlderChats so a fast scroll can't fire overlapping requests.
+     * v96 — WhatsApp-level pagination: Room is now checked FIRST, exactly
+     * like WhatsApp's local-DB-first list. If the next page is already
+     * cached in Room (from an earlier session, or a prior Firebase fetch),
+     * it renders INSTANTLY — no network wait, works offline. Firebase is
+     * only used as: (a) a silent background backfill to keep Room warm and
+     * discover rows Room doesn't have yet, or (b) the actual blocking source
+     * when Room has a true cache miss (nothing cached at this offset yet).
+     * Guarded by isLoadingMoreChats / hasMoreOlderChats so a fast scroll
+     * can't fire overlapping requests.
      */
     private void loadMoreOlderContacts() {
         if (isLoadingMoreChats || !hasMoreOlderChats) return;
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
-        if (oldestLoadedTimestamp == null) return; // nothing loaded yet to page from
+        if (getContext() == null) return;
 
         isLoadingMoreChats = true;
         showLoadingMoreIndicator(true);
         String uid = FirebaseUtils.getCurrentUid();
+        android.content.Context appCtx = getContext().getApplicationContext();
+        int offset = roomPageOffset;
+
+        UiCriticalReadExecutor.execute(() -> {
+            AppDatabase db = AppDatabase.getInstance(appCtx);
+            List<ChatEntity> cached = db.chatDao().getChatsPagedSync(PAGE_SIZE, offset);
+            List<User> roomPage = new ArrayList<>();
+            for (ChatEntity e : cached) {
+                User u = entityToUser(e);
+                if (u != null) roomPage.add(u);
+            }
+
+            if (getActivity() == null) return;
+            getActivity().runOnUiThread(() -> {
+                boolean roomWasCacheMiss = roomPage.isEmpty();
+                if (!roomWasCacheMiss) {
+                    // Room served the page instantly — done, no network wait.
+                    roomPageOffset = offset + roomPage.size();
+                    mergeOlderPage(roomPage);
+                    isLoadingMoreChats = false;
+                    showLoadingMoreIndicator(false);
+                }
+                // Either way, kick Firebase in the background: silent refill
+                // when Room already served the page (keeps Room warm for the
+                // NEXT scroll + surfaces anything Room is missing), or as the
+                // actual blocking fetch when Room had nothing cached here.
+                fetchOlderPageFromFirebase(uid, roomWasCacheMiss);
+            });
+        });
+    }
+
+    /**
+     * v96: Firebase backfill/fallback. Same single-value query as before —
+     * only difference is it no longer drives the loading spinner unless
+     * Room genuinely had nothing for this page (roomWasCacheMiss). When
+     * Room already rendered the page, this runs silently after the fact
+     * purely to keep Room's cache warm and to catch new/older rows.
+     */
+    private void fetchOlderPageFromFirebase(String uid, boolean roomWasCacheMiss) {
+        if (oldestLoadedTimestamp == null) {
+            if (roomWasCacheMiss) { isLoadingMoreChats = false; showLoadingMoreIndicator(false); }
+            return;
+        }
+        if (roomWasCacheMiss) {
+            isLoadingMoreChats = true;
+            showLoadingMoreIndicator(true);
+        }
         long cursor = oldestLoadedTimestamp;
 
         FirebaseUtils.getContactsRef(uid)
@@ -790,18 +948,27 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 .limitToLast(PAGE_SIZE)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(DataSnapshot snap) {
-                        AppBgExecutor.execute(() -> processOlderPageSnapshot(snap, uid));
+                        AppBgExecutor.execute(() -> processOlderPageSnapshot(snap, uid, roomWasCacheMiss));
                     }
                     @Override public void onCancelled(DatabaseError e) {
-                        isLoadingMoreChats = false;
-                        if (getActivity() != null)
-                            getActivity().runOnUiThread(() -> showLoadingMoreIndicator(false));
+                        if (roomWasCacheMiss) {
+                            isLoadingMoreChats = false;
+                            if (getActivity() != null)
+                                getActivity().runOnUiThread(() -> showLoadingMoreIndicator(false));
+                        }
                     }
                 });
     }
 
-    /** Background-thread processing for one older page — mirrors processContactsSnapshot(). */
-    private void processOlderPageSnapshot(DataSnapshot snap, String uid) {
+    /**
+     * Background-thread processing for one older Firebase page. `wasBlocking`
+     * is true only when this was the actual source (Room cache miss) — in
+     * that case it owns the loading spinner and the hasMoreOlderChats flag.
+     * When false (silent backfill after Room already rendered), it only
+     * writes to Room + quietly merges anything new, without touching the
+     * loading UI or the "no more chats" flag.
+     */
+    private void processOlderPageSnapshot(DataSnapshot snap, String uid, boolean wasBlocking) {
         List<User> olderPage = new ArrayList<>();
         List<ChatEntity> toSave = new ArrayList<>();
 
@@ -821,23 +988,33 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
         if (getActivity() == null) return;
         getActivity().runOnUiThread(() -> {
-            isLoadingMoreChats = false;
-            showLoadingMoreIndicator(false);
-            if (olderPage.isEmpty()) {
-                hasMoreOlderChats = false;
-                return;
+            if (wasBlocking) {
+                isLoadingMoreChats = false;
+                showLoadingMoreIndicator(false);
+                if (olderPage.isEmpty()) {
+                    hasMoreOlderChats = false;
+                    return;
+                }
+                if (!pageWasFull) hasMoreOlderChats = false;
             }
-            if (!pageWasFull) hasMoreOlderChats = false;
-
-            Set<String> existingUids = new HashSet<>();
-            for (User u : contacts) if (u.uid != null) existingUids.add(u.uid);
-            List<User> merged = new ArrayList<>(contacts);
-            for (User u : olderPage) {
-                if (u.uid == null || !existingUids.contains(u.uid)) merged.add(u);
-            }
-            sortContactsList(merged, specialRequestUids);
-            diffUpdateContacts(merged);
+            if (!olderPage.isEmpty()) mergeOlderPage(olderPage);
         });
+    }
+
+    /** Dedupe-append an older page into `contacts`, re-sort, and diff it in. */
+    private void mergeOlderPage(List<User> page) {
+        Set<String> existingUids = new HashSet<>();
+        for (User u : contacts) if (u.uid != null) existingUids.add(u.uid);
+        boolean addedAny = false;
+        for (User u : page) {
+            if (u.uid == null || !existingUids.contains(u.uid)) {
+                contacts.add(u);
+                addedAny = true;
+            }
+        }
+        if (!addedAny) return;
+        sortContactsList(contacts, specialRequestUids);
+        diffUpdateContacts(new ArrayList<>(contacts));
     }
 
     private void showLoadingMoreIndicator(boolean show) {
@@ -1003,6 +1180,9 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             mainHandler.removeCallbacks(pendingContactsWork);
             pendingContactsWork = null;
         }
+        // v94: drop any not-yet-processed delta so a recreated view starts clean.
+        pendingChildUpserts.clear();
+        pendingChildRemovals.clear();
         super.onDestroyView();
     }
 
