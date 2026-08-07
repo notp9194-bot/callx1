@@ -24,6 +24,7 @@ import com.callx.app.models.User;
 import com.callx.app.utils.FirebaseUtils;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
@@ -80,10 +81,46 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     private ChatListViewModel    viewModel;
 
     // FIX #MEM-3C: Listener references store karo taaki onDestroyView mein detach kar sakein.
-    private DatabaseReference contactsRef;
+    // v92: Query, not DatabaseReference — the live listener is now bounded to
+    // the most recent LIVE_SYNC_WINDOW chats (see loadContacts()); older chats
+    // are paged in on demand via loadMoreOlderContacts() as the user scrolls.
+    private Query contactsRef;
     private ValueEventListener contactsListener;
     private DatabaseReference specialRequestsRef;
     private ValueEventListener specialRequestsListener;
+
+    // ── v92: WhatsApp-style chat-list pagination ────────────────────────────
+    // Room mirrors everything ever synced from Firebase (see processContactsSnapshot
+    // / processOlderPageSnapshot), so it's the offline-first source for instant
+    // first paint; Firebase stays the source of truth and is queried directly,
+    // page by page, for anything beyond what's cached.
+    private static final int PAGE_SIZE        = 30; // chats fetched per "load more"
+    private static final int LIVE_SYNC_WINDOW = 60; // most-recent chats kept live-synced
+
+    private boolean isLoadingMoreChats = false;
+    private boolean hasMoreOlderChats  = true;
+    // Cursor: oldest lastMessageAt/lastSeen currently loaded into `contacts`.
+    // Next "load more" page fetches everything strictly older than this.
+    private Long oldestLoadedTimestamp = null;
+    private ProgressBar pbLoadingMoreChats;
+
+    // v93: scroll-ahead avatar preloading — warms Glide's disk cache for rows
+    // just below the visible window (same override/format/transform signature
+    // ChatListAdapter actually binds with) so avatars are already cached by
+    // the time the user scrolls to them. WhatsApp/Telegram-style smooth scroll.
+    private static final int AVATAR_PRELOAD_AHEAD = 12; // ~1 screenful of rows
+
+    // v93: debounce bursty Firebase snapshots (e.g. multiple tick flips /
+    // typing updates arriving within milliseconds of each other during an
+    // active group conversation). Without this, EVERY onDataChange() spawns
+    // its own full background reprocess-and-diff pass even though only the
+    // LAST one in a burst ever reaches the screen (contactsSyncSeq already
+    // drops stale UI applies — but the redundant CPU work upstream of that
+    // still happened). Coalescing to one pass per short window is exactly
+    // how WhatsApp avoids re-rendering the chat list on every micro-update.
+    private static final long CONTACTS_DEBOUNCE_MS = 120;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private Runnable pendingContactsWork;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup parent, Bundle s) {
@@ -92,6 +129,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         emptyState       = v.findViewById(R.id.empty_state);
         llSelectionBar   = v.findViewById(R.id.ll_selection_bar);
         tvSelectedCount  = v.findViewById(R.id.tv_selected_count);
+        pbLoadingMoreChats = v.findViewById(R.id.pb_loading_more_chats);
 
         View banner = v.findViewById(R.id.banner_requests);
         if (banner != null) banner.setVisibility(View.GONE);
@@ -128,6 +166,39 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
         // Pause Glide bitmap decoding during fast flings (resume on idle/drag).
         rv.addOnScrollListener(new GlideScrollListener(requireContext()));
+
+        // v92: WhatsApp-style "load more" — fetch the next older page once the
+        // user scrolls near the bottom of the currently-loaded chats. Skipped
+        // while a folder filter is active (selectedFolderId != -1) since the
+        // visible list there is a filtered subset, not the full paginated set.
+        //
+        // v93: also preloads avatars for the next screenful of rows just below
+        // the visible window — by the time the user scrolls to them, Glide's
+        // disk cache already has the exact (size+format+circleCrop) resource
+        // ready, so the avatar appears instantly instead of popping in after a
+        // network fetch. Same technique WhatsApp/Telegram use for smooth scroll.
+        rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private int lastPreloadedEnd = -1;
+
+            @Override public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                if (dy <= 0) return;
+                LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
+                if (lm == null || adapter == null) return;
+                int lastVisible = lm.findLastVisibleItemPosition();
+                int total = adapter.getItemCount();
+                if (lastVisible < 0 || total == 0) return;
+
+                if (selectedFolderId == -1 && lastVisible >= total - 5) {
+                    loadMoreOlderContacts();
+                }
+
+                int preloadEnd = Math.min(total - 1, lastVisible + AVATAR_PRELOAD_AHEAD);
+                if (preloadEnd > lastPreloadedEnd) {
+                    preloadAvatarsInRange(Math.max(lastVisible + 1, lastPreloadedEnd + 1), preloadEnd);
+                    lastPreloadedEnd = preloadEnd;
+                }
+            }
+        });
 
         // v85+: null ItemAnimator — removes all animation overhead
         rv.setItemAnimator(null);
@@ -342,25 +413,16 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
         UiCriticalReadExecutor.execute(() -> {
             AppDatabase db = AppDatabase.getInstance(appCtx);
-            List<ChatEntity> cached = db.chatDao().getAllChatsSync();
+            // v92: only the first page — instant first paint, not the whole table.
+            // Older cached chats page in the same way as fresh-from-network ones,
+            // via loadMoreOlderContacts() as the user scrolls.
+            List<ChatEntity> cached = db.chatDao().getChatsPagedSync(PAGE_SIZE, 0);
             if (cached == null || cached.isEmpty()) return;
 
             List<User> roomUsers = new ArrayList<>();
             for (ChatEntity e : cached) {
-                User u = new User();
-                u.uid = e.partnerUid;
-                if (u.uid == null || u.uid.isEmpty()) continue;
-                u.name     = e.partnerName;
-                u.photoUrl = e.partnerPhoto;
-                u.thumbUrl = e.partnerThumb;
-                u.lastMessageAt = e.lastMessageAt;
-                u.unread   = e.unread;
-                u.lastMessage           = e.lastMessage;
-                u.lastMessageType       = e.lastMessageType;
-                u.lastMessageStatus     = e.lastMessageStatus;
-                u.lastMessageSenderUid  = e.lastMessageSenderUid;
-                u.lastMessageId         = e.lastMessageId;
-                roomUsers.add(u);
+                User u = entityToUser(e);
+                if (u != null) roomUsers.add(u);
             }
 
             if (getActivity() != null) {
@@ -378,29 +440,82 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         });
     }
 
+    /**
+     * v93: fires off Glide preload() requests (no ImageView target — just
+     * warms the disk cache) for rows just below the currently visible window.
+     * Uses the EXACT same override size / decode format / circleCrop transform
+     * as ChatListAdapter's real bind-time load, so the resource cache key
+     * matches and this isn't wasted work.
+     */
+    private void preloadAvatarsInRange(int start, int end) {
+        if (getContext() == null) return;
+        int size = ChatListAdapter.getAvatarSizePx(requireContext());
+        com.bumptech.glide.RequestManager glide =
+                Glide.with(requireContext().getApplicationContext());
+        for (int i = start; i <= end && i >= 0 && i < contacts.size(); i++) {
+            User u = contacts.get(i);
+            if (u == null) continue;
+            String url = (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
+            if (url == null || url.isEmpty()) continue;
+            glide.load(url)
+                    .dontAnimate()
+                    .override(size, size)
+                    .format(ChatListAdapter.AVATAR_FORMAT)
+                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+                    .apply(RequestOptions.circleCropTransform())
+                    .preload();
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Firebase listener — online sync + Room save
     // ─────────────────────────────────────────────────────────────
 
+    /**
+     * v92: bounded live sync. Previously this listened to the ENTIRE
+     * "contacts" node — every tick flip, every new message anywhere in a
+     * user's chat history re-downloaded and re-processed the WHOLE list,
+     * no matter how large it grew. Real-time sync now only covers the
+     * LIVE_SYNC_WINDOW most-recently-active chats (exactly what WhatsApp
+     * keeps "hot"); anything older is fetched on demand as the user scrolls
+     * — see loadMoreOlderContacts() — and merged in without disturbing the
+     * live window. This bounds both bandwidth and onDataChange() CPU cost
+     * regardless of total chat count.
+     *
+     * NOTE: for best server-side query performance, add an index on
+     * "lastMessageAt" under /contacts/$uid in the Firebase console rules
+     * (`.indexOn: ["lastMessageAt"]`) — the query still works without it,
+     * just with a "no index" warning in logcat.
+     */
     private void loadContacts() {
         if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
         String uid = FirebaseUtils.getCurrentUid();
 
         contactsListener = new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot snap) {
-                // PERF FIX: see processContactsSnapshot() doc below — this
-                // hands ALL the CPU work off the main thread. Firebase always
-                // delivers this callback ON the main thread, so anything run
-                // synchronously right here is a guaranteed main-thread stall.
-                // ticket taken on the main thread (in onDataChange's natural
-                // call order) so out-of-order background completions can be
-                // detected and dropped — see contactsSyncSeq.
-                long ticket = contactsSyncSeq.incrementAndGet();
-                AppBgExecutor.execute(() -> processContactsSnapshot(snap, uid, ticket));
+                // v93: debounce — coalesce a burst of onDataChange() calls
+                // (multiple ticks/typing updates arriving close together)
+                // into a single background processing pass using only the
+                // LATEST snapshot. See CONTACTS_DEBOUNCE_MS doc above.
+                if (pendingContactsWork != null) mainHandler.removeCallbacks(pendingContactsWork);
+                pendingContactsWork = () -> {
+                    // PERF FIX: see processContactsSnapshot() doc below — this
+                    // hands ALL the CPU work off the main thread. Firebase always
+                    // delivers this callback ON the main thread, so anything run
+                    // synchronously right here is a guaranteed main-thread stall.
+                    // ticket taken on the main thread (in onDataChange's natural
+                    // call order) so out-of-order background completions can be
+                    // detected and dropped — see contactsSyncSeq.
+                    long ticket = contactsSyncSeq.incrementAndGet();
+                    AppBgExecutor.execute(() -> processContactsSnapshot(snap, uid, ticket));
+                };
+                mainHandler.postDelayed(pendingContactsWork, CONTACTS_DEBOUNCE_MS);
             }
             @Override public void onCancelled(DatabaseError e) {}
         };
-        contactsRef = FirebaseUtils.getContactsRef(uid);
+        contactsRef = FirebaseUtils.getContactsRef(uid)
+                .orderByChild("lastMessageAt")
+                .limitToLast(LIVE_SYNC_WINDOW);
         contactsRef.addValueEventListener(contactsListener);
     }
 
@@ -431,9 +546,16 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
      * RecyclerView — hops back to the main thread, and even that is cheap:
      * AsyncListDiffer computes the actual diff on its own background
      * executor, so the main-thread hop is just handing off a List reference.
+     *
+     * v92: this snapshot now only ever contains the LIVE_SYNC_WINDOW most
+     * recent chats (see loadContacts()), so the result is MERGED into the
+     * existing `contacts` list (replacing anything inside the live window,
+     * preserving anything older that was paged in separately) rather than
+     * replacing it outright — otherwise every real-time update would wipe
+     * out whatever the user had already scrolled/paged into.
      */
     private void processContactsSnapshot(DataSnapshot snap, String uid, long ticket) {
-        List<User> newList = new ArrayList<>();
+        List<User> liveWindow = new ArrayList<>();
         List<ChatEntity> toSave = new ArrayList<>();
 
         for (DataSnapshot c : snap.getChildren()) {
@@ -444,24 +566,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     || u.photoUrl == null) && u.uid != null) {
                 enrichContactFromUsers(u, uid);
             }
-            newList.add(u);
-
-            ChatEntity entity = new ChatEntity();
-            entity.chatId       = uid + "_contact_" + (u.uid != null ? u.uid : "");
-            entity.type         = "private";
-            entity.partnerUid   = u.uid;
-            entity.partnerName  = u.name;
-            entity.partnerPhoto = u.photoUrl;
-            entity.partnerThumb = u.thumbUrl;
-            entity.lastMessage  = u.lastMessage;
-            entity.lastMessageAt = u.lastMessageAt;
-            entity.unread       = u.unread;
-            entity.lastMessageType      = u.lastMessageType;
-            entity.lastMessageStatus    = u.lastMessageStatus;
-            entity.lastMessageSenderUid = u.lastMessageSenderUid;
-            entity.lastMessageId        = u.lastMessageId;
-            entity.syncedAt     = System.currentTimeMillis();
-            toSave.add(entity);
+            liveWindow.add(u);
+            toSave.add(buildChatEntity(u, uid));
         }
 
         if (getContext() != null && !toSave.isEmpty()) {
@@ -470,27 +576,176 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             AppDatabase.getInstance(getContext()).chatDao().insertChats(toSave);
         }
 
-        // FIX #5: Sort newList, then diffUpdate — contacts list is the source of truth
-        Collections.sort(newList, (a, b) -> {
-            boolean aS = a.uid != null && specialRequestUids.contains(a.uid);
-            boolean bS = b.uid != null && specialRequestUids.contains(b.uid);
-            if (aS != bS) return aS ? -1 : 1;
-            long la = a.lastMessageAt != null ? a.lastMessageAt :
-                      (a.lastSeen != null ? a.lastSeen : 0L);
-            long lb = b.lastMessageAt != null ? b.lastMessageAt :
-                      (b.lastSeen != null ? b.lastSeen : 0L);
-            return Long.compare(lb, la);
-        });
-
         if (getActivity() == null) return;
         getActivity().runOnUiThread(() -> {
             // Drop this result if a newer snapshot has already been
             // dispatched — prevents an out-of-order background completion
             // from briefly showing stale data (see contactsSyncSeq).
             if (ticket != contactsSyncSeq.get()) return;
-            diffUpdateContacts(newList);
+            mergeLiveWindowUpdate(liveWindow);
             if (emptyState != null)
                 emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
+        });
+    }
+
+    /**
+     * v92: merges a fresh live-window snapshot into `contacts` — entries
+     * inside the window are replaced with their latest version, entries
+     * outside it (older chats paged in via loadMoreOlderContacts()) are
+     * left untouched, then the combined list is re-sorted and diffed in.
+     * Must be called on the main thread (contacts is main-thread-owned).
+     */
+    private void mergeLiveWindowUpdate(List<User> liveWindow) {
+        Set<String> liveUids = new HashSet<>();
+        for (User u : liveWindow) if (u.uid != null) liveUids.add(u.uid);
+
+        List<User> merged = new ArrayList<>(liveWindow);
+        for (User existing : contacts) {
+            if (existing.uid == null || !liveUids.contains(existing.uid)) {
+                merged.add(existing);
+            }
+        }
+        sortContactsList(merged, specialRequestUids);
+        diffUpdateContacts(merged);
+    }
+
+    // ── v92: "load more" — pages in chats older than what's currently loaded ──
+
+    /**
+     * WhatsApp-style pagination: fetches the next PAGE_SIZE chats older than
+     * the oldest one currently loaded (a ONE-TIME read, not a live listener —
+     * older chats don't need real-time sync until the user actually opens
+     * one, exactly like WhatsApp only keeps recent conversations "hot").
+     * Result is merged into `contacts`, saved to Room, and diffed into the
+     * adapter. Safe to call repeatedly — guarded by isLoadingMoreChats /
+     * hasMoreOlderChats so a fast scroll can't fire overlapping requests.
+     */
+    private void loadMoreOlderContacts() {
+        if (isLoadingMoreChats || !hasMoreOlderChats) return;
+        if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
+        if (oldestLoadedTimestamp == null) return; // nothing loaded yet to page from
+
+        isLoadingMoreChats = true;
+        showLoadingMoreIndicator(true);
+        String uid = FirebaseUtils.getCurrentUid();
+        long cursor = oldestLoadedTimestamp;
+
+        FirebaseUtils.getContactsRef(uid)
+                .orderByChild("lastMessageAt")
+                .endAt(cursor - 1)
+                .limitToLast(PAGE_SIZE)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(DataSnapshot snap) {
+                        AppBgExecutor.execute(() -> processOlderPageSnapshot(snap, uid));
+                    }
+                    @Override public void onCancelled(DatabaseError e) {
+                        isLoadingMoreChats = false;
+                        if (getActivity() != null)
+                            getActivity().runOnUiThread(() -> showLoadingMoreIndicator(false));
+                    }
+                });
+    }
+
+    /** Background-thread processing for one older page — mirrors processContactsSnapshot(). */
+    private void processOlderPageSnapshot(DataSnapshot snap, String uid) {
+        List<User> olderPage = new ArrayList<>();
+        List<ChatEntity> toSave = new ArrayList<>();
+
+        for (DataSnapshot c : snap.getChildren()) {
+            User u = c.getValue(User.class);
+            if (u == null) continue;
+            if (u.uid == null) u.uid = c.getKey();
+            olderPage.add(u);
+            toSave.add(buildChatEntity(u, uid));
+        }
+
+        if (getContext() != null && !toSave.isEmpty()) {
+            AppDatabase.getInstance(getContext()).chatDao().insertChats(toSave);
+        }
+
+        boolean pageWasFull = olderPage.size() >= PAGE_SIZE;
+
+        if (getActivity() == null) return;
+        getActivity().runOnUiThread(() -> {
+            isLoadingMoreChats = false;
+            showLoadingMoreIndicator(false);
+            if (olderPage.isEmpty()) {
+                hasMoreOlderChats = false;
+                return;
+            }
+            if (!pageWasFull) hasMoreOlderChats = false;
+
+            Set<String> existingUids = new HashSet<>();
+            for (User u : contacts) if (u.uid != null) existingUids.add(u.uid);
+            List<User> merged = new ArrayList<>(contacts);
+            for (User u : olderPage) {
+                if (u.uid == null || !existingUids.contains(u.uid)) merged.add(u);
+            }
+            sortContactsList(merged, specialRequestUids);
+            diffUpdateContacts(merged);
+        });
+    }
+
+    private void showLoadingMoreIndicator(boolean show) {
+        if (pbLoadingMoreChats != null) {
+            pbLoadingMoreChats.setVisibility(show ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    // ── Shared helpers ───────────────────────────────────────────────────────
+
+    /** Same field mapping used everywhere a Firebase User → local ChatEntity is saved. */
+    private static ChatEntity buildChatEntity(User u, String myUid) {
+        ChatEntity entity = new ChatEntity();
+        entity.chatId       = myUid + "_contact_" + (u.uid != null ? u.uid : "");
+        entity.type         = "private";
+        entity.partnerUid   = u.uid;
+        entity.partnerName  = u.name;
+        entity.partnerPhoto = u.photoUrl;
+        entity.partnerThumb = u.thumbUrl;
+        entity.lastMessage  = u.lastMessage;
+        entity.lastMessageAt = u.lastMessageAt;
+        entity.unread       = u.unread;
+        entity.lastMessageType      = u.lastMessageType;
+        entity.lastMessageStatus    = u.lastMessageStatus;
+        entity.lastMessageSenderUid = u.lastMessageSenderUid;
+        entity.lastMessageId        = u.lastMessageId;
+        entity.syncedAt     = System.currentTimeMillis();
+        return entity;
+    }
+
+    /** Same field mapping used to hydrate a Room-cached row back into a display User. */
+    private static User entityToUser(ChatEntity e) {
+        if (e.partnerUid == null || e.partnerUid.isEmpty()) return null;
+        User u = new User();
+        u.uid      = e.partnerUid;
+        u.name     = e.partnerName;
+        u.photoUrl = e.partnerPhoto;
+        u.thumbUrl = e.partnerThumb;
+        u.lastMessageAt = e.lastMessageAt;
+        u.unread   = e.unread;
+        u.lastMessage           = e.lastMessage;
+        u.lastMessageType       = e.lastMessageType;
+        u.lastMessageStatus     = e.lastMessageStatus;
+        u.lastMessageSenderUid  = e.lastMessageSenderUid;
+        u.lastMessageId         = e.lastMessageId;
+        return u;
+    }
+
+    /** Effective sort timestamp — lastMessageAt, falling back to lastSeen. */
+    private static long effTs(User u) {
+        if (u.lastMessageAt != null) return u.lastMessageAt;
+        if (u.lastSeen != null) return u.lastSeen;
+        return 0L;
+    }
+
+    /** Special-request senders float to top; everything else by most-recent activity. */
+    private static void sortContactsList(List<User> list, Set<String> specialUids) {
+        Collections.sort(list, (a, b) -> {
+            boolean aS = a.uid != null && specialUids.contains(a.uid);
+            boolean bS = b.uid != null && specialUids.contains(b.uid);
+            if (aS != bS) return aS ? -1 : 1;
+            return Long.compare(effTs(b), effTs(a));
         });
     }
 
@@ -583,20 +838,22 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             specialRequestsRef.removeEventListener(specialRequestsListener);
             specialRequestsRef = null; specialRequestsListener = null;
         }
+        // v92: in case a loadMoreOlderContacts() request is still in flight when
+        // the view is torn down (its single-value callback bails out early via
+        // the getActivity()==null guard and never resets this) — don't leave
+        // pagination stuck "loading" forever if the fragment's view is recreated.
+        isLoadingMoreChats = false;
+        pbLoadingMoreChats = null;
+        // v93: cancel any debounced snapshot-processing work still pending.
+        if (pendingContactsWork != null) {
+            mainHandler.removeCallbacks(pendingContactsWork);
+            pendingContactsWork = null;
+        }
         super.onDestroyView();
     }
 
     private void sortByLatestMessage() {
-        Collections.sort(contacts, (a, b) -> {
-            boolean aS = a.uid != null && specialRequestUids.contains(a.uid);
-            boolean bS = b.uid != null && specialRequestUids.contains(b.uid);
-            if (aS != bS) return aS ? -1 : 1;
-            long la = a.lastMessageAt != null ? a.lastMessageAt :
-                      (a.lastSeen != null ? a.lastSeen : 0L);
-            long lb = b.lastMessageAt != null ? b.lastMessageAt :
-                      (b.lastSeen != null ? b.lastSeen : 0L);
-            return Long.compare(lb, la);
-        });
+        sortContactsList(contacts, specialRequestUids);
     }
 
     /**
@@ -606,10 +863,23 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
      * list grows. This method keeps its signature so all existing call-sites
      * compile without change — it just updates the local working copy and hands
      * the new list to the adapter's differ.
+     *
+     * v92: also refreshes oldestLoadedTimestamp — the pagination cursor used by
+     * loadMoreOlderContacts() — from whatever is now in `contacts`, so "load
+     * more" always continues from wherever the currently-displayed list ends,
+     * regardless of whether it came from Room, the live window, or a page load.
      */
     private void diffUpdateContacts(List<User> newList) {
         contacts.clear();
         contacts.addAll(newList);
+
+        Long oldest = null;
+        for (User u : contacts) {
+            long t = effTs(u);
+            if (oldest == null || t < oldest) oldest = t;
+        }
+        oldestLoadedTimestamp = oldest;
+
         if (adapter != null) adapter.submitList(new ArrayList<>(contacts));
         // PERF MONITOR: no-op after the first call each load-cycle (guarded
         // internally via loadStartNanos == 0 check) — closes the load-time

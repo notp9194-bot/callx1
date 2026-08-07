@@ -35,6 +35,15 @@ public interface ChatDao {
     @Query("SELECT * FROM chats ORDER BY lastMessageAt DESC")
     List<ChatEntity> getAllChatsSync();
 
+    /**
+     * v92: paginated read for the Chat List's "load more on scroll" flow —
+     * WhatsApp-style local-DB-first pagination. Keeps first-paint + scroll
+     * work bounded to one page's worth of rows even if thousands of chats
+     * are cached, instead of inflating/diffing the entire table at once.
+     */
+    @Query("SELECT * FROM chats WHERE archived = 0 OR archived IS NULL ORDER BY lastMessageAt DESC LIMIT :limit OFFSET :offset")
+    List<ChatEntity> getChatsPagedSync(int limit, int offset);
+
     @Query("SELECT * FROM chats WHERE chatId = :chatId LIMIT 1")
     ChatEntity getChat(String chatId);
 

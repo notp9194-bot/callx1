@@ -242,8 +242,12 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     }
 
     // v85: resolve avatar decode size lazily from context (50dp avatar)
+    // v93: package-visible so ChatsFragment's scroll-ahead avatar preloader
+    // (see preloadUpcomingAvatars()) can request bytes with the EXACT same
+    // override/format/transform signature this adapter uses — otherwise
+    // Glide's disk-cache key wouldn't match and the preload would be wasted.
     private static int sAvatarSizePx = 0;
-    private static int getAvatarSizePx(Context ctx) {
+    static int getAvatarSizePx(Context ctx) {
         if (sAvatarSizePx == 0)
             sAvatarSizePx = Math.round(50f * ctx.getResources().getDisplayMetrics().density);
         return sAvatarSizePx;
@@ -269,7 +273,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
      * On subsequent cache hits the HARDWARE bitmap is served directly from
      * Glide's memory cache — zero decode + zero transform + zero GPU upload.
      */
-    private static final DecodeFormat AVATAR_FORMAT =
+    static final DecodeFormat AVATAR_FORMAT =
             android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
                     ? DecodeFormat.PREFER_ARGB_8888   // → HARDWARE bitmap on API 26+
                     : DecodeFormat.PREFER_RGB_565;    // → software 16-bit on API < 26
