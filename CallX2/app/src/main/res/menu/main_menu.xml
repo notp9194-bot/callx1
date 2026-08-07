@@ -22,4 +22,10 @@
         android:title="🔬 Ultra Advanced Diagnostics"
         app:showAsAction="never"/>
 
+    <!-- v244: Settings — moved here from the toolbar avatar (avatar removed).
+         Always visible, on every tab. -->
+    <item android:id="@+id/action_settings"
+        android:title="⚙️ Settings"
+        app:showAsAction="never"/>
+
 </menu>

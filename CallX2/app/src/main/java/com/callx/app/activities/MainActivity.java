@@ -181,10 +181,8 @@ public class MainActivity extends AppCompatActivity
             overridePendingTransition(0, 0); // Tab switch — instant 0ms
         });
 
-        binding.ivAvatarMenu.setOnClickListener(v -> {
-            startActivity(new Intent(this, AccountMenuActivity.class));
-            overridePendingTransition(0, 0); // Tab switch — instant 0ms
-        });
+        // v244: avatar removed from toolbar — Settings (AccountMenuActivity)
+        // now opens from the 3-dot overflow menu instead (see onOptionsItemSelected).
 
         binding.viewPager.setAdapter(new ViewPagerAdapter(this));
         // FIX #LAZY: offscreenPageLimit 2 → 1 kiya gaya.
@@ -665,13 +663,10 @@ public class MainActivity extends AppCompatActivity
                 String thumb = snap.child("thumbUrl").getValue(String.class);
                 if (name  != null) myName     = name;
                 if (photo != null) myPhotoUrl = photo;
-                String avatarUrl = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-                if (avatarUrl != null && !avatarUrl.isEmpty())
-                    Glide.with(MainActivity.this).load(avatarUrl)
-                        .apply(RequestOptions.circleCropTransform())
-                        .placeholder(R.drawable.ic_person).error(R.drawable.ic_person)
-                    .override(96, 96)
-                        .into(binding.ivAvatarMenu);
+                // v244: toolbar avatar (ivAvatarMenu) removed — Settings now lives
+                // in the 3-dot overflow menu instead. myName/myPhotoUrl fetched
+                // above are still used elsewhere (e.g. openMyReelsProfile()), so
+                // this method stays; only the Glide-into-view call is gone.
             }
             @Override public void onCancelled(DatabaseError e) {}
         });
@@ -1436,6 +1431,12 @@ public class MainActivity extends AppCompatActivity
 
         if (id == R.id.action_ultra_diagnostics) {
             startActivity(new Intent(this, UltraDiagnosticsActivity.class));
+            return true;
+        }
+
+        if (id == R.id.action_settings) {
+            startActivity(new Intent(this, AccountMenuActivity.class));
+            overridePendingTransition(0, 0);
             return true;
         }
 
