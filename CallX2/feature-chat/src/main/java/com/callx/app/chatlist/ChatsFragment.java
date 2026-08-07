@@ -131,6 +131,26 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     private Long roomCursorTimestamp = null;
     private String roomCursorChatId = null;
     private ProgressBar pbLoadingMoreChats;
+    // v210: true while `contacts` holds ONLY the instant-snapshot placeholder
+    // (see ChatSnapshotCache) and no real Room/Firebase data has landed yet.
+    // loadFromRoom()'s "only render if contacts.isEmpty()" guard exists to
+    // avoid clobbering already-live data with a stale async Room read — but
+    // with the instant snapshot pre-filling `contacts`, that guard would
+    // never fire and real data would never replace the placeholder. This
+    // flag lets loadFromRoom() tell "genuinely empty OR still just the
+    // placeholder" apart from "real data already showing", without changing
+    // that guard's original intent.
+    private boolean showingInstantSnapshotOnly = false;
+    // each call and fed into a LIMIT/OFFSET Room query. Plain OFFSET
+    // pagination breaks under concurrent writes (see ChatDao.getChatsPagedSync
+    // doc) — a row can permanently skip past the offset boundary and never
+    // get fetched. Replaced with a keyset cursor: the (lastMessageAt,
+    // chatId) of the LAST row actually rendered from Room, which is stable
+    // regardless of how many rows above it get inserted/reordered meanwhile.
+    // null == no page fetched from Room yet (first "load more" call).
+    private Long roomCursorTimestamp = null;
+    private String roomCursorChatId = null;
+    private ProgressBar pbLoadingMoreChats;
 
     // v93: scroll-ahead avatar preloading — warms Glide's disk cache for rows
     // just below the visible window (same override/format/transform signature
@@ -295,6 +315,25 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // feeds the "Performance" report (3-dot menu). Ended in
         // diffUpdateContacts() the first time real data actually lands.
         com.callx.app.perf.PerformanceMonitor.get().markChatListLoadStart();
+
+        // v210 — PERF FIX (cold start): render the instant snapshot BEFORE
+        // loadFromRoom() even dispatches. This is a synchronous read of a
+        // tiny, un-encrypted SharedPreferences file — costs low-single-digit
+        // ms even on a stone-cold process, vs. the SQLCipher DB open that
+        // loadFromRoom() is about to wait on (500ms-3sec on a genuinely
+        // cold process — see ChatSnapshotCache's class doc for the full
+        // root-cause explanation). If we have anything, show it NOW; Room's
+        // real data (a few hundred ms later) replaces it via the normal
+        // diffUpdateContacts() path exactly like a live/delta update would.
+        if (contacts.isEmpty()) {
+            List<User> instant = ChatSnapshotCache.loadInstantSnapshot(requireContext());
+            if (!instant.isEmpty()) {
+                sortContactsList(instant, specialRequestUids);
+                diffUpdateContacts(instant);
+                showingInstantSnapshotOnly = true;
+                if (emptyState != null) emptyState.setVisibility(View.GONE);
+            }
+        }
 
         // v15 FIX 1: Pehle Room se load karo (offline ke liye instant display)
         loadFromRoom();
@@ -510,11 +549,12 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
             if (getActivity() != null) {
                 getActivity().runOnUiThread(() -> {
-                    if (contacts.isEmpty()) {
+                    if (contacts.isEmpty() || showingInstantSnapshotOnly) {
                         // FIX #5: Room first-load — contacts list is empty so diffUpdate
                         // is equivalent to notifyItemRangeInserted but cleaner via diff
                         sortByLatestMessage();
                         diffUpdateContacts(roomUsers);
+                        showingInstantSnapshotOnly = false;
                         if (emptyState != null)
                             emptyState.setVisibility(contacts.isEmpty() ? View.VISIBLE : View.GONE);
                         // Only adopt this cursor if "load more" hasn't already
@@ -1141,6 +1181,12 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         oldestLoadedTimestamp = oldest;
 
         if (adapter != null) adapter.submitList(new ArrayList<>(contacts));
+        // v210: opportunistically refresh the instant-snapshot cache used
+        // for next cold start — fire-and-forget, background thread, cheap
+        // (top 15 only). See ChatSnapshotCache class doc.
+        if (!contacts.isEmpty() && getContext() != null) {
+            ChatSnapshotCache.saveSnapshotAsync(getContext(), contacts);
+        }
         // PERF MONITOR: no-op after the first call each load-cycle (guarded
         // internally via loadStartNanos == 0 check) — closes the load-time
         // window opened in onCreateView.
