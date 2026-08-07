@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v241: flat solid card, no gradient/elevation — YouTube quick-access card. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/qa_card_youtube"/>
+    <corners android:radius="16dp"/>
+</shape>

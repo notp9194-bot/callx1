@@ -134,6 +134,11 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         View banner = v.findViewById(R.id.banner_requests);
         if (banner != null) banner.setVisibility(View.GONE);
 
+        // v241: Quick-access card header (Add Story / X / YouTube / My Status / Games)
+        // + one-shot header entrance animation. Additive-only — does not touch any
+        // existing view, listener, or feature below it.
+        setupQuickAccessHeader(v);
+
         // v88: ChatListLayoutManager (custom LLM)
         //  • supportsPredictiveItemAnimations=false → single layout pass per update
         //  • getExtraLayoutSpace=screenHeight → rows pre-laid out before scroll
@@ -271,6 +276,155 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         loadContacts();
         loadSpecialRequests();
         return v;
+    }
+
+    // ─── v241: Quick-access card header ────────────────────────────────────────
+    // Add Story / X / YouTube / My Status / Games — flat solid-color cards
+    // (see bg_qa_card_*.xml, no elevation/gradient) laid out as a plain
+    // HorizontalScrollView row (fixed 5 items → no adapter/RecyclerView
+    // overhead). Avatar loads are one-shot (addListenerForSingleValueEvent),
+    // not live listeners, so nothing keeps polling in the background.
+    // Reflection is used for cross-module navigation, same pattern already
+    // used elsewhere in this file (loadChatSocialButtons()) since feature-chat
+    // does not compile against feature-x / feature-youtube / feature-games /
+    // feature-status directly.
+    private void setupQuickAccessHeader(View root) {
+        View header = root.findViewById(R.id.header_quick_access);
+        if (header == null) return;
+
+        View cardAddStory = root.findViewById(R.id.card_add_story);
+        View cardX         = root.findViewById(R.id.card_x);
+        View cardYoutube   = root.findViewById(R.id.card_youtube);
+        View cardMyStatus  = root.findViewById(R.id.card_my_status);
+        View cardGames     = root.findViewById(R.id.card_games);
+
+        if (cardAddStory != null) {
+            cardAddStory.setOnClickListener(v -> openByClassName(
+                "com.callx.app.compose.NewStatusActivity", null, "Status not available"));
+        }
+
+        if (cardX != null) {
+            cardX.setOnClickListener(v -> openByClassName(
+                "com.callx.app.feed.XActivity", null, "X not available"));
+        }
+
+        if (cardYoutube != null) {
+            cardYoutube.setOnClickListener(v -> openByClassName(
+                "com.callx.app.home.YouTubeActivity", null, "YouTube not available"));
+        }
+
+        if (cardGames != null) {
+            cardGames.setOnClickListener(v -> openByClassName(
+                "com.callx.app.hub.GamesHubActivity", null, "Games coming soon!"));
+        }
+
+        String uid = FirebaseUtils.getCurrentUid();
+
+        if (cardMyStatus != null) {
+            cardMyStatus.setOnClickListener(v -> {
+                if (uid == null) return;
+                Intent extras = new Intent();
+                extras.putExtra("ownerUid", uid);
+                openByClassName("com.callx.app.viewer.StatusViewerActivity", extras,
+                    "Status not available");
+            });
+        }
+
+        // My Status avatar — one-shot load of the current user's own profile pic
+        CircleImageView ivMyStatus = root.findViewById(R.id.iv_qa_mystatus_avatar);
+        if (uid != null && ivMyStatus != null && getContext() != null) {
+            FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (getContext() == null) return;
+                    String thumb = snap.child("thumbUrl").getValue(String.class);
+                    String photo = snap.child("photoUrl").getValue(String.class);
+                    String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                    if (url != null && !url.isEmpty()) {
+                        Glide.with(getContext()).load(url)
+                            .apply(RequestOptions.circleCropTransform())
+                            .placeholder(R.drawable.ic_person)
+                            .override(92, 92)
+                            .into(ivMyStatus);
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+        }
+
+        // Unread badges for X / YouTube — one-shot counts (not a live listener),
+        // matching the lightweight intent of this header; the toolbar's own
+        // entry buttons elsewhere keep their existing live badge behaviour untouched.
+        TextView tvXBadge  = root.findViewById(R.id.tv_qa_x_badge);
+        TextView tvYtBadge = root.findViewById(R.id.tv_qa_yt_badge);
+        final String QA_DB_URL = "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app";
+        if (uid != null && tvXBadge != null) {
+            FirebaseDatabase.getInstance(QA_DB_URL).getReference("x/unread_notif_count").child(uid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        Long count = snap.getValue(Long.class);
+                        if (count != null && count > 0) {
+                            tvXBadge.setVisibility(View.VISIBLE);
+                            tvXBadge.setText(count > 99 ? "99+" : String.valueOf(count));
+                        }
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                });
+        }
+        if (uid != null && tvYtBadge != null) {
+            FirebaseDatabase.getInstance(QA_DB_URL).getReference("youtube/notifications").child(uid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        long unread = 0;
+                        for (DataSnapshot ds : snap.getChildren()) {
+                            Boolean read = ds.child("read").getValue(Boolean.class);
+                            if (read == null || !read) unread++;
+                        }
+                        if (unread > 0) {
+                            tvYtBadge.setVisibility(View.VISIBLE);
+                            tvYtBadge.setText(unread > 99 ? "99+" : String.valueOf(unread));
+                        }
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                });
+        }
+
+        // ── Header entrance animation ──
+        // Cheap one-shot alpha+translationY via ViewPropertyAnimator — no
+        // shadows, no elevation change, no repeating/looping animator, so it
+        // costs nothing once the 300ms entrance finishes.
+        float dp = root.getResources().getDisplayMetrics().density;
+        header.setAlpha(0f);
+        header.setTranslationY(-18f * dp);
+        header.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setStartDelay(60)
+            .setDuration(300)
+            .setInterpolator(new android.view.animation.DecelerateInterpolator())
+            .start();
+    }
+
+    /**
+     * Cross-module launch by fully-qualified class name (reflection), same
+     * pattern already used by loadChatSocialButtons() below. Silently no-ops
+     * if uid/context missing; shows a short Toast if the target module isn't
+     * present in this build instead of crashing.
+     */
+    private void openByClassName(String className, @androidx.annotation.Nullable Intent extras,
+                                  @androidx.annotation.Nullable String notFoundMessage) {
+        if (getContext() == null) return;
+        try {
+            Class<?> cls = Class.forName(className);
+            Intent i = new Intent(getContext(), cls);
+            if (extras != null && extras.getExtras() != null) {
+                i.putExtras(extras.getExtras());
+            }
+            startActivity(i);
+        } catch (Exception ex) {
+            if (notFoundMessage != null && getContext() != null) {
+                Toast.makeText(getContext(), notFoundMessage, Toast.LENGTH_SHORT).show();
+            }
+        }
     }
 
     // ─── Chat Folders ─────────────────────────────────────────────────────────

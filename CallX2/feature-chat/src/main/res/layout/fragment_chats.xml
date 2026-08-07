@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="?attr/colorSurface">
@@ -138,6 +139,253 @@
                 android:textStyle="bold"
                 android:textSize="14sp"
                 android:background="@drawable/bg_circle_white"/>
+        </LinearLayout>
+
+        <!-- v241: Quick-access card header — Add Story / X / YouTube / My Status / Games.
+             Flat solid-color cards (no elevation, no gradient — same GPU-perf rule already
+             used across the app) inside a plain HorizontalScrollView, so there is no
+             RecyclerView/adapter overhead for this fixed 5-item row. The whole container
+             gets a single one-shot fade+slide entrance animation from ChatsFragment
+             (setupQuickAccessHeader()) — cheap alpha+translationY, no shadows, runs once. -->
+        <LinearLayout
+            android:id="@+id/header_quick_access"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:scrollbars="none"
+                android:overScrollMode="never"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp">
+
+                    <!-- Add Story -->
+                    <LinearLayout
+                        android:id="@+id/card_add_story"
+                        android:layout_width="72dp"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:layout_marginEnd="10dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackground">
+
+                        <FrameLayout
+                            android:layout_width="56dp"
+                            android:layout_height="56dp"
+                            android:background="@drawable/bg_qa_card_light">
+
+                            <ImageView
+                                android:layout_width="22dp"
+                                android:layout_height="22dp"
+                                android:layout_gravity="center"
+                                android:src="@drawable/ic_status_add"
+                                android:tint="@color/brand_primary"/>
+                        </FrameLayout>
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="Add story"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="10sp"
+                            android:maxLines="1"
+                            android:gravity="center"/>
+                    </LinearLayout>
+
+                    <!-- X -->
+                    <LinearLayout
+                        android:id="@+id/card_x"
+                        android:layout_width="72dp"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:layout_marginEnd="10dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackground">
+
+                        <FrameLayout
+                            android:layout_width="56dp"
+                            android:layout_height="56dp"
+                            android:background="@drawable/bg_qa_card_x">
+
+                            <ImageView
+                                android:id="@+id/iv_qa_x_icon"
+                                android:layout_width="22dp"
+                                android:layout_height="22dp"
+                                android:layout_gravity="center"
+                                android:src="@drawable/ic_x_logo"
+                                android:tint="@color/white"
+                                android:contentDescription="X"/>
+
+                            <TextView
+                                android:id="@+id/tv_qa_x_badge"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_gravity="top|end"
+                                android:layout_margin="4dp"
+                                android:minWidth="14dp"
+                                android:minHeight="14dp"
+                                android:paddingStart="3dp"
+                                android:paddingEnd="3dp"
+                                android:textColor="@color/white"
+                                android:textSize="8sp"
+                                android:gravity="center"
+                                android:background="@drawable/bg_unread_badge"
+                                android:visibility="gone"/>
+                        </FrameLayout>
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="X"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="10sp"
+                            android:maxLines="1"
+                            android:gravity="center"/>
+                    </LinearLayout>
+
+                    <!-- YouTube -->
+                    <LinearLayout
+                        android:id="@+id/card_youtube"
+                        android:layout_width="72dp"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:layout_marginEnd="10dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackground">
+
+                        <FrameLayout
+                            android:layout_width="56dp"
+                            android:layout_height="56dp"
+                            android:background="@drawable/bg_qa_card_youtube">
+
+                            <ImageView
+                                android:id="@+id/iv_qa_yt_icon"
+                                android:layout_width="26dp"
+                                android:layout_height="26dp"
+                                android:layout_gravity="center"
+                                android:src="@drawable/ic_youtube_logo"
+                                android:contentDescription="YouTube"/>
+
+                            <TextView
+                                android:id="@+id/tv_qa_yt_badge"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_gravity="top|end"
+                                android:layout_margin="4dp"
+                                android:minWidth="14dp"
+                                android:minHeight="14dp"
+                                android:paddingStart="3dp"
+                                android:paddingEnd="3dp"
+                                android:textColor="@color/white"
+                                android:textSize="8sp"
+                                android:gravity="center"
+                                android:background="@drawable/bg_unread_badge"
+                                android:visibility="gone"/>
+                        </FrameLayout>
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="YouTube"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="10sp"
+                            android:maxLines="1"
+                            android:gravity="center"/>
+                    </LinearLayout>
+
+                    <!-- My Status -->
+                    <LinearLayout
+                        android:id="@+id/card_my_status"
+                        android:layout_width="72dp"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:layout_marginEnd="10dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackground">
+
+                        <FrameLayout
+                            android:layout_width="56dp"
+                            android:layout_height="56dp"
+                            android:background="@drawable/bg_qa_card_light">
+
+                            <de.hdodenhof.circleimageview.CircleImageView
+                                android:id="@+id/iv_qa_mystatus_avatar"
+                                android:layout_width="46dp"
+                                android:layout_height="46dp"
+                                android:layout_gravity="center"
+                                android:src="@drawable/ic_person"
+                                app:civ_border_width="2dp"
+                                app:civ_border_color="@color/qa_ring_status"/>
+                        </FrameLayout>
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="My status"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="10sp"
+                            android:maxLines="1"
+                            android:gravity="center"/>
+                    </LinearLayout>
+
+                    <!-- Games -->
+                    <LinearLayout
+                        android:id="@+id/card_games"
+                        android:layout_width="72dp"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackground">
+
+                        <FrameLayout
+                            android:layout_width="56dp"
+                            android:layout_height="56dp"
+                            android:background="@drawable/bg_qa_card_games">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_gravity="center"
+                                android:text="🎮"
+                                android:textSize="22sp"/>
+                        </FrameLayout>
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="Games"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="10sp"
+                            android:maxLines="1"
+                            android:gravity="center"/>
+                    </LinearLayout>
+
+                </LinearLayout>
+            </HorizontalScrollView>
         </LinearLayout>
 
         <!-- Feature 1: Chat Folders horizontal chip row.

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v241: flat solid card, no gradient/elevation — used for the Add Story
+     and My Status quick-access cards on the Chats tab header. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/qa_card_light"/>
+    <corners android:radius="16dp"/>
+</shape>
