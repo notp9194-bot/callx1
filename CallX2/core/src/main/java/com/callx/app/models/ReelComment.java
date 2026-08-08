@@ -11,6 +11,10 @@ public class ReelComment {
     public String ownerName;
     public String ownerPhoto;
     public String text;
+    /** Optional Cloudinary secure_url of a photo attached to this comment
+     *  (Instagram-style comment photo). Null/empty when the comment is
+     *  text-only. */
+    public String imageUrl;
     public long   timestamp;
     public int    likesCount;
     public int    replyCount;

@@ -115,6 +115,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
                     && a.isPinned   == b.isPinned
                     && a.isEdited   == b.isEdited
                     && java.util.Objects.equals(a.text, b.text)
+                    && java.util.Objects.equals(a.imageUrl, b.imageUrl)
                     && java.util.Objects.equals(a.ownerName, b.ownerName)
                     && java.util.Objects.equals(a.ownerPhoto, b.ownerPhoto)
                     && mapSignature(a.likedBy).equals(mapSignature(b.likedBy))
@@ -310,6 +311,19 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
 
         // ── Comment text (with clickable @mentions) ─────────────────────
         MentionSpanUtils.bind(h.tvText, c.text, c.mentions);
+
+        // ── Comment photo (Instagram-style attachment) ──────────────────
+        if (h.ivCommentImage != null) {
+            if (c.imageUrl != null && !c.imageUrl.isEmpty()) {
+                h.ivCommentImage.setVisibility(View.VISIBLE);
+                Glide.with(ctx).load(c.imageUrl)
+                    .apply(new RequestOptions().placeholder(R.drawable.bg_comment_image_frame))
+                    .into(h.ivCommentImage);
+            } else {
+                h.ivCommentImage.setVisibility(View.GONE);
+                h.ivCommentImage.setImageDrawable(null);
+            }
+        }
 
         // ── Author badge (reel owner posted this comment) ──────────────
         if (h.tvAuthorBadge != null) {
@@ -597,6 +611,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     static class VH extends RecyclerView.ViewHolder {
         ImageView ivAvatar;
         android.widget.ImageView ivStoryRing;
+        ImageView ivCommentImage;
         TextView tvName, tvText, tvTime, tvLikes, btnReply, tvViewReplies;
         TextView tvEdited, tvAuthorBadge, tvCreatorLiked;
         ImageButton btnLike;
@@ -624,6 +639,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             ivStoryRing     = v.findViewById(R.id.iv_story_ring);
             tvName          = v.findViewById(R.id.tv_name);
             tvText          = v.findViewById(R.id.tv_comment_text);
+            ivCommentImage  = v.findViewById(R.id.iv_comment_image);
             tvTime          = v.findViewById(R.id.tv_time);
             tvEdited        = v.findViewById(R.id.tv_edited);
             tvAuthorBadge   = v.findViewById(R.id.tv_author_badge);
@@ -685,6 +701,19 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
                 if (hasStory) adapter.openCommentStatus(v2.getContext(), boundComment);
                 else if (adapter.listener != null) adapter.listener.onAvatarClick(boundComment);
             });
+
+            // Tap the attached photo → full-screen pinch-zoom viewer
+            // (reuses the same "avatar zoom" dialog helper other screens use).
+            if (ivCommentImage != null) {
+                ivCommentImage.setOnClickListener(v2 -> {
+                    if (boundComment != null && boundComment.imageUrl != null
+                            && !boundComment.imageUrl.isEmpty()) {
+                        com.callx.app.utils.DialogFullscreenHelper.showAvatarZoom(
+                            v2.getContext(), boundComment.imageUrl,
+                            R.drawable.ic_person, R.drawable.ic_close);
+                    }
+                });
+            }
 
             btnLike.setOnClickListener(v2 -> {
                 if (boundComment != null && adapter.listener != null)

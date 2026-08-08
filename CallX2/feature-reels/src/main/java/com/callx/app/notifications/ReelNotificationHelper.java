@@ -657,8 +657,16 @@ public class ReelNotificationHelper {
         i.putExtra("reel_id", reelId);
         i.putExtra("extra",   extra);
         i.putExtra("notif_id", reqCode);
+        // FIX: this PendingIntent backs the "Reply" notification action,
+        // which attaches a RemoteInput (see showCommentNotification()).
+        // Android requires PendingIntents used with RemoteInput actions to
+        // be MUTABLE — FLAG_IMMUTABLE here throws IllegalArgumentException
+        // ("PendingIntents attached to actions with remote inputs must be
+        // mutable") at notify() time and drops the notification entirely.
+        // Safe because the target Intent's component is explicit
+        // (ReelNotificationActionReceiver) — nothing else can hijack it.
         return PendingIntent.getBroadcast(ctx, reqCode, i,
-            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
     }
 
     private static int notifId(String type, String key) {

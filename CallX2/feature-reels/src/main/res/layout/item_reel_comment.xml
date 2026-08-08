@@ -157,6 +157,19 @@
                 android:maxLines="8"
                 android:ellipsize="end"/>
 
+            <!-- Comment photo (Instagram-style attached image, hidden when
+                 the comment has no imageUrl) -->
+            <ImageView
+                android:id="@+id/iv_comment_image"
+                android:layout_width="150dp"
+                android:layout_height="150dp"
+                android:layout_marginTop="6dp"
+                android:scaleType="centerCrop"
+                android:background="@drawable/bg_comment_image_frame"
+                android:clipToOutline="true"
+                android:contentDescription="Comment photo"
+                android:visibility="gone"/>
+
             <!-- Emoji reaction strip (shown when reactions exist) -->
             <LinearLayout
                 android:id="@+id/layout_reactions"

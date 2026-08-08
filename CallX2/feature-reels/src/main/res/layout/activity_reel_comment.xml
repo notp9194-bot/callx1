@@ -278,12 +278,62 @@
             android:textColor="@color/text_muted"
             android:visibility="gone"/>
 
+        <!-- Selected-photo preview (Instagram-style — shown above the
+             input row once the user picks an image, before sending) -->
+        <FrameLayout
+            android:id="@+id/layout_comment_image_preview"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginTop="6dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/iv_comment_image_preview"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:background="@drawable/bg_comment_image_frame"
+                android:clipToOutline="true"
+                android:contentDescription="Selected photo"/>
+
+            <ImageButton
+                android:id="@+id/btn_remove_comment_image"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="-6dp"
+                android:layout_marginEnd="-6dp"
+                android:src="@drawable/ic_close"
+                android:background="@drawable/bg_sort_chip_selected"
+                android:contentDescription="Remove photo"
+                android:padding="4dp"/>
+
+            <ProgressBar
+                android:id="@+id/progress_comment_image"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="center"
+                android:visibility="gone"/>
+        </FrameLayout>
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:padding="8dp">
+
+            <ImageButton
+                android:id="@+id/btn_attach_photo"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="4dp"
+                android:src="@drawable/ic_gallery"
+                android:tint="@color/text_muted"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Add photo"
+                android:padding="8dp"/>
 
             <EditText
                 android:id="@+id/et_comment"

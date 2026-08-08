@@ -6,6 +6,7 @@ import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -18,11 +19,16 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
@@ -37,6 +43,7 @@ import com.bumptech.glide.Glide;
 import com.callx.app.models.ReelComment;
 import com.callx.app.models.ReelReply;
 import com.callx.app.reels.R;
+import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.workers.ReelCommentNotifWorker;
@@ -104,6 +111,11 @@ public class ReelCommentFragment extends Fragment {
     private RecyclerView   rvComments;
     private EditText       etComment;
     private ImageButton    btnSend;
+    private ImageButton    btnAttachPhoto;
+    private FrameLayout    layoutImagePreview;
+    private ImageView      ivImagePreview;
+    private ImageButton    btnRemoveImage;
+    private ProgressBar    progressImage;
     private TextView       tvEmpty;
     private TextView       tvCommentCount;
     private LinearLayout   barReplyingTo;
@@ -132,6 +144,20 @@ public class ReelCommentFragment extends Fragment {
     private boolean searchActive = false;
     private String  searchQuery  = "";
     private String  highlightCommentId = "";
+
+    // ── Comment photo attachment (Instagram-style) ──────────────────────────
+    /** Local uri the user just picked, shown in the preview while it uploads. */
+    private Uri    pickedImageUri = null;
+    /** Cloudinary secure_url once the upload finishes — attached to the
+     *  comment/reply on send, then cleared. Null while nothing is attached
+     *  or the upload hasn't completed yet. */
+    private String uploadedImageUrl = null;
+    private boolean uploadingImage = false;
+
+    private final ActivityResultLauncher<String> imagePickerLauncher =
+        registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
+            if (uri != null) onImagePicked(uri);
+        });
 
     private ReelComment replyingToComment = null;
     /** Non-null when the user tapped "Reply" on a REPLY (not a top-level
@@ -184,7 +210,16 @@ public class ReelCommentFragment extends Fragment {
     };
 
     private void requestRefresh() {
-        if (refreshQueued) return;
+        // FIX: previously this only scheduled a refresh on the FIRST event
+        // of a burst and ignored every event after — if 12 onChildAdded
+        // events (see PAGE_SIZE below) didn't all land within one
+        // REFRESH_DEBOUNCE_MS window (slow network), the fragment rendered
+        // a PARTIAL list early, then re-rendered again once the rest
+        // trickled in — visible as the list "settling"/re-sorting itself
+        // right after opening. Now every event PUSHES the timer back, so
+        // the single render only happens once the burst has genuinely gone
+        // quiet — one clean paint, no mid-air reorder.
+        refreshHandler.removeCallbacks(refreshRunnable);
         refreshQueued = true;
         refreshHandler.postDelayed(refreshRunnable, REFRESH_DEBOUNCE_MS);
     }
@@ -200,7 +235,10 @@ public class ReelCommentFragment extends Fragment {
     // Instagram's comment sheet. Ordered by KEY (not a "timestamp" child):
     // comment IDs are Firebase push() keys, which are already chronologically
     // sortable, so this needs no extra ".indexOn" rule in the Firebase console.
-    private static final int PAGE_SIZE = 40;
+    // Instagram-style: only the latest 12 comments on open; the next batch
+    // of 12 older ones loads only once the user scrolls up near the top
+    // (see maybeLoadOlderComments()) — not the whole thread up front.
+    private static final int PAGE_SIZE = 12;
     private final Set<String> loadedCommentIds = new HashSet<>();
     private String  oldestLoadedKey = null;
     private boolean hasMoreOlder    = true;
@@ -361,6 +399,11 @@ public class ReelCommentFragment extends Fragment {
         containerMentionSuggestions = root.findViewById(R.id.container_mention_suggestions);
         pillNewComments = root.findViewById(R.id.pill_new_comments);
         tvLoadingOlder  = root.findViewById(R.id.tv_loading_older);
+        btnAttachPhoto     = root.findViewById(R.id.btn_attach_photo);
+        layoutImagePreview = root.findViewById(R.id.layout_comment_image_preview);
+        ivImagePreview     = root.findViewById(R.id.iv_comment_image_preview);
+        btnRemoveImage     = root.findViewById(R.id.btn_remove_comment_image);
+        progressImage      = root.findViewById(R.id.progress_comment_image);
 
         // Same button closes either mode — finish() for the fullscreen host,
         // dismiss() for the sheet host — see setOnCloseListener callers.
@@ -368,6 +411,14 @@ public class ReelCommentFragment extends Fragment {
         if (btnBack        != null) btnBack.setOnClickListener(v -> close());
         if (btnSend        != null) btnSend.setOnClickListener(v -> onSendClicked());
         if (btnCancelReply != null) btnCancelReply.setOnClickListener(v -> cancelReply());
+        if (btnAttachPhoto != null) btnAttachPhoto.setOnClickListener(v -> {
+            try {
+                imagePickerLauncher.launch("image/*");
+            } catch (Exception e) {
+                Toast.makeText(requireContext(), "Couldn't open gallery", Toast.LENGTH_SHORT).show();
+            }
+        });
+        if (btnRemoveImage != null) btnRemoveImage.setOnClickListener(v -> clearPickedImage());
 
         // BUG FIX: when this fragment is hosted inside ReelCommentSheetFragment
         // (isSheet=true) the sheet can be sitting in its HALF_EXPANDED state,
@@ -1012,9 +1063,61 @@ public class ReelCommentFragment extends Fragment {
         }
     }
 
+    // ── Comment photo attachment (Instagram-style) ──────────────────────────
+
+    private void onImagePicked(Uri uri) {
+        pickedImageUri = uri;
+        uploadedImageUrl = null;
+        uploadingImage = true;
+
+        if (layoutImagePreview != null) layoutImagePreview.setVisibility(View.VISIBLE);
+        if (progressImage != null) progressImage.setVisibility(View.VISIBLE);
+        if (ivImagePreview != null) {
+            Glide.with(this).load(uri).into(ivImagePreview);
+        }
+
+        try {
+            CloudinaryUploader.upload(requireContext(), uri, "callx/reel_comments", "image",
+                new CloudinaryUploader.UploadCallback() {
+                    @Override public void onSuccess(CloudinaryUploader.Result result) {
+                        if (!isAdded()) return;
+                        uploadingImage = false;
+                        // User may have removed the preview while this was
+                        // still uploading — don't resurrect it.
+                        if (pickedImageUri == null || !pickedImageUri.equals(uri)) return;
+                        uploadedImageUrl = result.secureUrl;
+                        if (progressImage != null) progressImage.setVisibility(View.GONE);
+                    }
+
+                    @Override public void onError(String message) {
+                        if (!isAdded()) return;
+                        uploadingImage = false;
+                        Toast.makeText(requireContext(), "Photo upload failed", Toast.LENGTH_SHORT).show();
+                        clearPickedImage();
+                    }
+                });
+        } catch (Exception e) {
+            uploadingImage = false;
+            clearPickedImage();
+        }
+    }
+
+    private void clearPickedImage() {
+        pickedImageUri = null;
+        uploadedImageUrl = null;
+        uploadingImage = false;
+        if (layoutImagePreview != null) layoutImagePreview.setVisibility(View.GONE);
+        if (progressImage != null) progressImage.setVisibility(View.GONE);
+        if (ivImagePreview != null) ivImagePreview.setImageDrawable(null);
+    }
+
     // ── Send ──────────────────────────────────────────────────────────────────
 
     private void onSendClicked() {
+        if (uploadingImage) {
+            Toast.makeText(requireContext(), "Photo uploading… please wait", Toast.LENGTH_SHORT).show();
+            return;
+        }
         if (replyingToComment != null) postReply();
         else postComment();
     }
@@ -1041,6 +1144,9 @@ public class ReelCommentFragment extends Fragment {
             data.put("replyCount", 0);
             data.put("isPinned",   false);
             data.put("isEdited",   false);
+            if (uploadedImageUrl != null && !uploadedImageUrl.isEmpty()) {
+                data.put("imageUrl", uploadedImageUrl);
+            }
 
             Map<String, String> mentions = resolveMentionsInText(text);
             if (!mentions.isEmpty()) data.put("mentions", mentions);
@@ -1050,6 +1156,7 @@ public class ReelCommentFragment extends Fragment {
             incrementCommentsCount(+1);
             clearInput();
             clearDraft();
+            clearPickedImage();
 
             ReelCommentNotifWorker.enqueue(
                 requireContext(), reelId, reelUid, myUid, myName, key, text);
@@ -1308,6 +1415,8 @@ public class ReelCommentFragment extends Fragment {
     private void startReply(ReelComment comment) {
         replyingToComment = comment;
         replyingToReplyMention = null;
+        clearPickedImage();
+        if (btnAttachPhoto != null) btnAttachPhoto.setVisibility(View.GONE);
         String name = comment.ownerName != null ? comment.ownerName : "user";
         if (tvReplyingTo   != null) tvReplyingTo.setText("Replying to @" + name);
         if (barReplyingTo  != null) barReplyingTo.setVisibility(View.VISIBLE);
@@ -1325,6 +1434,8 @@ public class ReelCommentFragment extends Fragment {
     private void startReplyToReply(ReelComment parent, ReelReply reply) {
         replyingToComment = parent;
         replyingToReplyMention = reply;
+        clearPickedImage();
+        if (btnAttachPhoto != null) btnAttachPhoto.setVisibility(View.GONE);
         String name = reply.ownerName != null ? reply.ownerName : "user";
         if (tvReplyingTo   != null) tvReplyingTo.setText("Replying to @" + name);
         if (barReplyingTo  != null) barReplyingTo.setVisibility(View.VISIBLE);
@@ -1343,6 +1454,7 @@ public class ReelCommentFragment extends Fragment {
         replyingToReplyMention = null;
         if (barReplyingTo != null) barReplyingTo.setVisibility(View.GONE);
         if (etComment     != null) etComment.setHint("Write a comment…");
+        if (btnAttachPhoto != null) btnAttachPhoto.setVisibility(View.VISIBLE);
     }
 
     private void loadRepliesInto(ReelComment parent,
@@ -1716,7 +1828,9 @@ public class ReelCommentFragment extends Fragment {
     private String getInputText() {
         if (etComment == null) return null;
         String t = etComment.getText().toString().trim();
-        if (TextUtils.isEmpty(t)) {
+        boolean hasImage = replyingToComment == null
+            && uploadedImageUrl != null && !uploadedImageUrl.isEmpty();
+        if (TextUtils.isEmpty(t) && !hasImage) {
             Toast.makeText(requireContext(), "Please write something", Toast.LENGTH_SHORT).show();
             return null;
         }
