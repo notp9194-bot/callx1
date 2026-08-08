@@ -142,6 +142,35 @@ public class HomeFragment extends Fragment {
     // Tracks which ownerUids have at least one unseen status item for this viewer
     private final Set<String> unseenOwnerUids = new HashSet<>();
 
+    // ══════════════════════════════════════════════════════════════════════
+    // ── Instagram-style unified ranked feed: pagination + real-time ────────
+    // ══════════════════════════════════════════════════════════════════════
+    /** How many posts we render per "page" appended to the feed. */
+    private static final int FEED_PAGE_SIZE   = 8;
+    /** How many raw rows we ask Firebase for per fetch (server-side window). */
+    private static final int FEED_FETCH_BATCH = 25;
+    /** How often (in rendered posts) an inline "Suggested for you" creator
+     *  row is mixed into the feed — Instagram doesn't show trending/suggested
+     *  as separate boxes, it blends them straight into the scroll. */
+    private static final int SUGGESTED_EVERY_N_POSTS = 6;
+
+    private boolean          isLoadingMoreFeed   = false;
+    private boolean          feedHasMore         = true;
+    private Long             oldestFeedTimestamp = null;
+    private Long             newestFeedTimestamp = null;
+    private Set<String>      cachedFollowedUids  = new HashSet<>();
+    private Set<String>      cachedLikedIds      = new HashSet<>();
+    private Set<String>      cachedSavedIds      = new HashSet<>();
+    private String           cachedMyUidForFeed  = null;
+    private final Set<String> renderedReelIds    = new HashSet<>();
+    private View             feedLoadMoreFooter  = null;
+    private View             newPostsBanner      = null;
+    private int               newPostsPending     = 0;
+    private int               postsSincePeopleYouMayLike = 0;
+    private List<String[]>   suggestedCreatorPool = null; // uid,name,photo,sub — fetched once/session
+    private Query             newPostsQuery       = null;
+    private ChildEventListener newPostsListener   = null;
+
     // Story data model for proper sorting
     private static class StoryEntry {
         String uid, name, photo;
@@ -230,6 +259,7 @@ public class HomeFragment extends Fragment {
         swipeRefresh.setColorSchemeResources(R.color.brand_primary);
         swipeRefresh.setOnRefreshListener(() -> {
             unseenOwnerUids.clear();
+            resetFeedPaginationState();
             clearAllSections();
             loadAllSections();
         });
@@ -321,6 +351,18 @@ public class HomeFragment extends Fragment {
                     if (scrollRunnable != null) scrollHandler.removeCallbacks(scrollRunnable);
                     scrollRunnable = this::playMostVisibleCard;
                     scrollHandler.postDelayed(scrollRunnable, 120);
+
+                    // ★ Instagram-style infinite scroll: once the user is
+                    // within ~600dp of the bottom of the scrollable content,
+                    // silently fetch the next page from Firebase and append
+                    // it — the feed never hits a hard "end", same as IG.
+                    View content = sv.getChildAt(0);
+                    if (content != null) {
+                        int remaining = content.getBottom() - (sv.getHeight() + sv.getScrollY());
+                        if (remaining < dpToPx(600) && !isLoadingMoreFeed && feedHasMore) {
+                            loadMoreFeedPosts();
+                        }
+                    }
                 });
         }
     }
@@ -503,6 +545,7 @@ public class HomeFragment extends Fragment {
 
     @Override public void onDestroyView() {
         super.onDestroyView();
+        stopRealtimeNewPostsListener();
         if (scrollRunnable != null) scrollHandler.removeCallbacks(scrollRunnable);
         if (feedPlayer != null) { feedPlayer.release(); feedPlayer = null; }
         if (videoPreloader != null) { videoPreloader.shutdown(); videoPreloader = null; }
@@ -545,10 +588,26 @@ public class HomeFragment extends Fragment {
     private void switchFeedMode(boolean following) {
         isFollowingMode = following;
         updateFeedToggleUI();
+        resetFeedPaginationState();
         if (containerFeed != null) containerFeed.removeAllViews();
         showFeedLoading(true);
         showFeedEmpty(false);
         loadFeed();
+    }
+
+    /** Clears pagination/ranking/real-time state before a fresh feed load
+     *  (mode switch, pull-to-refresh, or "N new posts" tap). */
+    private void resetFeedPaginationState() {
+        stopRealtimeNewPostsListener();
+        isLoadingMoreFeed   = false;
+        feedHasMore         = true;
+        oldestFeedTimestamp = null;
+        newestFeedTimestamp = null;
+        renderedReelIds.clear();
+        postsSincePeopleYouMayLike = 0;
+        newPostsPending = 0;
+        feedLoadMoreFooter = null;
+        hideNewPostsBanner();
     }
 
     private void updateFeedToggleUI() {
@@ -828,7 +887,7 @@ public class HomeFragment extends Fragment {
             final String uid = myUid;
             FirebaseUtils.getReelsRef()
                 .orderByChild("timestamp")
-                .limitToLast(20)
+                .limitToLast(FEED_FETCH_BATCH)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot snap) {
                         if (!isAdded() || getContext() == null) return;
@@ -840,24 +899,37 @@ public class HomeFragment extends Fragment {
                                 posts.add(r);
                             }
                         }
-                        posts.sort((a, b) -> Float.compare(b.trendingScore(), a.trendingScore()));
+                        updateFeedTimestampBounds(posts);
+                        feedHasMore = posts.size() >= FEED_FETCH_BATCH;
                         // PERF: fetch the current user's full follow-set ONCE here
                         // instead of each card independently querying Firebase for
                         // its own follow status (was: up to 10 extra network round
-                        // trips per feed render in For-You mode).
+                        // trips per feed render in For-You mode). The same set also
+                        // feeds the ranking score below (relationship signal).
                         if (uid != null) {
                             FirebaseUtils.getReelFollowsRef(uid)
                                 .addListenerForSingleValueEvent(new ValueEventListener() {
                                     @Override public void onDataChange(@NonNull DataSnapshot fSnap) {
                                         Set<String> followedUids = new HashSet<>();
                                         for (DataSnapshot s : fSnap.getChildren()) followedUids.add(s.getKey());
+                                        cachedFollowedUids = followedUids;
+                                        // ★ Instagram-style ranking: not just "trending" —
+                                        // combine recency-decayed engagement, an
+                                        // approximate watch-time/interest signal, and a
+                                        // relationship (follow) boost into one score, the
+                                        // same inputs IG's real ranker uses (engagement,
+                                        // watch time, relationship, recency).
+                                        posts.sort((a, b) -> Float.compare(
+                                                rankScore(b, followedUids), rankScore(a, followedUids)));
                                         renderFeedPosts(posts, uid, followedUids);
                                     }
                                     @Override public void onCancelled(@NonNull DatabaseError e) {
+                                        posts.sort((a, b) -> Float.compare(b.trendingScore(), a.trendingScore()));
                                         renderFeedPosts(posts, uid, new HashSet<>());
                                     }
                                 });
                         } else {
+                            posts.sort((a, b) -> Float.compare(b.trendingScore(), a.trendingScore()));
                             renderFeedPosts(posts, uid, new HashSet<>());
                         }
                     }
@@ -869,10 +941,41 @@ public class HomeFragment extends Fragment {
         }
     }
 
+    /**
+     * Composite ranking score, mirroring the signal categories a real
+     * feed-ranking model combines (engagement, an approximate watch-time /
+     * interest proxy, relationship/affinity, recency) into one number instead
+     * of the previous plain "trending = engagement × recency" sort. This is
+     * a heuristic stand-in — not a trained ML model — but it's what lets
+     * suggested/trending content rank and interleave directly inside the
+     * main feed instead of living in separate static sections.
+     */
+    private float rankScore(ReelModel r, Set<String> followedUids) {
+        if (r == null) return 0f;
+        float engagementRecency = r.trendingScore(); // engagement × recency decay
+        float relationship = (followedUids != null && followedUids.contains(r.uid)) ? 35f : 0f;
+        // Approximate "watch time" signal: views relative to duration is the
+        // closest proxy available client-side to IG's actual watch-time model.
+        float watchTimeProxy = Math.min(r.viewsCount, 8000) * 0.015f
+                + Math.min(r.duration, 90) * 0.05f;
+        return engagementRecency + relationship + watchTimeProxy;
+    }
+
+    /** Tracks the newest/oldest timestamp seen so far so pagination
+     *  (older posts) and the real-time listener (newer posts) both know
+     *  where the currently-rendered window starts and ends. */
+    private void updateFeedTimestampBounds(List<ReelModel> posts) {
+        for (ReelModel r : posts) {
+            if (oldestFeedTimestamp == null || r.timestamp < oldestFeedTimestamp) oldestFeedTimestamp = r.timestamp;
+            if (newestFeedTimestamp == null || r.timestamp > newestFeedTimestamp) newestFeedTimestamp = r.timestamp;
+        }
+    }
+
     private void loadReelsForFeed(Set<String> followedUids, String myUid) {
+        cachedFollowedUids = followedUids;
         FirebaseUtils.getReelsRef()
             .orderByChild("timestamp")
-            .limitToLast(50)
+            .limitToLast(FEED_FETCH_BATCH)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (!isAdded() || getContext() == null) return;
@@ -884,7 +987,16 @@ public class HomeFragment extends Fragment {
                             posts.add(r);
                         }
                     }
+                    // Following mode stays reverse-chronological (matches real
+                    // Instagram: the explicit "Following" filter is chrono-only —
+                    // ranking/mixing only happens in the default/For-You feed).
                     posts.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
+                    updateFeedTimestampBounds(posts);
+                    // A full window may still come back < FEED_FETCH_BATCH once
+                    // filtered down to followed authors — that alone doesn't mean
+                    // there's nothing older, so only stop paginating once the raw
+                    // (unfiltered) fetch itself came back short.
+                    feedHasMore = snap.getChildrenCount() >= FEED_FETCH_BATCH;
                     renderFeedPosts(posts, myUid, followedUids);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
@@ -936,29 +1048,40 @@ public class HomeFragment extends Fragment {
     private void renderFeedPostsWithState(List<ReelModel> posts, Set<String> likedIds,
                                            Set<String> savedIds, String myUid, Set<String> followedUids) {
         if (!isAdded() || getContext() == null) return;
+        // Cache render state so infinite-scroll pages and the real-time
+        // "new posts" refresh can reuse it without re-fetching per card.
+        cachedLikedIds     = likedIds;
+        cachedSavedIds     = savedIds;
+        cachedMyUidForFeed = myUid;
+        cachedFollowedUids = followedUids;
         requireActivity().runOnUiThread(() -> {
             if (containerFeed == null || !isAdded()) return;
             containerFeed.removeAllViews();
             feedCards.clear();
+            renderedReelIds.clear();
+            postsSincePeopleYouMayLike = 0;
             currentFeedPosts = posts;
             currentPlayingIndex = -1;
-            int count = Math.min(posts.size(), 10);
+            // No more artificial 10-item cap — this page is already bounded
+            // by FEED_FETCH_BATCH, and infinite scroll appends further pages
+            // as the user nears the bottom instead of ever showing an "end".
+            int count = posts.size();
             // PERF: stagger card creation across frames. Inflating a card +
             // dispatching its avatar/thumb Glide requests is real work; doing
-            // all 10 in one runOnUiThread block competes for the same 16ms
+            // them all in one runOnUiThread block competes for the same 16ms
             // frame budget and is the main cause of a visible stutter when
             // opening Home or switching Following/For You. The first 3 cards
             // (~one screen) still render immediately so content is visible
             // instantly; the rest are added one-per-frame via postDelayed.
             int immediate = Math.min(count, 3);
             for (int i = 0; i < immediate; i++) {
-                addFeedPostCard(posts.get(i), likedIds, savedIds, myUid, followedUids);
+                renderOneFeedItem(posts.get(i), likedIds, savedIds, myUid, followedUids);
             }
             for (int i = immediate; i < count; i++) {
                 final int idx = i;
                 containerFeed.postDelayed(() -> {
                     if (!isAdded() || containerFeed == null) return;
-                    addFeedPostCard(posts.get(idx), likedIds, savedIds, myUid, followedUids);
+                    renderOneFeedItem(posts.get(idx), likedIds, savedIds, myUid, followedUids);
                 }, (long) (idx - immediate + 1) * 16L);
             }
             // Auto-play first visible card after layout
@@ -966,7 +1089,343 @@ public class HomeFragment extends Fragment {
                 if (scrollRunnable != null) scrollHandler.removeCallbacks(scrollRunnable);
                 scrollHandler.postDelayed(this::playMostVisibleCard, 400);
             });
+            // Start listening for brand-new posts published while the user
+            // is sitting on Home — real background updates, not just
+            // pull-to-refresh, same as Instagram's live feed.
+            startRealtimeNewPostsListener();
         });
+    }
+
+    /**
+     * Renders a single feed slot: the post card itself, plus — every
+     * SUGGESTED_EVERY_N_POSTS posts, in For-You mode only — an inline
+     * "Suggested for you" creators row mixed directly into the scroll
+     * (Instagram doesn't box these off separately; they're interleaved).
+     */
+    private void renderOneFeedItem(ReelModel reel, Set<String> likedIds, Set<String> savedIds,
+                                    String myUid, Set<String> followedUids) {
+        if (reel == null || reel.reelId == null || renderedReelIds.contains(reel.reelId)) return;
+        renderedReelIds.add(reel.reelId);
+        addFeedPostCard(reel, likedIds, savedIds, myUid, followedUids);
+
+        if (isFollowingMode) return; // Following stays a pure chronological feed
+        postsSincePeopleYouMayLike++;
+        if (postsSincePeopleYouMayLike >= SUGGESTED_EVERY_N_POSTS) {
+            postsSincePeopleYouMayLike = 0;
+            insertInlineSuggestedCreatorsRow();
+        }
+    }
+
+    /**
+     * Appends the next page of the feed (called by infinite scroll). Reuses
+     * the cached liked/saved/follow state from the initial render instead of
+     * re-fetching it, and simply extends currentFeedPosts + the container.
+     */
+    private void appendFeedPage(List<ReelModel> newPosts) {
+        if (!isAdded() || containerFeed == null) return;
+        List<ReelModel> merged = new ArrayList<>(currentFeedPosts);
+        merged.addAll(newPosts);
+        currentFeedPosts = merged;
+        for (ReelModel r : newPosts) {
+            renderOneFeedItem(r, cachedLikedIds, cachedSavedIds, cachedMyUidForFeed, cachedFollowedUids);
+        }
+        isLoadingMoreFeed = false;
+        showFeedFooterLoading(false);
+    }
+
+    // ── Infinite scroll (pagination) ─────────────────────────────────────
+
+    /**
+     * Fetches the next older window of posts once the user scrolls near the
+     * bottom, instead of the feed simply stopping after one fixed load.
+     * Following mode paginates by timestamp and filters to followed
+     * authors; For-You mode paginates the same way and re-ranks each new
+     * page with {@link #rankScore}.
+     */
+    private void loadMoreFeedPosts() {
+        if (isLoadingMoreFeed || !feedHasMore || oldestFeedTimestamp == null) return;
+        if (!isAdded() || getContext() == null) return;
+        isLoadingMoreFeed = true;
+        showFeedFooterLoading(true);
+
+        Query q = FirebaseUtils.getReelsRef()
+                .orderByChild("timestamp")
+                .endAt(oldestFeedTimestamp - 1)
+                .limitToLast(FEED_FETCH_BATCH);
+
+        q.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                if (!isAdded() || getContext() == null) return;
+                List<ReelModel> newPosts = new ArrayList<>();
+                for (DataSnapshot s : snap.getChildren()) {
+                    ReelModel r = s.getValue(ReelModel.class);
+                    if (r == null) continue;
+                    if (r.reelId == null) r.reelId = s.getKey();
+                    if (renderedReelIds.contains(r.reelId)) continue;
+                    if (isFollowingMode && !cachedFollowedUids.contains(r.uid)) continue;
+                    newPosts.add(r);
+                }
+                feedHasMore = snap.getChildrenCount() >= FEED_FETCH_BATCH;
+                for (ReelModel r : newPosts) {
+                    if (oldestFeedTimestamp == null || r.timestamp < oldestFeedTimestamp)
+                        oldestFeedTimestamp = r.timestamp;
+                }
+                if (newPosts.isEmpty()) {
+                    isLoadingMoreFeed = false;
+                    showFeedFooterLoading(false);
+                    return;
+                }
+                if (isFollowingMode) {
+                    newPosts.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
+                } else {
+                    newPosts.sort((a, b) -> Float.compare(
+                            rankScore(b, cachedFollowedUids), rankScore(a, cachedFollowedUids)));
+                }
+                requireActivity().runOnUiThread(() -> appendFeedPage(newPosts));
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {
+                isLoadingMoreFeed = false;
+                showFeedFooterLoading(false);
+            }
+        });
+    }
+
+    /** Small spinner appended/removed at the bottom of the feed while a
+     *  pagination fetch (loadMoreFeedPosts) is in flight. */
+    private void showFeedFooterLoading(boolean show) {
+        if (containerFeed == null || !isAdded() || getContext() == null) return;
+        requireActivity().runOnUiThread(() -> {
+            if (containerFeed == null || !isAdded()) return;
+            if (show) {
+                if (feedLoadMoreFooter == null) {
+                    ProgressBar pb = new ProgressBar(requireContext());
+                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(48));
+                    lp.gravity = android.view.Gravity.CENTER;
+                    lp.topMargin = dpToPx(8);
+                    lp.bottomMargin = dpToPx(8);
+                    pb.setLayoutParams(lp);
+                    feedLoadMoreFooter = pb;
+                }
+                if (feedLoadMoreFooter.getParent() == null) containerFeed.addView(feedLoadMoreFooter);
+            } else if (feedLoadMoreFooter != null && feedLoadMoreFooter.getParent() != null) {
+                containerFeed.removeView(feedLoadMoreFooter);
+            }
+        });
+    }
+
+    // ── Inline "Suggested for you" — mixed into the feed, not boxed off ────
+
+    /**
+     * Inserts a horizontal row of suggested (not-yet-followed) creators
+     * directly into the feed scroll, the way Instagram interleaves
+     * suggested accounts/posts between followed content instead of
+     * confining them to a separate section. Fetches the candidate pool
+     * once per session and reuses it for every insertion.
+     */
+    private void insertInlineSuggestedCreatorsRow() {
+        if (!isAdded() || getContext() == null || containerFeed == null) return;
+        if (suggestedCreatorPool != null) {
+            buildInlineSuggestedRow(suggestedCreatorPool);
+            return;
+        }
+        String myUid = safeMyUid();
+        FirebaseUtils.db().getReference("users")
+            .orderByChild("reelCount")
+            .limitToLast(15)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (!isAdded() || getContext() == null) return;
+                    List<String[]> creators = new ArrayList<>();
+                    for (DataSnapshot s : snap.getChildren()) {
+                        String uid = s.getKey();
+                        if (uid == null || uid.equals(myUid)) continue;
+                        String name = s.child("name").getValue(String.class);
+                        String photo = s.child("photoUrl").getValue(String.class);
+                        String thumb = s.child("thumbUrl").getValue(String.class);
+                        String finalPhoto = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                        if (name != null) {
+                            creators.add(new String[]{uid, name, finalPhoto != null ? finalPhoto : ""});
+                        }
+                    }
+                    Collections.reverse(creators);
+                    suggestedCreatorPool = creators;
+                    requireActivity().runOnUiThread(() -> buildInlineSuggestedRow(creators));
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) { /* skip this insertion */ }
+            });
+    }
+
+    private void buildInlineSuggestedRow(List<String[]> pool) {
+        if (!isAdded() || getContext() == null || containerFeed == null || pool.isEmpty()) return;
+        Set<String> followed = cachedFollowedUids != null ? cachedFollowedUids : new HashSet<>();
+        List<String[]> candidates = new ArrayList<>();
+        for (String[] c : pool) {
+            if (!followed.contains(c[0])) candidates.add(c);
+            if (candidates.size() >= 6) break;
+        }
+        if (candidates.isEmpty()) return;
+
+        LinearLayout section = new LinearLayout(requireContext());
+        section.setOrientation(LinearLayout.VERTICAL);
+        int dp16 = dpToPx(16);
+        section.setPadding(dp16, dpToPx(12), dp16, dpToPx(4));
+
+        TextView header = new TextView(requireContext());
+        header.setText("Suggested for you");
+        header.setTextColor(0xFFFFFFFF);
+        header.setTextSize(13f);
+        header.setTypeface(null, android.graphics.Typeface.BOLD);
+        section.addView(header);
+
+        HorizontalScrollView scroller = new HorizontalScrollView(requireContext());
+        scroller.setHorizontalScrollBarEnabled(false);
+        LinearLayout.LayoutParams scrollerLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        scrollerLp.topMargin = dpToPx(8);
+        scroller.setLayoutParams(scrollerLp);
+
+        LinearLayout row = new LinearLayout(requireContext());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        scroller.addView(row);
+
+        for (String[] c : candidates) {
+            String uid = c[0], name = c[1], photo = c[2];
+            LinearLayout chip = new LinearLayout(requireContext());
+            chip.setOrientation(LinearLayout.VERTICAL);
+            chip.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+            LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(
+                    dpToPx(78), LinearLayout.LayoutParams.WRAP_CONTENT);
+            chipLp.setMarginEnd(dpToPx(10));
+            chip.setLayoutParams(chipLp);
+            chip.setPadding(dpToPx(4), dpToPx(8), dpToPx(4), dpToPx(8));
+            chip.setBackgroundResource(R.drawable.bg_speed_chip);
+
+            CircleImageView av = new CircleImageView(requireContext());
+            av.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(52), dpToPx(52)));
+            av.setImageResource(R.drawable.ic_person);
+            if (photo != null && !photo.isEmpty()) {
+                Glide.with(requireContext()).load(photo)
+                    .apply(RequestOptions.circleCropTransform())
+                    .placeholder(R.drawable.ic_person).into(av);
+            }
+            chip.addView(av);
+
+            TextView tvName = new TextView(requireContext());
+            tvName.setText(name);
+            tvName.setTextSize(11f);
+            tvName.setTextColor(0xFFFFFFFF);
+            tvName.setMaxLines(1);
+            tvName.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            tvName.setGravity(android.view.Gravity.CENTER);
+            LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            nameLp.topMargin = dpToPx(4);
+            tvName.setLayoutParams(nameLp);
+            chip.addView(tvName);
+
+            chip.setOnClickListener(v -> {
+                if (!isAdded() || getContext() == null) return;
+                Intent i = new Intent(getContext(), UserReelsActivity.class);
+                i.putExtra(UserReelsActivity.EXTRA_UID, uid);
+                i.putExtra(UserReelsActivity.EXTRA_NAME, name);
+                startActivity(i);
+            });
+            row.addView(chip);
+        }
+
+        section.addView(scroller);
+        containerFeed.addView(section);
+    }
+
+    // ── Real-time background updates ────────────────────────────────────
+
+    /**
+     * Listens for reels published after the newest one currently rendered
+     * and surfaces a small "N new posts" pill instead of silently jumping
+     * the scroll position — same pattern Instagram/Twitter use for live
+     * feed updates. Tapping the pill reloads from the top; pull-to-refresh
+     * still works independently at any time.
+     */
+    private void startRealtimeNewPostsListener() {
+        stopRealtimeNewPostsListener();
+        if (newestFeedTimestamp == null || !isAdded() || getContext() == null) return;
+
+        Query q = FirebaseUtils.getReelsRef()
+                .orderByChild("timestamp")
+                .startAt(newestFeedTimestamp + 1);
+        ChildEventListener listener = new ChildEventListener() {
+            @Override public void onChildAdded(@NonNull DataSnapshot snap, String prevKey) {
+                if (!isAdded() || getContext() == null) return;
+                ReelModel r = snap.getValue(ReelModel.class);
+                if (r == null) return;
+                String reelId = r.reelId != null ? r.reelId : snap.getKey();
+                if (reelId == null || renderedReelIds.contains(reelId)) return;
+                if (isFollowingMode && !cachedFollowedUids.contains(r.uid)) return;
+                requireActivity().runOnUiThread(() -> {
+                    newPostsPending++;
+                    showNewPostsBanner();
+                });
+            }
+            @Override public void onChildChanged(@NonNull DataSnapshot snap, String prevKey) { }
+            @Override public void onChildRemoved(@NonNull DataSnapshot snap) { }
+            @Override public void onChildMoved(@NonNull DataSnapshot snap, String prevKey) { }
+            @Override public void onCancelled(@NonNull DatabaseError error) { }
+        };
+        q.addChildEventListener(listener);
+        newPostsQuery = q;
+        newPostsListener = listener;
+    }
+
+    private void stopRealtimeNewPostsListener() {
+        if (newPostsQuery != null && newPostsListener != null) {
+            newPostsQuery.removeEventListener(newPostsListener);
+        }
+        newPostsQuery = null;
+        newPostsListener = null;
+    }
+
+    /** Shows (or updates the count on) the floating "N new posts" pill
+     *  pinned above the feed content. */
+    private void showNewPostsBanner() {
+        if (!isAdded() || getContext() == null || containerFeed == null) return;
+        if (newPostsBanner == null) {
+            TextView pill = new TextView(requireContext());
+            pill.setTextColor(0xFFFFFFFF);
+            pill.setTextSize(13f);
+            pill.setTypeface(null, android.graphics.Typeface.BOLD);
+            pill.setGravity(android.view.Gravity.CENTER);
+            pill.setBackgroundResource(R.drawable.bg_speed_chip);
+            int padV = dpToPx(10), padH = dpToPx(16);
+            pill.setPadding(padH, padV, padH, padV);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
+            lp.topMargin = dpToPx(8);
+            lp.bottomMargin = dpToPx(8);
+            pill.setLayoutParams(lp);
+            pill.setOnClickListener(v -> {
+                if (scrollView != null) scrollView.smoothScrollTo(0, 0);
+                resetFeedPaginationState();
+                if (containerFeed != null) containerFeed.removeAllViews();
+                showFeedLoading(true);
+                loadFeed();
+            });
+            newPostsBanner = pill;
+        }
+        ((TextView) newPostsBanner).setText(newPostsPending == 1
+                ? "1 new post · Tap to refresh" : (newPostsPending + " new posts · Tap to refresh"));
+        if (newPostsBanner.getParent() == null) {
+            containerFeed.addView(newPostsBanner, 0);
+        }
+    }
+
+    private void hideNewPostsBanner() {
+        if (newPostsBanner != null && newPostsBanner.getParent() != null && containerFeed != null) {
+            containerFeed.removeView(newPostsBanner);
+        }
+        newPostsBanner = null;
+        newPostsPending = 0;
     }
 
     private void addFeedPostCard(ReelModel reel, Set<String> likedIds,
