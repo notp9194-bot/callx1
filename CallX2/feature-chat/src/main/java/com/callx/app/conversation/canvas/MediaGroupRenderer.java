@@ -287,8 +287,17 @@ final class MediaGroupRenderer {
             host.groupCaptionLayout.draw(canvas);
             canvas.restore();
 
+            // ── Read-more / Read-less strip (long caption) ────────────
+            if (host.hasLongText) {
+                host.drawReadMoreStrip(canvas, host.groupContentRect.left,
+                        captionTop + host.groupCaptionLayout.getHeight());
+            } else {
+                host.readMoreRect.setEmpty();
+            }
+
             host.drawFooter(canvas, host.bubbleRect.bottom - vPad * 0.4f, host.groupContentRect.right);
         } else {
+            host.readMoreRect.setEmpty();
             // Captionless group: translucent timestamp/tick pill overlaid
             // on the grid's bottom-right corner — same treatment as the
             // single-image bubble's captionless pill.

@@ -59,10 +59,21 @@ public class AuthActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // ── FASTEST-OPEN FIX: check auth state BEFORE inflating the login
+        // form. MainActivity is now the app's launcher and only sends the
+        // user here when it has already determined they're logged out, so
+        // this should normally never fire — but if it ever does (e.g. a
+        // stale deep link, or a race where sign-in completed on another
+        // screen microseconds earlier), there's no reason to pay for
+        // ActivityAuthBinding.inflate() (email/password fields, Google/
+        // biometric buttons, etc.) just to immediately tear it down again.
+        auth = FirebaseAuth.getInstance();
+        if (auth.getCurrentUser() != null) { goToMain(); return; }
+
         binding = ActivityAuthBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        auth  = FirebaseAuth.getInstance();
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         bioLoginManager = BiometricLoginManager.getInstance(this);
 
@@ -72,8 +83,6 @@ public class AuthActivity extends AppCompatActivity {
             binding.etEmail.setText(savedEmail);
             binding.cbRememberMe.setChecked(true);
         }
-
-        if (auth.getCurrentUser() != null) { goToMain(); return; }
 
         // ── Biometric login button: show only if enabled + hardware available ──
         if (bioLoginManager.isEnabled()
@@ -719,6 +728,7 @@ public class AuthActivity extends AppCompatActivity {
         // Sync privacy settings to Firebase on login
         try { new com.callx.app.utils.SecurityManager(this).syncAllPrivacyToFirebase(); } catch (Exception ignored) {}
         startActivity(new Intent(this, MainActivity.class));
+        overridePendingTransition(0, 0); // redirect, not a real screen transition
         finish();
     }
 }

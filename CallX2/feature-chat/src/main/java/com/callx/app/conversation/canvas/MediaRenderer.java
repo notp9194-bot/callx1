@@ -175,8 +175,17 @@ final class MediaRenderer {
             canvas.translate(host.bubbleLeft + hPad, captionTop);
             host.textLayout.draw(canvas);
             canvas.restore();
+
+            // ── Read-more / Read-less strip (long caption) ────────────
+            if (host.hasLongText) {
+                host.drawReadMoreStrip(canvas, host.bubbleLeft + hPad, captionTop + host.textLayout.getHeight());
+            } else {
+                host.readMoreRect.setEmpty();
+            }
+
             host.drawFooter(canvas, host.bubbleRect.bottom - vPad * 0.4f, host.bubbleRect.right - hPad);
         } else {
+            host.readMoreRect.setEmpty();
             // Captionless image: translucent timestamp/tick pill overlaid
             // on the image's bottom-right corner, WhatsApp-style.
             float rr = MessageBubbleCanvasView.MEDIA_PILL_CORNER_DP * host.density;

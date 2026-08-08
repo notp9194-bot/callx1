@@ -206,14 +206,15 @@ public class CallxApp extends Application {
 
         // ── MAIN THREAD: sirf lightweight kaam ────────────────────────
 
-        // Notification channels — Android OS call hai, fast hai
-        createChannels();
-
-        // Reel notification channels (39 channels register)
-        com.callx.app.notifications.ReelNotificationChannelManager.ensureChannels(this);
-
-        // YouTube notification channels
-        com.callx.app.notifications.YouTubeNotificationChannelManager.ensureChannels(this);
+        // Notification channels moved to background thread below (see
+        // "PERF FIX v238" comment on that thread) — ~55+ createNotification
+        // Channel() Binder/IPC calls to system_server were all running here
+        // synchronously on EVERY cold start, direct main-thread cost sitting
+        // in front of the very first frame. None of this needs to be ready
+        // before the UI paints — channels only need to exist before the
+        // FIRST notification is ever shown, which is always well after
+        // launch. WorkManager schedule/enqueue calls stay here — that's a
+        // one-line enqueue into a DB write queue, not a per-item Binder call.
 
         // WorkManager workers schedule — sirf enqueue karta hai, heavy nahi
         XNotificationWorker.schedule(this);
@@ -247,6 +248,32 @@ public class CallxApp extends Application {
 
         // ── BACKGROUND THREAD: heavy init ─────────────────────────────
         new Thread(() -> {
+            // PERF FIX v238 — "app fresh open / recent-apps-kill open slow":
+            // Notification channel registration (createChannels() — ~15
+            // channels — plus ReelNotificationChannelManager's 39 and
+            // YouTubeNotificationChannelManager's) used to run synchronously
+            // on the MAIN thread, first thing in onCreate, on every single
+            // cold start. Each createNotificationChannel() call is a real
+            // Binder IPC round-trip to system_server, not free local work —
+            // 55+ of them stacked in front of the very first frame added a
+            // real, measurable chunk of the "slow open" the user was
+            // reporting even after the Chat List's own snapshot-cache fix.
+            // None of this needs to be done before the UI paints — a
+            // channel only needs to exist before the FIRST notification
+            // through it is shown, which is always well after the user is
+            // already looking at the Chat List. Moved here, first thing on
+            // this background thread, so it's off the critical path to
+            // first paint but still finishes well before any notification
+            // could realistically be posted.
+            try {
+                createChannels();
+                com.callx.app.notifications.ReelNotificationChannelManager.ensureChannels(CallxApp.this);
+                com.callx.app.notifications.YouTubeNotificationChannelManager.ensureChannels(CallxApp.this);
+                Log.d(TAG, "Notification channels registered (background)");
+            } catch (Exception e) {
+                Log.w(TAG, "Notification channel registration failed: " + e.getMessage());
+            }
+
             // Firebase persistence already enabled synchronously above
             // (must run before any FirebaseDatabase.getInstance() call).
 
@@ -270,6 +297,25 @@ public class CallxApp extends Application {
 
             // User photo URL Firebase listener
             cacheMyPhotoUrl();
+
+            // ── E2E RE-KEY FIX: self-healing "🔒 Unable to decrypt message" ──
+            // Listens for other devices telling us they lost their session
+            // with a partner of ours and need us to re-key (see
+            // E2EEncryptionManager#listenForReKeyRequests for the full
+            // explanation — asymmetric session loss after a reinstall/new
+            // device is the actual root cause of that marker persisting on
+            // every message instead of just failing once). Cheap to attach
+            // (a single Firebase listener on our own uid's node) and only
+            // ever does real work when a partner is genuinely stuck.
+            try {
+                if (FirebaseAuth.getInstance().getCurrentUser() != null) {
+                    String myUid = FirebaseUtils.getCurrentUid();
+                    com.callx.app.utils.E2EEncryptionManager.getInstance(CallxApp.this)
+                            .listenForReKeyRequests(myUid);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "E2E re-key listener attach failed: " + e.getMessage());
+            }
 
             // Cache system: CacheManager, SyncWorker, StatusCacheManager
             initCacheSystem();

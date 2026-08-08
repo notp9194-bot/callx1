@@ -53,6 +53,45 @@ public class MessagePagingAdapter
     private final java.util.Set<String> expandedMessageIds =
             java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
+    /**
+     * Wires the "Read more / Read less" expand toggle for a bound holder —
+     * shared by the plain-text bubble AND the image/video/media-group
+     * caption paths, since MessageBubbleCanvasView's canvas rendering
+     * reuses the same hasLongText/isTextExpanded machinery for all of
+     * them (see MessageBubbleCanvasView.drawReadMoreStrip()). Same
+     * scroll-anchor behaviour as the original text-only wiring: the
+     * item's on-screen top edge is preserved across the resulting
+     * notifyItemChanged() so expanding/collapsing a long caption doesn't
+     * jump the list.
+     */
+    private void wireCaptionReadMore(VH h,
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView cv, String msgId) {
+        cv.setTextExpanded(expandedMessageIds.contains(msgId));
+        cv.setReadMoreListener(nowExpanded -> {
+            if (nowExpanded) expandedMessageIds.add(msgId);
+            else             expandedMessageIds.remove(msgId);
+
+            int pos = h.getBindingAdapterPosition();
+            if (pos == RecyclerView.NO_POSITION) return;
+
+            final RecyclerView rv = (h.itemView.getParent() instanceof RecyclerView)
+                    ? (RecyclerView) h.itemView.getParent() : null;
+            final int savedTop = (rv != null) ? h.itemView.getTop() : 0;
+
+            notifyItemChanged(pos);
+
+            if (rv != null) {
+                rv.post(() -> {
+                    RecyclerView.LayoutManager lm = rv.getLayoutManager();
+                    if (lm instanceof androidx.recyclerview.widget.LinearLayoutManager) {
+                        ((androidx.recyclerview.widget.LinearLayoutManager) lm)
+                                .scrollToPositionWithOffset(pos, savedTop);
+                    }
+                });
+            }
+        });
+    }
+
 
     // CONFIRMED (user asked to verify): PagingDataAdapter(DiffUtil.ItemCallback)
     // below is called with no explicit dispatcher args, which means it uses
@@ -2073,6 +2112,7 @@ public class MessagePagingAdapter
             }
             cv.bindMediaGroup(gridItems, m.caption, timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
+            wireCaptionReadMore(h, cv, m.messageId); // caption read-more/read-less
 
             // Per-cell thumbnail load, plus (received-only) the manual
             // download-gate flagging — mirrors MediaGroupLayoutHelper's
@@ -2187,6 +2227,7 @@ public class MessagePagingAdapter
                     ? (float) m.mediaWidth / m.mediaHeight : 0f;
             cv.bindMedia(null, m.caption, timeStr, sent, isRead, isDelivered, fullUrl, knownRatio);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
+            wireCaptionReadMore(h, cv, m.messageId); // caption read-more/read-less
 
             // WhatsApp-style local-first media bubble: this SENT image was
             // just picked and is still uploading (or its upload failed) —
@@ -2733,6 +2774,7 @@ public class MessagePagingAdapter
                     ? (float) m.mediaWidth / m.mediaHeight : 0f;
             cv.bindVideo(null, m.caption, durText, timeStr, sent, isRead, isDelivered, vThumbUrl, vKnownRatio);
             cv.setDeletedStyle(false);
+            wireCaptionReadMore(h, cv, m.messageId); // caption read-more/read-less
 
             // BlurHash placeholder: show blurred color preview before the video thumb loads.
             // If thumbnailUrl is present we load from server (no full download needed for preview).

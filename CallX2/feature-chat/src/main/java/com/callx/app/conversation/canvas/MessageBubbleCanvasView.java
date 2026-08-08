@@ -1148,6 +1148,31 @@ public class MessageBubbleCanvasView extends View {
         fullBubbleDirty = true;
         invalidate();
     }
+    /**
+     * Draws the "Read more ▼" / "Read less ▲" tappable link and records its
+     * hit rect into {@link #readMoreRect} — shared by the plain-text bubble
+     * path and the media/media-group caption paths (see MediaRenderer and
+     * MediaGroupRenderer), all three of which reuse hasLongText/
+     * isTextExpanded/readMoreRect since only one of them is ever active on
+     * a given bind. `x` is the left edge to draw at, `rowTop` is the y
+     * coordinate right where the (collapsed) text block ends.
+     */
+    void drawReadMoreStrip(Canvas canvas, float x, float rowTop) {
+        readMorePaint.setTextSize(spToPx(READ_MORE_TEXT_SP));
+        // Gold for sent bubbles (matches tick/waveform accent),
+        // WhatsApp-blue for received bubbles.
+        readMorePaint.setColor(sent ? 0xFFFFD54F : 0xFF64B5F6);
+        readMorePaint.setFakeBoldText(false);
+        String rmLabel = isTextExpanded ? "Read less ▲" : "Read more ▼";
+        Paint.FontMetrics rfm = readMorePaint.getFontMetrics();
+        // Centre the text vertically within the READ_MORE_ROW_HEIGHT_DP strip
+        float rowH = READ_MORE_ROW_HEIGHT_DP * density;
+        float rmBaseline = rowTop + (rowH - (rfm.descent - rfm.ascent)) * 0.5f - rfm.ascent;
+        canvas.drawText(rmLabel, x, rmBaseline, readMorePaint);
+        float rmW = readMorePaint.measureText(rmLabel);
+        readMoreRect.set(x, rowTop, x + rmW, rowTop + rowH);
+    }
+
     GradientDrawable bubbleDrawable;
     int lastCacheKey = -1;
 
@@ -3440,9 +3465,27 @@ public class MessageBubbleCanvasView extends View {
      *                   iv_reply_thumb. Pass null for text-only replies.
      */
     public void setReply(String senderName, String text, @Nullable Bitmap thumb) {
+        String sn = senderName != null ? senderName : "";
+        String tx = text != null ? text : "";
+        // PERF: setReply() is called on EVERY rebind of a reply/status-
+        // reaction row — not just scroll recycling, but (per the adapter's
+        // own comment at the call site) every rebind of an ON-SCREEN row
+        // triggered by an unrelated new message being inserted elsewhere in
+        // the paging list. invalidate() is overridden to unconditionally
+        // mark the full-bubble RenderNode/Picture cache dirty (see PERF #5
+        // above onDraw()), so without this early-return, a status-reply
+        // bubble carrying the big reaction emoji re-records its ENTIRE
+        // cached bubble (background, text, emoji badge, footer — all of
+        // it) on every single send/receive, even when this exact reply
+        // content hasn't changed at all. Skip everything — including the
+        // invalidate() that would mark the cache stale — when it hasn't.
+        if (this.hasReply && this.replySenderName.equals(sn)
+                && this.replyText.equals(tx) && this.replyThumb == thumb) {
+            return;
+        }
         this.hasReply = true;
-        this.replySenderName = senderName != null ? senderName : "";
-        this.replyText = text != null ? text : "";
+        this.replySenderName = sn;
+        this.replyText = tx;
         this.replyThumb = thumb;
         resolveReplyColors(getContext());
         // Bubble corner treatment doesn't actually depend on hasReply in this
@@ -3463,6 +3506,13 @@ public class MessageBubbleCanvasView extends View {
 
     /** Call when a message has no reply — clears any previous reply-strip state so a recycled view doesn't show stale data. */
     public void clearReply() {
+        // PERF: same no-op guard as setReply() above — the vast majority of
+        // rebinds are for plain messages with no reply at all, so without
+        // this, EVERY non-reply bubble on screen would also re-record its
+        // full cached Picture/RenderNode on every unrelated new message
+        // send/receive (clearReply() is called unconditionally on every
+        // rebind of a no-reply row — see the adapter's else-branch).
+        if (!this.hasReply && !this.bigReactionBadge) return;
         this.hasReply = false;
         this.replySenderName = "";
         this.replyText = "";
@@ -3866,6 +3916,14 @@ public class MessageBubbleCanvasView extends View {
         int vPad = Math.round(V_PADDING_DP * density);
         int footerHeight = Math.round(spToPx(FOOTER_TEXT_SP) + FOOTER_GAP_DP * density);
         footerInlineWithText = false; // only the plain-text branch below may flip this on
+        // hasLongText/readMoreRect drive the "Read more/Read less" strip for
+        // plain-text bubbles AND media/media-group captions (all three reuse
+        // these same fields — see each branch below). Reset here so a
+        // recycled view that last drew, say, a contact card or a short
+        // captionless image never carries a stale true/rect into this bind;
+        // only the branches that actually have collapsible text turn it
+        // back on.
+        hasLongText = false;
         int maxTextWidth = Math.max(1, maxBubbleWidth - hPad * 2);
         // PERF: keep the background-precompute cache's target width in sync
         // with what real bubbles are actually being measured at — see the
@@ -4039,14 +4097,34 @@ public class MessageBubbleCanvasView extends View {
                             .setIncludePad(false)
                             .build();
                 }
+
+                // ── Read-more / Read-less collapse (media caption) ────────
+                // Same MAX_COLLAPSED_LINES truncation as the plain-text
+                // bubble path — a long caption gets ellipsized with a
+                // tappable "Read more ▼" strip; isTextExpanded (keyed off
+                // the message id by the adapter) drives which layout wins.
+                hasLongText = textLayout.getLineCount() > MAX_COLLAPSED_LINES;
+                if (hasLongText && !isTextExpanded) {
+                    textLayout = StaticLayout.Builder
+                            .obtain(messageTextSpanned, 0, messageTextSpanned.length(), textPaint, maxTextWidth)
+                            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                            .setLineSpacing(0f, 1f)
+                            .setIncludePad(false)
+                            .setMaxLines(MAX_COLLAPSED_LINES)
+                            .setEllipsize(TextUtils.TruncateAt.END)
+                            .build();
+                }
+
                 captionWidth = maxLineWidth(textLayout);
                 int lastLineW = (int) Math.ceil(textLayout.getLineWidth(textLayout.getLineCount() - 1));
                 captionWidth = Math.max(captionWidth, (int) (lastLineW + captionFooterReserve));
+                int captionReadMoreRowH = hasLongText ? Math.round(READ_MORE_ROW_HEIGHT_DP * density) : 0;
                 captionBlockHeight = Math.round(MEDIA_CAPTION_GAP_DP * density)
-                        + textLayout.getHeight() + vPad + footerHeight;
+                        + textLayout.getHeight() + captionReadMoreRowH + vPad + footerHeight;
                 footerReserveWidth = captionFooterReserve;
             } else {
                 textLayout = null;
+                hasLongText = false;
             }
 
             // WhatsApp-level approach: when the media itself is the widest
@@ -4410,14 +4488,32 @@ public class MessageBubbleCanvasView extends View {
                             .setIncludePad(false)
                             .build();
                 }
+
+                // ── Read-more / Read-less collapse (group caption) ────────
+                // Mirrors the single-image caption + plain-text bubble
+                // treatment — shared hasLongText/isTextExpanded fields.
+                hasLongText = groupCaptionLayout.getLineCount() > MAX_COLLAPSED_LINES;
+                if (hasLongText && !isTextExpanded) {
+                    groupCaptionLayout = StaticLayout.Builder
+                            .obtain(messageTextSpanned, 0, messageTextSpanned.length(), textPaint, maxTextWidth)
+                            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                            .setLineSpacing(0f, 1f)
+                            .setIncludePad(false)
+                            .setMaxLines(MAX_COLLAPSED_LINES)
+                            .setEllipsize(TextUtils.TruncateAt.END)
+                            .build();
+                }
+
                 groupCaptionWidth = maxLineWidth(groupCaptionLayout);
                 int lastLineW = (int) Math.ceil(groupCaptionLayout.getLineWidth(groupCaptionLayout.getLineCount() - 1));
                 groupCaptionWidth = Math.max(groupCaptionWidth, (int) (lastLineW + captionFooterReserve));
+                int groupReadMoreRowH = hasLongText ? Math.round(READ_MORE_ROW_HEIGHT_DP * density) : 0;
                 groupCaptionBlockHeight = Math.round(MEDIA_CAPTION_GAP_DP * density)
-                        + groupCaptionLayout.getHeight() + vPad + footerHeight;
+                        + groupCaptionLayout.getHeight() + groupReadMoreRowH + vPad + footerHeight;
                 footerReserveWidth = captionFooterReserve;
             } else {
                 groupCaptionLayout = null;
+                hasLongText = false;
             }
 
             bubbleContentWidth = Math.min(
@@ -5068,21 +5164,7 @@ public class MessageBubbleCanvasView extends View {
             // lives in the readMoreRowH gap we added to bubbleHeight in
             // onMeasure(), between the text block and the footer.
             if (hasLongText) {
-                readMorePaint.setTextSize(spToPx(READ_MORE_TEXT_SP));
-                // Gold for sent bubbles (matches tick/waveform accent),
-                // WhatsApp-blue for received bubbles.
-                readMorePaint.setColor(sent ? 0xFFFFD54F : 0xFF64B5F6);
-                readMorePaint.setFakeBoldText(false);
-                String rmLabel = isTextExpanded ? "Read less ▲" : "Read more ▼";
-                Paint.FontMetrics rfm = readMorePaint.getFontMetrics();
-                // Centre the text vertically within the READ_MORE_ROW_HEIGHT_DP strip
-                float rowTop = textBlockTop + textLayout.getHeight();
-                float rowH   = READ_MORE_ROW_HEIGHT_DP * density;
-                float rmBaseline = rowTop + (rowH - (rfm.descent - rfm.ascent)) * 0.5f - rfm.ascent;
-                float rmX = bubbleLeft + hPad;
-                canvas.drawText(rmLabel, rmX, rmBaseline, readMorePaint);
-                float rmW = readMorePaint.measureText(rmLabel);
-                readMoreRect.set(rmX, rowTop, rmX + rmW, rowTop + rowH);
+                drawReadMoreStrip(canvas, bubbleLeft + hPad, textBlockTop + textLayout.getHeight());
             } else {
                 readMoreRect.setEmpty();
             }

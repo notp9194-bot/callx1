@@ -45,6 +45,23 @@
         <item name="android:windowAnimationStyle">@null</item>
     </style>
 
+    <!-- ── FASTEST-OPEN FIX: launcher splash theme ──────────────────────────
+         Applied ONLY to MainActivity (the app's single LAUNCHER activity —
+         see AndroidManifest.xml). The system draws this background + icon
+         from the moment the OS starts the process, using a pre-rendered
+         system window — no inflate, no Activity onCreate, no app code runs
+         before this is on screen. It's what makes WhatsApp/Instagram feel
+         instantaneous even though real init (SQLCipher, Firebase, etc.) is
+         still happening underneath. SplashScreen.installSplashScreen(this)
+         in MainActivity#onCreate keeps it up until the real first frame
+         (ChatsFragment's snapshot-cache render) is ready to draw, then the
+         system cross-fades to postSplashScreenTheme automatically. -->
+    <style name="Theme.CallX.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/white</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.CallX</item>
+    </style>
+
     <style name="Theme.CallX.Fullscreen" parent="Theme.CallX">
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowBackground">@color/black</item>

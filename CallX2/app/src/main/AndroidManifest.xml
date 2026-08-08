@@ -50,15 +50,31 @@
         android:supportsRtl="true"
         android:resizeableActivity="true">
 
+        <!-- FASTEST-OPEN FIX: AuthActivity is NO LONGER the launcher.
+             It used to be — meaning EVERY cold start (including the ~99%
+             where the user is already logged in) paid the cost of: OS
+             creates AuthActivity's window → inflates the full login-form
+             layout (ActivityAuthBinding: email/password fields, Google/
+             biometric buttons, password-strength watcher, etc.) → runs a
+             layout+draw pass → THEN checks auth.getCurrentUser() → THEN
+             starts a brand-new MainActivity (second window, second
+             inflate) → finishes AuthActivity. That's two full Activity
+             creations and one wasted layout inflate on every single open,
+             on top of whatever Room/Firebase warm-up was already
+             happening — exactly why the app felt slow even after the
+             Chat List's own snapshot-cache fix (v210/v237): those fixes
+             only sped up ChatsFragment itself, which was never reached
+             until this double-hop finished.
+             MainActivity is now the LAUNCHER (see below) and does the
+             auth check itself, BEFORE inflating anything. AuthActivity is
+             only ever reached via an explicit startActivity() call from
+             MainActivity/other screens when the user is genuinely NOT
+             logged in (fresh install, or after logout) — the rare path,
+             not the common one. -->
         <activity android:name=".activities.AuthActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize"
-            android:layout="@xml/layout">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity>
+            android:layout="@xml/layout"/>
 
         <activity
             android:name=".activities.CrashReportActivity"
@@ -83,7 +99,22 @@
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboard|keyboardHidden|uiMode"
+            android:theme="@style/Theme.CallX.Splash"
             android:layout="@xml/layout">
+            <!-- FASTEST-OPEN FIX: MainActivity is now the app's single
+                 LAUNCHER entry point (WhatsApp/Instagram-style — the home
+                 screen IS the app; login is only a detour, not the front
+                 door). android:theme is Theme.CallX.Splash so the OS-level
+                 SplashScreen (icon on solid background, drawn before any
+                 app code runs) shows on EVERY cold start, then
+                 SplashScreen.installSplashScreen(this) in onCreate() swaps
+                 to Theme.CallX and keeps the splash up until the real
+                 first frame is ready to draw. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+
             <!-- Handles taps on reel notifications when app is killed/Doze
                  FCM notification payload: click_action = "OPEN_REEL_NOTIFICATION" -->
             <intent-filter>

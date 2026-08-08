@@ -11,6 +11,12 @@ import androidx.security.crypto.MasterKey;
 
 import com.google.android.gms.tasks.Tasks;
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.database.ChildEventListener;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.ServerValue;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -343,6 +349,99 @@ public class E2EEncryptionManager {
     }
 
     // ═════════════════════════════════════════════════════════════════════
+    // SELF-HEALING RE-KEY — fixes permanent "🔒 Unable to decrypt message"
+    // ═════════════════════════════════════════════════════════════════════
+    //
+    // Scenario: device A reinstalls the app (or clears data, or the user
+    // logs into a new device) — its local X3DH identity + Double Ratchet
+    // sessions are gone. Device B's session with A is untouched, and B's
+    // client already believes handshakeAcked==true for A (see encrypt() —
+    // it only attaches "ik"/handshake material while !handshakeAcked), so
+    // B keeps sending ordinary ratchet envelopes A can never decrypt —
+    // forever, with no built-in recovery. That's the actual cause of the
+    // marker persisting on EVERY message rather than just one.
+    // Fix: A asks B (over Firebase Realtime DB — no E2E-server change
+    // needed) to drop its session and start a fresh X3DH handshake. This
+    // node is intentionally separate from the encrypted chat/message data
+    // — it carries no plaintext, no key material, just "please re-key with
+    // me," identical in spirit to how a HELLO/reset ping works.
+    private static final String REKEY_NODE = "e2e_rekey_requests";
+    private static final long REKEY_REQUEST_COOLDOWN_MS = 5 * 60 * 1000L; // avoid spamming per-message
+
+    /** Removes our local session with {@code partnerUid} so the next {@link #ensureSession} starts a fresh X3DH handshake. */
+    private void clearSession(String partnerUid) {
+        sessionPrefs.edit().remove("session_" + partnerUid).apply();
+    }
+
+    /**
+     * Fire-and-forget: tells {@code partnerUid}'s device(s) that OUR session
+     * with them is gone and they should re-key. Rate-limited per partner so
+     * a burst of undecryptable messages (e.g. several arriving before the
+     * user reopens the chat) only sends one request per cooldown window.
+     */
+    private void requestReKey(String partnerUid) {
+        try {
+            String myUid = com.callx.app.utils.FirebaseUtils.getCurrentUid();
+            if (myUid == null || myUid.isEmpty() || partnerUid == null || partnerUid.isEmpty()) return;
+
+            long last = identityPrefs.getLong("rekey_req_sent_" + partnerUid, 0);
+            if (System.currentTimeMillis() - last < REKEY_REQUEST_COOLDOWN_MS) return;
+            identityPrefs.edit().putLong("rekey_req_sent_" + partnerUid, System.currentTimeMillis()).apply();
+
+            FirebaseDatabase.getInstance(Constants.DB_URL)
+                    .getReference(REKEY_NODE).child(partnerUid).child(myUid)
+                    .setValue(ServerValue.TIMESTAMP);
+        } catch (Exception e) {
+            Log.w(TAG, "requestReKey failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Starts listening for incoming re-key requests addressed to
+     * {@code myUid} — call once per process lifetime (see CallxApp#onCreate,
+     * same lifetime/pattern as PresenceManager's listeners). For each
+     * requester: drop our session with them (if any) and re-run
+     * {@link #ensureSession} so the NEXT message we send to them attaches
+     * fresh handshake material — self-healing the stuck conversation from
+     * whichever side still has a working session.
+     */
+    public void listenForReKeyRequests(String myUid) {
+        if (myUid == null || myUid.isEmpty()) return;
+        try {
+            DatabaseReference ref = FirebaseDatabase.getInstance(Constants.DB_URL)
+                    .getReference(REKEY_NODE).child(myUid);
+            ref.addChildEventListener(new ChildEventListener() {
+                @Override public void onChildAdded(DataSnapshot snap, String prev) { handle(snap); }
+                @Override public void onChildChanged(DataSnapshot snap, String prev) { handle(snap); }
+                @Override public void onChildRemoved(DataSnapshot snap) {}
+                @Override public void onChildMoved(DataSnapshot snap, String prev) {}
+                @Override public void onCancelled(DatabaseError err) {}
+
+                private void handle(DataSnapshot snap) {
+                    String requesterUid = snap.getKey();
+                    if (requesterUid == null || requesterUid.isEmpty()) return;
+                    executor.execute(() -> {
+                        try {
+                            synchronized (lockFor(requesterUid)) {
+                                clearSession(requesterUid);
+                            }
+                            ensureSession(myUid, requesterUid, ok ->
+                                    Log.d(TAG, "Re-keyed with " + requesterUid + " after their request: " + ok));
+                        } catch (Exception e) {
+                            Log.w(TAG, "Handling re-key request from " + requesterUid + " failed: " + e.getMessage());
+                        } finally {
+                            // Consumed — remove so it doesn't reprocess on next listener attach.
+                            ref.child(requesterUid).removeValue();
+                        }
+                    });
+                }
+            });
+        } catch (Exception e) {
+            Log.w(TAG, "listenForReKeyRequests failed to attach: " + e.getMessage());
+        }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
     // X3DH — establishing a session (sender / initiator side)
     // ═════════════════════════════════════════════════════════════════════
 
@@ -638,7 +737,27 @@ public class E2EEncryptionManager {
 
                 if (s == null) {
                     if (!header.has("ik")) {
-                        Log.w(TAG, "Encrypted message with no session and no handshake data — cannot decrypt");
+                        // PERMANENT-DECRYPT-FAILURE FIX: this is the "we have
+                        // no session AND the sender didn't attach handshake
+                        // material" case — structurally undecryptable, not a
+                        // transient glitch. It happens when THIS device lost
+                        // its local session (reinstall / app-data clear /
+                        // new device / logout+login) while the SENDER's
+                        // session survived untouched. The sender's client
+                        // already believes handshakeAcked==true for us (see
+                        // encrypt() — it only attaches "ik" while
+                        // !handshakeAcked), so it will keep silently sending
+                        // envelopes we can never decrypt, forever, with no
+                        // self-healing — this was the actual bug behind
+                        // "lock icon / Unable to decrypt" persisting on
+                        // every message instead of just one.
+                        // Fix: ask the sender (over Firebase, not the E2E
+                        // server — no server change needed) to drop their
+                        // session with us and re-key. Fire-and-forget, rate
+                        // limited per partner so a burst of undecryptable
+                        // messages doesn't spam multiple requests.
+                        Log.w(TAG, "Encrypted message with no session and no handshake data — requesting re-key from " + partnerUid);
+                        requestReKey(partnerUid);
                         return DECRYPT_FAILED_MARKER;
                     }
                     s = acceptSessionAsResponder(header);

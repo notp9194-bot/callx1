@@ -1,0 +1,19 @@
+{
+  "_comment": "Add these rules to your Firebase RTDB security rules — needed for the v239 E2E self-healing re-key fix (see UPGRADE_NOTES_v239_E2EDecryptSelfHeal.md). No plaintext or key material ever goes through this node — just a per-partner timestamp meaning 'please re-key with me'.",
+
+  "rules_explanation": {
+    "e2e_rekey_requests": "e2e_rekey_requests/{targetUid}/{requesterUid} = ServerValue.TIMESTAMP. A device writes under the PARTNER's uid (targetUid) to ask them to re-key. Only the partner (targetUid) can read their own inbox. A request can be created only by the requester writing as themselves (requesterUid must equal their own auth.uid — can't spoof a request as someone else), and can be deleted (cleanup after processing) only by the target removing entries from their own inbox."
+  },
+
+  "rules": {
+    "e2e_rekey_requests": {
+      "$targetUid": {
+        ".read": "auth != null && auth.uid === $targetUid",
+        "$requesterUid": {
+          ".write": "auth != null && (auth.uid === $requesterUid || (auth.uid === $targetUid && newData.val() === null))",
+          ".validate": "newData.val() === now || newData.val() === null"
+        }
+      }
+    }
+  }
+}

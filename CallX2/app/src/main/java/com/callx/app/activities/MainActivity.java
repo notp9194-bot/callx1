@@ -129,6 +129,19 @@ public class MainActivity extends AppCompatActivity
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // ── FASTEST-OPEN FIX: install the system splash screen FIRST ──────
+        // Must be called before super.onCreate(). This makes the OS keep
+        // showing the Theme.CallX.Splash icon/background (already on
+        // screen since before Application.onCreate even ran) instead of
+        // tearing it down for a blank window while the rest of onCreate
+        // below does its work. Default dismiss condition is "this
+        // Activity's first frame is drawn", which — since we now gate
+        // everything behind the auth check right below — means the splash
+        // stays up either through the brief auth-check-and-redirect (not
+        // logged in) or straight through to the real UI being ready to
+        // paint (logged in), never a blank/white flash in between.
+        androidx.core.splashscreen.SplashScreen.installSplashScreen(this);
+
         // MUST be called before super.onCreate / setContentView so the window
         // is configured for edge-to-edge before any layout pass happens.
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
@@ -147,13 +160,29 @@ public class MainActivity extends AppCompatActivity
         }
 
         super.onCreate(savedInstanceState);
-        binding = ActivityMainBinding.inflate(getLayoutInflater());
-        setContentView(binding.getRoot());
 
+        // ── FASTEST-OPEN FIX: auth check BEFORE inflating anything ────────
+        // Old order inflated the ENTIRE ActivityMainBinding (toolbar,
+        // ViewPager2 host, bottom nav, FAB, return-to-call banner, etc.)
+        // and ran a full layout+draw pass EVERY cold start, even for a
+        // logged-out user who was just about to get redirected straight to
+        // AuthActivity anyway — pure wasted inflate + an extra Activity
+        // hop on top. Checking first means the not-logged-in path (rare —
+        // fresh install / after logout) redirects immediately with zero
+        // wasted work, and the logged-in path (the common one) goes
+        // straight into the real inflate below with nothing in front of it.
+        // FirebaseAuth.getInstance().getCurrentUser() is a synchronous read
+        // of the already-cached local auth state (no network call), so
+        // this check itself costs effectively nothing.
         if (FirebaseAuth.getInstance().getCurrentUser() == null) {
             startActivity(new Intent(this, AuthActivity.class));
-            finish(); return;
+            overridePendingTransition(0, 0); // no slide — this isn't a real tab/screen transition
+            finish();
+            return;
         }
+
+        binding = ActivityMainBinding.inflate(getLayoutInflater());
+        setContentView(binding.getRoot());
 
         requestPermissions();
 
