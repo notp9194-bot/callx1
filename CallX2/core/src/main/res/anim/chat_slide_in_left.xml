@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Back-navigation counterpart: chat list slides back in from the left
+     and brightens back to full alpha as ChatActivity exits to the right. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:interpolator/decelerate_cubic">
+    <translate
+        android:fromXDelta="-28%p"
+        android:toXDelta="0%p"
+        android:duration="260"/>
+    <alpha
+        android:fromAlpha="0.85"
+        android:toAlpha="1.0"
+        android:duration="260"/>
+</set>

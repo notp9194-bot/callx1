@@ -883,7 +883,13 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             i.putExtra("partnerName",  u.name);
             i.putExtra("partnerPhoto", u.photoUrl != null ? u.photoUrl : "");
             i.putExtra("partnerThumb", u.thumbUrl != null ? u.thumbUrl : "");
-            ctx.startActivity(i);
+            // WhatsApp-style smooth push: chat screen slides in from the
+            // right while the list parallaxes back underneath, instead of
+            // the previous instant/no-anim swap.
+            androidx.core.app.ActivityOptionsCompat opts =
+                androidx.core.app.ActivityOptionsCompat.makeCustomAnimation(
+                    ctx, R.anim.chat_slide_in_right, R.anim.chat_slide_out_left);
+            ctx.startActivity(i, opts.toBundle());
         };
         if (chatId == null) { navigate.run(); return; }
 

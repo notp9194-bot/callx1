@@ -1783,6 +1783,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 hideMultiSelectBar();
             } else {
                 finish();
+                // Mirror the open animation on the way back out, so a
+                // toolbar-back tap feels the same as the edge-swipe-back
+                // gesture instead of snapping shut with no animation.
+                overridePendingTransition(R.anim.chat_slide_in_left, R.anim.chat_slide_out_right);
             }
         });
 
@@ -4421,6 +4425,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         // 3. Normal back
                         setEnabled(false);
                         getOnBackPressedDispatcher().onBackPressed();
+                        overridePendingTransition(R.anim.chat_slide_in_left, R.anim.chat_slide_out_right);
                     }
                 });
     }

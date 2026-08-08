@@ -1417,7 +1417,11 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     i.putExtra("partnerName",  user.name != null ? user.name : "");
                     i.putExtra("partnerPhoto", user.photoUrl != null ? user.photoUrl : "");
                     i.putExtra("partnerThumb", user.thumbUrl != null ? user.thumbUrl : "");
-                    startActivity(i);
+                    // Same WhatsApp-style push transition as the chat-list row tap.
+                    androidx.core.app.ActivityOptionsCompat opts =
+                        androidx.core.app.ActivityOptionsCompat.makeCustomAnimation(
+                            getContext(), R.anim.chat_slide_in_right, R.anim.chat_slide_out_left);
+                    startActivity(i, opts.toBundle());
                 };
 
                 if (chatId == null) { navigate.run(); return; }

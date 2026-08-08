@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Paired with chat_slide_in_right: chat list drifts left ~28% and dims
+     slightly, giving the depth/parallax feel WhatsApp's push transition has,
+     instead of the list just vanishing instantly underneath. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:interpolator/decelerate_cubic">
+    <translate
+        android:fromXDelta="0%p"
+        android:toXDelta="-28%p"
+        android:duration="280"/>
+    <alpha
+        android:fromAlpha="1.0"
+        android:toAlpha="0.85"
+        android:duration="280"/>
+</set>

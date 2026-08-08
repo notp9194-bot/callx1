@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  WhatsApp-style forward push: incoming ChatActivity slides in fully from
+  the right. Paired with chat_slide_out_left (the chat list parallaxes back
+  underneath). 280ms + decelerate_cubic is what actually reads as "smooth" —
+  the old duplicate anim (unused, sitting in the wrong Gradle module) was
+  50ms, which is a flash, not a slide.
+-->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:interpolator/decelerate_cubic">
+    <translate
+        android:fromXDelta="100%p"
+        android:toXDelta="0%p"
+        android:duration="280"/>
+</set>
