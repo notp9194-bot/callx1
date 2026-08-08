@@ -297,7 +297,13 @@ public class ChatMediaController {
                         activity.getContentResolver().takePersistableUriPermission(
                                 uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     } catch (SecurityException ignored) {}
-                    delegate.refreshWallpaper();
+                    // BUGFIX: this used to call delegate.refreshWallpaper(), which just
+                    // re-applies whatever was ALREADY saved — the newly picked uri was
+                    // never persisted anywhere, so "change wallpaper" silently did
+                    // nothing. Route through the scope dialog (this chat/global) which
+                    // actually saves the pick before applying it — same flow group chat
+                    // already uses correctly.
+                    delegate.onWallpaperImagePicked(uri);
                 });
 
         cameraCapturer = activity.registerForActivityResult(

@@ -26,6 +26,17 @@ public class ChatWallpaperManager {
     private static final String KEY_GLOBAL      = "wallpaper_global";
     private static final String PREFIX_PER_CHAT = "wallpaper_";
 
+    // ── Solid-color wallpapers ───────────────────────────────────────────
+    // Stored as "color:AARRGGBB" in the SAME string slot as an image URI —
+    // getEffectiveWallpaper() stays a single string lookup either way.
+    // A solid color is the lowest-cost wallpaper option that exists: no
+    // Bitmap decode, no Glide disk/memory cache entry (nothing to evict
+    // from the LRU), no GPU texture upload beyond a 1x1 fill — the caller
+    // (ChatThemeController#applyWallpaper / GroupChatActivity#applyWallpaper)
+    // detects this prefix and sets a plain ColorDrawable instead of loading
+    // an image, which is what actually keeps scrolling smooth on top of it.
+    private static final String COLOR_PREFIX = "color:";
+
     private static ChatWallpaperManager instance;
     private final SharedPreferences prefs;
 
@@ -49,6 +60,17 @@ public class ChatWallpaperManager {
     public void setGlobalWallpaper(Uri uri) {
         if (uri == null) return;
         prefs.edit().putString(KEY_GLOBAL, uri.toString()).apply();
+    }
+
+    /** Sets a flat, low-CPU/GPU solid-color wallpaper for one chat/group. */
+    public void setWallpaperColor(String chatId, int color) {
+        if (chatId == null) return;
+        prefs.edit().putString(PREFIX_PER_CHAT + chatId, COLOR_PREFIX + Integer.toHexString(color)).apply();
+    }
+
+    /** Sets a flat, low-CPU/GPU solid-color wallpaper as the global default. */
+    public void setGlobalWallpaperColor(int color) {
+        prefs.edit().putString(KEY_GLOBAL, COLOR_PREFIX + Integer.toHexString(color)).apply();
     }
 
     // ── Clear ─────────────────────────────────────────────────────────────
@@ -82,5 +104,17 @@ public class ChatWallpaperManager {
 
     public boolean hasGlobalWallpaper() {
         return prefs.contains(KEY_GLOBAL);
+    }
+
+    // ── Solid-color helpers ──────────────────────────────────────────────
+
+    /** True if the stored value (from getEffectiveWallpaper) is a solid color, not an image URI. */
+    public static boolean isColorValue(String value) {
+        return value != null && value.startsWith(COLOR_PREFIX);
+    }
+
+    /** Parses a "color:AARRGGBB" value back into an Android color int. Caller must check isColorValue() first. */
+    public static int parseColor(String value) {
+        return (int) Long.parseLong(value.substring(COLOR_PREFIX.length()), 16);
     }
 }

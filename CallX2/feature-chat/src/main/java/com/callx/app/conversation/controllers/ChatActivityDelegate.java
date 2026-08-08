@@ -99,6 +99,8 @@ public interface ChatActivityDelegate extends ChatSearchController.SearchDelegat
 
     // ── Wallpaper picker launcher ─────────────────────────────────────────
     void launchWallpaperPicker();
+    /** Called once the user has actually picked a gallery image for the wallpaper. */
+    void onWallpaperImagePicked(android.net.Uri uri);
 
     // ── Poll creation ─────────────────────────────────────────────────────
     void launchPollCreator();

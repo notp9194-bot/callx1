@@ -1168,6 +1168,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override public void refreshScreenTheme()               { themeController.applyScreenTheme(); }
     @Override public void refreshWallpaper()                 { themeController.applyWallpaper(); }
     @Override public void launchWallpaperPicker()            { mediaController.launchWallpaperPicker(); }
+    @Override public void onWallpaperImagePicked(android.net.Uri uri) { themeController.onWallpaperImagePicked(uri); }
     @Override public void launchPollCreator()                { pollController.showCreatePollDialog(); }
     @Override public void launchContactSharePicker()         { contactShareController.launch(); }
     @Override public void launchLocationSharePicker()        { locationShareController.launch(); }

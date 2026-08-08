@@ -55,15 +55,22 @@ public class ChatThemeController {
         android.widget.ImageView ivWall = binding.ivChatWallpaper;
         if (ivWall == null) return;
 
-        String uriStr = ChatWallpaperManager.get(delegate.getActivity())
+        String value = ChatWallpaperManager.get(delegate.getActivity())
                 .getEffectiveWallpaper(delegate.getChatId());
-        if (uriStr == null) {
+        if (value == null) {
             ivWall.setVisibility(View.GONE);
             ivWall.setImageDrawable(null);
+        } else if (ChatWallpaperManager.isColorValue(value)) {
+            // Low-cost path: no Glide, no Bitmap decode, no LRU cache entry —
+            // just a flat fill, which is what keeps scrolling smooth.
+            com.bumptech.glide.Glide.with(delegate.getActivity()).clear(ivWall);
+            ivWall.setVisibility(View.VISIBLE);
+            ivWall.setImageDrawable(new android.graphics.drawable.ColorDrawable(
+                    ChatWallpaperManager.parseColor(value)));
         } else {
             ivWall.setVisibility(View.VISIBLE);
             com.bumptech.glide.Glide.with(delegate.getActivity())
-                    .load(Uri.parse(uriStr))
+                    .load(Uri.parse(value))
                     .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                     .centerCrop()
                     .override(720, 720)
@@ -73,6 +80,24 @@ public class ChatThemeController {
 
     public void showWallpaperPicker() {
         delegate.launchWallpaperPicker();
+    }
+
+    /** Called by ChatMediaController once the user actually picks a gallery image. */
+    public void onWallpaperImagePicked(Uri uri) {
+        showWallpaperScopeDialog(uri);
+    }
+
+    public void showSolidColorPicker() {
+        com.callx.app.utils.ChatWallpaperColorPicker.show(
+                delegate.getActivity(), delegate.getChatId(), this::applyWallpaper);
+    }
+
+    public void removeWallpaper() {
+        ChatWallpaperManager wm = ChatWallpaperManager.get(delegate.getActivity());
+        wm.clearWallpaper(delegate.getChatId());
+        wm.clearGlobalWallpaper();
+        applyWallpaper();
+        Toast.makeText(delegate.getActivity(), "Wallpaper removed", Toast.LENGTH_SHORT).show();
     }
 
     public void showWallpaperScopeDialog(Uri uri) {
@@ -105,6 +130,10 @@ public class ChatThemeController {
         sheet.setOnOptionSelectedListener(option -> {
             if (option == ChatCustomizationBottomSheet.OPTION_WALLPAPER) {
                 showWallpaperPicker();
+            } else if (option == ChatCustomizationBottomSheet.OPTION_SOLID_COLOR) {
+                showSolidColorPicker();
+            } else if (option == ChatCustomizationBottomSheet.OPTION_REMOVE) {
+                removeWallpaper();
             }
         });
         sheet.show(delegate.getSupportFragmentManager(), ChatCustomizationBottomSheet.TAG);

@@ -21,12 +21,15 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 
 /**
- * ChatCustomizationBottomSheet — Single option: Wallpaper.
+ * ChatCustomizationBottomSheet — wallpaper: change (gallery image),
+ * solid color (fast/low-cost), or remove.
  */
 public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
 
     public static final String TAG = "ChatCustomizationBottomSheet";
-    public static final int OPTION_WALLPAPER = 0;
+    public static final int OPTION_WALLPAPER    = 0;
+    public static final int OPTION_SOLID_COLOR  = 1;
+    public static final int OPTION_REMOVE       = 2;
 
     public interface OnOptionSelectedListener {
         void onOptionSelected(int option);
@@ -88,20 +91,29 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         header.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
         root.addView(header);
 
-        // Wallpaper row
-        LinearLayout card = buildRow(ctx);
+        addRow(ctx, root, "🖼️", "Change Wallpaper", "Pick an image from gallery",
+                dp(16), OPTION_WALLPAPER);
+        addRow(ctx, root, "🎨", "Solid Color", "Fast — low CPU/GPU, no image decode",
+                dp(16), OPTION_SOLID_COLOR);
+        addRow(ctx, root, "❌", "Remove Wallpaper", "Back to default chat background",
+                dp(20), OPTION_REMOVE);
+
+        return root;
+    }
+
+    private void addRow(Context ctx, LinearLayout root, String icon, String title,
+                         String desc, int bottomMarginPx, int option) {
+        LinearLayout card = buildRow(ctx, icon, title, desc);
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
-        cp.setMargins(dp(12), 0, dp(12), dp(20));
+        cp.setMargins(dp(12), 0, dp(12), bottomMarginPx);
         card.setLayoutParams(cp);
         card.setOnClickListener(v -> {
             dismiss();
-            if (listener != null) listener.onOptionSelected(OPTION_WALLPAPER);
+            if (listener != null) listener.onOptionSelected(option);
         });
         root.addView(card);
-
-        return root;
     }
 
     @Override
@@ -110,7 +122,7 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         if (getDialog() instanceof BottomSheetDialog) {
             BottomSheetDialog d = (BottomSheetDialog) getDialog();
             BottomSheetBehavior<FrameLayout> behavior = d.getBehavior();
-            int height = (int) (getResources().getDisplayMetrics().heightPixels * 0.35f);
+            int height = (int) (getResources().getDisplayMetrics().heightPixels * 0.5f);
             behavior.setPeekHeight(height, false);
             behavior.setMaxHeight(height);
             behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
@@ -119,7 +131,7 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
         }
     }
 
-    private LinearLayout buildRow(Context ctx) {
+    private LinearLayout buildRow(Context ctx, String icon, String title, String desc) {
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
@@ -150,7 +162,7 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
                 FrameLayout.LayoutParams.WRAP_CONTENT);
         itLp.gravity = Gravity.CENTER;
         iconTv.setLayoutParams(itLp);
-        iconTv.setText("🖼️");
+        iconTv.setText(icon);
         iconTv.setTextSize(22f);
         iconFrame.addView(iconTv);
 
@@ -160,13 +172,13 @@ public class ChatCustomizationBottomSheet extends BottomSheetDialogFragment {
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView nameTv = new TextView(ctx);
-        nameTv.setText("Wallpaper");
+        nameTv.setText(title);
         nameTv.setTextSize(15f);
         nameTv.setTextColor(0xFFFFFFFF);
         nameTv.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
 
         TextView descTv = new TextView(ctx);
-        descTv.setText("Set a custom background image");
+        descTv.setText(desc);
         descTv.setTextSize(11.5f);
         descTv.setTextColor(0x99FFFFFF);
         LinearLayout.LayoutParams descLp = new LinearLayout.LayoutParams(

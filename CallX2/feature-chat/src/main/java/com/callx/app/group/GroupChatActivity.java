@@ -1210,6 +1210,7 @@ public class GroupChatActivity extends AppCompatActivity
                     @Override public void refreshScreenTheme() {}
                     @Override public void refreshWallpaper() {}
                     @Override public void launchWallpaperPicker() {}
+                    @Override public void onWallpaperImagePicked(android.net.Uri uri) {}
                     @Override public void launchContactSharePicker() {}
                     @Override public void launchLocationSharePicker() {}
                     @Override public void firebasePushMessage(com.callx.app.models.Message m, String key, String preview) {}
@@ -4303,15 +4304,22 @@ public class GroupChatActivity extends AppCompatActivity
     private void applyWallpaper() {
         android.widget.ImageView ivWall = binding.ivChatWallpaper;
         if (ivWall == null) return;
-        String uriStr = com.callx.app.utils.ChatWallpaperManager.get(this)
-                            .getEffectiveWallpaper(groupId);
-        if (uriStr == null) {
+        com.callx.app.utils.ChatWallpaperManager wm = com.callx.app.utils.ChatWallpaperManager.get(this);
+        String value = wm.getEffectiveWallpaper(groupId);
+        if (value == null) {
             ivWall.setVisibility(android.view.View.GONE);
             ivWall.setImageDrawable(null);
+        } else if (com.callx.app.utils.ChatWallpaperManager.isColorValue(value)) {
+            // Low-cost path: flat fill, no image decode / Glide cache entry —
+            // keeps group scroll (bigger fanout of listeners than 1:1) smooth.
+            com.bumptech.glide.Glide.with(this).clear(ivWall);
+            ivWall.setVisibility(android.view.View.VISIBLE);
+            ivWall.setImageDrawable(new android.graphics.drawable.ColorDrawable(
+                    com.callx.app.utils.ChatWallpaperManager.parseColor(value)));
         } else {
             ivWall.setVisibility(android.view.View.VISIBLE);
             com.bumptech.glide.Glide.with(this)
-                 .load(android.net.Uri.parse(uriStr))
+                 .load(android.net.Uri.parse(value))
                  .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                  .centerCrop()
                  .override(720, 720)
@@ -4319,9 +4327,24 @@ public class GroupChatActivity extends AppCompatActivity
         }
     }
 
-    // ── Chat Customization submenu (wallpaper only) ──────────────────────
+    // ── Chat Customization submenu — change / solid color / remove ───────
     private void showChatCustomizationMenu() {
-        showWallpaperPicker();
+        com.callx.app.chat.ui.ChatCustomizationBottomSheet sheet =
+                com.callx.app.chat.ui.ChatCustomizationBottomSheet.newInstance();
+        sheet.setOnOptionSelectedListener(option -> {
+            if (option == com.callx.app.chat.ui.ChatCustomizationBottomSheet.OPTION_WALLPAPER) {
+                showWallpaperPicker();
+            } else if (option == com.callx.app.chat.ui.ChatCustomizationBottomSheet.OPTION_SOLID_COLOR) {
+                com.callx.app.utils.ChatWallpaperColorPicker.show(this, groupId, this::applyWallpaper);
+            } else if (option == com.callx.app.chat.ui.ChatCustomizationBottomSheet.OPTION_REMOVE) {
+                com.callx.app.utils.ChatWallpaperManager wm = com.callx.app.utils.ChatWallpaperManager.get(this);
+                wm.clearWallpaper(groupId);
+                wm.clearGlobalWallpaper();
+                applyWallpaper();
+                android.widget.Toast.makeText(this, "Wallpaper removed", android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
+        sheet.show(getSupportFragmentManager(), com.callx.app.chat.ui.ChatCustomizationBottomSheet.TAG);
     }
 
     // ── Wallpaper Picker ──────────────────────────────────────────────────
