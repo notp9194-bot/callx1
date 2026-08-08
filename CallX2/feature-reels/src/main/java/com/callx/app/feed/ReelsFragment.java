@@ -129,6 +129,17 @@ public class ReelsFragment extends Fragment {
     private ValueEventListener    reelsListener;
     private ValueEventListener    followListener;
     private int                   currentPage   = 0;
+    /**
+     * Instagram-style unlimited scroll: index into the current source list
+     * (allReels/followingReels) that the NEXT appended page starts from.
+     * Wraps back to 0 via modulo once it reaches the end, so loadMoreReels()
+     * never runs dry — the feed keeps recycling already-fetched reels
+     * instead of hard-stopping like the old "if (currentPage >= source.size())
+     * return;" guard used to. currentPage itself keeps its original meaning
+     * (total items appended into the adapter so far) since it still drives
+     * the "close to the end, load more" trigger in onPageSelected().
+     */
+    private int                   sourceCursor  = 0;
     private boolean               loading       = false;
     private int                   savedPosition = 0;
 
@@ -417,7 +428,35 @@ public class ReelsFragment extends Fragment {
         reelBottomNav.post(() -> loadCreatorAvatar());
         reelBottomNav.post(() -> loadNotificationBadge());
 
+        // Instagram-style tab warm-up (see prewarmHomeTab() doc) — deferred a
+        // beat so it never competes with the very first reel's video buffer.
+        vpReels.postDelayed(this::prewarmHomeTab, 400L);
+
         return v;
+    }
+
+    /**
+     * Instagram-style Home-tab warm-up. Previously HomeFragment (and its
+     * Firebase fetches for stories/feed/trending/activity/continue-watching/
+     * suggested-creators — each its own separate network round trip) was
+     * only created the FIRST time the user tapped the Home nav item inside
+     * Reels — so that tap visibly showed the feed being assembled piece by
+     * piece (loading spinners, sections popping in one at a time) instead of
+     * just being there already, the way Instagram's own Home tab is.
+     * Instagram keeps every bottom-tab warm in the background the moment
+     * you're anywhere in the app, so switching to it is instant.
+     * Do the same here: attach HomeFragment now, while it's still hidden
+     * (home_container stays GONE — see fragment_reels.xml), so all its
+     * fetches are already in flight — usually already finished — by the
+     * time the user actually taps Home. showHomeTab() just flips visibility.
+     */
+    private void prewarmHomeTab() {
+        if (homeContainer == null || !isAdded()) return;
+        if (getChildFragmentManager().findFragmentByTag("home_fragment") != null) return;
+        getChildFragmentManager()
+            .beginTransaction()
+            .replace(R.id.home_container, new HomeFragment(), "home_fragment")
+            .commitAllowingStateLoss();
     }
 
     // ── FIX #3: Creator tab avatar ────────────────────────────────────────
@@ -553,13 +592,17 @@ public class ReelsFragment extends Fragment {
         if (homeContainer == null) return;
         homeContainer.setVisibility(View.VISIBLE);
 
-        // Inject HomeFragment once; reuse it on subsequent taps
-        if (getChildFragmentManager().findFragmentByTag("home_fragment") == null) {
-            getChildFragmentManager()
-                .beginTransaction()
-                .replace(R.id.home_container, new HomeFragment(), "home_fragment")
-                .commitAllowingStateLoss();
-        }
+        // Normally a no-op — prewarmHomeTab() already injected HomeFragment
+        // in the background when Reels first opened. This stays only as a
+        // defensive fallback (e.g. the 400ms warm-up post() never fired).
+        prewarmHomeTab();
+
+        // Now that it's genuinely on-screen, let it actually start playing
+        // its current feed-card video (see HomeFragment.onTabBecameVisible()).
+        androidx.fragment.app.Fragment home =
+            getChildFragmentManager().findFragmentByTag("home_fragment");
+        if (home instanceof HomeFragment) ((HomeFragment) home).onTabBecameVisible();
+
         pauseAllReels();
     }
 
@@ -569,6 +612,9 @@ public class ReelsFragment extends Fragment {
      */
     private void hideHomeTab() {
         if (homeContainer != null) homeContainer.setVisibility(View.GONE);
+        androidx.fragment.app.Fragment home =
+            getChildFragmentManager().findFragmentByTag("home_fragment");
+        if (home instanceof HomeFragment) ((HomeFragment) home).onTabBecameHidden();
         if (vpReels != null) controlPlayback(vpReels.getCurrentItem());
     }
 
@@ -729,6 +775,7 @@ public class ReelsFragment extends Fragment {
         pauseAllReels();
         adapter.setReels(new ArrayList<>());
         currentPage   = 0;
+        sourceCursor  = 0;
         savedPosition = 0;
         loading       = false;
         if (videoPreloader != null) videoPreloader.cancelAll();
@@ -841,6 +888,7 @@ public class ReelsFragment extends Fragment {
         int end = Math.min(PAGE_SIZE, source.size());
         adapter.setReels(source.subList(0, end));
         currentPage   = end;
+        sourceCursor  = source.isEmpty() ? 0 : (end % source.size());
         savedPosition = 0;
         if (videoPreloader != null) videoPreloader.preloadFrom(source.subList(0, end), 0);
         if (thumbPreloader != null) thumbPreloader.preloadFrom(source.subList(0, end), 0);
@@ -861,6 +909,7 @@ public class ReelsFragment extends Fragment {
         if (adapter.getItemCount() == 0) {
             adapter.setReels(source.subList(0, end));
             currentPage = end;
+            sourceCursor = source.isEmpty() ? 0 : (end % source.size());
         }
         int safePos = Math.min(position, adapter.getItemCount() - 1);
         if (getActivity() != null) getActivity().runOnUiThread(() -> {
@@ -870,12 +919,27 @@ public class ReelsFragment extends Fragment {
         });
     }
 
+    /**
+     * Instagram-style unlimited scroll. The old version stopped dead once
+     * `currentPage >= source.size()` — the feed just ended and swiping up
+     * further did nothing. Instagram's Reels tab never does that: once
+     * you've gone through what it fetched, it keeps serving reels (from the
+     * same pool, recycled) rather than presenting a hard "end of feed".
+     * This wraps `sourceCursor` around the source list via modulo so a page
+     * is always available, no matter how far the user keeps scrolling.
+     */
     private void loadMoreReels() {
         List<ReelModel> source = isFypMode ? allReels : followingReels;
-        if (currentPage >= source.size()) return;
-        int end = Math.min(currentPage + PAGE_SIZE, source.size());
-        adapter.addReels(source.subList(currentPage, end));
-        currentPage = end;
+        int size = source.size();
+        if (size == 0) return;
+
+        List<ReelModel> nextBatch = new ArrayList<>(Math.min(PAGE_SIZE, size));
+        for (int i = 0; i < PAGE_SIZE; i++) {
+            nextBatch.add(source.get(sourceCursor));
+            sourceCursor = (sourceCursor + 1) % size;
+        }
+        adapter.addReels(nextBatch);
+        currentPage += nextBatch.size();
     }
 
     private void removeListeners() {
@@ -950,7 +1014,14 @@ public class ReelsFragment extends Fragment {
         if (isTabActive && !homeVisible) {
             ReelThermalManager.Level thermal = thermalManager != null
                 ? thermalManager.getLevel() : ReelThermalManager.Level.SAFE;
-            boolean canPrewarmDecoder = (thermal == ReelThermalManager.Level.SAFE);
+            // Widened to SAFE + LIGHT: Instagram-style instant play on swipe needs
+            // the next reel's ExoPlayer already built and buffering *before* the
+            // user swipes to it. Gating this purely to SAFE meant that on any
+            // everyday LIGHT thermal reading the next reel's player was never
+            // prewarmed, so every swipe paid the full "build ExoPlayer from
+            // scratch" cost — the visible "plays after a short delay" bug.
+            boolean canPrewarmDecoder = (thermal == ReelThermalManager.Level.SAFE
+                || thermal == ReelThermalManager.Level.LIGHT);
             if (canPrewarmDecoder) {
                 int pos = activePosition + 1;
                 if (pos < adapter.getItemCount()) {

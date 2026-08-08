@@ -120,19 +120,27 @@ public class ReelsAdapter extends FragmentStateAdapter {
         return reels.size();
     }
 
+    /**
+     * Stable per-ADAPTER-POSITION id (not per-reelId). Unlimited scroll means
+     * the same reel can legitimately appear more than once in this list once
+     * the feed wraps around (see ReelsFragment.loadMoreReels()) — hashing
+     * reelId would then hand two different positions the same id, which
+     * FragmentStateAdapter requires to be unique and breaks ViewPager2
+     * (duplicate item ids / the wrong fragment reused at the wrong
+     * position). Position is always unique and stable here: the list is
+     * append-only except for the rare full reset (setReels/notifyDataSetChanged),
+     * which correctly invalidates every id at once anyway.
+     */
     @Override
     public long getItemId(int position) {
         if (isGamesCardPosition(position)) return -1000L;
-        String id = reels.get(toReelIndex(position)).reelId;
-        return id != null ? id.hashCode() : position;
+        return position + 1L;
     }
 
     @Override
     public boolean containsItem(long itemId) {
-        if (itemId == -1000L) return true;
-        for (ReelModel r : reels) {
-            if (r.reelId != null && r.reelId.hashCode() == itemId) return true;
-        }
-        return false;
+        if (itemId == -1000L) return gamesCardsEnabled && reels.size() >= GAMES_CARD_POSITION;
+        long pos = itemId - 1L;
+        return pos >= 0 && pos < getItemCount() && !isGamesCardPosition((int) pos);
     }
 }

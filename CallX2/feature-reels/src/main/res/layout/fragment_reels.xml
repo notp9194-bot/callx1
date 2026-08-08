@@ -29,7 +29,7 @@
         android:paddingTop="0dp"
         android:paddingBottom="8dp"
         android:layout_gravity="top"
-        android:background="@drawable/gradient_reel_top">
+        android:background="@null">
 
         <ImageButton
             android:id="@+id/btn_reel_back"

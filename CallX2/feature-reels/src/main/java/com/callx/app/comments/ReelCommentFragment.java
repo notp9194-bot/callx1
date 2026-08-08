@@ -368,6 +368,24 @@ public class ReelCommentFragment extends Fragment {
         if (btnBack        != null) btnBack.setOnClickListener(v -> close());
         if (btnSend        != null) btnSend.setOnClickListener(v -> onSendClicked());
         if (btnCancelReply != null) btnCancelReply.setOnClickListener(v -> cancelReply());
+
+        // BUG FIX: when this fragment is hosted inside ReelCommentSheetFragment
+        // (isSheet=true) the sheet can be sitting in its HALF_EXPANDED state,
+        // which only reserves ~45% of the screen. Tapping the input while
+        // half-expanded left the EditText fighting the keyboard for space —
+        // on some devices it got squeezed to zero height and looked like it
+        // "wasn't there" / couldn't be typed into. Expand the sheet fully the
+        // moment the input gets focus, exactly like Instagram's comment sheet.
+        if (etComment != null) {
+            etComment.setOnFocusChangeListener((v, hasFocus) -> {
+                if (hasFocus) {
+                    Fragment parent = getParentFragment();
+                    if (parent instanceof ReelCommentSheetFragment) {
+                        ((ReelCommentSheetFragment) parent).expandFully();
+                    }
+                }
+            });
+        }
     }
 
     private void setupAdapter() {

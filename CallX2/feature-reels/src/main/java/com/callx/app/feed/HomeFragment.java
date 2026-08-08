@@ -420,22 +420,18 @@ public class HomeFragment extends Fragment {
 
     @Override public void onResume() {
         super.onResume();
-        if (feedPlayer != null) {
+        // NOTE: prewarmHomeTab() in ReelsFragment now attaches this fragment
+        // (and calls onResume() on it) immediately in the background, while
+        // home_container is still View.GONE — long before the user actually
+        // taps the Home nav tab. getView().isShown() (unlike the fragment's
+        // own onResume/added state) correctly returns false while any
+        // ancestor is GONE, so this guards against silently autoplaying a
+        // feed video's audio behind the still-visible Reels player.
+        boolean actuallyVisible = getView() != null && getView().isShown();
+        if (feedPlayer != null && actuallyVisible) {
             if (currentPlayingIndex >= 0) feedPlayer.play();
             else if (!feedCards.isEmpty()) scrollHandler.postDelayed(this::playMostVisibleCard, 300);
         }
-        // ★ INSTAGRAM-LEVEL FIX: previously the top story row was only ever
-        // built once (onCreateView) or on pull-to-refresh — so viewing a
-        // story elsewhere in the app (StatusViewerActivity, a reel_story
-        // via the reels player, etc.) and coming back to Home never
-        // updated the ring here; it silently stayed on the old gradient
-        // until the user manually pulled to refresh or left/reopened the
-        // app. Re-running loadStories() on every resume keeps it in sync.
-        // (Skip the very first resume — onCreateView's loadAllSections()
-        // already just built it; refreshing again here would just be a
-        // redundant clear+reload flash on initial screen open.)
-        if (isFirstResume) isFirstResume = false;
-        else refreshStoryRow();
         // Also listen live while Home is on-screen: the moment ANY screen
         // marks a story seen, statusSeen/{myUid} changes in Firebase and
         // StatusCacheManager's real-time listener fires this observer —
@@ -464,6 +460,45 @@ public class HomeFragment extends Fragment {
             com.callx.app.cache.StatusCacheManager.getInstance(requireContext())
                 .removeObserver(storyRingObserver);
         }
+    }
+
+    /**
+     * Called by ReelsFragment.showHomeTab() right after it flips
+     * home_container to VISIBLE. Because prewarmHomeTab() now attaches this
+     * fragment (and fires its real onResume()) well before that — while
+     * still hidden, guarded off from autoplaying by the isShown() check
+     * above — this is what actually starts feed-card video playback the
+     * moment the user genuinely switches to the Home tab, exactly like
+     * onResume() used to when this fragment was only ever created already-visible.
+     */
+    public void onTabBecameVisible() {
+        if (feedPlayer != null) {
+            if (currentPlayingIndex >= 0) feedPlayer.play();
+            else if (!feedCards.isEmpty()) scrollHandler.postDelayed(this::playMostVisibleCard, 300);
+        }
+        // ★ INSTAGRAM-LEVEL FIX: previously the top story row was only ever
+        // built once (onCreateView) or on pull-to-refresh — so viewing a
+        // story elsewhere in the app (StatusViewerActivity, a reel_story via
+        // the reels player, etc.) and coming back to Home never updated the
+        // ring here; it silently stayed on the old gradient until the user
+        // manually pulled to refresh or left/reopened the app. Re-running
+        // loadStories() each time the user genuinely switches back to this
+        // tab keeps it in sync. (Skip the very first time it becomes
+        // visible — onCreateView's loadAllSections() already just built it
+        // during the background warm-up; refreshing again here would just
+        // be a redundant clear+reload flash the first time Home is opened.)
+        if (isFirstResume) isFirstResume = false;
+        else refreshStoryRow();
+    }
+
+    /**
+     * Called by ReelsFragment.hideHomeTab() right after it flips
+     * home_container back to GONE (user switched back to the Reels feed).
+     * Mirrors onPause() so a Home feed video never keeps playing audio
+     * behind the Reels player once the user has swiped away from it.
+     */
+    public void onTabBecameHidden() {
+        if (feedPlayer != null) feedPlayer.pause();
     }
 
     @Override public void onDestroyView() {

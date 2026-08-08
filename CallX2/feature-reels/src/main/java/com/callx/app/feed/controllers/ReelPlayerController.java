@@ -664,7 +664,16 @@ public class ReelPlayerController {
                     }
                     if (state == Player.STATE_ENDED) {
                         recordWatchHistory(100);
-                        delegate.autoAdvance();
+                        // Instagram-style behaviour: a reel loops on itself until the
+                        // user swipes away — it must NEVER auto-advance to the next
+                        // reel on its own. REPEAT_MODE_ONE + ReelLoopSeekHelper handle
+                        // the normal loop; this STATE_ENDED path is only the rare
+                        // safety-net case where a delayed poll cycle let playback
+                        // actually reach the end, so just restart this same reel.
+                        if (player != null) {
+                            player.seekTo(0);
+                            player.play();
+                        }
                     }
                 }
             }

@@ -6,6 +6,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewConfiguration;
+import android.view.WindowManager;
 import android.widget.FrameLayout;
 
 import androidx.annotation.NonNull;
@@ -116,6 +117,20 @@ public class ReelCommentSheetFragment extends BottomSheetDialogFragment {
         // which is what was making the video look dark/washed out. Kill it.
         if (dialog.getWindow() != null) {
             dialog.getWindow().setDimAmount(0f);
+        }
+
+        // BUG FIX: the add-comment EditText sits at the bottom of the sheet.
+        // BottomSheetDialog's underlying window has no explicit soft-input
+        // mode, so on most devices it defaults to SOFT_INPUT_ADJUST_PAN (or
+        // nothing at all) instead of resizing — the keyboard then floats on
+        // top of the window and covers the input row instead of pushing it
+        // up. That's why the comment box "sometimes" wasn't visible/tappable
+        // once the keyboard was open: it was still there, just underneath
+        // the IME. ADJUST_RESIZE makes the sheet's content shrink to make
+        // room for the keyboard, exactly like Instagram's comment sheet.
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setSoftInputMode(
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         }
 
         sheetBehavior = BottomSheetBehavior.from(sheet);
@@ -256,6 +271,18 @@ public class ReelCommentSheetFragment extends BottomSheetDialogFragment {
 
     private int dpToPx(int dp) {
         return (int) (dp * getResources().getDisplayMetrics().density);
+    }
+
+    /**
+     * Expands the sheet to STATE_EXPANDED. Called by the hosted
+     * ReelCommentFragment when the comment/reply input gets focus, so the
+     * keyboard never has to fight the HALF_EXPANDED sheet for space (see the
+     * comment-box "sometimes not visible" bug fix in ReelCommentFragment).
+     */
+    public void expandFully() {
+        if (sheetBehavior != null) {
+            sheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+        }
     }
 
     /**
