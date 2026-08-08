@@ -25,6 +25,7 @@ import com.google.firebase.database.ValueEventListener;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -202,24 +203,33 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
      *  separately-diff). */
     public void sortByNewest() {
         List<ReelComment> sorted = new ArrayList<>(items());
-        Collections.sort(sorted, (a, b) -> {
-            if (a.isPinned && !b.isPinned) return -1;
-            if (!a.isPinned && b.isPinned) return 1;
-            return Long.compare(b.timestamp, a.timestamp);
-        });
+        Collections.sort(sorted, NEWEST_FIRST);
         differ.submitList(sorted);
     }
 
     /** Sort by most-liked, pinned always at top. */
     public void sortByTop() {
         List<ReelComment> sorted = new ArrayList<>(items());
-        Collections.sort(sorted, (a, b) -> {
-            if (a.isPinned && !b.isPinned) return -1;
-            if (!a.isPinned && b.isPinned) return 1;
-            return Integer.compare(b.likesCount, a.likesCount);
-        });
+        Collections.sort(sorted, TOP_FIRST);
         differ.submitList(sorted);
     }
+
+    /** Newest-first comparator (pinned always wins) — exposed so the
+     *  fragment can sort a list BEFORE submitting it in one pass (see
+     *  ReelCommentFragment.applyFilterAndSort()) instead of calling
+     *  setComments() and sortByNewest() as two separate diffs. */
+    public static final Comparator<ReelComment> NEWEST_FIRST = (a, b) -> {
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        return Long.compare(b.timestamp, a.timestamp);
+    };
+
+    /** Most-liked-first comparator (pinned always wins) — see NEWEST_FIRST. */
+    public static final Comparator<ReelComment> TOP_FIRST = (a, b) -> {
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        return Integer.compare(b.likesCount, a.likesCount);
+    };
 
     // ── RecyclerView ──────────────────────────────────────────────────────
 

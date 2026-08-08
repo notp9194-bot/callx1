@@ -60,6 +60,7 @@ import com.google.firebase.database.Transaction;
 import com.google.firebase.database.ValueEventListener;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -200,11 +201,11 @@ public class ReelCommentFragment extends Fragment {
         applyFilterAndSort();
         if (pendingAutoScroll) {
             pendingAutoScroll = false;
-            autoScrollIfAtBottom();
+            autoScrollIfAtTop();
         }
         if (pendingNewComments > 0 && pillNewComments != null) {
             pillNewComments.setText(pendingNewComments == 1
-                ? "↓ New comment" : "↓ " + pendingNewComments + " new comments");
+                ? "↑ New comment" : "↑ " + pendingNewComments + " new comments");
             pillNewComments.setVisibility(View.VISIBLE);
         }
     };
@@ -527,14 +528,17 @@ public class ReelCommentFragment extends Fragment {
                 ((SimpleItemAnimator) rvAnim).setSupportsChangeAnimations(false);
             }
 
-            // PERF: page older comments in as the user nears the top of the
-            // currently-loaded window, instead of ever downloading the full
-            // thread — see maybeLoadOlderComments().
+            // PERF/UX: newest comments render at the TOP now (see
+            // applyFilterAndSort()), so older ones live further DOWN the
+            // list — page the next older batch in as the user nears the
+            // BOTTOM of the currently-loaded window, not the top. See
+            // maybeLoadOlderComments().
             rvComments.addOnScrollListener(new RecyclerView.OnScrollListener() {
                 @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                    if (dy >= 0) return; // only care about scrolling UP
+                    if (dy <= 0) return; // only care about scrolling DOWN
                     LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
-                    if (lm != null && lm.findFirstVisibleItemPosition() <= 4) {
+                    if (lm != null && adapter != null
+                            && lm.findLastVisibleItemPosition() >= adapter.getItemCount() - 5) {
                         maybeLoadOlderComments();
                     }
                 }
@@ -831,24 +835,29 @@ public class ReelCommentFragment extends Fragment {
     }
 
     // ── "New comments" pill ──────────────────────────────────────────────────
+    // Newest comments render at the TOP of the list now (see
+    // applyFilterAndSort()), so "new comment arrived" means position 0, not
+    // the last position — the pill and auto-scroll below jump to the TOP.
 
     private void setupNewCommentsPill() {
         if (pillNewComments != null) {
             pillNewComments.setOnClickListener(v -> {
                 pendingNewComments = 0;
                 pillNewComments.setVisibility(View.GONE);
-                if (rvComments != null && adapter != null)
-                    rvComments.scrollToPosition(adapter.getItemCount() - 1);
+                if (rvComments != null) rvComments.scrollToPosition(0);
             });
         }
     }
 
-    private boolean isNearBottom() {
+    /** True when the user is already looking at (or very near) the top of
+     *  the list, i.e. the newest comment — the "stay pinned to latest"
+     *  case, same idea WhatsApp/Instagram use for "stay pinned to bottom"
+     *  in a bottom-anchored chat, just flipped for our top-anchored feed. */
+    private boolean isNearTop() {
         if (rvComments == null) return true;
         LinearLayoutManager lm = (LinearLayoutManager) rvComments.getLayoutManager();
-        if (lm == null || adapter == null) return true;
-        int last = lm.findLastVisibleItemPosition();
-        return last >= adapter.getItemCount() - 3;
+        if (lm == null) return true;
+        return lm.findFirstVisibleItemPosition() <= 2;
     }
 
     // ── Draft persistence ────────────────────────────────────────────────────
@@ -941,10 +950,21 @@ public class ReelCommentFragment extends Fragment {
             }
         }
 
-        adapter.setComments(filtered);
+        // BUG FIX: sort BEFORE submitting, in one pass. The old code called
+        // adapter.setComments(filtered) — insertion order (oldest-first,
+        // since Firebase's initial burst arrives ascending by key) — and
+        // THEN adapter.sortByTop()/sortByNewest() as a SEPARATE call. Each
+        // is a separate AsyncListDiffer.submitList(), and the second one
+        // reads items() before the first diff has necessarily finished, so
+        // the RecyclerView could paint the unsorted (oldest-on-top) list
+        // for a frame and then "snap" to the sorted (newest-on-top) one —
+        // exactly the open-time reorder flicker this was reported as.
+        // Sorting first and submitting once means there is only ever ONE
+        // list to diff against, so the first paint is already correct.
+        Collections.sort(filtered, sortByTop
+            ? ReelCommentsAdapter.TOP_FIRST : ReelCommentsAdapter.NEWEST_FIRST);
 
-        if (sortByTop) adapter.sortByTop();
-        else           adapter.sortByNewest();
+        adapter.setComments(filtered);
 
         updateCountHeader();
         showEmpty(filtered.isEmpty());
@@ -985,9 +1005,9 @@ public class ReelCommentFragment extends Fragment {
                     oldestLoadedKey = c.commentId;
                 }
                 registerMentionCandidate(c.uid, c.ownerName);
-                boolean wasNearBottom = isNearBottom();
+                boolean wasNearTop = isNearTop();
                 allComments.add(c);
-                if (!initialLoadSettled || wasNearBottom) {
+                if (!initialLoadSettled || wasNearTop) {
                     pendingAutoScroll = true;
                 } else if (!c.uid.equals(myUid)) {
                     pendingNewComments++;
@@ -1052,14 +1072,12 @@ public class ReelCommentFragment extends Fragment {
         }
     }
 
-    private void autoScrollIfAtBottom() {
-        if (rvComments == null || adapter == null) return;
+    private void autoScrollIfAtTop() {
+        if (rvComments == null) return;
         LinearLayoutManager lm = (LinearLayoutManager) rvComments.getLayoutManager();
         if (lm == null) return;
-        int last = lm.findLastVisibleItemPosition();
-        int count = adapter.getItemCount();
-        if (last >= count - 3) {
-            rvComments.scrollToPosition(count - 1);
+        if (lm.findFirstVisibleItemPosition() <= 2) {
+            rvComments.scrollToPosition(0);
         }
     }
 

@@ -111,6 +111,26 @@ public class ReelCommentSheetFragment extends BottomSheetDialogFragment {
                 com.google.android.material.R.id.design_bottom_sheet);
         if (sheet == null) return;
 
+        // BUG FIX: with a short first-loaded comment batch (e.g. only the
+        // initial PAGE_SIZE=12), the sheet's own content (our fragment's
+        // root LinearLayout, which is match_parent-height but is itself
+        // measured against whatever height ITS parent hands it) could end
+        // up sized to just "12 rows + input bar" instead of the intended
+        // sheetBehavior.setFitToContents(false) full-height — the input
+        // row then visually sat right under the last loaded comment
+        // instead of docked to the screen's bottom. setFitToContents(false)
+        // controls the *behavior's* target height, but design_bottom_sheet
+        // itself is still inflated with a WRAP_CONTENT LayoutParams by
+        // Material's own dialog layout — forcing it to MATCH_PARENT here
+        // is the standard fix so the sheet (and therefore our input bar)
+        // always fills the full expanded/half-expanded height regardless
+        // of how many comments happen to be loaded yet.
+        ViewGroup.LayoutParams sheetParams = sheet.getLayoutParams();
+        if (sheetParams != null && sheetParams.height != ViewGroup.LayoutParams.MATCH_PARENT) {
+            sheetParams.height = ViewGroup.LayoutParams.MATCH_PARENT;
+            sheet.setLayoutParams(sheetParams);
+        }
+
         // Instagram never darkens the docked video above the sheet — only the
         // sheet's own opaque background separates it visually. The default
         // BottomSheetDialog scrim dims the *whole* window (video included),

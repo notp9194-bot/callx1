@@ -153,13 +153,14 @@
             android:paddingBottom="8dp"/>
 
         <!-- Shown briefly while an older comments page is being fetched
-             (triggered by scrolling near the top of the list). -->
+             (triggered by scrolling near the BOTTOM of the list — newest
+             comments are at the top, older ones page in further down). -->
         <TextView
             android:id="@+id/tv_loading_older"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="top|center_horizontal"
-            android:layout_marginTop="8dp"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="8dp"
             android:text="Loading earlier comments…"
             android:textSize="11sp"
             android:textColor="@color/text_muted"
@@ -178,7 +179,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="top|center_horizontal"
             android:layout_marginTop="8dp"
-            android:text="↓ New comments"
+            android:text="↑ New comments"
             android:textSize="12sp"
             android:textColor="#FFFFFF"
             android:fontFamily="sans-serif-medium"
