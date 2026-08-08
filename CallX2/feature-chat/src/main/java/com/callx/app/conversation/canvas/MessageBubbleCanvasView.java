@@ -5330,6 +5330,18 @@ public class MessageBubbleCanvasView extends View {
             // from the placeholder square to its real WhatsApp-style size.
             sb.append("|M").append(mediaHasCaption ? messageText : "")
                     .append('\u0001').append(Math.round(mediaAspectRatio * 1000));
+            // BUG FIX: same "Read more" expand-state omission the plain-text
+            // branch already guards against below — without this, tapping
+            // Read more on a long image/video caption flips isTextExpanded
+            // but the signature string doesn't change (caption text itself
+            // didn't change), so requestLayoutIfSizeChanged() thinks nothing
+            // happened and skips requestLayout() entirely. onMeasure() never
+            // reruns, so the bubble never grows and textLayout never gets
+            // rebuilt past the truncated collapsed version — the caption
+            // visually stays cut off even though the "Read less ▲" label
+            // now shows (that part redraws fine since it just reads the
+            // isTextExpanded flag directly at draw time).
+            if (mediaHasCaption) sb.append('|').append(isTextExpanded ? 'X' : 'x');
         } else if (isReelShare) {
             sb.append("|RE").append(reelHasCaption ? reelCaptionText : "");
         } else if (isContact) {
@@ -5352,6 +5364,8 @@ public class MessageBubbleCanvasView extends View {
         } else if (isMediaGroup) {
             sb.append("|MG").append(groupVisibleCount).append('\u0001')
                     .append(groupHasCaption ? messageText : "");
+            // Same fix as the isMedia branch above, for group captions.
+            if (groupHasCaption) sb.append('|').append(isTextExpanded ? 'X' : 'x');
         } else if (isFileBubble) {
             sb.append("|FB");
         } else if (isAudio) {
