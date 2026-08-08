@@ -48,7 +48,7 @@ import java.util.List;
  * (blank until Room loads), never wrong/corrupt data — the real Room load
  * always overwrites it within the same frame or two.
  */
-final class ChatSnapshotCache {
+public final class ChatSnapshotCache {
 
     private static final String PREFS_NAME   = "chat_list_snapshot";
     private static final String KEY_SNAPSHOT = "top_chats_json";
@@ -65,7 +65,7 @@ final class ChatSnapshotCache {
      * SQLCipher's DB-open cost). Safe to call directly from
      * ChatsFragment#onCreateView before loadFromRoom() fires.
      */
-    static List<User> loadInstantSnapshot(Context ctx) {
+    public static List<User> loadInstantSnapshot(Context ctx) {
         List<User> result = new ArrayList<>();
         try {
             SharedPreferences prefs = ctx.getApplicationContext()
@@ -103,7 +103,7 @@ final class ChatSnapshotCache {
      * real non-empty list, so the snapshot is always close to what the
      * user actually saw last, for next cold start.
      */
-    static void saveSnapshotAsync(Context ctx, List<User> topContacts) {
+    public static void saveSnapshotAsync(Context ctx, List<User> topContacts) {
         if (topContacts == null || topContacts.isEmpty()) return;
         Context appCtx = ctx.getApplicationContext();
         // Copy the small slice we need on the calling (main) thread — cheap,
@@ -136,6 +136,29 @@ final class ChatSnapshotCache {
                         .apply();
             } catch (Exception e) {
                 Log.w("ChatSnapshotCache", "saveSnapshotAsync failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * WHATSAPP-LEVEL FIX: clear the placeholder on logout / account switch /
+     * account deletion. Without this, User A's top-15 chat preview (names,
+     * last-message text, thumbnails) would still be sitting in plaintext
+     * SharedPreferences and would flash on screen as the very first frame
+     * the next time ChatsFragment opens — even for a different account that
+     * just logged in on the same device. Fire-and-forget, background thread;
+     * safe to call even if no snapshot was ever written.
+     */
+    public static void clearSnapshotAsync(Context ctx) {
+        Context appCtx = ctx.getApplicationContext();
+        AppBgExecutor.execute(() -> {
+            try {
+                appCtx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .edit()
+                        .remove(KEY_SNAPSHOT)
+                        .apply();
+            } catch (Exception e) {
+                Log.w("ChatSnapshotCache", "clearSnapshotAsync failed: " + e.getMessage());
             }
         });
     }

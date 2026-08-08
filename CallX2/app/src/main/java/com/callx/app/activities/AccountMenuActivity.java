@@ -172,6 +172,11 @@ public class AccountMenuActivity extends AppCompatActivity {
                     // Fix #2: Logout pe biometric login disable karo (security)
                     BiometricLoginManager.getInstance(this).disable();
                     com.callx.app.utils.PresenceManager.getInstance().onLogout();
+                    // WHATSAPP-LEVEL FIX: clear the plaintext Chat List
+                    // instant-snapshot (see ChatSnapshotCache) so the next
+                    // account that logs in on this device never flashes
+                    // this account's chat previews as its own first frame.
+                    com.callx.app.chatlist.ChatSnapshotCache.clearSnapshotAsync(this);
                     FirebaseAuth.getInstance().signOut();
                     Intent i = new Intent(this, AuthActivity.class);
                     i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
@@ -204,6 +209,10 @@ public class AccountMenuActivity extends AppCompatActivity {
             .addOnSuccessListener(x -> {
                 // Fix #2: Account delete pe bhi biometric disable karo
                 BiometricLoginManager.getInstance(this).disable();
+                // WHATSAPP-LEVEL FIX: same reasoning as logout — don't let
+                // the deleted account's chat previews survive in the
+                // plaintext snapshot for whoever logs in next.
+                com.callx.app.chatlist.ChatSnapshotCache.clearSnapshotAsync(this);
                 Toast.makeText(this, "Account delete ho gaya", Toast.LENGTH_LONG).show();
                 Intent i = new Intent(this, AuthActivity.class);
                 i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);

@@ -523,7 +523,24 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             // Older cached chats page in the same way as fresh-from-network ones,
             // via loadMoreOlderContacts() as the user scrolls.
             List<ChatEntity> cached = db.chatDao().getChatsPagedSync(PAGE_SIZE);
-            if (cached == null || cached.isEmpty()) return;
+            if (cached == null || cached.isEmpty()) {
+                // BUG FIX: previously this returned WITHOUT clearing
+                // showingInstantSnapshotOnly when Room's first page came
+                // back empty (fresh install / just-logged-in / not synced
+                // yet). That left the flag stuck true forever, since
+                // loadFromRoom() only ever runs once — so the fragment had
+                // no way left to tell "still just the placeholder" apart
+                // from "real data showing", and the screen could be left
+                // relying solely on whatever Firebase deltas happened to
+                // arrive on top of stale snapshot rows. Clear it here too,
+                // on the main thread, so downstream code (and any future
+                // guard that checks this flag) always sees an accurate
+                // state even when Room genuinely has nothing yet.
+                if (getActivity() != null) {
+                    getActivity().runOnUiThread(() -> showingInstantSnapshotOnly = false);
+                }
+                return;
+            }
 
             List<User> roomUsers = new ArrayList<>();
             for (ChatEntity e : cached) {

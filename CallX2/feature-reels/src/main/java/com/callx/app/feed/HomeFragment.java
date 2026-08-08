@@ -171,6 +171,25 @@ public class HomeFragment extends Fragment {
     private Query             newPostsQuery       = null;
     private ChildEventListener newPostsListener   = null;
 
+    // ── Buttery-smooth scroll: perf toggles ────────────────────────────────
+    /** Cheap-decode Glide options for feed thumbnails/avatars — RGB_565
+     *  halves per-pixel memory vs the default ARGB_8888 and skips Glide's
+     *  cross-fade transition, which is the single biggest avoidable cause
+     *  of dropped frames when many images decode while the user is mid-fling. */
+    private static final com.bumptech.glide.request.RequestOptions FEED_IMAGE_OPTS =
+            new com.bumptech.glide.request.RequestOptions()
+                    .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
+                    .dontAnimate();
+    /** True while the NestedScrollView is actively moving. Used to switch the
+     *  feed content to a hardware layer only while scrolling — GPU-composites
+     *  the whole scrolling subtree as one texture instead of re-drawing every
+     *  child view per frame, which is what makes long feeds feel "buttery"
+     *  instead of stuttery. Reverted to LAYER_TYPE_NONE once idle, since a
+     *  hardware layer left on permanently costs GPU memory for no benefit. */
+    private boolean   isFeedScrolling          = false;
+    private Runnable  scrollSettleRunnable      = null;
+    private View      feedScrollContentRoot     = null;
+
     // Story data model for proper sorting
     private static class StoryEntry {
         String uid, name, photo;
@@ -253,6 +272,11 @@ public class HomeFragment extends Fragment {
         btnNotifications          = v.findViewById(R.id.btn_notifications);
         // NestedScrollView for scroll-triggered auto-play
         scrollView                = v.findViewById(R.id.nested_scroll_home);
+        // The single LinearLayout NestedScrollView wraps — this is what gets
+        // promoted to a hardware layer while actively scrolling.
+        if (scrollView != null && scrollView.getChildCount() > 0) {
+            feedScrollContentRoot = scrollView.getChildAt(0);
+        }
     }
 
     private void setupListeners() {
@@ -352,6 +376,19 @@ public class HomeFragment extends Fragment {
                     scrollRunnable = this::playMostVisibleCard;
                     scrollHandler.postDelayed(scrollRunnable, 120);
 
+                    // ★ Buttery scroll: promote the whole scrolling content
+                    // to a hardware layer the instant motion starts, so the
+                    // GPU composites it as one cached texture per frame
+                    // instead of Android re-drawing every avatar/thumbnail/
+                    // text view individually on every pixel of scroll. Drop
+                    // back to a normal layer ~180ms after motion stops (fling
+                    // settle) since an always-on hardware layer just wastes
+                    // GPU memory once the user is reading, not scrolling.
+                    beginFeedScrollLayer();
+                    if (scrollSettleRunnable != null) scrollHandler.removeCallbacks(scrollSettleRunnable);
+                    scrollSettleRunnable = this::endFeedScrollLayer;
+                    scrollHandler.postDelayed(scrollSettleRunnable, 180);
+
                     // ★ Instagram-style infinite scroll: once the user is
                     // within ~600dp of the bottom of the scrollable content,
                     // silently fetch the next page from Firebase and append
@@ -362,8 +399,62 @@ public class HomeFragment extends Fragment {
                         if (remaining < dpToPx(600) && !isLoadingMoreFeed && feedHasMore) {
                             loadMoreFeedPosts();
                         }
+                        // Prefetch thumbnails/video for the *next* page a bit
+                        // earlier than the fetch trigger itself, so by the
+                        // time those cards actually scroll into view their
+                        // media is already warm in cache — removes the
+                        // "pop-in" jank new content otherwise causes.
+                        if (remaining < dpToPx(1400) && remaining >= dpToPx(600)) {
+                            prefetchUpcomingFeedMedia();
+                        }
                     }
                 });
+        }
+    }
+
+    // ── Buttery scroll helpers ──────────────────────────────────────────
+
+    /** Promotes the feed's scrolling content to a hardware layer for the
+     *  duration of active scrolling/fling. No-op if already on, or if the
+     *  view isn't bound yet. See beginFeedScrollLayer/endFeedScrollLayer
+     *  pair used from the scroll listener above. */
+    private void beginFeedScrollLayer() {
+        if (isFeedScrolling || feedScrollContentRoot == null) return;
+        isFeedScrolling = true;
+        feedScrollContentRoot.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+    }
+
+    private void endFeedScrollLayer() {
+        if (!isFeedScrolling || feedScrollContentRoot == null) return;
+        isFeedScrolling = false;
+        feedScrollContentRoot.setLayerType(View.LAYER_TYPE_NONE, null);
+    }
+
+    /** Warms Glide's cache for the next couple of not-yet-rendered posts
+     *  (and, where available, primes video/thumbnail caches via the
+     *  existing preloader infra) shortly before they're appended by
+     *  infinite scroll — so they're already decoded/cached by the time the
+     *  new page's cards actually enter view, instead of popping in raw. */
+    private void prefetchUpcomingFeedMedia() {
+        if (!isAdded() || getContext() == null || currentFeedPosts == null) return;
+        int fromIndex = renderedReelIds.size();
+        if (fromIndex >= currentFeedPosts.size()) return;
+        // Warms Glide's cache for thumbnails of the next few not-yet-rendered
+        // posts so they're already decoded by the time their cards scroll in.
+        int upTo = Math.min(currentFeedPosts.size(), fromIndex + 4);
+        for (int i = fromIndex; i < upTo; i++) {
+            ReelModel r = currentFeedPosts.get(i);
+            if (r == null) continue;
+            String thumb = r.effectiveThumbUrl();
+            if (!thumb.isEmpty()) {
+                Glide.with(requireContext()).load(thumb).apply(FEED_IMAGE_OPTS)
+                        .override(720, 720).preload();
+            }
+        }
+        // Reuses the same byte-range video preloader the Reels swipe feed
+        // uses, pointed at the upcoming slice of the ranked feed list.
+        if (videoPreloader != null) {
+            videoPreloader.preloadFrom(currentFeedPosts, fromIndex);
         }
     }
 
@@ -547,6 +638,8 @@ public class HomeFragment extends Fragment {
         super.onDestroyView();
         stopRealtimeNewPostsListener();
         if (scrollRunnable != null) scrollHandler.removeCallbacks(scrollRunnable);
+        if (scrollSettleRunnable != null) scrollHandler.removeCallbacks(scrollSettleRunnable);
+        feedScrollContentRoot = null;
         if (feedPlayer != null) { feedPlayer.release(); feedPlayer = null; }
         if (videoPreloader != null) { videoPreloader.shutdown(); videoPreloader = null; }
         thumbPreloader      = null;
@@ -1121,13 +1214,26 @@ public class HomeFragment extends Fragment {
      * the cached liked/saved/follow state from the initial render instead of
      * re-fetching it, and simply extends currentFeedPosts + the container.
      */
+    /**
+     * Appends the next page of the feed (called by infinite scroll). Reuses
+     * the cached liked/saved/follow state from the initial render instead of
+     * re-fetching it, and simply extends currentFeedPosts + the container.
+     * Rendered one-per-frame (like the very first page) instead of all at
+     * once — inflating + dispatching Glide/ExoPlayer work for a whole batch
+     * synchronously is exactly the kind of frame-budget spike that causes a
+     * visible stutter right as new content lands mid-scroll.
+     */
     private void appendFeedPage(List<ReelModel> newPosts) {
         if (!isAdded() || containerFeed == null) return;
         List<ReelModel> merged = new ArrayList<>(currentFeedPosts);
         merged.addAll(newPosts);
         currentFeedPosts = merged;
-        for (ReelModel r : newPosts) {
-            renderOneFeedItem(r, cachedLikedIds, cachedSavedIds, cachedMyUidForFeed, cachedFollowedUids);
+        for (int i = 0; i < newPosts.size(); i++) {
+            final ReelModel r = newPosts.get(i);
+            containerFeed.postDelayed(() -> {
+                if (!isAdded() || containerFeed == null) return;
+                renderOneFeedItem(r, cachedLikedIds, cachedSavedIds, cachedMyUidForFeed, cachedFollowedUids);
+            }, (long) i * 16L);
         }
         isLoadingMoreFeed = false;
         showFeedFooterLoading(false);
@@ -1815,12 +1921,14 @@ public class HomeFragment extends Fragment {
 
         if (reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
             Glide.with(requireContext()).load(reel.thumbUrl)
+                .apply(FEED_IMAGE_OPTS)
                 .override(720, 720)
                 .centerCrop().placeholder(R.drawable.ic_reels).into(ivThumb);
         }
         if (reel.ownerPhoto != null && !reel.ownerPhoto.isEmpty()) {
             Glide.with(requireContext()).load(reel.ownerPhoto)
                 .apply(RequestOptions.circleCropTransform())
+                .apply(FEED_IMAGE_OPTS)
                 .placeholder(R.drawable.ic_person).into(avatar);
         }
 

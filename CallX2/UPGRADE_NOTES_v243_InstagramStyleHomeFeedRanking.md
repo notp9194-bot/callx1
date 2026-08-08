@@ -65,3 +65,73 @@ File touched: `feature-reels/src/main/java/com/callx/app/feed/HomeFragment.java`
   (`./gradlew :feature-reels:assembleDebug`) before shipping, in case
   something in the surrounding module doesn't match assumptions made here
   (e.g. `FirebaseUtils.getReelsRef()` query indexing on `timestamp`).
+
+---
+
+## v244 — Ultra-smooth ("buttery") Home feed scrolling
+
+Same file. Four safe, real, additive performance changes — **no view
+recycling / RecyclerView migration** (see "not done" note below for why).
+
+1. **Hardware-layer scrolling.** The scroll listener now promotes the
+   feed's scrolling content (`feedScrollContentRoot`, the LinearLayout
+   NestedScrollView wraps) to `LAYER_TYPE_HARDWARE` the instant motion
+   starts (`beginFeedScrollLayer()`), and drops it back to
+   `LAYER_TYPE_NONE` ~180ms after scrolling settles
+   (`endFeedScrollLayer()`). While active, the GPU composites the whole
+   feed as one cached texture per frame instead of Android re-drawing
+   every avatar/thumbnail/text view individually on each pixel of scroll —
+   this is the standard Android technique for eliminating scroll jank on
+   view-heavy content, and it's the single biggest lever available without
+   touching the underlying view architecture.
+
+2. **Cheaper image decode.** New `FEED_IMAGE_OPTS` (RGB_565 format +
+   `dontAnimate()`) applied to the feed post thumbnail and avatar Glide
+   loads. RGB_565 halves per-pixel memory vs. the default ARGB_8888, and
+   skipping Glide's cross-fade transition removes an extra composited
+   animation that was firing on every image load, including ones that
+   land mid-scroll.
+
+3. **Prefetch ahead of the fold.** `prefetchUpcomingFeedMedia()` — hooked
+   into the same scroll listener at a slightly further-out threshold than
+   the infinite-scroll fetch trigger — pre-warms Glide's cache for the
+   next few not-yet-rendered thumbnails and calls the existing
+   `ReelVideoPreloader.preloadFrom()` for upcoming video, so by the time a
+   newly-loaded page's cards actually scroll into view their media is
+   already cached instead of popping in raw.
+
+4. **Staggered page append.** `appendFeedPage()` (infinite-scroll page
+   load) now renders one card per animation frame via `postDelayed(...,
+   16L)` instead of inflating + dispatching Glide/ExoPlayer work for an
+   entire batch (up to `FEED_FETCH_BATCH` = 25 items) synchronously —
+   mirrors the staggering the very first page already used, so hitting
+   the pagination trigger mid-fling doesn't cause a visible spike.
+
+### What "ultra advanced" would actually require, and why it isn't in this patch
+Real Instagram-grade smoothness at large scroll depth comes from
+**bounded view recycling** — a `RecyclerView` that only ever keeps a
+small window of ViewHolders inflated, no matter how far the user has
+scrolled. This Home feed is built on a plain `LinearLayout` inside a
+`NestedScrollView`, which keeps every card ever rendered permanently
+inflated and attached — memory and view count both grow unbounded as
+infinite scroll (added in v243) appends more pages.
+
+Migrating that to RecyclerView is the correct long-term fix, but it's a
+genuinely invasive rewrite here: `feedCards` indices, the shared
+`ExoPlayer` attach/detach logic, per-card `ViewPager2` photo pagers, and
+every click handler in `addFeedPostCard` (~700 lines) are all currently
+written assuming direct LinearLayout child views. Doing that migration
+correctly — and I mean correctly, not "looks right" — needs an actual
+build + on-device scroll test to catch ViewHolder-recycling bugs (stale
+video attachment, wrong like/follow state on a recycled row, etc.), which
+isn't possible in this sandbox (no Android SDK/Gradle network access). I
+did not want to hand you an unverified RecyclerView rewrite of a
+production feed and call it done.
+
+**If/when you want that migration**, the safest path is:
+`RecyclerView` + `ListAdapter`/`DiffUtil` with a single `ViewHolder` type
+for the reel-post row, a second type for the inline "Suggested for you"
+row, keep the same shared `ExoPlayer` attached/detached via
+`onViewAttachedToWindow`/`onViewDetachedFromWindow`, and reuse
+`rankScore()` / pagination / real-time-listener logic from v243 as-is —
+none of that needs to change.
