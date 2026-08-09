@@ -9,3 +9,31 @@ plugins {
     // Baseline Profile plugin — generateBaselineProfile + dexLayoutOptimization
     id 'androidx.baselineprofile'      version '1.2.3' apply false
 }
+
+// ══════════════════════════════════════════════════════════════════════
+//  BUILD FIX: force a single resolved Material Components version
+// ══════════════════════════════════════════════════════════════════════
+// Root cause of ":app:processDebugResources" AAPT failure —
+//   "style attribute 'attr/colorSurfaceTint' not found"
+// app/build.gradle (and every feature module) declares
+// com.google.android.material:material:1.11.0 explicitly, but several
+// transitive deps (Firebase BOM 32.7.0, play-services-auth, androidx.camera,
+// androidx.appcompat) each pull their OWN material-components version
+// requirement into the graph. Without a pinned resolution, Gradle's
+// per-module dependency resolution can let one of those older transitive
+// requests win for a given module's compile classpath — that module's
+// compiled resources then never got colorSurfaceTint declared in the first
+// place, so when :app links everything together, AAPT can't find it
+// anywhere in the merged resource set (even though app/build.gradle
+// itself asks for 1.11.0).
+// Forcing the version identically across every subproject/configuration
+// guarantees ALL modules compile against the same Material AAR that
+// actually declares colorSurfaceTint (added in Material Components 1.5.0+),
+// so the attr always exists at final resource-linking time.
+subprojects {
+    configurations.all {
+        resolutionStrategy {
+            force 'com.google.android.material:material:1.11.0'
+        }
+    }
+}
