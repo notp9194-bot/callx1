@@ -94,7 +94,20 @@
         android:paddingBottom="6dp"
         android:elevation="4dp">
 
-        <EditText
+        <ImageView
+            android:id="@+id/btn_send_gift"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginEnd="4dp"
+            android:padding="6dp"
+            android:src="@drawable/ic_gift"
+            android:tint="@color/brand_primary"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="Send a gift"/>
+
+        <com.callx.app.chat.ui.GifAwareEditText
             android:id="@+id/et_comment"
             android:layout_width="0dp"
             android:layout_weight="1"

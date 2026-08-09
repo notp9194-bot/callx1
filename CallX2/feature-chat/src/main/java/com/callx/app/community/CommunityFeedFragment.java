@@ -208,7 +208,7 @@ public class CommunityFeedFragment extends Fragment implements CommunityPostAdap
         Intent i = new Intent(requireContext(), CommunityPostCommentsActivity.class);
         i.putExtra(CommunityPostCommentsActivity.EXTRA_COMMUNITY_ID, communityId);
         i.putExtra(CommunityPostCommentsActivity.EXTRA_POST_ID, post.id);
-        i.putExtra(CommunityPostCommentsActivity.EXTRA_POST_AUTHOR, post.authorName);
+        i.putExtra(CommunityPostCommentsActivity.EXTRA_POST_AUTHOR, post.authorUid);
         startActivity(i);
     }
 

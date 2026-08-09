@@ -9,7 +9,6 @@ import android.text.format.DateUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.EditText;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -19,14 +18,19 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.view.inputmethod.InputContentInfoCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
+import com.callx.app.chat.ui.GifAwareEditText;
 import com.callx.app.db.entity.CommunityMemberEntity;
 import com.callx.app.repository.CommunityRepository;
+import com.callx.app.utils.AlertDialogStyler;
+import com.callx.app.utils.CloudinaryUploader;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
@@ -65,13 +69,26 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
 
     public static final String EXTRA_COMMUNITY_ID = "communityId";
     public static final String EXTRA_POST_ID      = "postId";
-    public static final String EXTRA_POST_AUTHOR  = "postAuthor";
+    public static final String EXTRA_POST_AUTHOR  = "postAuthor"; // post author's UID (for gifting)
 
     // Reaction types
     private static final String[] REACTION_EMOJIS = {"👍", "❤️", "😂", "😮", "😢", "😡"};
     private static final String[] REACTION_TYPES  = {"LIKE","LOVE","HAHA","WOW","SAD","ANGRY"};
 
+    // ── Gifts ─────────────────────────────────────────────────────────────
+    // Reuses the exact same emoji + coin catalog ReelGiftingActivity already
+    // displays on the creator earnings screen (see its demo() fallback) —
+    // no new gift assets/pack, just wiring the existing catalog to a send
+    // action and writing into the SAME "reelGifts/{recipientUid}" node that
+    // screen already reads from, so a gift sent here shows up there too.
+    private static final String[] GIFT_EMOJIS = {"💎", "👑", "⭐", "🌹", "🎁"};
+    private static final String[] GIFT_LABELS = {"Diamond", "Crown", "Star", "Rose", "Gift"};
+    private static final int[]    GIFT_COINS  = {5000, 2000, 500, 200, 100};
+
     private String communityId, postId, currentUid, myName, myPhoto;
+    /** uid of the post's author — gifts sent from this comment thread are
+     *  credited to them (reelGifts/{postAuthorUid}). */
+    private String postAuthorUid;
     private CommunityRepository repo;
     private DatabaseReference commentsRef;
 
@@ -79,8 +96,9 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
     private CommentAdapter adapter;
 
     // Input bar state
-    private EditText etComment;
+    private GifAwareEditText etComment;
     private ImageView btnSend;
+    private ImageView btnGift;
     private TextView tvReplyingTo;
     private ImageView btnCancelReply;
     private RecyclerView rvMentionSuggestions;
@@ -100,6 +118,7 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
 
         communityId = getIntent().getStringExtra(EXTRA_COMMUNITY_ID);
         postId      = getIntent().getStringExtra(EXTRA_POST_ID);
+        postAuthorUid = getIntent().getStringExtra(EXTRA_POST_AUTHOR);
 
         if (FirebaseAuth.getInstance().getCurrentUser() != null) {
             currentUid = FirebaseUtils.getCurrentUid();
@@ -120,6 +139,7 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
         rvComments           = findViewById(R.id.rv_comments);
         etComment            = findViewById(R.id.et_comment);
         btnSend              = findViewById(R.id.btn_send_comment);
+        btnGift              = findViewById(R.id.btn_send_gift);
         tvReplyingTo         = findViewById(R.id.tv_replying_to);
         btnCancelReply       = findViewById(R.id.btn_cancel_reply);
         rvMentionSuggestions = findViewById(R.id.rv_mention_suggestions);
@@ -132,10 +152,121 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
 
         btnSend.setOnClickListener(v -> sendComment());
         btnCancelReply.setOnClickListener(v -> clearReply());
+        btnGift.setOnClickListener(v -> showGiftPicker());
+
+        // Keyboard sticker/GIF (Gboard's built-in tray) — commitContent
+        // hands us a content:// uri, same flow ChatActivity already uses
+        // for 1:1/group chat, just posted as a "sticker" type comment here.
+        etComment.setGifReceivedListener(this::onKeyboardStickerReceived);
 
         setupMentionAutocomplete();
         loadMembers();
         listenComments();
+    }
+
+    // ─── Keyboard sticker (Gboard commitContent) ────────────────────────────
+
+    private void onKeyboardStickerReceived(InputContentInfoCompat contentInfo) {
+        if (contentInfo == null || currentUid == null) return;
+        try {
+            contentInfo.requestPermission();
+        } catch (Exception ignored) {}
+
+        android.net.Uri uri = contentInfo.getContentUri();
+        Toast.makeText(this, "Sending sticker…", Toast.LENGTH_SHORT).show();
+
+        CloudinaryUploader.upload(this, uri, "callx/sticker", "image",
+            new CloudinaryUploader.UploadCallback() {
+                @Override public void onSuccess(CloudinaryUploader.Result r) {
+                    contentInfo.releasePermission();
+                    runOnUiThread(() -> sendStickerComment(r.secureUrl));
+                }
+                @Override public void onError(String err) {
+                    contentInfo.releasePermission();
+                    runOnUiThread(() -> Toast.makeText(CommunityPostCommentsActivity.this,
+                        err != null ? err : "Sticker send failed", Toast.LENGTH_SHORT).show());
+                }
+            });
+    }
+
+    private void sendStickerComment(String stickerUrl) {
+        if (stickerUrl == null || stickerUrl.isEmpty() || currentUid == null) return;
+        Map<String,Object> comment = new HashMap<>();
+        String commentId = UUID.randomUUID().toString();
+        comment.put("id",          commentId);
+        comment.put("type",        "sticker");
+        comment.put("mediaUrl",    stickerUrl);
+        comment.put("text",        "");
+        comment.put("authorUid",   currentUid);
+        comment.put("authorName",  myName != null ? myName : "");
+        comment.put("authorPhoto", myPhoto != null ? myPhoto : "");
+        comment.put("createdAt",   System.currentTimeMillis());
+        comment.put("likeCount",   0L);
+        commentsRef.child(commentId).setValue(comment);
+    }
+
+    // ─── Gift (reuses ReelGiftingActivity's existing emoji + coin catalog) ──
+
+    private void showGiftPicker() {
+        if (currentUid == null) return;
+        if (postAuthorUid == null || postAuthorUid.isEmpty()) {
+            Toast.makeText(this, "Can't send a gift here", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (postAuthorUid.equals(currentUid)) {
+            Toast.makeText(this, "You can't gift your own post", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String[] opts = new String[GIFT_EMOJIS.length];
+        for (int i = 0; i < opts.length; i++) {
+            opts[i] = GIFT_EMOJIS[i] + "  " + GIFT_LABELS[i] + "  —  " + GIFT_COINS[i] + " coins";
+        }
+
+        AlertDialogStyler.showRounded(new AlertDialog.Builder(this)
+            .setTitle("Send a gift")
+            .setItems(opts, (d, which) -> sendGift(which))
+            .setNegativeButton("Cancel", null)
+            .create());
+    }
+
+    private void sendGift(int index) {
+        String emoji = GIFT_EMOJIS[index];
+        String label = GIFT_LABELS[index];
+        int coins    = GIFT_COINS[index];
+        long now     = System.currentTimeMillis();
+
+        // Credit the post author — same schema ReelGiftingActivity reads
+        // from (reelGifts/{recipientUid}/{eventId}), so it shows up on
+        // their earnings screen too, not just in this comment thread.
+        Map<String,Object> giftEvent = new HashMap<>();
+        String giftId = UUID.randomUUID().toString();
+        giftEvent.put("senderUid",   currentUid);
+        giftEvent.put("senderName",  myName != null ? myName : "");
+        giftEvent.put("giftType",    emoji + " " + label);
+        giftEvent.put("reelCaption", "Community post");
+        giftEvent.put("coins",       coins);
+        giftEvent.put("timestamp",   now);
+        FirebaseDatabase.getInstance().getReference("reelGifts")
+            .child(postAuthorUid).child(giftId).setValue(giftEvent);
+
+        // Also drop a visible comment in the thread so other members see it.
+        Map<String,Object> comment = new HashMap<>();
+        String commentId = UUID.randomUUID().toString();
+        comment.put("id",          commentId);
+        comment.put("type",        "gift");
+        comment.put("giftEmoji",   emoji);
+        comment.put("giftLabel",   label);
+        comment.put("giftCoins",   coins);
+        comment.put("text",        "sent a " + label + " gift");
+        comment.put("authorUid",   currentUid);
+        comment.put("authorName",  myName != null ? myName : "");
+        comment.put("authorPhoto", myPhoto != null ? myPhoto : "");
+        comment.put("createdAt",   now);
+        comment.put("likeCount",   0L);
+        commentsRef.child(commentId).setValue(comment);
+
+        Toast.makeText(this, "Sent " + emoji + " " + label, Toast.LENGTH_SHORT).show();
     }
 
     // ─── Members for @mention ────────────────────────────────────────────────
@@ -232,6 +363,13 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
         ci.authorPhoto = strVal(cs, "authorPhoto");
         ci.createdAt   = longVal(cs, "createdAt");
         ci.likeCount   = longVal(cs, "likeCount");
+        String type    = strVal(cs, "type");
+        ci.type        = (type != null && !type.isEmpty()) ? type : "text";
+        ci.mediaUrl    = strVal(cs, "mediaUrl");
+        ci.giftEmoji   = strVal(cs, "giftEmoji");
+        ci.giftLabel   = strVal(cs, "giftLabel");
+        Long giftCoins = cs.child("giftCoins").getValue(Long.class);
+        ci.giftCoins   = giftCoins != null ? giftCoins.intValue() : 0;
         // reactions: Map<uid, reactionType>
         DataSnapshot rxSnap = cs.child("reactions");
         if (rxSnap.exists()) {
@@ -399,6 +537,11 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
     static class CommentItem {
         String id, text, authorUid, authorName, authorPhoto, myReaction;
         long   createdAt, likeCount;
+        /** "text" (default), "sticker" (keyboard-sent image), or "gift". */
+        String type = "text";
+        String mediaUrl;                 // sticker image url
+        String giftEmoji, giftLabel;      // gift display
+        int    giftCoins;
         Map<String,Long> reactionCounts = new HashMap<>();
         List<ReplyItem>  replies        = new ArrayList<>();
     }
@@ -436,9 +579,26 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
             else h.ivAvatar.setImageResource(R.drawable.ic_person);
 
             h.tvAuthor.setText(c.authorName != null ? c.authorName : "");
-            h.tvText.setText(c.text != null ? c.text : "");
             if (c.createdAt > 0)
                 h.tvTime.setText(DateUtils.getRelativeTimeSpanString(c.createdAt));
+
+            // Sticker / gift / plain-text rendering — same comment row,
+            // just a different body depending on "type".
+            if ("sticker".equals(c.type) && c.mediaUrl != null && !c.mediaUrl.isEmpty()) {
+                h.tvText.setVisibility(View.GONE);
+                h.ivSticker.setVisibility(View.VISIBLE);
+                Glide.with(h.ivSticker.getContext()).load(c.mediaUrl).into(h.ivSticker);
+            } else if ("gift".equals(c.type)) {
+                h.ivSticker.setVisibility(View.GONE);
+                h.tvText.setVisibility(View.VISIBLE);
+                String emoji = c.giftEmoji != null ? c.giftEmoji : "🎁";
+                String label = c.giftLabel != null ? c.giftLabel : "Gift";
+                h.tvText.setText(emoji + " sent a " + label + " gift  (+" + c.giftCoins + " coins)");
+            } else {
+                h.ivSticker.setVisibility(View.GONE);
+                h.tvText.setVisibility(View.VISIBLE);
+                h.tvText.setText(c.text != null ? c.text : "");
+            }
 
             // Like count
             h.tvLikeCount.setText(c.likeCount > 0 ? String.valueOf(c.likeCount) : "");
@@ -492,6 +652,7 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;
             TextView tvAuthor, tvText, tvTime, tvLikeCount;
+            ImageView ivSticker;
             View btnLike, btnReact, btnReply;
             LinearLayout layoutReactions;
             RecyclerView rvReplies;
@@ -501,6 +662,7 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
                 ivAvatar        = v.findViewById(R.id.iv_avatar);
                 tvAuthor        = v.findViewById(R.id.tv_comment_author);
                 tvText          = v.findViewById(R.id.tv_comment_text);
+                ivSticker       = v.findViewById(R.id.iv_comment_sticker);
                 tvTime          = v.findViewById(R.id.tv_comment_time);
                 tvLikeCount     = v.findViewById(R.id.tv_comment_like_count);
                 btnLike         = v.findViewById(R.id.btn_comment_like);

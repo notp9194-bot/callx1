@@ -1,0 +1,128 @@
+{
+  "_comment": "Merge these into your Firebase Realtime Database rules. Locks down the reel comment system, which previously had ZERO enforcement of its own — every edit/delete/pin/report restriction lived only in ReelCommentFragment.java's UI code, so any authenticated client (or a raw REST call) could edit/delete anyone's comment, fake-pin things, or tamper with commentsCount.",
+  "_instructions": [
+    "1. Open Firebase Console -> Realtime Database -> Rules tab",
+    "2. Merge the 'rules' object below into your existing rules JSON",
+    "3. CRITICAL: this only works if your root rule is NOT a blanket \"auth != null\" write for everything. In Firebase RTDB, if ANY ancestor node grants .write:true, that permission cascades down and OVERRIDES any narrower rule written below it. If your deployed rules (see firebase_rules_deployed_updated_v2.json) currently have a top-level \".write\": \"auth != null\", these nested rules are silently bypassed. You must either (a) remove/narrow that blanket top-level write so each path opts in explicitly, or (b) move these paths under a root that doesn't already grant blanket write access.",
+    "4. reelCommentReports / reelReplyReports are intentionally NOT readable by normal users (no admin-role concept exists yet in these rules) — read them from a trusted backend/Cloud Function, or add an isAdmin check once you have one."
+  ],
+  "rules": {
+    "reelComments": {
+      "$reelId": {
+        ".read": "auth != null",
+
+        "$commentId": {
+          "_comment_write": "Only two whole-node operations are allowed here: CREATE (must not already exist, and the new row's uid must be the author) and DELETE (comment owner OR the reel's owner can remove it). Edits go through the per-field rules below, not this one.",
+          ".write": "auth != null && ((!data.exists() && newData.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && !newData.exists() && (data.child('uid').val() === auth.uid || root.child('reels').child($reelId).child('uid').val() === auth.uid)))",
+          ".validate": "!newData.exists() || (newData.hasChildren(['commentId','uid','ownerName','text','timestamp']) && newData.child('commentId').val() === $commentId && newData.child('uid').val() === auth.uid && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 300)",
+
+          "text": {
+            "_comment": "Editing an existing comment's text: only the original author, and only once the row already exists (creation is covered by the parent .write above).",
+            ".write": "auth != null && data.parent().child('uid').val() === auth.uid && data.exists()",
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 300"
+          },
+          "isEdited": {
+            ".write": "auth != null && data.parent().child('uid').val() === auth.uid && data.exists()",
+            ".validate": "newData.isBoolean()"
+          },
+          "editedAt": {
+            ".write": "auth != null && data.parent().child('uid').val() === auth.uid && data.exists()",
+            ".validate": "newData.isNumber()"
+          },
+
+          "isPinned": {
+            "_comment": "Only the reel's owner can pin/unpin — matches togglePin()'s isReelOwner check, now enforced server-side too.",
+            ".write": "auth != null && root.child('reels').child($reelId).child('uid').val() === auth.uid",
+            ".validate": "newData.isBoolean()"
+          },
+
+          "likesCount": {
+            ".write": "auth != null",
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+          "replyCount": {
+            ".write": "auth != null",
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+
+          "likedBy": {
+            "$uid": {
+              "_comment": "A like is just your own uid -> true under the comment. Anyone can write, but ONLY under their own uid, and only a boolean.",
+              ".write": "auth != null && auth.uid === $uid",
+              ".validate": "newData.isBoolean() || !newData.exists()"
+            }
+          },
+          "reactions": {
+            "$uid": {
+              ".write": "auth != null && auth.uid === $uid",
+              ".validate": "newData.isString() || !newData.exists()"
+            }
+          },
+          "mentions": {
+            ".write": "auth != null && (!data.parent().exists() || data.parent().child('uid').val() === auth.uid)"
+          }
+        }
+      }
+    },
+
+    "reelCommentReplies": {
+      "$reelId": {
+        "$commentId": {
+          ".read": "auth != null",
+
+          "$replyId": {
+            ".write": "auth != null && ((!data.exists() && newData.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && !newData.exists() && (data.child('uid').val() === auth.uid || root.child('reels').child($reelId).child('uid').val() === auth.uid)))",
+            ".validate": "!newData.exists() || (newData.hasChildren(['replyId','parentCommentId','uid','ownerName','text','timestamp']) && newData.child('replyId').val() === $replyId && newData.child('uid').val() === auth.uid && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 300)",
+
+            "text": {
+              ".write": "auth != null && data.parent().child('uid').val() === auth.uid && data.exists()",
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 300"
+            },
+            "isEdited": {
+              ".write": "auth != null && data.parent().child('uid').val() === auth.uid && data.exists()"
+            },
+            "editedAt": {
+              ".write": "auth != null && data.parent().child('uid').val() === auth.uid && data.exists()"
+            },
+            "likesCount": {
+              ".write": "auth != null",
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
+            "likedBy": {
+              "$uid": {
+                ".write": "auth != null && auth.uid === $uid",
+                ".validate": "newData.isBoolean() || !newData.exists()"
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "reelCommentReports": {
+      "_comment": "Reports are write-once (create only, no edit/delete) and only ever created under the reporter's own claim. Nobody can read the list back through client rules — pull it from a trusted backend.",
+      ".read": false,
+      "$reportId": {
+        ".write": "auth != null && !data.exists() && newData.exists() && newData.child('reporterUid').val() === auth.uid",
+        ".validate": "newData.hasChildren(['reporterUid','reason','timestamp','commentText'])"
+      }
+    },
+    "reelReplyReports": {
+      ".read": false,
+      "$reportId": {
+        ".write": "auth != null && !data.exists() && newData.exists() && newData.child('reporterUid').val() === auth.uid",
+        ".validate": "newData.hasChildren(['reporterUid','reason','timestamp','replyText'])"
+      }
+    },
+
+    "reels": {
+      "$reelId": {
+        "commentsCount": {
+          "_comment": "Kept permissive on WHO can write (any authed viewer's like/comment/delete action touches this via a transaction) but validated so it can't be set to something absurd like a negative number or a non-integer.",
+          ".write": "auth != null",
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        }
+      }
+    }
+  }
+}

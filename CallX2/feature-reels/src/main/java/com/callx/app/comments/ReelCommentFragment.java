@@ -88,6 +88,10 @@ public class ReelCommentFragment extends Fragment {
     private static final String ARG_IS_SHEET   = "is_sheet";
 
     private static final int MAX_COMMENT_LENGTH = 300;
+    /** Min gap between two posted comments/replies from this device — blunt
+     *  client-side anti-spam guard. Server-side rules validate length/uid,
+     *  but nothing previously stopped a user mashing "send" in a loop. */
+    private static final long COMMENT_COOLDOWN_MS = 2000;
 
     public interface OnCloseListener { void onClose(); }
     private OnCloseListener closeListener;
@@ -186,6 +190,20 @@ public class ReelCommentFragment extends Fragment {
 
     // ── Data ─────────────────────────────────────────────────────────────────
     private final List<ReelComment> allComments = new ArrayList<>();
+
+    // ── Blocked users (SECURITY FIX) ─────────────────────────────────────────
+    // Previously the comment UI had no concept of blocked users at all — if
+    // you blocked someone elsewhere in the app, their comments/replies still
+    // showed up here. This mirrors BlockedUsersActivity's path
+    // (blocks/{myUid}/{blockedUid} = true) and hides their rows client-side.
+    // NOTE: this is a UI-level filter, not a security boundary — a blocked
+    // user's comment still exists in the DB, matching how blocking works
+    // elsewhere in this app (chat, feed, etc.).
+    private final Set<String> blockedUids = new HashSet<>();
+    private DatabaseReference blocksListenerRef;
+    private ValueEventListener blocksListener;
+
+    private long lastCommentPostAt = 0L;
 
     // ── Burst-update debouncing (PERF) ──────────────────────────────────────
     // Firebase's ChildEventListener fires onChildAdded once per existing
@@ -356,6 +374,7 @@ public class ReelCommentFragment extends Fragment {
 
         if (!reelId.isEmpty()) { loadComments(); listenCommentsCount(); }
         else showEmpty(true);
+        listenBlockedUsers();
 
         if (rvComments != null) {
             rvComments.postDelayed(() -> {
@@ -391,8 +410,31 @@ public class ReelCommentFragment extends Fragment {
                 commentsCountRef.removeEventListener(commentsCountListener);
             if (keyboardLayoutListener != null && fragmentRoot != null)
                 fragmentRoot.getViewTreeObserver().removeOnGlobalLayoutListener(keyboardLayoutListener);
+            if (blocksListener != null && blocksListenerRef != null)
+                blocksListenerRef.removeEventListener(blocksListener);
         } catch (Exception ignored) {}
         super.onDestroyView();
+    }
+
+    /** Live-listens to my blocklist (blocks/{myUid}) so blocking/unblocking
+     *  someone elsewhere in the app updates this thread immediately without
+     *  needing to reopen the comment sheet. */
+    private void listenBlockedUsers() {
+        if (myUid.isEmpty()) return;
+        blocksListenerRef = FirebaseUtils.getBlocksRef(myUid);
+        blocksListener = blocksListenerRef.addValueEventListener(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snapshot) {
+                if (!isAdded()) return;
+                blockedUids.clear();
+                for (DataSnapshot ds : snapshot.getChildren()) {
+                    if (Boolean.TRUE.equals(ds.getValue(Boolean.class)) && ds.getKey() != null) {
+                        blockedUids.add(ds.getKey());
+                    }
+                }
+                applyFilterAndSort();
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        });
     }
 
     // ── Setup ─────────────────────────────────────────────────────────────────
@@ -1141,6 +1183,7 @@ public class ReelCommentFragment extends Fragment {
         List<ReelComment> filtered = new ArrayList<>();
 
         for (ReelComment c : allComments) {
+            if (c.uid != null && blockedUids.contains(c.uid)) continue; // blocked user's comment, hide it
             if (searchQuery.isEmpty()) {
                 filtered.add(c);
             } else {
@@ -1381,6 +1424,17 @@ public class ReelCommentFragment extends Fragment {
             Toast.makeText(requireContext(), "Photo uploading… please wait", Toast.LENGTH_SHORT).show();
             return;
         }
+        // ANTI-SPAM FIX: nothing previously stopped rapid-fire tapping of
+        // send — each tap fired a full postComment()/postReply() Firebase
+        // write with no gap. A short client-side cooldown is a cheap first
+        // line of defense (server-side rules are the real backstop).
+        long now = System.currentTimeMillis();
+        if (now - lastCommentPostAt < COMMENT_COOLDOWN_MS) {
+            Toast.makeText(requireContext(), "You're commenting too fast — slow down a bit",
+                Toast.LENGTH_SHORT).show();
+            return;
+        }
+        lastCommentPostAt = now;
         if (replyingToComment != null) postReply();
         else postComment();
     }
@@ -1736,6 +1790,7 @@ public class ReelCommentFragment extends Fragment {
                         try {
                             ReelReply r = s.getValue(ReelReply.class);
                             if (r == null || TextUtils.isEmpty(r.text)) continue;
+                            if (r.uid != null && blockedUids.contains(r.uid)) continue; // blocked user's reply, hide it
                             if (r.replyId == null) r.replyId = s.getKey();
                             registerMentionCandidate(r.uid, r.ownerName);
                             View row = buildReplyRow(r, parent, container, tvToggle);

@@ -49,6 +49,19 @@
                 android:linksClickable="true"
                 android:autoLink="web"/>
 
+            <!-- Keyboard sticker / GIF, shown when the comment's type is
+                 "sticker" (Gboard's inline sticker/GIF tray, sent via
+                 GifAwareEditText's onCommitContent — no separate sticker
+                 pack, just whatever image the keyboard hands over). -->
+            <ImageView
+                android:id="@+id/iv_comment_sticker"
+                android:layout_width="120dp"
+                android:layout_height="120dp"
+                android:layout_marginTop="4dp"
+                android:scaleType="fitStart"
+                android:adjustViewBounds="true"
+                android:visibility="gone"/>
+
             <!-- Reaction summary strip -->
             <LinearLayout
                 android:id="@+id/layout_comment_reactions"
