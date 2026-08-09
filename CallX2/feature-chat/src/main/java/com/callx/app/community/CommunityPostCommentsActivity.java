@@ -363,8 +363,8 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
         ci.authorPhoto = strVal(cs, "authorPhoto");
         ci.createdAt   = longVal(cs, "createdAt");
         ci.likeCount   = longVal(cs, "likeCount");
-        String type    = strVal(cs, "type");
-        ci.type        = (type != null && !type.isEmpty()) ? type : "text";
+        String commentType = strVal(cs, "type");
+        ci.type        = (commentType != null && !commentType.isEmpty()) ? commentType : "text";
         ci.mediaUrl    = strVal(cs, "mediaUrl");
         ci.giftEmoji   = strVal(cs, "giftEmoji");
         ci.giftLabel   = strVal(cs, "giftLabel");
