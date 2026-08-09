@@ -112,20 +112,52 @@ public class ReelCommentSheetFragment extends BottomSheetDialogFragment {
         if (sheet == null) return;
 
         // BUG FIX: without this, the dialog window stops above the system
-        // navigation bar (decorFitsSystemWindows defaults to true), so the
-        // window's real usable height is SMALLER than
-        // Resources.getDisplayMetrics().heightPixels — the value the sheet
-        // height/offset math below is computed from. That mismatch is what
-        // let the sheet drift further up than intended once nested-scroll
-        // expansion kicked in (scrolling comments), and left the app's own
-        // bottom nav bar visibly peeking through beneath the sheet instead
-        // of the sheet's background extending all the way down like
-        // Instagram's. Drawing edge-to-edge makes the window's real height
-        // match the math again, and ReelCommentFragment's
-        // setupKeyboardAwarePadding() now pads the input bar back up above
-        // the navigation bar using the real inset instead of leaving it
-        // hidden underneath.
+        // navigation bar (decorFitsSystemWindows defaults to true) — which
+        // also means WindowInsets never report a real navigation-bar inset
+        // at all (the OS already reserved that space, so the value is 0).
+        // Edge-to-edge is required both for the height math below to match
+        // the window's real size, and for the insets capture right after
+        // this to have anything real to report.
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(dialog.getWindow(), false);
+
+        // BUG FIX: with the window now edge-to-edge, something has to push
+        // the input bar back up above the navigation bar / keyboard — a
+        // plain OnApplyWindowInsetsListener attached further down (on the
+        // hosted ReelCommentFragment's own root) never actually saw those
+        // insets: CoordinatorLayout and Material's own design_bottom_sheet
+        // handling can each consume them for their own layout first. Instead,
+        // capture them right here at the decor view — the very first stop
+        // for WindowInsets in the whole window, before anything downstream
+        // gets a chance to consume them — and hand the value straight to the
+        // child fragment directly instead of hoping dispatch reaches it.
+        View decorView = dialog.getWindow().getDecorView();
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(decorView, (v, windowInsets) -> {
+            int imeBottom = windowInsets.getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.ime()).bottom;
+            int navBottom = windowInsets.getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom;
+            ReelCommentFragment child = findCommentFragment();
+            if (child != null) child.applyBottomInset(Math.max(imeBottom, navBottom));
+            return windowInsets;
+        });
+        androidx.core.view.ViewCompat.requestApplyInsets(decorView);
+
+        // Safety net: the listener above only fires on the next actual
+        // insets dispatch, which can be missed if the child fragment's view
+        // wasn't attached yet on the very first pass. Re-apply once more
+        // from a direct snapshot after this frame settles.
+        decorView.post(() -> {
+            if (!isAdded()) return;
+            androidx.core.view.WindowInsetsCompat snapshot =
+                androidx.core.view.ViewCompat.getRootWindowInsets(decorView);
+            if (snapshot == null) return;
+            int imeBottom = snapshot.getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.ime()).bottom;
+            int navBottom = snapshot.getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom;
+            ReelCommentFragment child = findCommentFragment();
+            if (child != null) child.applyBottomInset(Math.max(imeBottom, navBottom));
+        });
 
         final int expandedOffsetPx = (int) (getResources().getDisplayMetrics().heightPixels * 0.44f);
 

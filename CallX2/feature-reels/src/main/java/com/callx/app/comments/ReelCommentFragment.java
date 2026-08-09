@@ -502,8 +502,6 @@ public class ReelCommentFragment extends Fragment {
             etComment.setGifReceivedListener(this::onKeyboardGifReceived);
         }
 
-        if (isSheet) setupKeyboardAwarePadding(root);
-
         // BUG FIX: when this fragment is hosted inside ReelCommentSheetFragment
         // (isSheet=true) the sheet can be sitting in its HALF_EXPANDED state,
         // which only reserves ~45% of the screen. Tapping the input while
@@ -2241,36 +2239,22 @@ public class ReelCommentFragment extends Fragment {
         } catch (Exception ignored) {}
     }
 
-    // ── Keyboard-aware padding (SHEET host only) ─────────────────────────────
-    // windowSoftInputMode=ADJUST_RESIZE is already set on the sheet's dialog
-    // window (see ReelCommentSheetFragment.onStart()), but BottomSheetDialog
-    // windows are a known exception where that resize doesn't always
-    // reliably reach the dialog's content the way it does in a normal
-    // Activity window — the input bar could end up sitting behind the
-    // keyboard, OR (with the dialog now drawing edge-to-edge, see
-    // ReelCommentSheetFragment) behind the 3-button/gesture navigation bar
-    // at rest. This used to guess "keyboard open" from a raw display-frame
-    // gap (a >15%-of-screen heuristic) which is exactly what let the
-    // navigation-bar's own (much smaller, but still real) inset go
-    // unhandled — the input bar sat under it whenever the keyboard was
-    // closed. Real WindowInsetsCompat replaces the guess entirely: it
-    // reports the IME and navigation-bar insets directly, so the bottom
-    // padding is always correct at rest AND while the keyboard is
-    // animating in/out, with no threshold to tune. Scoped to isSheet only
-    // — the fullscreen Activity host already handles both via its own
-    // window insets / ADJUST_RESIZE and doesn't need this.
-    private void setupKeyboardAwarePadding(View root) {
-        final int baseBottom = root.getPaddingBottom();
-        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
-            int imeBottom = insets.getInsets(
-                androidx.core.view.WindowInsetsCompat.Type.ime()).bottom;
-            int navBottom = insets.getInsets(
-                androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom;
-            int bottom = baseBottom + Math.max(imeBottom, navBottom);
-            v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), bottom);
-            return insets;
-        });
-        androidx.core.view.ViewCompat.requestApplyInsets(root);
+    // ── Bottom inset (SHEET host only) ───────────────────────────────────────
+    // Pushed in directly by ReelCommentSheetFragment, which captures the
+    // real IME + navigation-bar insets at the dialog's decor view (the very
+    // top of the window's view hierarchy) and calls this instead of relying
+    // on WindowInsets dispatch reaching all the way down to this fragment's
+    // own root. That dispatch used to silently return nothing here — several
+    // views up the chain (CoordinatorLayout, Material's own
+    // design_bottom_sheet handling) can consume insets for their own layout
+    // before a plain OnApplyWindowInsetsListener this far down ever sees
+    // them — which is why the input bar previously sat behind the 3-button/
+    // gesture navigation bar at rest instead of padded above it.
+    public void applyBottomInset(int bottomInsetPx) {
+        if (fragmentRoot == null) return;
+        int bottom = Math.max(0, bottomInsetPx);
+        fragmentRoot.setPadding(fragmentRoot.getPaddingLeft(), fragmentRoot.getPaddingTop(),
+                                 fragmentRoot.getPaddingRight(), bottom);
     }
 
     private void showKeyboard(View v) {
