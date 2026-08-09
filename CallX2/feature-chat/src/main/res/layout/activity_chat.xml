@@ -1399,4 +1399,32 @@
 
     </LinearLayout>
 
+    <!-- ══════════════════════════════════════════════════════════════════
+         STICKY DATE HEADER — Telegram/WhatsApp style. Floats over the top
+         of rv_messages (NOT inside ll_floating_top_stack — that stack pushes
+         its siblings down, this needs to overlay on top of the message list
+         instead), shows whichever date is currently scrolled to, and is kept
+         hidden/faded by ChatActivity#setupStickyDateHeader() except while
+         actively scrolling. Root FrameLayout gravity positions it as a plain
+         overlay, same pattern as fab_back_to_latest / cv_record_lock above.
+         ══════════════════════════════════════════════════════════════════ -->
+    <TextView
+        android:id="@+id/tv_sticky_date_header"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="76dp"
+        android:background="@drawable/bg_date_chip"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:textColor="#FFFFFFFF"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:elevation="4dp"
+        android:alpha="0"
+        android:visibility="gone"
+        android:text="Today"/>
+
 </FrameLayout>

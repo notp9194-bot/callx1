@@ -36,9 +36,12 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  * Signal-style chat apps use for this exact reason.
  *
  * Key = timestamp of the item just past whichever end of the loaded window
- * that page's request extends from. REFRESH ignores the key entirely and
- * always loads the most recent PAGE_SIZE messages — that's the only
- * "initial load" this app ever performs (chats always open bottom-anchored).
+ * that page's request extends from. A null-key REFRESH always loads the most
+ * recent PAGE_SIZE messages — chats normally open bottom-anchored. A
+ * non-null-key REFRESH is a jump-to-message anchor: the page is built
+ * CENTERED on that timestamp instead, so ChatActivity#navigateToOriginalMsg()
+ * can land on any message — however old, in however large a chat — without
+ * an OFFSET scan. See the REFRESH branch below for both cases.
  */
 public class MessageKeysetPagingSource extends RxPagingSource<Long, MessageEntity> {
 
@@ -79,15 +82,45 @@ public class MessageKeysetPagingSource extends RxPagingSource<Long, MessageEntit
                 if (asc.size() < pageSize) nextKey = null;
                 prevKey = after;
 
-            } else {
-                // REFRESH — always the most recent page; this app never
-                // opens a chat scrolled to anywhere but the bottom.
+            } else if (params.getKey() == null) {
+                // REFRESH, no anchor — the normal "open a chat" case, always
+                // the most recent page; this app opens a chat scrolled to
+                // the bottom unless a jump-to-message anchor says otherwise.
                 List<MessageEntity> desc = dao.getMessagesLatestDesc(chatId, pageSize);
                 page = new ArrayList<>(desc);
                 Collections.reverse(page); // DESC → ASC for display order
                 prevKey = page.isEmpty() ? null : page.get(0).timestamp;
                 if (desc.size() < pageSize) prevKey = null;
                 nextKey = null; // already at the newest message that existed at load time
+            } else {
+                // JUMP-TO-MESSAGE FIX (Telegram-style anchor REFRESH): a non-null
+                // key on REFRESH means "land on the message with this timestamp",
+                // used by ChatActivity#navigateToOriginalMsg() when the target
+                // reply isn't in the currently loaded window. Instead of guessing
+                // an adapter position from item counts (the old bug — wrong for
+                // large chats / very old replies because it compared a DB count
+                // against however many rows the live PagingDataAdapter happened
+                // to have loaded so far, not the true total), build a fresh page
+                // CENTERED on the target's own timestamp. Both halves are plain
+                // indexed (chatId, timestamp) range queries — same O(pageSize)
+                // cost regardless of total chat history, no OFFSET scan — so this
+                // lands correctly on message #1 or message #100,000 alike.
+                long anchor = params.getKey();
+                int half = pageSize / 2;
+                List<MessageEntity> beforeDesc = dao.getMessagesBeforeDesc(chatId, anchor, half);
+                List<MessageEntity> before = new ArrayList<>(beforeDesc);
+                Collections.reverse(before); // DESC → ASC
+                int afterLimit = pageSize - before.size();
+                // Inclusive of the anchor timestamp itself, so the target message
+                // (whose timestamp == anchor) is guaranteed to be part of this page.
+                List<MessageEntity> fromAnchor = dao.getMessagesFromAsc(chatId, anchor, afterLimit);
+                page = new ArrayList<>(before.size() + fromAnchor.size());
+                page.addAll(before);
+                page.addAll(fromAnchor);
+                prevKey = page.isEmpty() ? null : page.get(0).timestamp;
+                if (before.size() < half) prevKey = null; // reached true start of history
+                nextKey = page.isEmpty() ? null : page.get(page.size() - 1).timestamp;
+                if (fromAnchor.size() < afterLimit) nextKey = null; // reached true end of history
             }
 
             return (LoadResult<Long, MessageEntity>) new LoadResult.Page<>(

@@ -14,8 +14,8 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:gravity="end"
-    android:paddingTop="4dp"
-    android:paddingBottom="4dp">
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp">
 
     <!-- Pill bubble — aligned to caller's side (right if I called, left if they called) -->
     <LinearLayout

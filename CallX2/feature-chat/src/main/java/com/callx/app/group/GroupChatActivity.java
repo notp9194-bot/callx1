@@ -2994,8 +2994,22 @@ public class GroupChatActivity extends AppCompatActivity
                     200L * (attempt + 1));
             return;
         }
-        // Fallback: use DB to compute approximate adapter position and scroll there,
-        // then try to highlight once the page has had time to load.
+        // BUG FIX (same root cause as ChatActivity's 1:1 equivalent — see its
+        // jumpToMessageViaAnchor() doc for the full story): the old fallback
+        // approximated the target's adapter position from
+        // (pagingAdapter.getItemCount() - posFromBottom - 1), comparing an
+        // accurate DB count against however many rows Paging3 had actually
+        // loaded so far — wrong for an old reply in a big group, since the
+        // live adapter window is nowhere near the true total.
+        //
+        // Fix: this Pager IS Room's generated Integer/OFFSET PagingSource
+        // (unlike the 1:1 chat's timestamp-keyset one), so an exact row
+        // index is a perfectly valid initialKey — getRankAsc() gives that
+        // index directly off the same (chatId,timestamp) index, no OFFSET
+        // scan. Rebuild the Pager anchored there so the target is
+        // guaranteed to land inside the very first page, then locate its
+        // exact position by id once that page is actually applied
+        // (addOnPagesUpdatedListener) and scroll+flash it.
         final String gId = groupId;
         ioExecutor.execute(() -> {
             if (db == null || gId == null) {
@@ -3009,34 +3023,47 @@ public class GroupChatActivity extends AppCompatActivity
                         "Original message not found", android.widget.Toast.LENGTH_SHORT).show());
                 return;
             }
-            int posFromBottom = db.messageDao().countMessagesAfterTimestamp(gId, target.timestamp);
-            int approxPos = pagingAdapter.getItemCount() - posFromBottom - 1;
-            final int safePos = Math.max(0, approxPos);
+            int rank = db.messageDao().getRankAsc(gId, target.timestamp); // 1-based
+            final int exactIndex = Math.max(0, rank - 1);
             runOnUiThread(() -> {
                 if (binding.fabBackToLatest != null) {
                     binding.fabBackToLatest.setVisibility(View.VISIBLE);
                     binding.fabBackToLatest.setAlpha(1f);
                 }
-                binding.rvMessages.scrollToPosition(safePos);
-                // Give paging time to bind the newly scrolled-to page, then highlight.
-                binding.rvMessages.postDelayed(() -> {
-                    RecyclerView.ViewHolder vh = binding.rvMessages.findViewHolderForAdapterPosition(safePos);
-                    if (vh != null) {
-                        com.callx.app.chat.ui.MessageHighlightAnimator.flashHighlight(vh.itemView);
-                    } else {
-                        // Page still not bound — last-resort: scroll once more to force bind.
-                        // PERF: smoothScrollToPosition() over a bulk/long-distance jump animates
-                        // every intermediate row into layout — visible jank on a heavy message
-                        // list. scrollToPositionWithOffset() is an instant jump (same fix already
-                        // applied to ChatActivity's jump-to-message path).
-                        RecyclerView.LayoutManager rawLm = binding.rvMessages.getLayoutManager();
-                        if (rawLm instanceof LinearLayoutManager) {
-                            ((LinearLayoutManager) rawLm).scrollToPositionWithOffset(safePos, 0);
-                        } else {
-                            binding.rvMessages.scrollToPosition(safePos);
+                attachPagerWithKey(exactIndex);
+                final kotlin.jvm.functions.Function0<kotlin.Unit>[] listenerHolder =
+                        new kotlin.jvm.functions.Function0[1];
+                listenerHolder[0] = () -> {
+                    pagingAdapter.removeOnPagesUpdatedListener(listenerHolder[0]);
+                    int pos = -1;
+                    int loadedCount = pagingAdapter.getItemCount();
+                    for (int i = 0; i < loadedCount; i++) {
+                        com.callx.app.models.Message m = pagingAdapter.peek(i);
+                        if (m != null && (messageId.equals(m.id) || messageId.equals(m.messageId))) {
+                            pos = i;
+                            break;
                         }
                     }
-                }, 600);
+                    if (pos >= 0) {
+                        final int fpos = pos;
+                        binding.rvMessages.post(() -> {
+                            com.callx.app.chat.ui.MessageHighlightAnimator.scrollAndHighlight(
+                                    binding.rvMessages, fpos, binding.fabBackToLatest);
+                            binding.rvMessages.postDelayed(() -> {
+                                RecyclerView.ViewHolder vh =
+                                        binding.rvMessages.findViewHolderForAdapterPosition(fpos);
+                                if (vh != null) {
+                                    com.callx.app.chat.ui.MessageHighlightAnimator.flashHighlight(vh.itemView);
+                                }
+                            }, 150L);
+                        });
+                    } else {
+                        android.widget.Toast.makeText(GroupChatActivity.this,
+                                "Original message not found", android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                    return kotlin.Unit.INSTANCE;
+                };
+                pagingAdapter.addOnPagesUpdatedListener(listenerHolder[0]);
             });
         });
     }

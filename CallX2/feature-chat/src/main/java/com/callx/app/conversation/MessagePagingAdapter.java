@@ -404,6 +404,51 @@ public class MessagePagingAdapter
         sGifStickerPx = Math.max(computed, 200);           // sane floor for very low density
         return sGifStickerPx;
     }
+    // PERF: seen-bubble ("watched your reel" / "seen your status" system
+    // row) avatar + thumbnail Glide loads used a hardcoded
+    // .override(96, 96) / .override(240, 240) regardless of density — same
+    // problem gifStickerPx()/thumbPx() above already fixed for other
+    // bubbles. The avatar only ever renders at
+    // MessageBubbleCanvasView.SEEN_AVATAR_SIZE_DP (36dp) and the thumbnail
+    // at SEEN_THUMB_W_DP×SEEN_THUMB_H_DP (120×80dp, non-square) — decoding
+    // a fixed 96px/240px square on every density wastes memory+time on
+    // hi-dpi screens and under-decodes on low-dpi ones. Compute the real
+    // pixel target once (with a small upscale margin) and cache it, same
+    // density-aware pattern as thumbPx()/gifStickerPx().
+    // NOTE: mirrors MessageBubbleCanvasView.SEEN_AVATAR_SIZE_DP (36f) /
+    // SEEN_THUMB_W_DP (120f) / SEEN_THUMB_H_DP (80f) — those are
+    // package-private to com.callx.app.conversation.canvas, so the literal
+    // dp values are duplicated here rather than widening their visibility
+    // just for this. Keep in sync if the seen-bubble layout constants change.
+    private static final float SEEN_AVATAR_SIZE_DP_MIRROR = 36f;
+    private static final float SEEN_THUMB_W_DP_MIRROR = 120f;
+    private static final float SEEN_THUMB_H_DP_MIRROR = 80f;
+
+    private static volatile int sSeenAvatarPx = 0;
+    static int seenAvatarPx(android.content.Context ctx) {
+        if (sSeenAvatarPx > 0) return sSeenAvatarPx;
+        float density = ctx.getResources().getDisplayMetrics().density;
+        int computed = (int) (SEEN_AVATAR_SIZE_DP_MIRROR * density * 1.15f); // 36dp slot + 15% margin
+        sSeenAvatarPx = Math.max(computed, 48); // sane floor for very low density
+        return sSeenAvatarPx;
+    }
+
+    private static volatile int sSeenThumbPxW = 0;
+    private static volatile int sSeenThumbPxH = 0;
+    static int seenThumbPxW(android.content.Context ctx) {
+        if (sSeenThumbPxW == 0) seenThumbPx(ctx);
+        return sSeenThumbPxW;
+    }
+    static int seenThumbPxH(android.content.Context ctx) {
+        if (sSeenThumbPxH == 0) seenThumbPx(ctx);
+        return sSeenThumbPxH;
+    }
+    private static void seenThumbPx(android.content.Context ctx) {
+        float density = ctx.getResources().getDisplayMetrics().density;
+        sSeenThumbPxW = Math.max((int) (SEEN_THUMB_W_DP_MIRROR * density * 1.15f), 100);
+        sSeenThumbPxH = Math.max((int) (SEEN_THUMB_H_DP_MIRROR * density * 1.15f), 70);
+    }
+
     // ── Payload key for presence-only updates (viewing-dot / reply-glow /
     //    playing-badge) — lets setViewingMessageIds() etc. refresh just
     //    those three views instead of re-running the entire bindMessage()
@@ -1370,14 +1415,14 @@ public class MessagePagingAdapter
             RecyclerView.LayoutParams cvLp = new RecyclerView.LayoutParams(
                     RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT);
             // FIX: item_message_sent/received.xml gives every legacy bubble
-            // row 2dp top + 2dp bottom padding (= 4dp WhatsApp-style gap
+            // row 4dp top + 4dp bottom padding (= 8dp WhatsApp-style gap
             // between consecutive bubbles). The canvas path builds this
             // View programmatically with no margin at all, so canvas
             // bubbles were rendering flush against each other — restore
-            // the same 2dp/2dp via RecyclerView item margins instead
+            // the same 4dp/4dp via RecyclerView item margins instead
             // (onMeasure's totalHeight has no room for outer spacing, so
             // margin — not padding — is the right lever here).
-            int vGap = Math.round(2 * parent.getContext().getResources().getDisplayMetrics().density);
+            int vGap = Math.round(4 * parent.getContext().getResources().getDisplayMetrics().density);
             cvLp.topMargin = vGap;
             cvLp.bottomMargin = vGap;
             cv.setLayoutParams(cvLp);
@@ -2018,8 +2063,11 @@ public class MessagePagingAdapter
                 if (avatarHit != null && !avatarHit.isRecycled()) {
                     cv.setSeenAvatarBitmap(avatarHit);
                 } else {
+                    // PERF: decode at the real 36dp display size (see
+                    // seenAvatarPx()) instead of a hardcoded 96×96 square.
+                    int avatarPx = seenAvatarPx(ctx);
                     glide(ctx).asBitmap().load(avatarUrl).apply(THUMB_RGB565)
-                            .override(96, 96).circleCrop()
+                            .override(avatarPx, avatarPx).circleCrop()
                             .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                                 @Override
                                 public void onResourceReady(@NonNull Bitmap resource,
@@ -2044,17 +2092,23 @@ public class MessagePagingAdapter
                 // re-fired an async Glide load, guaranteeing a blank/junk frame on
                 // this thumbnail before the image popped back in. Now checks
                 // DECODED_BITMAP_CACHE synchronously first, same as reel-share/reply/video.
-                android.graphics.Bitmap seenThumbHit = DECODED_BITMAP_CACHE.get(poolKey(thumbUrl, 240, 240));
+                // PERF: decode at the real 120×80dp display size (see
+                // seenThumbPxW/H()) instead of a hardcoded 240×240 square —
+                // that was 2x-oversized on width and ~3x-oversized on
+                // height versus the actual non-square thumb slot.
+                final int seenThumbPxW = seenThumbPxW(ctx);
+                final int seenThumbPxH = seenThumbPxH(ctx);
+                android.graphics.Bitmap seenThumbHit = DECODED_BITMAP_CACHE.get(poolKey(thumbUrl, seenThumbPxW, seenThumbPxH));
                 if (seenThumbHit != null && !seenThumbHit.isRecycled()) {
                     cv.setSeenThumbBitmap(seenThumbHit);
                 } else {
                     glide(ctx).asBitmap().load(thumbUrl).apply(THUMB_RGB565)
-                            .override(240, 240).centerCrop()
+                            .override(seenThumbPxW, seenThumbPxH).centerCrop()
                             .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                                 @Override
                                 public void onResourceReady(@NonNull Bitmap resource,
                                         @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                    DECODED_BITMAP_CACHE.put(poolKey(thumbUrl, 240, 240), resource);
+                                    DECODED_BITMAP_CACHE.put(poolKey(thumbUrl, seenThumbPxW, seenThumbPxH), resource);
                                     if (h.canvasBindToken != myToken) return;
                                     cv.setSeenThumbBitmap(resource);
                                 }

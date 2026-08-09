@@ -10,10 +10,16 @@
     Same view IDs kept (opt_gallery, opt_location, opt_contact,
     opt_poll) plus new ones (opt_document, opt_payment, opt_event,
     opt_ai_images, opt_camera) so ChatActivity's existing click
-    listeners keep working; opt_audio/opt_multi/opt_sticker/opt_gif
-    were folded into Gallery/Document per the new design — wire up
+    listeners keep working; opt_multi/opt_sticker/opt_gif were
+    folded into Gallery/Document per the new design — wire up
     opt_document to the same file-picker flow opt_file used, and
     opt_camera to the existing camera launcher.
+
+    v3: re-added opt_audio (Row 3, own row) wired to the
+    already-registered-but-unused `audioPicker` launcher in
+    ChatMediaController, which sends type "audio" — same message
+    type a recorded voice note uses, so it plays back through the
+    existing play/pause+waveform bubble, no new playback UI.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -265,6 +271,35 @@
                 android:text="AI images" android:textSize="11sp"
                 android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
         </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- Row 3: Audio -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:layout_marginTop="4dp">
+
+        <LinearLayout android:id="@+id/opt_audio" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center"
+            android:paddingTop="10dp" android:paddingBottom="10dp"
+            android:background="@drawable/bg_attach_chip">
+            <FrameLayout android:layout_width="52dp" android:layout_height="52dp" android:background="@drawable/circle_attach_purple">
+                <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                    android:layout_gravity="center" android:src="@drawable/ic_mic"/>
+            </FrameLayout>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Audio" android:textSize="11sp"
+                android:textColor="@color/text_primary" android:layout_marginTop="6dp"/>
+        </LinearLayout>
+
+        <!-- spacers to keep the Audio chip the same width as rows above -->
+        <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" android:layout_marginEnd="4dp"/>
+        <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" android:layout_marginEnd="4dp"/>
+        <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1"/>
 
     </LinearLayout>
 

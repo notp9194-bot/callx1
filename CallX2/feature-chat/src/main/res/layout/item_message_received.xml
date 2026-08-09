@@ -24,8 +24,8 @@
     android:layout_height="wrap_content"
     android:paddingStart="4dp"
     android:paddingEnd="48dp"
-    android:paddingTop="2dp"
-    android:paddingBottom="2dp">
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
 
     <!-- Group sender avatar — bottom-aligned to the bubble, like the old layout_gravity="bottom" -->
     <de.hdodenhof.circleimageview.CircleImageView

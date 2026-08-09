@@ -213,6 +213,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // not just guarded against.
     private final Executor ioExecutor = ChatIoExecutor.get();
 
+    // PERF FIX (ultra-opt pass): dedicated single-thread executor for E2EE
+    // decrypt() calls off Firebase's main-thread ChildEventListener
+    // callbacks — see E2eeDecryptExecutor's class doc for why this is its
+    // own single thread rather than sharing ioExecutor above.
+    private final Executor e2eeDecryptExecutor = com.callx.app.utils.E2eeDecryptExecutor.get();
+
     // NOTE (history): this fix originally guarded against
     // ioExecutor.shutdown() racing a delayed post, which was the actual
     // crash cause. ioExecutor is now ChatIoExecutor's shared, never-shut-down
@@ -616,6 +622,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         setupSwipeToReply();
         setupFabBackToLatest();
         setupHeaderAutoHide();
+        setupStickyDateHeader();
         setupNetworkMonitor();
 
         // ─────────────────────────────────────────────────────────────────
@@ -2082,6 +2089,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // fully replaced them as the primary bubble path.
         pool.setMaxRecycledViews(11 /* TYPE_CANVAS_SENT */,     18);
         pool.setMaxRecycledViews(12 /* TYPE_CANVAS_RECEIVED */, 18);
+        // PERF: TYPE_DATE_SEPARATOR (7) was left at RecyclerView's default
+        // pool size of 5. Inline date separators recur once per calendar
+        // day in the list, so on a long fast fling through a multi-day
+        // history it's recycled just as often as the bubble types — bump it
+        // alongside them instead of letting it silently fall back to reinflation.
+        pool.setMaxRecycledViews(7 /* TYPE_DATE_SEPARATOR */, 10);
         binding.rvMessages.setRecycledViewPool(pool);
         // PERF (v176): warm the pool with a few TYPE_CANVAS_SENT/RECEIVED
         // holders BEFORE the user's first scroll, so the very first fling
@@ -2522,33 +2535,62 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 Message m = snapshot.getValue(Message.class);
                 if (m == null) return;
                 m.id = snapshot.getKey();
-                decryptIncomingIfNeeded(m);
-                saveToRoom(m, false);
-                // PERF FIX v25: no longer fires MessageStatusSync.upgradeStatus()
-                // (an individual Firebase runTransaction() + synchronous
-                // SharedPreferences/PendingAckQueue write) per incoming message
-                // here. That ran on the main thread for every single message in
-                // the initial burst — opening a chat with 80-100 unread messages
-                // meant 80-100 back-to-back transactions + disk writes competing
-                // with the very first frames of RecyclerView layout/scroll, which
-                // is what made "chat khulna slow" / scroll jank on open. The chat
-                // is open right now, so delivered and read happen in the same
-                // instant anyway — presenceController.markRead() below already
-                // buffers ALL of this into ONE batched updateChildren() call that
-                // now stamps status=read + deliveredAt + readAt together (see
-                // ChatPresenceController#flushPendingReadStatus()). The
-                // transaction-based upgradeStatus() path stays in place for the
-                // genuinely rare, one-off cases where the chat is NOT open —
-                // CallxMessagingService (FCM push) and GlobalDeliveryAckManager.
-                presenceController.markRead(m);
-                if (emojiBurstController != null) emojiBurstController.onMessageReceived(m);
+                // PERF FIX (ultra-opt pass): decryptIncomingIfNeeded() below
+                // does real crypto (double-ratchet step) PLUS
+                // EncryptedSharedPreferences disk I/O (AES256_GCM read/write)
+                // — and Firebase's ChildEventListener callbacks fire on the
+                // MAIN THREAD by default. Running that synchronously here
+                // meant every single incoming message, including the initial
+                // 80-100 message burst on chat-open, blocked the UI thread
+                // for its full decrypt+disk cost right as RecyclerView was
+                // trying to lay out/scroll the very first frames.
+                // Fix: hop the decrypt itself onto e2eeDecryptExecutor — a
+                // DEDICATED SINGLE-THREAD executor, not the general 6-thread
+                // ChatIoExecutor pool. That's deliberate: the double ratchet
+                // is order-dependent (decrypting message N+1 before N can
+                // desync the chain), and a single-thread executor processes
+                // tasks strictly FIFO in the same order onChildAdded fired
+                // them on the main thread, so arrival order is preserved
+                // exactly as before — only the expensive work itself moves
+                // off the UI thread. Everything that still needs main-thread
+                // affinity (pendingUpserts/pendingRemovals are plain, non
+                // -thread-safe collections — see queueRoomWrite — plus
+                // presenceController/emojiBurstController) hops back via
+                // runOnUiThread() once decrypt is done.
+                e2eeDecryptExecutor.execute(() -> {
+                    decryptIncomingIfNeeded(m);
+                    runOnUiThread(() -> {
+                        saveToRoom(m, false);
+                        // PERF FIX v25: no longer fires MessageStatusSync.upgradeStatus()
+                        // (an individual Firebase runTransaction() + synchronous
+                        // SharedPreferences/PendingAckQueue write) per incoming message
+                        // here. That ran on the main thread for every single message in
+                        // the initial burst — opening a chat with 80-100 unread messages
+                        // meant 80-100 back-to-back transactions + disk writes competing
+                        // with the very first frames of RecyclerView layout/scroll, which
+                        // is what made "chat khulna slow" / scroll jank on open. The chat
+                        // is open right now, so delivered and read happen in the same
+                        // instant anyway — presenceController.markRead() below already
+                        // buffers ALL of this into ONE batched updateChildren() call that
+                        // now stamps status=read + deliveredAt + readAt together (see
+                        // ChatPresenceController#flushPendingReadStatus()). The
+                        // transaction-based upgradeStatus() path stays in place for the
+                        // genuinely rare, one-off cases where the chat is NOT open —
+                        // CallxMessagingService (FCM push) and GlobalDeliveryAckManager.
+                        presenceController.markRead(m);
+                        if (emojiBurstController != null) emojiBurstController.onMessageReceived(m);
+                    });
+                });
             }
             @Override public void onChildChanged(DataSnapshot snapshot, String prev) {
                 Message m = snapshot.getValue(Message.class);
                 if (m == null) return;
                 m.id = snapshot.getKey();
-                decryptIncomingIfNeeded(m);
-                saveToRoom(m, true);
+                // Same off-main-thread decrypt fix as onChildAdded above.
+                e2eeDecryptExecutor.execute(() -> {
+                    decryptIncomingIfNeeded(m);
+                    runOnUiThread(() -> saveToRoom(m, true));
+                });
             }
             @Override public void onChildRemoved(DataSnapshot snapshot) {
                 String key = snapshot.getKey();
@@ -2611,8 +2653,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // already-decrypted plaintext row with raw ciphertext on
                 // every single tick update, which is exactly what showed up
                 // as raw "e2r1:" JSON in the chat bubbles.
-                decryptIncomingIfNeeded(m);
-                saveToRoom(m, true);
+                // Same off-main-thread decrypt fix as messageListener above —
+                // this listener fires just as often (every tick update) and
+                // was paying the same synchronous crypto+disk cost on the UI
+                // thread.
+                e2eeDecryptExecutor.execute(() -> {
+                    decryptIncomingIfNeeded(m);
+                    runOnUiThread(() -> saveToRoom(m, true));
+                });
             }
             @Override public void onChildRemoved(DataSnapshot snapshot) {}
             @Override public void onChildMoved(DataSnapshot s, String p) {}
@@ -4312,6 +4360,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // NAVIGATE TO ORIGINAL (reply jump)
     // ─────────────────────────────────────────────────────────────────────
 
+    // Small delay before flashHighlight() so the just-scrolled-to row has
+    // actually finished its layout pass and findViewHolderForAdapterPosition()
+    // reliably returns a bound holder instead of null.
+    private static final long SCROLL_SETTLE_DELAY_MS = 150L;
+
     private void navigateToOriginalMsg(String messageId, @Nullable String senderId) {
         if (messageId == null || messageId.isEmpty()) return;
         // WhatsApp-style: a reply-to-status quote box is not a real chat
@@ -4370,6 +4423,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         }
         if (pos >= 0) {
             MessageHighlightAnimator.scrollAndHighlight(binding.rvMessages, pos, binding.fabBackToLatest);
+            binding.rvMessages.postDelayed(() -> {
+                RecyclerView.ViewHolder vh = binding.rvMessages.findViewHolderForAdapterPosition(pos);
+                if (vh != null) MessageHighlightAnimator.flashHighlight(vh.itemView);
+            }, SCROLL_SETTLE_DELAY_MS);
         } else {
             final String cId = chatId;
             safeIoExecute(() -> {
@@ -4382,28 +4439,68 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     runOnUiThread(() -> Toast.makeText(this, "Original message not found", Toast.LENGTH_SHORT).show());
                     return;
                 }
-                int posFromBottom = db.messageDao().countMessagesAfterTimestamp(cId, target.timestamp);
-                int approxPos = pagingAdapter.getItemCount() - posFromBottom - 1;
-                final int safePos = Math.max(0, approxPos);
-                runOnUiThread(() -> {
-                    if (binding.fabBackToLatest != null) {
-                        binding.fabBackToLatest.setVisibility(View.VISIBLE);
-                        binding.fabBackToLatest.setAlpha(1f);
-                        binding.fabBackToLatest.setVisibility(View.VISIBLE);
-                    }
-                    // scrollToPositionWithOffset centres the target item near the top of
-                    // the viewport (offset 0 = flush top). Avoids the jank of scrollToPosition()
-                    // which can leave the item partially off-screen and then snap again.
-                    LinearLayoutManager jumpLlm =
-                            (LinearLayoutManager) binding.rvMessages.getLayoutManager();
-                    if (jumpLlm != null) jumpLlm.scrollToPositionWithOffset(safePos, 0);
-                    binding.rvMessages.postDelayed(() -> {
-                        RecyclerView.ViewHolder vh = binding.rvMessages.findViewHolderForAdapterPosition(safePos);
-                        if (vh != null) MessageHighlightAnimator.flashHighlight(vh.itemView);
-                    }, 500);
-                });
+                final long anchorTs = target.timestamp;
+                runOnUiThread(() -> jumpToMessageViaAnchor(messageId, anchorTs));
             });
         }
+    }
+
+    /**
+     * BUG FIX — "jump to original" landing on the wrong message for old
+     * replies in large chats. The old fallback approximated the target's
+     * adapter position as (pagingAdapter.getItemCount() - posFromBottom - 1):
+     * posFromBottom came from an accurate DB COUNT, but pagingAdapter's
+     * itemCount only reflects however many rows Paging3 had actually loaded
+     * into the live window so far — which, for an old reply in a big chat,
+     * is nowhere near the true total message count. The subtraction then
+     * produced a position that pointed at whatever happened to be loaded,
+     * not the real target — hence "kabhi kabhi galat message pe ja raha".
+     *
+     * Telegram-style fix: rebuild the Pager anchored exactly on the target
+     * message's own timestamp (MessageKeysetPagingSource's anchor-REFRESH —
+     * see its class doc) so the target is guaranteed to be inside the very
+     * first page loaded, regardless of how old it is or how large the chat
+     * is. Once that fresh page lands (addOnPagesUpdatedListener — the same
+     * official Paging3 signal already used elsewhere in this class), find
+     * the message's exact adapter position by id and scroll+flash it.
+     */
+    private void jumpToMessageViaAnchor(String messageId, long anchorTimestamp) {
+        if (binding == null || pagingAdapter == null) return;
+        if (binding.fabBackToLatest != null) {
+            binding.fabBackToLatest.setVisibility(View.VISIBLE);
+            binding.fabBackToLatest.setAlpha(1f);
+        }
+        attachPagerWithKey(anchorTimestamp);
+        final kotlin.jvm.functions.Function0<kotlin.Unit>[] listenerHolder = new kotlin.jvm.functions.Function0[1];
+        listenerHolder[0] = () -> {
+            pagingAdapter.removeOnPagesUpdatedListener(listenerHolder[0]);
+            int pos = -1;
+            int count = pagingAdapter.getItemCount();
+            for (int i = 0; i < count; i++) {
+                Message m = pagingAdapter.peek(i);
+                if (m != null && (messageId.equals(m.id) || messageId.equals(m.messageId))) {
+                    pos = i;
+                    break;
+                }
+            }
+            if (pos >= 0) {
+                final int fpos = pos;
+                binding.rvMessages.post(() -> {
+                    MessageHighlightAnimator.scrollAndHighlight(binding.rvMessages, fpos, binding.fabBackToLatest);
+                    binding.rvMessages.postDelayed(() -> {
+                        RecyclerView.ViewHolder vh = binding.rvMessages.findViewHolderForAdapterPosition(fpos);
+                        if (vh != null) MessageHighlightAnimator.flashHighlight(vh.itemView);
+                    }, SCROLL_SETTLE_DELAY_MS);
+                });
+            } else {
+                // Should not happen — the anchor page is built to always
+                // contain this exact timestamp — but don't leave the user
+                // stuck with no feedback if it somehow does.
+                Toast.makeText(this, "Original message not found", Toast.LENGTH_SHORT).show();
+            }
+            return kotlin.Unit.INSTANCE;
+        };
+        pagingAdapter.addOnPagesUpdatedListener(listenerHolder[0]);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -4594,6 +4691,157 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 .setDuration(220)
                 .setInterpolator(new android.view.animation.DecelerateInterpolator())
                 .withLayer()
+                .start();
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // STICKY DATE HEADER — Telegram-style. Shows whichever date is
+    // currently at the top of the viewport while the user is actively
+    // scrolling a big chat, and fades away shortly after scrolling stops
+    // — same behaviour as Telegram/WhatsApp's floating date chip.
+    // ═════════════════════════════════════════════════════════════════
+    private static final long STICKY_DATE_HIDE_DELAY_MS = 1200L;
+    private Runnable hideStickyDateHeaderRunnable;
+
+    // PERF (ultra-opt pass): three things made the naive version do real
+    // work on *every single pixel* of a fling, which is the worst possible
+    // place to allocate:
+    //  1. findFirstVisibleItemPosition() + peek() ran on every onScrolled,
+    //     even though the top item usually stays the same across dozens of
+    //     consecutive scroll deltas within one frame batch.
+    //  2. formatPagingDateLabel() allocates 3 Calendars + a SimpleDateFormat
+    //     per call — fine for a one-off separator build, disastrous when
+    //     re-run per pixel.
+    //  3. The chip's show/label logic couldn't tell "same day, different
+    //     message" from "different day", so it recomputed the formatted
+    //     string even when the visible day hadn't actually changed.
+    // Fix: cache by *position* (skip peek entirely when the top item hasn't
+    // changed) and by *day-bucket* (skip formatting entirely when the top
+    // item is still within the same calendar day as last time). Both caches
+    // are invalidated on the next Paging3 page-updated signal, so a prepend
+    // that shifts indices can never leave a stale label on screen.
+    private int stickyDateLastPosition = RecyclerView.NO_POSITION;
+    private long stickyDateLastDayBucket = Long.MIN_VALUE;
+    private String stickyDateLastLabel = null;
+    private final java.util.Calendar stickyDateScratchCal = java.util.Calendar.getInstance(); // UI-thread only, reused to avoid per-call allocation
+
+    private void setupStickyDateHeader() {
+        if (binding.tvStickyDateHeader == null || pagingAdapter == null) return;
+        hideStickyDateHeaderRunnable = this::hideStickyDateHeader;
+
+        // Any time Paging3 applies a new generation of data, positions may
+        // have shifted (older-page prepend). Invalidate both caches so the
+        // next scroll tick recomputes from scratch instead of trusting a
+        // now-possibly-wrong position/day pairing.
+        pagingAdapter.addOnPagesUpdatedListener(() -> {
+            stickyDateLastPosition = RecyclerView.NO_POSITION;
+            stickyDateLastDayBucket = Long.MIN_VALUE;
+            return kotlin.Unit.INSTANCE;
+        });
+
+        binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                if (dy == 0) return; // horizontal-only scroll (shouldn't happen here) — ignore
+                updateStickyDateHeaderLabel();
+                showStickyDateHeader();
+                binding.rvMessages.removeCallbacks(hideStickyDateHeaderRunnable);
+                binding.rvMessages.postDelayed(hideStickyDateHeaderRunnable, STICKY_DATE_HIDE_DELAY_MS);
+            }
+
+            @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    binding.rvMessages.removeCallbacks(hideStickyDateHeaderRunnable);
+                    binding.rvMessages.postDelayed(hideStickyDateHeaderRunnable, STICKY_DATE_HIDE_DELAY_MS);
+                }
+            }
+        });
+    }
+
+    /**
+     * Reads the date of whatever message is currently topmost on screen and
+     * updates the sticky chip's text if it changed.
+     *
+     * Fast paths, checked in order:
+     *  - position unchanged since last tick -> return immediately, no
+     *    peek(), no LayoutManager call beyond findFirstVisibleItemPosition
+     *    (itself O(1) on LinearLayoutManager).
+     *  - position changed but still the same calendar day -> reuse the
+     *    cached label string, skip formatPagingDateLabel()'s allocations
+     *    entirely.
+     *  - genuinely new day -> pay for one Calendar/SimpleDateFormat pass,
+     *    cache the result for subsequent same-day ticks.
+     */
+    private void updateStickyDateHeaderLabel() {
+        if (binding == null || binding.tvStickyDateHeader == null || pagingAdapter == null) return;
+        RecyclerView.LayoutManager rawLm = binding.rvMessages.getLayoutManager();
+        if (!(rawLm instanceof LinearLayoutManager)) return;
+        int firstVisible = ((LinearLayoutManager) rawLm).findFirstVisibleItemPosition();
+        if (firstVisible == RecyclerView.NO_POSITION) return;
+        if (firstVisible == stickyDateLastPosition) return; // top item hasn't moved — nothing to recompute
+        stickyDateLastPosition = firstVisible;
+
+        Message m = pagingAdapter.peek(firstVisible);
+        if (m == null) return;
+
+        String label;
+        if ("date_separator".equals(m.type)) {
+            // Already-formatted label sitting right on the row — cheapest
+            // possible case, but still refresh the day-bucket cache so a
+            // following non-separator row in the same day short-circuits too.
+            label = m.text;
+            if (label == null || label.isEmpty()) return;
+            stickyDateLastDayBucket = Long.MIN_VALUE; // separator text isn't bucket-keyed; force recompute on next plain message
+            stickyDateLastLabel = label;
+        } else if (m.timestamp != null) {
+            long bucket = stickyDateDayBucketOf(m.timestamp);
+            if (bucket == stickyDateLastDayBucket && stickyDateLastLabel != null) {
+                label = stickyDateLastLabel; // same day as last computed label — skip formatting entirely
+            } else {
+                label = formatPagingDateLabel(m.timestamp);
+                stickyDateLastDayBucket = bucket;
+                stickyDateLastLabel = label;
+            }
+        } else {
+            return;
+        }
+        if (label == null || label.isEmpty()) return;
+
+        CharSequence current = binding.tvStickyDateHeader.getText();
+        if (!label.contentEquals(current)) {
+            binding.tvStickyDateHeader.setText(label);
+        }
+    }
+
+    /** Start-of-day millis for `timestamp`, using a single reused Calendar (UI-thread only) instead of allocating one per call. */
+    private long stickyDateDayBucketOf(long timestamp) {
+        stickyDateScratchCal.setTimeInMillis(timestamp);
+        stickyDateScratchCal.set(java.util.Calendar.HOUR_OF_DAY, 0);
+        stickyDateScratchCal.set(java.util.Calendar.MINUTE, 0);
+        stickyDateScratchCal.set(java.util.Calendar.SECOND, 0);
+        stickyDateScratchCal.set(java.util.Calendar.MILLISECOND, 0);
+        return stickyDateScratchCal.getTimeInMillis();
+    }
+
+    private void showStickyDateHeader() {
+        if (binding == null || binding.tvStickyDateHeader == null) return;
+        View chip = binding.tvStickyDateHeader;
+        if (chip.getVisibility() == View.VISIBLE && chip.getAlpha() >= 0.99f) return;
+        chip.animate().cancel();
+        chip.setVisibility(View.VISIBLE);
+        chip.animate().alpha(1f).setDuration(150L).start();
+    }
+
+    private void hideStickyDateHeader() {
+        if (binding == null || binding.tvStickyDateHeader == null) return;
+        View chip = binding.tvStickyDateHeader;
+        if (chip.getVisibility() != View.VISIBLE) return;
+        chip.animate().cancel();
+        chip.animate().alpha(0f).setDuration(250L)
+                .withEndAction(() -> {
+                    if (binding != null && binding.tvStickyDateHeader != null) {
+                        binding.tvStickyDateHeader.setVisibility(View.GONE);
+                    }
+                })
                 .start();
     }
 

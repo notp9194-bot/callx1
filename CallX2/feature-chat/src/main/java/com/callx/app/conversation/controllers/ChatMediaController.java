@@ -393,6 +393,15 @@ public class ChatMediaController {
         if (optDocument != null) {
             optDocument.setOnClickListener(x -> { sheet.dismiss(); filePicker.launch("*/*"); });
         }
+        // Audio — picked file is sent as an "audio" message via the same
+        // uploadAndSend("audio", ...) path a recorded voice note uses, so it
+        // renders/plays through the existing play/pause + waveform bubble
+        // (MessageBubbleCanvasView#bindAudio / MessagePagingAdapter#toggleAudio)
+        // instead of a new UI.
+        View optAudio = v.findViewById(R.id.opt_audio);
+        if (optAudio != null) {
+            optAudio.setOnClickListener(x -> { sheet.dismiss(); audioPicker.launch("audio/*"); });
+        }
         View optPoll = v.findViewById(R.id.opt_poll);
         if (optPoll != null) {
             optPoll.setOnClickListener(x -> { sheet.dismiss(); delegate.launchPollCreator(); });

@@ -140,7 +140,25 @@ public interface MessageDao {
     @Query("SELECT * FROM messages WHERE chatId = :chatId AND timestamp > :afterTimestamp ORDER BY timestamp ASC LIMIT :limit")
     List<MessageEntity> getMessagesAfterAsc(String chatId, long afterTimestamp, int limit);
 
-    /** Position of a message within its chat's ASC ordering — used to seed a correct refresh key. */
+    /**
+     * JUMP-TO-MESSAGE FIX: inclusive variant of getMessagesAfterAsc — timestamp
+     * >= :fromTimestamp instead of strictly >. Used by MessageKeysetPagingSource's
+     * anchor-REFRESH window (see its class doc) to build a page that is
+     * guaranteed to actually contain the target message (whose own timestamp
+     * equals :fromTimestamp) instead of skipping past it.
+     */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND timestamp >= :fromTimestamp ORDER BY timestamp ASC LIMIT :limit")
+    List<MessageEntity> getMessagesFromAsc(String chatId, long fromTimestamp, int limit);
+
+    /**
+     * 1-based position of a message within its chat's ASC ordering — subtract 1
+     * for the 0-based adapter index. Used to seed the initialKey of a fresh
+     * OFFSET-paged Pager anchored exactly at a message (see GroupChatActivity's
+     * scrollToMessageId() fallback — the group Pager is Room's generated
+     * Integer/OFFSET PagingSource, so an exact row index IS a valid anchor,
+     * unlike the 1:1 chat's timestamp-keyset Pager).
+     */
     @WorkerThread
     @Query("SELECT COUNT(*) FROM messages WHERE chatId = :chatId AND timestamp <= :timestamp")
     int getRankAsc(String chatId, long timestamp);
