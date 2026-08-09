@@ -32,6 +32,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
+import androidx.core.view.inputmethod.InputContentInfoCompat;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -114,7 +115,7 @@ public class ReelCommentFragment extends Fragment {
 
     // ── Views ────────────────────────────────────────────────────────────────
     private RecyclerView   rvComments;
-    private EditText       etComment;
+    private GifAwareCommentEditText etComment;
     private ImageButton    btnSend;
     private ImageButton    btnAttachPhoto;
     private FrameLayout    layoutImagePreview;
@@ -494,6 +495,14 @@ public class ReelCommentFragment extends Fragment {
             }
         });
         if (btnRemoveImage != null) btnRemoveImage.setOnClickListener(v -> clearPickedImage());
+
+        // Keyboard GIF (Gboard's built-in GIF search tab) — commitContent
+        // hands us a content:// uri, which we route through the exact same
+        // pick→preview→upload pipeline as an attached gallery photo, so it
+        // rides on the existing imageUrl comment field with no new API.
+        if (etComment != null) {
+            etComment.setGifReceivedListener(this::onKeyboardGifReceived);
+        }
 
         if (isSheet) setupKeyboardAwarePadding(root);
 
@@ -1366,6 +1375,58 @@ public class ReelCommentFragment extends Fragment {
         if (lm == null) return;
         if (lm.findFirstVisibleItemPosition() <= 2) {
             rvComments.scrollToPosition(0);
+        }
+    }
+
+    // ── Keyboard GIF (Gboard's built-in GIF search) ─────────────────────────
+    // No separate GIF picker/API — this just accepts whatever content:// uri
+    // the user's own keyboard (e.g. Google Keyboard's GIF tab) delivers via
+    // the standard commitContent InputConnection extension, then uploads it
+    // through the same pipeline as an attached gallery photo below.
+
+    private void onKeyboardGifReceived(InputContentInfoCompat contentInfo) {
+        if (contentInfo == null) return;
+        try {
+            contentInfo.requestPermission();
+        } catch (Exception ignored) {}
+
+        Uri uri = contentInfo.getContentUri();
+        pickedImageUri = uri;
+        uploadedImageUrl = null;
+        uploadingImage = true;
+
+        if (layoutImagePreview != null) layoutImagePreview.setVisibility(View.VISIBLE);
+        if (progressImage != null) progressImage.setVisibility(View.VISIBLE);
+        if (ivImagePreview != null) {
+            // Glide animates GIFs automatically here (no .asBitmap() call),
+            // so the preview and the eventual comment bubble both play it.
+            Glide.with(this).load(uri).into(ivImagePreview);
+        }
+
+        try {
+            CloudinaryUploader.upload(requireContext(), uri, "callx/reel_comments_gif", "image",
+                new CloudinaryUploader.UploadCallback() {
+                    @Override public void onSuccess(CloudinaryUploader.Result result) {
+                        contentInfo.releasePermission();
+                        if (!isAdded()) return;
+                        uploadingImage = false;
+                        if (pickedImageUri == null || !pickedImageUri.equals(uri)) return;
+                        uploadedImageUrl = result.secureUrl;
+                        if (progressImage != null) progressImage.setVisibility(View.GONE);
+                    }
+
+                    @Override public void onError(String message) {
+                        contentInfo.releasePermission();
+                        if (!isAdded()) return;
+                        uploadingImage = false;
+                        Toast.makeText(requireContext(), "GIF upload failed", Toast.LENGTH_SHORT).show();
+                        clearPickedImage();
+                    }
+                });
+        } catch (Exception e) {
+            contentInfo.releasePermission();
+            uploadingImage = false;
+            clearPickedImage();
         }
     }
 
