@@ -127,9 +127,38 @@ public class CloudinaryUploader {
                     return;
                 }
                 String mime = ctx.getContentResolver().getType(uri);
+                // FIX: Android's built-in MimeTypeMap has no entry for the
+                // "m4a" extension (AudioRecorderHelper always records to
+                // .m4a) — ContentResolver.getType() on a FileProvider Uri
+                // for a .m4a file falls straight through to null here, so
+                // every voice-note/audio upload was silently sent as
+                // filename="upload.bin" + Content-Type
+                // "application/octet-stream" instead of "upload.m4a" /
+                // "audio/mp4". Same class of gap can hit picked audio
+                // files with other extensions MimeTypeMap doesn't know
+                // (.opus, .3gp) — cover those explicitly too rather than
+                // relying on the resolver alone.
+                if (mime == null) {
+                    String guessedExt = null;
+                    String path = uri.getPath();
+                    if (path != null) {
+                        int dot = path.lastIndexOf('.');
+                        if (dot >= 0) guessedExt = path.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
+                    }
+                    if ("m4a".equals(guessedExt)) mime = "audio/mp4";
+                    else if ("opus".equals(guessedExt)) mime = "audio/opus";
+                    else if ("3gp".equals(guessedExt)) mime = "audio/3gpp";
+                }
                 if (mime == null) mime = "application/octet-stream";
                 String ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime);
-                if (ext == null || ext.isEmpty()) ext = "bin";
+                if (ext == null || ext.isEmpty()) {
+                    // Same MimeTypeMap gap in reverse — "audio/mp4" doesn't
+                    // reliably map back to "m4a" on every API level either.
+                    ext = "audio/mp4".equals(mime) ? "m4a"
+                        : "audio/opus".equals(mime) ? "opus"
+                        : "audio/3gpp".equals(mime) ? "3gp"
+                        : "bin";
+                }
                 String filename = "upload." + ext;
                 final String rType = (resourceType == null || resourceType.isEmpty())
                     ? "auto" : resourceType;
@@ -178,8 +207,24 @@ public class CloudinaryUploader {
                 String body = upRes.body() != null ? upRes.body().string() : "";
                 upRes.close();
                 if (!upRes.isSuccessful()) {
-                    Log.e(TAG, "Upload failed: " + body);
-                    post(cb, null, "Upload failed (" + upRes.code() + ")");
+                    // FIX: Cloudinary/server always sends WHY it rejected the
+                    // upload in the JSON body — {"error":{"message":"..."}}
+                    // — but that message was being logged and then thrown
+                    // away, leaving only a bare "Upload failed (400)" for
+                    // both the user and the logs. That's why a 400 on audio
+                    // sends looked like a mystery: the actual reason
+                    // ("Invalid resource_type raw for this file", "raw
+                    // delivery disabled for this account", a bad
+                    // signature, etc.) never surfaced anywhere. Now it does.
+                    String reason = null;
+                    try {
+                        JSONObject errJson = new JSONObject(body);
+                        JSONObject errObj = errJson.optJSONObject("error");
+                        if (errObj != null) reason = errObj.optString("message", null);
+                    } catch (Exception ignored) { /* body wasn't JSON — fall through to raw body below */ }
+                    Log.e(TAG, "Upload failed (" + upRes.code() + "): " + body);
+                    post(cb, null, "Upload failed (" + upRes.code() + ")"
+                        + (reason != null && !reason.isEmpty() ? ": " + reason : ""));
                     return;
                 }
                 JSONObject upJson = new JSONObject(body);
