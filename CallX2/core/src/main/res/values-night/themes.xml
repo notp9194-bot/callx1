@@ -19,6 +19,10 @@
         <item name="colorOnSurface">@color/text_primary</item>
         <item name="colorOnSurfaceVariant">@color/text_secondary</item>
 
+        <!-- FIX (green cast on elevated cards) — see app/values/themes.xml
+             for the full explanation. -->
+        <item name="colorSurfaceTint">@color/surface_input</item>
+
         <!-- Status bar / nav bar -->
         <item name="android:statusBarColor">@color/surface_bg</item>
         <item name="android:navigationBarColor">@color/surface_bg</item>

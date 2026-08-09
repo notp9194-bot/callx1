@@ -1274,7 +1274,14 @@ public class ChatMediaController {
                     reportUploadProgress(pending, 20); // thumb "phase" is instant
                     uploadFullImage(finalUploadFullUri, null, result, pending, finalMediaKey, finalEncFull);
                 } else {
-                    CloudinaryUploader.upload(activity, uploadThumbUri, thumbFolder, thumbResourceType,
+                    // Same "bin" extension fix as audio: thumbEnc/fullEnc are
+                    // named "<original>.webp.enc" — pass the ORIGINAL name
+                    // (still holding its real extension) as a hint so this
+                    // doesn't fall back to the Cloudinary-blocked "bin" ext
+                    // when resourceType is "raw" (E2E ciphertext).
+                    String thumbHint = isEncrypted && result != null && result.thumbFile != null
+                            ? result.thumbFile.getName() : null;
+                    CloudinaryUploader.upload(activity, uploadThumbUri, thumbFolder, thumbResourceType, thumbHint,
                             new CloudinaryUploader.UploadCallback() {
                                 @Override public void onProgress(int percent) {
                                     reportUploadProgress(pending, percent / 5); // thumb = first 20%
@@ -1309,7 +1316,11 @@ public class ChatMediaController {
         boolean isEncrypted = (mediaKey != null);
         String folder       = isEncrypted ? "callx/e2e_image" : "callx/image";
         String resourceType = isEncrypted ? "raw" : "image";
-        CloudinaryUploader.upload(activity, fullUri, folder, resourceType,
+        // Same "bin" extension fix as above — hint the real original
+        // extension ("full_123.webp") for the encrypted-raw ciphertext upload.
+        String fullHint = isEncrypted && compressResult != null && compressResult.fullFile != null
+                ? compressResult.fullFile.getName() : null;
+        CloudinaryUploader.upload(activity, fullUri, folder, resourceType, fullHint,
                 new CloudinaryUploader.UploadCallback() {
                     @Override public void onProgress(int percent) {
                         reportUploadProgress(pending, 20 + percent * 4 / 5); // full = remaining 80%
@@ -2032,6 +2043,13 @@ public class ChatMediaController {
         Uri uploadUri = uri;
         java.io.File encAudioFile = null;
         String mediaKeyEncForAudio = null;
+        // Original filename (e.g. "vm_172....m4a" from VoiceRecorder, or
+        // whatever extension a picked audio file has) — captured BEFORE
+        // uploadUri potentially gets swapped to the encrypted "*.enc" temp
+        // file below, so CloudinaryUploader still knows the real extension
+        // to upload under instead of falling back to the blocked "bin" one.
+        // See CloudinaryUploader#upload's fileNameHint fix for the why.
+        String audioFileNameHint = FileUtils.fileName(activity, uri);
         if ("audio".equals(msgType)) {
             String partnerUid = delegate.getPartnerUid();
             if (partnerUid != null && !partnerUid.isEmpty()) {
@@ -2069,8 +2087,12 @@ public class ChatMediaController {
         }
         final java.io.File finalEncAudioFile = encAudioFile;
         final String finalMediaKeyEnc = mediaKeyEncForAudio;
+        // Only pass the hint for "audio" — other msgTypes ("file", etc.)
+        // sharing this doUpload() keep their existing, already-correct
+        // filename/resourceType handling untouched.
+        final String fileNameHint = "audio".equals(msgType) ? audioFileNameHint : null;
 
-        CloudinaryUploader.upload(activity, uploadUri, "callx/" + msgType, resourceType,
+        CloudinaryUploader.upload(activity, uploadUri, "callx/" + msgType, resourceType, fileNameHint,
                 new CloudinaryUploader.UploadCallback() {
                     @Override public void onSuccess(CloudinaryUploader.Result r) {
                         if (finalEncAudioFile != null) finalEncAudioFile.delete();

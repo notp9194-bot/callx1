@@ -17,6 +17,11 @@
         <item name="colorOnSurface">@color/text_primary</item>
         <item name="colorOnSurfaceVariant">@color/text_secondary</item>
 
+        <!-- FIX (green cast on elevated cards) — kept in sync with
+             app/values/themes.xml's Theme.CallX override; see there for
+             the full explanation. -->
+        <item name="colorSurfaceTint">@color/surface_card</item>
+
         <item name="android:windowBackground">@color/surface_bg</item>
         <item name="android:statusBarColor">#FFFFFF</item>
         <item name="android:navigationBarColor">#FFFFFF</item>

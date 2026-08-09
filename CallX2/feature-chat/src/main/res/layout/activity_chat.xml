@@ -659,11 +659,12 @@
 
             <!-- ═══════════════════════════════════════════════════════════
                  WhatsApp-style input row: the pill (cv_input_capsule) holds
-                 only view-once + text field + attach/camera now — mic/send
-                 sit OUTSIDE the pill as their own floating round button,
-                 matching the reference screenshot. Pill background/color
-                 untouched (still @color/surface_input, same corner radius,
-                 stroke, elevation as before).
+                 view-once + text field + attach/camera + mic/send, all
+                 INSIDE the one pill (mic/send moved back in — no more
+                 separate floating round button beside it). Pill background
+                 stays @color/surface_input, no green tint (see Theme.CallX's
+                 colorSurfaceTint fix) — only the mic/send button itself is
+                 green (circle_primary), same as WhatsApp's own send button.
                  ═══════════════════════════════════════════════════════════ -->
             <!-- Character count indicator — sirf tab dikhta hai jab
                  maxLength ke paas (200 chars ya kam bache) ho, WhatsApp/
@@ -696,7 +697,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginStart="10dp"
-                    android:layout_marginEnd="8dp"
+                    android:layout_marginEnd="10dp"
                     app:cardCornerRadius="28dp"
                     app:cardElevation="6dp"
                     app:cardBackgroundColor="@color/surface_input"
@@ -750,7 +751,7 @@
                             android:paddingBottom="5dp"
                             android:paddingStart="10dp"
                             android:paddingEnd="10dp"
-                            android:textSize="14sp"
+                            android:textSize="17sp"
                             android:maxLines="4"
                             android:maxLength="4000"/>
                         <ImageButton
@@ -772,6 +773,38 @@
                             android:background="?attr/selectableItemBackgroundBorderless"
                             android:layout_marginStart="2dp"
                             android:contentDescription="Camera"/>
+
+                        <!-- Mic / Send — back INSIDE the capsule row (trailing
+                             end), WhatsApp-style. Only one is visible at a
+                             time (existing controller logic just toggles
+                             mic↔send visibility as the user types — geometry
+                             code (excludeDragZoneFromSystemGestures, lock-
+                             bubble drag threshold) reads the button's live
+                             on-screen position via getLocationInWindow(), so
+                             it keeps working correctly from here). Sized to
+                             match the pill's own row height instead of the
+                             old 44dp floating-outside size. -->
+                        <ImageButton
+                            android:id="@+id/btn_mic"
+                            android:layout_width="34dp"
+                            android:layout_height="34dp"
+                            android:layout_marginStart="4dp"
+                            android:padding="7dp"
+                            android:src="@drawable/ic_mic"
+                            android:tint="@color/white"
+                            android:background="@drawable/circle_primary"
+                            android:contentDescription="Voice message"/>
+                        <ImageButton
+                            android:id="@+id/btn_send"
+                            android:layout_width="34dp"
+                            android:layout_height="34dp"
+                            android:layout_marginStart="4dp"
+                            android:padding="7dp"
+                            android:src="@drawable/ic_send"
+                            android:tint="@color/white"
+                            android:background="@drawable/circle_primary"
+                            android:visibility="gone"
+                            android:contentDescription="Send"/>
                     </LinearLayout>
 
                     <!-- ═══════════════════════════════════════════════════════
@@ -869,34 +902,6 @@
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
-                <!-- Mic / Send — separate floating round button OUTSIDE the
-                     pill, WhatsApp-style. Only one is visible at a time
-                     (existing controller logic just toggles mic↔send
-                     visibility as the user types — unchanged, just relocated
-                     from inside the pill to beside it). -->
-                <ImageButton
-                    android:id="@+id/btn_mic"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:layout_marginEnd="10dp"
-                    android:padding="10dp"
-                    android:src="@drawable/ic_mic"
-                    android:tint="@color/white"
-                    android:background="@drawable/circle_primary"
-                    android:elevation="4dp"
-                    android:contentDescription="Voice message"/>
-                <ImageButton
-                    android:id="@+id/btn_send"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:layout_marginEnd="10dp"
-                    android:padding="10dp"
-                    android:src="@drawable/ic_send"
-                    android:tint="@color/white"
-                    android:background="@drawable/circle_primary"
-                    android:elevation="4dp"
-                    android:visibility="gone"
-                    android:contentDescription="Send"/>
             </LinearLayout>
 
         </LinearLayout>

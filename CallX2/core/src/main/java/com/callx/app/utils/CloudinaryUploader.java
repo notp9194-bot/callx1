@@ -119,6 +119,41 @@ public class CloudinaryUploader {
     /** resource_type: image | video | raw | auto. Use 'raw' for PDF/docs. */
     public static void upload(Context ctx, Uri uri, String folder,
                               String resourceType, UploadCallback cb) {
+        upload(ctx, uri, folder, resourceType, null, cb);
+    }
+
+    /**
+     * Same as {@link #upload(Context, Uri, String, String, UploadCallback)}
+     * but with an explicit {@code fileNameHint} (e.g. "voice.m4a",
+     * "full_123.webp") used to determine the upload's filename/extension
+     * DIRECTLY, bypassing MIME sniffing on {@code uri}.
+     *
+     * FIX (WhatsApp-level, "resources with extension bin are not allowed"):
+     * Media E2E callers (voice notes, picked audio, encrypted image/video
+     * thumbnails) don't upload the original file — they encrypt it to a
+     * throwaway temp file first (named "<original>.enc") and upload THAT
+     * as resource_type=raw. Neither ContentResolver.getType() nor the
+     * ".enc"-suffixed path extension resolve to any known MIME type, so
+     * every single one of those uploads fell through to the
+     * filename="upload.bin" fallback below — and Cloudinary's account-level
+     * raw-upload security settings reject the "bin" extension outright with
+     * a 400. This was silent before the sibling FIX (see the 400-reason
+     * surfacing below) started showing the real Cloudinary error message —
+     * that's the exact error the person is now seeing on every voice-note
+     * recording AND every attachment-sheet audio pick, since both funnel
+     * through the same E2E-encrypted "audio" upload path in
+     * ChatMediaController#doUpload.
+     *
+     * Passing the ORIGINAL (pre-encryption) filename here as a hint fixes
+     * it: the extension is only used for Cloudinary's allowed-format check
+     * and delivery URL, never to interpret the actual bytes — safe for
+     * resource_type=raw ciphertext, which Cloudinary stores/serves as an
+     * opaque blob regardless of what the extension says.
+     *
+     * Pass null for the normal (non-E2E) path — behaves exactly as before.
+     */
+    public static void upload(Context ctx, Uri uri, String folder,
+                              String resourceType, String fileNameHint, UploadCallback cb) {
         new Thread(() -> {
             try {
                 byte[] bytes = readBytes(ctx, uri);
@@ -126,7 +161,17 @@ public class CloudinaryUploader {
                     post(cb, null, "Empty file");
                     return;
                 }
-                String mime = ctx.getContentResolver().getType(uri);
+                // Hint takes priority — it names the REAL original file
+                // (voice.m4a, full_123.webp, ...), not the temp .enc blob
+                // we're actually reading bytes from.
+                String hintExt = null;
+                if (fileNameHint != null && !fileNameHint.isEmpty()) {
+                    int dot = fileNameHint.lastIndexOf('.');
+                    if (dot >= 0 && dot < fileNameHint.length() - 1) {
+                        hintExt = fileNameHint.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
+                    }
+                }
+                String mime = (hintExt != null) ? null : ctx.getContentResolver().getType(uri);
                 // FIX: Android's built-in MimeTypeMap has no entry for the
                 // "m4a" extension (AudioRecorderHelper always records to
                 // .m4a) — ContentResolver.getType() on a FileProvider Uri
@@ -138,7 +183,7 @@ public class CloudinaryUploader {
                 // files with other extensions MimeTypeMap doesn't know
                 // (.opus, .3gp) — cover those explicitly too rather than
                 // relying on the resolver alone.
-                if (mime == null) {
+                if (mime == null && hintExt == null) {
                     String guessedExt = null;
                     String path = uri.getPath();
                     if (path != null) {
@@ -149,15 +194,32 @@ public class CloudinaryUploader {
                     else if ("opus".equals(guessedExt)) mime = "audio/opus";
                     else if ("3gp".equals(guessedExt)) mime = "audio/3gpp";
                 }
-                if (mime == null) mime = "application/octet-stream";
-                String ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime);
-                if (ext == null || ext.isEmpty()) {
-                    // Same MimeTypeMap gap in reverse — "audio/mp4" doesn't
-                    // reliably map back to "m4a" on every API level either.
-                    ext = "audio/mp4".equals(mime) ? "m4a"
-                        : "audio/opus".equals(mime) ? "opus"
-                        : "audio/3gpp".equals(mime) ? "3gp"
-                        : "bin";
+                String ext = hintExt;
+                if (ext == null) {
+                    if (mime == null) mime = "application/octet-stream";
+                    ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime);
+                    if (ext == null || ext.isEmpty()) {
+                        // Same MimeTypeMap gap in reverse — "audio/mp4" doesn't
+                        // reliably map back to "m4a" on every API level either.
+                        ext = "audio/mp4".equals(mime) ? "m4a"
+                            : "audio/opus".equals(mime) ? "opus"
+                            : "audio/3gpp".equals(mime) ? "3gp"
+                            : "bin";
+                    }
+                } else if (mime == null) {
+                    // We trust the hint's extension for naming even when we
+                    // can't resolve a matching MIME (e.g. "enc" would never
+                    // map — but we already stripped that off by using the
+                    // ORIGINAL extension instead). Best-effort MIME lookup;
+                    // falls back to a generic binary content-type, which is
+                    // fine since resource_type=raw doesn't validate content
+                    // against it.
+                    String guessed = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext);
+                    if (guessed != null) mime = guessed;
+                    else if ("m4a".equals(ext)) mime = "audio/mp4";
+                    else if ("opus".equals(ext)) mime = "audio/opus";
+                    else if ("3gp".equals(ext)) mime = "audio/3gpp";
+                    else mime = "application/octet-stream";
                 }
                 String filename = "upload." + ext;
                 final String rType = (resourceType == null || resourceType.isEmpty())

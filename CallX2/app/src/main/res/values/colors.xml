@@ -9,7 +9,15 @@
     <color name="surface_card">#FFFFFF</color>
     <color name="surface_chat_bg">#ECE5DD</color>
     <color name="surface_input">#F1F3F8</color>
-    <color name="bar_background">#4CAF50</color>
+    <!-- FIX (WhatsApp-level "green colour htao"): bar_background used to
+         be the same green as brand_primary/buttons, so every header/tab
+         bar built on it (chat header capsule, profile card tabs, media-
+         links-docs tabs) looked green too. Chrome now uses a neutral dark
+         slate instead — bar_on_background (white text/icons) still reads
+         fine on it — while brand_primary stays the ONLY green, reserved
+         for actual buttons (mic/send, FAB, etc.). Kept identical across
+         day/night, same as before, so there's no light/dark contrast gap. -->
+    <color name="bar_background">#1E2530</color>
     <color name="bar_on_background">#FFFFFF</color>
     <color name="text_primary">#0F172A</color>
     <color name="text_secondary">#64748B</color>

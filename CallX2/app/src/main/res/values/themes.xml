@@ -30,6 +30,22 @@
         <item name="colorSurfaceContainerLowest">@color/white</item>
         <item name="colorOnSurface">@color/text_primary</item>
         <item name="colorOnSurfaceVariant">@color/text_secondary</item>
+        <!-- FIX (green cast on every elevated card — chat input capsule,
+             header capsule, mention-suggest card, etc.): Material3's
+             elevation system blends a colored overlay ("surface tint") on
+             top of every elevated MaterialCardView, scaled by elevation.
+             That tint defaults to ?attr/colorSurfaceTint, which itself
+             defaults to colorPrimary when not set — and colorPrimary here
+             is brand_primary GREEN. So every elevated white card in the
+             app (not just plain flat surfaces, which the colorSurface*
+             overrides above already handle) was getting a visible green
+             wash baked in, independent of any card's own explicit
+             cardBackgroundColor. Pinning colorSurfaceTint to white removes
+             that overlay app-wide, so cards render their own real
+             background color (white here) with zero green mixed in — only
+             elements that explicitly use brand_primary as a background/tint
+             (mic/send buttons, etc.) stay green, exactly as intended. -->
+        <item name="colorSurfaceTint">@color/white</item>
         <!-- Transparent status/nav bar so edge-to-edge works correctly -->
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>

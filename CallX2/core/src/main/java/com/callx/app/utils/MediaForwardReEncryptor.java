@@ -166,7 +166,7 @@ public final class MediaForwardReEncryptor {
                 final boolean finalThumbInline = thumbIsInline;
                 final String finalNewMediaKeyEnc = newMediaKeyEnc;
 
-                uploadOne(ctx, fullEnc, "callx/e2e_image", "raw", (fullUrl, fullErr) -> {
+                uploadOne(ctx, fullEnc, "callx/e2e_image", "raw", finalPlainFull.getName(), (fullUrl, fullErr) -> {
                     if (fullUrl == null) {
                         cleanup(finalPlainFull, finalPlainThumb, finalFullEnc, finalThumbEnc);
                         post(cb, null, null, null, fullErr != null ? fullErr : "Re-upload failed");
@@ -177,7 +177,9 @@ public final class MediaForwardReEncryptor {
                         post(cb, fullUrl, null, finalNewMediaKeyEnc, null);
                         return;
                     }
-                    uploadOne(ctx, finalThumbEnc, "callx/e2e_thumb", "raw", (thumbUrl, thumbErr) -> {
+                    uploadOne(ctx, finalThumbEnc, "callx/e2e_thumb", "raw",
+                            finalPlainThumb != null ? finalPlainThumb.getName() : null,
+                            (thumbUrl, thumbErr) -> {
                         cleanup(finalPlainFull, finalPlainThumb, finalFullEnc, finalThumbEnc);
                         post(cb, fullUrl, thumbUrl /* may be null on thumb-upload failure — full still sends */,
                                 finalNewMediaKeyEnc, null);
@@ -193,8 +195,14 @@ public final class MediaForwardReEncryptor {
 
     private interface UploadDone { void done(String url, String error); }
 
-    private static void uploadOne(Context ctx, File f, String folder, String resourceType, UploadDone done) {
-        CloudinaryUploader.upload(ctx, Uri.fromFile(f), folder, resourceType, new CloudinaryUploader.UploadCallback() {
+    private static void uploadOne(Context ctx, File f, String folder, String resourceType,
+                                  String fileNameHint, UploadDone done) {
+        // fileNameHint = original (pre-encryption) filename, e.g. "fwd_full_dl123.webp"
+        // — same "bin" extension fix as ChatMediaController's E2E audio/image
+        // uploads: f here is a "*.enc" ciphertext file that would otherwise
+        // fall back to the Cloudinary-blocked "bin" extension.
+        CloudinaryUploader.upload(ctx, Uri.fromFile(f), folder, resourceType, fileNameHint,
+                new CloudinaryUploader.UploadCallback() {
             @Override public void onSuccess(CloudinaryUploader.Result r) { done.done(r.secureUrl, null); }
             @Override public void onError(String err) { done.done(null, err); }
         });
