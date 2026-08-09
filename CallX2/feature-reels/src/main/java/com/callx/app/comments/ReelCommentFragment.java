@@ -322,7 +322,7 @@ public class ReelCommentFragment extends Fragment {
     // Android dialog quirk), so the input bar could end up hidden behind
     // the keyboard instead of docked above it.
     private View fragmentRoot;
-    private android.view.ViewTreeObserver.OnGlobalLayoutListener keyboardLayoutListener;
+
 
     // Live total comment count (reels/{reelId}/commentsCount) — the header
     // must show the TRUE total, not just how many rows are loaded/paged in
@@ -409,8 +409,6 @@ public class ReelCommentFragment extends Fragment {
                 commentsQuery.removeEventListener(commentsListener);
             if (commentsCountListener != null && commentsCountRef != null)
                 commentsCountRef.removeEventListener(commentsCountListener);
-            if (keyboardLayoutListener != null && fragmentRoot != null)
-                fragmentRoot.getViewTreeObserver().removeOnGlobalLayoutListener(keyboardLayoutListener);
             if (blocksListener != null && blocksListenerRef != null)
                 blocksListenerRef.removeEventListener(blocksListener);
         } catch (Exception ignored) {}
@@ -2249,32 +2247,30 @@ public class ReelCommentFragment extends Fragment {
     // windows are a known exception where that resize doesn't always
     // reliably reach the dialog's content the way it does in a normal
     // Activity window — the input bar could end up sitting behind the
-    // keyboard instead of pushed up above it. This watches the actually
-    // visible screen area directly and pads the root's bottom by exactly
-    // the keyboard's height ourselves, so the input bar is guaranteed
-    // visible above the keyboard regardless of that platform quirk. Scoped
-    // to isSheet only — the fullscreen Activity host's ADJUST_RESIZE
-    // already works correctly on its own and doesn't need this.
+    // keyboard, OR (with the dialog now drawing edge-to-edge, see
+    // ReelCommentSheetFragment) behind the 3-button/gesture navigation bar
+    // at rest. This used to guess "keyboard open" from a raw display-frame
+    // gap (a >15%-of-screen heuristic) which is exactly what let the
+    // navigation-bar's own (much smaller, but still real) inset go
+    // unhandled — the input bar sat under it whenever the keyboard was
+    // closed. Real WindowInsetsCompat replaces the guess entirely: it
+    // reports the IME and navigation-bar insets directly, so the bottom
+    // padding is always correct at rest AND while the keyboard is
+    // animating in/out, with no threshold to tune. Scoped to isSheet only
+    // — the fullscreen Activity host already handles both via its own
+    // window insets / ADJUST_RESIZE and doesn't need this.
     private void setupKeyboardAwarePadding(View root) {
-        final android.graphics.Rect visibleFrame = new android.graphics.Rect();
-        final int[] lastKeypadHeight = {0};
-        keyboardLayoutListener = () -> {
-            if (!isAdded() || fragmentRoot == null) return;
-            View decor = fragmentRoot.getRootView();
-            decor.getWindowVisibleDisplayFrame(visibleFrame);
-            int screenHeight = decor.getHeight();
-            if (screenHeight <= 0) return;
-            int gap = screenHeight - visibleFrame.bottom;
-            // Heuristic: only treat a large gap as "keyboard open" — filters
-            // out normal status/nav-bar insets, which are much smaller.
-            int keypadHeight = gap > screenHeight * 0.15 ? gap : 0;
-            if (keypadHeight != lastKeypadHeight[0]) {
-                lastKeypadHeight[0] = keypadHeight;
-                fragmentRoot.setPadding(fragmentRoot.getPaddingLeft(), fragmentRoot.getPaddingTop(),
-                                         fragmentRoot.getPaddingRight(), keypadHeight);
-            }
-        };
-        root.getViewTreeObserver().addOnGlobalLayoutListener(keyboardLayoutListener);
+        final int baseBottom = root.getPaddingBottom();
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+            int imeBottom = insets.getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.ime()).bottom;
+            int navBottom = insets.getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom;
+            int bottom = baseBottom + Math.max(imeBottom, navBottom);
+            v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), bottom);
+            return insets;
+        });
+        androidx.core.view.ViewCompat.requestApplyInsets(root);
     }
 
     private void showKeyboard(View v) {

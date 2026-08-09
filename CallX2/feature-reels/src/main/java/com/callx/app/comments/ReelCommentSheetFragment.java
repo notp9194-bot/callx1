@@ -111,6 +111,22 @@ public class ReelCommentSheetFragment extends BottomSheetDialogFragment {
                 com.google.android.material.R.id.design_bottom_sheet);
         if (sheet == null) return;
 
+        // BUG FIX: without this, the dialog window stops above the system
+        // navigation bar (decorFitsSystemWindows defaults to true), so the
+        // window's real usable height is SMALLER than
+        // Resources.getDisplayMetrics().heightPixels — the value the sheet
+        // height/offset math below is computed from. That mismatch is what
+        // let the sheet drift further up than intended once nested-scroll
+        // expansion kicked in (scrolling comments), and left the app's own
+        // bottom nav bar visibly peeking through beneath the sheet instead
+        // of the sheet's background extending all the way down like
+        // Instagram's. Drawing edge-to-edge makes the window's real height
+        // match the math again, and ReelCommentFragment's
+        // setupKeyboardAwarePadding() now pads the input bar back up above
+        // the navigation bar using the real inset instead of leaving it
+        // hidden underneath.
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(dialog.getWindow(), false);
+
         final int expandedOffsetPx = (int) (getResources().getDisplayMetrics().heightPixels * 0.44f);
 
         // BUG FIX (take 2): with a short first-loaded comment batch (e.g.
