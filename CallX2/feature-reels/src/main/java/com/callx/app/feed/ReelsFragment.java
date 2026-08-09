@@ -42,6 +42,8 @@ import com.callx.app.player.ReelThermalManager;
 import com.callx.app.player.ExoPlayerPool;
 import com.callx.app.feed.ReelsAdapter;
 import com.callx.app.models.ReelModel;
+import com.callx.app.ranking.FeedRankingEngine;
+import com.callx.app.ranking.RankingProfile;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.firebase.database.*;
@@ -126,6 +128,9 @@ public class ReelsFragment extends Fragment {
     private final List<ReelModel> allReels       = new ArrayList<>();
     private final Set<String>     blockedUids    = new HashSet<>();
     private final List<ReelModel> followingReels = new ArrayList<>();
+    // Instagram-level ranking snapshot for the currently loaded FYP feed —
+    // see FeedRankingEngine / RankingProfile (shared with HomeFragment).
+    private RankingProfile        rankingProfile = new RankingProfile();
     private ValueEventListener    reelsListener;
     private ValueEventListener    followListener;
     private int                   currentPage   = 0;
@@ -806,28 +811,33 @@ public class ReelsFragment extends Fragment {
                 if (vpReels != null && vpReels.getCurrentItem() > 0) {
                     savedPosition = vpReels.getCurrentItem();
                 }
-                allReels.clear();
+                List<ReelModel> fetched = new ArrayList<>();
                 for (DataSnapshot s : snap.getChildren()) {
                     ReelModel reel = s.getValue(ReelModel.class);
                     if (reel != null) {
                         if (reel.reelId == null) reel.reelId = s.getKey();
                         if (!"close_friends".equals(reel.audienceType) || (safeMyUid() != null && (safeMyUid().equals(reel.uid) || com.callx.reels.utils.ReelCloseFriendsUtil.isCloseFriend(getContext(), reel.uid)))) {
-                        allReels.add(reel);
+                        fetched.add(reel);
                         }
                     }
                 }
-                Collections.sort(allReels, (a, b) ->
-                    Float.compare(b.trendingScore(), a.trendingScore()));
+                // Remove blocked users before ranking (no point scoring them).
+                fetched.removeIf(r -> r.uid != null && blockedUids.contains(r.uid));
 
-                // Remove blocked users from feed
-                allReels.removeIf(r -> r.uid != null && blockedUids.contains(r.uid));
-
-                showLoading(false);
-                loading = false;
-
-                if (isFypMode) {
-                    if (allReels.isEmpty()) showEmpty(true, "No Reels Yet", "Be the first to share!");
-                    else { showEmpty(false, null, null); if (savedPosition > 0) { renderPageAtPosition(allReels, savedPosition); } else { renderPage(allReels); } }
+                String myUid = safeMyUid();
+                Set<String> followedForRanking = new HashSet<>();
+                if (myUid != null) {
+                    FirebaseUtils.getReelFollowsRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override public void onDataChange(@NonNull DataSnapshot fSnap) {
+                            for (DataSnapshot fs : fSnap.getChildren()) followedForRanking.add(fs.getKey());
+                            applyFypRanking(fetched, myUid, followedForRanking);
+                        }
+                        @Override public void onCancelled(@NonNull DatabaseError e) {
+                            applyFypRanking(fetched, myUid, followedForRanking);
+                        }
+                    });
+                } else {
+                    applyFypRanking(fetched, null, followedForRanking);
                 }
             }
             @Override
@@ -839,6 +849,37 @@ public class ReelsFragment extends Fragment {
         FirebaseUtils.getReelsRef()
             .orderByChild("timestamp")
             .addValueEventListener(reelsListener);
+    }
+
+    /**
+     * Loads this user's {@link RankingProfile} (relationship + real creator
+     * watch-affinity + topic prefs + repeat suppression) and runs it through
+     * {@link FeedRankingEngine} — engagement × recency, relationship,
+     * watch-time/completion, topic personalization, discovery boost, and a
+     * diversity re-rank pass so one creator can't cluster several cards in a
+     * row. Same engine/signals as HomeFragment's For-You feed, so Reels tab
+     * and Home tab rank consistently instead of using two different
+     * heuristics.
+     */
+    private void applyFypRanking(List<ReelModel> fetched, @Nullable String myUid, Set<String> followedUids) {
+        RankingProfile.load(myUid, followedUids, profile -> {
+            if (!isAdded() || getContext() == null) return;
+            rankingProfile = profile;
+            allReels.clear();
+            allReels.addAll(FeedRankingEngine.buildRankedFeed(fetched, profile));
+
+            showLoading(false);
+            loading = false;
+
+            if (isFypMode) {
+                if (allReels.isEmpty()) showEmpty(true, "No Reels Yet", "Be the first to share!");
+                else {
+                    showEmpty(false, null, null);
+                    if (savedPosition > 0) renderPageAtPosition(allReels, savedPosition);
+                    else renderPage(allReels);
+                }
+            }
+        });
     }
 
     // ── Following feed ────────────────────────────────────────────────────

@@ -49,6 +49,8 @@ import com.callx.app.explore.ReelSearchActivity;
 import com.callx.app.profile.UserReelsActivity;
 import com.callx.app.cache.UnifiedVideoCacheManager;
 import com.callx.app.models.ReelModel;
+import com.callx.app.ranking.FeedRankingEngine;
+import com.callx.app.ranking.RankingProfile;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
@@ -159,6 +161,13 @@ public class HomeFragment extends Fragment {
     private Long             oldestFeedTimestamp = null;
     private Long             newestFeedTimestamp = null;
     private Set<String>      cachedFollowedUids  = new HashSet<>();
+    // ── Instagram-level ranking: personalization snapshot for the current
+    // feed render (relationship, creator watch-affinity, topic prefs, etc.)
+    // — see FeedRankingEngine / RankingProfile. Reloaded on each fresh feed
+    // load (mode switch, pull-to-refresh); reused as-is across pagination
+    // pages within that same load so "page 2" ranks against the same
+    // snapshot as "page 1" instead of drifting mid-scroll.
+    private RankingProfile   cachedRankingProfile = new RankingProfile();
     private Set<String>      cachedLikedIds      = new HashSet<>();
     private Set<String>      cachedSavedIds      = new HashSet<>();
     private String           cachedMyUidForFeed  = null;
@@ -1006,15 +1015,21 @@ public class HomeFragment extends Fragment {
                                         Set<String> followedUids = new HashSet<>();
                                         for (DataSnapshot s : fSnap.getChildren()) followedUids.add(s.getKey());
                                         cachedFollowedUids = followedUids;
-                                        // ★ Instagram-style ranking: not just "trending" —
-                                        // combine recency-decayed engagement, an
-                                        // approximate watch-time/interest signal, and a
-                                        // relationship (follow) boost into one score, the
-                                        // same inputs IG's real ranker uses (engagement,
-                                        // watch time, relationship, recency).
-                                        posts.sort((a, b) -> Float.compare(
-                                                rankScore(b, followedUids), rankScore(a, followedUids)));
-                                        renderFeedPosts(posts, uid, followedUids);
+                                        // ★ Instagram-level ranking: engagement × recency,
+                                        // relationship + real creator watch-affinity,
+                                        // watch-time/completion signal, topic
+                                        // personalization (Not Interested / Preferred
+                                        // topics), discovery boost for new creators, and a
+                                        // diversity re-rank pass so one creator can't
+                                        // cluster several cards in a row. See
+                                        // FeedRankingEngine for the full signal breakdown.
+                                        RankingProfile.load(uid, followedUids, profile -> {
+                                            if (!isAdded() || getContext() == null) return;
+                                            cachedRankingProfile = profile;
+                                            List<ReelModel> ranked =
+                                                    FeedRankingEngine.buildRankedFeed(posts, profile);
+                                            renderFeedPosts(ranked, uid, followedUids);
+                                        });
                                     }
                                     @Override public void onCancelled(@NonNull DatabaseError e) {
                                         posts.sort((a, b) -> Float.compare(b.trendingScore(), a.trendingScore()));
@@ -1035,23 +1050,16 @@ public class HomeFragment extends Fragment {
     }
 
     /**
-     * Composite ranking score, mirroring the signal categories a real
-     * feed-ranking model combines (engagement, an approximate watch-time /
-     * interest proxy, relationship/affinity, recency) into one number instead
-     * of the previous plain "trending = engagement × recency" sort. This is
-     * a heuristic stand-in — not a trained ML model — but it's what lets
-     * suggested/trending content rank and interleave directly inside the
-     * main feed instead of living in separate static sections.
+     * @deprecated Ranking now lives in {@link FeedRankingEngine#score} so the
+     * Home tab and Reels tab share one implementation instead of two
+     * independently-drifting copies. Kept as a thin forwarding wrapper only
+     * in case any older call site still references it directly.
      */
+    @Deprecated
     private float rankScore(ReelModel r, Set<String> followedUids) {
-        if (r == null) return 0f;
-        float engagementRecency = r.trendingScore(); // engagement × recency decay
-        float relationship = (followedUids != null && followedUids.contains(r.uid)) ? 35f : 0f;
-        // Approximate "watch time" signal: views relative to duration is the
-        // closest proxy available client-side to IG's actual watch-time model.
-        float watchTimeProxy = Math.min(r.viewsCount, 8000) * 0.015f
-                + Math.min(r.duration, 90) * 0.05f;
-        return engagementRecency + relationship + watchTimeProxy;
+        RankingProfile p = cachedRankingProfile != null ? cachedRankingProfile : new RankingProfile();
+        if (followedUids != null) p.followedUids = followedUids;
+        return FeedRankingEngine.score(r, p);
     }
 
     /** Tracks the newest/oldest timestamp seen so far so pagination
@@ -1246,7 +1254,7 @@ public class HomeFragment extends Fragment {
      * bottom, instead of the feed simply stopping after one fixed load.
      * Following mode paginates by timestamp and filters to followed
      * authors; For-You mode paginates the same way and re-ranks each new
-     * page with {@link #rankScore}.
+     * page with {@link FeedRankingEngine}.
      */
     private void loadMoreFeedPosts() {
         if (isLoadingMoreFeed || !feedHasMore || oldestFeedTimestamp == null) return;
@@ -1281,13 +1289,17 @@ public class HomeFragment extends Fragment {
                     showFeedFooterLoading(false);
                     return;
                 }
+                List<ReelModel> pageToAppend;
                 if (isFollowingMode) {
                     newPosts.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
+                    pageToAppend = newPosts;
                 } else {
-                    newPosts.sort((a, b) -> Float.compare(
-                            rankScore(b, cachedFollowedUids), rankScore(a, cachedFollowedUids)));
+                    // Re-rank this page against the SAME profile snapshot the
+                    // first page used, so scores/diversity stay consistent
+                    // across pagination instead of drifting mid-scroll.
+                    pageToAppend = FeedRankingEngine.buildRankedFeed(newPosts, cachedRankingProfile);
                 }
-                requireActivity().runOnUiThread(() -> appendFeedPage(newPosts));
+                requireActivity().runOnUiThread(() -> appendFeedPage(pageToAppend));
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {
                 isLoadingMoreFeed = false;
