@@ -687,21 +687,7 @@ public class ReelPlayerController {
                 if (btnMute != null) {
                     btnMute.setVisibility(playing ? View.GONE : View.VISIBLE);
                 }
-                // BUG FIX: a brief rebuffer/stall while the comments sheet is
-                // open (e.g. triggered by the extra scroll/network/Glide load
-                // contention from scrolling the comment list) flips `playing`
-                // to false for a moment even though the user never paused
-                // anything. Previously that unconditionally called
-                // onReelPlaybackStateChanged(false), which pops the app's own
-                // bottom nav + top bar back into view — and since the sheet's
-                // dialog window only covers the screen from its docked video
-                // zone down, that reappeared nav bar was visible right under
-                // the sheet instead of staying hidden behind it. Skip the
-                // notification entirely while docked (comments sheet open);
-                // isDocked() only goes true once the sheet actually starts
-                // covering the video, so ordinary full-screen playback still
-                // reacts to real pause/stall events exactly as before.
-                if (delegate.isCurrentlyVisible() && !isDocked()) {
+                if (delegate.isCurrentlyVisible()) {
                     Fragment parent = delegate.getParentFragment();
                     if (parent instanceof ReelsFragment) {
                         ((ReelsFragment) parent).onReelPlaybackStateChanged(playing);
