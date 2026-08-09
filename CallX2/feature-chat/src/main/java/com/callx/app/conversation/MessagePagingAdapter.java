@@ -384,6 +384,26 @@ public class MessagePagingAdapter
         sThumbPx = Math.max(computed, 320);          // never go below 320px
         return sThumbPx;
     }
+
+    // PERF FIX: GIF/sticker bubbles render into a FIXED 180dp square
+    // (MessageBubbleCanvasView.MEDIA_SIZE_DP — see bindGif()/bindSticker(),
+    // both explicitly reuse the single-image 180dp slot). The Glide loads
+    // below used to hardcode .override(720, 720) regardless of density —
+    // on a 1x/1.5x/2x device that's 2-4x more pixels than the 180dp slot
+    // will ever display, so every GIF/sticker paid for a needlessly large
+    // decode (extra native heap + slower first-frame + more GC pressure
+    // while scrolling past several GIF/sticker bubbles in a row).
+    // gifStickerPx() targets the real 180dp slot with a 15% headroom
+    // margin (covers minor upscale/anti-alias blur on hi-dpi screens)
+    // instead of a fixed guess, same density-aware pattern as thumbPx().
+    private static volatile int sGifStickerPx = 0;
+    static int gifStickerPx(android.content.Context ctx) {
+        if (sGifStickerPx > 0) return sGifStickerPx;
+        android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+        int computed = (int) (180f * dm.density * 1.15f); // 180dp slot + 15% margin
+        sGifStickerPx = Math.max(computed, 200);           // sane floor for very low density
+        return sGifStickerPx;
+    }
     // ── Payload key for presence-only updates (viewing-dot / reply-glow /
     //    playing-badge) — lets setViewingMessageIds() etc. refresh just
     //    those three views instead of re-running the entire bindMessage()
@@ -3059,7 +3079,7 @@ public class MessagePagingAdapter
                 } else {
                     // Already on disk — decode first-frame and display immediately.
                     glide(ctx).asBitmap().load(gifCached).apply(THUMB_RGB565)
-                            .override(720, 720)
+                            .override(gifStickerPx(ctx), gifStickerPx(ctx)) // PERF: match 180dp slot, avoid oversized decode
                             .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
                                 @Override
                                 public void onResourceReady(@NonNull android.graphics.Bitmap resource,
@@ -3114,7 +3134,7 @@ public class MessagePagingAdapter
                     cv.setStickerBitmap(stickerHit);
                 } else {
                     glide(ctx).asBitmap().load(stickerCached).apply(THUMB_RGB565)
-                            .override(720, 720)
+                            .override(gifStickerPx(ctx), gifStickerPx(ctx)) // PERF: match 180dp slot, avoid oversized decode
                             .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
                                 @Override
                                 public void onResourceReady(@NonNull android.graphics.Bitmap resource,
@@ -3623,7 +3643,7 @@ public class MessagePagingAdapter
                             if (h.canvasBindToken != myToken) return;
                             cv.clearMediaDownloadGate();
                             glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
-                                    .override(720, 720)
+                                    .override(gifStickerPx(ctx), gifStickerPx(ctx)) // PERF: match 180dp slot, avoid oversized decode
                                     .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
                                         @Override public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
                                                 @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> t) {
@@ -4098,7 +4118,6 @@ public class MessagePagingAdapter
                 if (isMediaMsg) {
                     llBubble.setBackground(null);
                     llBubble.setPadding(0, 0, 0, 0);
-                    llBubble.setElevation(0f);
                     // Force a real re-apply next time this holder shows a
                     // text bubble — background is null right now, not the
                     // GradientDrawable the cache key would imply.

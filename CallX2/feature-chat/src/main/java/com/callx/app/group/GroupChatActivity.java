@@ -975,7 +975,10 @@ public class GroupChatActivity extends AppCompatActivity
         binding.rvMessages.setItemAnimator(null);
         binding.rvMessages.setNestedScrollingEnabled(false);
         // PERF OPT: same three micro-opts as 1:1 ChatActivity
-        binding.rvMessages.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
+        // Rubber-band overscroll: native GPU stretch on Android 12+, lightweight
+        // manual translateY bounce on older APIs (see RubberBandEdgeEffectFactory).
+        binding.rvMessages.setOverScrollMode(android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+        binding.rvMessages.setEdgeEffectFactory(new com.callx.app.chat.performance.RubberBandEdgeEffectFactory());
         binding.rvMessages.setLayerType(android.view.View.LAYER_TYPE_NONE, null);
         binding.rvMessages.setSaveEnabled(false);
 
@@ -1082,7 +1085,17 @@ public class GroupChatActivity extends AppCompatActivity
                 pendingNewMsgCount = 0;
                 hideNewMessagesIndicator();
                 int last = pagingAdapter.getItemCount() - 1;
-                if (last >= 0) binding.rvMessages.smoothScrollToPosition(last);
+                // PERF: bulk jump to bottom — instant scrollToPositionWithOffset instead of
+                // smoothScrollToPosition, which visibly animates through every intermediate
+                // row when the user has scrolled far up a heavy chat (jank).
+                if (last >= 0) {
+                    RecyclerView.LayoutManager rawLm = binding.rvMessages.getLayoutManager();
+                    if (rawLm instanceof LinearLayoutManager) {
+                        ((LinearLayoutManager) rawLm).scrollToPositionWithOffset(last, 0);
+                    } else {
+                        binding.rvMessages.scrollToPosition(last);
+                    }
+                }
                 com.callx.app.chat.ui.MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
             });
         }
@@ -1091,7 +1104,15 @@ public class GroupChatActivity extends AppCompatActivity
                 pendingNewMsgCount = 0;
                 hideNewMessagesIndicator();
                 int last = pagingAdapter.getItemCount() - 1;
-                if (last >= 0) binding.rvMessages.smoothScrollToPosition(last);
+                // PERF: same instant-jump fix as the FAB above.
+                if (last >= 0) {
+                    RecyclerView.LayoutManager rawLm = binding.rvMessages.getLayoutManager();
+                    if (rawLm instanceof LinearLayoutManager) {
+                        ((LinearLayoutManager) rawLm).scrollToPositionWithOffset(last, 0);
+                    } else {
+                        binding.rvMessages.scrollToPosition(last);
+                    }
+                }
                 if (binding.fabBackToLatest != null) {
                     com.callx.app.chat.ui.MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
                 }
@@ -2986,8 +3007,17 @@ public class GroupChatActivity extends AppCompatActivity
                     if (vh != null) {
                         com.callx.app.chat.ui.MessageHighlightAnimator.flashHighlight(vh.itemView);
                     } else {
-                        // Page still not bound — last-resort: scroll once more to force bind
-                        binding.rvMessages.smoothScrollToPosition(safePos);
+                        // Page still not bound — last-resort: scroll once more to force bind.
+                        // PERF: smoothScrollToPosition() over a bulk/long-distance jump animates
+                        // every intermediate row into layout — visible jank on a heavy message
+                        // list. scrollToPositionWithOffset() is an instant jump (same fix already
+                        // applied to ChatActivity's jump-to-message path).
+                        RecyclerView.LayoutManager rawLm = binding.rvMessages.getLayoutManager();
+                        if (rawLm instanceof LinearLayoutManager) {
+                            ((LinearLayoutManager) rawLm).scrollToPositionWithOffset(safePos, 0);
+                        } else {
+                            binding.rvMessages.scrollToPosition(safePos);
+                        }
                     }
                 }, 600);
             });

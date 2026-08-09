@@ -2104,11 +2104,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // but should own its own fling; nested-scroll overhead adds friction and
         // causes subtle frame drops during fast swipes.
         binding.rvMessages.setNestedScrollingEnabled(false);
-        // PERF OPT #1: OVER_SCROLL_NEVER — eliminates edge glow/stretch on
-        // over-scroll. The EdgeEffect triggers an extra Canvas draw call on every
-        // frame while user is at top/bottom boundary. Chat never needs this; removing
-        // it shaves ~1-2ms per overscroll frame.
-        binding.rvMessages.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        // UPDATED: was OVER_SCROLL_NEVER (killed all edge feedback to save the old
+        // glow effect's extra Canvas draw). Re-enabled with a custom
+        // RubberBandEdgeEffectFactory instead — on Android 12+ that's the platform's
+        // own GPU-composited stretch (no extra Canvas layer, effectively free), and
+        // on older APIs it's a lightweight manual translateY bounce, so we get the
+        // modern rubber-band feel without paying the old glow's per-frame cost.
+        binding.rvMessages.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+        binding.rvMessages.setEdgeEffectFactory(new com.callx.app.chat.performance.RubberBandEdgeEffectFactory());
         // PERF OPT #2: LAYER_TYPE_NONE — ensure no software layer is inherited.
         // Hardware-accelerated drawing is default on API 14+; a stray software layer
         // forces every frame to paint into a CPU Bitmap — fatal for scroll perf.

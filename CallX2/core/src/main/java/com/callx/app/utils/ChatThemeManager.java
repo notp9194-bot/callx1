@@ -112,19 +112,7 @@ public class ChatThemeManager {
         // sent/hasReply combo). mutate() ensures each View owns an independent
         // copy of the state while still reusing the pre-configured corner radii.
         bubbleView.setBackground(gd.mutate());
-
-        // Subtle drop shadow so each bubble visually separates from the chat
-        // background and from neighbouring bubbles instead of sitting flush
-        // against them. GradientDrawable exposes a proper rounded outline
-        // (matches the bubble's corner radii, tail corner included), so a
-        // plain View elevation is enough to get a real shadow — no custom
-        // Canvas shadow drawing needed.
-        bubbleView.setElevation(BUBBLE_ELEVATION_DP * bubbleView.getResources().getDisplayMetrics().density);
     }
-
-    /** Kept small/subtle on purpose — this is separation between bubbles,
-     *  not a floating-card effect. */
-    private static final float BUBBLE_ELEVATION_DP = 1.5f;
 
     /**
      * Text color for bubble content — from color resources.
