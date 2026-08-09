@@ -131,6 +131,7 @@ public class ReelCommentFragment extends Fragment {
     private View           layoutMentionSuggestions;
     private LinearLayout   containerMentionSuggestions;
     private TextView       pillNewComments;
+    private LinearLayout   layoutSwipeHint;
     private TextView       tvLoadingOlder;
 
     // ── State ────────────────────────────────────────────────────────────────
@@ -295,6 +296,14 @@ public class ReelCommentFragment extends Fragment {
     private DatabaseReference  commentsRef;
     private ChildEventListener commentsListener;
 
+    // Live total comment count (reels/{reelId}/commentsCount) — the header
+    // must show the TRUE total, not just how many rows are loaded/paged in
+    // locally (allComments only ever holds the live PAGE_SIZE window plus
+    // whatever older pages were paged in on demand).
+    private DatabaseReference  commentsCountRef;
+    private ValueEventListener commentsCountListener;
+    private int totalCommentsCount = -1; // -1 = not yet known
+
     // ── Adapter ──────────────────────────────────────────────────────────────
     private ReelCommentsAdapter adapter;
 
@@ -335,7 +344,7 @@ public class ReelCommentFragment extends Fragment {
         loadMyPhoto();
         restoreDraft();
 
-        if (!reelId.isEmpty()) loadComments();
+        if (!reelId.isEmpty()) { loadComments(); listenCommentsCount(); }
         else showEmpty(true);
 
         if (rvComments != null) {
@@ -345,6 +354,12 @@ public class ReelCommentFragment extends Fragment {
                 // page, that IS every comment on this reel — nothing older
                 // to page in, so skip wiring up load-more entirely.
                 hasMoreOlder = allComments.size() >= PAGE_SIZE;
+                // Pagination was gated on initialLoadSettled until just now
+                // (see maybeLoadOlderComments()'s guard) — give the
+                // viewport-fill check a chance to run now that it's unlocked,
+                // instead of only reacting to the next live data change.
+                maybeAutoFillViewport();
+                maybeShowSwipeReplyHint();
             }, 1200);
         }
     }
@@ -362,6 +377,8 @@ public class ReelCommentFragment extends Fragment {
         try {
             if (commentsListener != null && commentsQuery != null)
                 commentsQuery.removeEventListener(commentsListener);
+            if (commentsCountListener != null && commentsCountRef != null)
+                commentsCountRef.removeEventListener(commentsCountListener);
         } catch (Exception ignored) {}
         super.onDestroyView();
     }
@@ -399,6 +416,7 @@ public class ReelCommentFragment extends Fragment {
         layoutMentionSuggestions    = root.findViewById(R.id.layout_mention_suggestions);
         containerMentionSuggestions = root.findViewById(R.id.container_mention_suggestions);
         pillNewComments = root.findViewById(R.id.pill_new_comments);
+        layoutSwipeHint = root.findViewById(R.id.layout_swipe_hint);
         tvLoadingOlder  = root.findViewById(R.id.tv_loading_older);
         btnAttachPhoto     = root.findViewById(R.id.btn_attach_photo);
         layoutImagePreview = root.findViewById(R.id.layout_comment_image_preview);
@@ -548,6 +566,72 @@ public class ReelCommentFragment extends Fragment {
         }
     }
 
+    // ── One-time "swipe to reply" onboarding hint ────────────────────────────
+    // Shown exactly once, ever, the first time this device opens ANY reel's
+    // comment section — not per-reel — so returning users never see it
+    // again. A small floating pill plus a two-pulse "peek" of the top
+    // comment row sliding right and springing back, so the gesture itself
+    // is demonstrated, not just described in text.
+
+    private static final String PREF_SEEN_SWIPE_HINT = "seen_swipe_reply_hint";
+
+    private void maybeShowSwipeReplyHint() {
+        if (layoutSwipeHint == null || rvComments == null || adapter == null) return;
+        if (adapter.getItemCount() == 0 || !isAdded()) return;
+
+        android.content.SharedPreferences prefs = requireContext()
+            .getSharedPreferences("reel_comment_drafts", Context.MODE_PRIVATE);
+        if (prefs.getBoolean(PREF_SEEN_SWIPE_HINT, false)) return;
+        prefs.edit().putBoolean(PREF_SEEN_SWIPE_HINT, true).apply();
+
+        layoutSwipeHint.setAlpha(0f);
+        layoutSwipeHint.setVisibility(View.VISIBLE);
+        layoutSwipeHint.animate().alpha(1f).setDuration(250).start();
+
+        // Small delay so the RecyclerView has definitely laid out row 0
+        // before we go looking for its ViewHolder to animate.
+        rvComments.postDelayed(() -> {
+            if (!isAdded() || rvComments == null) return;
+            RecyclerView.ViewHolder vh = rvComments.findViewHolderForAdapterPosition(0);
+            if (vh == null) return;
+            View item = vh.itemView;
+            int peekPx = dpToPx(46);
+
+            item.animate()
+                .translationX(peekPx)
+                .setStartDelay(150)
+                .setDuration(280)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                .withEndAction(() -> item.animate()
+                    .translationX(0)
+                    .setDuration(340)
+                    .setInterpolator(new android.view.animation.OvershootInterpolator())
+                    .withEndAction(() -> {
+                        // Second, smaller pulse — reads as "this is a
+                        // repeatable gesture", not a one-off glitch.
+                        item.animate()
+                            .translationX(peekPx / 2)
+                            .setStartDelay(260)
+                            .setDuration(200)
+                            .withEndAction(() -> item.animate()
+                                .translationX(0)
+                                .setDuration(260)
+                                .start())
+                            .start();
+                    })
+                    .start())
+                .start();
+        }, 350);
+
+        layoutSwipeHint.postDelayed(() -> {
+            if (layoutSwipeHint == null) return;
+            layoutSwipeHint.animate().alpha(0f).setDuration(300)
+                .withEndAction(() -> {
+                    if (layoutSwipeHint != null) layoutSwipeHint.setVisibility(View.GONE);
+                }).start();
+        }, 3400);
+    }
+
     // ── Swipe-to-reply (advanced gesture, Telegram/IG-style) ────────────────
 
     private void attachSwipeToReply(RecyclerView rv) {
@@ -582,20 +666,48 @@ public class ReelCommentFragment extends Fragment {
                 if (actionState == ItemTouchHelper.ACTION_STATE_SWIPE) {
                     float clamped = Math.max(0f, Math.min(dX, maxSwipePx));
                     float progress = clamped / maxSwipePx;
-                    triggered = progress >= 1f;
+                    boolean nowTriggered = progress >= 1f;
+
+                    // Haptic "tick" fires exactly once, right as the drag
+                    // crosses the commit threshold — not every frame — so
+                    // releasing feels like confirming a deliberate action,
+                    // the same cue Telegram/iOS Mail give on their swipe
+                    // actions, instead of the gesture just silently working.
+                    if (nowTriggered && !triggered) {
+                        vh.itemView.performHapticFeedback(
+                            android.view.HapticFeedbackConstants.CLOCK_TICK);
+                    }
+                    triggered = nowTriggered;
 
                     View item = vh.itemView;
                     if (progress > 0.05f) {
-                        int iconSize = dpToPx(22);
                         int cx = item.getLeft() + dpToPx(28);
                         int cy = item.getTop() + item.getHeight() / 2;
+
+                        // Circular brand-tinted chip behind the icon — grows
+                        // and solidifies to full opacity as the gesture
+                        // arms, then the icon itself pops slightly larger,
+                        // so there's a clear "this is about to fire" signal
+                        // before the user even lifts their finger.
+                        float chipProgress = Math.min(1f, progress * 1.3f);
+                        int chipRadius = (int) (dpToPx(13) + dpToPx(5) * chipProgress);
+                        android.graphics.Paint chipPaint =
+                            new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                        chipPaint.setColor(androidx.core.content.ContextCompat.getColor(
+                            requireContext(), R.color.brand_primary));
+                        chipPaint.setAlpha(triggered ? 255 : (int) (170 * chipProgress));
+                        c.drawCircle(cx, cy, chipRadius, chipPaint);
+
                         android.graphics.drawable.Drawable icon =
                             androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.ic_reply);
                         if (icon != null) {
-                            icon.mutate().setAlpha((int) (255 * Math.min(1f, progress * 1.6f)));
-                            int scale = triggered ? iconSize + dpToPx(4) : iconSize;
-                            icon.setBounds(cx - scale / 2, cy - scale / 2, cx + scale / 2, cy + scale / 2);
-                            icon.draw(c);
+                            android.graphics.drawable.Drawable tinted = icon.mutate();
+                            tinted.setTint(Color.WHITE);
+                            tinted.setAlpha((int) (255 * Math.min(1f, progress * 1.6f)));
+                            int iconSize = triggered ? dpToPx(20) : dpToPx(17);
+                            tinted.setBounds(cx - iconSize / 2, cy - iconSize / 2,
+                                              cx + iconSize / 2, cy + iconSize / 2);
+                            tinted.draw(c);
                         }
                     }
                     super.onChildDraw(c, r, vh, clamped, dY, actionState, isCurrentlyActive);
@@ -969,6 +1081,29 @@ public class ReelCommentFragment extends Fragment {
         updateCountHeader();
         showEmpty(filtered.isEmpty());
         checkAndHighlightComment();
+        maybeAutoFillViewport();
+    }
+
+    /** BUG FIX: pagination was purely scroll-delta-triggered (see the
+     *  OnScrollListener in setupAdapter()), which silently never fires when
+     *  the currently-loaded batch is short enough to fit entirely on
+     *  screen — nothing to scroll means no onScrolled(dy>0) event, ever,
+     *  even though hasMoreOlder is still true and there ARE more comments
+     *  to page in. That's why "scroll to load more" could still do nothing
+     *  no matter how much you tried to scroll. This runs after every list
+     *  update and proactively keeps paging older comments in — same as the
+     *  scroll trigger, just also covering the "nothing to scroll yet"
+     *  case — until either the viewport is actually full (so a real scroll
+     *  gesture can take over) or the thread genuinely has no more older
+     *  comments left. */
+    private void maybeAutoFillViewport() {
+        if (rvComments == null) return;
+        rvComments.post(() -> {
+            if (rvComments == null || !isAdded()) return;
+            if (!rvComments.canScrollVertically(1) && hasMoreOlder && !loadingOlder) {
+                maybeLoadOlderComments();
+            }
+        });
     }
 
     /** Reels profile photo load karo (reels/users/{uid}) — chat profile nahi. */
@@ -988,6 +1123,26 @@ public class ReelCommentFragment extends Fragment {
     }
 
     // ── Load comments (paginated ChildEventListener — see PAGE_SIZE note) ────
+
+    // ── Live total comments count (header) ──────────────────────────────────
+    // Separate from allComments/pagination on purpose — the header must
+    // reflect the TRUE total (reels/{reelId}/commentsCount, kept in sync by
+    // incrementCommentsCount()'s transaction for every viewer), not just
+    // how many rows this device happens to have loaded so far.
+
+    private void listenCommentsCount() {
+        if (reelId.isEmpty()) return;
+        commentsCountRef = FirebaseDatabase.getInstance(Constants.DB_URL)
+            .getReference("reels").child(reelId).child("commentsCount");
+        commentsCountListener = commentsCountRef.addValueEventListener(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot s) {
+                Integer v = s.getValue(Integer.class);
+                totalCommentsCount = Math.max(0, v != null ? v : 0);
+                updateCountHeader();
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        });
+    }
 
     private void loadComments() {
         commentsRef   = FirebaseUtils.getReelCommentsRef(reelId);
@@ -1838,7 +1993,10 @@ public class ReelCommentFragment extends Fragment {
 
     private void updateCountHeader() {
         if (tvCommentCount == null) return;
-        int n = allComments.size();
+        // Prefer the live true total; fall back to the loaded-batch size
+        // only for the brief window before the count listener's first
+        // value arrives, so the header isn't blank on first paint.
+        int n = totalCommentsCount >= 0 ? totalCommentsCount : allComments.size();
         tvCommentCount.setText(n > 0 ? "Comments (" + n + ")" : "Comments");
     }
 

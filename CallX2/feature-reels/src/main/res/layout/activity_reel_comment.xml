@@ -190,6 +190,42 @@
             android:background="@drawable/bg_sort_chip_selected"
             android:elevation="4dp"
             android:visibility="gone"/>
+
+        <!-- One-time "swipe to reply" affordance hint — shown only the very
+             first time this device ever opens a reel's comment section (see
+             maybeShowSwipeReplyHint()), never again after that. -->
+        <LinearLayout
+            android:id="@+id/layout_swipe_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="14dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="14dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:background="@drawable/bg_sort_chip_selected"
+            android:elevation="6dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:src="@drawable/ic_reply"
+                android:tint="#FFFFFF"
+                android:contentDescription="@null"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Swipe a comment right to reply"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"/>
+        </LinearLayout>
     </FrameLayout>
 
     <!-- ── Empty state ── -->

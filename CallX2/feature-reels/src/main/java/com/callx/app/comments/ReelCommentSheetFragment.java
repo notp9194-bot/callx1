@@ -111,23 +111,31 @@ public class ReelCommentSheetFragment extends BottomSheetDialogFragment {
                 com.google.android.material.R.id.design_bottom_sheet);
         if (sheet == null) return;
 
-        // BUG FIX: with a short first-loaded comment batch (e.g. only the
-        // initial PAGE_SIZE=12), the sheet's own content (our fragment's
-        // root LinearLayout, which is match_parent-height but is itself
-        // measured against whatever height ITS parent hands it) could end
-        // up sized to just "12 rows + input bar" instead of the intended
-        // sheetBehavior.setFitToContents(false) full-height — the input
-        // row then visually sat right under the last loaded comment
+        final int expandedOffsetPx = (int) (getResources().getDisplayMetrics().heightPixels * 0.44f);
+
+        // BUG FIX (take 2): with a short first-loaded comment batch (e.g.
+        // only the initial PAGE_SIZE=12), the sheet's own content (our
+        // fragment's root LinearLayout) could end up sized to just
+        // "12 rows + input bar" instead of the intended full sheet height —
+        // the input row then sat right under the last loaded comment
         // instead of docked to the screen's bottom. setFitToContents(false)
-        // controls the *behavior's* target height, but design_bottom_sheet
-        // itself is still inflated with a WRAP_CONTENT LayoutParams by
-        // Material's own dialog layout — forcing it to MATCH_PARENT here
-        // is the standard fix so the sheet (and therefore our input bar)
-        // always fills the full expanded/half-expanded height regardless
-        // of how many comments happen to be loaded yet.
+        // below only controls the sheet's target STATE geometry; the
+        // design_bottom_sheet frame itself is still inflated with a
+        // WRAP_CONTENT height by Material's own dialog layout, so it still
+        // shrinks to fit whatever content we give it.
+        //
+        // The fix is NOT to force it to raw MATCH_PARENT — the sheet's top
+        // is positioned at expandedOffsetPx (≈44% down the screen), so a
+        // full-screen-tall frame starting there would push its bottom (and
+        // our input bar with it) well past the visible screen edge,
+        // off-screen entirely — which is exactly what a naive
+        // "just match_parent it" fix causes. The frame needs to be tall
+        // enough to reach the screen's bottom edge from wherever it starts,
+        // no taller: (screen height − expandedOffset).
+        int targetSheetHeightPx = getResources().getDisplayMetrics().heightPixels - expandedOffsetPx;
         ViewGroup.LayoutParams sheetParams = sheet.getLayoutParams();
-        if (sheetParams != null && sheetParams.height != ViewGroup.LayoutParams.MATCH_PARENT) {
-            sheetParams.height = ViewGroup.LayoutParams.MATCH_PARENT;
+        if (sheetParams != null && sheetParams.height != targetSheetHeightPx) {
+            sheetParams.height = targetSheetHeightPx;
             sheet.setLayoutParams(sheetParams);
         }
 
@@ -155,7 +163,6 @@ public class ReelCommentSheetFragment extends BottomSheetDialogFragment {
 
         sheetBehavior = BottomSheetBehavior.from(sheet);
         sheetBehavior.setFitToContents(false);
-        final int expandedOffsetPx = (int) (getResources().getDisplayMetrics().heightPixels * 0.44f);
         sheetBehavior.setExpandedOffset(expandedOffsetPx);
         sheetBehavior.setHalfExpandedRatio(0.45f);
         sheetBehavior.setDraggable(true);
