@@ -132,6 +132,7 @@ public class ReelCommentFragment extends Fragment {
     private LinearLayout   containerMentionSuggestions;
     private TextView       pillNewComments;
     private LinearLayout   layoutSwipeHint;
+    private LinearLayout   containerQuickEmojis;
     private TextView       tvLoadingOlder;
 
     // ── State ────────────────────────────────────────────────────────────────
@@ -296,6 +297,14 @@ public class ReelCommentFragment extends Fragment {
     private DatabaseReference  commentsRef;
     private ChildEventListener commentsListener;
 
+    // Manual keyboard-aware padding for the SHEET host only (see
+    // setupKeyboardAwarePadding()) — BottomSheetDialog windows don't always
+    // resize reliably with windowSoftInputMode=ADJUST_RESIZE (a long-known
+    // Android dialog quirk), so the input bar could end up hidden behind
+    // the keyboard instead of docked above it.
+    private View fragmentRoot;
+    private android.view.ViewTreeObserver.OnGlobalLayoutListener keyboardLayoutListener;
+
     // Live total comment count (reels/{reelId}/commentsCount) — the header
     // must show the TRUE total, not just how many rows are loaded/paged in
     // locally (allComments only ever holds the live PAGE_SIZE window plus
@@ -341,6 +350,7 @@ public class ReelCommentFragment extends Fragment {
         setupCharCounter();
         setupMentionAutocomplete();
         setupNewCommentsPill();
+        setupQuickEmojiRow();
         loadMyPhoto();
         restoreDraft();
 
@@ -379,6 +389,8 @@ public class ReelCommentFragment extends Fragment {
                 commentsQuery.removeEventListener(commentsListener);
             if (commentsCountListener != null && commentsCountRef != null)
                 commentsCountRef.removeEventListener(commentsCountListener);
+            if (keyboardLayoutListener != null && fragmentRoot != null)
+                fragmentRoot.getViewTreeObserver().removeOnGlobalLayoutListener(keyboardLayoutListener);
         } catch (Exception ignored) {}
         super.onDestroyView();
     }
@@ -398,6 +410,7 @@ public class ReelCommentFragment extends Fragment {
     }
 
     private void bindViews(View root) {
+        fragmentRoot    = root;
         rvComments      = root.findViewById(R.id.rv_comments);
         etComment       = root.findViewById(R.id.et_comment);
         btnSend         = root.findViewById(R.id.btn_send);
@@ -417,6 +430,7 @@ public class ReelCommentFragment extends Fragment {
         containerMentionSuggestions = root.findViewById(R.id.container_mention_suggestions);
         pillNewComments = root.findViewById(R.id.pill_new_comments);
         layoutSwipeHint = root.findViewById(R.id.layout_swipe_hint);
+        containerQuickEmojis = root.findViewById(R.id.container_quick_emojis);
         tvLoadingOlder  = root.findViewById(R.id.tv_loading_older);
         btnAttachPhoto     = root.findViewById(R.id.btn_attach_photo);
         layoutImagePreview = root.findViewById(R.id.layout_comment_image_preview);
@@ -438,6 +452,8 @@ public class ReelCommentFragment extends Fragment {
             }
         });
         if (btnRemoveImage != null) btnRemoveImage.setOnClickListener(v -> clearPickedImage());
+
+        if (isSheet) setupKeyboardAwarePadding(root);
 
         // BUG FIX: when this fragment is hosted inside ReelCommentSheetFragment
         // (isSheet=true) the sheet can be sitting in its HALF_EXPANDED state,
@@ -724,7 +740,13 @@ public class ReelCommentFragment extends Fragment {
                 int pos = vh.getAdapterPosition();
                 if (pos == RecyclerView.NO_POSITION || adapter == null) return;
                 ReelComment c = adapter.getComment(pos);
-                if (c != null) startReply(c);
+                // Posted rather than called inline: clearView() fires while
+                // the row's spring-back animation/touch handling is still
+                // wrapping up, and starting the reply (focus + keyboard)
+                // synchronously here was landing too early on some devices
+                // — the keyboard just never opened. Posting lets this frame
+                // finish first.
+                if (c != null) { ReelComment fc = c; r.post(() -> startReply(fc)); }
             }
         };
         new ItemTouchHelper(callback).attachToRecyclerView(rv);
@@ -944,6 +966,74 @@ public class ReelCommentFragment extends Fragment {
             if (lower.contains(token)) resolved.put(e.getKey(), e.getValue());
         }
         return resolved;
+    }
+
+    // ── Quick emoji reply row ─────────────────────────────────────────────────
+    // Instagram-style strip of common emojis sitting right above the text
+    // field. Tapping one INSERTS it at the cursor (doesn't auto-send) — a
+    // shortcut for typing, distinct from postReaction()'s long-press
+    // "react to a comment" feature elsewhere in this file.
+
+    private static final String[] QUICK_EMOJIS =
+        { "❤️", "🙌", "🔥", "👏", "😂", "😍", "😮", "😢", "🙏", "💯" };
+
+    private void setupQuickEmojiRow() {
+        if (containerQuickEmojis == null) return;
+        containerQuickEmojis.removeAllViews();
+
+        int chipPad   = dpToPx(8);
+        int chipMargin = dpToPx(2);
+        android.util.TypedValue outValue = new android.util.TypedValue();
+        requireContext().getTheme().resolveAttribute(
+            android.R.attr.selectableItemBackgroundBorderless, outValue, true);
+
+        for (String emoji : QUICK_EMOJIS) {
+            TextView chip = new TextView(requireContext());
+            chip.setText(emoji);
+            chip.setTextSize(22f);
+            chip.setPadding(chipPad, chipPad, chipPad, chipPad);
+            chip.setGravity(android.view.Gravity.CENTER);
+            chip.setBackgroundResource(outValue.resourceId);
+            chip.setClickable(true);
+            chip.setFocusable(true);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.setMargins(chipMargin, 0, chipMargin, 0);
+            chip.setLayoutParams(lp);
+            chip.setOnClickListener(v -> insertQuickEmoji(emoji, chip));
+            containerQuickEmojis.addView(chip);
+        }
+    }
+
+    /** Inserts an emoji at the current cursor position (replacing any
+     *  selection), keeps the field focused, and makes sure the keyboard
+     *  stays open — tapping a quick emoji should feel exactly like typing
+     *  it, not like a separate action that closes the field. */
+    private void insertQuickEmoji(String emoji, View sourceChip) {
+        if (etComment == null) return;
+
+        // Small tactile "pop" on the chip itself + a light haptic tick —
+        // same confirmation language as the swipe-to-reply gesture, so
+        // quick taps here feel equally responsive.
+        sourceChip.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
+        sourceChip.animate().scaleX(1.3f).scaleY(1.3f).setDuration(80)
+            .withEndAction(() -> sourceChip.animate().scaleX(1f).scaleY(1f).setDuration(120).start())
+            .start();
+
+        Editable text = etComment.getText();
+        int start = Math.max(0, etComment.getSelectionStart());
+        int end   = Math.max(start, etComment.getSelectionEnd());
+        if (text == null) {
+            etComment.setText(emoji);
+            etComment.setSelection(emoji.length());
+        } else {
+            start = Math.min(start, text.length());
+            end   = Math.min(end,   text.length());
+            text.replace(start, end, emoji);
+            etComment.setSelection(start + emoji.length());
+        }
+        etComment.requestFocus();
+        showKeyboard(etComment);
     }
 
     // ── "New comments" pill ──────────────────────────────────────────────────
@@ -2037,12 +2127,59 @@ public class ReelCommentFragment extends Fragment {
         } catch (Exception ignored) {}
     }
 
+    // ── Keyboard-aware padding (SHEET host only) ─────────────────────────────
+    // windowSoftInputMode=ADJUST_RESIZE is already set on the sheet's dialog
+    // window (see ReelCommentSheetFragment.onStart()), but BottomSheetDialog
+    // windows are a known exception where that resize doesn't always
+    // reliably reach the dialog's content the way it does in a normal
+    // Activity window — the input bar could end up sitting behind the
+    // keyboard instead of pushed up above it. This watches the actually
+    // visible screen area directly and pads the root's bottom by exactly
+    // the keyboard's height ourselves, so the input bar is guaranteed
+    // visible above the keyboard regardless of that platform quirk. Scoped
+    // to isSheet only — the fullscreen Activity host's ADJUST_RESIZE
+    // already works correctly on its own and doesn't need this.
+    private void setupKeyboardAwarePadding(View root) {
+        final android.graphics.Rect visibleFrame = new android.graphics.Rect();
+        final int[] lastKeypadHeight = {0};
+        keyboardLayoutListener = () -> {
+            if (!isAdded() || fragmentRoot == null) return;
+            View decor = fragmentRoot.getRootView();
+            decor.getWindowVisibleDisplayFrame(visibleFrame);
+            int screenHeight = decor.getHeight();
+            if (screenHeight <= 0) return;
+            int gap = screenHeight - visibleFrame.bottom;
+            // Heuristic: only treat a large gap as "keyboard open" — filters
+            // out normal status/nav-bar insets, which are much smaller.
+            int keypadHeight = gap > screenHeight * 0.15 ? gap : 0;
+            if (keypadHeight != lastKeypadHeight[0]) {
+                lastKeypadHeight[0] = keypadHeight;
+                fragmentRoot.setPadding(fragmentRoot.getPaddingLeft(), fragmentRoot.getPaddingTop(),
+                                         fragmentRoot.getPaddingRight(), keypadHeight);
+            }
+        };
+        root.getViewTreeObserver().addOnGlobalLayoutListener(keyboardLayoutListener);
+    }
+
     private void showKeyboard(View v) {
-        try {
-            InputMethodManager imm = (InputMethodManager)
-                requireContext().getSystemService(Context.INPUT_METHOD_SERVICE);
-            if (imm != null && v != null) imm.showSoftInput(v, InputMethodManager.SHOW_IMPLICIT);
-        } catch (Exception ignored) {}
+        if (v == null) return;
+        v.requestFocus();
+        // BUG FIX: showSoftInput() called synchronously right after a
+        // gesture-driven requestFocus() (swipe-to-reply's clearView(), not
+        // a direct user tap on the EditText) could silently no-op — the
+        // view/window hadn't necessarily settled focus yet since it fires
+        // mid-animation-callback. Posting it lets the current touch/animation
+        // frame finish first, and SHOW_FORCED (vs SHOW_IMPLICIT) reliably
+        // opens the keyboard even when the request didn't originate from a
+        // direct tap on the field itself.
+        v.post(() -> {
+            if (!isAdded()) return;
+            try {
+                InputMethodManager imm = (InputMethodManager)
+                    requireContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (imm != null) imm.showSoftInput(v, InputMethodManager.SHOW_FORCED);
+            } catch (Exception ignored) {}
+        });
     }
 
     private String formatTime(long ts) {

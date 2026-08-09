@@ -354,6 +354,29 @@
                 android:visibility="gone"/>
         </FrameLayout>
 
+        <!-- Quick emoji reply row — Instagram-style: a horizontal strip of
+             common emojis sitting right above the text field. Tapping one
+             inserts it at the cursor (doesn't auto-send), so it's a
+             shortcut for typing, not a separate reaction system — see
+             ReelReactionEmojis.LIST / insertQuickEmoji(). -->
+        <HorizontalScrollView
+            android:id="@+id/scroll_quick_emojis"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:overScrollMode="never"
+            android:paddingTop="4dp"
+            android:paddingBottom="2dp">
+
+            <LinearLayout
+                android:id="@+id/container_quick_emojis"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"/>
+        </HorizontalScrollView>
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
