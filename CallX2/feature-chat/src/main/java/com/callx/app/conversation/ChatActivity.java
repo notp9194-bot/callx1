@@ -4423,8 +4423,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         }
         if (pos >= 0) {
             MessageHighlightAnimator.scrollAndHighlight(binding.rvMessages, pos, binding.fabBackToLatest);
+            final int highlightPos = pos; // lambda below needs an effectively-final capture
             binding.rvMessages.postDelayed(() -> {
-                RecyclerView.ViewHolder vh = binding.rvMessages.findViewHolderForAdapterPosition(pos);
+                RecyclerView.ViewHolder vh = binding.rvMessages.findViewHolderForAdapterPosition(highlightPos);
                 if (vh != null) MessageHighlightAnimator.flashHighlight(vh.itemView);
             }, SCROLL_SETTLE_DELAY_MS);
         } else {
