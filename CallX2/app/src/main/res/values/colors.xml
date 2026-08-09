@@ -7,9 +7,16 @@
     <color name="brand_gradient_end">#2E7D32</color>
     <color name="surface_bg">#F5F6FA</color>
     <color name="surface_card">#FFFFFF</color>
-    <color name="surface_chat_bg">#ECE5DD</color>
+    <color name="surface_chat_bg">#0F4C3A</color>
     <color name="surface_input">#F1F3F8</color>
-    <color name="bar_background">#4CAF50</color>
+    <!-- Was #4CAF50 (generic Material green) — that stray override was
+         the "green" showing on the header/input capsules, out of sync
+         with the app's real core brand colour below. Now matches
+         brand_primary so both capsules use the actual app core colour.
+         brand_primary itself is left as the vivid green it already was —
+         mic/send/fab buttons keep that green so they stay visible against
+         the darker capsule fill instead of blending into it. -->
+    <color name="bar_background">#0F4C3A</color>
     <color name="bar_on_background">#FFFFFF</color>
     <color name="text_primary">#0F172A</color>
     <color name="text_secondary">#64748B</color>

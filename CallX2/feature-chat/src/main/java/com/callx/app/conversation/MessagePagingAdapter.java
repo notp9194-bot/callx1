@@ -4098,6 +4098,7 @@ public class MessagePagingAdapter
                 if (isMediaMsg) {
                     llBubble.setBackground(null);
                     llBubble.setPadding(0, 0, 0, 0);
+                    llBubble.setElevation(0f);
                     // Force a real re-apply next time this holder shows a
                     // text bubble — background is null right now, not the
                     // GradientDrawable the cache key would imply.
