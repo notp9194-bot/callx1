@@ -32,6 +32,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
+import androidx.core.view.inputmethod.InputContentInfoCompat;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -114,7 +115,7 @@ public class ReelCommentFragment extends Fragment {
 
     // ── Views ────────────────────────────────────────────────────────────────
     private RecyclerView   rvComments;
-    private EditText       etComment;
+    private GifAwareCommentEditText etComment;
     private ImageButton    btnSend;
     private ImageButton    btnAttachPhoto;
     private FrameLayout    layoutImagePreview;
@@ -321,7 +322,7 @@ public class ReelCommentFragment extends Fragment {
     // Android dialog quirk), so the input bar could end up hidden behind
     // the keyboard instead of docked above it.
     private View fragmentRoot;
-    private android.view.ViewTreeObserver.OnGlobalLayoutListener keyboardLayoutListener;
+
 
     // Live total comment count (reels/{reelId}/commentsCount) — the header
     // must show the TRUE total, not just how many rows are loaded/paged in
@@ -408,8 +409,6 @@ public class ReelCommentFragment extends Fragment {
                 commentsQuery.removeEventListener(commentsListener);
             if (commentsCountListener != null && commentsCountRef != null)
                 commentsCountRef.removeEventListener(commentsCountListener);
-            if (keyboardLayoutListener != null && fragmentRoot != null)
-                fragmentRoot.getViewTreeObserver().removeOnGlobalLayoutListener(keyboardLayoutListener);
             if (blocksListener != null && blocksListenerRef != null)
                 blocksListenerRef.removeEventListener(blocksListener);
         } catch (Exception ignored) {}
@@ -495,7 +494,13 @@ public class ReelCommentFragment extends Fragment {
         });
         if (btnRemoveImage != null) btnRemoveImage.setOnClickListener(v -> clearPickedImage());
 
-        if (isSheet) setupKeyboardAwarePadding(root);
+        // Keyboard GIF (Gboard's built-in GIF search tab) — commitContent
+        // hands us a content:// uri, which we route through the exact same
+        // pick→preview→upload pipeline as an attached gallery photo, so it
+        // rides on the existing imageUrl comment field with no new API.
+        if (etComment != null) {
+            etComment.setGifReceivedListener(this::onKeyboardGifReceived);
+        }
 
         // BUG FIX: when this fragment is hosted inside ReelCommentSheetFragment
         // (isSheet=true) the sheet can be sitting in its HALF_EXPANDED state,
@@ -1369,6 +1374,58 @@ public class ReelCommentFragment extends Fragment {
         }
     }
 
+    // ── Keyboard GIF (Gboard's built-in GIF search) ─────────────────────────
+    // No separate GIF picker/API — this just accepts whatever content:// uri
+    // the user's own keyboard (e.g. Google Keyboard's GIF tab) delivers via
+    // the standard commitContent InputConnection extension, then uploads it
+    // through the same pipeline as an attached gallery photo below.
+
+    private void onKeyboardGifReceived(InputContentInfoCompat contentInfo) {
+        if (contentInfo == null) return;
+        try {
+            contentInfo.requestPermission();
+        } catch (Exception ignored) {}
+
+        Uri uri = contentInfo.getContentUri();
+        pickedImageUri = uri;
+        uploadedImageUrl = null;
+        uploadingImage = true;
+
+        if (layoutImagePreview != null) layoutImagePreview.setVisibility(View.VISIBLE);
+        if (progressImage != null) progressImage.setVisibility(View.VISIBLE);
+        if (ivImagePreview != null) {
+            // Glide animates GIFs automatically here (no .asBitmap() call),
+            // so the preview and the eventual comment bubble both play it.
+            Glide.with(this).load(uri).into(ivImagePreview);
+        }
+
+        try {
+            CloudinaryUploader.upload(requireContext(), uri, "callx/reel_comments_gif", "image",
+                new CloudinaryUploader.UploadCallback() {
+                    @Override public void onSuccess(CloudinaryUploader.Result result) {
+                        contentInfo.releasePermission();
+                        if (!isAdded()) return;
+                        uploadingImage = false;
+                        if (pickedImageUri == null || !pickedImageUri.equals(uri)) return;
+                        uploadedImageUrl = result.secureUrl;
+                        if (progressImage != null) progressImage.setVisibility(View.GONE);
+                    }
+
+                    @Override public void onError(String message) {
+                        contentInfo.releasePermission();
+                        if (!isAdded()) return;
+                        uploadingImage = false;
+                        Toast.makeText(requireContext(), "GIF upload failed", Toast.LENGTH_SHORT).show();
+                        clearPickedImage();
+                    }
+                });
+        } catch (Exception e) {
+            contentInfo.releasePermission();
+            uploadingImage = false;
+            clearPickedImage();
+        }
+    }
+
     // ── Comment photo attachment (Instagram-style) ──────────────────────────
 
     private void onImagePicked(Uri uri) {
@@ -2182,38 +2239,22 @@ public class ReelCommentFragment extends Fragment {
         } catch (Exception ignored) {}
     }
 
-    // ── Keyboard-aware padding (SHEET host only) ─────────────────────────────
-    // windowSoftInputMode=ADJUST_RESIZE is already set on the sheet's dialog
-    // window (see ReelCommentSheetFragment.onStart()), but BottomSheetDialog
-    // windows are a known exception where that resize doesn't always
-    // reliably reach the dialog's content the way it does in a normal
-    // Activity window — the input bar could end up sitting behind the
-    // keyboard instead of pushed up above it. This watches the actually
-    // visible screen area directly and pads the root's bottom by exactly
-    // the keyboard's height ourselves, so the input bar is guaranteed
-    // visible above the keyboard regardless of that platform quirk. Scoped
-    // to isSheet only — the fullscreen Activity host's ADJUST_RESIZE
-    // already works correctly on its own and doesn't need this.
-    private void setupKeyboardAwarePadding(View root) {
-        final android.graphics.Rect visibleFrame = new android.graphics.Rect();
-        final int[] lastKeypadHeight = {0};
-        keyboardLayoutListener = () -> {
-            if (!isAdded() || fragmentRoot == null) return;
-            View decor = fragmentRoot.getRootView();
-            decor.getWindowVisibleDisplayFrame(visibleFrame);
-            int screenHeight = decor.getHeight();
-            if (screenHeight <= 0) return;
-            int gap = screenHeight - visibleFrame.bottom;
-            // Heuristic: only treat a large gap as "keyboard open" — filters
-            // out normal status/nav-bar insets, which are much smaller.
-            int keypadHeight = gap > screenHeight * 0.15 ? gap : 0;
-            if (keypadHeight != lastKeypadHeight[0]) {
-                lastKeypadHeight[0] = keypadHeight;
-                fragmentRoot.setPadding(fragmentRoot.getPaddingLeft(), fragmentRoot.getPaddingTop(),
-                                         fragmentRoot.getPaddingRight(), keypadHeight);
-            }
-        };
-        root.getViewTreeObserver().addOnGlobalLayoutListener(keyboardLayoutListener);
+    // ── Bottom inset (SHEET host only) ───────────────────────────────────────
+    // Pushed in directly by ReelCommentSheetFragment, which captures the
+    // real IME + navigation-bar insets at the dialog's decor view (the very
+    // top of the window's view hierarchy) and calls this instead of relying
+    // on WindowInsets dispatch reaching all the way down to this fragment's
+    // own root. That dispatch used to silently return nothing here — several
+    // views up the chain (CoordinatorLayout, Material's own
+    // design_bottom_sheet handling) can consume insets for their own layout
+    // before a plain OnApplyWindowInsetsListener this far down ever sees
+    // them — which is why the input bar previously sat behind the 3-button/
+    // gesture navigation bar at rest instead of padded above it.
+    public void applyBottomInset(int bottomInsetPx) {
+        if (fragmentRoot == null) return;
+        int bottom = Math.max(0, bottomInsetPx);
+        fragmentRoot.setPadding(fragmentRoot.getPaddingLeft(), fragmentRoot.getPaddingTop(),
+                                 fragmentRoot.getPaddingRight(), bottom);
     }
 
     private void showKeyboard(View v) {

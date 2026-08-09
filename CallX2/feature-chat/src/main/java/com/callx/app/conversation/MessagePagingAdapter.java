@@ -1357,7 +1357,7 @@ public class MessagePagingAdapter
             // the same 2dp/2dp via RecyclerView item margins instead
             // (onMeasure's totalHeight has no room for outer spacing, so
             // margin — not padding — is the right lever here).
-            int vGap = Math.round(5 * parent.getContext().getResources().getDisplayMetrics().density);
+            int vGap = Math.round(2 * parent.getContext().getResources().getDisplayMetrics().density);
             cvLp.topMargin = vGap;
             cvLp.bottomMargin = vGap;
             cv.setLayoutParams(cvLp);
