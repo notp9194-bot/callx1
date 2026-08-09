@@ -20,8 +20,10 @@
         <item name="colorOnSurfaceVariant">@color/text_secondary</item>
 
         <!-- FIX (green cast on elevated cards) — see app/values/themes.xml
-             for the full explanation. -->
-        <item name="colorSurfaceTint">@color/surface_input</item>
+             for the full explanation. Real attr is elevationOverlayColor,
+             not "colorSurfaceTint" (not a real Material Components
+             attribute — using it fails AAPT resource linking). -->
+        <item name="elevationOverlayColor">@color/surface_input</item>
 
         <!-- Status bar / nav bar -->
         <item name="android:statusBarColor">@color/surface_bg</item>

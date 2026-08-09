@@ -20,9 +20,12 @@
         <item name="colorOnSurfaceVariant">@color/text_secondary</item>
 
         <!-- FIX (green cast on elevated cards) — see values/themes.xml for
-             the full explanation. Dark theme equivalent: pin the tint to
-             the dark card surface color instead of white. -->
-        <item name="colorSurfaceTint">@color/surface_input</item>
+             the full explanation. Real attr is elevationOverlayColor, not
+             "colorSurfaceTint" (which doesn't exist in Material Components
+             and causes an AAPT resource-linking failure). Dark theme
+             equivalent: pin the overlay to the dark card surface color
+             instead of white. -->
+        <item name="elevationOverlayColor">@color/surface_input</item>
 
         <!-- Status bar / nav bar -->
         <item name="android:statusBarColor">@color/surface_bg</item>
