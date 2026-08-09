@@ -65,11 +65,67 @@ public class ChatSecurityBottomSheet extends BottomSheetDialogFragment {
         secMgr = new SecurityManager(requireContext());
 
         setupToggles(v);
+        setupChatLockToggle(v);
         setupVisibilityRows(v);
         setupDisappearingMessages(v);
         setupEncryptionRow(v);
         setupLinkedDevicesRow(v);
         setupFullSettingsButton(v);
+    }
+
+    // ── Chat Lock (per-chat fingerprint/PIN gate) ───────────────────────────
+
+    private void setupChatLockToggle(View v) {
+        androidx.appcompat.widget.SwitchCompat swLock = v.findViewById(R.id.sw_chat_lock);
+        View row = v.findViewById(R.id.row_chat_lock);
+        TextView tvDesc = v.findViewById(R.id.tv_chat_lock_desc);
+        if (swLock == null || row == null) return;
+
+        String chatId = getArguments() != null ? getArguments().getString(ARG_PARTNER_UID) : null;
+        if (chatId == null || chatId.isEmpty()) {
+            row.setVisibility(View.GONE);
+            return;
+        }
+
+        com.callx.app.lock.ChatLockManager lockMgr = com.callx.app.lock.ChatLockManager.getInstance(requireContext());
+        // setOnClickListener (not setOnCheckedChangeListener) below, so this
+        // initial setChecked() never fires the toggle handler.
+        swLock.setChecked(lockMgr.isLocked(chatId));
+        if (tvDesc != null) {
+            tvDesc.setText(lockMgr.isLocked(chatId)
+                    ? "Locked — unlock with fingerprint, face, or device PIN"
+                    : "Lock this chat with fingerprint or PIN");
+        }
+
+        View.OnClickListener toggle = x -> {
+            boolean wantLocked = !lockMgr.isLocked(chatId);
+            androidx.fragment.app.FragmentActivity act = getActivity();
+            if (act == null) return;
+            // Require the device credential before flipping the lock either
+            // way — matches WhatsApp (turning Chat Lock off needs auth too,
+            // since anyone holding the phone unlocked could otherwise switch
+            // it off and read a locked chat).
+            com.callx.app.lock.ChatLockGate.authenticate(act,
+                    () -> {
+                        lockMgr.setLocked(chatId, wantLocked);
+                        swLock.setChecked(wantLocked);
+                        if (tvDesc != null) {
+                            tvDesc.setText(wantLocked
+                                    ? "Locked — unlock with fingerprint, face, or device PIN"
+                                    : "Lock this chat with fingerprint or PIN");
+                        }
+                        toast(wantLocked ? "Chat locked" : "Chat unlocked");
+                    },
+                    () -> { /* cancelled — leave switch as-is */ });
+        };
+        row.setOnClickListener(toggle);
+        swLock.setOnClickListener(v2 -> {
+            // Revert the switch's own visual flip immediately — the real
+            // state change only happens after successful auth above, driven
+            // by lockMgr, not by the switch's internal toggle state.
+            swLock.setChecked(lockMgr.isLocked(chatId));
+            toggle.onClick(v2);
+        });
     }
 
     // ── Linked Devices (WhatsApp-Web-style companion sessions) ─────────────

@@ -510,6 +510,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             finish(); return;
         }
 
+        // Chat Lock — if this 1:1 chat is locked, block the screen behind a
+        // biometric/PIN gate before anything else. The rest of onCreate
+        // still runs underneath (messages load in the background) but stay
+        // hidden/untouchable until ChatLockGate reports success; cancelling
+        // finishes the Activity so a locked chat is never left visible.
+        com.callx.app.lock.ChatLockGate.attachIfLocked(this, binding.getRoot(),
+                partnerUid, partnerName, new com.callx.app.lock.ChatLockGate.UnlockCallback() {
+                    @Override public void onUnlocked() { /* overlay removed itself */ }
+                    @Override public void onCancelled() { finish(); }
+                });
+
         // E2EE: kick off the X3DH handshake / resume the Double Ratchet
         // session for this partner in the background as soon as we know who
         // we're chatting with. Cheap no-op if a session already exists —
@@ -1016,6 +1027,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             Glide.with(this).clear(t);
         }
         activePreloadTargets.clear();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // Chat Lock: leaving a locked chat re-locks it — the next onCreate
+        // (or a fresh attachIfLocked call) will demand auth again. Only
+        // clears the in-memory session flag; the encrypted locked-chat-ids
+        // set itself is untouched.
+        if (partnerUid != null && !partnerUid.isEmpty()) {
+            com.callx.app.lock.ChatLockGate.onHostStopped(partnerUid);
+        }
     }
 
     @Override

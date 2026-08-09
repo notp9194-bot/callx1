@@ -86,10 +86,26 @@ public class PrivacyDirectDialog extends BottomSheetDialogFragment {
         LinearLayout rowLock = root.findViewById(R.id.row_pd_lock);
         if (rowLock != null) {
             rowLock.setOnClickListener(v -> {
-                dismiss();
-                Toast.makeText(requireContext(),
-                    "Chat locked for " + userName, Toast.LENGTH_SHORT).show();
-                // TODO: integrate AppLockManager per-chat lock
+                if (userId == null || userId.isEmpty()) { dismiss(); return; }
+                Activity act = getActivity();
+                if (!(act instanceof androidx.fragment.app.FragmentActivity)) { dismiss(); return; }
+                androidx.fragment.app.FragmentActivity fa = (androidx.fragment.app.FragmentActivity) act;
+                com.callx.app.lock.ChatLockManager lockMgr =
+                        com.callx.app.lock.ChatLockManager.getInstance(requireContext());
+                boolean wantLocked = !lockMgr.isLocked(userId);
+                // Confirm identity before flipping the lock either way —
+                // same reasoning as ChatSecurityBottomSheet's Chat Lock
+                // toggle: switching it off shouldn't be a single free tap.
+                com.callx.app.lock.ChatLockGate.authenticate(fa,
+                    () -> {
+                        lockMgr.setLocked(userId, wantLocked);
+                        dismiss();
+                        Toast.makeText(requireContext(),
+                            wantLocked ? "Chat locked for " + userName
+                                       : "Chat unlocked for " + userName,
+                            Toast.LENGTH_SHORT).show();
+                    },
+                    () -> dismiss());
             });
         }
 

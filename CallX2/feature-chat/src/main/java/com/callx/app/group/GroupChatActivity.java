@@ -332,6 +332,14 @@ public class GroupChatActivity extends AppCompatActivity
         if (groupId == null || FirebaseAuth.getInstance().getCurrentUser() == null) {
             finish(); return;
         }
+
+        // Chat Lock — same gate as 1:1 ChatActivity, keyed by groupId.
+        com.callx.app.lock.ChatLockGate.attachIfLocked(this, binding.getRoot(),
+                groupId, groupName, new com.callx.app.lock.ChatLockGate.UnlockCallback() {
+                    @Override public void onUnlocked() { /* overlay removed itself */ }
+                    @Override public void onCancelled() { finish(); }
+                });
+
         currentUid  = FirebaseUtils.getCurrentUid();
         currentName = FirebaseUtils.getCurrentName();
         groupMessagesRef = FirebaseUtils.getGroupMessagesRef(groupId);
@@ -666,6 +674,15 @@ public class GroupChatActivity extends AppCompatActivity
         attachMediaExecutor.shutdownNow();
 
         super.onDestroy();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // Chat Lock: leaving a locked group re-locks it, same as 1:1 ChatActivity.
+        if (groupId != null && !groupId.isEmpty()) {
+            com.callx.app.lock.ChatLockGate.onHostStopped(groupId);
+        }
     }
 
     @Override

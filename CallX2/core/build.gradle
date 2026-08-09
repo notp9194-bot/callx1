@@ -42,6 +42,11 @@ dependencies {
     // NotificationReplyWorker live here). Same fix as :app / :feature-reels.
     implementation 'com.google.guava:guava:31.1-android'
     implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+    // Chat Lock (per-chat fingerprint/PIN gate) — BiometricPrompt lives in
+    // ChatLockGate so both :app and :feature-chat can reuse the same gate
+    // without a circular module dependency (AppLockManager stays in :app).
+    implementation 'androidx.biometric:biometric:1.1.0'
+    implementation 'androidx.fragment:fragment:1.6.2'
 
     implementation platform('com.google.firebase:firebase-bom:32.7.0')
     implementation 'com.google.firebase:firebase-auth'
