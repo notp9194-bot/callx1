@@ -88,6 +88,14 @@ public class ReelPlayerController {
     // ── Player state ─────────────────────────────────────────────────────────
     private ExoPlayer  player;
     private boolean    isMuted    = false;
+    /** True only while paused because the user explicitly tapped to pause
+     *  (togglePlayPause()) — NOT during a transient stall, buffering blip,
+     *  or the brief isPlaying=false moment ExoPlayer can report mid
+     *  REPEAT_MODE_ONE loop-restart / the STATE_ENDED safety-net's own
+     *  seekTo(0)+play(). onIsPlayingChanged() only forwards to the bottom
+     *  nav/top bar visibility bridge when this is true — see that listener
+     *  for the full explanation of the bug this guards against. */
+    private boolean    isUserPaused = false;
     private int        speedIndex = 1;
     /** True after Media3 has delivered an actual decoded frame to the surface. */
     private boolean    firstFrameRendered = false;
@@ -416,6 +424,7 @@ public class ReelPlayerController {
         Context ctx = delegate.requireContext();
 
         firstFrameRendered = false;
+        isUserPaused = false; // fresh reel — never starts in a "user paused" state
 
         // Progressive loading: show thumbnail instantly while video buffers
         if (ivThumb != null && reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
@@ -702,28 +711,46 @@ public class ReelPlayerController {
                 if (!delegate.isAdded()) return;
                 if (playing) {
                     progressBuffering.setVisibility(View.GONE);
+                    // Any resumed playback (tap-resume, or just genuinely
+                    // still playing) means we're no longer in a user-paused
+                    // state — clear it so a later transient false blip
+                    // doesn't get mistaken for one.
+                    isUserPaused = false;
                 }
                 if (btnMute != null) {
                     btnMute.setVisibility(playing ? View.GONE : View.VISIBLE);
                 }
-                // BUG FIX: a brief rebuffer/stall while the comments sheet is
-                // open (e.g. triggered by the extra scroll/network/Glide load
-                // contention from scrolling the comment list) flips `playing`
-                // to false for a moment even though the user never paused
-                // anything. Previously that unconditionally called
-                // onReelPlaybackStateChanged(false), which pops the app's own
-                // bottom nav + top bar back into view — and since the sheet's
-                // dialog window only covers the screen from its docked video
-                // zone down, that reappeared nav bar was visible right under
-                // the sheet instead of staying hidden behind it. Skip the
-                // notification entirely while docked (comments sheet open);
-                // isDocked() only goes true once the sheet actually starts
-                // covering the video, so ordinary full-screen playback still
-                // reacts to real pause/stall events exactly as before.
-                if (delegate.isCurrentlyVisible() && !isDocked()) {
-                    Fragment parent = delegate.getParentFragment();
-                    if (parent instanceof ReelsFragment) {
-                        ((ReelsFragment) parent).onReelPlaybackStateChanged(playing);
+                // BUG FIX: only forward to the bottom-nav/top-bar visibility
+                // bridge when this reflects a genuine user-initiated pause
+                // (isUserPaused, set exclusively by togglePlayPause() — the
+                // single-tap pause gesture) or a resume. Previously this
+                // fired on EVERY isPlaying flip, including the transient
+                // isPlaying=false ExoPlayer can briefly report mid loop —
+                // REPEAT_MODE_ONE's own auto-restart, or the STATE_ENDED
+                // safety-net below doing its own seekTo(0)+play() — which is
+                // exactly why the bottom nav could pop back into view on an
+                // ordinary reel replay the user never paused. Nav should
+                // only ever reappear when the user actually taps to pause.
+                if (playing || isUserPaused) {
+                    // BUG FIX: a brief rebuffer/stall while the comments sheet is
+                    // open (e.g. triggered by the extra scroll/network/Glide load
+                    // contention from scrolling the comment list) flips `playing`
+                    // to false for a moment even though the user never paused
+                    // anything. Previously that unconditionally called
+                    // onReelPlaybackStateChanged(false), which pops the app's own
+                    // bottom nav + top bar back into view — and since the sheet's
+                    // dialog window only covers the screen from its docked video
+                    // zone down, that reappeared nav bar was visible right under
+                    // the sheet instead of staying hidden behind it. Skip the
+                    // notification entirely while docked (comments sheet open);
+                    // isDocked() only goes true once the sheet actually starts
+                    // covering the video, so ordinary full-screen playback still
+                    // reacts to real pause/stall events exactly as before.
+                    if (delegate.isCurrentlyVisible() && !isDocked()) {
+                        Fragment parent = delegate.getParentFragment();
+                        if (parent instanceof ReelsFragment) {
+                            ((ReelsFragment) parent).onReelPlaybackStateChanged(playing);
+                        }
                     }
                 }
             }
@@ -913,6 +940,11 @@ public class ReelPlayerController {
     public void togglePlayPause() {
         if (player == null) { startPlayback(); showPlayPauseIndicator(true); return; }
         boolean nowPausing = player.isPlaying();
+        // Set BEFORE pause()/play() — onIsPlayingChanged() reads this
+        // synchronously off the same flag once ExoPlayer's callback fires,
+        // so the nav-visibility bridge sees the correct "this was a real
+        // user tap" intent rather than guessing from the state transition.
+        isUserPaused = nowPausing;
         if (nowPausing) player.pause();
         else player.play();
         showPlayPauseIndicator(!nowPausing);
@@ -1391,7 +1423,10 @@ public class ReelPlayerController {
         Log.w(TAG, "Retrying playback without forced codec transform");
         progressHandler.post(() -> {
             if (!delegate.isAdded() || delegate.getContext() == null) return;
-            boolean wasPlaying = player != null && player.isPlaying();
+            // Same isPlaying()-during-stall pitfall as switchToQuality() — use
+            // playWhenReady (play intent) instead, since a player mid-error
+            // can also be mid-stall, where isPlaying() reads false regardless.
+            boolean wasPlaying = player != null && player.getPlayWhenReady();
             if (player != null) {
                 if (loopSeekHelper != null) { loopSeekHelper.detach(); loopSeekHelper = null; }
                 player.release();
@@ -1609,7 +1644,19 @@ public class ReelPlayerController {
         }
 
         long resumePos  = player != null ? player.getCurrentPosition() : 0;
-        boolean wasPlay = player != null && player.isPlaying();
+        // BUG FIX: was `player.isPlaying()` — that's false not just when
+        // paused, but ALSO during a transient STATE_BUFFERING stall even
+        // with playWhenReady still true. downgradeQuality()/switchToQuality()
+        // is most often called BECAUSE of a stall (onPersistentStall), i.e.
+        // exactly the moment isPlaying() is guaranteed to read false — so
+        // the rebuilt player below was silently getting setPlayWhenReady(false)
+        // and staying paused after a stall-triggered downgrade, with no
+        // visible error, until the user tapped to resume manually. This
+        // could also coincide with the loop-restart's own brief re-buffer at
+        // position 0, matching reports of "the reel finishes and sometimes
+        // doesn't auto-replay, needs a second play". getPlayWhenReady()
+        // reflects actual play *intent* regardless of transient buffering.
+        boolean wasPlay = player != null && player.getPlayWhenReady();
 
         // ── Inline teardown WITHOUT calling releasePlayer() ──────────────────
         // releasePlayer() calls recordWatchHistory() for the final position,
