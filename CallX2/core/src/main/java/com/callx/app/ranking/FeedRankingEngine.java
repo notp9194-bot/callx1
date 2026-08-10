@@ -5,7 +5,6 @@ import androidx.annotation.Nullable;
 
 import com.callx.app.models.ReelModel;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.Iterator;
@@ -274,8 +273,16 @@ public final class FeedRankingEngine {
     private static List<ReelModel> diversify(List<Scored> ranked, int creatorWindow, int mediaWindow) {
         LinkedList<Scored> pool = new LinkedList<>(ranked);
         List<ReelModel> result = new ArrayList<>(pool.size());
-        Deque<String> recentUids = new ArrayDeque<>();
-        Deque<String> recentMediaTypes = new ArrayDeque<>();
+        // FIX (NPE): ArrayDeque throws NullPointerException on addLast(null).
+        // pickFirstSatisfying() above explicitly treats a null reel.uid (or
+        // null mediaType) as a valid, allowed value ("uid == null ||
+        // !recentUids.contains(uid)") — any reel missing that field is a
+        // real, expected case, not a data error — so this deque must accept
+        // nulls too. LinkedList's Deque implementation does; ArrayDeque's
+        // doesn't. Same interface, every method used below (addLast,
+        // removeFirst, size, peekLast, contains, iteration) is identical.
+        Deque<String> recentUids = new LinkedList<>();
+        Deque<String> recentMediaTypes = new LinkedList<>();
 
         while (!pool.isEmpty()) {
             Scored pick = pickFirstSatisfying(pool, recentUids, recentMediaTypes, mediaWindow, true);
