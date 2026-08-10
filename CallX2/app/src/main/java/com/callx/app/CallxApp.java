@@ -409,6 +409,7 @@ public class CallxApp extends Application {
                 // this only disables the instant-render fast path until chats
                 // are reopened (which re-primes it) — no data loss.
                 com.callx.app.cache.LastMessagesCache.getInstance().trimMemory(level);
+                com.callx.app.cache.ReelFirstFrameCache.get(this).trimMemory();
                 Log.w(TAG, "onTrimMemory COMPLETE — full memory cache + video caches cleared");
 
             } else if (level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE) {

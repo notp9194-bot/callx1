@@ -2,17 +2,20 @@ package com.callx.app.cache;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Matrix;
 import android.media.MediaMetadataRetriever;
 import android.util.Log;
 import android.util.LruCache;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * ReelFirstFrameCache — PERF advance #4: "first-frame pre-render".
+ * ReelFirstFrameCache — PERF advance #4: "first-frame pre-render", v2.
  *
  * Even with the player fully prewarmed (see prewarmPlayer()/ExoPlayerPool),
  * there's a final micro-gap on swipe between the static thumbnail
@@ -23,34 +26,49 @@ import java.util.concurrent.Executors;
  * instead of a separately-uploaded static image — so the transition into
  * real playback is pixel-identical, not just fast.
  *
- * This class does the same: MediaMetadataRetriever.getFrameAtTime(0) on a
- * background thread, decoded at a small target size (matches the ivThumb
- * override(480,853) size already used for Glide thumbs — no point caching
- * bigger), result kept in a small in-memory LRU. ReelPlayerController
- * swaps ivThumb's bitmap to this decoded frame (when ready) instead of the
- * Glide-loaded static thumbnail, so there's no visible jump when playback
- * actually starts.
+ * v2 advances over the original pass:
+ *  ✅ Decodes from a LOCAL extracted file (ReelCacheManager.extractCachedVideoToFile)
+ *     instead of handing MediaMetadataRetriever the raw network URL. The
+ *     bytes are already sitting in ExoPlayer's SimpleCache on disk — reading
+ *     them straight from there is a plain file read, not a second HTTP
+ *     connection to the CDN. Faster, doesn't compete with playback for
+ *     network/socket resources, and works even if the CDN throttles
+ *     concurrent connections per client.
+ *  ✅ Rotation-safe: reads METADATA_KEY_VIDEO_ROTATION and manually rotates
+ *     the decoded bitmap. getFrameAtTime() auto-applies rotation on most
+ *     OS versions/vendors but not reliably on all of them — a portrait
+ *     duet/remix recorded with a 90°/270° rotation tag could otherwise
+ *     decode sideways while ExoPlayer (which always respects the tag)
+ *     renders it upright, producing exactly the kind of visible "jump"
+ *     this whole cache exists to prevent.
+ *  ✅ Disk-persisted (small JPEGs, ~30-60KB each) — survives app restarts.
+ *     A fresh cold start still benefits immediately for any reel whose
+ *     video bytes are still in ReelCacheManager's on-disk SimpleCache from
+ *     a previous session, instead of every session starting from zero.
+ *  ✅ Lower byte-gate (150KB vs the old 400KB) — safe to lower now that the
+ *     decode reads from a local file extract rather than triggering network
+ *     I/O directly, so there's no bandwidth/battery cost being risked by
+ *     trying earlier.
  *
- * Deliberately conservative about when it runs: only attempts a decode
- * when the video is already substantially cached locally (checked via
- * ReelCacheManager) — MediaMetadataRetriever.setDataSource() on a cold
- * remote URL can itself take a real network round trip, which would
- * defeat the purpose and burn data/battery for a reel that may never be
- * watched.
+ * ReelPlayerController / HomeFragment swap ivThumb/thumbView's bitmap to
+ * whatever this returns (when ready) instead of the Glide-loaded static
+ * thumbnail, so there's no visible jump when playback actually starts.
  */
 public final class ReelFirstFrameCache {
 
-    private static final String TAG            = "FirstFrameCache";
-    private static final int    MAX_ENTRIES     = 6;   // small — these are decode-once, short-lived hints
-    private static final int    TARGET_WIDTH_PX = 480; // matches ReelPlayerController's ivThumb override()
-    // Same threshold ReelPlayerController.MIN_CACHED_BYTES uses for
-    // "is this reel's video substantially local already" checks.
-    private static final long   MIN_CACHED_BYTES_FOR_DECODE = 400_000L; // ~400KB
+    private static final String TAG              = "FirstFrameCache";
+    private static final int    MAX_MEM_ENTRIES   = 12;  // in-memory hot set
+    private static final int    TARGET_WIDTH_PX   = 480; // matches ReelPlayerController's ivThumb override()
+    // Lowered vs v1 (was 400KB) — decode now reads a local file extract, not
+    // the network, so there's no bandwidth cost to attempting earlier. Just
+    // needs enough bytes to contain the first keyframe/GOP.
+    private static final long   MIN_CACHED_BYTES_FOR_DECODE = 150_000L; // ~150KB
+    private static final int    JPEG_QUALITY      = 82;
 
     private static volatile ReelFirstFrameCache instance;
 
     private final Context appCtx;
-    private final LruCache<String, Bitmap> cache = new LruCache<>(MAX_ENTRIES);
+    private final LruCache<String, Bitmap> memCache = new LruCache<>(MAX_MEM_ENTRIES);
     private final Set<String> inFlight = new HashSet<>();
     private final ExecutorService executor = Executors.newFixedThreadPool(2, r -> {
         Thread t = new Thread(r, "first-frame-decode");
@@ -75,12 +93,32 @@ public final class ReelFirstFrameCache {
         void onFrameReady(Bitmap bitmap);
     }
 
-    /** Non-blocking cache lookup — returns immediately, null if not (yet) decoded.
-     *  Keyed the same way decodeFirstFrameAsync() was called — pass the same
-     *  cacheKey (typically reel.reelId; see below) used there. */
+    /**
+     * Non-blocking cache lookup — returns immediately, null if not (yet)
+     * decoded. Checks the in-memory hot set first, then falls back to a
+     * synchronous disk read of the persisted JPEG (cheap — these are small,
+     * pre-downscaled files, typically <60KB). Keyed the same way
+     * decodeFirstFrameAsync() was called — pass the same cacheKey
+     * (typically reel.reelId).
+     */
     public Bitmap getCached(String cacheKey) {
         if (cacheKey == null) return null;
-        return cache.get(cacheKey);
+        Bitmap mem = memCache.get(cacheKey);
+        if (mem != null) return mem;
+
+        File diskFile = diskFileFor(cacheKey);
+        if (diskFile.exists()) {
+            try {
+                Bitmap fromDisk = android.graphics.BitmapFactory.decodeFile(diskFile.getAbsolutePath());
+                if (fromDisk != null) {
+                    memCache.put(cacheKey, fromDisk);
+                    return fromDisk;
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "getCached: disk decode failed for " + cacheKey + ": " + e.getMessage());
+            }
+        }
+        return null;
     }
 
     /**
@@ -92,10 +130,8 @@ public final class ReelFirstFrameCache {
      * Cached under videoUrl directly — kept for callers that don't have a
      * stabler key handy. Prefer the (cacheKey, mediaUrl) overload below when
      * the same reel can resolve to different playback URLs (different
-     * quality picks, HLS vs progressive) across calls, e.g.
-     * ReelPlayerController re-preparing after a quality change — otherwise
-     * a decode done ahead of time under the old URL is a cache miss under
-     * the new one.
+     * quality picks, HLS vs progressive) across calls — otherwise a decode
+     * done ahead of time under the old URL is a cache miss under the new one.
      */
     public void decodeFirstFrameAsync(String videoUrl, Callback callback) {
         decodeFirstFrameAsync(videoUrl, videoUrl, callback);
@@ -111,7 +147,7 @@ public final class ReelFirstFrameCache {
     public void decodeFirstFrameAsync(String cacheKey, String mediaUrl, Callback callback) {
         if (cacheKey == null || cacheKey.isEmpty() || mediaUrl == null || mediaUrl.isEmpty()) return;
 
-        Bitmap existing = cache.get(cacheKey);
+        Bitmap existing = getCached(cacheKey);
         if (existing != null) {
             if (callback != null) callback.onFrameReady(existing);
             return;
@@ -122,41 +158,89 @@ public final class ReelFirstFrameCache {
             inFlight.add(cacheKey);
         }
 
-        // Only worth attempting if the video is already substantially local
-        // — otherwise MediaMetadataRetriever would itself trigger a fresh
-        // network fetch, which defeats the point of a "pre-render".
-        if (ReelCacheManager.getCachedBytes(mediaUrl) < MIN_CACHED_BYTES_FOR_DECODE) {
-            synchronized (inFlight) { inFlight.remove(cacheKey); }
-            return;
-        }
-
         executor.submit(() -> {
             Bitmap frame = null;
-            MediaMetadataRetriever retriever = new MediaMetadataRetriever();
             try {
-                retriever.setDataSource(mediaUrl, new java.util.HashMap<>());
-                Bitmap raw = retriever.getFrameAtTime(0,
-                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
-                if (raw != null) {
-                    frame = downscale(raw, TARGET_WIDTH_PX);
-                    if (frame != raw) raw.recycle();
+                // Prefer reading straight off disk (ExoPlayer's SimpleCache,
+                // already backing this exact URL) over touching the network
+                // at all. extractCachedVideoToFile() sums the cached spans —
+                // returns null below MIN_CACHED_BYTES_FOR_DECODE worth, so
+                // this naturally also serves as the "substantially local"
+                // gate the old version applied separately.
+                if (!ReelCacheManager.isInitialized()
+                        || ReelCacheManager.getCachedBytes(mediaUrl) < MIN_CACHED_BYTES_FOR_DECODE) {
+                    return;
                 }
+                String localPath = ReelCacheManager.extractCachedVideoToFile(appCtx, mediaUrl, cacheKey);
+                if (localPath == null) return;
+
+                frame = decodeFirstFrame(localPath);
             } catch (Exception e) {
                 Log.w(TAG, "decodeFirstFrameAsync failed: " + e.getMessage());
             } finally {
-                try { retriever.release(); } catch (Exception ignored) {}
                 synchronized (inFlight) { inFlight.remove(cacheKey); }
             }
 
             if (frame != null) {
-                cache.put(cacheKey, frame);
+                final Bitmap f = frame;
+                memCache.put(cacheKey, f);
+                persistToDisk(cacheKey, f);
                 if (callback != null) {
-                    final Bitmap f = frame;
                     new android.os.Handler(android.os.Looper.getMainLooper())
                         .post(() -> callback.onFrameReady(f));
                 }
             }
         });
+    }
+
+    /** Decodes + rotation-corrects + downscales frame 0 from a local file path. */
+    private static Bitmap decodeFirstFrame(String localFilePath) {
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        try {
+            retriever.setDataSource(localFilePath);
+            Bitmap raw = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+            if (raw == null) return null;
+
+            int rotationDeg = 0;
+            try {
+                String rot = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
+                if (rot != null) rotationDeg = Integer.parseInt(rot);
+            } catch (Exception ignored) {}
+
+            Bitmap oriented = raw;
+            if (rotationDeg != 0) {
+                Matrix m = new Matrix();
+                m.postRotate(rotationDeg);
+                Bitmap rotated = Bitmap.createBitmap(raw, 0, 0, raw.getWidth(), raw.getHeight(), m, true);
+                if (rotated != raw) {
+                    raw.recycle();
+                    oriented = rotated;
+                }
+            }
+
+            Bitmap scaled = downscale(oriented, TARGET_WIDTH_PX);
+            if (scaled != oriented) oriented.recycle();
+            return scaled;
+        } finally {
+            try { retriever.release(); } catch (Exception ignored) {}
+        }
+    }
+
+    private File diskFileFor(String cacheKey) {
+        return new File(appCtx.getCacheDir(), "first_frame_" + safeFileName(cacheKey) + ".jpg");
+    }
+
+    private static String safeFileName(String key) {
+        return key.replaceAll("[^a-zA-Z0-9_-]", "_");
+    }
+
+    private void persistToDisk(String cacheKey, Bitmap bitmap) {
+        File out = diskFileFor(cacheKey);
+        try (FileOutputStream fos = new FileOutputStream(out)) {
+            bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, fos);
+        } catch (Exception e) {
+            Log.w(TAG, "persistToDisk failed for " + cacheKey + ": " + e.getMessage());
+        }
     }
 
     private static Bitmap downscale(Bitmap src, int targetWidth) {
@@ -166,7 +250,17 @@ public final class ReelFirstFrameCache {
         return Bitmap.createScaledBitmap(src, targetWidth, targetHeight, true);
     }
 
+    /**
+     * FIX #MEM — trimMemory hook, mirrors ReelCacheManager.trimMemory().
+     * Call from the same OS onTrimMemory() signal. Only releases the
+     * in-memory hot set; disk-persisted frames are untouched (cheap to
+     * re-read on demand, and useful across the low-memory event itself).
+     */
+    public void trimMemory() {
+        memCache.evictAll();
+    }
+
     public void clear() {
-        cache.evictAll();
+        memCache.evictAll();
     }
 }

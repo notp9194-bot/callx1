@@ -46,4 +46,13 @@
     <color name="view_all_reels_bg">#0D0D0D</color>
     <color name="view_all_reels_ripple">#3300F260</color>
     <color name="view_all_reels_stroke">#4D00F260</color>
+
+    <!-- ── Modern Reels bottom nav (see bg_reel_bottom_nav.xml / shape_reel_nav.xml) ── -->
+    <!-- Translucent brand-tinted pill behind the selected tab's icon. -->
+    <color name="reel_nav_indicator">#3D5B5BF6</color>
+    <!-- Full-opacity icon color for the selected tab. -->
+    <color name="reel_nav_icon_selected">#FFFFFFFF</color>
+    <!-- Dimmed icon color for unselected tabs — the "modern" muted-vs-highlighted
+         contrast in place of every icon being the same flat white. -->
+    <color name="reel_nav_icon_unselected">#8CFFFFFF</color>
 </resources>

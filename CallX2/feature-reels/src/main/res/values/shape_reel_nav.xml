@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Fully-rounded pill behind the selected bottom-nav icon — the
+         "modern" M3 active-indicator treatment (large corner radius = pill,
+         Instagram/TikTok-style highlight instead of a plain color-change). -->
+    <style name="ShapeAppearance.ReelNav.Indicator" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+
+    <style name="Widget.ReelNav.ActiveIndicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
+        <item name="android:color">@color/reel_nav_indicator</item>
+        <item name="shapeAppearance">@style/ShapeAppearance.ReelNav.Indicator</item>
+        <item name="android:width">40dp</item>
+        <item name="android:height">32dp</item>
+    </style>
+
+</resources>

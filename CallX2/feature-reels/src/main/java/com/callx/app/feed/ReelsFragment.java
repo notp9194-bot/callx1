@@ -351,6 +351,7 @@ public class ReelsFragment extends Fragment {
         // ── Reels bottom navigation ────────────────────────────────────────
         reelBottomNav.setOnItemSelectedListener(item -> {
             int id = item.getItemId();
+            updateNavIconTints(id);
 
             if (id == R.id.reel_nav_home) {
                 // Show the Home tab overlay (HomeFragment)
@@ -425,8 +426,8 @@ public class ReelsFragment extends Fragment {
         reelBottomNav.setSelectedItemId(R.id.reel_nav_feed);
 
         // Since itemIconTint="@null" in XML (needed so creator avatar isn't tinted white),
-        // manually apply white tint to all non-creator menu items here.
-        applyWhiteTintToNavIcons();
+        // manually apply the modern selected/unselected tint treatment here.
+        updateNavIconTints(R.id.reel_nav_feed);
 
         // FIX #3: Load current user's avatar and set it as the Creator tab icon
         // post() defers until after the view is fully laid out so menu items are ready
@@ -471,15 +472,26 @@ public class ReelsFragment extends Fragment {
      * Called once from onCreateView and refreshed on each onStart.
      */
     /**
-     * Applies white tint to all bottom nav icons except the Creator tab.
-     * Required because itemIconTint is set to @null in XML so that the creator
-     * avatar bitmap is not washed out with a white overlay.
+     * Modern selected/unselected icon treatment for the Reels bottom nav —
+     * dims non-active tabs and keeps the active one at full opacity, paired
+     * with the pill-shaped active-indicator (see Widget.ReelNav.ActiveIndicator
+     * in shape_reel_nav.xml) behind it. Replaces the old flat "every icon is
+     * the same solid white, all the time" look.
+     *
+     * Still skips the creator tab's icon — that slot holds the user's own
+     * avatar bitmap (loadCreatorAvatar()), not a tintable vector, and must
+     * stay untinted so the photo isn't washed out. The active-indicator pill
+     * still renders behind it when selected, so it's not left without any
+     * selected-state feedback.
      */
-    private void applyWhiteTintToNavIcons() {
+    private void updateNavIconTints(int selectedId) {
         if (reelBottomNav == null || getContext() == null) return;
-        android.content.res.ColorStateList white =
+        android.content.res.ColorStateList selectedTint =
             android.content.res.ColorStateList.valueOf(
-                ContextCompat.getColor(requireContext(), com.callx.app.reels.R.color.white));
+                ContextCompat.getColor(requireContext(), R.color.reel_nav_icon_selected));
+        android.content.res.ColorStateList unselectedTint =
+            android.content.res.ColorStateList.valueOf(
+                ContextCompat.getColor(requireContext(), R.color.reel_nav_icon_unselected));
         int[] nonCreatorIds = {
             R.id.reel_nav_home,
             R.id.reel_nav_feed,
@@ -489,10 +501,11 @@ public class ReelsFragment extends Fragment {
         for (int id : nonCreatorIds) {
             android.view.MenuItem item = reelBottomNav.getMenu().findItem(id);
             if (item != null && item.getIcon() != null) {
-                item.getIcon().setTintList(white);
+                item.getIcon().setTintList(id == selectedId ? selectedTint : unselectedTint);
             }
         }
-        // Creator tab: clear any tint so the avatar shows in true color
+        // Creator tab: clear any tint so the avatar shows in true color —
+        // the active-indicator pill alone communicates its selected state.
         android.view.MenuItem creatorItem = reelBottomNav.getMenu().findItem(R.id.reel_nav_creator);
         if (creatorItem != null && creatorItem.getIcon() != null) {
             creatorItem.getIcon().setTintList(null);
@@ -695,8 +708,10 @@ public class ReelsFragment extends Fragment {
     @Override
     public void onStart() {
         super.onStart();
-        // Refresh icon tints (white for all, null for creator) then reload avatar
-        applyWhiteTintToNavIcons();
+        // Refresh icon tints (selected/unselected, null for creator) then reload avatar
+        int currentlySelected = reelBottomNav != null
+            ? reelBottomNav.getSelectedItemId() : R.id.reel_nav_feed;
+        updateNavIconTints(currentlySelected);
         // Refresh creator avatar whenever fragment comes to foreground
         loadCreatorAvatar();
 

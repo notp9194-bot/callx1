@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Modern "glass panel" background for the Reels bottom nav — replaces the
+  old flat android:background="#CC000000" solid bar.
+
+  Layered as:
+   1. A soft upward gradient scrim first, so the bar reads as an extension
+      of the video dimming rather than a hard-edged box sitting on top of it.
+   2. A near-opaque dark surface with gently rounded top corners + a hairline
+      top stroke — the "elevated glass panel" look modern short-form apps
+      use instead of Material's default flat bottom bar + drop shadow.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="linear"
+                android:angle="90"
+                android:startColor="#00000000"
+                android:endColor="#33000000" />
+        </shape>
+    </item>
+
+    <item android:top="6dp">
+        <shape android:shape="rectangle">
+            <solid android:color="#E6121212" />
+            <corners
+                android:topLeftRadius="20dp"
+                android:topRightRadius="20dp" />
+        </shape>
+    </item>
+
+    <!-- Hairline top divider — a single subtle light stroke instead of a
+         hard elevation shadow gives separation without looking heavy. -->
+    <item
+        android:top="6dp"
+        android:height="1dp">
+        <shape android:shape="rectangle">
+            <solid android:color="#1AFFFFFF" />
+            <corners
+                android:topLeftRadius="20dp"
+                android:topRightRadius="20dp" />
+        </shape>
+    </item>
+
+</layer-list>
