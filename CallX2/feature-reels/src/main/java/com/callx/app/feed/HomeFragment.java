@@ -111,6 +111,26 @@ public class HomeFragment extends Fragment {
     private ImageButton        btnNotifications;
     // ── Inline auto-play (single ExoPlayer shared across feed cards) ──
     private ExoPlayer          feedPlayer;
+    /** ★ Instant-play standby pool: two extra muted ExoPlayer instances that
+     *  pre-buffer the card AHEAD of and BEHIND whichever card is currently
+     *  active, so swapping either direction is just re-pointing a
+     *  PlayerView — no cold prepare/buffer wait either way (Instagram-style
+     *  scroll-up-to-rewatch is just as instant as scrolling forward). A
+     *  fixed 3-instance pool total (active + standbyNext + standbyPrev) —
+     *  players are demoted/promoted between roles rather than rebuilt, same
+     *  reuse principle as ExoPlayerPool for the Reels swipe feed. See
+     *  prepareStandbyNext()/prepareStandbyPrev()/attachPlayerToCard(). */
+    private ExoPlayer          standbyNextPlayer;
+    private int                standbyNextIndex = -1;
+    private String             standbyNextUrl   = null;
+    private ExoPlayer          standbyPrevPlayer;
+    private int                standbyPrevIndex = -1;
+    private String             standbyPrevUrl   = null;
+    /** Timestamp attachPlayerToCard() started at — consumed by
+     *  onRenderedFirstFrame() to measure real time-to-first-frame and feed
+     *  it into AdaptiveStreamingManager's existing QoE stats, same metric
+     *  the Reels swipe feed tracks. 0 = no measurement pending. */
+    private long                attachStartTimeMs = 0L;
     private NestedScrollView   scrollView;
     private final List<HomeFeedCard> feedCards = new ArrayList<>();
     private int                currentPlayingIndex = -1;
@@ -126,6 +146,10 @@ public class HomeFragment extends Fragment {
     private com.callx.app.cache.ReelVideoPreloader       videoPreloader;
     private com.callx.app.cache.ReelThumbnailPreloader   thumbPreloader;
     private com.callx.app.cache.ReelPredictivePreloader  predictivePreloader;
+    /** Manual view-virtualization for the feed's NestedScrollView — see class doc.
+     *  Unloads off-screen card bitmaps and pauses Glide during fling so image
+     *  decode work never competes with the scroll frame budget. */
+    private HomeFeedWindowManager feedWindowManager;
     /** The exact list of posts currently backing feedCards, index-aligned with it. */
     private List<ReelModel> currentFeedPosts = new ArrayList<>();
 
@@ -218,9 +242,43 @@ public class HomeFragment extends Fragment {
         View v = inflater.inflate(R.layout.fragment_home, container, false);
         bindViews(v);
         // ── Initialise the single shared ExoPlayer for inline feed playback ──
-        feedPlayer = new ExoPlayer.Builder(requireContext()).build();
-        feedPlayer.setRepeatMode(Player.REPEAT_MODE_OFF);
-        feedPlayer.addListener(new Player.Listener() {
+        // ★ Built via AdaptiveStreamingManager.buildBarePlayer() instead of a
+        // plain ExoPlayer.Builder() — gets the SAME network-tier-tuned
+        // LoadControl (short start buffer, e.g. ~800ms bufferForPlaybackMs on
+        // WiFi vs ExoPlayer's slower ~2500ms default) and shared
+        // THREAD_PRIORITY_DISPLAY playback thread the Reels swipe feed
+        // already uses for fast, low-latency start — Home's feed was
+        // previously left on generic defaults.
+        feedPlayer = com.callx.app.player.AdaptiveStreamingManager.get(requireContext()).buildBarePlayer();
+        configureFeedPlayerInstance(feedPlayer);
+        // ── v177: same preload feature Reels tab has ──────────────────────
+        videoPreloader      = new com.callx.app.cache.ReelVideoPreloader(requireContext());
+        thumbPreloader      = new com.callx.app.cache.ReelThumbnailPreloader(requireContext());
+        predictivePreloader = new com.callx.app.cache.ReelPredictivePreloader(requireContext());
+        feedWindowManager   = new HomeFeedWindowManager(scrollView, Glide.with(this));
+        setupListeners();
+        loadAllSections();
+        return v;
+    }
+
+    /**
+     * Applies the repeat-mode + end-of-reel listener every active feed
+     * player needs. feedPlayer and the two standby players swap roles
+     * repeatedly (see attachPlayerToCard's instant-play swap) — this must
+     * run once on EVERY ExoPlayer instance we build (here and in
+     * prepareStandbyNext/prepareStandbyPrev), not just the one that starts
+     * out as feedPlayer, or a promoted former-standby would silently play
+     * with no end-of-reel overlay and REPEAT_MODE_OFF unset.
+     *
+     * Also wires time-to-first-frame measurement: onRenderedFirstFrame only
+     * fires for an instance that's actually rendering to a Surface, which
+     * only ever happens for whichever instance is currently feedPlayer (the
+     * two standby instances are never PlayerView-attached), so this is safe
+     * to attach uniformly to all three pool instances.
+     */
+    private void configureFeedPlayerInstance(ExoPlayer player) {
+        player.setRepeatMode(Player.REPEAT_MODE_OFF);
+        player.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_ENDED && currentPlayingIndex >= 0
@@ -232,14 +290,20 @@ public class HomeFragment extends Fragment {
                     }
                 }
             }
+            @Override
+            public void onRenderedFirstFrame() {
+                // Consume once — attachStartTimeMs is reset to 0 by whichever
+                // call fires first, so a stray late callback on an old
+                // instance can't double-report.
+                if (attachStartTimeMs <= 0 || !isAdded()) return;
+                long ttffMs = System.currentTimeMillis() - attachStartTimeMs;
+                attachStartTimeMs = 0L;
+                try {
+                    com.callx.app.player.AdaptiveStreamingManager.get(requireContext())
+                        .persistQoeSession(0, 0, 0, 0, ttffMs);
+                } catch (Exception ignored) {}
+            }
         });
-        // ── v177: same preload feature Reels tab has ──────────────────────
-        videoPreloader      = new com.callx.app.cache.ReelVideoPreloader(requireContext());
-        thumbPreloader      = new com.callx.app.cache.ReelThumbnailPreloader(requireContext());
-        predictivePreloader = new com.callx.app.cache.ReelPredictivePreloader(requireContext());
-        setupListeners();
-        loadAllSections();
-        return v;
     }
 
     /**
@@ -394,8 +458,16 @@ public class HomeFragment extends Fragment {
                     // settle) since an always-on hardware layer just wastes
                     // GPU memory once the user is reading, not scrolling.
                     beginFeedScrollLayer();
+                    // ★ Pause all Glide decode/dispatch work for the duration
+                    // of the scroll — see HomeFeedWindowManager. Resumed, and
+                    // off-screen card bitmaps re-windowed, on the same settle
+                    // timer as the hardware-layer drop below.
+                    if (feedWindowManager != null) feedWindowManager.onScrollStarted();
                     if (scrollSettleRunnable != null) scrollHandler.removeCallbacks(scrollSettleRunnable);
-                    scrollSettleRunnable = this::endFeedScrollLayer;
+                    scrollSettleRunnable = () -> {
+                        endFeedScrollLayer();
+                        if (feedWindowManager != null) feedWindowManager.onScrollSettled();
+                    };
                     scrollHandler.postDelayed(scrollSettleRunnable, 180);
 
                     // ★ Instagram-style infinite scroll: once the user is
@@ -510,6 +582,15 @@ public class HomeFragment extends Fragment {
 
     /**
      * Detach the shared ExoPlayer from any previous card, then attach+play on the new one.
+     *
+     * ★ Instant-play swap: if prepareStandbyNext()/prepareStandbyPrev() already pre-buffered
+     * THIS exact card on the standby player (the common case when scrolling
+     * forward through the feed normally), we swap player instances instead
+     * of cold-starting — no setMediaSource+prepare+buffer wait, so playback
+     * starts as close to instantly as the decoder allows, matching the
+     * "already loading before you get there" feel of Instagram/Reels tabs.
+     * Falls back to the original cold-start path on a cache miss (fast
+     * scroll past the predicted next card, or scrolling backward).
      */
     private void attachPlayerToCard(int index) {
         if (!isAdded() || feedPlayer == null || index >= feedCards.size()) return;
@@ -521,6 +602,7 @@ public class HomeFragment extends Fragment {
         }
         currentPlayingIndex = index;
         HomeFeedCard card = feedCards.get(index);
+        attachStartTimeMs = System.currentTimeMillis(); // TTFF measurement start
 
         // ── v177: preload the next few cards' video + thumbnails ahead of
         // time, same as Reels tab does on every onPageSelected. Uses the
@@ -534,18 +616,33 @@ public class HomeFragment extends Fragment {
 
         if (card.videoUrl == null || card.videoUrl.isEmpty()) return;
         if (card.endOverlay != null) card.endOverlay.setVisibility(View.GONE);
+
+        com.callx.app.player.AdaptiveStreamingManager mgr =
+            com.callx.app.player.AdaptiveStreamingManager.get(requireContext());
+
+        ExoPlayer oldActive = feedPlayer;
+        if (standbyNextPlayer != null && standbyNextIndex == index && card.videoUrl.equals(standbyNextUrl)) {
+            // Pre-buffered ahead of time (forward scroll, the common case) — promote.
+            feedPlayer        = standbyNextPlayer;
+            standbyNextPlayer = oldActive;
+            standbyNextIndex  = -1;
+            standbyNextUrl    = null;
+        } else if (standbyPrevPlayer != null && standbyPrevIndex == index && card.videoUrl.equals(standbyPrevUrl)) {
+            // Pre-buffered ahead of time (scrolled back up to rewatch) — promote.
+            feedPlayer        = standbyPrevPlayer;
+            standbyPrevPlayer = oldActive;
+            standbyPrevIndex  = -1;
+            standbyPrevUrl    = null;
+        } else {
+            // Cache miss — cold start on the current active player, same as before.
+            mgr.applyQualityCap(feedPlayer, mgr.recommendedCap(requireContext()));
+            feedPlayer.setMediaSource(buildCachedMediaSource(card.videoUrl));
+            feedPlayer.prepare();
+        }
+
         if (card.playerView != null) card.playerView.setPlayer(feedPlayer);
-        // PERF/DATA: was feedPlayer.setMediaItem(MediaItem.fromUri(card.videoUrl)) —
-        // that builds ExoPlayer's DEFAULT MediaSource (plain network HTTP data
-        // source), completely bypassing the shared video cache. Any reel already
-        // cached by the Reels tab (or by this same Home feed) was re-downloaded
-        // from scratch every time it played here. Building the MediaSource
-        // through the SAME UnifiedVideoCacheManager.Module.REELS cache the Reels
-        // tab's AdaptiveStreamingManager uses means identical video URLs hit the
-        // same on-disk cache — no duplicate downloads, in either direction.
-        feedPlayer.setMediaSource(buildCachedMediaSource(card.videoUrl));
-        feedPlayer.prepare();
         feedPlayer.setVolume(isMuted ? 0f : 1f);
+        feedPlayer.setPlayWhenReady(true);
         feedPlayer.play();
         // Fade thumbnail out once player is attached
         if (card.thumbView != null) {
@@ -554,6 +651,77 @@ public class HomeFragment extends Fragment {
                     if (card.thumbView != null) card.thumbView.setVisibility(View.INVISIBLE);
                 }).start();
         }
+
+        // Pre-buffer both neighbours so either scroll direction gets an instant swap.
+        prepareStandbyNext(index);
+        prepareStandbyPrev(index);
+    }
+
+    /**
+     * Pre-buffers the next card's video on a standby ExoPlayer while the
+     * current card plays — the same "warm the next player ahead of time"
+     * idea ExoPlayerPool uses for the Reels swipe feed. Reuses whatever
+     * instance is already sitting in the standbyNext slot (very often the
+     * just-demoted former active/prev player, from attachPlayerToCard's
+     * role rotation) instead of constructing a new ExoPlayer, and applies
+     * the current network-recommended quality cap so the pre-buffered
+     * rendition actually matches what the connection can sustain — buffering
+     * a 1080p track ahead of time on a slow connection would defeat the
+     * whole point by taking too long to reach playable state.
+     */
+    private void prepareStandbyNext(int fromIndex) {
+        if (!isAdded() || getContext() == null || feedCards.isEmpty()) return;
+        int nextIndex = fromIndex + 1;
+        if (nextIndex >= feedCards.size()) return;
+        HomeFeedCard next = feedCards.get(nextIndex);
+        if (next.videoUrl == null || next.videoUrl.isEmpty()) return;
+        if (standbyNextIndex == nextIndex && next.videoUrl.equals(standbyNextUrl)) return; // already prepared
+
+        if (standbyNextPlayer == null) {
+            standbyNextPlayer = com.callx.app.player.AdaptiveStreamingManager.get(requireContext()).buildBarePlayer();
+            configureFeedPlayerInstance(standbyNextPlayer);
+        }
+        com.callx.app.player.AdaptiveStreamingManager mgr =
+            com.callx.app.player.AdaptiveStreamingManager.get(requireContext());
+        standbyNextPlayer.stop();
+        standbyNextPlayer.clearMediaItems();
+        standbyNextPlayer.setVolume(0f);
+        standbyNextPlayer.setPlayWhenReady(false);
+        mgr.applyQualityCap(standbyNextPlayer, mgr.recommendedCap(requireContext()));
+        standbyNextPlayer.setMediaSource(buildCachedMediaSource(next.videoUrl));
+        standbyNextPlayer.prepare();
+        standbyNextIndex = nextIndex;
+        standbyNextUrl   = next.videoUrl;
+    }
+
+    /**
+     * Same idea as prepareStandbyNext(), but for the card ONE ABOVE the
+     * currently active one — covers the equally common "scroll up to
+     * rewatch" pattern instantly instead of only optimizing forward scroll.
+     */
+    private void prepareStandbyPrev(int fromIndex) {
+        if (!isAdded() || getContext() == null || feedCards.isEmpty()) return;
+        int prevIndex = fromIndex - 1;
+        if (prevIndex < 0) return;
+        HomeFeedCard prev = feedCards.get(prevIndex);
+        if (prev.videoUrl == null || prev.videoUrl.isEmpty()) return;
+        if (standbyPrevIndex == prevIndex && prev.videoUrl.equals(standbyPrevUrl)) return; // already prepared
+
+        if (standbyPrevPlayer == null) {
+            standbyPrevPlayer = com.callx.app.player.AdaptiveStreamingManager.get(requireContext()).buildBarePlayer();
+            configureFeedPlayerInstance(standbyPrevPlayer);
+        }
+        com.callx.app.player.AdaptiveStreamingManager mgr =
+            com.callx.app.player.AdaptiveStreamingManager.get(requireContext());
+        standbyPrevPlayer.stop();
+        standbyPrevPlayer.clearMediaItems();
+        standbyPrevPlayer.setVolume(0f);
+        standbyPrevPlayer.setPlayWhenReady(false);
+        mgr.applyQualityCap(standbyPrevPlayer, mgr.recommendedCap(requireContext()));
+        standbyPrevPlayer.setMediaSource(buildCachedMediaSource(prev.videoUrl));
+        standbyPrevPlayer.prepare();
+        standbyPrevIndex = prevIndex;
+        standbyPrevUrl   = prev.videoUrl;
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
@@ -596,6 +764,13 @@ public class HomeFragment extends Fragment {
     @Override public void onPause() {
         super.onPause();
         if (feedPlayer != null) feedPlayer.pause();
+        // stop() drops a standby player back to STATE_IDLE (needs a fresh
+        // prepare() before it's playable again), so the tracked index/url
+        // must be cleared too or the next attachPlayerToCard() would try to
+        // promote an un-prepared player. prepareStandbyNext()/Prev() re-warm
+        // both normally once the fragment resumes.
+        if (standbyNextPlayer != null) { standbyNextPlayer.stop(); standbyNextIndex = -1; standbyNextUrl = null; }
+        if (standbyPrevPlayer != null) { standbyPrevPlayer.stop(); standbyPrevIndex = -1; standbyPrevUrl = null; }
         // Don't waste bandwidth preloading cards the user can't see right now.
         if (videoPreloader != null) videoPreloader.cancelAll();
         if (getContext() != null) {
@@ -650,6 +825,11 @@ public class HomeFragment extends Fragment {
         if (scrollSettleRunnable != null) scrollHandler.removeCallbacks(scrollSettleRunnable);
         feedScrollContentRoot = null;
         if (feedPlayer != null) { feedPlayer.release(); feedPlayer = null; }
+        if (standbyNextPlayer != null) { standbyNextPlayer.release(); standbyNextPlayer = null; }
+        if (standbyPrevPlayer != null) { standbyPrevPlayer.release(); standbyPrevPlayer = null; }
+        standbyNextIndex = -1; standbyNextUrl = null;
+        standbyPrevIndex = -1; standbyPrevUrl = null;
+        attachStartTimeMs = 0L;
         if (videoPreloader != null) { videoPreloader.shutdown(); videoPreloader = null; }
         thumbPreloader      = null;
         predictivePreloader = null;
@@ -692,6 +872,7 @@ public class HomeFragment extends Fragment {
         updateFeedToggleUI();
         resetFeedPaginationState();
         if (containerFeed != null) containerFeed.removeAllViews();
+        if (feedWindowManager != null) feedWindowManager.reset();
         showFeedLoading(true);
         showFeedEmpty(false);
         loadFeed();
@@ -741,6 +922,7 @@ public class HomeFragment extends Fragment {
 
     private void clearAllSections() {
         if (containerFeed != null)             containerFeed.removeAllViews();
+        if (feedWindowManager != null)         feedWindowManager.reset();
         if (containerTrending != null)         clearContainerKeepLoader(containerTrending);
         if (containerFriendsActivity != null)  clearContainerKeepLoader(containerFriendsActivity);
         if (containerContinueWatching != null) clearContainerKeepLoader(containerContinueWatching);
@@ -1159,6 +1341,7 @@ public class HomeFragment extends Fragment {
             if (containerFeed == null || !isAdded()) return;
             containerFeed.removeAllViews();
             feedCards.clear();
+            if (feedWindowManager != null) feedWindowManager.reset();
             renderedReelIds.clear();
             postsSincePeopleYouMayLike = 0;
             currentFeedPosts = posts;
@@ -2176,6 +2359,14 @@ public class HomeFragment extends Fragment {
                 });
                 popup.show();
             });
+        }
+
+        // ★ Register with the off-screen media windower BEFORE the card is
+        // attached — its own avatar/thumbnail Glide loads above already
+        // dispatched, so it starts out in the "loaded" state and only gets
+        // unloaded once it actually scrolls far enough away.
+        if (feedWindowManager != null) {
+            feedWindowManager.registerCard(card, avatar, reel.ownerPhoto, ivThumb, reel.thumbUrl);
         }
 
         containerFeed.addView(card);

@@ -104,7 +104,8 @@ public class WatchHistoryManager {
                         thumb,
                         reel.caption,
                         reel.mediaType,
-                        reel.duration);
+                        reel.duration,
+                        reel.hashtags);
                     item.percentWatched = percentWatched;
                     ref.setValue(item);
 

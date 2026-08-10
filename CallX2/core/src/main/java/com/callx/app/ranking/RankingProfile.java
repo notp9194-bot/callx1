@@ -37,11 +37,26 @@ import java.util.concurrent.atomic.AtomicInteger;
  *                             filters matching reels out of the feed entirely
  *  - preferredTopics        — hashtags/topics the user opted into — boosts
  *                             matching reels
+ *  - hashtagAffinity        — IMPLICIT per-hashtag interest score, learned
+ *                             from actual watch behavior (not something the
+ *                             user had to set): each watch-history entry
+ *                             contributes its completion % to every hashtag
+ *                             on that reel, so tags from reels the user
+ *                             watches all the way through count for more
+ *                             than tags from reels they skipped early
+ *  - hashtagFatigue         — the flip side: tags the user has repeatedly
+ *                             bailed out of early (avg completion < 15%
+ *                             across ≥3 watches) — a soft, self-correcting
+ *                             negative signal distinct from the explicit
+ *                             "Not Interested" list
+ *  - mediaTypeAffinity      — implicit preference between "video" and
+ *                             "photo_slideshow" content, from the same
+ *                             completion-weighted watch history
  *
  * Both feedSettings fields already existed (set via ReelFeedSettingsActivity)
  * but were never actually read by the ranking code before this — wiring them
- * in is part of what makes this pass "comprehensive" rather than a re-skin
- * of the old trendingScore()-only sort.
+ * in, alongside the new implicit signals above, is what makes this pass
+ * "comprehensive" rather than a re-skin of the old trendingScore()-only sort.
  */
 public class RankingProfile {
 
@@ -50,8 +65,13 @@ public class RankingProfile {
     public final Set<String> highlyWatchedReelIds = new HashSet<>();
     public final Set<String> notInterestedTopics = new HashSet<>();
     public final Set<String> preferredTopics = new HashSet<>();
+    public final Map<String, Float> hashtagAffinity = new HashMap<>();
+    public final Set<String> hashtagFatigue = new HashSet<>();
+    public final Map<String, Float> mediaTypeAffinity = new HashMap<>();
 
     private static final int WATCH_HISTORY_SAMPLE = 300;
+    private static final int FATIGUE_MIN_SAMPLES = 3;
+    private static final float FATIGUE_COMPLETION_THRESHOLD = 0.15f;
 
     public interface Listener {
         void onReady(@NonNull RankingProfile profile);
@@ -81,6 +101,13 @@ public class RankingProfile {
             if (pending.decrementAndGet() == 0) listener.onReady(profile);
         };
 
+        // Per-tag/per-mediaType running totals used to derive hashtagFatigue
+        // and mediaTypeAffinity once the whole sample has been scanned.
+        Map<String, Integer> tagSampleCount = new HashMap<>();
+        Map<String, Float>   tagCompletionSum = new HashMap<>();
+        Map<String, Integer> mediaSampleCount = new HashMap<>();
+        Map<String, Float>   mediaCompletionSum = new HashMap<>();
+
         FirebaseUtils.db().getReference("watchHistory").child(myUid)
             .orderByChild("watchedAtMs")
             .limitToLast(WATCH_HISTORY_SAMPLE)
@@ -92,12 +119,44 @@ public class RankingProfile {
                         if (ownerUid != null && !ownerUid.isEmpty()) {
                             profile.creatorWatchCounts.merge(ownerUid, 1, Integer::sum);
                         }
-                        Integer pct = s.child("percentWatched").getValue(Integer.class);
-                        if (pct != null && pct >= 90) {
+                        Integer pctObj = s.child("percentWatched").getValue(Integer.class);
+                        int pct = pctObj != null ? pctObj : 0;
+                        float completion = Math.max(0f, Math.min(100f, pct)) / 100f;
+
+                        if (pct >= 90) {
                             String reelId = s.getKey();
                             if (reelId != null) profile.highlyWatchedReelIds.add(reelId);
                         }
+
+                        for (DataSnapshot h : s.child("hashtags").getChildren()) {
+                            String tag = normalizeTopic(h.getValue(String.class));
+                            if (tag.isEmpty()) continue;
+                            profile.hashtagAffinity.merge(tag, completion, Float::sum);
+                            tagSampleCount.merge(tag, 1, Integer::sum);
+                            tagCompletionSum.merge(tag, completion, Float::sum);
+                        }
+
+                        String mediaType = s.child("mediaType").getValue(String.class);
+                        if (mediaType != null && !mediaType.isEmpty()) {
+                            mediaSampleCount.merge(mediaType, 1, Integer::sum);
+                            mediaCompletionSum.merge(mediaType, completion, Float::sum);
+                        }
                     }
+
+                    for (Map.Entry<String, Integer> e : tagSampleCount.entrySet()) {
+                        String tag = e.getKey();
+                        int count = e.getValue();
+                        if (count < FATIGUE_MIN_SAMPLES) continue;
+                        float avgCompletion = tagCompletionSum.getOrDefault(tag, 0f) / count;
+                        if (avgCompletion < FATIGUE_COMPLETION_THRESHOLD) profile.hashtagFatigue.add(tag);
+                    }
+                    for (Map.Entry<String, Integer> e : mediaSampleCount.entrySet()) {
+                        String type = e.getKey();
+                        int count = e.getValue();
+                        float avgCompletion = mediaCompletionSum.getOrDefault(type, 0f) / count;
+                        profile.mediaTypeAffinity.put(type, avgCompletion);
+                    }
+
                     maybeFinish.run();
                 }
                 @Override
