@@ -161,7 +161,15 @@ public class HomeFragment extends Fragment {
         View       endOverlay;
         String     videoUrl;
         String     reelId;
+        /** Guards revealThumbnailAfterFirstFrame() against double-firing —
+         *  reset to false every time this card becomes the active one. */
+        boolean    firstFrameRevealed;
     }
+
+    /** Same value ReelPlayerController (Reels tab) uses — short enough that
+     *  the surface hand-off reads as one continuous frame instead of a
+     *  visible cut, matching Instagram's near-zero thumbnail→video swap. */
+    private static final long HOME_THUMB_CROSSFADE_MS = 80L;
 
     private boolean isFollowingMode = true;
 
@@ -292,6 +300,16 @@ public class HomeFragment extends Fragment {
             }
             @Override
             public void onRenderedFirstFrame() {
+                // Instagram-style handoff: reveal the card's thumbnail crossfade
+                // HERE — the first actually-decoded frame on screen — not at
+                // player-attach time (STATE_READY can land a frame or two
+                // before anything is visibly drawn, which is what caused the
+                // old attach-time fade to expose a visible "jump" between the
+                // static thumb and a still-blank/half-buffered surface).
+                if (currentPlayingIndex >= 0 && currentPlayingIndex < feedCards.size()) {
+                    revealCardThumbnailAfterFirstFrame(feedCards.get(currentPlayingIndex));
+                }
+
                 // Consume once — attachStartTimeMs is reset to 0 by whichever
                 // call fires first, so a stray late callback on an old
                 // instance can't double-report.
@@ -644,17 +662,69 @@ public class HomeFragment extends Fragment {
         feedPlayer.setVolume(isMuted ? 0f : 1f);
         feedPlayer.setPlayWhenReady(true);
         feedPlayer.play();
-        // Fade thumbnail out once player is attached
+
+        // Reset the reveal guard — the actual fade now happens in
+        // configureFeedPlayerInstance()'s onRenderedFirstFrame, once a real
+        // decoded frame is on screen (see revealCardThumbnailAfterFirstFrame).
+        card.firstFrameRevealed = false;
         if (card.thumbView != null) {
-            card.thumbView.animate().alpha(0f).setDuration(300)
-                .withEndAction(() -> {
-                    if (card.thumbView != null) card.thumbView.setVisibility(View.INVISIBLE);
-                }).start();
+            card.thumbView.animate().cancel();
+            card.thumbView.setAlpha(1f);
+            card.thumbView.setVisibility(View.VISIBLE);
+        }
+
+        // Speculative first-frame pre-render (same mechanism the Reels tab
+        // uses): if this video is already substantially cached, decode its
+        // actual frame-0 on a background thread and swap it in over the
+        // server-generated thumbnail. When it lands before onRenderedFirstFrame
+        // fires, the thumbnail IS the video's first frame, so the crossfade
+        // below has nothing to visibly change — a true no-jump handoff.
+        if (card.videoUrl != null && !card.videoUrl.isEmpty() && card.reelId != null) {
+            // Synchronous check first — if thumbPreloader already decoded this
+            // reel's frame ahead of time (see ReelThumbnailPreloader), use it
+            // immediately instead of showing the server thumbnail at all.
+            android.graphics.Bitmap prewarmed = com.callx.app.cache.ReelFirstFrameCache
+                .get(requireContext()).getCached(card.reelId);
+            if (prewarmed != null && card.thumbView != null) {
+                card.thumbView.setImageBitmap(prewarmed);
+            } else {
+                com.callx.app.cache.ReelFirstFrameCache.get(requireContext())
+                    .decodeFirstFrameAsync(card.reelId, card.videoUrl, bitmap -> {
+                        if (card.thumbView != null && card.thumbView.getVisibility() == View.VISIBLE) {
+                            card.thumbView.setImageBitmap(bitmap);
+                        }
+                    });
+            }
         }
 
         // Pre-buffer both neighbours so either scroll direction gets an instant swap.
         prepareStandbyNext(index);
         prepareStandbyPrev(index);
+    }
+
+    /**
+     * Crossfades a feed card's thumbnail over the now-rendering player
+     * surface. Mirrors ReelPlayerController.revealThumbnailAfterFirstFrame()
+     * in the Reels tab: driven by onRenderedFirstFrame (never a buffering/
+     * ready state, which can arrive a frame or two before anything is
+     * actually drawn), with a short crossfade tight enough to read as a
+     * single continuous frame instead of a visible cut.
+     */
+    private void revealCardThumbnailAfterFirstFrame(HomeFeedCard card) {
+        if (card == null || card.firstFrameRevealed || card.thumbView == null) return;
+        card.firstFrameRevealed = true;
+        ImageView thumb = card.thumbView;
+        if (thumb.getVisibility() != View.VISIBLE) return;
+        thumb.animate().cancel();
+        thumb.setAlpha(1f);
+        thumb.animate()
+            .alpha(0f)
+            .setDuration(HOME_THUMB_CROSSFADE_MS)
+            .withEndAction(() -> {
+                thumb.setVisibility(View.INVISIBLE);
+                thumb.setAlpha(1f);
+            })
+            .start();
     }
 
     /**

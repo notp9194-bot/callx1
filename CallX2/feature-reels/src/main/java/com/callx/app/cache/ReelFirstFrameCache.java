@@ -75,10 +75,12 @@ public final class ReelFirstFrameCache {
         void onFrameReady(Bitmap bitmap);
     }
 
-    /** Non-blocking cache lookup — returns immediately, null if not (yet) decoded. */
-    public Bitmap getCached(String url) {
-        if (url == null) return null;
-        return cache.get(url);
+    /** Non-blocking cache lookup — returns immediately, null if not (yet) decoded.
+     *  Keyed the same way decodeFirstFrameAsync() was called — pass the same
+     *  cacheKey (typically reel.reelId; see below) used there. */
+    public Bitmap getCached(String cacheKey) {
+        if (cacheKey == null) return null;
+        return cache.get(cacheKey);
     }
 
     /**
@@ -86,26 +88,45 @@ public final class ReelFirstFrameCache {
      * cached/in-flight, and not skippable per the cold-URL guard above.
      * Safe to call speculatively (e.g. from prewarmPlayer()) — it's a
      * no-op if the reel is never actually swiped to.
+     *
+     * Cached under videoUrl directly — kept for callers that don't have a
+     * stabler key handy. Prefer the (cacheKey, mediaUrl) overload below when
+     * the same reel can resolve to different playback URLs (different
+     * quality picks, HLS vs progressive) across calls, e.g.
+     * ReelPlayerController re-preparing after a quality change — otherwise
+     * a decode done ahead of time under the old URL is a cache miss under
+     * the new one.
      */
     public void decodeFirstFrameAsync(String videoUrl, Callback callback) {
-        if (videoUrl == null || videoUrl.isEmpty()) return;
+        decodeFirstFrameAsync(videoUrl, videoUrl, callback);
+    }
 
-        Bitmap existing = cache.get(videoUrl);
+    /**
+     * Same as above, but cached under a caller-supplied stable key
+     * (typically reel.reelId) instead of the exact playback URL, so a
+     * speculative decode kicked off under one quality/manifest URL is still
+     * a hit later even if playback ends up picking a different URL for the
+     * same reel.
+     */
+    public void decodeFirstFrameAsync(String cacheKey, String mediaUrl, Callback callback) {
+        if (cacheKey == null || cacheKey.isEmpty() || mediaUrl == null || mediaUrl.isEmpty()) return;
+
+        Bitmap existing = cache.get(cacheKey);
         if (existing != null) {
             if (callback != null) callback.onFrameReady(existing);
             return;
         }
 
         synchronized (inFlight) {
-            if (inFlight.contains(videoUrl)) return;
-            inFlight.add(videoUrl);
+            if (inFlight.contains(cacheKey)) return;
+            inFlight.add(cacheKey);
         }
 
         // Only worth attempting if the video is already substantially local
         // — otherwise MediaMetadataRetriever would itself trigger a fresh
         // network fetch, which defeats the point of a "pre-render".
-        if (ReelCacheManager.getCachedBytes(videoUrl) < MIN_CACHED_BYTES_FOR_DECODE) {
-            synchronized (inFlight) { inFlight.remove(videoUrl); }
+        if (ReelCacheManager.getCachedBytes(mediaUrl) < MIN_CACHED_BYTES_FOR_DECODE) {
+            synchronized (inFlight) { inFlight.remove(cacheKey); }
             return;
         }
 
@@ -113,7 +134,7 @@ public final class ReelFirstFrameCache {
             Bitmap frame = null;
             MediaMetadataRetriever retriever = new MediaMetadataRetriever();
             try {
-                retriever.setDataSource(videoUrl, new java.util.HashMap<>());
+                retriever.setDataSource(mediaUrl, new java.util.HashMap<>());
                 Bitmap raw = retriever.getFrameAtTime(0,
                     MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
                 if (raw != null) {
@@ -124,11 +145,11 @@ public final class ReelFirstFrameCache {
                 Log.w(TAG, "decodeFirstFrameAsync failed: " + e.getMessage());
             } finally {
                 try { retriever.release(); } catch (Exception ignored) {}
-                synchronized (inFlight) { inFlight.remove(videoUrl); }
+                synchronized (inFlight) { inFlight.remove(cacheKey); }
             }
 
             if (frame != null) {
-                cache.put(videoUrl, frame);
+                cache.put(cacheKey, frame);
                 if (callback != null) {
                     final Bitmap f = frame;
                     new android.os.Handler(android.os.Looper.getMainLooper())

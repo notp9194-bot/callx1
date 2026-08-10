@@ -6,6 +6,7 @@ import android.media.MediaPlayer;   // ✅ FIX: photo-slideshow background audio
 import com.bumptech.glide.Glide;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
+import android.graphics.Bitmap;
 import android.graphics.Outline;
 import android.os.Handler;
 import android.os.Looper;
@@ -421,15 +422,30 @@ public class ReelPlayerController {
             ivThumb.setVisibility(View.VISIBLE);
             ivThumb.animate().cancel();
             ivThumb.setAlpha(1f);
-            // PERF advance — "bitmap memory cache for thumbnails (LRU)":
-            // this reel's thumb was very likely already decoded ahead of
-            // time by ReelThumbnailPreloader.preloadFrom() into
-            // ReelThumbBitmapCache — a hit here is a synchronous
-            // setImageBitmap() with no Glide request at all (no re-decode,
-            // no re-running centerCrop). Falls through to a normal Glide
-            // load (and populates the cache for next time) on a miss, e.g.
-            // the very first reel of a cold-started session.
-            com.callx.app.cache.ReelThumbBitmapCache.get().loadInto(ctx, ivThumb, reel.thumbUrl);
+
+            // Instagram-level match: if ReelThumbnailPreloader already
+            // speculatively decoded this reel's actual video first-frame
+            // (keyed by reelId — stable across quality/HLS URL picks), use
+            // THAT as the initial image instead of the separately-generated
+            // server thumbnail. Means the thumbnail is pixel-identical to
+            // what the player renders a moment later — no jump at all, not
+            // just a fast fade between two different images.
+            Bitmap prewarmedFrame = reel.reelId != null
+                ? com.callx.app.cache.ReelFirstFrameCache.get(ctx).getCached(reel.reelId)
+                : null;
+            if (prewarmedFrame != null) {
+                ivThumb.setImageBitmap(prewarmedFrame);
+            } else {
+                // PERF advance — "bitmap memory cache for thumbnails (LRU)":
+                // this reel's thumb was very likely already decoded ahead of
+                // time by ReelThumbnailPreloader.preloadFrom() into
+                // ReelThumbBitmapCache — a hit here is a synchronous
+                // setImageBitmap() with no Glide request at all (no re-decode,
+                // no re-running centerCrop). Falls through to a normal Glide
+                // load (and populates the cache for next time) on a miss, e.g.
+                // the very first reel of a cold-started session.
+                com.callx.app.cache.ReelThumbBitmapCache.get().loadInto(ctx, ivThumb, reel.thumbUrl);
+            }
         }
 
         // Determine quality cap from user setting + current network
@@ -543,12 +559,15 @@ public class ReelPlayerController {
         // ReelFirstFrameCache doc). If it lands before the player itself
         // reaches STATE_READY, swap it in over the plain Glide thumbnail so
         // the thumbnail→video transition is a no-op visually.
-        com.callx.app.cache.ReelFirstFrameCache.get(ctx).decodeFirstFrameAsync(playUrl, bitmap -> {
-            if (!delegate.isAdded() || ivThumb == null) return;
-            if (ivThumb.getVisibility() == View.VISIBLE) {
-                ivThumb.setImageBitmap(bitmap);
-            }
-        });
+        if (reel.reelId != null) {
+            com.callx.app.cache.ReelFirstFrameCache.get(ctx)
+                .decodeFirstFrameAsync(reel.reelId, playUrl, bitmap -> {
+                    if (!delegate.isAdded() || ivThumb == null) return;
+                    if (ivThumb.getVisibility() == View.VISIBLE) {
+                        ivThumb.setImageBitmap(bitmap);
+                    }
+                });
+        }
 
         // v5: Attach ABR engine — auto-monitors player buffer + bandwidth every 2s
         abrSession = abrEngine.attachTo(player, null,

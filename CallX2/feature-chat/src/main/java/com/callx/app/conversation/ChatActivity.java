@@ -4953,6 +4953,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             }
 
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                // FIX (crash): RecyclerView.onDetachedFromWindow() calls
+                // stopScroll(), which fires this listener with newState=IDLE
+                // even during activity teardown (e.g. handleDestroyActivity
+                // → removeViewImmediate → dispatchDetachedFromWindow) — by
+                // then the Activity is already destroyed and Glide.with()
+                // throws IllegalArgumentException("cannot start a load for a
+                // destroyed activity"). Same guard already used everywhere
+                // else in this class before touching Glide/UI post-teardown.
+                if (isFinishing() || isDestroyed()) return;
                 // PERF: Glide pause/resume — during a fast fling, pausing Glide stops
                 // it from starting new image-decode tasks for off-screen items that
                 // will scroll past before they're needed. Resuming on idle/settling

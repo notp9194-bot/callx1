@@ -78,6 +78,29 @@ public class ReelThumbnailPreloader {
             // Bitmap already exists in this process".
             ReelThumbBitmapCache.get().prefetch(mContext, reel.thumbUrl);
 
+            // PERF advance — first-frame pre-render, kicked off ahead of the
+            // swipe instead of only at preparePlayerSilently() time. Limited
+            // to the immediate next 2 reels (i <= position + 2) since a
+            // real decode has more cost than a Glide preload and only pays
+            // off for the reel(s) the user is actually about to reach;
+            // it's still a no-op if the video isn't substantially cached
+            // yet (ReelFirstFrameCache's own guard). By the time the user
+            // swipes, the cache is often already warm — so
+            // ReelPlayerController's ivThumb starts as the video's actual
+            // first frame instead of the separately-generated server
+            // thumbnail, matching Instagram's "thumbnail IS the first
+            // frame" behavior instead of just fading fast between two
+            // different images.
+            if (i <= position + 2) {
+                String videoUrl = (reel.videoUrl != null && !reel.videoUrl.isEmpty())
+                    ? reel.videoUrl
+                    : reel.video480;
+                if (videoUrl != null && !videoUrl.isEmpty() && reel.reelId != null) {
+                    ReelFirstFrameCache.get(mContext)
+                        .decodeFirstFrameAsync(reel.reelId, videoUrl, null);
+                }
+            }
+
             Log.v(TAG, "Preloading thumb for reel[" + i + "]: " + reel.reelId);
         }
     }
