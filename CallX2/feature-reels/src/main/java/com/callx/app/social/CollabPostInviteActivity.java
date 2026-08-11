@@ -11,7 +11,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.*;
 import com.bumptech.glide.Glide;
 import com.callx.app.models.ReelModel;
-import com.callx.app.notifications.CollabRepostNotificationHelper;
 import com.callx.app.reels.R;
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
@@ -388,15 +387,14 @@ public class CollabPostInviteActivity extends AppCompatActivity {
     }
 
     private void sendPushNotification(CollabUserItem target, String inviteId) {
-        try {
-            // Local notification only (doesn't reach the collaborator's device
-            // unless it's this same device / app instance).
-            CollabRepostNotificationHelper.notifyCollabInvite(
-                this, target.uid, myUid,
-                myName != null ? myName : "Someone",
-                reelId, inviteId, thumbUrl != null ? thumbUrl : ""
-            );
-        } catch (Exception ignored) {}
+        // 🐞 BUG FIX (real root cause): CollabRepostNotificationHelper.notifyCollabInvite
+        // is a LOCAL notification built for the *Collab Repost* feature, not "Add
+        // Collaborators". NotificationManager.notify() always fires on the device that
+        // calls it — i.e. THIS device (A's, since A is the one adding B and this method
+        // runs on A's phone right after sending). That's why A was seeing a notification
+        // titled "Collab Repost Invite" that deep-linked to the (empty) Collab Repost
+        // Inbox screen — it was never going to reach B regardless, wrong feature + wrong
+        // device. Removed; real cross-device delivery to B is the FCM push below.
         try {
             // ✅ Real cross-device FCM push through the server so the
             // invited collaborator is notified even when their app is closed.

@@ -2,7 +2,6 @@ package com.callx.app.social;
 
 import android.content.Context;
 
-import com.callx.app.notifications.CollabRepostNotificationHelper;
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.PushNotify;
 import com.google.firebase.database.DatabaseReference;
@@ -129,13 +128,16 @@ public final class CollabInviteHelper {
             } else {
                 for (int i = 0; i < collaborators.size() && i < inviteIds.size(); i++) {
                     StagedCollaborator target = collaborators.get(i);
-                    try {
-                        // Local notification (works if the collaborator's device already
-                        // has the app open / same-device testing).
-                        CollabRepostNotificationHelper.notifyCollabInvite(
-                            ctx, target.uid, myUid, myName != null ? myName : "Someone",
-                            reelId, inviteIds.get(i), thumbUrl != null ? thumbUrl : "");
-                    } catch (Exception ignored) {}
+                    // 🐞 BUG FIX (real root cause): CollabRepostNotificationHelper is a
+                    // LOCAL notification for the *Collab Repost* feature, not "Add
+                    // Collaborators". NotificationManager.notify() always fires on the
+                    // CALLING device — i.e. A's own phone, since this code runs on A's
+                    // device right after A posts. So A saw a notification meant for B,
+                    // titled "Collab Repost Invite", deep-linking to the wrong screen
+                    // (Collab Repost Inbox — empty, since it's a different feature).
+                    // B never got anything from this call regardless — it can only ever
+                    // show on the sender's own device. Removed entirely; the real
+                    // cross-device delivery is the FCM push below.
                     try {
                         // ✅ Cross-device FCM push via the server, so the collaborator
                         // gets notified even when their app is closed.
