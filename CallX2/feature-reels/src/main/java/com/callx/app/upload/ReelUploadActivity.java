@@ -145,7 +145,9 @@ public class ReelUploadActivity extends AppCompatActivity {
     private TextInputEditText etCaption, etMusic;
     private Button            btnPostReel;
     private ChipGroup         chipQuality, chipAudience, chipDuetLevel, chipStitchLevel;
-    private View              btnTagPeople, btnLocationTag, btnPrivacySettings, btnSchedule, btnSaveDraft, btnProductTag;
+    private View              btnTagPeople, btnLocationTag, btnPrivacySettings, btnSchedule, btnSaveDraft, btnProductTag, btnAddCollaborators;
+    private android.widget.TextView tvCollabSummary;
+    private static final int  REQ_ADD_COLLABORATORS = 506;
     private android.widget.TextView tvSeriesPickerUpload;
     private TextView          tvTagSummary, tvLocationName, tvScheduleTime;
     private String            taggedUids = "", locationName = "", scheduleTime = "";
@@ -313,6 +315,11 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (btnSchedule        != null) btnSchedule.setOnClickListener(v        -> startActivityForResult(new Intent(this, ReelSchedulerActivity.class), 504));
         if (btnSaveDraft       != null) btnSaveDraft.setOnClickListener(v -> startActivity(new Intent(this, ReelDraftsActivity.class)));
         if (btnProductTag      != null) btnProductTag.setOnClickListener(v      -> startActivityForResult(new Intent(this, ReelProductTagActivity.class), 505));
+        if (btnAddCollaborators != null) btnAddCollaborators.setOnClickListener(v -> {
+            Intent ci = new Intent(this, com.callx.app.social.CollabPostInviteActivity.class);
+            ci.putExtra(com.callx.app.social.CollabPostInviteActivity.EXTRA_STAGING_MODE, true);
+            startActivityForResult(ci, REQ_ADD_COLLABORATORS);
+        });
         if (tvSeriesPickerUpload != null) tvSeriesPickerUpload.setOnClickListener(v -> openSeriesPickerFromUpload());
 
         // Media type toggle
@@ -654,6 +661,8 @@ public class ReelUploadActivity extends AppCompatActivity {
         chipStitchLevel      = findViewById(R.id.chip_stitch_level);
         btnTagPeople         = findViewById(R.id.btn_tag_people);
         btnLocationTag       = findViewById(R.id.btn_location_tag);
+        btnAddCollaborators  = findViewById(R.id.btn_add_collaborators);
+        tvCollabSummary      = findViewById(R.id.tv_collab_summary);
         btnPrivacySettings   = findViewById(R.id.btn_privacy_settings);
         btnSchedule          = findViewById(R.id.btn_schedule);
         btnSaveDraft         = findViewById(R.id.btn_save_draft);
@@ -1107,6 +1116,26 @@ public class ReelUploadActivity extends AppCompatActivity {
             locationName = data.getStringExtra(ReelLocationTagActivity.RESULT_NAME);
             if (locationName == null) locationName = "";
             if (tvLocationName != null) tvLocationName.setText(locationName);
+        } else if (requestCode == REQ_ADD_COLLABORATORS && resultCode == Activity.RESULT_OK && data != null) {
+            pendingCollabUids.clear();    pendingCollabNames.clear();
+            pendingCollabHandles.clear(); pendingCollabAvatars.clear();
+            java.util.ArrayList<String> u  = data.getStringArrayListExtra(com.callx.app.social.CollabPostInviteActivity.RESULT_UIDS);
+            java.util.ArrayList<String> n  = data.getStringArrayListExtra(com.callx.app.social.CollabPostInviteActivity.RESULT_NAMES);
+            java.util.ArrayList<String> h  = data.getStringArrayListExtra(com.callx.app.social.CollabPostInviteActivity.RESULT_HANDLES);
+            java.util.ArrayList<String> av = data.getStringArrayListExtra(com.callx.app.social.CollabPostInviteActivity.RESULT_AVATARS);
+            if (u  != null) pendingCollabUids.addAll(u);
+            if (n  != null) pendingCollabNames.addAll(n);
+            if (h  != null) pendingCollabHandles.addAll(h);
+            if (av != null) pendingCollabAvatars.addAll(av);
+            if (tvCollabSummary != null) {
+                if (pendingCollabUids.isEmpty()) {
+                    tvCollabSummary.setText("");
+                } else {
+                    String first = pendingCollabNames.isEmpty() ? "" : pendingCollabNames.get(0);
+                    int others = pendingCollabUids.size() - 1;
+                    tvCollabSummary.setText(others > 0 ? (first + " +" + others) : first);
+                }
+            }
         } else if (requestCode == 504 && resultCode == Activity.RESULT_OK && data != null) {
             scheduleTime = data.getStringExtra("scheduled_time");
             if (scheduleTime == null) scheduleTime = "";

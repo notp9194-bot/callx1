@@ -192,11 +192,15 @@ public class CollabPostInviteActivity extends AppCompatActivity {
     }
 
     private void runSearch(String query) {
+        // ✅ Fixed: real user profiles live at "users/{uid}" (see ProfileSetupActivity /
+        // SearchActivity), not "reels/users" — and the indexed lowercase field is
+        // "nameLower", not "displayNameLower"/"handleLower" (those never existed in the
+        // schema, which is why search always returned empty).
         DatabaseReference ref = FirebaseDatabase.getInstance(Constants.DB_URL)
-            .getReference("reels/users");
+            .getReference("users");
 
-        // Search by displayName prefix
-        Query q1 = ref.orderByChild("displayNameLower")
+        // Search by name prefix
+        Query q1 = ref.orderByChild("nameLower")
             .startAt(query).endAt(query + "\uf8ff").limitToFirst(SEARCH_LIMIT);
 
         q1.addListenerForSingleValueEvent(new ValueEventListener() {
@@ -208,14 +212,14 @@ public class CollabPostInviteActivity extends AppCompatActivity {
                     if (uid == null || uid.equals(myUid)) continue;
                     if (seenUids.contains(uid)) continue;
                     seenUids.add(uid);
-                    String name  = getString(child, "displayName");
-                    String handle= getString(child, "handle");
+                    String name  = getString(child, "name");
+                    String handle= getString(child, "username");
                     String photo = getString(child, "photoUrl");
                     results.add(new CollabUserItem(uid, name, handle, photo));
                 }
 
-                // Also search by handle prefix
-                Query q2 = ref.orderByChild("handleLower")
+                // Also search by username prefix
+                Query q2 = ref.orderByChild("username")
                     .startAt(query).endAt(query + "\uf8ff").limitToFirst(SEARCH_LIMIT);
                 q2.addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot s2) {
@@ -224,8 +228,8 @@ public class CollabPostInviteActivity extends AppCompatActivity {
                             if (uid == null || uid.equals(myUid)) continue;
                             if (seenUids.contains(uid)) continue;
                             seenUids.add(uid);
-                            String name  = getString(child, "displayName");
-                            String handle= getString(child, "handle");
+                            String name  = getString(child, "name");
+                            String handle= getString(child, "username");
                             String photo = getString(child, "photoUrl");
                             results.add(new CollabUserItem(uid, name, handle, photo));
                         }
