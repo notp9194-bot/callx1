@@ -111,6 +111,8 @@ public interface ReelPlayerDelegate {
     void openPinnedComments();
     void openCollabRequest();
     void openCollabRepost();
+    /** ✅ MULTI-COLLABORATOR: owner-only — invite up to 4 co-authors on this reel. */
+    void openAddCollaborators();
     void openBookmarkCollections();
     void openSoundDetail();
     /** Shows the small "Remix and sequence" + audio-info card before SoundDetailActivity. */

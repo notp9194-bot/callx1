@@ -158,6 +158,7 @@ public class ReelShareController {
             case ReelMoreBottomSheet.ACTION_SHARE_TO_STORY:     delegate.openShareToStory();       break;
             case ReelMoreBottomSheet.ACTION_COLLAB_REQUEST:     delegate.openCollabRequest();      break;
             case ReelMoreBottomSheet.ACTION_COLLAB_REPOST:      delegate.openCollabRepost();       break;
+            case ReelMoreBottomSheet.ACTION_ADD_COLLABORATORS:  delegate.openAddCollaborators();   break;
             case ReelMoreBottomSheet.ACTION_NOT_INTERESTED:     delegate.markNotInterested();      break;
             case ReelMoreBottomSheet.ACTION_COPY_LINK:          delegate.copyReelLink();           break;
             case ReelMoreBottomSheet.ACTION_REPORT:             delegate.openReelReport();         break;

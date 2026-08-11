@@ -611,6 +611,7 @@ public class ReelPlayerFragment extends Fragment
     @Override public void openPinnedComments()     { duetController.openPinnedComments(); }
     @Override public void openCollabRequest()      { duetController.openCollabRequest(); }
     @Override public void openCollabRepost()       { duetController.openCollabRepost(); }
+    @Override public void openAddCollaborators()   { duetController.openAddCollaborators(); }
     @Override public void openBookmarkCollections() { duetController.openBookmarkCollections(); }
     @Override public void openSoundDetail()        { duetController.openSoundDetail(); }
     @Override public void showSoundQuickActions()  { duetController.showSoundQuickActions(); }

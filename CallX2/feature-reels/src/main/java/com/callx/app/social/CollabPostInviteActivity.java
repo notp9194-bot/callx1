@@ -44,6 +44,21 @@ public class CollabPostInviteActivity extends AppCompatActivity {
     public static final String EXTRA_THUMB_URL = "cpi_thumb_url";
     public static final String EXTRA_VIDEO_URL = "cpi_video_url";
     public static final String EXTRA_CAPTION   = "cpi_caption";
+    /**
+     * ✅ MULTI-COLLABORATOR: pass true when launching from the upload/post-details
+     * screen, BEFORE the reel exists in Firebase (no reelId yet). In this mode the
+     * activity only lets the user pick up to {@link #MAX_COLLABORATORS} people and
+     * returns their info via the RESULT_* extras below instead of writing invites —
+     * the caller (ReelUploadActivity) sends the real invites once the reel is saved
+     * and a reelId exists.
+     */
+    public static final String EXTRA_STAGING_MODE = "cpi_staging_mode";
+
+    // ── Staging-mode result extras (parallel ArrayLists, one entry per picked user) ──
+    public static final String RESULT_UIDS     = "cpi_result_uids";
+    public static final String RESULT_NAMES    = "cpi_result_names";
+    public static final String RESULT_HANDLES  = "cpi_result_handles";
+    public static final String RESULT_AVATARS  = "cpi_result_avatars";
 
     private static final int    SEARCH_LIMIT      = 20;
     private static final long   RATE_LIMIT_MS     = 3000L;
@@ -65,6 +80,7 @@ public class CollabPostInviteActivity extends AppCompatActivity {
     // ── State ────────────────────────────────────────────────────────────────
     private String myUid, myName, myPhoto;
     private String reelId, thumbUrl, videoUrl, myCaption;
+    private boolean stagingMode;
     private long   lastSendMs = 0L;
     private final android.os.Handler searchHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable pendingSearch;
@@ -79,11 +95,14 @@ public class CollabPostInviteActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_collab_post_invite);
 
-        reelId    = getIntent().getStringExtra(EXTRA_REEL_ID);
-        thumbUrl  = getIntent().getStringExtra(EXTRA_THUMB_URL);
-        videoUrl  = getIntent().getStringExtra(EXTRA_VIDEO_URL);
-        myCaption = getIntent().getStringExtra(EXTRA_CAPTION);
-        if (reelId == null) { finish(); return; }
+        reelId      = getIntent().getStringExtra(EXTRA_REEL_ID);
+        thumbUrl    = getIntent().getStringExtra(EXTRA_THUMB_URL);
+        videoUrl    = getIntent().getStringExtra(EXTRA_VIDEO_URL);
+        myCaption   = getIntent().getStringExtra(EXTRA_CAPTION);
+        stagingMode = getIntent().getBooleanExtra(EXTRA_STAGING_MODE, false);
+        // Staging mode (upload screen, pre-reelId) doesn't need a reelId yet —
+        // only the normal (existing-reel) flow does.
+        if (!stagingMode && (reelId == null || reelId.isEmpty())) { finish(); return; }
 
         myUid  = FirebaseUtils.getCurrentUid();
         myName = FirebaseUtils.getCurrentName();
@@ -124,9 +143,11 @@ public class CollabPostInviteActivity extends AppCompatActivity {
         View btnBack = findViewById(R.id.btn_back);
         if (btnBack != null) btnBack.setOnClickListener(v -> finish());
 
-        // Thumbnail
+        // Thumbnail — not available yet in staging mode (reel isn't uploaded yet)
         if (thumbUrl != null && !thumbUrl.isEmpty() && ivThumb != null) {
             Glide.with(this).load(thumbUrl).centerCrop().into(ivThumb);
+        } else if (stagingMode && ivThumb != null) {
+            ivThumb.setVisibility(View.GONE);
         }
         if (tvCaption != null) tvCaption.setText(myCaption != null ? myCaption : "");
 
@@ -144,7 +165,10 @@ public class CollabPostInviteActivity extends AppCompatActivity {
 
         if (selectedContainer != null) selectedContainer.setVisibility(View.GONE);
         btnSendInvite.setEnabled(false);
-        btnSendInvite.setOnClickListener(v -> sendInvites());
+        if (stagingMode) btnSendInvite.setText("Add");
+        btnSendInvite.setOnClickListener(v -> {
+            if (stagingMode) returnStagedSelection(); else sendInvites();
+        });
     }
 
     private void setupSearch() {
@@ -252,7 +276,31 @@ public class CollabPostInviteActivity extends AppCompatActivity {
         }
         selectedAdapter.notifyDataSetChanged();
         btnSendInvite.setEnabled(hasAny);
-        btnSendInvite.setText(selectedCollaborators.size() > 1 ? "Send Collab Invites" : "Send Collab Invite");
+        if (stagingMode) {
+            btnSendInvite.setText("Add" + (hasAny ? " (" + selectedCollaborators.size() + ")" : ""));
+        } else {
+            btnSendInvite.setText(selectedCollaborators.size() > 1 ? "Send Collab Invites" : "Send Collab Invite");
+        }
+    }
+
+    /** ✅ MULTI-COLLABORATOR staging mode: no reelId yet, so just hand the
+     *  picked users back to the upload screen instead of writing invites. */
+    private void returnStagedSelection() {
+        ArrayList<String> uids = new ArrayList<>(), names = new ArrayList<>(),
+                           handles = new ArrayList<>(), avatars = new ArrayList<>();
+        for (CollabUserItem c : selectedCollaborators) {
+            uids.add(c.uid);
+            names.add(c.displayName != null ? c.displayName : "");
+            handles.add(c.handle != null ? c.handle : "");
+            avatars.add(c.photoUrl != null ? c.photoUrl : "");
+        }
+        Intent result = new Intent();
+        result.putStringArrayListExtra(RESULT_UIDS,    uids);
+        result.putStringArrayListExtra(RESULT_NAMES,   names);
+        result.putStringArrayListExtra(RESULT_HANDLES, handles);
+        result.putStringArrayListExtra(RESULT_AVATARS, avatars);
+        setResult(RESULT_OK, result);
+        finish();
     }
 
     /** Sends one invite per selected collaborator and seeds the reel's collabMap. */

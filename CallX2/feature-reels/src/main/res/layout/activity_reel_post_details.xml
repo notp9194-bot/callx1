@@ -158,41 +158,23 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Invite Collaborator"
+                android:text="Collaborators"
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp"
                 android:fontFamily="sans-serif-medium"
                 android:layout_marginBottom="6dp"/>
 
-            <LinearLayout
-                android:layout_width="match_parent"
+            <!-- ✅ MULTI-COLLABORATOR: opens CollabPostInviteActivity in staging
+                 mode (no reelId yet) to pick up to 4 co-authors; invites are sent
+                 once the reel is actually saved and a reelId exists. -->
+            <Button
+                android:id="@+id/btn_add_collaborators"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginBottom="4dp">
-
-                <com.google.android.material.textfield.TextInputLayout
-                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/et_collab_search"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:hint="Search by name…"
-                        android:maxLines="1"
-                        android:inputType="textPersonName"/>
-                </com.google.android.material.textfield.TextInputLayout>
-
-                <ProgressBar
-                    android:id="@+id/progress_collab"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
-                    android:layout_marginStart="8dp"
-                    android:visibility="gone"/>
-            </LinearLayout>
+                android:text="+ Add Collaborators"
+                android:textAllCaps="false"
+                android:layout_marginBottom="4dp"/>
 
             <LinearLayout
                 android:id="@+id/layout_collab_result"
@@ -217,7 +199,7 @@
                     android:layout_height="32dp"
                     android:src="@android:drawable/ic_menu_close_clear_cancel"
                     android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="Clear collaborator"/>
+                    android:contentDescription="Clear collaborators"/>
             </LinearLayout>
 
             <!-- Audience -->

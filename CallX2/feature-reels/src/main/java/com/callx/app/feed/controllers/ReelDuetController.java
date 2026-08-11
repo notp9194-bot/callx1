@@ -14,6 +14,7 @@ import com.callx.app.music.SoundDetailActivity;
 import com.callx.app.comments.ReelPinnedCommentsActivity;
 import com.callx.app.profile.ReelQRCodeActivity;
 import com.callx.app.profile.UserReelsActivity;
+import com.callx.app.social.CollabPostInviteActivity;
 import com.callx.app.social.CollabRepostActivity;
 import com.callx.app.social.DuetApprovalQueueActivity;
 import com.callx.app.social.DuetBattleCreateActivity;
@@ -318,6 +319,21 @@ public class ReelDuetController {
         i.putExtra("reel_id",    reel.reelId);
         i.putExtra("owner_uid",  reel.uid);
         i.putExtra("owner_name", reel.ownerName);
+        delegate.getFragment().startActivity(i);
+    }
+
+    /** ✅ MULTI-COLLABORATOR: owner-only — invite up to 4 co-authors on this
+     *  already-posted reel via the 3-dot menu. Requires an existing reelId,
+     *  which this reel already has (it's live), so no staging mode needed. */
+    public void openAddCollaborators() {
+        if (!delegate.isAdded() || delegate.getActivity() == null) return;
+        ReelModel reel = delegate.getReel();
+        if (reel == null || reel.reelId == null || reel.reelId.isEmpty()) return;
+        Intent i = new Intent(delegate.getActivity(), CollabPostInviteActivity.class);
+        i.putExtra(CollabPostInviteActivity.EXTRA_REEL_ID,   reel.reelId);
+        i.putExtra(CollabPostInviteActivity.EXTRA_THUMB_URL, reel.thumbUrl);
+        i.putExtra(CollabPostInviteActivity.EXTRA_VIDEO_URL, reel.videoUrl);
+        i.putExtra(CollabPostInviteActivity.EXTRA_CAPTION,   reel.caption);
         delegate.getFragment().startActivity(i);
     }
 

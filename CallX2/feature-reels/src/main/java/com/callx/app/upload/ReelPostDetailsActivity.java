@@ -42,7 +42,13 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
     public static final String RESULT_CAPTION        = "result_caption";
     public static final String RESULT_LOCATION       = "result_location";
     public static final String RESULT_AUDIENCE       = "result_audience";
-    public static final String RESULT_COLLAB_UID     = "result_collab_uid";
+    /** ✅ MULTI-COLLABORATOR: parallel ArrayLists of staged collaborators (up to 4),
+     *  picked via CollabPostInviteActivity in staging mode. Forwarded to
+     *  ReelUploadActivity, which sends the real invites once the reel is saved. */
+    public static final String RESULT_COLLAB_UIDS     = "result_collab_uids";
+    public static final String RESULT_COLLAB_NAMES    = "result_collab_names";
+    public static final String RESULT_COLLAB_HANDLES  = "result_collab_handles";
+    public static final String RESULT_COLLAB_AVATARS  = "result_collab_avatars";
     public static final String RESULT_ALLOW_DL       = "result_allow_download";
     public static final String RESULT_ALLOW_DUET     = "result_allow_duet";
     public static final String RESULT_ALLOW_STITCH   = "result_allow_stitch";
@@ -54,21 +60,26 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
     public static final String RESULT_MENTION_UIDS   = "result_mention_uids";
 
     // ── Views ─────────────────────────────────────────────────────────────
-    private TextInputEditText etCaption, etLocation, etCollabSearch;
+    private TextInputEditText etCaption, etLocation;
     private TextView          tvCharCount, btnNext, btnBack;
     private ChipGroup         cgAudience;
     private Switch            swAllowComments, swAllowDuet, swAllowStitch, swAllowDownload, swAllowReactions;
+    private Button            btnAddCollaborators;
     private LinearLayout      layoutCollabResult;
     private TextView          tvCollabName;
     private ImageButton       btnClearCollab;
     private ChipGroup         cgHashtagSuggestions;
-    private ProgressBar       progressCollab;
     private TextView          tvSeriesPicker;
     private RecyclerView      rvMentionSuggest;   // @mention suggestion dropdown
 
     // ── State ─────────────────────────────────────────────────────────────
     private String selectedAudience    = "everyone";
-    private String collabUid           = null;
+    /** ✅ MULTI-COLLABORATOR: up to 4 staged collaborators, picked pre-upload. */
+    private final ArrayList<String> collabUids    = new ArrayList<>();
+    private final ArrayList<String> collabNames   = new ArrayList<>();
+    private final ArrayList<String> collabHandles = new ArrayList<>();
+    private final ArrayList<String> collabAvatars = new ArrayList<>();
+    private static final int REQ_ADD_COLLABORATORS = 9902;
     private final List<String> suggestedHashtags = new ArrayList<>();
     private String selectedSeriesId    = null;
     private String selectedSeriesTitle = null;
@@ -87,7 +98,7 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
         setupMentionController();
         setupAudienceChips();
         setupCaptionWatcher();
-        setupCollabSearch();
+        setupCollabPicker();
         setupClickListeners();
     }
 
@@ -96,7 +107,6 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
         btnNext             = findViewById(R.id.btn_post_details_next);
         etCaption           = findViewById(R.id.et_post_caption);
         etLocation          = findViewById(R.id.et_post_location);
-        etCollabSearch      = findViewById(R.id.et_collab_search);
         tvCharCount         = findViewById(R.id.tv_post_char_count);
         cgAudience          = findViewById(R.id.cg_post_audience);
         swAllowComments     = findViewById(R.id.sw_allow_comments);
@@ -104,11 +114,11 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
         swAllowStitch       = findViewById(R.id.sw_allow_stitch);
         swAllowDownload     = findViewById(R.id.sw_allow_download);
         swAllowReactions    = findViewById(R.id.sw_allow_reactions);
+        btnAddCollaborators = findViewById(R.id.btn_add_collaborators);
         layoutCollabResult  = findViewById(R.id.layout_collab_result);
         tvCollabName        = findViewById(R.id.tv_collab_name);
         btnClearCollab      = findViewById(R.id.btn_clear_collab);
         cgHashtagSuggestions= findViewById(R.id.cg_hashtag_suggestions);
-        progressCollab      = findViewById(R.id.progress_collab);
         tvSeriesPicker      = findViewById(R.id.tv_series_picker);
         rvMentionSuggest    = findViewById(R.id.rv_mention_suggest_post);
 
@@ -183,49 +193,37 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
         });
     }
 
-    // ── Collab search ─────────────────────────────────────────────────────
+    // ── Collab picker (✅ MULTI-COLLABORATOR) ──────────────────────────────
 
-    private void setupCollabSearch() {
-        if (etCollabSearch == null) return;
-        etCollabSearch.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
-            @Override public void onTextChanged(CharSequence s, int st, int b, int c) {}
-            @Override public void afterTextChanged(Editable ed) {
-                String q = ed.toString().trim();
-                if (q.length() >= 2) searchCollab(q);
-                else clearCollab();
-            }
+    private void setupCollabPicker() {
+        if (btnAddCollaborators == null) return;
+        btnAddCollaborators.setOnClickListener(v -> {
+            Intent i = new Intent(this, com.callx.app.social.CollabPostInviteActivity.class);
+            i.putExtra(com.callx.app.social.CollabPostInviteActivity.EXTRA_STAGING_MODE, true);
+            startActivityForResult(i, REQ_ADD_COLLABORATORS);
         });
     }
 
-    private void searchCollab(String query) {
-        if (progressCollab != null) progressCollab.setVisibility(View.VISIBLE);
-        FirebaseUtils.db().getReference("users")
-            .orderByChild("name").startAt(query).endAt(query + "\uf8ff")
-            .limitToFirst(1)
-            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
-                @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
-                    if (isFinishing() || isDestroyed()) return;
-                    if (progressCollab != null) progressCollab.setVisibility(View.GONE);
-                    for (com.google.firebase.database.DataSnapshot child : snap.getChildren()) {
-                        collabUid = child.getKey();
-                        String name = child.child("name").getValue(String.class);
-                        if (name != null && layoutCollabResult != null && tvCollabName != null) {
-                            tvCollabName.setText(name);
-                            layoutCollabResult.setVisibility(View.VISIBLE);
-                        }
-                        break;
-                    }
-                }
-                @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
-                    if (!isFinishing() && progressCollab != null) progressCollab.setVisibility(View.GONE);
-                }
-            });
+    private void clearCollab() {
+        collabUids.clear();
+        collabNames.clear();
+        collabHandles.clear();
+        collabAvatars.clear();
+        if (layoutCollabResult != null) layoutCollabResult.setVisibility(View.GONE);
     }
 
-    private void clearCollab() {
-        collabUid = null;
-        if (layoutCollabResult != null) layoutCollabResult.setVisibility(View.GONE);
+    private void refreshCollabSummary() {
+        if (layoutCollabResult == null || tvCollabName == null) return;
+        if (collabUids.isEmpty()) {
+            layoutCollabResult.setVisibility(View.GONE);
+            return;
+        }
+        layoutCollabResult.setVisibility(View.VISIBLE);
+        String first = collabNames.isEmpty() ? "" : collabNames.get(0);
+        int others = collabUids.size() - 1;
+        tvCollabName.setText(others > 0
+            ? "@" + first + " and " + others + (others == 1 ? " other" : " others")
+            : "@" + first);
     }
 
     // ── Duet Series picker ────────────────────────────────────────────────
@@ -249,6 +247,22 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
             if (tvSeriesPicker != null && selectedSeriesTitle != null) {
                 tvSeriesPicker.setText(selectedSeriesTitle);
             }
+        } else if (requestCode == REQ_ADD_COLLABORATORS && resultCode == RESULT_OK && data != null) {
+            collabUids.clear();    collabNames.clear();
+            collabHandles.clear(); collabAvatars.clear();
+            ArrayList<String> uids = data.getStringArrayListExtra(
+                com.callx.app.social.CollabPostInviteActivity.RESULT_UIDS);
+            ArrayList<String> names = data.getStringArrayListExtra(
+                com.callx.app.social.CollabPostInviteActivity.RESULT_NAMES);
+            ArrayList<String> handles = data.getStringArrayListExtra(
+                com.callx.app.social.CollabPostInviteActivity.RESULT_HANDLES);
+            ArrayList<String> avatars = data.getStringArrayListExtra(
+                com.callx.app.social.CollabPostInviteActivity.RESULT_AVATARS);
+            if (uids != null)    collabUids.addAll(uids);
+            if (names != null)   collabNames.addAll(names);
+            if (handles != null) collabHandles.addAll(handles);
+            if (avatars != null) collabAvatars.addAll(avatars);
+            refreshCollabSummary();
         }
     }
 
@@ -278,7 +292,12 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
             i.putExtra(RESULT_CAPTION,         caption);
             i.putExtra(RESULT_LOCATION,        location);
             i.putExtra(RESULT_AUDIENCE,        selectedAudience);
-            i.putExtra(RESULT_COLLAB_UID,      collabUid);
+            if (!collabUids.isEmpty()) {
+                i.putStringArrayListExtra(RESULT_COLLAB_UIDS,    collabUids);
+                i.putStringArrayListExtra(RESULT_COLLAB_NAMES,   collabNames);
+                i.putStringArrayListExtra(RESULT_COLLAB_HANDLES, collabHandles);
+                i.putStringArrayListExtra(RESULT_COLLAB_AVATARS, collabAvatars);
+            }
             i.putExtra(RESULT_ALLOW_COMMENTS,  swAllowComments  != null && swAllowComments.isChecked());
             i.putExtra(RESULT_ALLOW_DUET,      swAllowDuet      != null && swAllowDuet.isChecked());
             i.putExtra(RESULT_ALLOW_STITCH,    swAllowStitch    != null && swAllowStitch.isChecked());

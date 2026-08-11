@@ -270,6 +270,12 @@ public class ReelUploadActivity extends AppCompatActivity {
       private int    episodeNumber = 0;
     /** UIDs mentioned via @Name in the caption — notified after upload. */
     private java.util.ArrayList<String> mentionedUids = new java.util.ArrayList<>();
+    // ✅ MULTI-COLLABORATOR: staged from ReelPostDetailsActivity (picked pre-upload,
+    // since no reelId existed yet); invites are sent once the reel is saved below.
+    private java.util.ArrayList<String> pendingCollabUids    = new java.util.ArrayList<>();
+    private java.util.ArrayList<String> pendingCollabNames   = new java.util.ArrayList<>();
+    private java.util.ArrayList<String> pendingCollabHandles = new java.util.ArrayList<>();
+    private java.util.ArrayList<String> pendingCollabAvatars = new java.util.ArrayList<>();
     private ReelCaptionMentionController uploadMentionController;
 
   
@@ -933,6 +939,19 @@ public class ReelUploadActivity extends AppCompatActivity {
                 i.getStringArrayListExtra(ReelPostDetailsActivity.RESULT_MENTION_UIDS);
         if (mentionUidsFromIntent != null && !mentionUidsFromIntent.isEmpty()) {
             mentionedUids.addAll(mentionUidsFromIntent);
+        }
+
+        // ── ✅ MULTI-COLLABORATOR: staged collaborators picked pre-upload ────────
+        java.util.ArrayList<String> collabUidsFromIntent =
+                i.getStringArrayListExtra(ReelPostDetailsActivity.RESULT_COLLAB_UIDS);
+        if (collabUidsFromIntent != null && !collabUidsFromIntent.isEmpty()) {
+            pendingCollabUids.addAll(collabUidsFromIntent);
+            java.util.ArrayList<String> n = i.getStringArrayListExtra(ReelPostDetailsActivity.RESULT_COLLAB_NAMES);
+            java.util.ArrayList<String> h = i.getStringArrayListExtra(ReelPostDetailsActivity.RESULT_COLLAB_HANDLES);
+            java.util.ArrayList<String> av = i.getStringArrayListExtra(ReelPostDetailsActivity.RESULT_COLLAB_AVATARS);
+            if (n  != null) pendingCollabNames.addAll(n);
+            if (h  != null) pendingCollabHandles.addAll(h);
+            if (av != null) pendingCollabAvatars.addAll(av);
         }
 
         if (sId2 != null && !sId2.isEmpty()) {
@@ -2133,6 +2152,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                             if (b == null || b.isFinishing() || b.isDestroyed()) return;
                             FirebaseUtils.getReelsByUserRef(myUid).child(reelId).setValue(true);
                             generateAndAttachBlurHash(b, reelId, reel.thumbUrl);
+                            b.sendPendingCollabInvitesIfAny(reelId, reel.thumbUrl, myUid, finalMyName);
                             Toast.makeText(b, "Photo reel posted! 🎉", Toast.LENGTH_SHORT).show();
                             b.setResult(RESULT_OK);
                             b.layoutUploadProgress.setVisibility(View.GONE);
@@ -2157,6 +2177,17 @@ public class ReelUploadActivity extends AppCompatActivity {
     }
 
     // ── Firebase save ─────────────────────────────────────────────────────
+
+    /** ✅ MULTI-COLLABORATOR: fires the staged invites (from ReelPostDetailsActivity)
+     *  once the reel has just been saved and a real reelId exists. No-op if none staged. */
+    private void sendPendingCollabInvitesIfAny(String reelId, String thumbUrl, String myUid, String myName) {
+        if (pendingCollabUids.isEmpty()) return;
+        java.util.List<com.callx.app.social.CollabInviteHelper.StagedCollaborator> staged =
+            com.callx.app.social.CollabInviteHelper.fromParallelLists(
+                pendingCollabUids, pendingCollabNames, pendingCollabHandles, pendingCollabAvatars);
+        com.callx.app.social.CollabInviteHelper.sendInvitesForNewReel(
+            this, reelId, thumbUrl, staged, myUid, myName, null);
+    }
 
     private void saveReelToFirebase(String thumbUrl, String videoUrl, String hlsManifestUrl,
                                     String video480, String video720, String video1080,
@@ -2299,6 +2330,7 @@ public class ReelUploadActivity extends AppCompatActivity {
 
                         FirebaseUtils.getReelsByUserRef(myUid).child(finalReelId).setValue(true);
                         generateAndAttachBlurHash(b, finalReelId, reel.thumbUrl);
+                        b.sendPendingCollabInvitesIfAny(finalReelId, reel.thumbUrl, myUid, myName);
 
                         Toast.makeText(b, "Reel posted! 🎉", Toast.LENGTH_SHORT).show();
                         // ── @Mention notifications (Instagram-style) ─────────────────────────

@@ -63,6 +63,9 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
     public static final String ACTION_COLLAB_REQUEST      = "collab_request";
     /** Collab Repost — opens CollabRepostActivity for joint repost with a collaborator */
     public static final String ACTION_COLLAB_REPOST       = "collab_repost";
+    /** ✅ MULTI-COLLABORATOR: owner-only — opens CollabPostInviteActivity to invite
+     *  up to 4 co-authors on THIS reel (Instagram-style joint-authorship posts). */
+    public static final String ACTION_ADD_COLLABORATORS   = "add_collaborators";
     public static final String ACTION_NOT_INTERESTED      = "not_interested";
     public static final String ACTION_COPY_LINK           = "copy_link";
     public static final String ACTION_REPORT              = "report";
@@ -413,6 +416,7 @@ public class ReelMoreBottomSheet extends BottomSheetDialogFragment {
 
         list.add(new MenuItem(ACTION_SHARE_TO_STORY, "Share to Story",   R.drawable.ic_share_reel,  CLR_GREEN,   true,  false));
         list.add(new MenuItem(ACTION_COLLAB_REPOST,  "🤝 Collab Repost", R.drawable.ic_group,       CLR_COLLAB,  false, false));
+        list.add(new MenuItem(ACTION_ADD_COLLABORATORS, "Add Collaborators", R.drawable.ic_group,   CLR_TEAL,    false, false));
         list.add(new MenuItem(ACTION_QR_CODE,        "QR Code",          R.drawable.ic_qr_code,     CLR_ORANGE,  false, false));
         list.add(new MenuItem(ACTION_COLLAB_REQUEST, "Collab Request",   R.drawable.ic_group,       CLR_TEAL,    false, false));
         list.add(new MenuItem(ACTION_QUALITY,        "Video Quality",    R.drawable.ic_speed,       CLR_CYAN,    false, false));
