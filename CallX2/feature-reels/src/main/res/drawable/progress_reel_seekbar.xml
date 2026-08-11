@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Instagram-style thin seek track for the Reels bottom progress bar.
+  The SeekBar view itself is taller (28dp, see fragment_reel_player.xml)
+  purely to give the thumb a generous touch/drag target — this drawable
+  insets top/bottom so only a slim ~4dp line is actually painted, centered
+  in those bounds, keeping the old thin-line look while the real touchable
+  area is much bigger than what's visible.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@android:id/background"
+        android:top="12dp"
+        android:bottom="12dp">
+        <shape android:shape="rectangle">
+            <solid android:color="#44FF416C" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+
+    <item
+        android:id="@android:id/progress"
+        android:top="12dp"
+        android:bottom="12dp">
+        <clip>
+            <shape android:shape="rectangle">
+                <solid android:color="#FF416C" />
+                <corners android:radius="2dp" />
+            </shape>
+        </clip>
+    </item>
+
+</layer-list>

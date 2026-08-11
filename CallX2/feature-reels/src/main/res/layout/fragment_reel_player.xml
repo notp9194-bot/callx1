@@ -920,17 +920,26 @@
 
     </FrameLayout>
 
-    <!-- Video progress bar — pinned to very bottom of video (0dp margin) -->
-    <ProgressBar
+    <!-- Video progress bar — pinned to very bottom of video (0dp margin).
+         Instagram-style drag-to-seek: a SeekBar instead of a plain
+         ProgressBar. Visually still a thin ~4dp line (see
+         progress_reel_seekbar.xml's inset track) but the view itself is
+         28dp tall so there's a generous touch/drag target below the fully
+         visible video content, not just the painted line's own 3px. Thumb
+         starts invisible (alpha 0, set in code) and fades in only while
+         actively scrubbing — see ReelPlayerController's seek bar wiring. -->
+    <SeekBar
         android:id="@+id/progress_video"
-        style="@style/Widget.AppCompat.ProgressBar.Horizontal"
         android:layout_width="match_parent"
-        android:layout_height="3dp"
+        android:layout_height="28dp"
         android:layout_gravity="bottom"
         android:max="1000"
         android:progress="0"
-        android:progressTint="#FF416C"
-        android:progressBackgroundTint="#44FF416C"
+        android:paddingStart="0dp"
+        android:paddingEnd="0dp"
+        android:splitTrack="false"
+        android:progressDrawable="@drawable/progress_reel_seekbar"
+        android:thumb="@drawable/thumb_reel_seek"
         android:layout_marginBottom="0dp"/>
 
     <!-- Buffering indicator -->
