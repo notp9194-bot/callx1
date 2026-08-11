@@ -96,6 +96,22 @@ public class CallActivity extends AppCompatActivity {
     private final Handler timeoutHandler = new Handler(Looper.getMainLooper());
     private Runnable timeoutRunnable;
 
+    // ROOT-CAUSE FIX: ICE-connect watchdog — separate from the 60s "no
+    // answer" timeout above. That one only guarded the caller against the
+    // callee never picking up; once the callee DID accept, there was no
+    // timeout at all (either side) for the case where signaling completes
+    // fine but the ICE/media path itself never connects — e.g. STUN-only
+    // ICE failing to traverse symmetric/carrier-grade NAT. That's exactly
+    // the "shows Connecting... forever, no audio either direction" report:
+    // the UI had nothing that would ever move off "Connecting..." on its
+    // own. 20s (vs the old 60s, which only covered the caller) is enough
+    // for a normal ICE handshake — including one TURN-credential retry — but
+    // short enough that the user isn't staring at a dead call for a full
+    // minute before getting a clear "failed to connect" instead of silence.
+    private static final long ICE_CONNECT_TIMEOUT_MS = 20_000L;
+    private final Handler iceConnectTimeoutHandler = new Handler(Looper.getMainLooper());
+    private Runnable iceConnectTimeoutRunnable;
+
     // ICE reconnection
     private int iceRestartCount = 0;
     private final Handler iceRestartHandler = new Handler(Looper.getMainLooper());
@@ -143,6 +159,8 @@ public class CallActivity extends AppCompatActivity {
     private DatabaseReference callRef;
     private ValueEventListener statusListener;
     private ChildEventListener remoteCandidateListener;
+    private ValueEventListener offerListener;
+    private ValueEventListener answerListener;
     private boolean remoteDescSet = false;
     private final List<IceCandidate> pendingCandidates = new ArrayList<>();
 
@@ -358,38 +376,84 @@ public class CallActivity extends AppCompatActivity {
     private void fetchTurnThenInitWebRTC() {
         bgExecutor.execute(() -> {
             List<PeerConnection.IceServer> iceServers = buildFallbackIce();
-            try {
-                String url = Constants.SERVER_URL + Constants.TURN_CREDENTIALS_PATH;
-                HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-                conn.setConnectTimeout(5000); conn.setReadTimeout(5000);
-                conn.setRequestMethod("GET");
-                if (conn.getResponseCode() == 200) {
-                    BufferedReader br = new BufferedReader(
-                        new InputStreamReader(conn.getInputStream()));
-                    StringBuilder sb = new StringBuilder(); String line;
-                    while ((line = br.readLine()) != null) sb.append(line);
-                    JSONObject j = new JSONObject(sb.toString());
+            String customTurn = fetchCustomTurnCredentials();
+            if (customTurn == null) {
+                // ROOT-CAUSE FIX: the backend (Render.com free tier) spins
+                // down after inactivity and can take 30-50s to cold-start on
+                // the next request — far longer than the old 5s timeout gave
+                // it. One retry with a longer timeout gives a cold backend a
+                // real chance to wake up and return actual TURN credentials
+                // before we give up and fall back to STUN-only, which is the
+                // scenario that was causing "Connecting..." to hang forever:
+                // STUN alone can't traverse the symmetric/carrier-grade NAT
+                // most Indian mobile networks use, so ICE never reaches
+                // CONNECTED and no audio/video ever flows even though
+                // signaling (offer/answer) completed fine.
+                customTurn = fetchCustomTurnCredentials();
+            }
+            if (customTurn != null) {
+                try {
+                    JSONObject j = new JSONObject(customTurn);
                     String turnUrl = j.optString("url", "");
                     String user    = j.optString("username", "");
                     String cred    = j.optString("credential", "");
                     if (!turnUrl.isEmpty() && !user.isEmpty() && !cred.isEmpty()) {
-                        iceServers.clear();
-                        iceServers.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_1).createIceServer());
-                        iceServers.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_2).createIceServer());
                         iceServers.add(PeerConnection.IceServer.builder(turnUrl)
                             .setUsername(user).setPassword(cred).createIceServer());
                     }
-                }
-            } catch (Exception ignored) {}
+                } catch (Exception ignored) {}
+            }
             final List<PeerConnection.IceServer> finalIce = iceServers;
             runOnUiThread(() -> initWebRTC(finalIce));
         });
     }
 
+    /** Raw JSON string on success, null on any failure/timeout. */
+    private String fetchCustomTurnCredentials() {
+        try {
+            String url = Constants.SERVER_URL + Constants.TURN_CREDENTIALS_PATH;
+            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+            // Bumped from 5000ms — see fetchTurnThenInitWebRTC()'s comment on
+            // why 5s wasn't enough for a cold-started backend.
+            conn.setConnectTimeout(12000); conn.setReadTimeout(12000);
+            conn.setRequestMethod("GET");
+            if (conn.getResponseCode() == 200) {
+                BufferedReader br = new BufferedReader(
+                    new InputStreamReader(conn.getInputStream()));
+                StringBuilder sb = new StringBuilder(); String line;
+                while ((line = br.readLine()) != null) sb.append(line);
+                return sb.toString();
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    /**
+     * ROOT-CAUSE FIX: previously Google STUN servers ONLY. STUN alone can
+     * discover a device's public address but can't relay media through it —
+     * two callers both behind symmetric/carrier-grade NAT (very common on
+     * Indian mobile data) simply cannot establish a direct P2P path with
+     * STUN alone, no matter how long ICE gathering runs. That's the "shows
+     * Connecting... but never actually connects, no audio either direction"
+     * failure mode. A TURN relay is what makes that case work — it relays
+     * media through a third-party server when a direct path isn't possible.
+     *
+     * The custom backend's TURN credentials (fetchCustomTurnCredentials())
+     * are still tried first/preferred, but if that ever fails, this fallback
+     * now includes a public TURN relay (openrelay.metered.ca — free, widely
+     * used exactly for this "STUN isn't enough" WebRTC fallback case)
+     * instead of leaving calls with zero TURN capability at all.
+     */
     private List<PeerConnection.IceServer> buildFallbackIce() {
         List<PeerConnection.IceServer> list = new ArrayList<>();
         list.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_1).createIceServer());
         list.add(PeerConnection.IceServer.builder(Constants.STUN_GOOGLE_2).createIceServer());
+        list.add(PeerConnection.IceServer.builder("turn:openrelay.metered.ca:80")
+            .setUsername("openrelayproject").setPassword("openrelayproject").createIceServer());
+        list.add(PeerConnection.IceServer.builder("turn:openrelay.metered.ca:443")
+            .setUsername("openrelayproject").setPassword("openrelayproject").createIceServer());
+        list.add(PeerConnection.IceServer.builder("turn:openrelay.metered.ca:443?transport=tcp")
+            .setUsername("openrelayproject").setPassword("openrelayproject").createIceServer());
         return list;
     }
 
@@ -503,6 +567,14 @@ public class CallActivity extends AppCompatActivity {
             PushNotify.notifyUser(partnerUid, myUid, myName,
                 isVideo ? "video_call" : "call", callId);
             watchCalleeIceRestartRequest();
+            // ROOT-CAUSE FIX: the caller was never listening for the
+            // callee's answer at all — see watchForAnswer()'s javadoc for
+            // the full explanation. Without this, the caller's PeerConnection
+            // never gets setRemoteDescription() called with the answer, so
+            // ICE can never complete on the caller's side: the call visibly
+            // "connects" (both UIs update, signaling flows one-way) but no
+            // audio/video ever actually flows, on every single call.
+            watchForAnswer();
         } else {
             callRef.child("status").setValue("accepted");
             watchForOffer();
@@ -515,6 +587,29 @@ public class CallActivity extends AppCompatActivity {
         registerNoisyReceiver();
         registerBtScoReceiver();
         registerNotifToggleReceiver();
+
+        scheduleIceConnectWatchdog();
+    }
+
+    /** See ICE_CONNECT_TIMEOUT_MS's javadoc above for why this exists. */
+    private void scheduleIceConnectWatchdog() {
+        cancelIceConnectWatchdog();
+        iceConnectTimeoutRunnable = () -> {
+            if (!callConnected && !finishing) {
+                binding.tvCallStatus.setText("Call failed to connect");
+                Toast.makeText(this,
+                    "Couldn't connect — check your network and try again", Toast.LENGTH_LONG).show();
+                endCall();
+            }
+        };
+        iceConnectTimeoutHandler.postDelayed(iceConnectTimeoutRunnable, ICE_CONNECT_TIMEOUT_MS);
+    }
+
+    private void cancelIceConnectWatchdog() {
+        if (iceConnectTimeoutRunnable != null) {
+            iceConnectTimeoutHandler.removeCallbacks(iceConnectTimeoutRunnable);
+            iceConnectTimeoutRunnable = null;
+        }
     }
 
     // ── Notification shade mic/camera toggle ──────────────────────────────
@@ -933,22 +1028,63 @@ public class CallActivity extends AppCompatActivity {
 
     private void watchForOffer() {
         if (callRef == null) return;
-        callRef.child("offer").addListenerForSingleValueEvent(new ValueEventListener() {
+        // Persistent listener (not single-value) — fires with the current
+        // offer immediately, and again on every subsequent write, so an
+        // ICE-restart re-offer (see performIceRestart()) is picked up the
+        // same way the initial offer is, instead of only ever seeing the
+        // very first offer.
+        offerListener = new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot s) {
-                if (!s.exists()) {
-                    callRef.child("offer").addValueEventListener(new ValueEventListener() {
-                        @Override public void onDataChange(DataSnapshot s2) {
-                            if (s2.exists()) {
-                                callRef.child("offer").removeEventListener(this);
-                                handleOffer(s2);
-                            }
-                        }
-                        @Override public void onCancelled(DatabaseError e) {}
-                    });
-                } else { handleOffer(s); }
+                if (s.exists()) handleOffer(s);
             }
             @Override public void onCancelled(DatabaseError e) {}
-        });
+        };
+        callRef.child("offer").addValueEventListener(offerListener);
+    }
+
+    /**
+     * ROOT-CAUSE FIX: this method — the caller-side mirror of watchForOffer()
+     * — didn't exist at all. The caller wrote its offer to Firebase and the
+     * callee correctly answered it, but nothing on the caller's side was
+     * ever listening on callRef.child("answer"), so the caller's
+     * PeerConnection never had setRemoteDescription() called with that
+     * answer. Per WebRTC's offer/answer model, an offerer whose answer is
+     * never applied stays stuck in "have-local-offer" signaling state
+     * forever: its own ICE candidates still get sent, but any candidates
+     * *received* from the callee were queued in pendingCandidates and never
+     * drained (drainPendingCandidates() only ever ran from handleOffer(),
+     * which only the callee calls) — so the caller's ICE agent never had
+     * enough information to complete a connection. Every outgoing call
+     * would show "Calling..." (later "Connecting..." once the callee
+     * screen opened) and just hang there indefinitely with no media in
+     * either direction, regardless of network quality or TURN
+     * availability — this is what that looked like from the outside.
+     */
+    private void watchForAnswer() {
+        if (callRef == null) return;
+        answerListener = new ValueEventListener() {
+            @Override public void onDataChange(DataSnapshot s) {
+                if (s.exists()) handleAnswer(s);
+            }
+            @Override public void onCancelled(DatabaseError e) {}
+        };
+        callRef.child("answer").addValueEventListener(answerListener);
+    }
+
+    private void handleAnswer(DataSnapshot s) {
+        String type = s.child("type").getValue(String.class);
+        String sdp  = s.child("sdp").getValue(String.class);
+        if (type == null || sdp == null || peerConnection == null) return;
+        peerConnection.setRemoteDescription(new SdpObserver() {
+            @Override public void onSetSuccess() {
+                remoteDescSet = true;
+                drainPendingCandidates();
+            }
+            @Override public void onCreateSuccess(SessionDescription s2) {}
+            @Override public void onCreateFailure(String e) {}
+            @Override public void onSetFailure(String e) {}
+        }, new SessionDescription(
+            SessionDescription.Type.fromCanonicalForm(type), sdp));
     }
 
     private void handleOffer(DataSnapshot s) {
@@ -1100,6 +1236,7 @@ public class CallActivity extends AppCompatActivity {
             timeoutHandler.removeCallbacks(timeoutRunnable);
             timeoutRunnable = null;
         }
+        cancelIceConnectWatchdog();
 
         binding.tvCallStatus.setText("Connected \u2022 0:00");
         if (isVideo) binding.ivCallAvatar.setVisibility(View.GONE);
@@ -1176,6 +1313,7 @@ public class CallActivity extends AppCompatActivity {
             timeoutHandler.removeCallbacks(timeoutRunnable);
             timeoutRunnable = null;
         }
+        cancelIceConnectWatchdog();
 
         try { stopService(new Intent(this, CallForegroundService.class)); }
         catch (Exception ignored) {}
@@ -1315,6 +1453,10 @@ public class CallActivity extends AppCompatActivity {
             }
             if (statusListener != null && callRef != null)
                 callRef.child("status").removeEventListener(statusListener);
+            if (offerListener != null && callRef != null)
+                callRef.child("offer").removeEventListener(offerListener);
+            if (answerListener != null && callRef != null)
+                callRef.child("answer").removeEventListener(answerListener);
             if (iceRestartRequestListener != null && callRef != null)
                 callRef.child("iceRestartRequest")
                     .removeEventListener(iceRestartRequestListener);
@@ -1359,6 +1501,7 @@ public class CallActivity extends AppCompatActivity {
         if (ticker != null) tick.removeCallbacks(ticker);
         cancelPendingIceRestart();
         if (timeoutRunnable != null) timeoutHandler.removeCallbacks(timeoutRunnable);
+        cancelIceConnectWatchdog();
         // Proximity wake lock release
         try {
             if (proximityWakeLock != null && proximityWakeLock.isHeld())

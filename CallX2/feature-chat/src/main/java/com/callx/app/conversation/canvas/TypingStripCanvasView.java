@@ -213,7 +213,14 @@ public class TypingStripCanvasView extends View {
             return;
         }
         if (pendingAvatarTarget != null) {
-            Glide.with(getContext()).clear(pendingAvatarTarget);
+            // Defensive: a typing event can arrive right as the hosting
+            // Activity is finishing (listener callback racing teardown).
+            // Real loads still use the Activity/Fragment context on purpose
+            // (so Glide can auto-pause/resume with the lifecycle) — this
+            // just stops that same race from crashing here too.
+            try {
+                Glide.with(getContext()).clear(pendingAvatarTarget);
+            } catch (Exception ignored) {}
         }
         pendingAvatarTarget = new CustomTarget<Bitmap>() {
             @Override public void onResourceReady(@androidx.annotation.NonNull Bitmap resource,
@@ -226,12 +233,14 @@ public class TypingStripCanvasView extends View {
                 avatarBitmap = null;
             }
         };
-        Glide.with(getContext())
-                .asBitmap()
-                .circleCrop()
-                .load(url)
-                .override(avatarSizePx, avatarSizePx)
-                .into(pendingAvatarTarget);
+        try {
+            Glide.with(getContext())
+                    .asBitmap()
+                    .circleCrop()
+                    .load(url)
+                    .override(avatarSizePx, avatarSizePx)
+                    .into(pendingAvatarTarget);
+        } catch (Exception ignored) {}
     }
 
     // ── Dot bounce animation — Choreographer-driven, dirty-rect only ────
@@ -381,7 +390,20 @@ public class TypingStripCanvasView extends View {
             Choreographer.getInstance().removeFrameCallback(frameCallback);
         }
         if (pendingAvatarTarget != null) {
-            Glide.with(getContext()).clear(pendingAvatarTarget);
+            // BUG FIX: Glide.with(getContext()) here throws
+            // "You cannot start a load for a destroyed activity" — even for
+            // a .clear() call — because Glide.with(Activity/Fragment context)
+            // checks that context's lifecycle state before handing back a
+            // RequestManager at all, and onDetachedFromWindow() during
+            // Activity teardown is exactly when that state is already
+            // DESTROYED. Application context isn't tied to any Activity's
+            // lifecycle, so it skips that check entirely — correct for a
+            // pure cleanup call like this, which was never a real "load"
+            // request. Try-catch kept as a last-resort net (comment above
+            // already calls this "belt-and-suspenders").
+            try {
+                Glide.with(getContext().getApplicationContext()).clear(pendingAvatarTarget);
+            } catch (Exception ignored) {}
         }
     }
 }
