@@ -447,6 +447,32 @@ public class ReelModel {
     public Map<String, CollabCollaborator> collabMap;
 
     /**
+     * Serializes {@link #collabMap} to JSON — used to carry the map through
+     * a Fragment argument {@link android.os.Bundle}, which cannot hold a
+     * Map<String, POJO> directly (mirrors {@link #stickerJsonForVideo()}).
+     */
+    @com.google.firebase.database.Exclude
+    public String collabMapJson() {
+        if (collabMap == null || collabMap.isEmpty()) return "";
+        return new com.google.gson.Gson().toJson(collabMap);
+    }
+
+    /**
+     * Rebuilds {@link #collabMap} from JSON produced by {@link #collabMapJson()}.
+     */
+    @com.google.firebase.database.Exclude
+    public static Map<String, CollabCollaborator> parseCollabMapJson(String json) {
+        if (json == null || json.isEmpty()) return null;
+        java.lang.reflect.Type type =
+            new com.google.gson.reflect.TypeToken<Map<String, CollabCollaborator>>(){}.getType();
+        try {
+            return new com.google.gson.Gson().fromJson(json, type);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
      * One entry in {@link #collabMap}: a single invited/accepted collaborator
      * on a joint-authorship post.
      */

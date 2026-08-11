@@ -115,6 +115,17 @@ public class ReelPlayerFragment extends Fragment
         args.putInt   ("series_episode_num",  reel.seriesEpisodeNumber);
         args.putString("media_type", reel.mediaType != null ? reel.mediaType : "video");
         args.putString("sticker_json", reel.stickerJsonForVideo());
+        // ✅ MULTI-COLLABORATOR: carry collab state through — without this the
+        // avatar-stack/"and N others" row in the player never has data to show,
+        // since collabMap can't be put into a Bundle directly.
+        args.putBoolean("is_collab_post",    reel.isCollabPost);
+        args.putBoolean("is_collab_pending", reel.isCollabPending);
+        args.putString("collab_uid",          reel.collabUid          != null ? reel.collabUid          : "");
+        args.putString("collab_display_name", reel.collabDisplayName  != null ? reel.collabDisplayName  : "");
+        args.putString("collab_handle",       reel.collabHandle       != null ? reel.collabHandle       : "");
+        args.putString("collab_avatar_url",   reel.collabAvatarUrl    != null ? reel.collabAvatarUrl    : "");
+        args.putString("collab_invite_id",    reel.collabInviteId     != null ? reel.collabInviteId     : "");
+        args.putString("collab_map_json",     reel.collabMapJson());
         if (reel.photoUrls != null && !reel.photoUrls.isEmpty()) {
             args.putStringArrayList("photo_urls", new ArrayList<>(reel.photoUrls));
         }
@@ -184,6 +195,15 @@ public class ReelPlayerFragment extends Fragment
             reel.seriesEpisodeNumber = getArguments().getInt   ("series_episode_num",  0);
             reel.mediaType       = getArguments().getString("media_type",        "video");
             reel.stickerJson     = getArguments().getString("sticker_json",      "[]");
+            // ✅ MULTI-COLLABORATOR: restore collab state (see newInstance()).
+            reel.isCollabPost      = getArguments().getBoolean("is_collab_post",    false);
+            reel.isCollabPending   = getArguments().getBoolean("is_collab_pending", false);
+            reel.collabUid          = getArguments().getString("collab_uid",          "");
+            reel.collabDisplayName  = getArguments().getString("collab_display_name", "");
+            reel.collabHandle       = getArguments().getString("collab_handle",       "");
+            reel.collabAvatarUrl    = getArguments().getString("collab_avatar_url",   "");
+            reel.collabInviteId     = getArguments().getString("collab_invite_id",    "");
+            reel.collabMap = ReelModel.parseCollabMapJson(getArguments().getString("collab_map_json", ""));
             reel.photoUrls       = getArguments().getStringArrayList("photo_urls");
             reel.photoDurationMs = getArguments().getInt("photo_duration_ms",    3000);
             reel.photoFilter         = getArguments().getString("photo_filter",         "normal");
