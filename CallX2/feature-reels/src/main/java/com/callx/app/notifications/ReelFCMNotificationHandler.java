@@ -60,6 +60,10 @@ public class ReelFCMNotificationHandler {
     public static final String TYPE_VIDEO_REPLY        = "video_reply";
     public static final String TYPE_COLLAB_REQUEST     = "collab_request";
     public static final String TYPE_COLLAB_ACCEPTED    = "collab_accepted";
+    // ✅ NEW — was missing; server already allowlists "collab_declined"
+    // (VALID_REEL_TYPES) and forwards collab_id, but nothing on the app
+    // side handled it, so the initiator never saw a decline notification.
+    public static final String TYPE_COLLAB_DECLINED    = "collab_declined";
     public static final String TYPE_GIFT               = "gift";
     public static final String TYPE_LIVE_STARTED       = "live_started";
     public static final String TYPE_LIVE_MILESTONE     = "live_milestone";
@@ -234,6 +238,12 @@ public class ReelFCMNotificationHandler {
             case TYPE_COLLAB_ACCEPTED:
                 Executors.newSingleThreadExecutor().execute(() ->
                     ReelNotificationHelper.showCollabAcceptedNotification(
+                            ctx, senderName, senderPhoto, collabId));
+                break;
+
+            case TYPE_COLLAB_DECLINED:
+                Executors.newSingleThreadExecutor().execute(() ->
+                    ReelNotificationHelper.showCollabDeclinedNotification(
                             ctx, senderName, senderPhoto, collabId));
                 break;
 

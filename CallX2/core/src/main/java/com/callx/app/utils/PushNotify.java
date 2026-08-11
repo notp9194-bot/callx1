@@ -941,6 +941,85 @@ public class PushNotify {
 
       private static String safe(String s) { return s != null ? s : ""; }
 
+      // ── Add Collaborators (joint-post) Notifications ────────────────────────
+      // NEW — cross-device push for the "Add Collaborators" feature. The server
+      // (/notify/reel) already forwards a "collabId" body field into the FCM
+      // data payload as "collab_id" (ReelFCMNotificationHandler reads exactly
+      // that key for TYPE_COLLAB_REQUEST / TYPE_COLLAB_ACCEPTED / TYPE_COLLAB_DECLINED).
+      // Before this, CollabInviteHelper / CollabPostAcceptActivity only fired a
+      // *local* notification (CollabRepostNotificationHelper.notifyCollabInvite/
+      // Accepted/Declined) — so the other user's device never got a push unless
+      // it happened to already be open. These methods close that gap.
+
+      /**
+       * Sends FCM push to the invited collaborator when someone adds them to a
+       * joint reel post. type = "collab_request"
+       */
+      public static void notifyCollabRequest(
+              String toUid, String fromUid, String fromName, String fromPhoto,
+              String reelId, String reelThumb, String collabId) {
+          try {
+              org.json.JSONObject body = new org.json.JSONObject()
+                  .put("toUid",     safe(toUid))
+                  .put("fromUid",   safe(fromUid))
+                  .put("fromName",  safe(fromName))
+                  .put("fromPhoto", safe(fromPhoto))
+                  .put("reelId",    safe(reelId))
+                  .put("reelThumb", safe(reelThumb))
+                  .put("collabId",  safe(collabId))
+                  .put("type",      "collab_request");
+              postAsync(Constants.SERVER_URL + "/notify/reel", body);
+          } catch (Exception e) {
+              android.util.Log.w("PushNotify", "notifyCollabRequest err: " + e.getMessage());
+          }
+      }
+
+      /**
+       * Sends FCM push to the initiator when the invited collaborator accepts.
+       * type = "collab_accepted"
+       */
+      public static void notifyCollabAccepted(
+              String toUid, String fromUid, String fromName, String fromPhoto,
+              String reelId, String reelThumb, String collabId) {
+          try {
+              org.json.JSONObject body = new org.json.JSONObject()
+                  .put("toUid",     safe(toUid))
+                  .put("fromUid",   safe(fromUid))
+                  .put("fromName",  safe(fromName))
+                  .put("fromPhoto", safe(fromPhoto))
+                  .put("reelId",    safe(reelId))
+                  .put("reelThumb", safe(reelThumb))
+                  .put("collabId",  safe(collabId))
+                  .put("type",      "collab_accepted");
+              postAsync(Constants.SERVER_URL + "/notify/reel", body);
+          } catch (Exception e) {
+              android.util.Log.w("PushNotify", "notifyCollabAccepted err: " + e.getMessage());
+          }
+      }
+
+      /**
+       * Sends FCM push to the initiator when the invited collaborator declines.
+       * type = "collab_declined"
+       */
+      public static void notifyCollabDeclined(
+              String toUid, String fromUid, String fromName, String fromPhoto,
+              String reelId, String reelThumb, String collabId) {
+          try {
+              org.json.JSONObject body = new org.json.JSONObject()
+                  .put("toUid",     safe(toUid))
+                  .put("fromUid",   safe(fromUid))
+                  .put("fromName",  safe(fromName))
+                  .put("fromPhoto", safe(fromPhoto))
+                  .put("reelId",    safe(reelId))
+                  .put("reelThumb", safe(reelThumb))
+                  .put("collabId",  safe(collabId))
+                  .put("type",      "collab_declined");
+              postAsync(Constants.SERVER_URL + "/notify/reel", body);
+          } catch (Exception e) {
+              android.util.Log.w("PushNotify", "notifyCollabDeclined err: " + e.getMessage());
+          }
+      }
+
     // ── Broadcast List: delivery-complete confirmation ─────────────────────
     /**
      * Sent by BroadcastDeliveryWorker after a broadcast list fan-out finishes

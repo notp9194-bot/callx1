@@ -10,6 +10,7 @@ import com.callx.app.notifications.CollabRepostNotificationHelper;
 import com.callx.app.reels.R;
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.PushNotify;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.HashMap;
@@ -168,11 +169,19 @@ public class CollabPostAcceptActivity extends AppCompatActivity {
                 Toast.makeText(this, "Failed. Please try again.", Toast.LENGTH_SHORT).show();
                 return;
             }
-            // Notify initiator of acceptance
+            // Notify initiator of acceptance (local — same-device only)
             try {
                 CollabRepostNotificationHelper.notifyCollabAccepted(
                     this, initiatorUid, myUid, myName != null ? myName : "Your collaborator",
                     reelId, thumbUrl != null ? thumbUrl : ""
+                );
+            } catch (Exception ignored) {}
+            // ✅ NEW — cross-device FCM push so the initiator is notified even
+            // when their app isn't open on this device.
+            try {
+                PushNotify.notifyCollabAccepted(
+                    initiatorUid, myUid, myName != null ? myName : "Your collaborator",
+                    myPhoto != null ? myPhoto : "", reelId, thumbUrl != null ? thumbUrl : "", inviteId
                 );
             } catch (Exception ignored) {}
             // Recompute reel-level isCollabPending: true only while at least
@@ -236,6 +245,14 @@ public class CollabPostAcceptActivity extends AppCompatActivity {
             try {
                 CollabRepostNotificationHelper.notifyCollabDeclined(
                     this, initiatorUid, myUid, myName != null ? myName : "Someone", reelId
+                );
+            } catch (Exception ignored) {}
+            // ✅ NEW — cross-device FCM push so the initiator is notified even
+            // when their app isn't open on this device.
+            try {
+                PushNotify.notifyCollabDeclined(
+                    initiatorUid, myUid, myName != null ? myName : "Someone",
+                    myPhoto != null ? myPhoto : "", reelId, thumbUrl != null ? thumbUrl : "", inviteId
                 );
             } catch (Exception ignored) {}
             // Recompute isCollabPending the same way accept does — other

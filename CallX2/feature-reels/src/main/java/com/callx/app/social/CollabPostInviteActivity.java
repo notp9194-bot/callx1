@@ -15,6 +15,7 @@ import com.callx.app.notifications.CollabRepostNotificationHelper;
 import com.callx.app.reels.R;
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.PushNotify;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.*;
@@ -388,10 +389,20 @@ public class CollabPostInviteActivity extends AppCompatActivity {
 
     private void sendPushNotification(CollabUserItem target, String inviteId) {
         try {
+            // Local notification only (doesn't reach the collaborator's device
+            // unless it's this same device / app instance).
             CollabRepostNotificationHelper.notifyCollabInvite(
                 this, target.uid, myUid,
                 myName != null ? myName : "Someone",
                 reelId, inviteId, thumbUrl != null ? thumbUrl : ""
+            );
+        } catch (Exception ignored) {}
+        try {
+            // ✅ NEW — real cross-device FCM push through the server so the
+            // invited collaborator is notified even when their app is closed.
+            PushNotify.notifyCollabRequest(
+                target.uid, myUid, myName != null ? myName : "Someone", "",
+                reelId, thumbUrl != null ? thumbUrl : "", inviteId
             );
         } catch (Exception ignored) {}
     }

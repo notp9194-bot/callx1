@@ -284,6 +284,25 @@ public class ReelNotificationHelper {
     }
 
     // ─────────────────────────────────────────────────────────────────────
+    // 12b. COLLAB DECLINED
+    // ✅ NEW — "Add Collaborators" (joint-post) feature was missing this;
+    // only the request + accepted cases existed, so a decline never showed
+    // anything to the initiator. Reuses the COLLAB_ACCEPTED channel since
+    // both are "result of my invite" notifications.
+    // ─────────────────────────────────────────────────────────────────────
+    public static void showCollabDeclinedNotification(Context ctx, String partnerName, String partnerPhoto, String collabId) {
+        Executors.newSingleThreadExecutor().execute(() -> {
+            int net = getNetworkLevel(ctx);
+            Bitmap avatar = (net >= 2) ? downloadCircle(partnerPhoto, 100) : null;
+            String title  = partnerName + " declined your collab invite";
+            NotificationCompat.Builder b = base(ctx, ReelNotificationChannelManager.CHANNEL_REEL_COLLAB_ACCEPTED, R.drawable.ic_reels, title, "", 0xFFFF3B30)
+                .setContentIntent(genericPi(ctx, com.callx.app.followers.ReelCollabInboxActivity.class));
+            if (avatar != null) b.setLargeIcon(avatar);
+            show(ctx, b, notifId("collabdec", collabId));
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // 13. GIFT RECEIVED
     // ─────────────────────────────────────────────────────────────────────
     public static void showGiftNotification(Context ctx, String gifterName, String gifterPhoto,
