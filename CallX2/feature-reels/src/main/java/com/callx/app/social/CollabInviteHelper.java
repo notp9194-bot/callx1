@@ -111,7 +111,22 @@ public final class CollabInviteHelper {
         updates.put("reels/" + reelId + "/collabAvatarUrl",   first.avatarUrl);
 
         root.updateChildren(updates, (error, ref) -> {
-            if (error == null) {
+            if (error != null) {
+                // 🐞 BUG FIX: this used to fail 100% silently — reel was already
+                // posted (separate write) so the user saw "Reel posted!" with zero
+                // sign that the collab invite write itself failed. No log, no
+                // toast, nothing — meaning a transient DB error / rules rejection
+                // would drop the invite with no trace, exactly matching the
+                // "B never got the invite" report. Now it's logged + surfaced.
+                android.util.Log.e("CollabInviteHelper",
+                    "sendInvitesForNewReel: Firebase write FAILED for reelId=" + reelId
+                        + " — " + error.getMessage());
+                if (ctx != null) {
+                    android.widget.Toast.makeText(ctx,
+                        "Couldn't send collab invite: " + error.getMessage(),
+                        android.widget.Toast.LENGTH_LONG).show();
+                }
+            } else {
                 for (int i = 0; i < collaborators.size() && i < inviteIds.size(); i++) {
                     StagedCollaborator target = collaborators.get(i);
                     try {
@@ -122,12 +137,22 @@ public final class CollabInviteHelper {
                             reelId, inviteIds.get(i), thumbUrl != null ? thumbUrl : "");
                     } catch (Exception ignored) {}
                     try {
-                        // ✅ NEW — actual cross-device FCM push via the server, so the
-                        // collaborator gets notified even when their app is closed.
+                        // ✅ Cross-device FCM push via the server, so the collaborator
+                        // gets notified even when their app is closed.
+                        // 🐞 BUG FIX: log before/after so a failed push (e.g. B has no
+                        // fcmToken saved → server returns 404 "no token") is visible
+                        // in logcat under tag CollabInviteHelper/PushNotify instead of
+                        // vanishing silently.
+                        android.util.Log.d("CollabInviteHelper",
+                            "Sending collab_request push -> toUid=" + target.uid
+                                + " reelId=" + reelId + " inviteId=" + inviteIds.get(i));
                         PushNotify.notifyCollabRequest(
                             target.uid, myUid, myName != null ? myName : "Someone", "",
                             reelId, thumbUrl != null ? thumbUrl : "", inviteIds.get(i));
-                    } catch (Exception ignored) {}
+                    } catch (Exception e) {
+                        android.util.Log.e("CollabInviteHelper",
+                            "notifyCollabRequest threw for uid=" + target.uid + ": " + e.getMessage());
+                    }
                 }
             }
             if (callback != null) callback.onDone();

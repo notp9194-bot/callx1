@@ -398,13 +398,22 @@ public class CollabPostInviteActivity extends AppCompatActivity {
             );
         } catch (Exception ignored) {}
         try {
-            // ✅ NEW — real cross-device FCM push through the server so the
+            // ✅ Real cross-device FCM push through the server so the
             // invited collaborator is notified even when their app is closed.
+            // 🐞 BUG FIX: added a log line so a failed push (server 404 "no
+            // token", network error, etc.) shows up in logcat instead of
+            // vanishing silently — filter tag "CollabInviteHelper"/"PushNotify".
+            android.util.Log.d("CollabInviteHelper",
+                "Sending collab_request push -> toUid=" + target.uid
+                    + " reelId=" + reelId + " inviteId=" + inviteId);
             PushNotify.notifyCollabRequest(
                 target.uid, myUid, myName != null ? myName : "Someone", "",
                 reelId, thumbUrl != null ? thumbUrl : "", inviteId
             );
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            android.util.Log.e("CollabInviteHelper",
+                "notifyCollabRequest threw for uid=" + target.uid + ": " + e.getMessage());
+        }
     }
 
     private static String getString(DataSnapshot s, String key) {
