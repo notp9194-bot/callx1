@@ -802,6 +802,11 @@
          Gentle float animation applied in ReelPlayerFragment.
          visibility=gone until at least 1 liker loads.
          Tapping opens ReelLikesBottomSheet.
+         NOTE: layout_marginBottom below is only the FIRST-FRAME fallback
+         (before bottom_info has been measured once). ReelSocialController's
+         attachDynamicLikerRowSpacing() overrides it at runtime to sit a
+         fixed 16dp gap above bottom_info's real (possibly multi-row) height,
+         so it never overlaps a taller caption/hashtag/music-ticker stack.
     -->
     <!-- outer wrapper: extra padding so float animation + hearts never clip -->
     <FrameLayout
@@ -922,12 +927,13 @@
 
     <!-- Video progress bar — pinned to very bottom of video (0dp margin).
          Instagram-style drag-to-seek: a SeekBar instead of a plain
-         ProgressBar. Visually still a thin ~4dp line (see
-         progress_reel_seekbar.xml's inset track) but the view itself is
-         28dp tall so there's a generous touch/drag target below the fully
-         visible video content, not just the painted line's own 3px. Thumb
-         starts invisible (alpha 0, set in code) and fades in only while
-         actively scrubbing — see ReelPlayerController's seek bar wiring. -->
+         ProgressBar. The 28dp view height is just the touch/drag target;
+         progress_reel_seekbar.xml paints the actual ~3dp line flush with
+         the very bottom edge of that target, and always visible (not
+         faded) so the user can see where it is without dragging first.
+         Only the thumb starts invisible (alpha 0, set in code) and fades
+         in while actively scrubbing — see ReelPlayerController's seek bar
+         wiring. -->
     <SeekBar
         android:id="@+id/progress_video"
         android:layout_width="match_parent"

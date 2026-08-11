@@ -223,8 +223,13 @@ public class ReelLikesBottomSheet extends BottomSheetDialogFragment {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 List<String> uids = new ArrayList<>();
                 for (DataSnapshot child : snap.getChildren()) {
-                    Boolean val = child.getValue(Boolean.class);
-                    if (Boolean.TRUE.equals(val) && child.getKey() != null) {
+                    // COMPAT FIX: like values used to be a bare `true`; newer
+                    // writes store a like-timestamp (long) instead, so the
+                    // liker-avatar row can order by recency. A like entry is
+                    // valid either way — treat "node exists with any value"
+                    // as liked rather than requiring the legacy Boolean type,
+                    // or newly-liked reels would silently vanish from this list.
+                    if (child.exists() && child.getValue() != null && child.getKey() != null) {
                         uids.add(child.getKey());
                         lastLoadedKey = child.getKey();
                     }

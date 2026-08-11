@@ -2861,7 +2861,7 @@ public class UserReelsActivity extends AppCompatActivity
 
                 DatabaseReference countRef = FirebaseUtils.getReelsRef().child(targetReel.reelId).child("likesCount");
                 DatabaseReference likedByUserRef = FirebaseUtils.getReelLikedByUserRef(myUid).child(targetReel.reelId);
-                likeRef.setValue(true);
+                likeRef.setValue(System.currentTimeMillis()); // FIX: timestamp value for liker-avatar-row recency ordering
                 likedByUserRef.setValue(System.currentTimeMillis());
                 countRef.runTransaction(new Transaction.Handler() {
                     @NonNull @Override public Transaction.Result doTransaction(@NonNull MutableData d) {

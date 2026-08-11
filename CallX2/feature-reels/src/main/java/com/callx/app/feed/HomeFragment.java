@@ -2107,7 +2107,7 @@ public class HomeFragment extends Fragment {
                             if (!isLiked[0]) {
                                 isLiked[0] = true;
                                 btnLike.setImageResource(R.drawable.ic_heart_filled);
-                                FirebaseUtils.getReelLikesRef(reelId).child(myUid).setValue(true);
+                                FirebaseUtils.getReelLikesRef(reelId).child(myUid).setValue(System.currentTimeMillis()); // FIX: timestamp value enables orderByValue().limitToLast(3) recency query for the liker-avatar row
                                 FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId)
                                     .setValue(System.currentTimeMillis());
                                 try {
@@ -2161,7 +2161,7 @@ public class HomeFragment extends Fragment {
                             if (!isLiked[0]) {
                                 isLiked[0] = true;
                                 if (btnLike != null) btnLike.setImageResource(R.drawable.ic_heart_filled);
-                                FirebaseUtils.getReelLikesRef(reelId).child(myUid).setValue(true);
+                                FirebaseUtils.getReelLikesRef(reelId).child(myUid).setValue(System.currentTimeMillis()); // FIX: timestamp value enables orderByValue().limitToLast(3) recency query for the liker-avatar row
                                 FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId)
                                     .setValue(System.currentTimeMillis());
                                 try {
@@ -2219,7 +2219,7 @@ public class HomeFragment extends Fragment {
                 isLiked[0] = !isLiked[0];
                 if (isLiked[0]) {
                     btnLike.setImageResource(R.drawable.ic_heart_filled);
-                    FirebaseUtils.getReelLikesRef(reelId).child(myUid).setValue(true);
+                    FirebaseUtils.getReelLikesRef(reelId).child(myUid).setValue(System.currentTimeMillis()); // FIX: timestamp value enables orderByValue().limitToLast(3) recency query for the liker-avatar row
                     FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId)
                         .setValue(System.currentTimeMillis());
                     // Optimistic UI count update

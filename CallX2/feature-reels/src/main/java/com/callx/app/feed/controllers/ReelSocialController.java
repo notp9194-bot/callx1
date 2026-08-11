@@ -66,11 +66,27 @@ public class ReelSocialController {
 
     // Floating liker avatars
     private FrameLayout      llLikersAvatarRow;
+    private View             bottomInfoColumn;
+    private android.view.ViewTreeObserver.OnGlobalLayoutListener bottomInfoLayoutListener;
     private CircleImageView  ivLiker1, ivLiker2, ivLiker3;
     private TextView         tvHeart1, tvHeart2, tvHeart3;
     private View             flLiker1, flLiker2, flLiker3;
     private ObjectAnimator   floatAnim1, floatAnim2, floatAnim3;
     private String[]         likerUidCache = new String[3];
+    // Instagram-level liker-row correctness:
+    //  - fetchGeneration: bumped every time a fresh top-3 snapshot arrives.
+    //    Each per-user async avatar fetch captures the generation it started
+    //    with and checks it's still current before touching a view — kills
+    //    the race where a stale rapid-like/unlike response lands after a
+    //    newer one and overwrites the correct avatar.
+    //  - loadedGeneration/loadedCount: AtomicInteger-style completion tally
+    //    for the *current* generation only, so the float animation fires
+    //    once all (and only all) of *this* batch's avatars have actually
+    //    loaded — not keyed to array index, which doesn't reflect real
+    //    async completion order.
+    private int               fetchGeneration = 0;
+    private final java.util.concurrent.atomic.AtomicInteger loadedCount =
+        new java.util.concurrent.atomic.AtomicInteger(0);
 
     // ── Owned state ───────────────────────────────────────────────────────
     private boolean isLiked           = false;
@@ -96,6 +112,10 @@ public class ReelSocialController {
     private ValueEventListener repostListener;
     private ValueEventListener reactionsListener;
     private ValueEventListener likersListener;
+    // The exact Query the likersListener is attached to (orderByValue().limitToLast(3)),
+    // not just the base ref — removeEventListener requires the same Query
+    // instance/equivalent to actually detach a listener registered on a query.
+    private com.google.firebase.database.Query likersQuery;
 
     public ReelSocialController(ReelPlayerDelegate delegate) {
         this.delegate = delegate;
@@ -118,6 +138,7 @@ public class ReelSocialController {
         ivLikeAnim        = root.findViewById(R.id.iv_like_anim);
 
         llLikersAvatarRow = root.findViewById(R.id.ll_likers_avatar_row);
+        bottomInfoColumn  = root.findViewById(R.id.bottom_info);
         ivLiker1          = root.findViewById(R.id.iv_liker_1);
         ivLiker2          = root.findViewById(R.id.iv_liker_2);
         ivLiker3          = root.findViewById(R.id.iv_liker_3);
@@ -128,6 +149,34 @@ public class ReelSocialController {
         flLiker2          = root.findViewById(R.id.fl_liker_2);
         flLiker3          = root.findViewById(R.id.fl_liker_3);
         reactionBurstOverlay = root.findViewById(R.id.reel_reaction_burst_overlay);
+
+        attachDynamicLikerRowSpacing();
+    }
+
+    // UI FIX: the liker-avatar row used a hardcoded 120dp bottom margin,
+    // sized for a single-line caption. bottom_info (username, collab-author
+    // row, caption, hashtag chips, music ticker) is a wrap_content column
+    // whose real height varies per reel — e.g. a reel with the collab row
+    // and music ticker visible is taller than one with neither. A fixed
+    // margin meant the avatar row could sit *inside* that taller column
+    // instead of clear above it. Instead, measure bottom_info live and pin
+    // the avatar row a fixed gap above its actual top edge, every time its
+    // layout changes (visibility toggles, text reflow, rotation, etc).
+    private void attachDynamicLikerRowSpacing() {
+        if (llLikersAvatarRow == null || bottomInfoColumn == null) return;
+        final int gapPx = delegate.dpToPx(16);
+        bottomInfoLayoutListener = () -> {
+            if (llLikersAvatarRow == null || bottomInfoColumn == null) return;
+            int desiredMargin = bottomInfoColumn.getHeight() + gapPx;
+            ViewGroup.LayoutParams lpRaw = llLikersAvatarRow.getLayoutParams();
+            if (!(lpRaw instanceof ViewGroup.MarginLayoutParams)) return;
+            ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) lpRaw;
+            if (lp.bottomMargin != desiredMargin) {
+                lp.bottomMargin = desiredMargin;
+                llLikersAvatarRow.setLayoutParams(lp);
+            }
+        };
+        bottomInfoColumn.getViewTreeObserver().addOnGlobalLayoutListener(bottomInfoLayoutListener);
     }
 
     // ── Accessors ─────────────────────────────────────────────────────────
@@ -228,7 +277,13 @@ public class ReelSocialController {
         } else {
             isLiked = true;
             if (btnLike != null) btnLike.setImageResource(R.drawable.ic_heart_filled);
-            likeRef.setValue(true);
+            // FIX (Instagram-level liker row): value is now a timestamp, not a
+            // bare `true`. reelLikes/{reelId}/{uid} doubles as an ordering key —
+            // fetchLikerAvatars() runs orderByValue().limitToLast(3) on this same
+            // node to get the *most recent* likers without downloading the whole
+            // likes list. isLiked/likeListener checks below only ever used
+            // s.exists(), so this is a safe value-type change.
+            likeRef.setValue(System.currentTimeMillis());
             likedByUserRef.setValue(System.currentTimeMillis());
             countRef.runTransaction(new Transaction.Handler() {
                 @NonNull @Override public Transaction.Result doTransaction(@NonNull MutableData d) {
@@ -636,7 +691,7 @@ public class ReelSocialController {
         if (countListener  != null) FirebaseUtils.getReelsRef().child(reel.reelId).removeEventListener(countListener);
         if (repostListener != null && myUid != null)
             FirebaseUtils.db().getReference("reelReposts").child(reel.reelId).child(myUid).removeEventListener(repostListener);
-        if (likersListener != null) FirebaseUtils.getReelLikesRef(reel.reelId).removeEventListener(likersListener);
+        if (likersListener != null && likersQuery != null) likersQuery.removeEventListener(likersListener);
 
         // FIX: References null karo taaki next startFirebaseListeners() fresh banaye.
         likeListener    = null;
@@ -646,6 +701,8 @@ public class ReelSocialController {
         repostListener  = null;
         reactionsListener = null;
         likersListener  = null;
+        likersQuery     = null;
+        fetchGeneration++; // invalidate any in-flight per-user avatar fetches from this session
     }
 
     // ── Liker avatar row ──────────────────────────────────────────────────
@@ -655,25 +712,50 @@ public class ReelSocialController {
         ReelModel reel = delegate.getReel();
         if (reel == null || reel.reelId == null) return;
 
-        if (likersListener != null) {
-            FirebaseUtils.getReelLikesRef(reel.reelId).removeEventListener(likersListener);
+        if (likersListener != null && likersQuery != null) {
+            likersQuery.removeEventListener(likersListener);
             likersListener = null;
         }
+
+        // PERF FIX (Instagram-level): windowed query instead of the whole
+        // reelLikes/{reelId} node. orderByValue().limitToLast(3) only ever
+        // transfers the 3 highest-value (= most recent, since like values
+        // are now write-time timestamps — see toggleLike()) entries, no
+        // matter how many total likes the reel has. Firebase keeps this
+        // live-synced incrementally, so a like/unlike elsewhere in the list
+        // that doesn't touch the top-3 window doesn't even trigger a callback.
+        likersQuery = FirebaseUtils.getReelLikesRef(reel.reelId).orderByValue().limitToLast(3);
 
         likersListener = new ValueEventListener() {
             @Override
             public void onDataChange(@NonNull DataSnapshot snapshot) {
                 if (!delegate.isAdded() || delegate.getContext() == null) return;
-                long total = snapshot.getChildrenCount();
-                if (total == 0) {
+                if (snapshot.getChildrenCount() == 0) {
                     if (llLikersAvatarRow != null) llLikersAvatarRow.setVisibility(View.GONE);
+                    likerUidCache = new String[3];
                     return;
                 }
+
+                // orderByValue() ascending order → most recent liker is LAST
+                // in iteration. Reverse so slot 1 (ivLiker1) is always the
+                // most recent liker, matching Instagram's convention.
                 List<String> likerUids = new ArrayList<>();
-                for (DataSnapshot child : snapshot.getChildren()) {
-                    likerUids.add(child.getKey());
-                    if (likerUids.size() == 3) break;
+                for (DataSnapshot child : snapshot.getChildren()) likerUids.add(child.getKey());
+                java.util.Collections.reverse(likerUids);
+
+                // DIFF CHECK: skip re-fetching/re-animating if the top-3 set
+                // (and order) is unchanged from last time — e.g. a like/unlike
+                // elsewhere caused likesCount to change without this window
+                // actually reordering, or this listener re-attached on resume.
+                boolean sameAsBefore = likerUids.size() == 3
+                    && likerUids.get(0).equals(likerUidCache[0])
+                    && likerUids.get(1).equals(likerUidCache[1])
+                    && likerUids.get(2).equals(likerUidCache[2]);
+                if (sameAsBefore) {
+                    if (llLikersAvatarRow != null) llLikersAvatarRow.setVisibility(View.VISIBLE);
+                    return;
                 }
+
                 if (llLikersAvatarRow != null) llLikersAvatarRow.setVisibility(View.VISIBLE);
 
                 CircleImageView[] avatarViews = {ivLiker1, ivLiker2, ivLiker3};
@@ -682,12 +764,22 @@ public class ReelSocialController {
                 likerUidCache = new String[3];
                 for (int i = 0; i < likerUids.size(); i++) likerUidCache[i] = likerUids.get(i);
 
+                // RACE FIX: bump generation for this fresh batch. Each async
+                // per-user fetch below captures `myGeneration` and re-checks
+                // it before touching a view or counting toward completion —
+                // a slow/late response from a superseded batch (rapid
+                // like/unlike, or fragment rebind) is dropped instead of
+                // clobbering a newer avatar.
+                final int myGeneration = ++fetchGeneration;
+                loadedCount.set(0);
+                final int expectedCount = likerUids.size();
+
                 for (int i = 0; i < likerUids.size(); i++) {
                     final CircleImageView targetView = avatarViews[i];
                     if (targetView == null) continue;
-                    final boolean isLast = (i == likerUids.size() - 1);
                     FirebaseUtils.getUserRef(likerUids.get(i)).child("thumbUrl")
                         .get().addOnSuccessListener(ds -> {
+                            if (myGeneration != fetchGeneration) return; // superseded — drop
                             if (!delegate.isAdded() || delegate.getContext() == null) return;
                             targetView.setVisibility(View.VISIBLE);
                             String url = ds.getValue(String.class);
@@ -701,7 +793,24 @@ public class ReelSocialController {
                             } else {
                                 targetView.setImageResource(R.drawable.ic_person);
                             }
-                            if (isLast) startLikerFloatAnimations();
+                            // AtomicInteger completion tally (not index-based
+                            // "isLast") — fires once all of THIS batch's
+                            // avatars are actually done, whichever order the
+                            // network calls land in. A batch superseded
+                            // mid-flight never reaches expectedCount, so it
+                            // can never fire the animation late.
+                            if (loadedCount.incrementAndGet() >= expectedCount) {
+                                startLikerFloatAnimations();
+                            }
+                        })
+                        .addOnFailureListener(e -> {
+                            if (myGeneration != fetchGeneration) return;
+                            if (!delegate.isAdded() || delegate.getContext() == null) return;
+                            targetView.setVisibility(View.VISIBLE);
+                            targetView.setImageResource(R.drawable.ic_person);
+                            if (loadedCount.incrementAndGet() >= expectedCount) {
+                                startLikerFloatAnimations();
+                            }
                         });
                 }
                 if (tvHeart1 != null) tvHeart1.setVisibility(likerUids.size() >= 1 ? View.VISIBLE : View.GONE);
@@ -715,10 +824,27 @@ public class ReelSocialController {
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
-        FirebaseUtils.getReelLikesRef(reel.reelId).addValueEventListener(likersListener);
+        likersQuery.addValueEventListener(likersListener);
     }
 
     private void startLikerFloatAnimations() {
+        // UI FIX: cancel any already-running float animators before starting
+        // new ones. Without this, a fresh likers batch (top-3 window
+        // changed) would stack a second ObjectAnimator on the same view on
+        // top of one still running from the previous batch — two animators
+        // fighting over the same translationY property makes the avatar
+        // bounce faster/jittery instead of a clean single float. Previously
+        // these were only ever cancelled in release() (fragment teardown).
+        if (floatAnim1 != null) { floatAnim1.cancel(); floatAnim1 = null; }
+        if (floatAnim2 != null) { floatAnim2.cancel(); floatAnim2 = null; }
+        if (floatAnim3 != null) { floatAnim3.cancel(); floatAnim3 = null; }
+        // Reset translation too — a cancelled animator can leave the view
+        // mid-float (not at translationY=0), so the next animator would
+        // otherwise start from that offset instead of a clean baseline.
+        if (ivLiker1 != null) ivLiker1.setTranslationY(0f);
+        if (ivLiker2 != null) ivLiker2.setTranslationY(0f);
+        if (ivLiker3 != null) ivLiker3.setTranslationY(0f);
+
         if (ivLiker1 != null && ivLiker1.getVisibility() == View.VISIBLE) {
             floatAnim1 = ObjectAnimator.ofFloat(ivLiker1, "translationY", 0f, -18f, 0f);
             floatAnim1.setDuration(2200); floatAnim1.setRepeatCount(ObjectAnimator.INFINITE);
@@ -841,5 +967,12 @@ public class ReelSocialController {
         if (floatAnim1 != null) { floatAnim1.cancel(); floatAnim1 = null; }
         if (floatAnim2 != null) { floatAnim2.cancel(); floatAnim2 = null; }
         if (floatAnim3 != null) { floatAnim3.cancel(); floatAnim3 = null; }
+        // Detach the global layout listener — leaving it attached would leak
+        // this controller (and its view refs) via bottomInfoColumn's
+        // ViewTreeObserver for as long as that view tree is alive.
+        if (bottomInfoColumn != null && bottomInfoLayoutListener != null) {
+            bottomInfoColumn.getViewTreeObserver().removeOnGlobalLayoutListener(bottomInfoLayoutListener);
+        }
+        bottomInfoLayoutListener = null;
     }
 }
