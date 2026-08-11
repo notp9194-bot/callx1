@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Removable chip for one selected collaborator, shown in a horizontal
+     RecyclerView on CollabPostInviteActivity (multi-collaborator invite). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:gravity="center_horizontal"
+    android:layout_marginEnd="14dp"
+    android:paddingTop="2dp">
+
+    <FrameLayout
+        android:layout_width="52dp"
+        android:layout_height="52dp">
+
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_selected_chip_avatar"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_person"/>
+
+        <ImageButton
+            android:id="@+id/btn_selected_chip_remove"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_gravity="top|end"
+            android:background="@drawable/circle_accept"
+            android:backgroundTint="#E53935"
+            android:padding="3dp"
+            android:src="@drawable/ic_close"
+            android:tint="@android:color/white"
+            android:contentDescription="Remove"/>
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/tv_selected_chip_name"
+        android:layout_width="60dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textSize="11sp"
+        android:textColor="@color/text_primary"
+        android:gravity="center"
+        android:maxLines="1"
+        android:ellipsize="end"/>
+
+</LinearLayout>

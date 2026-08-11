@@ -168,18 +168,76 @@ public class ReelUiController {
         if (tvOwnerName != null) tvOwnerName.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
 
         // ── Collab Joint-Author display ──────────────────────────────────────
+        // ✅ MULTI-COLLABORATOR: renders an overlapping avatar stack (up to 3)
+        // plus an Instagram-style "and N others" summary, and opens the full
+        // Collaborators bottom sheet (with Follow buttons) on tap. Falls back
+        // to reel.collabMap being empty but the legacy single collabUid field
+        // being set (old data written before this feature shipped).
         View llCollabAuthors = fragmentView.findViewById(R.id.ll_collab_second_author);
         if (llCollabAuthors != null) {
-            if (reel.isCollabPost && reel.collabUid != null && !reel.collabUid.isEmpty()) {
+            java.util.List<com.callx.app.models.ReelModel.CollabCollaborator> accepted = reel.acceptedCollaborators();
+            boolean legacySingleOnly = accepted.isEmpty() && reel.isCollabPost
+                && reel.collabUid != null && !reel.collabUid.isEmpty();
+
+            if (!accepted.isEmpty() || legacySingleOnly) {
                 llCollabAuthors.setVisibility(View.VISIBLE);
+
+                de.hdodenhof.circleimageview.CircleImageView stack1 = fragmentView.findViewById(R.id.iv_collab_stack_1);
+                de.hdodenhof.circleimageview.CircleImageView stack2 = fragmentView.findViewById(R.id.iv_collab_stack_2);
+                de.hdodenhof.circleimageview.CircleImageView stack3 = fragmentView.findViewById(R.id.iv_collab_stack_3);
                 TextView tvCollabName = fragmentView.findViewById(R.id.tv_collab_author_name);
-                if (tvCollabName != null) tvCollabName.setText("@" + (!reel.collabDisplayName.isEmpty() ? reel.collabDisplayName : reel.collabUid));
-                de.hdodenhof.circleimageview.CircleImageView ivCollabAvatar = fragmentView.findViewById(R.id.iv_collab_author_avatar);
-                if (ivCollabAvatar != null && reel.collabAvatarUrl != null && !reel.collabAvatarUrl.isEmpty() && delegate.isAdded()) {
-                    Glide.with(delegate.requireContext()).load(reel.collabAvatarUrl).circleCrop().placeholder(R.drawable.ic_person).into(ivCollabAvatar);
+
+                java.util.List<String> avatarUrls = new java.util.ArrayList<>();
+                String firstName;
+                int totalCount;
+
+                if (!accepted.isEmpty()) {
+                    for (com.callx.app.models.ReelModel.CollabCollaborator c : accepted) avatarUrls.add(c.avatarUrl);
+                    firstName  = accepted.get(0).displayName;
+                    totalCount = accepted.size();
+                } else {
+                    avatarUrls.add(reel.collabAvatarUrl);
+                    firstName  = reel.collabDisplayName != null && !reel.collabDisplayName.isEmpty()
+                        ? reel.collabDisplayName : reel.collabUid;
+                    totalCount = 1;
                 }
+
+                de.hdodenhof.circleimageview.CircleImageView[] stackViews = {stack1, stack2, stack3};
+                for (int i = 0; i < stackViews.length; i++) {
+                    if (stackViews[i] == null) continue;
+                    if (i < avatarUrls.size() && i < 3) {
+                        stackViews[i].setVisibility(View.VISIBLE);
+                        String url = avatarUrls.get(i);
+                        if (url != null && !url.isEmpty() && delegate.isAdded()) {
+                            Glide.with(delegate.requireContext()).load(url).circleCrop()
+                                .placeholder(R.drawable.ic_person).into(stackViews[i]);
+                        } else {
+                            stackViews[i].setImageResource(R.drawable.ic_person);
+                        }
+                    } else {
+                        stackViews[i].setVisibility(View.GONE);
+                    }
+                }
+
+                if (tvCollabName != null) {
+                    if (totalCount <= 1) {
+                        tvCollabName.setText("@" + (firstName != null && !firstName.isEmpty() ? firstName : "user"));
+                    } else {
+                        int others = totalCount - 1;
+                        tvCollabName.setText("@" + firstName + " and " + others + (others == 1 ? " other" : " others"));
+                    }
+                }
+
+                llCollabAuthors.setOnClickListener(v -> {
+                    if (!delegate.isAdded()) return;
+                    delegate.showBottomSheet(
+                        com.callx.app.social.CollaboratorsBottomSheet.newInstance(
+                            reel.reelId, reel.uid, reel.ownerName, reel.ownerPhoto),
+                        com.callx.app.social.CollaboratorsBottomSheet.TAG);
+                });
             } else {
                 llCollabAuthors.setVisibility(View.GONE);
+                llCollabAuthors.setOnClickListener(null);
             }
         }
         // PERF advance — "precompute next reel's UI state": reuse the

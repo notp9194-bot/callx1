@@ -25,7 +25,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Invite Collaborator"
+            android:text="Invite Collaborators"
             android:textSize="17sp"
             android:textStyle="bold"
             android:textColor="@color/text_primary"
@@ -72,36 +72,31 @@
 
     <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
 
-    <!-- Selected collaborator chip -->
+    <!-- Selected collaborators chip row — ✅ MULTI-COLLABORATOR: up to
+         CollabPostInviteActivity.MAX_COLLABORATORS people, shown as a
+         horizontally-scrolling row of removable avatar chips. -->
     <LinearLayout
         android:id="@+id/ll_collab_selected_chip"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
+        android:orientation="vertical"
         android:padding="12dp"
         android:background="@color/surface"
         android:visibility="gone">
-        <de.hdodenhof.circleimageview.CircleImageView
-            android:id="@+id/iv_collab_selected_avatar"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:src="@drawable/ic_person"/>
         <TextView
-            android:id="@+id/tv_collab_selected_name"
-            android:layout_width="0dp"
+            android:id="@+id/tv_collab_selected_count"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textSize="14sp"
-            android:textColor="@color/text_primary"
-            android:layout_marginStart="10dp"/>
-        <ImageButton
-            android:id="@+id/btn_remove_collab"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/ic_close"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Remove"/>
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary"
+            android:layout_marginBottom="8dp"
+            android:text="0/4 selected"/>
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_collab_selected"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clipToPadding="false"
+            android:paddingEnd="8dp"/>
     </LinearLayout>
 
     <!-- Search field -->
@@ -129,7 +124,7 @@
         android:id="@+id/tv_collab_search_hint"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Search for a user to invite as co-author"
+        android:text="Search for people to invite as co-authors (up to 4)"
         android:textSize="13sp"
         android:textColor="@color/text_secondary"
         android:gravity="center"

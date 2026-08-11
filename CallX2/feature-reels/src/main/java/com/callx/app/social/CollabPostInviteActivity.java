@@ -20,10 +20,15 @@ import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.*;
 
 /**
- * CollabPostInviteActivity — Invite a collaborator to JOINTLY author a new reel.
+ * CollabPostInviteActivity — Invite MULTIPLE collaborators to JOINTLY author a new reel.
  *
- * Instagram-style joint authorship: both creators appear as co-authors in feed.
- * Reel stays in PENDING state until collaborator accepts; then goes live on both feeds.
+ * ✅ MULTI-COLLABORATOR SUPPORT (Instagram-style "and N others" joint posts):
+ * Up to {@link #MAX_COLLABORATORS} people can be selected and invited in one go.
+ * Each selected person gets their own invite record + their own entry in the
+ * reel's collabMap (status starts "pending" and flips to "accepted"/"declined"
+ * independently per person via CollabPostAcceptActivity), so the post goes
+ * live with whichever co-authors have accepted so far — it doesn't wait for
+ * every invite to be answered.
  *
  * Launch with:
  *   Intent i = new Intent(ctx, CollabPostInviteActivity.class);
@@ -40,17 +45,19 @@ public class CollabPostInviteActivity extends AppCompatActivity {
     public static final String EXTRA_VIDEO_URL = "cpi_video_url";
     public static final String EXTRA_CAPTION   = "cpi_caption";
 
-    private static final int    SEARCH_LIMIT  = 20;
-    private static final long   RATE_LIMIT_MS = 3000L;
+    private static final int    SEARCH_LIMIT      = 20;
+    private static final long   RATE_LIMIT_MS     = 3000L;
+    /** Owner + up to 4 collaborators = 5 total co-authors, matching common IG-style caps. */
+    public  static final int    MAX_COLLABORATORS = 4;
 
     // ── UI ──────────────────────────────────────────────────────────────────
     private ImageView       ivThumb;
     private TextView        tvCaption;
     private EditText        etSearch;
     private RecyclerView    rvSearch;
-    private LinearLayout    llSelectedChip;
-    private CircleImageView ivCollabAvatar;
-    private TextView        tvCollabName;
+    private View            selectedContainer;
+    private RecyclerView    rvSelected;
+    private TextView        tvSelectedCount;
     private Button          btnSendInvite;
     private ProgressBar     progressBar;
     private TextView        tvSearchHint;
@@ -58,13 +65,14 @@ public class CollabPostInviteActivity extends AppCompatActivity {
     // ── State ────────────────────────────────────────────────────────────────
     private String myUid, myName, myPhoto;
     private String reelId, thumbUrl, videoUrl, myCaption;
-    private String selectedCollabUid, selectedCollabName, selectedCollabPhoto;
     private long   lastSendMs = 0L;
     private final android.os.Handler searchHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable pendingSearch;
 
-    private final List<CollabUserItem> searchResults = new ArrayList<>();
+    private final List<CollabUserItem> searchResults      = new ArrayList<>();
+    private final List<CollabUserItem> selectedCollaborators = new ArrayList<>();
     private CollabUserSearchAdapter    searchAdapter;
+    private SelectedCollabAdapter      selectedAdapter;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -101,16 +109,16 @@ public class CollabPostInviteActivity extends AppCompatActivity {
     }
 
     private void bindViews() {
-        ivThumb        = findViewById(R.id.iv_collab_invite_thumb);
-        tvCaption      = findViewById(R.id.tv_collab_invite_caption);
-        etSearch       = findViewById(R.id.et_collab_search);
-        rvSearch       = findViewById(R.id.rv_collab_search);
-        llSelectedChip = findViewById(R.id.ll_collab_selected_chip);
-        ivCollabAvatar = findViewById(R.id.iv_collab_selected_avatar);
-        tvCollabName   = findViewById(R.id.tv_collab_selected_name);
-        btnSendInvite  = findViewById(R.id.btn_send_collab_invite);
-        progressBar    = findViewById(R.id.progress_collab_invite);
-        tvSearchHint   = findViewById(R.id.tv_collab_search_hint);
+        ivThumb           = findViewById(R.id.iv_collab_invite_thumb);
+        tvCaption         = findViewById(R.id.tv_collab_invite_caption);
+        etSearch          = findViewById(R.id.et_collab_search);
+        rvSearch          = findViewById(R.id.rv_collab_search);
+        selectedContainer = findViewById(R.id.ll_collab_selected_chip);
+        rvSelected        = findViewById(R.id.rv_collab_selected);
+        tvSelectedCount   = findViewById(R.id.tv_collab_selected_count);
+        btnSendInvite     = findViewById(R.id.btn_send_collab_invite);
+        progressBar       = findViewById(R.id.progress_collab_invite);
+        tvSearchHint      = findViewById(R.id.tv_collab_search_hint);
 
         // Toolbar back
         View btnBack = findViewById(R.id.btn_back);
@@ -122,18 +130,21 @@ public class CollabPostInviteActivity extends AppCompatActivity {
         }
         if (tvCaption != null) tvCaption.setText(myCaption != null ? myCaption : "");
 
-        // RecyclerView
-        searchAdapter = new CollabUserSearchAdapter(searchResults, item -> selectCollaborator(item));
+        // Search results RecyclerView
+        searchAdapter = new CollabUserSearchAdapter(searchResults, this::toggleCollaborator, this::isSelected);
         rvSearch.setLayoutManager(new LinearLayoutManager(this));
         rvSearch.setAdapter(searchAdapter);
 
-        llSelectedChip.setVisibility(View.GONE);
-        btnSendInvite.setEnabled(false);
-        btnSendInvite.setOnClickListener(v -> sendInvite());
+        // Selected collaborators chip row (horizontal, up to MAX_COLLABORATORS)
+        selectedAdapter = new SelectedCollabAdapter(selectedCollaborators, this::removeCollaborator);
+        if (rvSelected != null) {
+            rvSelected.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
+            rvSelected.setAdapter(selectedAdapter);
+        }
 
-        // Remove selected collab
-        View btnRemove = findViewById(R.id.btn_remove_collab);
-        if (btnRemove != null) btnRemove.setOnClickListener(v -> clearSelection());
+        if (selectedContainer != null) selectedContainer.setVisibility(View.GONE);
+        btnSendInvite.setEnabled(false);
+        btnSendInvite.setOnClickListener(v -> sendInvites());
     }
 
     private void setupSearch() {
@@ -205,30 +216,48 @@ public class CollabPostInviteActivity extends AppCompatActivity {
         });
     }
 
-    private void selectCollaborator(CollabUserItem item) {
-        selectedCollabUid   = item.uid;
-        selectedCollabName  = item.displayName;
-        selectedCollabPhoto = item.photoUrl;
+    private boolean isSelected(String uid) {
+        for (CollabUserItem c : selectedCollaborators) if (c.uid.equals(uid)) return true;
+        return false;
+    }
 
-        llSelectedChip.setVisibility(View.VISIBLE);
-        if (tvCollabName != null) tvCollabName.setText("@" + (item.handle != null && !item.handle.isEmpty() ? item.handle : item.displayName));
-        if (ivCollabAvatar != null && item.photoUrl != null && !item.photoUrl.isEmpty()) {
-            Glide.with(this).load(item.photoUrl).circleCrop().into(ivCollabAvatar);
+    /** Tapping a search result toggles it in/out of the selected list (multi-select). */
+    private void toggleCollaborator(CollabUserItem item) {
+        if (isSelected(item.uid)) {
+            removeCollaborator(item);
+            return;
         }
-        btnSendInvite.setEnabled(true);
-        etSearch.setText("");
-        searchResults.clear();
+        if (selectedCollaborators.size() >= MAX_COLLABORATORS) {
+            Toast.makeText(this, "You can add up to " + MAX_COLLABORATORS + " collaborators.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        selectedCollaborators.add(item);
+        refreshSelectedUi();
         searchAdapter.notifyDataSetChanged();
     }
 
-    private void clearSelection() {
-        selectedCollabUid = selectedCollabName = selectedCollabPhoto = null;
-        llSelectedChip.setVisibility(View.GONE);
-        btnSendInvite.setEnabled(false);
+    private void removeCollaborator(CollabUserItem item) {
+        for (Iterator<CollabUserItem> it = selectedCollaborators.iterator(); it.hasNext(); ) {
+            if (it.next().uid.equals(item.uid)) { it.remove(); break; }
+        }
+        refreshSelectedUi();
+        searchAdapter.notifyDataSetChanged();
     }
 
-    private void sendInvite() {
-        if (selectedCollabUid == null) return;
+    private void refreshSelectedUi() {
+        boolean hasAny = !selectedCollaborators.isEmpty();
+        if (selectedContainer != null) selectedContainer.setVisibility(hasAny ? View.VISIBLE : View.GONE);
+        if (tvSelectedCount != null) {
+            tvSelectedCount.setText(selectedCollaborators.size() + "/" + MAX_COLLABORATORS + " selected");
+        }
+        selectedAdapter.notifyDataSetChanged();
+        btnSendInvite.setEnabled(hasAny);
+        btnSendInvite.setText(selectedCollaborators.size() > 1 ? "Send Collab Invites" : "Send Collab Invite");
+    }
+
+    /** Sends one invite per selected collaborator and seeds the reel's collabMap. */
+    private void sendInvites() {
+        if (selectedCollaborators.isEmpty()) return;
         long now = System.currentTimeMillis();
         if (now - lastSendMs < RATE_LIMIT_MS) {
             Toast.makeText(this, "Please wait before sending another invite.", Toast.LENGTH_SHORT).show();
@@ -238,36 +267,53 @@ public class CollabPostInviteActivity extends AppCompatActivity {
         progressBar.setVisibility(View.VISIBLE);
         btnSendInvite.setEnabled(false);
 
-        String inviteId = FirebaseDatabase.getInstance(Constants.DB_URL)
-            .getReference("collabPostInvites").push().getKey();
-        if (inviteId == null) { progressBar.setVisibility(View.GONE); btnSendInvite.setEnabled(true); return; }
-
-        Map<String, Object> invite = new HashMap<>();
-        invite.put("inviteId",         inviteId);
-        invite.put("reelId",           reelId);
-        invite.put("initiatorUid",     myUid);
-        invite.put("initiatorName",    myName != null ? myName : "");
-        invite.put("initiatorPhoto",   myPhoto != null ? myPhoto : "");
-        invite.put("initiatorCaption", myCaption != null ? myCaption : "");
-        invite.put("collaboratorUid",  selectedCollabUid);
-        invite.put("thumbUrl",         thumbUrl != null ? thumbUrl : "");
-        invite.put("videoUrl",         videoUrl != null ? videoUrl : "");
-        invite.put("status",           "pending");
-        invite.put("createdAt",        now);
-
         DatabaseReference root = FirebaseDatabase.getInstance(Constants.DB_URL).getReference();
         Map<String, Object> updates = new HashMap<>();
-        // Write invite under collaborator's inbox
-        updates.put("collabPostInvites/" + selectedCollabUid + "/" + inviteId, invite);
-        // Write sent copy under initiator's outbox
-        updates.put("collabPostInvitesSent/" + myUid + "/" + inviteId, invite);
-        // Mark reel as pending collab
-        updates.put("reels/" + reelId + "/isCollabPending", true);
-        updates.put("reels/" + reelId + "/isCollabPost",    false);
-        updates.put("reels/" + reelId + "/collabInviteId",  inviteId);
-        updates.put("reels/" + reelId + "/collabUid",       selectedCollabUid);
-        updates.put("reels/" + reelId + "/collabDisplayName", selectedCollabName != null ? selectedCollabName : "");
-        updates.put("reels/" + reelId + "/collabAvatarUrl",  selectedCollabPhoto != null ? selectedCollabPhoto : "");
+
+        List<String> inviteIds = new ArrayList<>();
+        for (CollabUserItem target : selectedCollaborators) {
+            String inviteId = root.child("collabPostInvites").push().getKey();
+            if (inviteId == null) continue;
+            inviteIds.add(inviteId);
+
+            Map<String, Object> invite = new HashMap<>();
+            invite.put("inviteId",         inviteId);
+            invite.put("reelId",           reelId);
+            invite.put("initiatorUid",     myUid);
+            invite.put("initiatorName",    myName != null ? myName : "");
+            invite.put("initiatorPhoto",   myPhoto != null ? myPhoto : "");
+            invite.put("initiatorCaption", myCaption != null ? myCaption : "");
+            invite.put("collaboratorUid",  target.uid);
+            invite.put("thumbUrl",         thumbUrl != null ? thumbUrl : "");
+            invite.put("videoUrl",         videoUrl != null ? videoUrl : "");
+            invite.put("status",           "pending");
+            invite.put("createdAt",        now);
+
+            updates.put("collabPostInvites/" + target.uid + "/" + inviteId, invite);
+            updates.put("collabPostInvitesSent/" + myUid + "/" + inviteId, invite);
+
+            // ✅ MULTI-COLLABORATOR: one entry per invited person, keyed by uid,
+            // so each person's accept/decline only ever touches their own entry.
+            Map<String, Object> collabEntry = new HashMap<>();
+            collabEntry.put("uid",         target.uid);
+            collabEntry.put("displayName", target.displayName != null ? target.displayName : "");
+            collabEntry.put("handle",      target.handle != null ? target.handle : "");
+            collabEntry.put("avatarUrl",   target.photoUrl != null ? target.photoUrl : "");
+            collabEntry.put("status",      "pending");
+            collabEntry.put("inviteId",    inviteId);
+            collabEntry.put("invitedAt",   now);
+            updates.put("reels/" + reelId + "/collabMap/" + target.uid, collabEntry);
+        }
+
+        // Reel-level flags + legacy single-collaborator mirror (first invitee),
+        // kept for old builds that only read collabUid/collabDisplayName.
+        CollabUserItem first = selectedCollaborators.get(0);
+        updates.put("reels/" + reelId + "/isCollabPending",   true);
+        updates.put("reels/" + reelId + "/isCollabPost",      false);
+        updates.put("reels/" + reelId + "/collabInviteId",    inviteIds.isEmpty() ? "" : inviteIds.get(0));
+        updates.put("reels/" + reelId + "/collabUid",         first.uid);
+        updates.put("reels/" + reelId + "/collabDisplayName", first.displayName != null ? first.displayName : "");
+        updates.put("reels/" + reelId + "/collabAvatarUrl",   first.photoUrl != null ? first.photoUrl : "");
 
         root.updateChildren(updates, (error, ref) -> {
             progressBar.setVisibility(View.GONE);
@@ -275,19 +321,23 @@ public class CollabPostInviteActivity extends AppCompatActivity {
                 btnSendInvite.setEnabled(true);
                 Toast.makeText(this, "Failed to send invite. Try again.", Toast.LENGTH_SHORT).show();
             } else {
-                // Push notification to collaborator
-                sendPushNotification(inviteId);
-                Toast.makeText(this, "Collab invite sent to @" + selectedCollabName + "!", Toast.LENGTH_LONG).show();
+                for (int i = 0; i < selectedCollaborators.size() && i < inviteIds.size(); i++) {
+                    sendPushNotification(selectedCollaborators.get(i), inviteIds.get(i));
+                }
+                String msg = selectedCollaborators.size() == 1
+                    ? "Collab invite sent to @" + selectedCollaborators.get(0).displayName + "!"
+                    : "Collab invites sent to " + selectedCollaborators.size() + " people!";
+                Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
                 setResult(RESULT_OK);
                 finish();
             }
         });
     }
 
-    private void sendPushNotification(String inviteId) {
+    private void sendPushNotification(CollabUserItem target, String inviteId) {
         try {
             CollabRepostNotificationHelper.notifyCollabInvite(
-                this, selectedCollabUid, myUid,
+                this, target.uid, myUid,
                 myName != null ? myName : "Someone",
                 reelId, inviteId, thumbUrl != null ? thumbUrl : ""
             );
@@ -307,14 +357,16 @@ public class CollabPostInviteActivity extends AppCompatActivity {
         }
     }
 
-    // ── Inner: Search adapter ──────────────────────────────────────────────
+    // ── Inner: Search adapter (multi-select — dims rows that are already selected) ──
     private static class CollabUserSearchAdapter
             extends RecyclerView.Adapter<CollabUserSearchAdapter.VH> {
-        interface OnSelectListener { void onSelect(CollabUserItem item); }
+        interface OnToggleListener { void onToggle(CollabUserItem item); }
+        interface SelectedChecker { boolean isSelected(String uid); }
         private final List<CollabUserItem> items;
-        private final OnSelectListener     listener;
-        CollabUserSearchAdapter(List<CollabUserItem> items, OnSelectListener l) {
-            this.items = items; this.listener = l;
+        private final OnToggleListener     listener;
+        private final SelectedChecker      selectedChecker;
+        CollabUserSearchAdapter(List<CollabUserItem> items, OnToggleListener l, SelectedChecker sc) {
+            this.items = items; this.listener = l; this.selectedChecker = sc;
         }
         @NonNull @Override
         public VH onCreateViewHolder(@NonNull android.view.ViewGroup parent, int type) {
@@ -330,7 +382,9 @@ public class CollabPostInviteActivity extends AppCompatActivity {
                 Glide.with(h.itemView.getContext()).load(item.photoUrl).circleCrop().into(h.ivAvatar);
             else
                 h.ivAvatar.setImageResource(R.drawable.ic_person);
-            h.itemView.setOnClickListener(v -> listener.onSelect(item));
+            boolean selected = selectedChecker.isSelected(item.uid);
+            h.itemView.setAlpha(selected ? 0.5f : 1f);
+            h.itemView.setOnClickListener(v -> listener.onToggle(item));
         }
         @Override public int getItemCount() { return items.size(); }
         static class VH extends RecyclerView.ViewHolder {
@@ -341,6 +395,44 @@ public class CollabPostInviteActivity extends AppCompatActivity {
                 ivAvatar = v.findViewById(R.id.iv_collab_user_avatar);
                 tvName   = v.findViewById(R.id.tv_collab_user_name);
                 tvHandle = v.findViewById(R.id.tv_collab_user_handle);
+            }
+        }
+    }
+
+    // ── Inner: Selected-collaborator chip adapter (horizontal row of chips) ──
+    private static class SelectedCollabAdapter
+            extends RecyclerView.Adapter<SelectedCollabAdapter.VH> {
+        interface OnRemoveListener { void onRemove(CollabUserItem item); }
+        private final List<CollabUserItem> items;
+        private final OnRemoveListener     listener;
+        SelectedCollabAdapter(List<CollabUserItem> items, OnRemoveListener l) {
+            this.items = items; this.listener = l;
+        }
+        @NonNull @Override
+        public VH onCreateViewHolder(@NonNull android.view.ViewGroup parent, int type) {
+            View v = android.view.LayoutInflater.from(parent.getContext())
+                .inflate(R.layout.item_collab_selected_chip, parent, false);
+            return new VH(v);
+        }
+        @Override public void onBindViewHolder(@NonNull VH h, int pos) {
+            CollabUserItem item = items.get(pos);
+            h.tvName.setText(item.displayName != null ? item.displayName : "");
+            if (item.photoUrl != null && !item.photoUrl.isEmpty())
+                Glide.with(h.itemView.getContext()).load(item.photoUrl).circleCrop().into(h.ivAvatar);
+            else
+                h.ivAvatar.setImageResource(R.drawable.ic_person);
+            h.btnRemove.setOnClickListener(v -> listener.onRemove(item));
+        }
+        @Override public int getItemCount() { return items.size(); }
+        static class VH extends RecyclerView.ViewHolder {
+            final CircleImageView ivAvatar;
+            final TextView tvName;
+            final ImageButton btnRemove;
+            VH(View v) {
+                super(v);
+                ivAvatar  = v.findViewById(R.id.iv_selected_chip_avatar);
+                tvName    = v.findViewById(R.id.tv_selected_chip_name);
+                btnRemove = v.findViewById(R.id.btn_selected_chip_remove);
             }
         }
     }

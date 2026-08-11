@@ -430,6 +430,90 @@ public class ReelModel {
     public String  collabInviteId     = "";
 
     /**
+     * ✅ MULTI-COLLABORATOR SUPPORT
+     * Map of collaborator uid → {@link CollabCollaborator} for a joint-authorship
+     * post that has (or is inviting) MORE THAN ONE co-author — Instagram-style
+     * "singer_x and 2 others" posts. Keyed by uid (not a List) so a single
+     * collaborator's status can be updated atomically at
+     * reels/{reelId}/collabMap/{uid}/status without re-writing the whole list
+     * and racing concurrent accept/decline writes from different collaborators.
+     *
+     * The legacy collabUid/collabDisplayName/collabAvatarUrl fields above are
+     * kept and still written (mirroring the FIRST collaborator) purely for
+     * backward compatibility with old app builds mid-rollout that only know
+     * how to render a single collaborator; new UI should read collabMap via
+     * the helper methods below instead.
+     */
+    public Map<String, CollabCollaborator> collabMap;
+
+    /**
+     * One entry in {@link #collabMap}: a single invited/accepted collaborator
+     * on a joint-authorship post.
+     */
+    @IgnoreExtraProperties
+    public static class CollabCollaborator {
+        public String uid           = "";
+        public String displayName   = "";
+        public String handle        = "";
+        public String avatarUrl     = "";
+        /** "pending" | "accepted" | "declined" */
+        public String status        = "pending";
+        /** Firebase key of the collabPostInvites record for this collaborator. */
+        public String inviteId      = "";
+        public long   invitedAt     = 0L;
+        public long   respondedAt   = 0L;
+
+        public CollabCollaborator() {}
+
+        public CollabCollaborator(String uid, String displayName, String handle,
+                                   String avatarUrl, String status, String inviteId, long invitedAt) {
+            this.uid         = uid;
+            this.displayName = displayName != null ? displayName : "";
+            this.handle      = handle != null ? handle : "";
+            this.avatarUrl   = avatarUrl != null ? avatarUrl : "";
+            this.status      = status != null ? status : "pending";
+            this.inviteId    = inviteId != null ? inviteId : "";
+            this.invitedAt   = invitedAt;
+        }
+
+        @com.google.firebase.database.Exclude
+        public boolean isAccepted() { return "accepted".equals(status); }
+        @com.google.firebase.database.Exclude
+        public boolean isPending()  { return "pending".equals(status); }
+    }
+
+    /** All collaborators (any status), sorted by invite time — never null. */
+    @com.google.firebase.database.Exclude
+    public List<CollabCollaborator> collaboratorsList() {
+        List<CollabCollaborator> out = new ArrayList<>();
+        if (collabMap != null) out.addAll(collabMap.values());
+        out.sort((a, b) -> Long.compare(a.invitedAt, b.invitedAt));
+        return out;
+    }
+
+    /** Collaborators who have accepted — these are the co-authors shown in the UI. */
+    @com.google.firebase.database.Exclude
+    public List<CollabCollaborator> acceptedCollaborators() {
+        List<CollabCollaborator> out = new ArrayList<>();
+        for (CollabCollaborator c : collaboratorsList()) if (c.isAccepted()) out.add(c);
+        return out;
+    }
+
+    /** Collaborators whose invite is still awaiting a response. */
+    @com.google.firebase.database.Exclude
+    public List<CollabCollaborator> pendingCollaborators() {
+        List<CollabCollaborator> out = new ArrayList<>();
+        for (CollabCollaborator c : collaboratorsList()) if (c.isPending()) out.add(c);
+        return out;
+    }
+
+    /** True once at least one collaborator has accepted (post is a real joint post). */
+    @com.google.firebase.database.Exclude
+    public boolean hasAcceptedCollaborators() {
+        return !acceptedCollaborators().isEmpty();
+    }
+
+    /**
      * Firebase key of the CollabRepostModel record that produced this reel.
      * Path: collabReposts/{collabRepostId}
      * Allows linking back to the invite / acceptance record.

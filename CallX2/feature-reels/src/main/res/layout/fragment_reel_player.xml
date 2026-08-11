@@ -608,7 +608,10 @@
                 android:background="@drawable/bg_reel_follow_btn"
                 android:visibility="visible"/>
         </LinearLayout>
-          <!-- Collab Joint-Author row (shown only when isCollabPost=true) -->
+          <!-- Collab Joint-Author row (shown only when isCollabPost=true) —
+               ✅ MULTI-COLLABORATOR: overlapping avatar stack (up to 3 shown)
+               + "and N others" summary text, tap opens CollaboratorsBottomSheet
+               (Instagram-style Collaborators sheet with Follow buttons). -->
           <LinearLayout
               android:id="@+id/ll_collab_second_author"
               android:layout_width="wrap_content"
@@ -616,6 +619,8 @@
               android:orientation="horizontal"
               android:gravity="center_vertical"
               android:layout_marginTop="3dp"
+              android:background="?attr/selectableItemBackgroundBorderless"
+              android:paddingVertical="2dp"
               android:visibility="gone">
               <TextView
                   android:layout_width="wrap_content"
@@ -624,16 +629,41 @@
                   android:textColor="#AAFFFFFF"
                   android:textSize="14sp"
                   android:layout_marginEnd="6dp"/>
-              <de.hdodenhof.circleimageview.CircleImageView
-                  android:id="@+id/iv_collab_author_avatar"
-                  android:layout_width="22dp"
-                  android:layout_height="22dp"
-                  android:src="@drawable/ic_person"
-                  android:layout_marginEnd="5dp"/>
+              <FrameLayout
+                  android:layout_width="wrap_content"
+                  android:layout_height="22dp">
+                  <de.hdodenhof.circleimageview.CircleImageView
+                      android:id="@+id/iv_collab_stack_1"
+                      android:layout_width="22dp"
+                      android:layout_height="22dp"
+                      android:layout_marginStart="0dp"
+                      app:civ_border_width="1dp"
+                      app:civ_border_color="#000000"
+                      android:src="@drawable/ic_person"/>
+                  <de.hdodenhof.circleimageview.CircleImageView
+                      android:id="@+id/iv_collab_stack_2"
+                      android:layout_width="22dp"
+                      android:layout_height="22dp"
+                      android:layout_marginStart="14dp"
+                      app:civ_border_width="1dp"
+                      app:civ_border_color="#000000"
+                      android:visibility="gone"
+                      android:src="@drawable/ic_person"/>
+                  <de.hdodenhof.circleimageview.CircleImageView
+                      android:id="@+id/iv_collab_stack_3"
+                      android:layout_width="22dp"
+                      android:layout_height="22dp"
+                      android:layout_marginStart="28dp"
+                      app:civ_border_width="1dp"
+                      app:civ_border_color="#000000"
+                      android:visibility="gone"
+                      android:src="@drawable/ic_person"/>
+              </FrameLayout>
               <TextView
                   android:id="@+id/tv_collab_author_name"
                   android:layout_width="wrap_content"
                   android:layout_height="wrap_content"
+                  android:layout_marginStart="6dp"
                   android:textColor="#FFFFFF"
                   android:textSize="13sp"
                   android:fontFamily="sans-serif-medium"/>
