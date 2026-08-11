@@ -108,20 +108,107 @@ public class ReelNotificationActionReceiver extends BroadcastReceiver {
         }
 
         // ── Collab Accept ──────────────────────────────────────────────
-        if (ACTION_COLLAB_ACCEPT.equals(action) && extra != null) {
-            FirebaseUtils.db().getReference("reelCollabs").child(extra)
-                .child("status").setValue("accepted");
-            FirebaseUtils.db().getReference("reelCollabs").child(extra)
-                .child("acceptedAt").setValue(System.currentTimeMillis());
+        // ── Collab Accept (quick action from notification) ──────────────
+        // 🐞 BUG FIX (real root cause of "accepted but reel still shows as
+        // solo post"): this used to write to reelCollabs/{extra}/status —
+        // a dead/unused Firebase path that nothing reads. The actual data
+        // the reel UI checks (ReelUiController.populateStaticData() →
+        // ReelModel.acceptedCollaborators()) lives at
+        // reels/{reelId}/collabMap/{myUid}/status, same path
+        // CollabPostAcceptActivity.acceptInvite() writes when the full
+        // accept screen is used. This quick-action button never touched
+        // that path, so a B who tapped "✓ Accept" directly on the
+        // notification (instead of opening the full screen) stayed
+        // "pending" forever in collabMap — collaborator credit never
+        // showed on the reel even though B "accepted".
+        if (ACTION_COLLAB_ACCEPT.equals(action) && reelId != null && extra != null) {
+            final String inviteId = extra;
+            final long now = System.currentTimeMillis();
+            com.google.firebase.database.DatabaseReference root = FirebaseUtils.db().getReference();
+
+            // Need the reel owner's uid (= invite initiator) to mirror the
+            // status on their collabPostInvitesSent record and to notify
+            // them. Fetch it, then do the same writes CollabPostAcceptActivity
+            // does.
+            root.child("reels").child(reelId).child("uid")
+                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                    @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot ownerSnap) {
+                        String initiatorUid = ownerSnap.getValue(String.class);
+
+                        java.util.Map<String, Object> updates = new java.util.HashMap<>();
+                        updates.put("collabPostInvites/" + myUid + "/" + inviteId + "/status", "accepted");
+                        updates.put("collabPostInvites/" + myUid + "/" + inviteId + "/acceptedAt", now);
+                        if (initiatorUid != null && !initiatorUid.isEmpty()) {
+                            updates.put("collabPostInvitesSent/" + initiatorUid + "/" + inviteId + "/status", "accepted");
+                        }
+                        updates.put("reels/" + reelId + "/collabMap/" + myUid + "/status", "accepted");
+                        updates.put("reels/" + reelId + "/collabMap/" + myUid + "/respondedAt", now);
+                        updates.put("reels/" + reelId + "/isCollabPost", true);
+                        updates.put("reels/" + reelId + "/collabAcceptedAt", now);
+                        updates.put("reelsByUser/" + myUid + "/" + reelId, true);
+                        updates.put("userReels/" + myUid + "/" + reelId, true);
+
+                        root.updateChildren(updates, (error, ref) -> {
+                            if (error != null) {
+                                android.util.Log.e("ReelNotifActionRcvr",
+                                    "collab accept write failed: " + error.getMessage());
+                                return;
+                            }
+                            // Recompute isCollabPending across all invited collaborators.
+                            root.child("reels").child(reelId).child("collabMap")
+                                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                                    @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot mapSnap) {
+                                        boolean anyPending = false;
+                                        for (com.google.firebase.database.DataSnapshot child : mapSnap.getChildren()) {
+                                            if ("pending".equals(child.child("status").getValue(String.class))) { anyPending = true; break; }
+                                        }
+                                        root.child("reels").child(reelId).child("isCollabPending").setValue(anyPending);
+                                    }
+                                    @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                                });
+                            // Notify the initiator (cross-device FCM), same as the full accept screen.
+                            if (initiatorUid != null && !initiatorUid.isEmpty()) {
+                                try {
+                                    com.callx.app.utils.PushNotify.notifyCollabAccepted(
+                                        initiatorUid, myUid, "Your collaborator", "",
+                                        reelId, "", inviteId);
+                                } catch (Exception ignored) {}
+                            }
+                        });
+                    }
+                    @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                });
+
             if (nm != null) nm.cancel(notifId);
             Toast.makeText(ctx, "✓ Collab accepted!", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        // ── Collab Decline ─────────────────────────────────────────────
-        if (ACTION_COLLAB_DECLINE.equals(action) && extra != null) {
-            FirebaseUtils.db().getReference("reelCollabs").child(extra)
-                .child("status").setValue("declined");
+        // ── Collab Decline (quick action from notification) ─────────────
+        // Same fix as accept above — was writing to the dead reelCollabs
+        // path instead of collabPostInvites / reels/{reelId}/collabMap.
+        if (ACTION_COLLAB_DECLINE.equals(action) && reelId != null && extra != null) {
+            final String inviteId = extra;
+            final long now = System.currentTimeMillis();
+            com.google.firebase.database.DatabaseReference root = FirebaseUtils.db().getReference();
+
+            java.util.Map<String, Object> updates = new java.util.HashMap<>();
+            updates.put("collabPostInvites/" + myUid + "/" + inviteId + "/status", "declined");
+            updates.put("reels/" + reelId + "/collabMap/" + myUid + "/status", "declined");
+            updates.put("reels/" + reelId + "/collabMap/" + myUid + "/respondedAt", now);
+            root.updateChildren(updates, (error, ref) -> {
+                root.child("reels").child(reelId).child("collabMap")
+                    .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                        @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot mapSnap) {
+                            boolean anyPending = false;
+                            for (com.google.firebase.database.DataSnapshot child : mapSnap.getChildren()) {
+                                if ("pending".equals(child.child("status").getValue(String.class))) { anyPending = true; break; }
+                            }
+                            root.child("reels").child(reelId).child("isCollabPending").setValue(anyPending);
+                        }
+                        @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {}
+                    });
+            });
             if (nm != null) nm.cancel(notifId);
             return;
         }
