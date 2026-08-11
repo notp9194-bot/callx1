@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="?attr/colorSurface">
+    android:background="@color/surface_card">
 
     <!-- Toolbar -->
     <RelativeLayout
@@ -11,7 +11,7 @@
         android:layout_height="56dp"
         android:paddingHorizontal="12dp"
         android:elevation="4dp"
-        android:background="?attr/colorSurface">
+        android:background="@color/surface_card">
 
         <ImageButton
             android:id="@+id/btn_collab_inbox_back"
@@ -29,7 +29,7 @@
             android:text="Collab Invites"
             android:textSize="18sp"
             android:textStyle="bold"
-            android:textColor="?attr/colorOnSurface"/>
+            android:textColor="@color/text_primary"/>
     </RelativeLayout>
 
     <ProgressBar
@@ -64,7 +64,7 @@
             android:text="No pending invites"
             android:textSize="18sp"
             android:textStyle="bold"
-            android:textColor="?attr/colorOnSurface"/>
+            android:textColor="@color/text_primary"/>
 
         <TextView
             android:layout_width="wrap_content"
@@ -72,7 +72,7 @@
             android:layout_marginTop="6dp"
             android:text="When someone invites you to collab on a reel, it will appear here."
             android:textSize="14sp"
-            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textColor="@color/text_secondary"
             android:gravity="center"
             android:paddingHorizontal="32dp"/>
     </LinearLayout>

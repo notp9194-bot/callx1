@@ -15,7 +15,7 @@
         </activity>
         <activity android:name="com.callx.app.explore.HashtagReelsActivity"
             android:exported="false"
-            android:theme="@style/Theme.AppCompat.NoActionBar"/>
+            android:theme="@style/Theme.CallX.NoActionBar"/>
         <activity android:name="com.callx.app.profile.UserReelsActivity"
             android:exported="false"/>
         <activity android:name="com.callx.app.explore.ReelSearchActivity"
@@ -81,7 +81,7 @@
             android:windowSoftInputMode="adjustResize"/>
         <activity android:name="com.callx.app.player.VideoPlayerActivity"
             android:exported="false"
-            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:theme="@style/Theme.CallX.NoActionBar"
             android:screenOrientation="sensor"
             android:configChanges="orientation|screenSize|keyboardHidden"/>
         <activity android:name="com.callx.app.editor.VideoTrimActivity"
@@ -179,7 +179,7 @@
         <activity android:name="com.callx.app.feed.ReelFollowingFeedActivity"
             android:exported="false"
             android:screenOrientation="portrait"
-            android:theme="@style/Theme.AppCompat.NoActionBar"/>
+            android:theme="@style/Theme.CallX.NoActionBar"/>
         <activity android:name="com.callx.app.explore.ReelChallengeActivity"
             android:exported="false"
             android:screenOrientation="portrait"
@@ -401,15 +401,15 @@
         <!-- ══ REPOST SYSTEM v4.2.9 ═════════════════════════════════════════ -->
         <activity android:name="com.callx.app.profile.UserRepostedReelsActivity"
             android:exported="false"
-            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:theme="@style/Theme.CallX.NoActionBar"
             android:windowSoftInputMode="stateHidden"/>
         <activity android:name="com.callx.app.social.RepostQuoteActivity"
             android:exported="false"
-            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:theme="@style/Theme.CallX.NoActionBar"
             android:windowSoftInputMode="adjustResize"/>
         <activity android:name="com.callx.app.social.ReelRepostBlockActivity"
             android:exported="false"
-            android:theme="@style/Theme.AppCompat.NoActionBar"/>
+            android:theme="@style/Theme.CallX.NoActionBar"/>
 
     
                     <!-- ── Duet Series v11 ── -->
@@ -436,22 +436,22 @@
           <!-- ── Repost / Share System ── -->
           <activity android:name="com.callx.app.social.ReelRepostListActivity"
               android:exported="false"
-              android:theme="@style/Theme.AppCompat.NoActionBar"
+              android:theme="@style/Theme.CallX.NoActionBar"
               android:windowSoftInputMode="adjustResize"/>
           <activity android:name="com.callx.app.social.RepostWithCaptionActivity"
               android:exported="false"
-              android:theme="@style/Theme.AppCompat.NoActionBar"
+              android:theme="@style/Theme.CallX.NoActionBar"
               android:windowSoftInputMode="adjustResize"/>
 
 
           <!-- ── Collab Repost System ── -->
           <activity android:name="com.callx.app.social.CollabRepostActivity"
               android:exported="false"
-              android:theme="@style/Theme.AppCompat.NoActionBar"
+              android:theme="@style/Theme.CallX.NoActionBar"
               android:windowSoftInputMode="adjustResize"/>
           <activity android:name="com.callx.app.social.CollabRepostAcceptActivity"
               android:exported="true"
-              android:theme="@style/Theme.AppCompat.NoActionBar"
+              android:theme="@style/Theme.CallX.NoActionBar"
               android:windowSoftInputMode="adjustResize">
               <intent-filter>
                   <action android:name="android.intent.action.VIEW"/>
@@ -460,23 +460,23 @@
           </activity>
           <activity android:name="com.callx.app.social.CollabPostInviteActivity"
               android:exported="false"
-              android:theme="@style/Theme.AppCompat.NoActionBar"
+              android:theme="@style/Theme.CallX.NoActionBar"
               android:windowSoftInputMode="adjustResize"/>
           <activity android:name="com.callx.app.social.CollabPostAcceptActivity"
               android:exported="true"
-              android:theme="@style/Theme.AppCompat.NoActionBar"/>
+              android:theme="@style/Theme.CallX.NoActionBar"/>
           <activity android:name="com.callx.app.social.CollabInboxActivity"
               android:exported="false"
-              android:theme="@style/Theme.AppCompat.NoActionBar"/>
+              android:theme="@style/Theme.CallX.NoActionBar"/>
           <activity android:name="com.callx.app.social.CollabRepostInboxActivity"
               android:exported="false"
-              android:theme="@style/Theme.AppCompat.NoActionBar"/>
+              android:theme="@style/Theme.CallX.NoActionBar"/>
 
           <!-- ── Photo Editor v5 (per-photo filter/effect/caption/sticker/crop) ── -->
         <activity android:name="com.callx.app.editor.ReelPhotoEditorActivity"
             android:exported="false"
             android:screenOrientation="portrait"
-            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:theme="@style/Theme.CallX.NoActionBar"
             android:windowSoftInputMode="adjustResize"/>
         <!-- ── Remix System ── -->
         <activity android:name="com.callx.app.social.ReelRemixActivity"
