@@ -1086,7 +1086,6 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     @Override
-    @Override
     protected void onSaveInstanceState(@androidx.annotation.NonNull android.os.Bundle outState) {
         // CRASH FIX: TransactionTooLargeException (RecyclerView state 728KB)
         // When ChatActivity is destroyed/rotated, the default state-save tries to 
@@ -1097,7 +1096,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Instead: Clear the adapter BEFORE calling super, preventing the massive
         // message list from entering the saved state bundle at all.
         if (pagingAdapter != null) {
-            pagingAdapter.submitList(null); // Clear all items from view
+            pagingAdapter.submitData(getLifecycle(), PagingData.empty()); // Clear all items from view
         }
         
         // Now call super with the emptied adapter — the bundle will be small
