@@ -163,49 +163,32 @@ public class MessagePagingAdapter
 
             @Override
             public Object getChangePayload(@NonNull Message a, @NonNull Message b) {
-                // Fast path: only status/deliveredAt/readAt changed
-                boolean onlyStatusChanged =
+                // Structural fields (text/type/timestamp/messageId) never get
+                // a fast path — if any of these differ it's a genuinely
+                // different-looking bubble, so fall through to a full rebind.
+                boolean structuralSame =
                         safeEquals(a.text, b.text) &&
                         safeEquals(a.type, b.type) &&
-                        a.timestamp == b.timestamp &&
-                        a.edited == b.edited &&
-                        !(safeEquals(a.status, b.status));
-                if (onlyStatusChanged) return PAYLOAD_STATUS;
+                        a.timestamp == b.timestamp;
+                if (!structuralSame) return null; // null → full rebind
 
-                // Only reactions changed
-                boolean onlyReactionsChanged =
-                        safeEquals(a.text, b.text) &&
-                        safeEquals(a.type, b.type) &&
-                        safeEquals(a.status, b.status) &&
-                        a.timestamp == b.timestamp &&
-                        a.edited == b.edited &&
-                        pollVotesEqual(a.pollVotes, b.pollVotes) &&
-                        !reactionsEqual(a.reactions, b.reactions);
-                if (onlyReactionsChanged) return PAYLOAD_REACTIONS;
+                // PERF: bit-flag combine — check each of the 4 fast-path
+                // fields independently instead of mutually-exclusive "only X
+                // changed" branches, so e.g. status+reactions changing in
+                // the same diff pass still gets ONE combined fast-path
+                // payload instead of falling through to a full rebind.
+                int flags = 0;
+                if (!safeEquals(a.status, b.status))               flags |= FLAG_STATUS;
+                if (!reactionsEqual(a.reactions, b.reactions))     flags |= FLAG_REACTIONS;
+                if (!pollVotesEqual(a.pollVotes, b.pollVotes))     flags |= FLAG_POLL;
+                if (a.edited != b.edited)                          flags |= FLAG_EDITED;
 
-                // Only poll votes changed
-                boolean onlyPollChanged =
-                        safeEquals(a.text, b.text) &&
-                        safeEquals(a.type, b.type) &&
-                        safeEquals(a.status, b.status) &&
-                        a.timestamp == b.timestamp &&
-                        a.edited == b.edited &&
-                        reactionsEqual(a.reactions, b.reactions) &&
-                        !pollVotesEqual(a.pollVotes, b.pollVotes);
-                if (onlyPollChanged) return PAYLOAD_POLL;
+                // No recognized fast-path field actually changed (e.g. a
+                // field outside the DIFF's areContentsTheSame() 6-field set
+                // that we don't have a partial-bind path for) — full rebind.
+                if (flags == 0) return null;
 
-                // Only edited flag changed
-                boolean onlyEditedChanged =
-                        safeEquals(a.text, b.text) &&
-                        safeEquals(a.type, b.type) &&
-                        safeEquals(a.status, b.status) &&
-                        a.timestamp == b.timestamp &&
-                        a.edited != b.edited &&
-                        reactionsEqual(a.reactions, b.reactions) &&
-                        pollVotesEqual(a.pollVotes, b.pollVotes);
-                if (onlyEditedChanged) return PAYLOAD_EDITED;
-
-                return null; // null → full rebind
+                return flags; // single combined payload, autoboxed to Integer
             }
         };
 
@@ -244,20 +227,38 @@ public class MessagePagingAdapter
     private static final int TYPE_CANVAS_SENT     = 11;
     private static final int TYPE_CANVAS_RECEIVED = 12;
 
-    // ── DiffUtil payload key — only tv_status needs rebind when status changes ──
-    static final String PAYLOAD_STATUS     = "status";
     static final String PAYLOAD_VIEW_ONCE  = "view_once_state";
-    // PERF: reactions-only change (someone tapped an emoji) used to fall
-    // through to a full rebind (Glide reload, Linkify, bubble redraw,
-    // countdown restart) just to update a 1-line TextView. Dedicated
-    // payload skips straight to bindReactionsOnly().
-    static final String PAYLOAD_REACTIONS  = "reactions";
-    // PERF ADV: poll-vote-only change — only vote bars/% update; no media
-    // reload, no text Linkify, no full canvas rebind.
-    static final String PAYLOAD_POLL       = "poll";
-    // PERF ADV: edited-flag-only change — only the footer timestamp suffix
-    // ("✏️ edited") needs updating; no content change at all.
-    static final String PAYLOAD_EDITED     = "edited";
+
+    // ── PERF: bit-flag combined payload for status/reactions/poll/edited ──
+    // These 4 used to be mutually-exclusive String payloads — getChangePayload()
+    // checked "ONLY status changed", "ONLY reactions changed", etc. one at a
+    // time, so if e.g. status AND reactions changed in the same diff pass
+    // (e.g. a delivered→read tick flip that arrived in the same Firestore
+    // snapshot as a new emoji reaction), none of the "only X" checks matched
+    // and it silently fell through to `return null` — a full rebind (Glide
+    // reload, Linkify, bubble redraw) just to update two small views.
+    //
+    // Now each of the 4 is a single bit; getChangePayload() ORs together
+    // every field that actually changed and returns one Integer. A single
+    // onBindViewHolder(payloads) branch below reads the bitmask and runs
+    // only the fast-path binds for the bits that are set — still zero full
+    // rebinds, even when multiple of these fields change at once.
+    //
+    // notifyItemChanged(i, PAYLOAD_REACTIONS) call sites (e.g. the reactions-
+    // only manual trigger below) keep working unchanged: a lone flag is
+    // just a 1-bit mask, handled the same way as a combined one.
+    static final int FLAG_STATUS     = 1 << 0;
+    static final int FLAG_REACTIONS  = 1 << 1;
+    static final int FLAG_POLL       = 1 << 2;
+    static final int FLAG_EDITED     = 1 << 3;
+
+    // Kept as Integer constants (not String) so existing call sites that pass
+    // e.g. PAYLOAD_REACTIONS directly to notifyItemChanged(...) still compile
+    // and behave identically — just a 1-bit mask instead of a String key.
+    static final Integer PAYLOAD_STATUS     = FLAG_STATUS;
+    static final Integer PAYLOAD_REACTIONS  = FLAG_REACTIONS;
+    static final Integer PAYLOAD_POLL       = FLAG_POLL;
+    static final Integer PAYLOAD_EDITED     = FLAG_EDITED;
     /** Sent message's readBy map changed — update the "Seen by X" strip only. */
     public static final String PAYLOAD_READ_BY = "read_by";
     // PERF: search-query-only change (user typed/cleared a character in
@@ -1486,25 +1487,42 @@ public class MessagePagingAdapter
             if (m != null) bindSeenByStrip(h, m);
             return;
         }
-        if (!payloads.isEmpty() && PAYLOAD_STATUS.equals(payloads.get(0))) {
-            // Fast path: only tick changed — skip full bind.
+        // PERF: combined bit-flag payload from DIFF.getChangePayload() —
+        // status/reactions/poll/edited may all be set together in one
+        // Integer when multiple of these fields changed in the same diff
+        // pass, so this runs every matching fast-path bind in a single
+        // onBindViewHolder call instead of falling through to a full
+        // rebind just because no single "only X changed" branch matched.
+        if (!payloads.isEmpty() && payloads.get(0) instanceof Integer) {
+            int flags = (Integer) payloads.get(0);
             Message m = getItem(position);
             if (m != null) {
-                // FIX: this used to only update the legacy tv_status
-                // TextView (bindStatusTick below) — but canvas-eligible
-                // bubbles (the common case: plain text, images, etc., see
-                // isCanvasEligible()) don't have a tv_status at all, so
-                // their tick silently never updated on a sent→delivered→
-                // read transition. bindStatusTick still runs for the
-                // legacy/non-canvas fallback views; the canvas view now
-                // gets its own cheap, draw-only update alongside it.
-                if (h.tvStatus != null) {
-                    bindStatusTick(h, m);
+                if ((flags & FLAG_STATUS) != 0) {
+                    // FIX: this used to only update the legacy tv_status
+                    // TextView (bindStatusTick below) — but canvas-eligible
+                    // bubbles (the common case: plain text, images, etc.,
+                    // see isCanvasEligible()) don't have a tv_status at all,
+                    // so their tick silently never updated on a sent→
+                    // delivered→read transition. bindStatusTick still runs
+                    // for the legacy/non-canvas fallback views; the canvas
+                    // view now gets its own cheap, draw-only update too.
+                    if (h.tvStatus != null) {
+                        bindStatusTick(h, m);
+                    }
+                    if (h.canvasView != null) {
+                        boolean isRead = "read".equals(m.status);
+                        boolean isDelivered = isRead || "delivered".equals(m.status);
+                        h.canvasView.setDeliveryStatus(isRead, isDelivered);
+                    }
                 }
-                if (h.canvasView != null) {
-                    boolean isRead = "read".equals(m.status);
-                    boolean isDelivered = isRead || "delivered".equals(m.status);
-                    h.canvasView.setDeliveryStatus(isRead, isDelivered);
+                if ((flags & FLAG_REACTIONS) != 0) {
+                    bindReactionsOnly(h, m);
+                }
+                if ((flags & FLAG_POLL) != 0) {
+                    bindPollOnly(h, m);
+                }
+                if ((flags & FLAG_EDITED) != 0) {
+                    bindEditedOnly(h, m);
                 }
             }
             return;
@@ -1529,28 +1547,11 @@ public class MessagePagingAdapter
             }
             return;
         }
-        if (!payloads.isEmpty() && PAYLOAD_REACTIONS.equals(payloads.get(0))) {
-            // Fast path: only the reactions map changed — update just
-            // ll_reactions/tv_reactions, skip full bind entirely.
-            Message m = getItem(position);
-            if (m != null) {
-                bindReactionsOnly(h, m);
-            }
-            return;
-        }
-        if (!payloads.isEmpty() && PAYLOAD_POLL.equals(payloads.get(0))) {
-            // Fast path: only poll votes changed — re-render vote bars only.
-            Message m = getItem(position);
-            if (m != null) bindPollOnly(h, m);
-            return;
-        }
-        if (!payloads.isEmpty() && PAYLOAD_EDITED.equals(payloads.get(0))) {
-            // Fast path: only the "✏️ edited" flag changed — update the
-            // footer timestamp suffix without touching any other view.
-            Message m = getItem(position);
-            if (m != null) bindEditedOnly(h, m);
-            return;
-        }
+        // NOTE: standalone PAYLOAD_REACTIONS/PAYLOAD_POLL/PAYLOAD_EDITED
+        // branches used to live here — they're now handled by the combined
+        // bit-flag `instanceof Integer` branch above (a lone flag is just a
+        // 1-bit mask, so notifyItemChanged(i, PAYLOAD_REACTIONS)-style
+        // single-flag calls still route through the same fast path).
         if (!payloads.isEmpty() && PAYLOAD_SEARCH.equals(payloads.get(0))) {
             // Fast path: only the search query changed — repaint just the
             // highlight, skip Glide/Linkify/full canvas rebind entirely.
@@ -1736,14 +1737,36 @@ public class MessagePagingAdapter
         if (ivAvatar != null) {
             String photo = m.senderPhoto != null ? m.senderPhoto : "";
             if (!photo.isEmpty()) {
-                glide(ctx)
-                    .load(photo)
-                    .apply(THUMB_RGB565)
-                    .override(96, 96)
-                    .dontAnimate()
-                    .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
-                    .placeholder(R.drawable.ic_person)
-                    .into(ivAvatar);
+                // PERF FIX: same root cause as the chat-list flicker bug —
+                // this used to fire an unconditional async Glide load on
+                // EVERY bind (including plain scroll-recycle and any
+                // rebind this row picks up from an unrelated list change),
+                // guaranteeing a blank/placeholder flash before the avatar
+                // popped back in even though it was already decoded a
+                // moment ago. Check AVATAR_BITMAP_CACHE synchronously
+                // first — same shared pool the canvas seen-avatar path uses.
+                android.graphics.Bitmap statusAvatarHit = AVATAR_BITMAP_CACHE.get(photo);
+                if (statusAvatarHit != null && !statusAvatarHit.isRecycled()) {
+                    ivAvatar.setImageBitmap(statusAvatarHit);
+                } else {
+                    ivAvatar.setImageResource(R.drawable.ic_person);
+                    glide(ctx).asBitmap()
+                        .load(photo)
+                        .apply(THUMB_RGB565)
+                        .override(96, 96)
+                        .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
+                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                            @Override
+                            public void onResourceReady(@NonNull Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                AVATAR_BITMAP_CACHE.put(photo, resource);
+                                if (h.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
+                                ivAvatar.setImageBitmap(resource);
+                            }
+                            @Override
+                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
+                        });
+                }
             } else {
                 ivAvatar.setImageResource(R.drawable.ic_person);
             }
@@ -1758,13 +1781,30 @@ public class MessagePagingAdapter
             if (!thumb.isEmpty()) {
                 flThumb.setVisibility(View.VISIBLE);
                 if (ivEye != null) ivEye.setVisibility(View.VISIBLE);
-                glide(ctx)
-                    .load(thumb)
-                    .apply(THUMB_RGB565)
-                    .override(240, 240)
-                    .centerCrop()
-                    .placeholder(R.drawable.bg_skeleton_rect)
-                    .into(ivThumb);
+                // Same fix as the avatar above — sync DECODED_BITMAP_CACHE
+                // check before falling back to an async load.
+                android.graphics.Bitmap statusThumbHit = DECODED_BITMAP_CACHE.get(poolKey(thumb, 240, 240));
+                if (statusThumbHit != null && !statusThumbHit.isRecycled()) {
+                    ivThumb.setImageBitmap(statusThumbHit);
+                } else {
+                    ivThumb.setImageResource(R.drawable.bg_skeleton_rect);
+                    glide(ctx).asBitmap()
+                        .load(thumb)
+                        .apply(THUMB_RGB565)
+                        .override(240, 240)
+                        .centerCrop()
+                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                            @Override
+                            public void onResourceReady(@NonNull Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                DECODED_BITMAP_CACHE.put(poolKey(thumb, 240, 240), resource);
+                                if (h.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
+                                ivThumb.setImageBitmap(resource);
+                            }
+                            @Override
+                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
+                        });
+                }
             } else {
                 flThumb.setVisibility(View.GONE);
                 if (ivEye != null) ivEye.setVisibility(View.GONE);
@@ -1830,14 +1870,30 @@ public class MessagePagingAdapter
         if (ivAvatar != null) {
             String photo = m.senderPhoto != null ? m.senderPhoto : "";
             if (!photo.isEmpty()) {
-                glide(ctx)
-                    .load(photo)
-                    .apply(THUMB_RGB565)
-                    .override(96, 96)
-                    .dontAnimate()
-                    .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
-                    .placeholder(R.drawable.ic_person)
-                    .into(ivAvatar);
+                // Same sync-cache-first fix as bindStatusSeenBubble above —
+                // check AVATAR_BITMAP_CACHE before firing an async Glide load.
+                android.graphics.Bitmap reelSeenAvatarHit = AVATAR_BITMAP_CACHE.get(photo);
+                if (reelSeenAvatarHit != null && !reelSeenAvatarHit.isRecycled()) {
+                    ivAvatar.setImageBitmap(reelSeenAvatarHit);
+                } else {
+                    ivAvatar.setImageResource(R.drawable.ic_person);
+                    glide(ctx).asBitmap()
+                        .load(photo)
+                        .apply(THUMB_RGB565)
+                        .override(96, 96)
+                        .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
+                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                            @Override
+                            public void onResourceReady(@NonNull Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                AVATAR_BITMAP_CACHE.put(photo, resource);
+                                if (h.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
+                                ivAvatar.setImageBitmap(resource);
+                            }
+                            @Override
+                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
+                        });
+                }
             } else {
                 ivAvatar.setImageResource(R.drawable.ic_person);
             }
@@ -1863,13 +1919,30 @@ public class MessagePagingAdapter
             if (!thumb.isEmpty()) {
                 ivThumb.setVisibility(android.view.View.VISIBLE);
                 if (ivPlay != null) ivPlay.setVisibility(android.view.View.VISIBLE);
-                glide(ctx)
-                    .load(thumb)
-                    .apply(THUMB_RGB565)
-                    .override(240, 240)
-                    .centerCrop()
-                    .placeholder(R.drawable.bg_skeleton_rect)
-                    .into(ivThumb);
+                // Same fix — sync DECODED_BITMAP_CACHE check before an
+                // async load, same as the status-seen thumb above.
+                android.graphics.Bitmap reelSeenThumbHit = DECODED_BITMAP_CACHE.get(poolKey(thumb, 240, 240));
+                if (reelSeenThumbHit != null && !reelSeenThumbHit.isRecycled()) {
+                    ivThumb.setImageBitmap(reelSeenThumbHit);
+                } else {
+                    ivThumb.setImageResource(R.drawable.bg_skeleton_rect);
+                    glide(ctx).asBitmap()
+                        .load(thumb)
+                        .apply(THUMB_RGB565)
+                        .override(240, 240)
+                        .centerCrop()
+                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                            @Override
+                            public void onResourceReady(@NonNull Bitmap resource,
+                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                DECODED_BITMAP_CACHE.put(poolKey(thumb, 240, 240), resource);
+                                if (h.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
+                                ivThumb.setImageBitmap(resource);
+                            }
+                            @Override
+                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
+                        });
+                }
             } else {
                 ivThumb.setVisibility(android.view.View.GONE);
                 if (ivPlay != null) ivPlay.setVisibility(android.view.View.GONE);

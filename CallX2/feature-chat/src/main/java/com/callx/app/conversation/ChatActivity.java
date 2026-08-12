@@ -146,10 +146,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     //
     // PAGE_SIZE=15 (was 20) — smaller chunks = less DiffUtil work per scroll
     //   Telegram loads ~10-15 msgs per page, this matches that aggressive pattern
-    // PREFETCH_DIST=15 (was 20) — start prefetch earlier, hide load latency better
+    // PREFETCH_DIST=30 (was 15) — 2x PAGE_SIZE. Telegram prefetches at ~1x page
+    //   size, so a fast fling can still outrun the DB query and hit a real
+    //   loading gap. Doubling the distance means Room's PagingSource query
+    //   for the next page fires while the user is still ~2 pages away from
+    //   the edge, giving Room's ioExecutor a full page-load's worth of extra
+    //   head start to finish before the RecyclerView actually needs it —
+    //   the load latency is fully hidden even on a hard fling.
     // INITIAL_LOAD=25 (was 30) — faster cold open, reload next page quickly
     private static final int    PAGE_SIZE     = 15;
-    private static final int    PREFETCH_DIST = 15;
+    private static final int    PREFETCH_DIST = 30;
     private static final int    INITIAL_LOAD  = 25;
     private static final int    MAX_MESSAGE_LENGTH = 4000;
     // Threshold above which the send button shows a "Send as Text / Send as
@@ -2113,6 +2119,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // history it's recycled just as often as the bubble types — bump it
         // alongside them instead of letting it silently fall back to reinflation.
         pool.setMaxRecycledViews(7 /* TYPE_DATE_SEPARATOR */, 10);
+        // PERF: TYPE_HIDDEN/VIEW_ONCE_* (6, 8, 9, 10) were the last 4 view
+        // types left unsized here, silently falling back to RecyclerView's
+        // default pool of 5 — same exhaustion risk as the others on a fast
+        // fling through a chat with several reel-seen/view-once messages.
+        // TYPE_HIDDEN renders 0x0 (cheap to reinflate) but still costs a
+        // fresh onCreateViewHolder() call when the pool runs dry, so it's
+        // sized like the other "less-common" types rather than skipped.
+        pool.setMaxRecycledViews(6  /* TYPE_HIDDEN */,               6);
+        pool.setMaxRecycledViews(8  /* TYPE_VIEW_ONCE_SENT */,       6);
+        pool.setMaxRecycledViews(9  /* TYPE_VIEW_ONCE_EXPIRED */,    6);
+        pool.setMaxRecycledViews(10 /* TYPE_VIEW_ONCE_SENT_WAITING */, 6);
         binding.rvMessages.setRecycledViewPool(pool);
         // PERF (v176): warm the pool with a few TYPE_CANVAS_SENT/RECEIVED
         // holders BEFORE the user's first scroll, so the very first fling
