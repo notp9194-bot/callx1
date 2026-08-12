@@ -20,6 +20,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
+import com.bumptech.glide.load.DecodeFormat;
 import com.callx.app.explore.HashtagReelsActivity;
 import com.callx.app.models.ReelModel;
 import com.callx.app.reels.R;
@@ -173,14 +174,24 @@ public class ReelUiController {
         // Collaborators bottom sheet (with Follow buttons) on tap. Falls back
         // to reel.collabMap being empty but the legacy single collabUid field
         // being set (old data written before this feature shipped).
-        View llCollabAuthors = fragmentView.findViewById(R.id.ll_collab_second_author);
         View llOwnerRow = fragmentView.findViewById(R.id.ll_owner_row);
-        if (llCollabAuthors != null) {
-            java.util.List<com.callx.app.models.ReelModel.CollabCollaborator> accepted = reel.acceptedCollaborators();
-            boolean legacySingleOnly = accepted.isEmpty() && reel.isCollabPost
-                && reel.collabUid != null && !reel.collabUid.isEmpty();
+        java.util.List<com.callx.app.models.ReelModel.CollabCollaborator> accepted = reel.acceptedCollaborators();
+        boolean legacySingleOnly = accepted.isEmpty() && reel.isCollabPost
+            && reel.collabUid != null && !reel.collabUid.isEmpty();
+        boolean isCollabDisplay = !accepted.isEmpty() || legacySingleOnly;
 
-            if (!accepted.isEmpty() || legacySingleOnly) {
+        // ll_collab_second_author is ViewStub-backed (stub_collab_row) — only
+        // inflate it for reels that actually have a collaborator to show, so
+        // the (much more common) non-collab reel skips this inflate entirely.
+        View llCollabAuthors = fragmentView.findViewById(R.id.ll_collab_second_author);
+        if (llCollabAuthors == null && isCollabDisplay) {
+            View stub = fragmentView.findViewById(R.id.stub_collab_row);
+            if (stub instanceof android.view.ViewStub) {
+                llCollabAuthors = ((android.view.ViewStub) stub).inflate();
+            }
+        }
+        if (llCollabAuthors != null) {
+            if (isCollabDisplay) {
                 llCollabAuthors.setVisibility(View.VISIBLE);
                 // ✅ Merged row: hide the standalone owner row — the owner's
                 // avatar/name now render as the first item of the collab stack
@@ -215,8 +226,18 @@ public class ReelUiController {
                         stackViews[i].setVisibility(View.VISIBLE);
                         String url = avatarUrls.get(i);
                         if (url != null && !url.isEmpty() && delegate.isAdded()) {
-                            Glide.with(delegate.requireContext()).load(url).circleCrop()
-                                .placeholder(R.drawable.ic_person).into(stackViews[i]);
+                            // PERF: same pattern as ivOwnerAvatar — resized
+                            // URL + pinned decode size + RGB_565 (opaque, no
+                            // alpha needed) for these 24dp stack avatars.
+                            android.content.Context stackCtx = delegate.requireContext();
+                            int stackSizePx = AvatarUrlBuilder.dpToPx(stackCtx, 24) * 2;
+                            Glide.with(stackCtx)
+                                .load(AvatarUrlBuilder.build(stackCtx, url, 24))
+                                .apply(new RequestOptions().circleCrop()
+                                    .override(stackSizePx, stackSizePx)
+                                    .format(DecodeFormat.PREFER_RGB_565)
+                                    .placeholder(R.drawable.ic_person))
+                                .into(stackViews[i]);
                         } else {
                             stackViews[i].setImageResource(R.drawable.ic_person);
                         }
@@ -370,9 +391,18 @@ public class ReelUiController {
                 : reel.ownerPhoto;
             if (delegate.isAdded() && delegate.getContext() != null
                     && !TextUtils.isEmpty(audioImageUrl)) {
-                Glide.with(delegate.requireContext())
-                    .load(audioImageUrl)
+                // PERF: same pattern as ivOwnerAvatar — resize server-side via
+                // AvatarUrlBuilder AND pin the Glide decode size with
+                // .override(), so this never decodes more pixels than the
+                // 28dp tile actually shows (was loading full-res source).
+                android.content.Context audioCtx = delegate.requireContext();
+                int sizePx = AvatarUrlBuilder.dpToPx(audioCtx, 28) * 2; // 28dp view, 2x retina
+                String resizedAudioUrl = AvatarUrlBuilder.build(audioCtx, audioImageUrl, 28);
+                Glide.with(audioCtx)
+                    .load(resizedAudioUrl)
                     .apply(new RequestOptions().centerCrop()
+                        .override(sizePx, sizePx)
+                        .format(DecodeFormat.PREFER_RGB_565) // opaque tile, no alpha needed — half the decode memory
                         .placeholder(R.drawable.ic_audio))
                     .into(btnCreateAudio);
             } else {
@@ -392,9 +422,14 @@ public class ReelUiController {
                 ? reel.musicCoverUrl
                 : reel.ownerPhoto;
             if (coverUrl != null && !coverUrl.isEmpty()) {
-                Glide.with(delegate.requireContext())
-                    .load(coverUrl)
-                    .apply(new RequestOptions().circleCrop().placeholder(R.drawable.ic_music_note))
+                android.content.Context discCtx = delegate.requireContext();
+                int discSizePx = AvatarUrlBuilder.dpToPx(discCtx, 22) * 2; // iv_music_disc is 22dp
+                Glide.with(discCtx)
+                    .load(AvatarUrlBuilder.build(discCtx, coverUrl, 22))
+                    .apply(new RequestOptions().circleCrop()
+                        .override(discSizePx, discSizePx)
+                        .format(DecodeFormat.PREFER_RGB_565) // opaque disc art, no alpha needed
+                        .placeholder(R.drawable.ic_music_note))
                     .into(ivMusicDisc);
             } else {
                 ivMusicDisc.setImageResource(R.drawable.ic_music_note);
@@ -417,6 +452,7 @@ public class ReelUiController {
                     .apply(new RequestOptions()
                         .circleCrop()
                         .override(sizePx, sizePx)
+                        .format(DecodeFormat.PREFER_RGB_565) // opaque avatar, no alpha needed
                         .placeholder(R.drawable.ic_person))
                     .into(ivOwnerAvatar);
             } else {
@@ -854,14 +890,23 @@ public class ReelUiController {
     private void bindMusicCover(ReelModel reel, String coverUrl) {
         reel.musicCoverUrl = coverUrl;
         if (!delegate.isAdded() || delegate.getContext() == null) return;
+        android.content.Context ctx = delegate.requireContext();
         if (btnCreateAudio != null) {
-            Glide.with(delegate.requireContext()).load(coverUrl)
-                .apply(new RequestOptions().centerCrop().placeholder(R.drawable.ic_audio))
+            int sizePx = AvatarUrlBuilder.dpToPx(ctx, 28) * 2; // 28dp view, 2x retina
+            Glide.with(ctx).load(AvatarUrlBuilder.build(ctx, coverUrl, 28))
+                .apply(new RequestOptions().centerCrop()
+                    .override(sizePx, sizePx)
+                    .format(DecodeFormat.PREFER_RGB_565)
+                    .placeholder(R.drawable.ic_audio))
                 .into(btnCreateAudio);
         }
         if (ivMusicDisc != null) {
-            Glide.with(delegate.requireContext()).load(coverUrl)
-                .apply(new RequestOptions().circleCrop().placeholder(R.drawable.ic_music_note))
+            int discSizePx = AvatarUrlBuilder.dpToPx(ctx, 22) * 2; // iv_music_disc is 22dp
+            Glide.with(ctx).load(AvatarUrlBuilder.build(ctx, coverUrl, 22))
+                .apply(new RequestOptions().circleCrop()
+                    .override(discSizePx, discSizePx)
+                    .format(DecodeFormat.PREFER_RGB_565)
+                    .placeholder(R.drawable.ic_music_note))
                 .into(ivMusicDisc);
         }
     }

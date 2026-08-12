@@ -525,66 +525,40 @@
                     android:background="@color/brand_primary"
                     android:visibility="visible"/>
             
-    <!-- ✨ Photo Style picker — visible only for photo_slideshow reels -->
-    <TextView
-        android:id="@+id/btn_photo_style"
+    <!-- ✨ Photo Style picker — visible only for photo_slideshow reels.
+         ViewStub: not inflated until ReelUiController explicitly needs it,
+         saving inflate cost on every other reel. -->
+    <ViewStub
+        android:id="@+id/stub_photo_style"
+        android:inflatedId="@+id/btn_photo_style"
+        android:layout="@layout/stub_reel_photo_style_btn"
         android:layout_width="wrap_content"
         android:layout_height="36dp"
         android:layout_gravity="bottom|start"
         android:layout_marginStart="14dp"
-        android:layout_marginBottom="190dp"
-        android:text="✨ Style"
-        android:textColor="#FFFFFF"
-        android:textSize="12sp"
-        android:fontFamily="sans-serif-medium"
-        android:gravity="center"
-        android:background="@drawable/bg_photo_style_btn_modern"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:letterSpacing="0.02"
-        android:visibility="gone"
-        android:clickable="true"
-        android:focusable="true"/>
+        android:layout_marginBottom="190dp"/>
 
-    <!-- 🎵 Beat-sync BPM indicator — shown when musicBpm > 0 -->
-    <TextView
-        android:id="@+id/tv_bpm_badge"
+    <!-- 🎵 Beat-sync BPM indicator — shown when musicBpm > 0. ViewStub-backed. -->
+    <ViewStub
+        android:id="@+id/stub_bpm_badge"
+        android:inflatedId="@+id/tv_bpm_badge"
+        android:layout="@layout/stub_reel_bpm_badge"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|start"
         android:layout_marginStart="12dp"
-        android:layout_marginBottom="228dp"
-        android:text="120 BPM"
-        android:textColor="#00E5FF"
-        android:textSize="11sp"
-        android:fontFamily="sans-serif-medium"
-        android:background="#AA000000"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
-        android:paddingTop="3dp"
-        android:paddingBottom="3dp"
-        android:visibility="gone"
-        android:clickable="true"
-        android:focusable="true"/>
+        android:layout_marginBottom="228dp"/>
 
-    <!-- Quality badge (ABR indicator: Auto / 360p / 720p etc) — optional, shown when AdaptiveStreamingManager is active -->
-    <TextView
-        android:id="@+id/tv_quality_badge"
+    <!-- Quality badge (ABR indicator: Auto / 360p / 720p etc) — optional, shown when AdaptiveStreamingManager is active. ViewStub-backed. -->
+    <ViewStub
+        android:id="@+id/stub_quality_badge"
+        android:inflatedId="@+id/tv_quality_badge"
+        android:layout="@layout/stub_reel_quality_badge"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|start"
         android:layout_marginTop="8dp"
-        android:layout_marginStart="12dp"
-        android:text="Auto"
-        android:textColor="#FFFFFF"
-        android:textSize="10sp"
-        android:fontFamily="sans-serif-medium"
-        android:background="#99000000"
-        android:paddingStart="6dp"
-        android:paddingEnd="6dp"
-        android:paddingTop="2dp"
-        android:paddingBottom="2dp"
-        android:visibility="gone"/>
+        android:layout_marginStart="12dp"/>
 
 </FrameLayout>
 
@@ -612,76 +586,15 @@
                 android:visibility="visible"/>
         </LinearLayout>
           <!-- Collab Joint-Author row (shown only when isCollabPost=true) —
-               ✅ MULTI-COLLABORATOR, MERGED ROW: this is now the ONLY row shown
-               for collab posts (ll_owner_row above is hidden). Tightly
-               overlapping avatar stack (owner first, then collaborators, up to
-               3 shown) + "@owner and N others" text + Follow button, all on one
-               line — matches Instagram's collab credit row. Tap opens the full
-               Collaborators bottom sheet (with Follow buttons per person). -->
-          <LinearLayout
-              android:id="@+id/ll_collab_second_author"
+               ViewStub-backed: not inflated for the majority of (non-collab)
+               reels. -->
+          <ViewStub
+              android:id="@+id/stub_collab_row"
+              android:inflatedId="@+id/ll_collab_second_author"
+              android:layout="@layout/stub_reel_collab_row"
               android:layout_width="wrap_content"
               android:layout_height="wrap_content"
-              android:orientation="horizontal"
-              android:gravity="center_vertical"
-              android:layout_marginTop="6dp"
-              android:background="?attr/selectableItemBackgroundBorderless"
-              android:paddingVertical="2dp"
-              android:visibility="gone">
-              <FrameLayout
-                  android:layout_width="wrap_content"
-                  android:layout_height="24dp">
-                  <de.hdodenhof.circleimageview.CircleImageView
-                      android:id="@+id/iv_collab_stack_1"
-                      android:layout_width="24dp"
-                      android:layout_height="24dp"
-                      android:layout_marginStart="0dp"
-                      app:civ_border_width="1.5dp"
-                      app:civ_border_color="#000000"
-                      android:src="@drawable/ic_person"/>
-                  <de.hdodenhof.circleimageview.CircleImageView
-                      android:id="@+id/iv_collab_stack_2"
-                      android:layout_width="24dp"
-                      android:layout_height="24dp"
-                      android:layout_marginStart="12dp"
-                      app:civ_border_width="1.5dp"
-                      app:civ_border_color="#000000"
-                      android:visibility="gone"
-                      android:src="@drawable/ic_person"/>
-                  <de.hdodenhof.circleimageview.CircleImageView
-                      android:id="@+id/iv_collab_stack_3"
-                      android:layout_width="24dp"
-                      android:layout_height="24dp"
-                      android:layout_marginStart="24dp"
-                      app:civ_border_width="1.5dp"
-                      app:civ_border_color="#000000"
-                      android:visibility="gone"
-                      android:src="@drawable/ic_person"/>
-              </FrameLayout>
-              <TextView
-                  android:id="@+id/tv_collab_author_name"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:layout_marginStart="8dp"
-                  android:textColor="#FFFFFF"
-                  android:textSize="15sp"
-                  android:textStyle="bold"
-                  android:fontFamily="sans-serif-medium"/>
-              <TextView
-                  android:id="@+id/tv_collab_follow_btn"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:layout_marginStart="10dp"
-                  android:text="Follow"
-                  android:textColor="#00E5FF"
-                  android:textSize="13sp"
-                  android:paddingStart="8dp"
-                  android:paddingEnd="8dp"
-                  android:paddingTop="2dp"
-                  android:paddingBottom="2dp"
-                  android:background="@drawable/bg_reel_follow_btn"
-                  android:visibility="gone"/>
-          </LinearLayout>
+              android:layout_marginTop="6dp"/>
     
 
         <!-- Caption -->

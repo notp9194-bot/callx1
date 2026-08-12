@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Content for stub_bpm_badge ViewStub in fragment_reel_player.xml. -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tv_bpm_badge"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="120 BPM"
+    android:textColor="#00E5FF"
+    android:textSize="11sp"
+    android:fontFamily="sans-serif-medium"
+    android:background="#AA000000"
+    android:paddingStart="8dp"
+    android:paddingEnd="8dp"
+    android:paddingTop="3dp"
+    android:paddingBottom="3dp"
+    android:clickable="true"
+    android:focusable="true"/>

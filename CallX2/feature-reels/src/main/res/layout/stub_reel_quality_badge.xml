@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Content for stub_quality_badge ViewStub in fragment_reel_player.xml. -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tv_quality_badge"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="Auto"
+    android:textColor="#FFFFFF"
+    android:textSize="10sp"
+    android:fontFamily="sans-serif-medium"
+    android:background="#99000000"
+    android:paddingStart="6dp"
+    android:paddingEnd="6dp"
+    android:paddingTop="2dp"
+    android:paddingBottom="2dp"/>

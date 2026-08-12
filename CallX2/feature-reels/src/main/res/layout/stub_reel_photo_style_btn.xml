@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Content for stub_photo_style ViewStub in fragment_reel_player.xml.
+     Positioning (gravity/margins) lives on the ViewStub tag itself, since
+     ViewStub applies its own LayoutParams to whatever it inflates. -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/btn_photo_style"
+    android:layout_width="wrap_content"
+    android:layout_height="36dp"
+    android:text="✨ Style"
+    android:textColor="#FFFFFF"
+    android:textSize="12sp"
+    android:fontFamily="sans-serif-medium"
+    android:gravity="center"
+    android:background="@drawable/bg_photo_style_btn_modern"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:letterSpacing="0.02"
+    android:clickable="true"
+    android:focusable="true"/>

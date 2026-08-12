@@ -31,12 +31,13 @@ public class ReelPhotoSlideshowController {
     // ── Owned views ───────────────────────────────────────────────────────
     private ViewPager2    vpPhotos;
     private LinearLayout  llStoryProgress;
-    private TextView      btnPhotoStyle;
-    private TextView      tvBpmBadge;
+    private TextView      btnPhotoStyle; // ViewStub-backed (stub_photo_style)
+    private TextView      tvBpmBadge;    // ViewStub-backed (stub_bpm_badge)
     private TextView      tvPhotoCounter;
     private TextView      tvPauseBadge;
     private TextView      tvCaptionOverlay;
     private LinearLayout  llDotIndicator;
+    private View          rootView; // kept for lazy ViewStub inflation
 
     // ── Owned state ───────────────────────────────────────────────────────
     private boolean           isPhotoMode          = false;
@@ -63,11 +64,13 @@ public class ReelPhotoSlideshowController {
     // ── View binding ──────────────────────────────────────────────────────
 
     public void bindViews(View root) {
+        rootView        = root;
         vpPhotos        = root.findViewById(R.id.vp_photos);
         llStoryProgress = root.findViewById(R.id.ll_story_progress);
         tvPhotoCounter  = root.findViewById(R.id.tv_photo_counter);
-        btnPhotoStyle   = root.findViewById(R.id.btn_photo_style);
-        tvBpmBadge      = root.findViewById(R.id.tv_bpm_badge);
+        // btnPhotoStyle / tvBpmBadge are ViewStub-backed — NOT inflated here.
+        // Only photo-slideshow reels need them, so they're lazily inflated in
+        // bindReel() below instead of on every reel bind.
         tvPauseBadge    = root.findViewById(R.id.tv_pause_badge);
         tvCaptionOverlay = root.findViewById(R.id.tv_caption_overlay);
         llDotIndicator  = root.findViewById(R.id.ll_dot_indicator);
@@ -165,16 +168,30 @@ public class ReelPhotoSlideshowController {
         buildStoryProgress(photoUrls.size());
         llStoryProgress.setVisibility(View.VISIBLE);
 
-        // Style picker
+        // Style picker — inflate stub_photo_style on first need
+        if (btnPhotoStyle == null && rootView != null) {
+            View stub = rootView.findViewById(R.id.stub_photo_style);
+            if (stub instanceof android.view.ViewStub) {
+                btnPhotoStyle = (TextView) ((android.view.ViewStub) stub).inflate();
+            }
+        }
         if (btnPhotoStyle != null) {
             btnPhotoStyle.setVisibility(View.VISIBLE);
             btnPhotoStyle.setOnClickListener(ignored -> openTemplatePicker());
         }
 
-        // BPM badge
-        if (tvBpmBadge != null && reel.musicBpm > 0) {
-            tvBpmBadge.setVisibility(View.VISIBLE);
-            tvBpmBadge.setText(Math.round(reel.musicBpm) + " BPM");
+        // BPM badge — inflate stub_bpm_badge only when there's actually a BPM to show
+        if (reel.musicBpm > 0) {
+            if (tvBpmBadge == null && rootView != null) {
+                View stub = rootView.findViewById(R.id.stub_bpm_badge);
+                if (stub instanceof android.view.ViewStub) {
+                    tvBpmBadge = (TextView) ((android.view.ViewStub) stub).inflate();
+                }
+            }
+            if (tvBpmBadge != null) {
+                tvBpmBadge.setVisibility(View.VISIBLE);
+                tvBpmBadge.setText(Math.round(reel.musicBpm) + " BPM");
+            }
         }
 
         // Dot indicator

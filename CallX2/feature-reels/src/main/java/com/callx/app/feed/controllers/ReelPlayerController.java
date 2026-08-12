@@ -84,7 +84,20 @@ public class ReelPlayerController {
     private ProgressBar progressBuffering;
     private ImageButton btnMute;
     private TextView    btnSpeed;
-    private TextView    tvQualityBadge;   // nullable — add id/quality_badge to fragment_reel_player.xml
+    private TextView    tvQualityBadge;   // nullable — ViewStub-backed (stub_quality_badge), lazily inflated on first real use
+    private View        rootView;         // kept for lazy ViewStub inflation
+
+    /** Inflates stub_quality_badge on first real need instead of at bind time,
+     *  so reels that never buffer/change quality never pay the inflate cost. */
+    private TextView getQualityBadge() {
+        if (tvQualityBadge == null && rootView != null) {
+            View stub = rootView.findViewById(R.id.stub_quality_badge);
+            if (stub instanceof android.view.ViewStub) {
+                tvQualityBadge = (TextView) ((android.view.ViewStub) stub).inflate();
+            }
+        }
+        return tvQualityBadge;
+    }
 
     // ── Player state ─────────────────────────────────────────────────────────
     private ExoPlayer  player;
@@ -203,6 +216,7 @@ public class ReelPlayerController {
     // ── View binding ──────────────────────────────────────────────────────────
 
     public void bindViews(View root) {
+        rootView              = root;
         playerView           = root.findViewById(R.id.player_view);
         ivThumb              = root.findViewById(R.id.iv_thumb);
         ivPlayPauseIndicator = root.findViewById(R.id.iv_play_pause_indicator);
@@ -225,7 +239,10 @@ public class ReelPlayerController {
                 androidx.core.view.WindowInsetsCompat.Type.statusBars()).top;
             return insets;
         });
-        tvQualityBadge       = root.findViewById(R.id.tv_quality_badge); // optional view
+        // tvQualityBadge is now ViewStub-backed (stub_quality_badge) — NOT
+        // inflated here. It stays null until getQualityBadge() below inflates
+        // it on the first reel that actually needs to show it (buffering /
+        // ABR change), so most reels skip this inflate entirely.
 
         // Media3's default shutter is opaque black. With a thumbnail layered
         // above the surface, that shutter can flash between the thumbnail
@@ -552,8 +569,10 @@ public class ReelPlayerController {
                 @Override
                 public void onStall(int count) {
                     stallCount = count;
-                    if (tvQualityBadge != null) {
-                        tvQualityBadge.setText("Buffering…");
+                    TextView badge = getQualityBadge();
+                    if (badge != null) {
+                        badge.setText("Buffering…");
+                        badge.setVisibility(View.VISIBLE);
                     }
                 }
                 @Override
@@ -1520,7 +1539,9 @@ public class ReelPlayerController {
     // ── ABR: Quality badge ────────────────────────────────────────────────────
 
     private void updateQualityBadge(int heightPx, long bwKbps) {
-        if (tvQualityBadge == null || !delegate.isAdded()) return;
+        if (!delegate.isAdded()) return;
+        TextView badge = getQualityBadge();
+        if (badge == null) return;
         String label;
         if (heightPx >= 1080)      label = "1080p";
         else if (heightPx >= 720)  label = "720p";
@@ -1533,8 +1554,8 @@ public class ReelPlayerController {
             ? String.format("%.1fM", bwKbps / 1000.0)
             : bwKbps + "K");
 
-        tvQualityBadge.setText(label);
-        tvQualityBadge.setVisibility(View.VISIBLE);
+        badge.setText(label);
+        badge.setVisibility(View.VISIBLE);
     }
 
     // ── ABR: Stall recovery — downgrade quality one step ─────────────────────
@@ -1653,9 +1674,10 @@ public class ReelPlayerController {
             AdaptiveStreamingManager.get(hlsCtx).applyQualityCap(player, cap);
             String label = AdaptiveStreamingManager.capLabel(cap)
                 + (badgeSuffix != null && !badgeSuffix.isEmpty() ? " " + badgeSuffix : "");
-            if (tvQualityBadge != null) {
-                tvQualityBadge.setText(label);
-                tvQualityBadge.setVisibility(android.view.View.VISIBLE);
+            TextView badge1 = getQualityBadge();
+            if (badge1 != null) {
+                badge1.setText(label);
+                badge1.setVisibility(android.view.View.VISIBLE);
             }
             return;
         }
@@ -1710,9 +1732,10 @@ public class ReelPlayerController {
 
         String label = AdaptiveStreamingManager.capLabel(cap)
             + (badgeSuffix != null && !badgeSuffix.isEmpty() ? " " + badgeSuffix : "");
-        if (tvQualityBadge != null) {
-            tvQualityBadge.setText(label);
-            tvQualityBadge.setVisibility(android.view.View.VISIBLE);
+        TextView badge2 = getQualityBadge();
+        if (badge2 != null) {
+            badge2.setText(label);
+            badge2.setVisibility(android.view.View.VISIBLE);
         }
     }
 
