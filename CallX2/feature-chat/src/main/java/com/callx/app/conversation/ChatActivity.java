@@ -309,6 +309,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     //       scroll every time the chat opened.
     // Used to decide whether to auto-scroll on new inserts.
     private boolean isUserAtBottom             = false;
+    // FLICKER FIX: true only while the user's FINGER is actually down on
+    // rvMessages (ACTION_DOWN..ACTION_UP/CANCEL). Needed to gate the
+    // fling-only hardware-layer toggle below — see that listener for why.
+    private boolean isUserTouchOnMessages      = false;
     // pendingNewMsgCount: count of messages from others that arrived while
     // user was scrolled up. Shown in the "↓ N new messages" indicator.
     private int     pendingNewMsgCount         = 0;
@@ -2231,11 +2235,47 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // paying the (larger) GPU memory cost of a hardware layer while idle.
         // This is the same technique WhatsApp/Telegram-style chat lists use to
         // keep fling buttery on mid-range devices.
+        //
+        // FLICKER/JUNK FIX: this used to switch to LAYER_TYPE_HARDWARE on ANY
+        // SCROLL_STATE_SETTLING, including the short programmatic
+        // smoothScrollBy() reveal fired from onItemRangeInserted() below when
+        // a new message arrives. THAT is the exact bug reported — "naya
+        // message aane pe purani bubbles upar shift hoti hain tab
+        // flicker/junk hota hai": stackFromEnd(true) repositions every
+        // already-visible bubble upward in the SAME insert pass that a new
+        // row is added, and switching the whole RecyclerView to a fresh GPU
+        // layer in that very frame forces Android to rebuild the layer while
+        // the content underneath is still changing — one stale/blank
+        // composited frame flashes through before the new layer catches up.
+        // A real user fling never has this problem because the content is
+        // static while dragging; only the insert-driven reveal does.
+        // Fix: only allow the HARDWARE layer while the user's finger is
+        // physically down on the list (isUserTouchOnMessages, tracked by the
+        // OnItemTouchListener right below). The short 1-2 row auto-reveal
+        // scroll is cheap enough on its own that it never needed the layer
+        // in the first place.
+        binding.rvMessages.addOnItemTouchListener(new RecyclerView.SimpleOnItemTouchListener() {
+            @Override public boolean onInterceptTouchEvent(@NonNull RecyclerView rv, @NonNull android.view.MotionEvent e) {
+                int action = e.getActionMasked();
+                if (action == android.view.MotionEvent.ACTION_DOWN) {
+                    isUserTouchOnMessages = true;
+                } else if (action == android.view.MotionEvent.ACTION_UP
+                        || action == android.view.MotionEvent.ACTION_CANCEL) {
+                    isUserTouchOnMessages = false;
+                }
+                return false; // never actually intercept — just observing
+            }
+        });
         binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
                 if (newState == RecyclerView.SCROLL_STATE_IDLE) {
                     rv.setLayerType(View.LAYER_TYPE_NONE, null);
-                } else if (rv.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+                } else if (isUserTouchOnMessages && rv.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+                    // Only a real finger-driven drag/fling earns the GPU layer.
+                    // A settle that's purely programmatic (new-message reveal,
+                    // or momentum continuing after finger-up) stays on
+                    // LAYER_TYPE_NONE to avoid the mid-content-change rebuild
+                    // flash described above.
                     rv.setLayerType(View.LAYER_TYPE_HARDWARE, null);
                 }
             }
