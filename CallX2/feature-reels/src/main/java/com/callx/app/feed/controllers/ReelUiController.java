@@ -188,17 +188,13 @@ public class ReelUiController {
                 TextView tvCollabName = fragmentView.findViewById(R.id.tv_collab_author_name);
 
                 java.util.List<String> avatarUrls = new java.util.ArrayList<>();
-                String firstName;
                 int totalCount;
 
                 if (!accepted.isEmpty()) {
                     for (com.callx.app.models.ReelModel.CollabCollaborator c : accepted) avatarUrls.add(c.avatarUrl);
-                    firstName  = accepted.get(0).displayName;
                     totalCount = accepted.size();
                 } else {
                     avatarUrls.add(reel.collabAvatarUrl);
-                    firstName  = reel.collabDisplayName != null && !reel.collabDisplayName.isEmpty()
-                        ? reel.collabDisplayName : reel.collabUid;
                     totalCount = 1;
                 }
 
@@ -220,12 +216,17 @@ public class ReelUiController {
                 }
 
                 if (tvCollabName != null) {
-                    if (totalCount <= 1) {
-                        tvCollabName.setText("@" + (firstName != null && !firstName.isEmpty() ? firstName : "user"));
-                    } else {
-                        int others = totalCount - 1;
-                        tvCollabName.setText("@" + firstName + " and " + others + (others == 1 ? " other" : " others"));
-                    }
+                    // 🎨 UI FIX: Instagram always anchors this line on the REEL
+                    // OWNER's name — "@ownerName and N other(s)" — not on the
+                    // collaborator's own name, and shows "and N other(s)" even
+                    // when N=1 (never just a bare name). Previously this used
+                    // the first collaborator's name and only added "and N
+                    // others" once totalCount was 2+, so with a single
+                    // collaborator it silently dropped the "and 1 other" part.
+                    String ownerName = reel.ownerName != null && !reel.ownerName.isEmpty()
+                        ? reel.ownerName : "user";
+                    tvCollabName.setText("@" + ownerName + " and " + totalCount
+                        + (totalCount == 1 ? " other" : " others"));
                 }
 
                 llCollabAuthors.setOnClickListener(v -> {
