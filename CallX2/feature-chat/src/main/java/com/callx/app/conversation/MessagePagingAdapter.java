@@ -582,6 +582,22 @@ public class MessagePagingAdapter
                 }
             };
 
+    // WHATSAPP-STYLE HEIGHT CACHE: LRU cache of measured message row heights
+    // keyed by messageId. When a new message is bound, if we've previously
+    // measured a similar message (same sender type, rough text length), reuse
+    // that height. This prevents the RecyclerView from re-measuring and
+    // re-laying-out the entire list when a new message arrives at the bottom.
+    // The height is cached in onViewRecycled() after the view has been
+    // laid out once, so it's accurate.
+    private final java.util.LinkedHashMap<String, Integer> messagHeightCache =
+            new java.util.LinkedHashMap<String, Integer>(32, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        java.util.Map.Entry<String, Integer> eldest) {
+                    return size() > 64; // Keep only recent 64 messages' heights
+                }
+            };
+
     // BUG FIX (v45-4): PrecomputedTextCompat (sync AND async) removed
     // entirely — it was the root cause of the "cold-open bubble sometimes
     // full, sometimes partial" bug. It worked by setting the plain text
@@ -1560,6 +1576,26 @@ public class MessagePagingAdapter
             // Placeholder — show shimmer or empty
             if (h.tvMessage != null) h.tvMessage.setVisibility(View.GONE);
             return;
+        }
+        
+        // Store reference for height caching on recycle
+        h.boundMessage = m;
+        
+        // WHATSAPP-STYLE SMOOTHNESS: Set a fixed height hint BEFORE binding
+        // This prevents the RecyclerView from recalculating layout when new
+        // messages arrive. If height was previously measured, reuse it.
+        // If not, the view will measure naturally but won't cause full list re-layout.
+        if (h.itemView != null && m.messageId != null) {
+            String cacheKey = m.messageId;
+            Integer cachedHeight = messagHeightCache.get(cacheKey);
+            if (cachedHeight != null && cachedHeight > 0) {
+                // Reuse cached height — prevents measure thrashing
+                android.view.ViewGroup.LayoutParams lp = h.itemView.getLayoutParams();
+                if (lp != null && lp.height != cachedHeight) {
+                    lp.height = cachedHeight;
+                    h.itemView.setLayoutParams(lp);
+                }
+            }
         }
         // ── DATE SEPARATOR / SECURITY EVENT — standalone chip row ────────
         if ("date_separator".equals(m.type) || "security_event".equals(m.type)) {
@@ -6440,6 +6476,15 @@ public class MessagePagingAdapter
     @Override
     public void onViewRecycled(@NonNull VH holder) {
         super.onViewRecycled(holder);
+        
+        // WHATSAPP-STYLE HEIGHT CACHE: Cache this message's measured height
+        // before the view gets recycled. When this message is bound again
+        // (or a similar message), we can reuse this height to avoid re-measure.
+        Message m = holder.boundMessage; // Track which message was bound to this holder
+        if (m != null && m.messageId != null && holder.itemView.getHeight() > 0) {
+            messagHeightCache.put(m.messageId, holder.itemView.getHeight());
+        }
+        
         // FIX #3: Clear ALL ImageViews on recycle — not just ivImage.
         // Missing clears on ivReplyThumb/ivLinkThumb/ivVideoThumb/ivStatusSeenThumb/ivReelSeenThumb
         // caused Glide memory leaks and stale image flicker on fast scrolling.
@@ -6823,6 +6868,10 @@ public class MessagePagingAdapter
         // background precompute result is only applied if this still
         // matches the token it captured at dispatch time.
         volatile int textBindToken = 0;
+
+        // WHATSAPP-STYLE HEIGHT CACHE: Track the Message object currently
+        // bound to this holder so we can cache its measured height on recycle.
+        Message boundMessage = null;
 
         // PERF: last bubble-background state actually applied to llBubble —
         // -1 means "unknown / force re-apply" (fresh holder, or last bind

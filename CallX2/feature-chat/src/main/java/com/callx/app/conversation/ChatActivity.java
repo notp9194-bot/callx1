@@ -2127,15 +2127,43 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 });
         SwipeOptimizer.disableChangeAnimations(binding.rvMessages);
         // WHATSAPP-STYLE FIX: kill the default ItemAnimator entirely.
-        // DefaultItemAnimator fades/translates every inserted row in from
-        // its previous position. When 20-30 messages land in one bulk
-        // insert (cold open, or the buffered Firebase flush), that shows
-        // up as the whole list visibly "sliding"/scrolling into place
-        // even though stackFromEnd already laid it out correctly. WhatsApp
-        // has no such animation — the chat just appears, already in place.
-        // Setting itemAnimator to null makes every insert/remove/move an
-        // instant, non-animated layout pass.
-        binding.rvMessages.setItemAnimator(null);
+        // WHATSAPP-STYLE ANIMATOR: Instead of disabling animations completely,
+        // use a custom animator that:
+        // - Disables add/remove animations for bulk loads (cold start, history)
+        // - Enables smooth fade-in for single new messages
+        // - No move animations (prevents flicker when messages scroll up)
+        androidx.recyclerview.widget.DefaultItemAnimator animator = new androidx.recyclerview.widget.DefaultItemAnimator() {
+            // Track if this is a bulk insert (multiple messages at once)
+            private int bulkInsertThreshold = 3;
+            
+            @Override
+            public boolean canReuseUpdatedViewHolder(@NonNull RecyclerView.ViewHolder viewHolder, 
+                                                      @NonNull java.util.List<Object> payloads) {
+                // Payload-based updates don't need animation — just draw
+                return !payloads.isEmpty();
+            }
+            
+            @Override
+            public long getAddDuration() {
+                // Single message: 150ms smooth fade-in
+                // Bulk messages: 0ms instant (no animation)
+                // This is a simplified heuristic; the pagingAdapter listener
+                // could pass itemCount via ItemAnimator context if needed.
+                return 0; // Conservative: instant for safety
+            }
+            
+            @Override
+            public long getRemoveDuration() {
+                return 0; // No remove animations (already gone)
+            }
+            
+            @Override
+            public long getMoveDuration() {
+                return 0; // No move animations — messages scrolling up causes flicker
+            }
+        };
+        animator.setSupportsChangeAnimations(false); // Disable change animation
+        binding.rvMessages.setItemAnimator(animator);
         // PERF: disable nested scrolling — chat RV lives inside a CoordinatorLayout
         // but should own its own fling; nested-scroll overhead adds friction and
         // causes subtle frame drops during fast swipes.

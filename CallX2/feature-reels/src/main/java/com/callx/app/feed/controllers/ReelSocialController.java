@@ -751,88 +751,179 @@ public class ReelSocialController {
                 for (DataSnapshot child : snapshot.getChildren()) likerUids.add(child.getKey());
                 java.util.Collections.reverse(likerUids);
 
-                // DIFF CHECK: skip re-fetching/re-animating if the top-3 set
-                // (and order) is unchanged from last time — e.g. a like/unlike
-                // elsewhere caused likesCount to change without this window
-                // actually reordering, or this listener re-attached on resume.
-                boolean sameAsBefore = likerUids.size() == 3
-                    && likerUids.get(0).equals(likerUidCache[0])
-                    && likerUids.get(1).equals(likerUidCache[1])
-                    && likerUids.get(2).equals(likerUidCache[2]);
-                if (sameAsBefore) {
-                    if (llLikersAvatarRow != null) llLikersAvatarRow.setVisibility(View.VISIBLE);
+                // INSTAGRAM APPROACH: Filter to show only mutual followers
+                // (likers who follow the current user AND are followed by the current user)
+                String myUid = FirebaseUtils.getCurrentUid();
+                if (myUid == null || myUid.isEmpty()) {
+                    if (llLikersAvatarRow != null) llLikersAvatarRow.setVisibility(View.GONE);
                     return;
                 }
 
-                if (llLikersAvatarRow != null) llLikersAvatarRow.setVisibility(View.VISIBLE);
-
-                CircleImageView[] avatarViews = {ivLiker1, ivLiker2, ivLiker3};
-                for (CircleImageView av : avatarViews) if (av != null) av.setVisibility(View.GONE);
-
-                likerUidCache = new String[3];
-                for (int i = 0; i < likerUids.size(); i++) likerUidCache[i] = likerUids.get(i);
-
-                // RACE FIX: bump generation for this fresh batch. Each async
-                // per-user fetch below captures `myGeneration` and re-checks
-                // it before touching a view or counting toward completion —
-                // a slow/late response from a superseded batch (rapid
-                // like/unlike, or fragment rebind) is dropped instead of
-                // clobbering a newer avatar.
-                final int myGeneration = ++fetchGeneration;
-                loadedCount.set(0);
-                final int expectedCount = likerUids.size();
-
-                for (int i = 0; i < likerUids.size(); i++) {
-                    final CircleImageView targetView = avatarViews[i];
-                    if (targetView == null) continue;
-                    FirebaseUtils.getUserRef(likerUids.get(i)).child("thumbUrl")
-                        .get().addOnSuccessListener(ds -> {
-                            if (myGeneration != fetchGeneration) return; // superseded — drop
-                            if (!delegate.isAdded() || delegate.getContext() == null) return;
-                            targetView.setVisibility(View.VISIBLE);
-                            String url = ds.getValue(String.class);
-                            if (url != null && !url.isEmpty()) {
-                                Glide.with(delegate.requireContext())
-                                    .load(url)
-                                    .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
-                                    .placeholder(R.drawable.ic_person).error(R.drawable.ic_person)
-                                    .override(96, 96)
-                                    .into(targetView);
-                            } else {
-                                targetView.setImageResource(R.drawable.ic_person);
-                            }
-                            // AtomicInteger completion tally (not index-based
-                            // "isLast") — fires once all of THIS batch's
-                            // avatars are actually done, whichever order the
-                            // network calls land in. A batch superseded
-                            // mid-flight never reaches expectedCount, so it
-                            // can never fire the animation late.
-                            if (loadedCount.incrementAndGet() >= expectedCount) {
-                                startLikerFloatAnimations();
-                            }
-                        })
-                        .addOnFailureListener(e -> {
-                            if (myGeneration != fetchGeneration) return;
-                            if (!delegate.isAdded() || delegate.getContext() == null) return;
-                            targetView.setVisibility(View.VISIBLE);
-                            targetView.setImageResource(R.drawable.ic_person);
-                            if (loadedCount.incrementAndGet() >= expectedCount) {
-                                startLikerFloatAnimations();
-                            }
-                        });
-                }
-                if (tvHeart1 != null) tvHeart1.setVisibility(likerUids.size() >= 1 ? View.VISIBLE : View.GONE);
-                if (tvHeart2 != null) tvHeart2.setVisibility(likerUids.size() >= 2 ? View.VISIBLE : View.GONE);
-                if (tvHeart3 != null) tvHeart3.setVisibility(likerUids.size() >= 3 ? View.VISIBLE : View.GONE);
-                View[] flViews = {flLiker1, flLiker2, flLiker3};
-                for (int i = 0; i < flViews.length; i++) {
-                    final int idx = i;
-                    if (flViews[i] != null) flViews[i].setOnClickListener(v -> openLikerProfile(idx));
-                }
+                final String currentUid = myUid;
+                filterLikersForMutualFollowers(likerUids, currentUid);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         likersQuery.addValueEventListener(likersListener);
+    }
+
+    /**
+     * Instagram-style filtering: For each potential liker, check if they are mutual followers.
+     * A mutual follower is someone who:
+     * 1. Follows the current user (exists in user_followers/{likerUid}/{currentUid})
+     * 2. Is followed by the current user (exists in user_followers/{currentUid}/{likerUid})
+     *
+     * Filters and displays top 3 mutual followers, or fewer if less than 3 are found.
+     */
+    private void filterLikersForMutualFollowers(List<String> likerUids, String currentUid) {
+        if (likerUids.isEmpty()) {
+            if (llLikersAvatarRow != null) llLikersAvatarRow.setVisibility(View.GONE);
+            likerUidCache = new String[3];
+            return;
+        }
+
+        final List<String> mutualFollowersList = new ArrayList<>();
+        final int[] checkCount = {0};
+        final int totalToCheck = likerUids.size();
+
+        for (String likerUid : likerUids) {
+            checkMutualFollowerStatus(likerUid, currentUid, isMutual -> {
+                checkCount[0]++;
+                if (isMutual) {
+                    mutualFollowersList.add(likerUid);
+                }
+                // Once all checks complete, display the results
+                if (checkCount[0] == totalToCheck) {
+                    displayMutualFollowerAvatars(mutualFollowersList);
+                }
+            });
+        }
+    }
+
+    /**
+     * Checks if a liker is a mutual follower of the current user.
+     * Calls the callback with true if mutual, false otherwise.
+     */
+    private void checkMutualFollowerStatus(String likerUid, String currentUid, 
+                                          java.util.function.Consumer<Boolean> callback) {
+        if (!delegate.isAdded() || delegate.getContext() == null) {
+            callback.accept(false);
+            return;
+        }
+
+        DatabaseReference userFollowersRef = FirebaseDatabase.getInstance()
+            .getReference("user_followers");
+        
+        // Check if liker follows current user
+        userFollowersRef.child(likerUid).child(currentUid).get()
+            .addOnSuccessListener(ds1 -> {
+                if (!delegate.isAdded() || delegate.getContext() == null) {
+                    callback.accept(false);
+                    return;
+                }
+                
+                boolean likerFollowsMe = ds1.exists();
+                if (!likerFollowsMe) {
+                    callback.accept(false);
+                    return;
+                }
+
+                // Check if current user follows the liker
+                userFollowersRef.child(currentUid).child(likerUid).get()
+                    .addOnSuccessListener(ds2 -> {
+                        if (!delegate.isAdded() || delegate.getContext() == null) {
+                            callback.accept(false);
+                            return;
+                        }
+                        boolean iFollowLiker = ds2.exists();
+                        callback.accept(iFollowLiker);
+                    })
+                    .addOnFailureListener(e -> callback.accept(false));
+            })
+            .addOnFailureListener(e -> callback.accept(false));
+    }
+
+    /**
+     * Display the mutual follower avatars (Instagram style).
+     * Shows up to 3 mutual followers with floating animation.
+     */
+    private void displayMutualFollowerAvatars(List<String> mutualFollowers) {
+        if (!delegate.isAdded() || delegate.getContext() == null) return;
+
+        if (mutualFollowers.isEmpty()) {
+            if (llLikersAvatarRow != null) llLikersAvatarRow.setVisibility(View.GONE);
+            likerUidCache = new String[3];
+            return;
+        }
+
+        // Take only top 3 mutual followers
+        List<String> topMutual = mutualFollowers.subList(0, Math.min(3, mutualFollowers.size()));
+
+        // DIFF CHECK: skip re-fetching/re-animating if the top-3 set
+        // (and order) is unchanged from last time
+        boolean sameAsBefore = topMutual.size() == 3
+            && topMutual.get(0).equals(likerUidCache[0])
+            && topMutual.get(1).equals(likerUidCache[1])
+            && topMutual.get(2).equals(likerUidCache[2]);
+        if (sameAsBefore && llLikersAvatarRow != null) {
+            llLikersAvatarRow.setVisibility(View.VISIBLE);
+            return;
+        }
+
+        if (llLikersAvatarRow != null) llLikersAvatarRow.setVisibility(View.VISIBLE);
+
+        CircleImageView[] avatarViews = {ivLiker1, ivLiker2, ivLiker3};
+        for (CircleImageView av : avatarViews) if (av != null) av.setVisibility(View.GONE);
+
+        likerUidCache = new String[3];
+        for (int i = 0; i < topMutual.size(); i++) likerUidCache[i] = topMutual.get(i);
+
+        // RACE FIX: bump generation for this fresh batch
+        final int myGeneration = ++fetchGeneration;
+        loadedCount.set(0);
+        final int expectedCount = topMutual.size();
+
+        for (int i = 0; i < topMutual.size(); i++) {
+            final CircleImageView targetView = avatarViews[i];
+            if (targetView == null) continue;
+            FirebaseUtils.getUserRef(topMutual.get(i)).child("thumbUrl")
+                .get().addOnSuccessListener(ds -> {
+                    if (myGeneration != fetchGeneration) return; // superseded — drop
+                    if (!delegate.isAdded() || delegate.getContext() == null) return;
+                    targetView.setVisibility(View.VISIBLE);
+                    String url = ds.getValue(String.class);
+                    if (url != null && !url.isEmpty()) {
+                        Glide.with(delegate.requireContext())
+                            .load(url)
+                            .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
+                            .placeholder(R.drawable.ic_person).error(R.drawable.ic_person)
+                            .override(96, 96)
+                            .into(targetView);
+                    } else {
+                        targetView.setImageResource(R.drawable.ic_person);
+                    }
+                    if (loadedCount.incrementAndGet() >= expectedCount) {
+                        startLikerFloatAnimations();
+                    }
+                })
+                .addOnFailureListener(e -> {
+                    if (myGeneration != fetchGeneration) return;
+                    if (!delegate.isAdded() || delegate.getContext() == null) return;
+                    targetView.setVisibility(View.VISIBLE);
+                    targetView.setImageResource(R.drawable.ic_person);
+                    if (loadedCount.incrementAndGet() >= expectedCount) {
+                        startLikerFloatAnimations();
+                    }
+                });
+        }
+        if (tvHeart1 != null) tvHeart1.setVisibility(topMutual.size() >= 1 ? View.VISIBLE : View.GONE);
+        if (tvHeart2 != null) tvHeart2.setVisibility(topMutual.size() >= 2 ? View.VISIBLE : View.GONE);
+        if (tvHeart3 != null) tvHeart3.setVisibility(topMutual.size() >= 3 ? View.VISIBLE : View.GONE);
+        View[] flViews = {flLiker1, flLiker2, flLiker3};
+        for (int i = 0; i < flViews.length; i++) {
+            final int idx = i;
+            if (flViews[i] != null) flViews[i].setOnClickListener(v -> openLikerProfile(idx));
+        }
     }
 
     private void startLikerFloatAnimations() {
