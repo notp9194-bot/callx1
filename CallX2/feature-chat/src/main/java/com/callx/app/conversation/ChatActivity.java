@@ -739,7 +739,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // in the background and never touches the UI thread.
         safeIoExecute(() -> {
             if (db == null) return;
-            java.util.List<MessageEntity> entities = db.messageDao().getLastMessagesAsc(chatId, 20);
+            // FLICKER FIX: this used to hardcode 20, while the real Paging3
+            // pipeline's first page loads INITIAL_LOAD (25) messages (see
+            // attachPagerWithKey). That 5-message mismatch meant the real
+            // data, landing a moment after the warm-cache seed, always had
+            // to INSERT 5 more rows (plus possibly a shifted/extra date
+            // separator) on top of what was already rendered — a second,
+            // visible "list building" pass on every single chat open, on
+            // top of whatever new messages had actually arrived. Matching
+            // the seed size to INITIAL_LOAD means the cached seed and the
+            // real first page are the same window, so the DiffUtil
+            // reconciliation is a true no-op in the common case — exactly
+            // one render pass instead of two.
+            java.util.List<MessageEntity> entities = db.messageDao().getLastMessagesAsc(chatId, INITIAL_LOAD);
             java.util.List<Message> models = new java.util.ArrayList<>(entities.size());
             for (MessageEntity e : entities) models.add(entityToModel(e));
             LastMessagesCache.getInstance().seed(chatId, models);
@@ -1097,24 +1109,33 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     @Override
     protected void onSaveInstanceState(@androidx.annotation.NonNull android.os.Bundle outState) {
-        // CRASH FIX: TransactionTooLargeException (RecyclerView state 728KB)
-        // When ChatActivity is destroyed/rotated, the default state-save tries to 
-        // persist the entire RecyclerView view hierarchy + 1000+ messages, pushing
-        // the binder transaction over 1MB limit and crashing with "data parcel size
-        // 831652 bytes". Chat scroll position is managed programmatically anyway
-        // (via restoreScrollOrGoToUnread()), so we don't need automatic state save.
-        // Instead: Clear the adapter BEFORE calling super, preventing the massive
-        // message list from entering the saved state bundle at all.
-        if (pagingAdapter != null) {
-            pagingAdapter.submitData(getLifecycle(), PagingData.empty()); // Clear all items from view
-        }
-        
-        // Now call super with the emptied adapter — the bundle will be small
+        // BUG FIX (BLANK-SCREEN-ON-RETURN): onSaveInstanceState() fires any
+        // time another Activity is about to come on top of this one — e.g.
+        // opening the image picker, a profile screen, or ANY screen pushed
+        // from the chat — NOT only when this Activity is actually being
+        // destroyed. The old code below called
+        // pagingAdapter.submitData(getLifecycle(), PagingData.empty()) here
+        // to dodge a TransactionTooLargeException, which wipes out the
+        // LIVE, ON-SCREEN adapter data (not a copy) every single time that
+        // happens. Since the real Room/Firebase Pager only emits a fresh
+        // PagingData on invalidation — not just because the differ was
+        // cleared — nothing ever re-populated the adapter afterwards, so
+        // returning from any screen you navigated to left the chat
+        // permanently blank. This is exactly the reported bug.
+        //
+        // The TransactionTooLargeException this was guarding against is
+        // already prevented correctly and much more cheaply by
+        // binding.rvMessages.setSaveEnabled(false) (see
+        // setupPagingRecyclerView()) — that alone stops the RecyclerView's
+        // own view-hierarchy state (the actual 700KB+ payload) from ever
+        // entering the saved-state bundle, with zero effect on what's
+        // currently visible on screen. So the empty-submit here was both
+        // redundant AND the root cause of the blank-screen bug — removed.
         try {
             super.onSaveInstanceState(outState);
         } catch (Exception e) {
             // Belt-and-suspenders: if something still tried to save a huge
-            // state, log it but don't crash. The chat will reload fresh on restore.
+            // state, log it but don't crash.
             android.util.Log.e("ChatActivity", "onSaveInstanceState size issue: " + e.getMessage());
         }
     }
