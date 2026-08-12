@@ -123,6 +123,33 @@ public class ReelsFragment extends Fragment {
      */
     private boolean isTabActive = false;
 
+    // PERF: overdraw fix. Reels is a full-bleed opaque player (root
+    // FrameLayout bg #000000 + PlayerView cover 100% of the screen), so the
+    // Activity's theme windowBackground drawn underneath is pure overdraw
+    // every frame while Reels is the active tab. We null it out only while
+    // Reels is active and restore the original on tab-away, since
+    // MainActivity also hosts non-full-bleed tabs (Chats/Status/Groups/
+    // Calls) that DO need their window background.
+    private android.graphics.drawable.Drawable savedWindowBackground = null;
+    private boolean windowBackgroundSaved = false;
+
+    private void setReelsWindowBackgroundOverdrawFix(boolean active) {
+        if (getActivity() == null) return;
+        android.view.Window window = getActivity().getWindow();
+        if (active) {
+            if (!windowBackgroundSaved) {
+                // Capture the real theme windowBackground once, before we
+                // ever null it, so tab-away can restore the exact original
+                // instead of guessing.
+                savedWindowBackground = window.getDecorView().getBackground();
+                windowBackgroundSaved = true;
+            }
+            window.setBackgroundDrawable(null);
+        } else if (windowBackgroundSaved) {
+            window.setBackgroundDrawable(savedWindowBackground);
+        }
+    }
+
     private boolean isFypMode = true;
 
     private final List<ReelModel> allReels       = new ArrayList<>();
@@ -1143,6 +1170,7 @@ public class ReelsFragment extends Fragment {
      */
     public void onTabResumed() {
         isTabActive = true;
+        setReelsWindowBackgroundOverdrawFix(true); // PERF: kill window bg overdraw while Reels is on screen
 
         // Pehli baar tab khula — ab fetch karo (lazy load trigger)
         if (allReels.isEmpty()) {
@@ -1164,6 +1192,7 @@ public class ReelsFragment extends Fragment {
      */
     public void onTabPaused() {
         isTabActive = false;
+        setReelsWindowBackgroundOverdrawFix(false); // restore window bg for the other (non full-bleed) tabs
         pauseAllReels();
     }
 
@@ -1182,6 +1211,7 @@ public class ReelsFragment extends Fragment {
     @OptIn(markerClass = UnstableApi.class)
     public void onTabPausedForChat(PlayerReadyForDockCallback onPlayerReady) {
         isTabActive = false;
+        setReelsWindowBackgroundOverdrawFix(false); // restore window bg for the other (non full-bleed) tabs
 
         if (vpReels == null || adapter == null || adapter.getItemCount() == 0) {
             pauseAllReels();

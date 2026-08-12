@@ -40,7 +40,7 @@ import java.util.List;
  *  ✅ Trending sort — most liked/viewed reels pehle
  *  ✅ Real-time Firebase listener
  *  ✅ Empty state agar koi reel nahi
- *  ✅ offscreenPageLimit=2 for smooth scrolling
+ *  ✅ offscreenPageLimit=1 + ReelVideoPreloader byte-preload for smooth scrolling
  */
 public class HashtagReelsActivity extends AppCompatActivity {
 
@@ -55,6 +55,10 @@ public class HashtagReelsActivity extends AppCompatActivity {
     private String hashtag;
     private final List<ReelModel>  allReels = new ArrayList<>();
     private ValueEventListener     reelsListener;
+    // PERF: same reasoning as SingleReelPlayerActivity — offscreenPageLimit
+    // dropped 2→1, this preloader keeps next-reel byte-preload working
+    // without keeping full Fragment/View trees alive.
+    private com.callx.app.cache.ReelVideoPreloader videoPreloader;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -76,7 +80,11 @@ public class HashtagReelsActivity extends AppCompatActivity {
 
         adapter = new ReelsAdapter(this);
         vpReels.setAdapter(adapter);
-        vpReels.setOffscreenPageLimit(2);
+        // PERF: 2 → 1 — see ReelsFragment/SingleReelPlayerActivity for the
+        // same fix; ReelVideoPreloader below replaces the byte-preload
+        // side effect offscreenPageLimit=2 used to give for free.
+        vpReels.setOffscreenPageLimit(1);
+        videoPreloader = new com.callx.app.cache.ReelVideoPreloader(this);
 
         vpReels.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
             @Override
@@ -156,6 +164,7 @@ public class HashtagReelsActivity extends AppCompatActivity {
                 ((ReelPlayerFragment) f).setUserVisibleHint(i == activePos);
             }
         }
+        if (videoPreloader != null) videoPreloader.preloadFrom(allReels, activePos);
     }
 
     private void showEmpty(boolean show) {
@@ -197,6 +206,7 @@ public class HashtagReelsActivity extends AppCompatActivity {
     protected void onDestroy() {
         if (reelsListener != null)
             FirebaseUtils.getReelsRef().removeEventListener(reelsListener);
+        if (videoPreloader != null) videoPreloader.cancelAll();
         super.onDestroy();
     }
 }

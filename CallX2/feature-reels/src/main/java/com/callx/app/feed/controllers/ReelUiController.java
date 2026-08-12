@@ -21,6 +21,7 @@ import androidx.core.view.WindowInsetsCompat;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.bumptech.glide.load.DecodeFormat;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.callx.app.explore.HashtagReelsActivity;
 import com.callx.app.models.ReelModel;
 import com.callx.app.reels.R;
@@ -236,6 +237,7 @@ public class ReelUiController {
                                 .apply(new RequestOptions().circleCrop()
                                     .override(stackSizePx, stackSizePx)
                                     .format(DecodeFormat.PREFER_RGB_565)
+                                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE) // PERF: cache resized collab avatar on disk
                                     .placeholder(R.drawable.ic_person))
                                 .into(stackViews[i]);
                         } else {
@@ -403,6 +405,9 @@ public class ReelUiController {
                     .apply(new RequestOptions().centerCrop()
                         .override(sizePx, sizePx)
                         .format(DecodeFormat.PREFER_RGB_565) // opaque tile, no alpha needed — half the decode memory
+                        // PERF: cache the final resized+cropped bitmap to disk (RESOURCE),
+                        // not the original — re-scroll/re-bind never re-decodes or re-downloads.
+                        .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
                         .placeholder(R.drawable.ic_audio))
                     .into(btnCreateAudio);
             } else {
@@ -429,6 +434,7 @@ public class ReelUiController {
                     .apply(new RequestOptions().circleCrop()
                         .override(discSizePx, discSizePx)
                         .format(DecodeFormat.PREFER_RGB_565) // opaque disc art, no alpha needed
+                        .diskCacheStrategy(DiskCacheStrategy.RESOURCE) // PERF: cache resized variant on disk
                         .placeholder(R.drawable.ic_music_note))
                     .into(ivMusicDisc);
             } else {
@@ -453,6 +459,7 @@ public class ReelUiController {
                         .circleCrop()
                         .override(sizePx, sizePx)
                         .format(DecodeFormat.PREFER_RGB_565) // opaque avatar, no alpha needed
+                        .diskCacheStrategy(DiskCacheStrategy.RESOURCE) // PERF: cache resized variant on disk — re-scroll won't re-download
                         .placeholder(R.drawable.ic_person))
                     .into(ivOwnerAvatar);
             } else {
@@ -897,6 +904,7 @@ public class ReelUiController {
                 .apply(new RequestOptions().centerCrop()
                     .override(sizePx, sizePx)
                     .format(DecodeFormat.PREFER_RGB_565)
+                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
                     .placeholder(R.drawable.ic_audio))
                 .into(btnCreateAudio);
         }
@@ -906,6 +914,7 @@ public class ReelUiController {
                 .apply(new RequestOptions().circleCrop()
                     .override(discSizePx, discSizePx)
                     .format(DecodeFormat.PREFER_RGB_565)
+                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
                     .placeholder(R.drawable.ic_music_note))
                 .into(ivMusicDisc);
         }
@@ -916,16 +925,35 @@ public class ReelUiController {
     public void startDiscAnimation() {
         if (ivMusicDisc == null) return;
         if (discAnimator != null) { discAnimator.cancel(); discAnimator = null; }
+        // PERF: this is an infinite rotation running for as long as the reel
+        // is on screen — was being redrawn via the CPU/software-render path
+        // every frame. HARDWARE layer caches the view as a GPU texture and
+        // just rotates that texture, so the rotation itself costs ~nothing
+        // per frame instead of a full re-draw + re-rasterize each tick.
+        ivMusicDisc.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         discAnimator = ObjectAnimator.ofFloat(ivMusicDisc, "rotation", 0f, 360f);
         discAnimator.setDuration(3000);
         discAnimator.setRepeatCount(ObjectAnimator.INFINITE);
         discAnimator.setRepeatMode(ObjectAnimator.RESTART);
         discAnimator.setInterpolator(new android.view.animation.LinearInterpolator());
+        discAnimator.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator animation) {
+                revertDiscLayerType();
+            }
+            @Override public void onAnimationCancel(android.animation.Animator animation) {
+                revertDiscLayerType();
+            }
+        });
         discAnimator.start();
     }
 
     public void stopDiscAnimation() {
         if (discAnimator != null) discAnimator.pause();
+    }
+
+    /** Drops the disc ImageView back to the default (NONE) layer type once rotation stops/cancels — a hardware layer left on an idle view just wastes GPU texture memory for no benefit. */
+    private void revertDiscLayerType() {
+        if (ivMusicDisc != null) ivMusicDisc.setLayerType(View.LAYER_TYPE_NONE, null);
     }
 
     // ── Cinema Mode ───────────────────────────────────────────────────────
@@ -1044,7 +1072,7 @@ public class ReelUiController {
         singleTapHandler.removeCallbacksAndMessages(null);
         pendingSingleTap = null;
         pausedByLongPress = false;
-        if (discAnimator != null) { discAnimator.cancel(); discAnimator = null; }
+        if (discAnimator != null) { discAnimator.cancel(); discAnimator = null; } // triggers onAnimationCancel -> revertDiscLayerType()
     }
 
 }

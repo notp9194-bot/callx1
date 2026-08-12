@@ -75,6 +75,7 @@ public final class ReelThumbBitmapCache {
         options = new RequestOptions()
             .diskCacheStrategy(DiskCacheStrategy.ALL)
             .transform(new CenterCrop())
+            .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565) // PERF: opaque video-frame thumbnail, no alpha needed — halves decode memory
             .override(TARGET_W, TARGET_H);
     }
 

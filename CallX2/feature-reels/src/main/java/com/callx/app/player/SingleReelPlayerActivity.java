@@ -62,7 +62,7 @@ import java.util.List;
  *  ✅ Full-screen vertical ViewPager2 — bilkul ReelsFragment jaisa
  *  ✅ Starting position pe seedha jump karta hai
  *  ✅ Back button
- *  ✅ offscreenPageLimit=2
+ *  ✅ offscreenPageLimit=1 + ReelVideoPreloader byte-preload (same as ReelsFragment)
  *  ✅ NEW: "Use in Camera / Use in Video" pill — sirf tab dikhta hai jab yeh
  *     screen SoundDetailActivity ke reel-grid se khuli ho (Instagram jaisa
  *     "Use audio" bar), profile grid / saved / chat-bubble se nahi.
@@ -84,6 +84,13 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
     private ViewPager2   vpReels;
     private ReelsAdapter adapter;
     private ProgressBar  progressBar;
+    // PERF: same pattern as ReelsFragment — offscreenPageLimit=1 keeps only
+    // the current + next Fragment/View tree alive, but that alone would
+    // silently lose the "next reel starts instantly" preload ExoPlayer used
+    // to get for free from a kept-alive N+2 fragment. This preloader
+    // byte-range-fetches the next videos into the shared cache instead, so
+    // playback still starts instantly without keeping full Fragment trees around.
+    private com.callx.app.cache.ReelVideoPreloader videoPreloader;
 
     private final List<ReelModel> reels = new ArrayList<>();
     private ValueEventListener    reelsListener;
@@ -108,6 +115,14 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // PERF: overdraw fix — the decor window has an opaque default
+        // background (theme windowBackground) that GPU still draws behind
+        // the entire PlayerView/photo hierarchy every frame, even though
+        // it's never visible (root FrameLayout + PlayerView already cover
+        // 100% of the screen). Killing it removes one full-screen overdraw
+        // layer for free. Safe here since our own views paint the whole
+        // window (root background is #000000, see fragment_reel_player.xml).
+        getWindow().setBackgroundDrawable(null);
         setContentView(R.layout.activity_single_reel_player);
 
         vpReels     = findViewById(R.id.vp_reels);
@@ -130,7 +145,14 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
 
         adapter = new ReelsAdapter(this);
         vpReels.setAdapter(adapter);
-        vpReels.setOffscreenPageLimit(2);
+        // PERF: 2 → 1. offscreenPageLimit=2 kept 2 full next Fragment+View
+        // trees (PlayerView, ExoPlayer, all the click listeners/Glide
+        // targets) alive at all times just for this grid/single-reel
+        // viewer — same fix already applied in ReelsFragment (main feed).
+        // ReelVideoPreloader below replaces the byte-preload side effect
+        // that offscreenPageLimit=2 used to give for free.
+        vpReels.setOffscreenPageLimit(1);
+        videoPreloader = new com.callx.app.cache.ReelVideoPreloader(this);
 
         vpReels.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
             @Override
@@ -250,6 +272,10 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
                 ((ReelPlayerFragment) f).setUserVisibleHint(i == activePos);
             }
         }
+        // PERF: kicks off byte-range preload of the next reels (see field
+        // comment) — replaces the preload effect lost when offscreenPageLimit
+        // dropped from 2 to 1.
+        if (videoPreloader != null) videoPreloader.preloadFrom(reels, activePos);
     }
 
     /** Called by ReelPlayerFragment when video ends */
@@ -280,6 +306,7 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         if (reelsListener != null) FirebaseUtils.getReelsRef().removeEventListener(reelsListener);
+        if (videoPreloader != null) videoPreloader.cancelAll(); // stop in-flight next-reel preloads
         super.onDestroy();
     }
 

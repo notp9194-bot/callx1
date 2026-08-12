@@ -220,12 +220,20 @@ public class ReelPhotoSlideshowAdapter
         }
 
         // ── Load foreground photo with fitCenter so it is NEVER cropped ──────────
+        // PERF: was Target.SIZE_ORIGINAL — decodes the photo at its full
+        // uploaded resolution no matter what, even for a screen that's a
+        // fraction of that size. Bounded to screen-size × the reel's own
+        // max pinch-zoom factor instead: same sharpness at max zoom as
+        // before, but no more unbounded decode for photos larger than that
+        // (rare, but a single 4000×3000 gallery import used to blow well
+        // past what any zoom level on this screen could ever show).
+        int[] photoDecodeSize = boundedPhotoDecodeSize(h.ivPhoto.getContext());
         Glide.with(h.ivPhoto.getContext())
                 .load(url)
                 .apply(new RequestOptions()
                         .diskCacheStrategy(DiskCacheStrategy.ALL)
                         .fitCenter()
-                        .override(Target.SIZE_ORIGINAL))
+                        .override(photoDecodeSize[0], photoDecodeSize[1]))
                 .placeholder(android.R.color.transparent)
                 .listener(new RequestListener<android.graphics.drawable.Drawable>() {
                     @Override public boolean onLoadFailed(GlideException e, Object model,
@@ -1355,15 +1363,45 @@ public class ReelPhotoSlideshowAdapter
     // ── Glide preload ─────────────────────────────────────────────────────────
 
     private void preloadNeighbours(Context ctx, int position) {
+        int[] decodeSize = boundedPhotoDecodeSize(ctx);
         for (int delta = 1; delta <= 2; delta++) {
             int next = position + delta;
             if (next < getItemCount()) {
                 Glide.with(ctx)
                         .load(photoUrls.get(next))
-                        .apply(new RequestOptions().diskCacheStrategy(DiskCacheStrategy.ALL))
+                        .apply(new RequestOptions()
+                                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                // PERF: bare .preload() defaults to
+                                // Target.SIZE_ORIGINAL — was decoding+
+                                // caching the next 2 photos at full
+                                // uploaded resolution, twice over, ahead
+                                // of even being shown. Same bounded size
+                                // as the actual bind below so this cache
+                                // entry is directly reusable, not wasted.
+                                .override(decodeSize[0], decodeSize[1]))
                         .preload();
             }
         }
+    }
+
+    /**
+     * Decode target for reel photos: screen size × this reel's own max
+     * pinch-zoom factor (default 3x), capped so a single photo can never
+     * demand an absurd decode regardless of zoom settings or display size.
+     * Bounding by zoom headroom (not just screen size) keeps max-zoom
+     * sharpness identical to the old SIZE_ORIGINAL behavior for any photo
+     * that isn't already larger than that — which covers the vast
+     * majority of reel uploads — while still capping the rare oversized
+     * gallery import that used to decode multiple times larger than any
+     * zoom level here could ever display.
+     */
+    private int[] boundedPhotoDecodeSize(Context ctx) {
+        android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+        float zoom = reelModel != null && reelModel.maxZoomScale > 0 ? reelModel.maxZoomScale : 3f;
+        int maxDim = 2560; // sane ceiling regardless of zoom/display — biggest reel screens are still well under this
+        int w = Math.min((int) (dm.widthPixels * zoom), maxDim);
+        int h = Math.min((int) (dm.heightPixels * zoom), maxDim);
+        return new int[]{w, h};
     }
 
     // ── PageTransformer factory ───────────────────────────────────────────────
