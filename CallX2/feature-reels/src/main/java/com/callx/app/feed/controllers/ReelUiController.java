@@ -174,6 +174,7 @@ public class ReelUiController {
         // to reel.collabMap being empty but the legacy single collabUid field
         // being set (old data written before this feature shipped).
         View llCollabAuthors = fragmentView.findViewById(R.id.ll_collab_second_author);
+        View llOwnerRow = fragmentView.findViewById(R.id.ll_owner_row);
         if (llCollabAuthors != null) {
             java.util.List<com.callx.app.models.ReelModel.CollabCollaborator> accepted = reel.acceptedCollaborators();
             boolean legacySingleOnly = accepted.isEmpty() && reel.isCollabPost
@@ -181,13 +182,22 @@ public class ReelUiController {
 
             if (!accepted.isEmpty() || legacySingleOnly) {
                 llCollabAuthors.setVisibility(View.VISIBLE);
+                // ✅ Merged row: hide the standalone owner row — the owner's
+                // avatar/name now render as the first item of the collab stack
+                // below, matching Instagram's single-line collab credit.
+                if (llOwnerRow != null) llOwnerRow.setVisibility(View.GONE);
 
                 de.hdodenhof.circleimageview.CircleImageView stack1 = fragmentView.findViewById(R.id.iv_collab_stack_1);
                 de.hdodenhof.circleimageview.CircleImageView stack2 = fragmentView.findViewById(R.id.iv_collab_stack_2);
                 de.hdodenhof.circleimageview.CircleImageView stack3 = fragmentView.findViewById(R.id.iv_collab_stack_3);
                 TextView tvCollabName = fragmentView.findViewById(R.id.tv_collab_author_name);
+                TextView tvCollabFollowBtn = fragmentView.findViewById(R.id.tv_collab_follow_btn);
 
+                // Owner goes first in the stack, then accepted collaborators —
+                // Instagram shows the post owner's avatar at the front of the
+                // overlapping stack, not just the collaborators.
                 java.util.List<String> avatarUrls = new java.util.ArrayList<>();
+                avatarUrls.add(reel.ownerPhoto);
                 int totalCount;
 
                 if (!accepted.isEmpty()) {
@@ -229,6 +239,11 @@ public class ReelUiController {
                         + (totalCount == 1 ? " other" : " others"));
                 }
 
+                // Follow button now lives on the merged collab row instead of
+                // the (hidden) owner row. Click + Follow/Following state are
+                // wired centrally in ReelSocialController (same as tv_follow_btn).
+                if (tvCollabFollowBtn != null) tvCollabFollowBtn.setVisibility(View.VISIBLE);
+
                 llCollabAuthors.setOnClickListener(v -> {
                     if (!delegate.isAdded()) return;
                     delegate.showBottomSheet(
@@ -239,6 +254,7 @@ public class ReelUiController {
             } else {
                 llCollabAuthors.setVisibility(View.GONE);
                 llCollabAuthors.setOnClickListener(null);
+                if (llOwnerRow != null) llOwnerRow.setVisibility(View.VISIBLE);
             }
         }
         // PERF advance — "precompute next reel's UI state": reuse the

@@ -477,8 +477,11 @@
         android:paddingEnd="72dp"
         android:paddingBottom="0dp">
 
-        <!-- Owner avatar + name + follow button -->
+        <!-- Owner avatar + name + follow button — hidden for collab posts,
+             merged into ll_collab_second_author below instead (Instagram-style
+             single-row collab display). -->
         <LinearLayout
+            android:id="@+id/ll_owner_row"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
@@ -609,16 +612,19 @@
                 android:visibility="visible"/>
         </LinearLayout>
           <!-- Collab Joint-Author row (shown only when isCollabPost=true) —
-               ✅ MULTI-COLLABORATOR: overlapping avatar stack (up to 3 shown)
-               + "and N others" summary text, tap opens CollaboratorsBottomSheet
-               (Instagram-style Collaborators sheet with Follow buttons). -->
+               ✅ MULTI-COLLABORATOR, MERGED ROW: this is now the ONLY row shown
+               for collab posts (ll_owner_row above is hidden). Tightly
+               overlapping avatar stack (owner first, then collaborators, up to
+               3 shown) + "@owner and N others" text + Follow button, all on one
+               line — matches Instagram's collab credit row. Tap opens the full
+               Collaborators bottom sheet (with Follow buttons per person). -->
           <LinearLayout
               android:id="@+id/ll_collab_second_author"
               android:layout_width="wrap_content"
               android:layout_height="wrap_content"
               android:orientation="horizontal"
               android:gravity="center_vertical"
-              android:layout_marginTop="3dp"
+              android:layout_marginTop="6dp"
               android:background="?attr/selectableItemBackgroundBorderless"
               android:paddingVertical="2dp"
               android:visibility="gone">
@@ -637,7 +643,7 @@
                       android:id="@+id/iv_collab_stack_2"
                       android:layout_width="24dp"
                       android:layout_height="24dp"
-                      android:layout_marginStart="16dp"
+                      android:layout_marginStart="12dp"
                       app:civ_border_width="1.5dp"
                       app:civ_border_color="#000000"
                       android:visibility="gone"
@@ -646,7 +652,7 @@
                       android:id="@+id/iv_collab_stack_3"
                       android:layout_width="24dp"
                       android:layout_height="24dp"
-                      android:layout_marginStart="32dp"
+                      android:layout_marginStart="24dp"
                       app:civ_border_width="1.5dp"
                       app:civ_border_color="#000000"
                       android:visibility="gone"
@@ -658,9 +664,23 @@
                   android:layout_height="wrap_content"
                   android:layout_marginStart="8dp"
                   android:textColor="#FFFFFF"
-                  android:textSize="14sp"
+                  android:textSize="15sp"
                   android:textStyle="bold"
                   android:fontFamily="sans-serif-medium"/>
+              <TextView
+                  android:id="@+id/tv_collab_follow_btn"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_marginStart="10dp"
+                  android:text="Follow"
+                  android:textColor="#00E5FF"
+                  android:textSize="13sp"
+                  android:paddingStart="8dp"
+                  android:paddingEnd="8dp"
+                  android:paddingTop="2dp"
+                  android:paddingBottom="2dp"
+                  android:background="@drawable/bg_reel_follow_btn"
+                  android:visibility="gone"/>
           </LinearLayout>
     
 

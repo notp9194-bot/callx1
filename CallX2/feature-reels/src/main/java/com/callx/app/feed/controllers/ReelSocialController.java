@@ -53,6 +53,7 @@ public class ReelSocialController {
     private TextView    tvCommentsCount;
     private TextView    tvSharesCount;
     private TextView    tvFollowBtn;
+    private TextView    tvCollabFollowBtn;
     private View        btnFollowOverlay;
     private LinearLayout layoutReactions;
     private LinearLayout layoutLiveReactions;
@@ -132,6 +133,7 @@ public class ReelSocialController {
         tvCommentsCount   = root.findViewById(R.id.tv_comments_count);
         tvSharesCount     = root.findViewById(R.id.tv_shares_count);
         tvFollowBtn       = root.findViewById(R.id.tv_follow_btn);
+        tvCollabFollowBtn = root.findViewById(R.id.tv_collab_follow_btn);
         btnFollowOverlay  = root.findViewById(R.id.btn_follow_overlay);
         layoutReactions   = root.findViewById(R.id.layout_reactions);
         layoutLiveReactions = root.findViewById(R.id.layout_live_reactions);
@@ -206,6 +208,7 @@ public class ReelSocialController {
         }
         if (btnRepost != null) btnRepost.setOnClickListener(v -> delegate.toggleRepost());
         if (tvFollowBtn != null) tvFollowBtn.setOnClickListener(v -> delegate.toggleFollow());
+        if (tvCollabFollowBtn != null) tvCollabFollowBtn.setOnClickListener(v -> delegate.toggleFollow());
         if (btnFollowOverlay != null) btnFollowOverlay.setOnClickListener(v -> delegate.toggleFollow());
 
         // Emoji reaction buttons
@@ -382,11 +385,16 @@ public class ReelSocialController {
 
     public void updateFollowUI(boolean following) {
         if (!delegate.isAdded()) return;
+        // tv_collab_follow_btn mirrors tv_follow_btn's state — it's the same
+        // logical button, just relocated onto the merged collab row for
+        // collab posts (only one of the two is visible at a time).
         if (following) {
             if (tvFollowBtn != null) { tvFollowBtn.setText("Following"); tvFollowBtn.setAlpha(0.6f); }
+            if (tvCollabFollowBtn != null) { tvCollabFollowBtn.setText("Following"); tvCollabFollowBtn.setAlpha(0.6f); }
             if (btnFollowOverlay != null) btnFollowOverlay.setVisibility(View.GONE);
         } else {
             if (tvFollowBtn != null) { tvFollowBtn.setText("Follow"); tvFollowBtn.setAlpha(1f); }
+            if (tvCollabFollowBtn != null) { tvCollabFollowBtn.setText("Follow"); tvCollabFollowBtn.setAlpha(1f); }
             if (btnFollowOverlay != null) btnFollowOverlay.setVisibility(View.VISIBLE);
         }
     }
