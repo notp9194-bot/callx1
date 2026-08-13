@@ -1447,6 +1447,9 @@ public class MainActivity extends AppCompatActivity
         if (openYoutube != null) openYoutube.setVisible(pos == TAB_CHATS);
         android.view.MenuItem openGames = menu.findItem(R.id.action_open_games);
         if (openGames != null) openGames.setVisible(pos == TAB_CHATS);
+        // "About" sirf Chat tab pe visible ho
+        android.view.MenuItem about = menu.findItem(R.id.action_about);
+        if (about != null) about.setVisible(pos == TAB_CHATS);
         return super.onPrepareOptionsMenu(menu);
     }
 
@@ -1501,6 +1504,12 @@ public class MainActivity extends AppCompatActivity
                 android.widget.Toast.makeText(this, "Games coming soon!",
                     android.widget.Toast.LENGTH_SHORT).show();
             }
+            return true;
+        }
+
+        if (id == R.id.action_about) {
+            // Kotlin AboutActivity — app module ka pehla Kotlin screen
+            startActivity(new Intent(this, com.callx.app.activities.AboutActivity.class));
             return true;
         }
 

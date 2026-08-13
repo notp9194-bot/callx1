@@ -1,6 +1,9 @@
 plugins {
     id 'com.android.application'
     id 'com.google.gms.google-services'
+    // Kotlin support — app module ab Java + Kotlin dono ko side-by-side
+    // compile karta hai (src/main/java aur src/main/kotlin dono).
+    id 'org.jetbrains.kotlin.android'
     // Baseline Profile plugin — dexLayoutOptimization + measured profile generation
     id 'androidx.baselineprofile'
 }
@@ -127,6 +130,12 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    // Kotlin compiler ka JVM target — Java compileOptions ke sath match hona
+    // zaroori hai warna "Inconsistent JVM target" build error aata hai.
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
     buildFeatures {
         viewBinding true
         buildConfig true
@@ -162,6 +171,9 @@ baselineProfile {
 }
 
 dependencies {
+    // Kotlin stdlib — app module ab Kotlin source bhi compile karta hai
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.22"
+
     implementation project(':core')
     implementation project(':feature-chat')
     implementation project(':feature-reels')

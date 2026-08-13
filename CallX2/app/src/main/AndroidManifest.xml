@@ -92,6 +92,13 @@
             android:exported="false"
             android:theme="@style/Theme.CallX"/>
 
+        <!-- About screen — Chats tab 3-dot menu → About. First Kotlin
+             screen in the app module. -->
+        <activity
+            android:name=".activities.AboutActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallX"/>
+
         <activity
             android:name=".activities.MainActivity"
             android:exported="true"

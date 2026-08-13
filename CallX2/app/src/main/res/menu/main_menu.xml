@@ -43,4 +43,9 @@
         android:title="⚙️ Settings"
         app:showAsAction="never"/>
 
+    <!-- About — chat tab pe hi dikhega. Kotlin AboutActivity kholta hai. -->
+    <item android:id="@+id/action_about"
+        android:title="ℹ️ About"
+        app:showAsAction="never"/>
+
 </menu>
