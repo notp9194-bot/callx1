@@ -283,6 +283,21 @@ public class ReelUploadActivity extends AppCompatActivity {
   
     private int     stitchDurationSec  = 3;
 
+    // ── Step wizard (priority-ordered: Media → Caption & Sound →
+    //    Audience & Permissions → Details & Post) ────────────────────────────
+    private android.widget.ViewFlipper stepFlipper;
+    private TextView                   tvStepTitle;
+    private android.widget.ProgressBar progressStep;
+    private com.google.android.material.button.MaterialButton btnStepBack;
+    private Button                     btnStepNext;
+    private int                        currentStep = 0;
+    private static final String[] STEP_TITLES = {
+            "Step 1 of 4 · Media",
+            "Step 2 of 4 · Caption & Sound",
+            "Step 3 of 4 · Audience & Permissions",
+            "Step 4 of 4 · Details & Post"
+    };
+
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -295,6 +310,7 @@ public class ReelUploadActivity extends AppCompatActivity {
 
         bindViews();
         setupChipDefaults();
+        setupStepWizard();
 
         // ── Instagram-style @mention in caption ──────────────────────────────
         try {
@@ -684,6 +700,95 @@ public class ReelUploadActivity extends AppCompatActivity {
         swAutoLoop              = findViewById(R.id.sw_auto_loop);
         btnAddMorePhotos        = findViewById(R.id.btn_add_more_photos);
         layoutPhotoEmptyState   = findViewById(R.id.layout_photo_empty_state);
+    }
+
+    /**
+     * ✅ NEW: Wires up the priority-ordered step wizard so each option group
+     * (Media → Caption & Sound → Audience & Permissions → Details & Post)
+     * is shown as its own screen instead of everything on one page.
+     * Every underlying view/field/click-listener from before is untouched —
+     * this only controls which step of the ViewFlipper is visible.
+     */
+    private void setupStepWizard() {
+        stepFlipper  = findViewById(R.id.step_flipper);
+        tvStepTitle  = findViewById(R.id.tv_step_title);
+        progressStep = findViewById(R.id.progress_step);
+        btnStepBack  = findViewById(R.id.btn_step_back);
+        btnStepNext  = findViewById(R.id.btn_step_next);
+
+        if (stepFlipper == null) return; // layout not the wizard version — no-op safety
+
+        if (btnStepBack != null) {
+            btnStepBack.setOnClickListener(v -> goToStep(currentStep - 1));
+        }
+        if (btnStepNext != null) {
+            btnStepNext.setOnClickListener(v -> {
+                if (currentStep == 0 && !canLeaveMediaStep()) return;
+                goToStep(currentStep + 1);
+            });
+        }
+        updateStepUi();
+    }
+
+    /** Validates the Media step (Step 1) has a usable selection before advancing. */
+    private boolean canLeaveMediaStep() {
+        if (isPhotoMode) {
+            if (selectedPhotoUris.isEmpty()) {
+                Toast.makeText(this, "Please add at least one photo first", Toast.LENGTH_SHORT).show();
+                return false;
+            }
+            return true;
+        }
+        if (selectedUri == null) {
+            Toast.makeText(this, "Please select a video first", Toast.LENGTH_SHORT).show();
+            return false;
+        }
+        if (compressionInProgress) {
+            Toast.makeText(this, "Video is still being compressed…", Toast.LENGTH_SHORT).show();
+            return false;
+        }
+        return true;
+    }
+
+    private void goToStep(int step) {
+        if (stepFlipper == null) return;
+        int total = STEP_TITLES.length;
+        if (step < 0 || step >= total) return;
+
+        currentStep = step;
+        // ViewFlipper doesn't support jumping directly to an index with a
+        // direction-aware animation out of the box, so just select it.
+        stepFlipper.setDisplayedChild(currentStep);
+        updateStepUi();
+
+        // Scroll the step back to the top so a long previous step (e.g.
+        // Details & Post) doesn't leave the new step mid-scroll.
+        View current = stepFlipper.getCurrentView();
+        if (current != null) current.scrollTo(0, 0);
+    }
+
+    private void updateStepUi() {
+        if (tvStepTitle != null) tvStepTitle.setText(STEP_TITLES[currentStep]);
+        if (progressStep != null) progressStep.setProgress(currentStep + 1);
+        if (btnStepBack != null) {
+            btnStepBack.setVisibility(currentStep == 0 ? View.INVISIBLE : View.VISIBLE);
+        }
+        if (btnStepNext != null) {
+            // Last step (Details & Post) already has its own Post/Save-draft
+            // actions inside the step, so the shared Next button is hidden there.
+            boolean isLastStep = currentStep == STEP_TITLES.length - 1;
+            btnStepNext.setVisibility(isLastStep ? View.GONE : View.VISIBLE);
+        }
+    }
+
+    /** Physical/gesture back navigates one wizard step at a time before exiting. */
+    @Override
+    public void onBackPressed() {
+        if (stepFlipper != null && currentStep > 0) {
+            goToStep(currentStep - 1);
+            return;
+        }
+        super.onBackPressed();
     }
 
     private void setupChipDefaults() {
