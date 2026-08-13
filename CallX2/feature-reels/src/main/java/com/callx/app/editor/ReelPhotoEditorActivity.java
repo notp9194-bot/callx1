@@ -225,6 +225,22 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
 
     // Tool tabs
     private View tabFilters, tabEffects, tabCaption, tabStickers, tabAdjust;
+
+    // ── 5-step wizard (Filter → Effect → Caption → Sticker → Adjust).
+    //    Wraps the existing tab bar: Back/Next moves through the same tabs
+    //    in order, and tapping a tab directly still works and keeps the
+    //    step indicator in sync. ────────────────────────────────────────
+    private TextView            tvPhotoEditorStepTitle;
+    private android.widget.ProgressBar pbPhotoEditorStep;
+    private View                btnPhotoEditorStepBack, btnPhotoEditorStepNext;
+    private int                 photoEditorCurrentStep = 0;
+    private static final String[] PHOTO_EDITOR_STEP_TITLES = {
+            "Step 1 of 5 · Filter",
+            "Step 2 of 5 · Effect",
+            "Step 3 of 5 · Caption",
+            "Step 4 of 5 · Sticker",
+            "Step 5 of 5 · Adjust"
+    };
     private View panelFilters, panelEffects, panelCaption, panelStickers, panelAdjust;
 
     // Filter row
@@ -325,6 +341,7 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         presetSoundCover  = nvl(getIntent().getStringExtra(EXTRA_PRESET_SOUND_COVER),  "");
 
         bindViews();
+        setupPhotoEditorStepWizard();
         loadPreviewImage();
         applyCurrentState();
         populateFilterChips();
@@ -1004,8 +1021,70 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         for (int i = 0; i < panels.length; i++) {
             if (panels[i] != null) panels[i].setVisibility(panels[i] == panel ? View.VISIBLE : View.GONE);
             if (tabs[i]   != null) tabs[i].setAlpha(tabs[i] == tab ? 1f : 0.5f);
+            if (tabs[i] == tab) photoEditorCurrentStep = i;
+        }
+        updatePhotoEditorStepUi();
+    }
+
+    /**
+     * ✅ NEW: Binds the step indicator + Back/Next bar and syncs them with the
+     * existing tab bar, so the 5 tool panels (Filter/Effect/Caption/Sticker/
+     * Adjust) can be stepped through in order — same wizard pattern used on
+     * the Reel Upload and Reel Editor screens.
+     */
+    private void setupPhotoEditorStepWizard() {
+        tvPhotoEditorStepTitle = findViewById(R.id.tv_photo_editor_step_title);
+        pbPhotoEditorStep      = findViewById(R.id.pb_photo_editor_step);
+        btnPhotoEditorStepBack = findViewById(R.id.btn_photo_editor_step_back);
+        btnPhotoEditorStepNext = findViewById(R.id.btn_photo_editor_step_next);
+
+        if (tvPhotoEditorStepTitle == null) return; // layout not the wizard version — no-op safety
+
+        View[] panels = {panelFilters, panelEffects, panelCaption, panelStickers, panelAdjust};
+        View[] tabs   = {tabFilters,   tabEffects,   tabCaption,   tabStickers,   tabAdjust};
+
+        if (btnPhotoEditorStepBack != null) {
+            btnPhotoEditorStepBack.setOnClickListener(v -> {
+                int prev = photoEditorCurrentStep - 1;
+                if (prev >= 0) showPanel(panels[prev], tabs[prev]);
+            });
+        }
+        if (btnPhotoEditorStepNext != null) {
+            btnPhotoEditorStepNext.setOnClickListener(v -> {
+                int next = photoEditorCurrentStep + 1;
+                if (next < panels.length) showPanel(panels[next], tabs[next]);
+            });
+        }
+        updatePhotoEditorStepUi();
+    }
+
+    private void updatePhotoEditorStepUi() {
+        if (tvPhotoEditorStepTitle != null) {
+            tvPhotoEditorStepTitle.setText(PHOTO_EDITOR_STEP_TITLES[photoEditorCurrentStep]);
+        }
+        if (pbPhotoEditorStep != null) pbPhotoEditorStep.setProgress(photoEditorCurrentStep + 1);
+        if (btnPhotoEditorStepBack != null) {
+            btnPhotoEditorStepBack.setVisibility(photoEditorCurrentStep == 0 ? View.INVISIBLE : View.VISIBLE);
+        }
+        if (btnPhotoEditorStepNext != null) {
+            boolean isLastStep = photoEditorCurrentStep == PHOTO_EDITOR_STEP_TITLES.length - 1;
+            btnPhotoEditorStepNext.setVisibility(isLastStep ? View.INVISIBLE : View.VISIBLE);
         }
     }
+
+    /** Physical/gesture back steps backward through the wizard before closing the editor. */
+    @Override
+    public void onBackPressed() {
+        if (tvPhotoEditorStepTitle != null && photoEditorCurrentStep > 0) {
+            View[] panels = {panelFilters, panelEffects, panelCaption, panelStickers, panelAdjust};
+            View[] tabs   = {tabFilters,   tabEffects,   tabCaption,   tabStickers,   tabAdjust};
+            int prev = photoEditorCurrentStep - 1;
+            showPanel(panels[prev], tabs[prev]);
+            return;
+        }
+        super.onBackPressed();
+    }
+
 
     // ── Activity result forwarding ──────────────────────────────────────────
 
