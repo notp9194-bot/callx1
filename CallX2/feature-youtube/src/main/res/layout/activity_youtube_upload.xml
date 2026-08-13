@@ -31,16 +31,51 @@
             android:textStyle="bold"/>
     </LinearLayout>
 
+    <!-- ── Step indicator ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/tv_yt_step_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Step 1 of 2 · Media"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:layout_marginBottom="6dp"/>
+
+        <ProgressBar
+            android:id="@+id/pb_yt_step"
+            style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:max="2"
+            android:progress="1"
+            android:progressTint="@color/yt_red"/>
+    </LinearLayout>
+
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1">
 
-        <LinearLayout
+        <ViewFlipper
+            android:id="@+id/yt_step_flipper"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp">
+            android:layout_height="wrap_content">
+
+            <!-- ═══════ STEP 1 · MEDIA ═══════ -->
+            <LinearLayout
+                android:id="@+id/yt_step_media"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
 
             <!-- Thumbnail preview -->
             <ImageView
@@ -70,6 +105,17 @@
                 android:textColor="#FFFFFF"
                 android:backgroundTint="@color/yt_surface"
                 android:layout_marginBottom="16dp"/>
+
+            </LinearLayout>
+            <!-- ═══════ /STEP 1 ═══════ -->
+
+            <!-- ═══════ STEP 2 · DETAILS & PUBLISH ═══════ -->
+            <LinearLayout
+                android:id="@+id/yt_step_details"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
 
             <!-- Title -->
             <EditText
@@ -141,7 +187,10 @@
                 android:layout_marginBottom="16dp"
                 android:buttonTint="@color/yt_red"/>
 
-        </LinearLayout>
+            </LinearLayout>
+            <!-- ═══════ /STEP 2 ═══════ -->
+
+        </ViewFlipper>
     </ScrollView>
 
     <ProgressBar
@@ -153,13 +202,45 @@
         android:visibility="gone"
         android:progressTint="@color/yt_red"/>
 
-    <Button
-        android:id="@+id/btn_yt_upload_submit"
+    <!-- ── Fixed bottom step-nav bar (Back / Next); on Step 2 "Next" is
+         swapped to the real Upload submit button ── -->
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:text="Upload Video"
-        android:textColor="#FFFFFF"
-        android:backgroundTint="@color/yt_red"
-        android:textSize="16sp"/>
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp">
+
+        <Button
+            android:id="@+id/btn_yt_step_back"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:text="Back"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="@color/yt_surface"
+            android:visibility="invisible"/>
+
+        <Button
+            android:id="@+id/btn_yt_step_next"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="2"
+            android:text="Next"
+            android:textSize="16sp"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="@color/yt_red"/>
+
+        <Button
+            android:id="@+id/btn_yt_upload_submit"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="2"
+            android:text="Upload Video"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="@color/yt_red"
+            android:textSize="16sp"
+            android:visibility="gone"/>
+    </LinearLayout>
 
 </LinearLayout>

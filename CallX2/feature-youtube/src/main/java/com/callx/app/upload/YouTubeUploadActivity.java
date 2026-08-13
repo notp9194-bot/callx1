@@ -45,6 +45,17 @@ public class YouTubeUploadActivity extends AppCompatActivity {
 
     private String myUid, myName, myPhotoUrl;
 
+    // ── Step wizard: Media → Details & Publish ──────────────────────────────
+    private android.widget.ViewFlipper ytStepFlipper;
+    private android.widget.TextView    tvYtStepTitle;
+    private ProgressBar                pbYtStep;
+    private Button                     btnYtStepBack, btnYtStepNext;
+    private int                        ytCurrentStep = 0;
+    private static final String[] YT_STEP_TITLES = {
+            "Step 1 of 2 · Media",
+            "Step 2 of 2 · Details & Publish"
+    };
+
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_youtube_upload);
@@ -87,6 +98,7 @@ public class YouTubeUploadActivity extends AppCompatActivity {
         });
 
         btnUpload.setOnClickListener(v -> startUpload());
+        setupYtStepWizard();
 
         // Channel info load
         Log.d(TAG, "Channel info load kar raha hai Firebase se...");
@@ -121,6 +133,65 @@ public class YouTubeUploadActivity extends AppCompatActivity {
             Toast.makeText(this, "✅ Thumbnail select hua", Toast.LENGTH_SHORT).show();
             Glide.with(this).load(thumbUri).override(720, 720).into(ivThumbPreview);
         }
+    }
+
+    /**
+     * ✅ NEW: Splits the single-screen upload form into a 2-step wizard
+     * (Media → Details & Publish). All existing fields/click-listeners are
+     * untouched — this only controls which step is visible and swaps the
+     * shared "Next" button for the real "Upload Video" submit button on the
+     * last step.
+     */
+    private void setupYtStepWizard() {
+        ytStepFlipper = findViewById(R.id.yt_step_flipper);
+        tvYtStepTitle = findViewById(R.id.tv_yt_step_title);
+        pbYtStep      = findViewById(R.id.pb_yt_step);
+        btnYtStepBack = findViewById(R.id.btn_yt_step_back);
+        btnYtStepNext = findViewById(R.id.btn_yt_step_next);
+
+        if (ytStepFlipper == null) return; // layout not the wizard version — no-op safety
+
+        if (btnYtStepBack != null) {
+            btnYtStepBack.setOnClickListener(v -> goToYtStep(ytCurrentStep - 1));
+        }
+        if (btnYtStepNext != null) {
+            btnYtStepNext.setOnClickListener(v -> {
+                if (ytCurrentStep == 0 && videoUri == null) {
+                    Toast.makeText(this, "⚠️ Pehle video pick karo!", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                goToYtStep(ytCurrentStep + 1);
+            });
+        }
+        updateYtStepUi();
+    }
+
+    private void goToYtStep(int step) {
+        if (ytStepFlipper == null) return;
+        if (step < 0 || step >= YT_STEP_TITLES.length) return;
+        ytCurrentStep = step;
+        ytStepFlipper.setDisplayedChild(ytCurrentStep);
+        updateYtStepUi();
+    }
+
+    private void updateYtStepUi() {
+        if (tvYtStepTitle != null) tvYtStepTitle.setText(YT_STEP_TITLES[ytCurrentStep]);
+        if (pbYtStep != null) pbYtStep.setProgress(ytCurrentStep + 1);
+        if (btnYtStepBack != null) {
+            btnYtStepBack.setVisibility(ytCurrentStep == 0 ? View.INVISIBLE : View.VISIBLE);
+        }
+        boolean isLastStep = ytCurrentStep == YT_STEP_TITLES.length - 1;
+        if (btnYtStepNext != null) btnYtStepNext.setVisibility(isLastStep ? View.GONE : View.VISIBLE);
+        if (btnUpload != null) btnUpload.setVisibility(isLastStep ? View.VISIBLE : View.GONE);
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (ytStepFlipper != null && ytCurrentStep > 0) {
+            goToYtStep(ytCurrentStep - 1);
+            return;
+        }
+        super.onBackPressed();
     }
 
     private void startUpload() {

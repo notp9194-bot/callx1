@@ -124,6 +124,22 @@ public class ReelEditorActivity extends AppCompatActivity {
     /** ✅ NEW: music chip / tool button — opens SoundDetail (if sound selected) or MusicPicker */
     private ImageButton   btnToolMusic;
 
+    // ── Editing-tools step wizard: Trim → Text → Tools(Look) → Tools(Motion &
+    //    Sound) → Tools(Finishing). Separate from btnNext, which still moves
+    //    on to the Upload screen after all editing is done. ────────────────
+    private android.widget.ViewFlipper editorStepFlipper;
+    private TextView                   tvEditorStepTitle;
+    private ProgressBar                pbEditorStep;
+    private View                       btnEditorStepBack, btnEditorStepNext;
+    private int                        editorCurrentStep = 0;
+    private static final String[] EDITOR_STEP_TITLES = {
+            "Step 1 of 5 · Trim",
+            "Step 2 of 5 · Text Overlay",
+            "Step 3 of 5 · Tools · Look",
+            "Step 4 of 5 · Tools · Motion & Sound",
+            "Step 5 of 5 · Tools · Finishing"
+    };
+
     // ── Dynamic overlay views (added programmatically to the video FrameLayout) ──
     /** Semi-transparent colour overlay that simulates the selected filter */
     private View          filterOverlayView;
@@ -271,6 +287,7 @@ public class ReelEditorActivity extends AppCompatActivity {
         injectOverlayViews();   // ← NEW: add dynamic overlay views to video FrameLayout
         applyPresetsFromCamera(); // ✅ NEW: re-apply live filter/text/sticker chosen during recording
         setupListeners();
+        setupEditorStepWizard();
     }
 
     /**
@@ -1094,6 +1111,61 @@ public class ReelEditorActivity extends AppCompatActivity {
     }
 
     // ── Listener setup ────────────────────────────────────────────────────
+
+    /**
+     * ✅ NEW: Splits the "Editing tools" panel into a step-by-step wizard
+     * (Trim → Text Overlay → Tools in groups of 3) instead of everything on
+     * one screen — same pattern as the Reel Upload screen. This is
+     * independent of {@code btnNext}, which still moves on to the Upload
+     * screen once editing is done.
+     */
+    private void setupEditorStepWizard() {
+        editorStepFlipper = findViewById(R.id.editor_step_flipper);
+        tvEditorStepTitle = findViewById(R.id.tv_editor_step_title);
+        pbEditorStep      = findViewById(R.id.pb_editor_step);
+        btnEditorStepBack = findViewById(R.id.btn_editor_step_back);
+        btnEditorStepNext = findViewById(R.id.btn_editor_step_next);
+
+        if (editorStepFlipper == null) return; // layout not the wizard version — no-op safety
+
+        if (btnEditorStepBack != null) {
+            btnEditorStepBack.setOnClickListener(v -> goToEditorStep(editorCurrentStep - 1));
+        }
+        if (btnEditorStepNext != null) {
+            btnEditorStepNext.setOnClickListener(v -> goToEditorStep(editorCurrentStep + 1));
+        }
+        updateEditorStepUi();
+    }
+
+    private void goToEditorStep(int step) {
+        if (editorStepFlipper == null) return;
+        if (step < 0 || step >= EDITOR_STEP_TITLES.length) return;
+        editorCurrentStep = step;
+        editorStepFlipper.setDisplayedChild(editorCurrentStep);
+        updateEditorStepUi();
+    }
+
+    private void updateEditorStepUi() {
+        if (tvEditorStepTitle != null) tvEditorStepTitle.setText(EDITOR_STEP_TITLES[editorCurrentStep]);
+        if (pbEditorStep != null) pbEditorStep.setProgress(editorCurrentStep + 1);
+        if (btnEditorStepBack != null) {
+            btnEditorStepBack.setVisibility(editorCurrentStep == 0 ? View.INVISIBLE : View.VISIBLE);
+        }
+        boolean isLastStep = editorCurrentStep == EDITOR_STEP_TITLES.length - 1;
+        if (btnEditorStepNext != null) {
+            btnEditorStepNext.setVisibility(isLastStep ? View.INVISIBLE : View.VISIBLE);
+        }
+    }
+
+    /** Physical/gesture back steps backward through the editing-tools wizard first. */
+    @Override
+    public void onBackPressed() {
+        if (editorStepFlipper != null && editorCurrentStep > 0) {
+            goToEditorStep(editorCurrentStep - 1);
+            return;
+        }
+        super.onBackPressed();
+    }
 
     private void setupListeners() {
         btnBack.setOnClickListener(v -> finish());

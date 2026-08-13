@@ -100,13 +100,51 @@
             android:visibility="gone"/>
     </FrameLayout>
 
-    <!-- Editor controls -->
+
+    <!-- ── Editing-tools step indicator ── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:background="#1A1A1A"
-        android:padding="16dp">
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="10dp">
+
+        <TextView
+            android:id="@+id/tv_editor_step_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Step 1 of 5 · Trim"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:fontFamily="sans-serif-medium"
+            android:layout_marginBottom="6dp"/>
+
+        <ProgressBar
+            android:id="@+id/pb_editor_step"
+            style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:max="5"
+            android:progress="1"
+            android:progressTint="@color/brand_primary"/>
+    </LinearLayout>
+
+    <!-- Editor controls -->
+    <ViewFlipper
+        android:id="@+id/editor_step_flipper"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#1A1A1A">
+
+        <!-- ═══════ STEP 1 · TRIM ═══════ -->
+        <LinearLayout
+            android:id="@+id/editor_step_trim"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
 
         <!-- Trim section -->
         <TextView
@@ -179,6 +217,17 @@
                 android:layout_height="1dp"/>
         </LinearLayout>
 
+        </LinearLayout>
+        <!-- ═══════ /STEP 1 ═══════ -->
+
+        <!-- ═══════ STEP 2 · TEXT OVERLAY ═══════ -->
+        <LinearLayout
+            android:id="@+id/editor_step_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
         <!-- Text overlay -->
         <View
             android:layout_width="match_parent"
@@ -227,17 +276,24 @@
                 android:layout_marginStart="8dp"/>
         </LinearLayout>
 
-        <!-- Editor tools row -->
-        <View android:layout_width="match_parent" android:layout_height="1dp"
-            android:background="#33FFFFFF" android:layout_marginTop="12dp" android:layout_marginBottom="8dp"/>
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="EDITING TOOLS" android:textColor="#AAFFFFFF" android:textSize="11sp"
-            android:fontFamily="sans-serif-medium" android:letterSpacing="0.1"
-            android:layout_marginBottom="8dp"/>
-        <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:scrollbars="none">
-            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:orientation="horizontal" android:gravity="center_vertical">
+        </LinearLayout>
+        <!-- ═══════ /STEP 2 ═══════ -->
+
+        <!-- ═══════ STEP 3 · TOOLS · Filters / Stickers / Subtitles ═══════ -->
+        <LinearLayout
+            android:id="@+id/editor_step_tools_a"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="EDITING TOOLS · Look" android:textColor="#AAFFFFFF" android:textSize="11sp"
+                android:fontFamily="sans-serif-medium" android:letterSpacing="0.1"
+                android:layout_marginBottom="12dp"/>
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center" android:weightSum="3">
 
                 <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
@@ -266,6 +322,26 @@
                         android:text="Subtitles" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
                 </LinearLayout>
 
+            </LinearLayout>
+        </LinearLayout>
+        <!-- ═══════ /STEP 3 ═══════ -->
+
+        <!-- ═══════ STEP 4 · TOOLS · Transitions / Voice FX / Audio Mixer ═══════ -->
+        <LinearLayout
+            android:id="@+id/editor_step_tools_b"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="EDITING TOOLS · Motion &amp; Sound" android:textColor="#AAFFFFFF" android:textSize="11sp"
+                android:fontFamily="sans-serif-medium" android:letterSpacing="0.1"
+                android:layout_marginBottom="12dp"/>
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center" android:weightSum="3">
+
                 <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
                     <ImageButton android:id="@+id/btn_tool_transitions" android:layout_width="44dp" android:layout_height="44dp"
@@ -293,6 +369,26 @@
                         android:text="Audio Mix" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
                 </LinearLayout>
 
+            </LinearLayout>
+        </LinearLayout>
+        <!-- ═══════ /STEP 4 ═══════ -->
+
+        <!-- ═══════ STEP 5 · TOOLS · Thumbnail / Music ═══════ -->
+        <LinearLayout
+            android:id="@+id/editor_step_tools_c"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="EDITING TOOLS · Finishing" android:textColor="#AAFFFFFF" android:textSize="11sp"
+                android:fontFamily="sans-serif-medium" android:letterSpacing="0.1"
+                android:layout_marginBottom="12dp"/>
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center" android:weightSum="3">
+
                 <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center">
                     <ImageButton android:id="@+id/btn_tool_thumbnail" android:layout_width="44dp" android:layout_height="44dp"
@@ -312,8 +408,42 @@
                 </LinearLayout>
 
             </LinearLayout>
-        </HorizontalScrollView>
+        </LinearLayout>
+        <!-- ═══════ /STEP 5 ═══════ -->
 
+    </ViewFlipper>
+
+    <!-- ── Fixed bottom step-nav bar for the editing-tools wizard (separate
+         from the top-right "Next" which moves on to Upload) ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="#1A1A1A"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="14dp">
+
+        <Button
+            android:id="@+id/btn_editor_step_back"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:text="Back"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#33FFFFFF"
+            android:visibility="invisible"/>
+
+        <Button
+            android:id="@+id/btn_editor_step_next"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="Next"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="@color/brand_primary"/>
     </LinearLayout>
 
 </LinearLayout>
