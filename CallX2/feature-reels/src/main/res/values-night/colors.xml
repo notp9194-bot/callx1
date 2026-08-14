@@ -40,4 +40,24 @@
     <color name="view_all_reels_bg">#0D0D0D</color>
     <color name="view_all_reels_ripple">#3300F260</color>
     <color name="view_all_reels_stroke">#4D00F260</color>
+
+    <!-- ── ReelPhotoMusicTrimActivity ("Adjust Music") — Dark Mode ── -->
+    <color name="trim_gradient_start">#FF3B5C</color>
+    <color name="trim_gradient_end">#A855F7</color>
+    <color name="trim_screen_bg">#0A0A0D</color>
+    <color name="trim_card_bg">#16161C</color>
+    <color name="trim_subcard_bg">#1D1D25</color>
+    <color name="trim_divider">#2C2C36</color>
+    <color name="trim_text_primary">#FFFFFF</color>
+    <color name="trim_text_secondary">#ABABB6</color>
+    <color name="trim_text_muted">#77777F</color>
+    <color name="trim_photo_placeholder">#1E1E26</color>
+    <color name="trim_waveform_dim">#34343F</color>
+    <color name="trim_chip_bg">#1B1B22</color>
+    <color name="trim_chip_stroke">#33333D</color>
+    <color name="trim_chip_selected_bg">#26FF3B5C</color>
+    <color name="trim_circle_btn_bg">#33FFFFFF</color>
+    <color name="trim_circle_btn_bg_on_photo">#59000000</color>
+    <color name="trim_tooltip_bg">#F0202028</color>
+    <color name="trim_tooltip_text">#FFFFFF</color>
 </resources>

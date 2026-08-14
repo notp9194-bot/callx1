@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Semi-transparent black circle sitting on top of the photo/video preview
+  (back button + top-right nav button in ReelPhotoMusicTrimActivity).
+  Kept a constant translucent-black regardless of light/dark mode since it
+  always sits over image content, not app chrome — matches the reference
+  screenshot's circular back/nav buttons.
+-->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#33FFFFFF">
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="@color/trim_circle_btn_bg_on_photo"/>
+        </shape>
+    </item>
+</ripple>

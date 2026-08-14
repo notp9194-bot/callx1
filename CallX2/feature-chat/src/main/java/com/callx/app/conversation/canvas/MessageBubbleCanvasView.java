@@ -185,7 +185,13 @@ public class MessageBubbleCanvasView extends View {
     static final float CORNER_RADIUS_DP = 18f;
     static final float TAIL_RADIUS_DP    = 4f;
     static final float H_PADDING_DP      = 12f;
-    static final float V_PADDING_DP      = 8f;
+    // TELEGRAM-STYLE COMPACT PASS: was 8f. Telegram's bubble text padding
+    // reads tighter/denser than WhatsApp's — smaller per-bubble height means
+    // more messages fit in the same viewport, so scrolling covers more
+    // content per frame's worth of layout/bind work (fewer bind calls per
+    // screenful during a fling). Kept modest (8→6) so tap targets and text
+    // legibility aren't hurt.
+    static final float V_PADDING_DP      = 6f;
     static final float TEXT_SIZE_SP      = 15f;
 
     // ── Read-more / Read-less collapse feature ───────────────────────────

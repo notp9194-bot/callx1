@@ -55,4 +55,27 @@
     <!-- Dimmed icon color for unselected tabs — the "modern" muted-vs-highlighted
          contrast in place of every icon being the same flat white. -->
     <color name="reel_nav_icon_unselected">#8CFFFFFF</color>
+
+    <!-- ── ReelPhotoMusicTrimActivity ("Adjust Music") — Light Mode ── -->
+    <!-- Brand gradient used for the trim handles / selected waveform range /
+         "Use this audio" CTA — same two accent colors already used elsewhere
+         in this screen (FF3B5C pink → A855F7 purple), same in both modes. -->
+    <color name="trim_gradient_start">#FF3B5C</color>
+    <color name="trim_gradient_end">#A855F7</color>
+    <color name="trim_screen_bg">#FFFFFF</color>
+    <color name="trim_card_bg">#F6F6F9</color>
+    <color name="trim_subcard_bg">#FFFFFF</color>
+    <color name="trim_divider">#E3E3EA</color>
+    <color name="trim_text_primary">#14141A</color>
+    <color name="trim_text_secondary">#6B6B76</color>
+    <color name="trim_text_muted">#9A9AA4</color>
+    <color name="trim_photo_placeholder">#ECECF1</color>
+    <color name="trim_waveform_dim">#D6D6DE</color>
+    <color name="trim_chip_bg">#FFFFFF</color>
+    <color name="trim_chip_stroke">#DCDCE4</color>
+    <color name="trim_chip_selected_bg">#1AFF3B5C</color>
+    <color name="trim_circle_btn_bg">#14000000</color>
+    <color name="trim_circle_btn_bg_on_photo">#4D000000</color>
+    <color name="trim_tooltip_bg">#E6141420</color>
+    <color name="trim_tooltip_text">#FFFFFF</color>
 </resources>

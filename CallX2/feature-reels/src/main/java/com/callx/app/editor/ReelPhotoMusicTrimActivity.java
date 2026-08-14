@@ -11,10 +11,12 @@ import android.widget.*;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.reels.R;
+import com.callx.app.views.AudioTrimWaveformView;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,7 +28,8 @@ import java.util.Locale;
  *
  * Combines:
  *  • A live reel-style photo preview (cycles through the selected photos)
- *  • The same dual-handle trim controls used elsewhere in the app
+ *  • A modern draggable dual-handle waveform trimmer (AudioTrimWaveformView)
+ *    plus the classic Start/End seekbars, kept in sync with each other
  *
  * The user trims the track to exactly the portion they want; only that
  * trimmed range (RESULT_START_MS…RESULT_END_MS) is stored on the reel and
@@ -36,6 +39,12 @@ import java.util.Locale;
  * (ReelPlayerController / ReelPlayerFragment read reel.musicStartMs /
  * reel.musicEndMs) — this screen is what lets the uploader actually set
  * those values for photo reels instead of always defaulting to 0.
+ *
+ * UI note: colors used throughout this screen's layout come from the
+ * @color/trim_* tokens (values/colors.xml + values-night/colors.xml), so
+ * the screen automatically follows the device's light/dark mode — no
+ * theme-detection code needed here beyond resolving those same tokens for
+ * the custom waveform view's Canvas-drawn palette (setupWaveformPalette()).
  */
 public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
 
@@ -81,11 +90,13 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     }
 
     private ImageButton  btnBack, btnPreview, btnUse;
+    private View          btnUseBottom;
     private TextView     tvTitle, tvStartTime, tvEndTime, tvDuration, tvSelectedRange;
+    private TextView     tvStartValue, tvEndValue;
     private TextView     tvTrackTitle, tvTrackArtist;
     private ImageView    ivCover, ivPhotoPreview, ivPlayHint;
     private SeekBar      sbStart, sbEnd;
-    private LinearLayout layoutWaveform;
+    private AudioTrimWaveformView waveformView;
     private RadioGroup   rgPresets;
     private ProgressBar  progressLoad;
     private View         layoutControls;
@@ -95,6 +106,9 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     private int    startMs = 0;
     private int    endMs   = 30_000;
 
+    /** Guards against feedback loops while seekbars/waveform sync each other. */
+    private boolean syncingRange = false;
+
     private List<String> photoUris = new ArrayList<>();
     private int slideMs = 3000;
     private int previewPhotoIndex = 0;
@@ -103,37 +117,20 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     private boolean     isPreviewing = false;
 
     private final Handler handler       = new Handler(Looper.getMainLooper());
-    private final Handler waveHandler   = new Handler(Looper.getMainLooper());
     private final Handler slideHandler  = new Handler(Looper.getMainLooper());
 
+    /** Ticks while previewing: stops playback at the trim end and drives the waveform playhead. */
     private final Runnable previewStopCheck = new Runnable() {
         @Override public void run() {
             if (mediaPlayer != null && isPreviewing) {
-                if (mediaPlayer.getCurrentPosition() >= endMs) {
+                int pos = mediaPlayer.getCurrentPosition();
+                if (waveformView != null) waveformView.setPlayheadMs(pos);
+                if (pos >= endMs) {
                     stopPreview();
                 } else {
-                    handler.postDelayed(this, 100);
+                    handler.postDelayed(this, 60);
                 }
             }
-        }
-    };
-
-    private final Runnable waveRunnable = new Runnable() {
-        @Override public void run() {
-            if (!isPreviewing || layoutWaveform == null) return;
-            java.util.Random rng = new java.util.Random();
-            for (int i = 0; i < layoutWaveform.getChildCount(); i++) {
-                View bar = layoutWaveform.getChildAt(i);
-                if ("wBar".equals(bar.getTag())) {
-                    int newH = (int)((8 + rng.nextInt(26))
-                        * getResources().getDisplayMetrics().density);
-                    LinearLayout.LayoutParams lp =
-                        (LinearLayout.LayoutParams) bar.getLayoutParams();
-                    lp.height = newH;
-                    bar.setLayoutParams(lp);
-                }
-            }
-            waveHandler.postDelayed(this, 100);
         }
     };
 
@@ -169,11 +166,12 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         if (initEnd > initStart) { startMs = initStart; endMs = initEnd; }
 
         bindViews();
+        setupWaveformPalette();
         populateInfo();
         showPhoto(0);
-        buildWaveform();
         loadAudio();
         setupSeekbars();
+        setupWaveformDrag();
         setupPresets();
         setupButtons();
     }
@@ -182,11 +180,14 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         btnBack         = findViewById(R.id.btn_trim_back);
         btnPreview      = findViewById(R.id.btn_trim_preview);
         btnUse          = findViewById(R.id.btn_trim_use);
+        btnUseBottom    = findViewById(R.id.btn_trim_use_bottom);
         tvTitle         = findViewById(R.id.tv_trim_title);
         tvStartTime     = findViewById(R.id.tv_trim_start_time);
         tvEndTime       = findViewById(R.id.tv_trim_end_time);
         tvDuration      = findViewById(R.id.tv_trim_total_duration);
         tvSelectedRange = findViewById(R.id.tv_trim_selected_range);
+        tvStartValue    = findViewById(R.id.tv_trim_start_value);
+        tvEndValue      = findViewById(R.id.tv_trim_end_value);
         tvTrackTitle    = findViewById(R.id.tv_trim_title_track);
         tvTrackArtist   = findViewById(R.id.tv_trim_artist);
         ivCover         = findViewById(R.id.iv_trim_cover);
@@ -194,7 +195,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         ivPlayHint      = findViewById(R.id.iv_preview_play_hint);
         sbStart         = findViewById(R.id.sb_trim_start);
         sbEnd           = findViewById(R.id.sb_trim_end);
-        layoutWaveform  = findViewById(R.id.layout_trim_waveform);
+        waveformView    = findViewById(R.id.waveform_trim_view);
         rgPresets       = findViewById(R.id.rg_trim_presets);
         progressLoad    = findViewById(R.id.progress_trim_load);
         layoutControls  = findViewById(R.id.layout_trim_controls);
@@ -204,10 +205,26 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         if (ivPlayHint      != null) ivPlayHint.setOnClickListener(togglePreviewClick);
     }
 
+    /**
+     * Resolves the waveform's Canvas-drawn colors from the day/night-aware
+     * @color/trim_* resources so it matches the rest of the (XML-themed)
+     * screen in both light and dark mode.
+     */
+    private void setupWaveformPalette() {
+        if (waveformView == null) return;
+        int dim       = ContextCompat.getColor(this, R.color.trim_waveform_dim);
+        int start     = ContextCompat.getColor(this, R.color.trim_gradient_start);
+        int end       = ContextCompat.getColor(this, R.color.trim_gradient_end);
+        int playhead  = ContextCompat.getColor(this, R.color.trim_text_primary);
+        int tooltipBg = ContextCompat.getColor(this, R.color.trim_tooltip_bg);
+        int tooltipTx = ContextCompat.getColor(this, R.color.trim_tooltip_text);
+        waveformView.setPalette(dim, start, end, playhead, tooltipBg, tooltipTx);
+    }
+
     private void populateInfo() {
         if (tvTitle != null) tvTitle.setText("Adjust Music");
         if (tvTrackTitle != null)
-            tvTrackTitle.setText(soundTitle != null && !soundTitle.isEmpty() ? soundTitle : "Track");
+            tvTrackTitle.setText(soundTitle != null && !soundTitle.isEmpty() ? soundTitle : "Original audio");
         if (tvTrackArtist != null)
             tvTrackArtist.setText(soundArtist != null && !soundArtist.isEmpty() ? soundArtist : "—");
         if (ivCover != null && soundCover != null && !soundCover.isEmpty()) {
@@ -217,7 +234,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         }
         updateTimeLabels();
         if (totalDurationMs > 0 && tvDuration != null)
-            tvDuration.setText("Total: " + msToTime(totalDurationMs));
+            tvDuration.setText(msToTime(totalDurationMs));
     }
 
     private void showPhoto(int index) {
@@ -227,25 +244,6 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         Glide.with(this).load(Uri.parse(uriStr))
             .transition(DrawableTransitionOptions.withCrossFade())
             .into(ivPhotoPreview);
-    }
-
-    private void buildWaveform() {
-        if (layoutWaveform == null) return;
-        layoutWaveform.removeAllViews();
-        float dpL = getResources().getDisplayMetrics().density;
-        int barW = (int)(4 * dpL), gap = (int)(2 * dpL);
-        java.util.Random rng = new java.util.Random();
-        for (int b = 0; b < 48; b++) {
-            View bar = new View(this);
-            int h = (int)((8 + rng.nextInt(26)) * dpL);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(barW, h);
-            lp.setMargins(gap, 0, gap, 0);
-            lp.gravity = android.view.Gravity.BOTTOM;
-            bar.setLayoutParams(lp);
-            bar.setBackgroundColor(0x55FFFFFF);
-            bar.setTag("wBar");
-            layoutWaveform.addView(bar);
-        }
     }
 
     private void loadAudio() {
@@ -264,9 +262,13 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
                     if (totalDurationMs <= 0) {
                         totalDurationMs = mp.getDuration();
                         if (tvDuration != null)
-                            tvDuration.setText("Total: " + msToTime(totalDurationMs));
+                            tvDuration.setText(msToTime(totalDurationMs));
                     }
                     endMs = Math.min(endMs, totalDurationMs);
+                    if (waveformView != null) {
+                        waveformView.setDurationMs(totalDurationMs);
+                        waveformView.generateAmplitudes(soundId != null ? soundId : soundUrl);
+                    }
                     setupSeekbarsRange();
                     updateTimeLabels();
                     if (progressLoad   != null) progressLoad.setVisibility(View.GONE);
@@ -291,11 +293,12 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         if (totalDurationMs > 0) setupSeekbarsRange();
 
         sbStart.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int p, boolean u) {
+            @Override public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
+                if (syncingRange) return;
                 startMs = p;
                 if (startMs >= endMs - 1000) {
                     startMs = Math.max(0, endMs - 1000);
-                    sbStart.setProgress(startMs);
+                    sb.setProgress(startMs);
                 }
                 updateTimeLabels();
             }
@@ -304,11 +307,12 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         });
 
         sbEnd.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int p, boolean u) {
+            @Override public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
+                if (syncingRange) return;
                 endMs = p;
                 if (endMs <= startMs + 1000) {
                     endMs = Math.min(totalDurationMs, startMs + 1000);
-                    sbEnd.setProgress(endMs);
+                    sb.setProgress(endMs);
                 }
                 updateTimeLabels();
             }
@@ -319,10 +323,30 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
 
     private void setupSeekbarsRange() {
         if (sbStart == null || sbEnd == null || totalDurationMs <= 0) return;
+        syncingRange = true;
         sbStart.setMax(totalDurationMs);
         sbStart.setProgress(startMs);
         sbEnd.setMax(totalDurationMs);
         sbEnd.setProgress(Math.min(endMs, totalDurationMs));
+        syncingRange = false;
+    }
+
+    /** Wires the draggable waveform's handles to the same startMs/endMs state as the seekbars. */
+    private void setupWaveformDrag() {
+        if (waveformView == null) return;
+        waveformView.setOnRangeChangeListener(new AudioTrimWaveformView.OnRangeChangeListener() {
+            @Override public void onRangeChanging(int newStart, int newEnd, boolean isStartHandle) {
+                if (isPreviewing) stopPreview();
+                startMs = newStart;
+                endMs   = newEnd;
+                updateTimeLabels();
+            }
+            @Override public void onRangeChangeFinished(int newStart, int newEnd) {
+                startMs = newStart;
+                endMs   = newEnd;
+                updateTimeLabels();
+            }
+        });
     }
 
     private void setupPresets() {
@@ -356,9 +380,10 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     }
 
     private void setupButtons() {
-        if (btnBack    != null) btnBack.setOnClickListener(v -> finish());
-        if (btnPreview != null) btnPreview.setOnClickListener(v -> togglePreview());
-        if (btnUse     != null) btnUse.setOnClickListener(v -> useSelection());
+        if (btnBack      != null) btnBack.setOnClickListener(v -> finish());
+        if (btnPreview    != null) btnPreview.setOnClickListener(v -> togglePreview());
+        if (btnUse        != null) btnUse.setOnClickListener(v -> useSelection());
+        if (btnUseBottom  != null) btnUseBottom.setOnClickListener(v -> useSelection());
     }
 
     private void togglePreview() {
@@ -377,8 +402,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
             isPreviewing = true;
             if (btnPreview != null) btnPreview.setImageResource(R.drawable.ic_pause);
             if (ivPlayHint != null) ivPlayHint.setVisibility(View.GONE);
-            handler.postDelayed(previewStopCheck, 100);
-            waveHandler.post(waveRunnable);
+            handler.postDelayed(previewStopCheck, 60);
             previewPhotoIndex = 0;
             showPhoto(previewPhotoIndex);
             if (photoUris.size() > 1) slideHandler.postDelayed(slideRunnable, slideMs);
@@ -394,10 +418,9 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         isPreviewing = false;
         if (btnPreview != null) btnPreview.setImageResource(R.drawable.ic_play);
         if (ivPlayHint != null) ivPlayHint.setVisibility(View.VISIBLE);
+        if (waveformView != null) waveformView.setPlayheadMs(-1);
         handler.removeCallbacks(previewStopCheck);
-        waveHandler.removeCallbacks(waveRunnable);
         slideHandler.removeCallbacks(slideRunnable);
-        buildWaveform();
     }
 
     private void useSelection() {
@@ -418,12 +441,30 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         if (tvStartTime     != null) tvStartTime.setText(msToTime(startMs));
         if (tvEndTime       != null) tvEndTime.setText(msToTime(endMs));
         if (tvSelectedRange != null)
-            tvSelectedRange.setText("Selected: " + msToTime(Math.max(0, endMs - startMs)));
+            tvSelectedRange.setText("Selected: " + msToTime(startMs) + " – " + msToTime(endMs));
+        if (tvStartValue    != null) tvStartValue.setText(msToTimeTenths(startMs));
+        if (tvEndValue       != null) tvEndValue.setText(msToTimeTenths(endMs));
+
+        // Keep the seekbars and the draggable waveform in lockstep with whichever
+        // control the user just moved, without re-triggering each other's listeners.
+        syncingRange = true;
+        if (sbStart != null && sbStart.getProgress() != startMs) sbStart.setProgress(startMs);
+        if (sbEnd   != null && sbEnd.getProgress()   != endMs)   sbEnd.setProgress(endMs);
+        syncingRange = false;
+        if (waveformView != null) waveformView.setRangeMs(startMs, endMs);
     }
 
     private static String msToTime(int ms) {
         int totalSec = ms / 1000;
         return String.format(Locale.US, "%d:%02d", totalSec / 60, totalSec % 60);
+    }
+
+    /** Same as msToTime but with a tenths-of-a-second digit, e.g. "0:01.2". */
+    private static String msToTimeTenths(int ms) {
+        int totalTenths = ms / 100;
+        int sec = totalTenths / 10;
+        int tenth = totalTenths % 10;
+        return String.format(Locale.US, "%d:%02d.%d", sec / 60, sec % 60, tenth);
     }
 
     @Override
@@ -436,7 +477,6 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
-        waveHandler.removeCallbacksAndMessages(null);
         slideHandler.removeCallbacksAndMessages(null);
         if (mediaPlayer != null) {
             try { mediaPlayer.stop(); } catch (Exception ignored) {}

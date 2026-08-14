@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bottom control-panel background — rounded top corners, adapts to light/dark
+     mode via @color/trim_card_bg (values / values-night). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/trim_card_bg"/>
+    <corners
+        android:topLeftRadius="20dp"
+        android:topRightRadius="20dp"
+        android:bottomLeftRadius="0dp"
+        android:bottomRightRadius="0dp"/>
+</shape>

@@ -1428,17 +1428,12 @@ public class MessagePagingAdapter
                     new com.callx.app.conversation.canvas.MessageBubbleCanvasView(parent.getContext());
             RecyclerView.LayoutParams cvLp = new RecyclerView.LayoutParams(
                     RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT);
-            // FIX: item_message_sent/received.xml gives every legacy bubble
-            // row 4dp top + 4dp bottom padding (= 8dp WhatsApp-style gap
-            // between consecutive bubbles). The canvas path builds this
-            // View programmatically with no margin at all, so canvas
-            // bubbles were rendering flush against each other — restore
-            // the same 4dp/4dp via RecyclerView item margins instead
-            // (onMeasure's totalHeight has no room for outer spacing, so
-            // margin — not padding — is the right lever here).
-            int vGap = Math.round(4 * parent.getContext().getResources().getDisplayMetrics().density);
-            cvLp.topMargin = vGap;
-            cvLp.bottomMargin = vGap;
+            // Placeholder margins for the very first measure pass — real
+            // values are set per-position in onBindViewHolder (see
+            // applyGroupedSpacing()) since grouping depends on the
+            // neighboring message, which isn't known at creation/recycle
+            // time. Recycled views always get rebound before layout, so
+            // this initial value is never actually visible.
             cv.setLayoutParams(cvLp);
             cv.setSaveEnabled(false);
             VH vh = new VH(cv);
@@ -1606,6 +1601,7 @@ public class MessagePagingAdapter
         // getItemViewType's TYPE_CANVAS_SENT/RECEIVED routing actually
         // takes effect for them (status_seen/reel_seen/view_once included).
         if (h.canvasView != null) {
+            applyGroupedSpacing(h, position, m);
             bindCanvasMessage(h, m);
             return;
         }
@@ -2045,7 +2041,53 @@ public class MessagePagingAdapter
      * as the plain-text placeholder regardless of its original type.
      * Every other shape is filtered out before a holder ever gets here.
      */
-    private void bindCanvasMessage(@NonNull VH h, @NonNull Message m) {
+    /**
+     * TELEGRAM-STYLE GROUPING: consecutive messages from the same sender
+     * (with no date-separator/system row between them) sit close together
+     * — only a conversation "turn" (sender change or a date boundary) gets
+     * the full gap. Previously every bubble got a fixed 4dp/4dp margin
+     * regardless of neighbors, which is the "every message is its own
+     * pill, evenly spaced" look. Must run per-bind (not at view creation)
+     * since grouping depends on the neighboring item, and recycled views
+     * are rebound to a different position on every reuse.
+     */
+    private void applyGroupedSpacing(@NonNull VH h, int position, @NonNull Message m) {
+        View v = h.canvasView;
+        ViewGroup.LayoutParams raw = v.getLayoutParams();
+        if (!(raw instanceof RecyclerView.LayoutParams)) return;
+        RecyclerView.LayoutParams lp = (RecyclerView.LayoutParams) raw;
+
+        float density = v.getContext().getResources().getDisplayMetrics().density;
+        int tightGap = Math.round(1.5f * density); // within a group
+        int fullGap  = Math.round(6f * density);   // between groups/turns
+        int bottomGap = Math.round(1.5f * density); // small fixed trailer; next item's topMargin does the real work
+
+        boolean grouped = isGroupedWithPrevious(position, m);
+        int newTop = grouped ? tightGap : fullGap;
+        if (lp.topMargin != newTop || lp.bottomMargin != bottomGap) {
+            lp.topMargin = newTop;
+            lp.bottomMargin = bottomGap;
+            v.setLayoutParams(lp);
+        }
+    }
+
+    /** True if `m` should visually group with the message immediately above it. */
+    private boolean isGroupedWithPrevious(int position, @NonNull Message m) {
+        if (m.senderId == null || isNonGroupingRow(m.type)) return false;
+        Message prev;
+        try { prev = getItem(position - 1); } catch (Exception e) { return false; }
+        if (prev == null || prev.senderId == null || isNonGroupingRow(prev.type)) return false;
+        return prev.senderId.equals(m.senderId);
+    }
+
+    /** System/utility rows never group with their neighbors — always full gap. */
+    private boolean isNonGroupingRow(String type) {
+        return "date_separator".equals(type) || "security_event".equals(type)
+                || "status_seen".equals(type) || "reel_seen".equals(type)
+                || "view_once".equals(type);
+    }
+
+
         final Context ctx = h.itemView.getContext();
         final com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
         final int myToken = ++h.canvasBindToken;
