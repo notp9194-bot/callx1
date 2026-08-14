@@ -5,6 +5,7 @@ import com.callx.app.camera.ReelCameraActivity;
 import com.callx.app.editor.ReelEditorActivity;
 import com.callx.app.social.MultiDuetActivity;
 import com.callx.app.editor.ReelAudioMixerActivity;
+import com.callx.app.editor.ReelPhotoMusicTrimActivity;
 import com.callx.app.music.SoundDetailActivity;
 
 import android.util.Log;
@@ -131,6 +132,8 @@ public class ReelUploadActivity extends AppCompatActivity {
     private static final int REQ_AUDIO_MIXER_UPLOAD  = 907;
     /** ✅ NEW: open SoundDetailActivity for the currently selected sound */
     private static final int REQ_SOUND_DETAIL_UPLOAD = 908;
+    /** NEW: open ReelPhotoMusicTrimActivity to adjust the trimmed range for a photo-reel track */
+    private static final int REQ_PHOTO_MUSIC_TRIM     = 909;
     private static final int MAX_PHOTOS              = 10;
     /** Minimum reels-using-this-sound count before it's flagged "🔥 Trending". */
     private static final long TRENDING_REEL_THRESHOLD = 5L;
@@ -1263,17 +1266,63 @@ public class ReelUploadActivity extends AppCompatActivity {
             String pickedTitle  = data.getStringExtra(com.callx.app.music.ReelTrendingAudioActivity.RESULT_AUDIO_TITLE);
             String pickedArtist = data.getStringExtra(com.callx.app.music.ReelTrendingAudioActivity.RESULT_AUDIO_ARTIST);
             String pickedUrl    = data.getStringExtra(com.callx.app.music.ReelTrendingAudioActivity.RESULT_AUDIO_URL);
+            String pickedCover  = data.getStringExtra(com.callx.app.music.ReelTrendingAudioActivity.RESULT_COVER_URL);
             if (pickedUrl != null && !pickedUrl.isEmpty()) {
-                preSelectedSoundUrl   = pickedUrl;
-                preSelectedSoundId    = pickedId    != null ? pickedId    : "";
-                currentSoundTitle     = pickedTitle != null ? pickedTitle : "";
-                currentSoundArtist    = pickedArtist!= null ? pickedArtist: "";
-                // Reset mix defaults when a brand-new track is chosen
+                if (isPhotoMode && !selectedPhotoUris.isEmpty()) {
+                    // Photo reels: let the user preview the reel + trim exactly how much
+                    // of the track to use before it's applied, instead of defaulting to
+                    // the start of the track.
+                    ArrayList<String> uriStrs = new ArrayList<>();
+                    for (Uri u : selectedPhotoUris) uriStrs.add(u.toString());
+                    ReelPhotoMusicTrimActivity.start(
+                        this, uriStrs, selectedDurationMs,
+                        pickedId    != null ? pickedId    : "",
+                        pickedTitle != null ? pickedTitle : "",
+                        pickedArtist!= null ? pickedArtist: "",
+                        pickedUrl,
+                        pickedCover != null ? pickedCover : "",
+                        0, 0, 0,
+                        REQ_PHOTO_MUSIC_TRIM);
+                } else {
+                    preSelectedSoundUrl   = pickedUrl;
+                    preSelectedSoundId    = pickedId    != null ? pickedId    : "";
+                    currentSoundTitle     = pickedTitle != null ? pickedTitle : "";
+                    currentSoundArtist    = pickedArtist!= null ? pickedArtist: "";
+                    preSelectedSoundCover = pickedCover != null ? pickedCover : "";
+                    // Reset mix defaults when a brand-new track is chosen
+                    mixMusicVol  = 0.8f;
+                    mixFadeInMs  = 0;
+                    mixFadeOutMs = 0;
+                    musicStartMs = 0;
+                    musicEndMs   = 0;
+                    if (etMusic != null) etMusic.setText(currentSoundTitle);
+                    updateAudioUI();
+                    Toast.makeText(this, "Sound added: " + currentSoundTitle, Toast.LENGTH_SHORT).show();
+                }
+            }
+            return;
+        }
+
+        // ── REQ_PHOTO_MUSIC_TRIM: user previewed the reel and trimmed the track ──
+        if (requestCode == REQ_PHOTO_MUSIC_TRIM && resultCode == Activity.RESULT_OK && data != null) {
+            String rUrl    = data.getStringExtra(ReelPhotoMusicTrimActivity.RESULT_SOUND_URL);
+            String rId     = data.getStringExtra(ReelPhotoMusicTrimActivity.RESULT_SOUND_ID);
+            String rTitle  = data.getStringExtra(ReelPhotoMusicTrimActivity.RESULT_SOUND_TITLE);
+            String rArtist = data.getStringExtra(ReelPhotoMusicTrimActivity.RESULT_SOUND_ARTIST);
+            String rCover  = data.getStringExtra(ReelPhotoMusicTrimActivity.RESULT_SOUND_COVER);
+            int    rStart  = data.getIntExtra(ReelPhotoMusicTrimActivity.RESULT_START_MS, 0);
+            int    rEnd    = data.getIntExtra(ReelPhotoMusicTrimActivity.RESULT_END_MS, 0);
+            if (rUrl != null && !rUrl.isEmpty()) {
+                preSelectedSoundUrl   = rUrl;
+                preSelectedSoundId    = rId     != null ? rId     : "";
+                currentSoundTitle     = rTitle  != null ? rTitle  : "";
+                currentSoundArtist    = rArtist != null ? rArtist : "";
+                preSelectedSoundCover = rCover  != null ? rCover  : "";
+                musicStartMs = rStart;
+                musicEndMs   = rEnd;
                 mixMusicVol  = 0.8f;
                 mixFadeInMs  = 0;
                 mixFadeOutMs = 0;
-                musicStartMs = 0;
-                musicEndMs   = 0;
                 if (etMusic != null) etMusic.setText(currentSoundTitle);
                 updateAudioUI();
                 Toast.makeText(this, "Sound added: " + currentSoundTitle, Toast.LENGTH_SHORT).show();
