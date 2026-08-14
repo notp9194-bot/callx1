@@ -181,12 +181,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         btnPreview      = findViewById(R.id.btn_trim_preview);
         btnUse          = findViewById(R.id.btn_trim_use);
         tvTitle         = findViewById(R.id.tv_trim_title);
-        tvStartTime     = findViewById(R.id.tv_trim_start_time);
-        tvEndTime       = findViewById(R.id.tv_trim_end_time);
         tvDuration      = findViewById(R.id.tv_trim_total_duration);
-        tvSelectedRange = findViewById(R.id.tv_trim_selected_range);
-        tvStartValue    = findViewById(R.id.tv_trim_start_value);
-        tvEndValue      = findViewById(R.id.tv_trim_end_value);
         tvTrackTitle    = findViewById(R.id.tv_trim_title_track);
         tvTrackArtist   = findViewById(R.id.tv_trim_artist);
         ivCover         = findViewById(R.id.iv_trim_cover);
