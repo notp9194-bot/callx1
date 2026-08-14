@@ -220,8 +220,9 @@ public class AudioMixHelper {
                 short[] pcmB = extractPcmFromFile(fileB.getAbsolutePath(), Integer.MAX_VALUE, 0);
                 mainHandler.post(() -> callback.onProgress(58));
 
-                // ── 3. Optional pitch shift on B — done BEFORE length-matching
-                //    since resampling changes the sample count. ────────────────
+                // ── 3. Optional pitch shift on B — pitchShiftPcm() preserves
+                //    pcmB's sample count exactly, so this can safely run either
+                //    before or after length-matching. Kept before for clarity. ──
                 if (Math.abs(pitchSemitonesB) > 0.01f) pcmB = pitchShiftPcm(pcmB, pitchSemitonesB);
                 mainHandler.post(() -> callback.onProgress(63));
 
@@ -297,11 +298,12 @@ public class AudioMixHelper {
             if (mus.length > 0 && mic.length > 0)
                 mus = mus.length < mic.length ? loopPcm(mus, mic.length)
                                               : java.util.Arrays.copyOf(mus, mic.length);
+            // pitchShiftPcm() now preserves the exact input sample count (see its
+            // javadoc), so mus already matches mic.length after this call — no
+            // destructive re-loop/trim needed, which is exactly what was washing
+            // the pitch effect out before.
             if (Math.abs(cfg.pitchSemitones) > 0.01f) {
                 mus = pitchShiftPcm(mus, cfg.pitchSemitones);
-                if (mus.length != mic.length)
-                    mus = mus.length < mic.length ? loopPcm(mus, mic.length)
-                                                  : java.util.Arrays.copyOf(mus, mic.length);
             }
             if (cfg.normalize) mus = normalizePcm(mus);
             if (cfg.fadeInMs > 0 || cfg.fadeOutMs > 0)
@@ -336,9 +338,113 @@ public class AudioMixHelper {
         return out;
     }
 
+    /**
+     * Duration-preserving pitch shift.
+     *
+     * OLD BEHAVIOUR (buggy): delegated straight to resamplePcm(), which changes
+     * pitch AND playback speed/duration together (that's just what resampling is).
+     * Callers then forcibly re-looped/trimmed the result back to the original
+     * sample count to keep it in sync with the video — that re-loop/trim is a
+     * destructive length-fit, not a pitch-preserving operation, so most of the
+     * shifted pitch got chopped/repeated away. Result: audible in the live
+     * PlaybackParams-based preview (which does true duration-preserving pitch
+     * shift) but barely audible in the exported file.
+     *
+     * NEW BEHAVIOUR: classic two-stage granular pitch shift that keeps duration
+     * fixed from the start, so no destructive length-fit is ever needed after it:
+     *   1) timeStretchOla()  — Hann-windowed overlap-add grain resynthesis that
+     *      stretches/compresses the signal to length*rate while preserving the
+     *      original pitch (this is the "grain-based overlap-add" step).
+     *   2) resampleToLength() — linear-interpolation resample of that stretched
+     *      signal back down/up to the ORIGINAL sample count. Resampling a
+     *      stretched signal back to the original length is what actually shifts
+     *      the pitch by `rate`, while net duration stays exactly the same as the
+     *      input (stretch by rate, then resample by rate = duration unchanged).
+     */
     private static short[] pitchShiftPcm(short[] in, float sem) {
-        if (Math.abs(sem)<0.01f||in==null||in.length==0) return in;
-        return resamplePcm(in, (int)(44100*Math.pow(2.0, sem/12.0)), 44100);
+        if (Math.abs(sem) < 0.01f || in == null || in.length == 0) return in;
+        float rate = (float) Math.pow(2.0, sem / 12.0);
+        int originalLen = in.length;
+        short[] stretched = timeStretchOla(in, rate);
+        return resampleToLength(stretched, originalLen);
+    }
+
+    /**
+     * Hann-windowed overlap-add (OLA) time-stretch.
+     * Reads grains from {@code in} advancing at {@code hopIn}, writes them
+     * (crossfaded via a Hann window) advancing at a fixed {@code hopOut}.
+     * Output length ≈ in.length * stretchFactor, with pitch/timbre preserved —
+     * this is the pitch-preserving stage of the two-stage pitch shifter above.
+     */
+    private static short[] timeStretchOla(short[] in, float stretchFactor) {
+        if (in == null || in.length == 0) return in;
+
+        final int grain  = 2048;      // ~46ms grains @ 44100Hz — good for voice+music
+        final int hopOut = grain / 4; // 75% overlap → smooth Hann crossfade
+        // Output length ≈ in.length * stretchFactor: to make grains appear at a
+        // fixed hopOut cadence in the OUTPUT while covering stretchFactor times
+        // as much output per unit of input, we must read the INPUT slower —
+        // hence dividing (not multiplying) by stretchFactor here.
+        int hopIn = Math.max(1, Math.round(hopOut / stretchFactor));
+
+        int estGrains = (int) (in.length / (float) hopIn) + 2;
+        int outCapacity = estGrains * hopOut + grain;
+
+        float[] window = new float[grain];
+        for (int i = 0; i < grain; i++) {
+            window[i] = 0.5f - 0.5f * (float) Math.cos(2.0 * Math.PI * i / (grain - 1));
+        }
+
+        float[] accum  = new float[outCapacity];
+        float[] weight = new float[outCapacity];
+
+        int readPos = 0, writePos = 0;
+        while (readPos < in.length) {
+            int end = Math.min(grain, in.length - readPos);
+            for (int i = 0; i < end; i++) {
+                float w = window[i];
+                int outIdx = writePos + i;
+                if (outIdx < accum.length) {
+                    accum[outIdx]  += in[readPos + i] * w;
+                    weight[outIdx] += w;
+                }
+            }
+            readPos  += hopIn;
+            writePos += hopOut;
+        }
+
+        int outLen = Math.min(writePos + grain, accum.length);
+        short[] out = new short[outLen];
+        for (int i = 0; i < outLen; i++) {
+            float w = weight[i];
+            float v = w > 0.0001f ? accum[i] / w : 0f;
+            out[i] = (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, v));
+        }
+        return out;
+    }
+
+    /**
+     * Linear-interpolation resample of {@code input} to EXACTLY {@code targetLen}
+     * samples (as opposed to resamplePcm(), which targets a rate ratio and lets
+     * the output length fall out of that ratio). Used as the second stage of
+     * pitchShiftPcm() so the final pitch-shifted track always comes back to
+     * precisely the original sample count — no separate loop/trim pass needed.
+     */
+    private static short[] resampleToLength(short[] input, int targetLen) {
+        if (targetLen <= 0) return new short[0];
+        if (input == null || input.length == 0) return new short[targetLen];
+        if (input.length == targetLen) return input;
+
+        short[] output = new short[targetLen];
+        float ratio = (float) (input.length - 1) / Math.max(1, targetLen - 1);
+        for (int i = 0; i < targetLen; i++) {
+            float srcPos = i * ratio;
+            int idx0 = (int) srcPos;
+            int idx1 = Math.min(idx0 + 1, input.length - 1);
+            float frac = srcPos - idx0;
+            output[i] = (short) (input[idx0] * (1f - frac) + input[idx1] * frac);
+        }
+        return output;
     }
 
     private static short[] normalizePcm(short[] in) {
