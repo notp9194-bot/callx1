@@ -43,6 +43,10 @@
         android:title="⚙️ Settings"
         app:showAsAction="never"/>
 
+    <item android:id="@+id/action_payments"
+        android:title="Payments"
+        app:showAsAction="never"/>
+
     <!-- About — chat tab pe hi dikhega. Kotlin AboutActivity kholta hai. -->
     <item android:id="@+id/action_about"
         android:title="ℹ️ About"

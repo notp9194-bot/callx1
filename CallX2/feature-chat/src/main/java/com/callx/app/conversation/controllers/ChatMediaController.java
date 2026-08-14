@@ -48,6 +48,7 @@ import com.callx.app.utils.VideoQualityPreferences;
 import com.callx.app.utils.VideoUploader;
 import com.callx.app.utils.VoiceRecorder;
 import com.callx.app.conversation.MultiMediaPreviewDialog;
+import com.callx.app.payments.ui.ChatPaymentBottomSheet;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 
 import java.util.concurrent.ExecutorService;
@@ -423,13 +424,18 @@ public class ChatMediaController {
         // Camera is now the first tile of the Recents grid (see setupRecentMedia /
         // AttachSheetRecentMediaBinder / RecentMediaGridAdapter) rather than a
         // separate opt_camera row.
-        // Payment / Event / AI images — new chips, backend flow not wired up yet.
-        // Kept as safe no-crash placeholders until those features ship.
+        // Payment opens the shared chat payment surface. The contact context is
+        // passed through when ChatActivity was launched with normal chat extras.
         View optPayment = v.findViewById(R.id.opt_payment);
         if (optPayment != null) {
             optPayment.setOnClickListener(x -> {
                 sheet.dismiss();
-                android.widget.Toast.makeText(activity, "Payments coming soon", android.widget.Toast.LENGTH_SHORT).show();
+                ChatPaymentBottomSheet.show(
+                        activity,
+                        activity.getIntent().getStringExtra("partnerUid"),
+                        activity.getIntent().getStringExtra("partnerName"),
+                        activity.getIntent().getStringExtra("chatId")
+                );
             });
         }
         View optEvent = v.findViewById(R.id.opt_event);

@@ -28,6 +28,7 @@ include ':feature-status'
 include ':feature-x'
 include ':feature-youtube'
 include ':feature-games'
+include ':feature-payments'
 
 // ── Performance: Macrobenchmark module ───────────────────────────────
 // Real device pe measured baseline profile generate karta hai.

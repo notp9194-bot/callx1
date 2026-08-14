@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity android:name=".ui.PaymentsHomeActivity" android:exported="false" />
+        <activity android:name=".ui.SendMoneyActivity" android:exported="false" />
+        <activity android:name=".ui.RequestMoneyActivity" android:exported="false" />
+        <activity android:name=".ui.ScanQrActivity" android:exported="false" />
+        <activity android:name=".ui.PaymentConfirmationActivity" android:exported="false" />
+        <activity android:name=".ui.PaymentResultActivity" android:exported="false" />
+        <activity android:name=".ui.TransactionHistoryActivity" android:exported="false" />
+        <activity android:name=".ui.TransactionDetailsActivity" android:exported="false" />
+        <activity android:name=".ui.BankAccountActivity" android:exported="false" />
+        <activity android:name=".ui.PinSetupActivity" android:exported="false" />
+        <activity android:name=".ui.PaymentSettingsActivity" android:exported="false" />
+    </application>
+</manifest>

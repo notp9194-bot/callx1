@@ -182,6 +182,7 @@ dependencies {
     implementation project(':feature-youtube')
     implementation project(':feature-status')
     implementation project(':feature-games')
+    implementation project(':feature-payments')
     implementation project(':patternlockview')
 
     // ── Baseline Profile: installs profile at app install time ────────

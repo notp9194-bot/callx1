@@ -1519,6 +1519,13 @@ public class MainActivity extends AppCompatActivity
             return true;
         }
 
+        if (id == R.id.action_payments) {
+            startActivity(new Intent(this,
+                    com.callx.app.payments.ui.PaymentsHomeActivity.class));
+            overridePendingTransition(0, 0);
+            return true;
+        }
+
         if (id == R.id.action_delete_all_chats) {
             // ChatsFragment ko reflect karo aur confirmDeleteAll() call karo
             try {

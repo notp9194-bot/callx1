@@ -53,9 +53,12 @@ import com.callx.app.db.entity.*;
         ChannelPostEntity.class,
         // Chat Folders + Saved Messages (v38) ──────────────────────
         ChatFolderEntity.class,
-        SavedMessageEntity.class
+        SavedMessageEntity.class,
+        PaymentTransactionEntity.class,
+        PaymentAccountEntity.class,
+        PaymentPinEntity.class
     },
-    version = 46,
+    version = 47,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -92,6 +95,9 @@ public abstract class AppDatabase extends RoomDatabase {
     // Chat Folders + Saved Messages (v38)
     public abstract ChatFolderDao              chatFolderDao();
     public abstract SavedMessageDao            savedMessageDao();
+    public abstract PaymentTransactionDao      paymentTransactionDao();
+    public abstract PaymentAccountDao          paymentAccountDao();
+    public abstract PaymentPinDao              paymentPinDao();
 
     // ─── Migrations ───────────────────────────────────────────────────────────
 
@@ -575,6 +581,32 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** v47: Payments foundation — local-first transaction and account cache. */
+    static final Migration MIGRATION_46_47 = new Migration(46, 47) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS payment_transactions (" +
+                    "id TEXT NOT NULL PRIMARY KEY, ownerUid TEXT NOT NULL, " +
+                    "counterpartyUid TEXT, counterpartyName TEXT, counterpartyUpi TEXT, " +
+                    "amountPaise INTEGER NOT NULL, currency TEXT NOT NULL DEFAULT 'INR', " +
+                    "type TEXT NOT NULL, note TEXT, status TEXT NOT NULL, " +
+                    "referenceId TEXT, chatId TEXT, direction TEXT NOT NULL, " +
+                    "createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_payment_transactions_ownerUid_createdAt " +
+                    "ON payment_transactions (ownerUid, createdAt)");
+            db.execSQL("CREATE TABLE IF NOT EXISTS payment_accounts (" +
+                    "id TEXT NOT NULL PRIMARY KEY, ownerUid TEXT NOT NULL, " +
+                    "bankName TEXT, maskedAccount TEXT, upiId TEXT, " +
+                    "isDefault INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL, " +
+                    "createdAt INTEGER NOT NULL)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_payment_accounts_ownerUid " +
+                    "ON payment_accounts (ownerUid)");
+            db.execSQL("CREATE TABLE IF NOT EXISTS payment_pins (" +
+                    "ownerUid TEXT NOT NULL PRIMARY KEY, configured INTEGER NOT NULL DEFAULT 0, " +
+                    "updatedAt INTEGER NOT NULL)");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     public static boolean isWarm() { return sInstance != null; }
@@ -613,7 +645,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_38_39, MIGRATION_39_40,
                                     MIGRATION_40_41, MIGRATION_41_42,
                                     MIGRATION_42_43, MIGRATION_43_44,
-                                    MIGRATION_44_45, MIGRATION_45_46)
+                                    MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)
