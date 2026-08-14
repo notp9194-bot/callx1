@@ -62,21 +62,11 @@
                 android:ellipsize="end"/>
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/btn_trim_use"
-            android:layout_width="wrap_content"
-            android:layout_height="40dp"
-            android:minWidth="56dp"
-            android:text="Done"
-            android:gravity="center"
-            android:paddingHorizontal="12dp"
-            android:background="@drawable/bg_trim_circle_btn"
-            android:textColor="@color/trim_gradient_start"
-            android:textSize="14sp"
-            android:fontFamily="sans-serif-medium"
-            android:clickable="true"
-            android:focusable="true"
-            android:contentDescription="Use selection"/>
+        <!-- Spacer to keep the title visually centered against the back button
+             now that Done has moved to the bottom action row. -->
+        <View
+            android:layout_width="40dp"
+            android:layout_height="40dp"/>
     </LinearLayout>
 
     <!-- Photo reel preview -->
@@ -272,129 +262,7 @@
                 android:paddingHorizontal="4dp"/>
         </FrameLayout>
 
-        <!-- Time labels -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="16dp">
-
-            <TextView
-                android:id="@+id/tv_trim_start_time"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="0:00"
-                android:textColor="@color/trim_text_muted"
-                android:textSize="12sp"/>
-
-            <TextView
-                android:id="@+id/tv_trim_selected_range"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Selected: 0:30"
-                android:textColor="@color/trim_gradient_start"
-                android:textSize="12sp"
-                android:fontFamily="sans-serif-medium"/>
-
-            <TextView
-                android:id="@+id/tv_trim_end_time"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="0:30"
-                android:textColor="@color/trim_text_muted"
-                android:textSize="12sp"
-                android:gravity="end"/>
-        </LinearLayout>
-
-        <!-- Start point seekbar -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="2dp">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Start"
-                android:textColor="@color/trim_text_secondary"
-                android:textSize="13sp"/>
-
-            <ImageView
-                android:layout_width="14dp"
-                android:layout_height="14dp"
-                android:src="@drawable/ic_clock_small"
-                android:layout_marginEnd="4dp"
-                android:contentDescription="Time"/>
-
-            <TextView
-                android:id="@+id/tv_trim_start_value"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="0:00.0"
-                android:textColor="@color/trim_gradient_start"
-                android:textSize="13sp"
-                android:fontFamily="sans-serif-medium"/>
-        </LinearLayout>
-
-        <SeekBar
-            android:id="@+id/sb_trim_start"
-            android:layout_width="match_parent"
-            android:layout_height="28dp"
-            android:progressDrawable="@drawable/trim_seekbar_track"
-            android:thumb="@drawable/trim_seekbar_thumb"
-            android:progressTint="@color/trim_gradient_start"
-            android:thumbTint="@color/trim_gradient_start"
-            android:layout_marginBottom="8dp"/>
-
-        <!-- End point seekbar -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="2dp">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="End"
-                android:textColor="@color/trim_text_secondary"
-                android:textSize="13sp"/>
-
-            <ImageView
-                android:layout_width="14dp"
-                android:layout_height="14dp"
-                android:src="@drawable/ic_clock_small"
-                android:layout_marginEnd="4dp"
-                android:contentDescription="Time"/>
-
-            <TextView
-                android:id="@+id/tv_trim_end_value"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="0:30.0"
-                android:textColor="@color/trim_gradient_end"
-                android:textSize="13sp"
-                android:fontFamily="sans-serif-medium"/>
-        </LinearLayout>
-
-        <SeekBar
-            android:id="@+id/sb_trim_end"
-            android:layout_width="match_parent"
-            android:layout_height="28dp"
-            android:progressDrawable="@drawable/trim_seekbar_track"
-            android:thumb="@drawable/trim_seekbar_thumb"
-            android:progressTint="@color/trim_gradient_end"
-            android:thumbTint="@color/trim_gradient_end"
-            android:layout_marginBottom="18dp"/>
-
-        <!-- Total duration chip -->
+        <!-- Bottom action row: Total duration (left) + Done (right) -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -402,12 +270,14 @@
             android:gravity="center_vertical">
 
             <LinearLayout
-                android:layout_width="match_parent"
+                android:layout_width="0dp"
                 android:layout_height="52dp"
+                android:layout_weight="1"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:background="@drawable/bg_trim_duration_chip"
-                android:paddingHorizontal="12dp">
+                android:paddingHorizontal="12dp"
+                android:layout_marginEnd="10dp">
 
                 <ImageButton
                     android:id="@+id/btn_trim_preview"
@@ -442,6 +312,22 @@
                         android:fontFamily="sans-serif-medium"/>
                 </LinearLayout>
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/btn_trim_use"
+                android:layout_width="wrap_content"
+                android:layout_height="52dp"
+                android:minWidth="100dp"
+                android:gravity="center"
+                android:paddingHorizontal="24dp"
+                android:text="Done"
+                android:textColor="#FFFFFFFF"
+                android:textSize="15sp"
+                android:fontFamily="sans-serif-medium"
+                android:background="@drawable/bg_trim_gradient_button_ripple"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="Use selection"/>
 
         </LinearLayout>
 
