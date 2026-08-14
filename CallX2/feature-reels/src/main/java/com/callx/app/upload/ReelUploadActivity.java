@@ -1287,37 +1287,27 @@ public class ReelUploadActivity extends AppCompatActivity {
             String pickedUrl    = data.getStringExtra(com.callx.app.music.ReelTrendingAudioActivity.RESULT_AUDIO_URL);
             String pickedCover  = data.getStringExtra(com.callx.app.music.ReelTrendingAudioActivity.RESULT_COVER_URL);
             if (pickedUrl != null && !pickedUrl.isEmpty()) {
+                // Let the user preview + trim exactly how much of the track to use
+                // before it's applied, instead of always defaulting to the start of
+                // the track. Photo reels pass their slideshow photos so the trim
+                // screen's live preview cycles through them; video reels pass an
+                // empty list — ReelPhotoMusicTrimActivity already no-ops its photo
+                // preview when the list is empty, so only the waveform trimmer +
+                // audio preview controls show, giving video-flow uploaders the same
+                // audio-adjust benefit photo reels already had.
+                ArrayList<String> uriStrs = new ArrayList<>();
                 if (isPhotoMode && !selectedPhotoUris.isEmpty()) {
-                    // Photo reels: let the user preview the reel + trim exactly how much
-                    // of the track to use before it's applied, instead of defaulting to
-                    // the start of the track.
-                    ArrayList<String> uriStrs = new ArrayList<>();
                     for (Uri u : selectedPhotoUris) uriStrs.add(u.toString());
-                    ReelPhotoMusicTrimActivity.start(
-                        this, uriStrs, selectedDurationMs,
-                        pickedId    != null ? pickedId    : "",
-                        pickedTitle != null ? pickedTitle : "",
-                        pickedArtist!= null ? pickedArtist: "",
-                        pickedUrl,
-                        pickedCover != null ? pickedCover : "",
-                        0, 0, 0,
-                        REQ_PHOTO_MUSIC_TRIM);
-                } else {
-                    preSelectedSoundUrl   = pickedUrl;
-                    preSelectedSoundId    = pickedId    != null ? pickedId    : "";
-                    currentSoundTitle     = pickedTitle != null ? pickedTitle : "";
-                    currentSoundArtist    = pickedArtist!= null ? pickedArtist: "";
-                    preSelectedSoundCover = pickedCover != null ? pickedCover : "";
-                    // Reset mix defaults when a brand-new track is chosen
-                    mixMusicVol  = 0.8f;
-                    mixFadeInMs  = 0;
-                    mixFadeOutMs = 0;
-                    musicStartMs = 0;
-                    musicEndMs   = 0;
-                    if (etMusic != null) etMusic.setText(currentSoundTitle);
-                    updateAudioUI();
-                    Toast.makeText(this, "Sound added: " + currentSoundTitle, Toast.LENGTH_SHORT).show();
                 }
+                ReelPhotoMusicTrimActivity.start(
+                    this, uriStrs, selectedDurationMs,
+                    pickedId    != null ? pickedId    : "",
+                    pickedTitle != null ? pickedTitle : "",
+                    pickedArtist!= null ? pickedArtist: "",
+                    pickedUrl,
+                    pickedCover != null ? pickedCover : "",
+                    0, 0, 0,
+                    REQ_PHOTO_MUSIC_TRIM);
             }
             return;
         }

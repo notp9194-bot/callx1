@@ -277,17 +277,29 @@ public class AudioTrimWaveformView extends View {
         return Color.argb(a, r, g, b);
     }
 
+    /**
+     * Horizontal inset reserved on both edges so the round "+" handles
+     * (radius handleRadiusPx) always draw fully inside the view's bounds
+     * instead of getting clipped in half when a handle sits at ms=0 or
+     * ms=durationMs. Without this, the left handle's "+" circle used to
+     * stick half-off the left edge (and the right one off the right edge).
+     */
+    private float edgeInsetPx() { return handleRadiusPx; }
+
     private float xForMs(int ms) {
         if (durationMs <= 0) return 0;
+        float inset = edgeInsetPx();
+        float usableW = Math.max(0f, getWidth() - inset * 2f);
         float ratio = (float) ms / (float) durationMs;
         ratio = Math.max(0f, Math.min(1f, ratio));
-        return ratio * getWidth();
+        return inset + ratio * usableW;
     }
 
     private int msForX(float x) {
-        int w = getWidth();
-        if (w <= 0) return 0;
-        float ratio = Math.max(0f, Math.min(1f, x / w));
+        float inset = edgeInsetPx();
+        float usableW = Math.max(0f, getWidth() - inset * 2f);
+        if (usableW <= 0) return 0;
+        float ratio = Math.max(0f, Math.min(1f, (x - inset) / usableW));
         return Math.round(ratio * durationMs);
     }
 

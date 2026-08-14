@@ -240,7 +240,19 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     }
 
     private void showPhoto(int index) {
-        if (ivPhotoPreview == null || photoUris.isEmpty()) return;
+        if (ivPhotoPreview == null) return;
+        if (photoUris.isEmpty()) {
+            // Video-reel flow: no slideshow photos to cycle through, so fall back
+            // to the track's own cover art instead of leaving the preview card
+            // blank — this screen is also opened from the video upload flow now
+            // (audio trim only, no photo preview to cycle).
+            if (soundCover != null && !soundCover.isEmpty()) {
+                Glide.with(this).load(soundCover)
+                    .transition(DrawableTransitionOptions.withCrossFade())
+                    .into(ivPhotoPreview);
+            }
+            return;
+        }
         if (index < 0 || index >= photoUris.size()) index = 0;
         String uriStr = photoUris.get(index);
         Glide.with(this).load(Uri.parse(uriStr))
@@ -438,6 +450,10 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         endMs   = 30_000;
 
         populateInfo();
+        // Refresh the preview cover art too — matters when there are no
+        // slideshow photos (video-reel flow), since showPhoto() falls back
+        // to soundCover, which just changed.
+        showPhoto(previewPhotoIndex);
         loadAudio();
         setupPresets();
     }

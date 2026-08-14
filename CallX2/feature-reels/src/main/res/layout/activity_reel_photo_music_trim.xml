@@ -215,7 +215,7 @@
                 android:fontFamily="sans-serif-medium"
                 android:background="@drawable/selector_trim_chip_bg"
                 android:button="@drawable/selector_trim_chip_check"
-                android:paddingStart="10dp"
+                android:paddingStart="18dp"
                 android:drawablePadding="6dp"/>
 
             <RadioButton
@@ -231,7 +231,7 @@
                 android:fontFamily="sans-serif-medium"
                 android:background="@drawable/selector_trim_chip_bg"
                 android:button="@drawable/selector_trim_chip_check"
-                android:paddingStart="10dp"
+                android:paddingStart="18dp"
                 android:drawablePadding="6dp"
                 android:checked="true"/>
 
@@ -247,7 +247,7 @@
                 android:fontFamily="sans-serif-medium"
                 android:background="@drawable/selector_trim_chip_bg"
                 android:button="@drawable/selector_trim_chip_check"
-                android:paddingStart="10dp"
+                android:paddingStart="18dp"
                 android:drawablePadding="6dp"/>
         </RadioGroup>
 
