@@ -141,11 +141,32 @@ public class NewStatusActivity extends AppCompatActivity {
     private LinearLayout stickerSizeBar;
     private com.callx.app.stickers.StatusStickerOverlayView selectedSticker;
 
+    // ── Four-step status composer ──────────────────────────────────────────
+    // The existing status controls stay intact; the wizard only changes their
+    // containers and navigation so every existing upload/post path keeps using
+    // the same bound views.
+    private android.widget.ViewFlipper stepFlipper;
+    private androidx.core.widget.NestedScrollView stepScrollContainer;
+    private TextView tvStepTitle;
+    private ProgressBar progressStep;
+    private com.google.android.material.button.MaterialButton btnStepBack;
+    private com.google.android.material.button.MaterialButton btnStepNext;
+    private TextView[] stepDots;
+    private TextView reviewSummary;
+    private int currentStep = 0;
+    private static final String[] STEP_TITLES = {
+        "Step 1 of 4 · Content",
+        "Step 2 of 4 · Style",
+        "Step 3 of 4 · Privacy",
+        "Step 4 of 4 · Share"
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         binding = ActivityNewStatusBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        setupStepWizard();
         setupToolbar();
         setupMediaPickers();
         setupCameraCapture();
@@ -506,6 +527,363 @@ public class NewStatusActivity extends AppCompatActivity {
         selectedSticker = null;
         if (stickerSizeBar != null) stickerSizeBar.setVisibility(View.GONE);
     }
+
+    // ── Status wizard UI ───────────────────────────────────────────────────
+
+    /**
+     * Converts the original long status form into four focused screens at
+     * runtime. Views are moved, not recreated, so ActivityNewStatusBinding and
+     * every existing listener continue to point at the same controls.
+     */
+    private void setupStepWizard() {
+        stepScrollContainer = findViewById(com.callx.app.status.R.id.status_scroll);
+        android.view.ViewGroup content =
+                findViewById(com.callx.app.status.R.id.status_content);
+        android.view.ViewGroup root = binding.getRoot();
+        if (stepScrollContainer == null || content == null || !(root instanceof android.widget.LinearLayout)) {
+            return;
+        }
+
+        final int dp = Math.max(1, (int) getResources().getDisplayMetrics().density);
+        android.widget.LinearLayout rootLayout = (android.widget.LinearLayout) root;
+
+        android.widget.LinearLayout header = createStepHeader(dp);
+        rootLayout.addView(header, Math.min(1, rootLayout.getChildCount()));
+
+        stepFlipper = new android.widget.ViewFlipper(this);
+        stepFlipper.setAnimateFirstView(false);
+        stepFlipper.setInAnimation(this, android.R.anim.fade_in);
+        stepFlipper.setOutAnimation(this, android.R.anim.fade_out);
+        stepFlipper.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        android.widget.LinearLayout contentStep = createStepPane(dp);
+        android.widget.LinearLayout styleStep = createStepPane(dp);
+        android.widget.LinearLayout privacyStep = createStepPane(dp);
+        android.widget.LinearLayout shareStep = createStepPane(dp);
+
+        addStepIntro(contentStep, "CREATE", "Content",
+                "Start with a thought, photo, video or sticker.");
+        addStepIntro(styleStep, "PERSONALIZE", "Style",
+                "Make your status feel like you.");
+        addStepIntro(privacyStep, "CHOOSE YOUR AUDIENCE", "Privacy",
+                "You are in control of who sees and shares it.");
+        addStepIntro(shareStep, "ALMOST THERE", "Share",
+                "Review your status, then post when it feels right.");
+
+        // Step 1 — text, link, media and caption controls.
+        moveTopLevelView(content, com.callx.app.status.R.id.til_text, contentStep);
+        moveTopLevelView(content, com.callx.app.status.R.id.tv_char_count, contentStep);
+        moveTopLevelView(content, com.callx.app.status.R.id.text_preview_card, contentStep);
+        moveTag(content, "link_preview_card", contentStep);
+        moveTopLevelView(content, com.callx.app.status.R.id.btn_pick_image, contentStep);
+        moveTag(content, "btn_gif", contentStep);
+        moveTag(content, "btn_add_sticker", contentStep);
+        moveTopLevelView(content, com.callx.app.status.R.id.media_preview_frame, contentStep);
+        moveTopLevelView(content, com.callx.app.status.R.id.caption_group, contentStep);
+
+        // Step 2 — text appearance and avatar ring.
+        moveTopLevelView(content, com.callx.app.status.R.id.bg_color_picker_row, styleStep);
+        moveTopLevelView(content, com.callx.app.status.R.id.font_picker_scroll, styleStep);
+        moveTopLevelView(content, com.callx.app.status.R.id.alignment_picker_row, styleStep);
+        moveTopLevelView(content, com.callx.app.status.R.id.status_ring_row, styleStep);
+
+        // Step 3 — expiry and visibility controls.
+        moveTopLevelView(content, com.callx.app.status.R.id.status_expiry_row, privacyStep);
+        moveTopLevelView(content, com.callx.app.status.R.id.status_privacy_row, privacyStep);
+        moveTopLevelView(content, com.callx.app.status.R.id.status_allow_sharing_row, privacyStep);
+
+        // Step 4 — review and the original post action.
+        moveTopLevelView(content, com.callx.app.status.R.id.upload_progress, shareStep);
+        moveTopLevelView(content, com.callx.app.status.R.id.tv_upload_hint, shareStep);
+        android.view.View postButton =
+                findViewById(com.callx.app.status.R.id.btn_post);
+        if (postButton != null && postButton.getParent() == content) {
+            content.removeView(postButton);
+            shareStep.addView(postButton);
+        }
+
+        android.view.View reviewCard = createReviewCard(dp);
+        shareStep.addView(reviewCard, 0);
+
+        stepFlipper.addView(contentStep);
+        stepFlipper.addView(styleStep);
+        stepFlipper.addView(privacyStep);
+        stepFlipper.addView(shareStep);
+
+        // Remove the old empty host and replace it with the step flipper.
+        stepScrollContainer.removeView(content);
+        stepScrollContainer.setPadding(0, 0, 0, dp * 12);
+        stepScrollContainer.addView(stepFlipper);
+
+        android.widget.LinearLayout navigation = createStepNavigation(dp);
+        rootLayout.addView(navigation);
+        updateStepUi();
+    }
+
+    private android.widget.LinearLayout createStepHeader(int dp) {
+        android.widget.LinearLayout header = new android.widget.LinearLayout(this);
+        header.setOrientation(android.widget.LinearLayout.VERTICAL);
+        header.setPadding(dp * 18, dp * 8, dp * 18, dp * 12);
+        header.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+
+        tvStepTitle = new TextView(this);
+        tvStepTitle.setTextColor(android.graphics.Color.WHITE);
+        tvStepTitle.setTextSize(13);
+        tvStepTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvStepTitle.setLetterSpacing(.02f);
+        header.addView(tvStepTitle, new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, dp * 24));
+
+        android.widget.LinearLayout tracker = new android.widget.LinearLayout(this);
+        tracker.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        tracker.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        stepDots = new TextView[STEP_TITLES.length];
+        for (int i = 0; i < STEP_TITLES.length; i++) {
+            android.widget.LinearLayout item = new android.widget.LinearLayout(this);
+            item.setOrientation(android.widget.LinearLayout.VERTICAL);
+            item.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+            item.setPadding(0, 0, 0, 0);
+
+            TextView dot = new TextView(this);
+            dot.setText(String.valueOf(i + 1));
+            dot.setTextColor(android.graphics.Color.WHITE);
+            dot.setTextSize(11);
+            dot.setGravity(android.view.Gravity.CENTER);
+            dot.setTypeface(null, android.graphics.Typeface.BOLD);
+            stepDots[i] = dot;
+            item.addView(dot, new android.widget.LinearLayout.LayoutParams(dp * 28, dp * 28));
+
+            TextView label = new TextView(this);
+            label.setText(new String[]{"Content", "Style", "Privacy", "Share"}[i]);
+            label.setTextColor(0xFF8E99A8);
+            label.setTextSize(10);
+            label.setGravity(android.view.Gravity.CENTER);
+            android.widget.LinearLayout.LayoutParams labelLp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, dp * 20);
+            labelLp.topMargin = dp * 2;
+            item.addView(label, labelLp);
+
+            android.widget.LinearLayout.LayoutParams itemLp =
+                    new android.widget.LinearLayout.LayoutParams(0,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            tracker.addView(item, itemLp);
+        }
+        header.addView(tracker, new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        progressStep = new ProgressBar(this, null,
+                android.R.attr.progressBarStyleHorizontal);
+        progressStep.setMax(STEP_TITLES.length);
+        progressStep.setProgress(1);
+        progressStep.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFF4ADE80));
+        android.widget.LinearLayout.LayoutParams progressLp =
+                new android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT, dp * 4);
+        progressLp.topMargin = dp * 8;
+        header.addView(progressStep, progressLp);
+        return header;
+    }
+
+    private android.widget.LinearLayout createStepPane(int dp) {
+        android.widget.LinearLayout pane = new android.widget.LinearLayout(this);
+        pane.setOrientation(android.widget.LinearLayout.VERTICAL);
+        pane.setPadding(dp * 16, dp * 8, dp * 16, dp * 16);
+        return pane;
+    }
+
+    private void addStepIntro(android.widget.LinearLayout pane, String eyebrow,
+                              String title, String description) {
+        TextView overline = new TextView(this);
+        overline.setText(eyebrow);
+        overline.setTextColor(0xFF4ADE80);
+        overline.setTextSize(10);
+        overline.setTypeface(null, android.graphics.Typeface.BOLD);
+        overline.setLetterSpacing(.12f);
+        pane.addView(overline, new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, dp(18)));
+
+        TextView heading = new TextView(this);
+        heading.setText(title);
+        heading.setTextColor(android.graphics.Color.WHITE);
+        heading.setTextSize(26);
+        heading.setTypeface(null, android.graphics.Typeface.BOLD);
+        pane.addView(heading, new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, dp(38)));
+
+        TextView body = new TextView(this);
+        body.setText(description);
+        body.setTextColor(0xFF9BA6B5);
+        body.setTextSize(13);
+        android.widget.LinearLayout.LayoutParams bodyLp =
+                new android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT, dp(36));
+        bodyLp.bottomMargin = dp(10);
+        pane.addView(body, bodyLp);
+    }
+
+    private android.widget.LinearLayout createStepNavigation(int dp) {
+        android.widget.LinearLayout navigation = new android.widget.LinearLayout(this);
+        navigation.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        navigation.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        navigation.setPadding(dp * 16, dp * 8, dp * 16, dp * 10);
+        android.graphics.drawable.GradientDrawable navBg = new android.graphics.drawable.GradientDrawable();
+        navBg.setColor(0xFF11161E);
+        navBg.setStroke(dp, 0xFF26303D);
+        navigation.setBackground(navBg);
+        navigation.setElevation(dp * 8);
+
+        btnStepBack = new com.google.android.material.button.MaterialButton(this);
+        btnStepBack.setText("Back");
+        btnStepBack.setAllCaps(false);
+        btnStepBack.setTextColor(0xFFE4EAF1);
+        btnStepBack.setCornerRadius(dp * 12);
+        btnStepBack.setStrokeWidth(dp);
+        btnStepBack.setStrokeColor(android.content.res.ColorStateList.valueOf(0xFF384555));
+        btnStepBack.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF1A212B));
+        btnStepBack.setOnClickListener(v -> goToStep(currentStep - 1));
+
+        btnStepNext = new com.google.android.material.button.MaterialButton(this);
+        btnStepNext.setText("Next  ›");
+        btnStepNext.setAllCaps(false);
+        btnStepNext.setTextColor(android.graphics.Color.WHITE);
+        btnStepNext.setTypeface(null, android.graphics.Typeface.BOLD);
+        btnStepNext.setCornerRadius(dp * 12);
+        btnStepNext.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF36B968));
+        btnStepNext.setOnClickListener(v -> goToStep(currentStep + 1));
+
+        android.widget.LinearLayout.LayoutParams backLp =
+                new android.widget.LinearLayout.LayoutParams(0, dp * 50, 1f);
+        backLp.rightMargin = dp * 8;
+        android.widget.LinearLayout.LayoutParams nextLp =
+                new android.widget.LinearLayout.LayoutParams(0, dp * 50, 1f);
+        navigation.addView(btnStepBack, backLp);
+        navigation.addView(btnStepNext, nextLp);
+        return navigation;
+    }
+
+    private android.view.View createReviewCard(int dp) {
+        android.widget.LinearLayout card = new android.widget.LinearLayout(this);
+        card.setOrientation(android.widget.LinearLayout.VERTICAL);
+        card.setPadding(dp * 18, dp * 16, dp * 18, dp * 16);
+        android.graphics.drawable.GradientDrawable cardBg = new android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                new int[]{0xFF104A37, 0xFF173A65});
+        cardBg.setCornerRadius(dp * 18);
+        card.setBackground(cardBg);
+
+        TextView eyebrow = new TextView(this);
+        eyebrow.setText("YOUR STATUS PREVIEW");
+        eyebrow.setTextColor(0xFFB5F8CA);
+        eyebrow.setTextSize(10);
+        eyebrow.setTypeface(null, android.graphics.Typeface.BOLD);
+        eyebrow.setLetterSpacing(.12f);
+        card.addView(eyebrow);
+
+        reviewSummary = new TextView(this);
+        reviewSummary.setTextColor(android.graphics.Color.WHITE);
+        reviewSummary.setTextSize(17);
+        reviewSummary.setTypeface(null, android.graphics.Typeface.BOLD);
+        reviewSummary.setMaxLines(2);
+        reviewSummary.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        android.widget.LinearLayout.LayoutParams summaryLp =
+                new android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT, dp * 50);
+        summaryLp.topMargin = dp * 8;
+        card.addView(reviewSummary, summaryLp);
+
+        TextView meta = new TextView(this);
+        meta.setText("Just now  ·  Ready to share");
+        meta.setTextColor(0xFFD1E7DC);
+        meta.setTextSize(12);
+        card.addView(meta);
+        return card;
+    }
+
+    private void moveTopLevelView(android.view.ViewGroup from, int id,
+                                  android.view.ViewGroup to) {
+        android.view.View view = from.findViewById(id);
+        if (view != null && view.getParent() == from) {
+            from.removeView(view);
+            to.addView(view);
+        }
+    }
+
+    private void moveTag(android.view.ViewGroup from, String tag,
+                         android.view.ViewGroup to) {
+        android.view.View view = from.findViewWithTag(tag);
+        if (view != null && view.getParent() == from) {
+            from.removeView(view);
+            to.addView(view);
+        }
+    }
+
+    private int dp(int value) {
+        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private android.graphics.drawable.Drawable stepCircle(int color) {
+        android.graphics.drawable.GradientDrawable circle =
+                new android.graphics.drawable.GradientDrawable();
+        circle.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        circle.setColor(color);
+        return circle;
+    }
+
+    private void goToStep(int step) {
+        if (stepFlipper == null || step < 0 || step >= STEP_TITLES.length) return;
+        currentStep = step;
+        stepFlipper.setDisplayedChild(step);
+        updateStepUi();
+        if (stepScrollContainer != null) stepScrollContainer.scrollTo(0, 0);
+    }
+
+    private void updateStepUi() {
+        if (tvStepTitle != null) tvStepTitle.setText(STEP_TITLES[currentStep]);
+        if (progressStep != null) progressStep.setProgress(currentStep + 1);
+        if (btnStepBack != null) {
+            btnStepBack.setVisibility(currentStep == 0 ? View.INVISIBLE : View.VISIBLE);
+        }
+        if (btnStepNext != null) {
+            btnStepNext.setVisibility(currentStep == STEP_TITLES.length - 1
+                    ? View.GONE : View.VISIBLE);
+        }
+        if (stepDots != null) {
+            for (int i = 0; i < stepDots.length; i++) {
+                int color = i < currentStep ? 0xFF36B968
+                        : (i == currentStep ? 0xFF2F80ED : 0xFF303A48);
+                stepDots[i].setBackground(stepCircle(color));
+            }
+        }
+        if (reviewSummary != null) {
+            String text = binding.etText.getText() == null
+                    ? "" : binding.etText.getText().toString().trim();
+            if (!text.isEmpty()) {
+                reviewSummary.setText(text);
+            } else if (pickedImage != null) {
+                reviewSummary.setText("Photo status ready to share");
+            } else if (pickedVideo != null) {
+                reviewSummary.setText("Video status ready to share");
+            } else if (fetchedPreview != null) {
+                reviewSummary.setText("Link status ready to share");
+            } else {
+                reviewSummary.setText("Your status is ready to share");
+            }
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (stepFlipper != null && currentStep > 0) {
+            goToStep(currentStep - 1);
+            return;
+        }
+        super.onBackPressed();
+    }
+
     @Override protected void onPause() { super.onPause(); saveDraft(); }
     // ── Toolbar ───────────────────────────────────────────────────────────
     private void setupToolbar() {

@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.coordinatorlayout.widget.CoordinatorLayout
+<LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:orientation="vertical"
     android:background="?attr/colorSurface">
 
     <com.google.android.material.appbar.AppBarLayout
@@ -22,12 +23,14 @@
     </com.google.android.material.appbar.AppBarLayout>
 
     <androidx.core.widget.NestedScrollView
+        android:id="@+id/status_scroll"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        app:layout_behavior="@string/appbar_scrolling_view_behavior"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:fillViewport="true">
 
         <LinearLayout
+            android:id="@+id/status_content"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
@@ -140,6 +143,7 @@
 
             <!-- ── Font style picker ── -->
             <HorizontalScrollView
+                android:id="@+id/font_picker_scroll"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:scrollbars="none"
@@ -214,6 +218,7 @@
 
             <!-- ── Text alignment picker ── -->
             <LinearLayout
+                android:id="@+id/alignment_picker_row"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
@@ -502,6 +507,7 @@
 
             <!-- ── Expiry timer + Close friends (NEW) ── -->
             <LinearLayout
+                android:id="@+id/status_expiry_row"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
@@ -540,6 +546,7 @@
 
             <!-- ── Privacy selector ── -->
             <LinearLayout
+                android:id="@+id/status_privacy_row"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
@@ -573,6 +580,7 @@
 
             <!-- ── Allow sharing (Status Repost, v56) ── -->
             <LinearLayout
+                android:id="@+id/status_allow_sharing_row"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
@@ -604,6 +612,7 @@
 
             <!-- ── Ring color (avatar highlight ring, same picker as Highlights) ── -->
             <LinearLayout
+                android:id="@+id/status_ring_row"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
@@ -651,4 +660,4 @@
 
     </androidx.core.widget.NestedScrollView>
 
-</androidx.coordinatorlayout.widget.CoordinatorLayout>
+</LinearLayout>
