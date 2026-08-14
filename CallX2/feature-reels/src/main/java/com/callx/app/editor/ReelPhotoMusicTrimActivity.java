@@ -89,8 +89,8 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         from.startActivityForResult(i, requestCode);
     }
 
-    private ImageButton  btnBack, btnPreview, btnUse;
-    private View          btnUseBottom;
+    private ImageButton  btnBack, btnPreview;
+    private TextView      btnUse;
     private TextView     tvTitle, tvStartTime, tvEndTime, tvDuration, tvSelectedRange;
     private TextView     tvStartValue, tvEndValue;
     private TextView     tvTrackTitle, tvTrackArtist;
@@ -180,7 +180,6 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         btnBack         = findViewById(R.id.btn_trim_back);
         btnPreview      = findViewById(R.id.btn_trim_preview);
         btnUse          = findViewById(R.id.btn_trim_use);
-        btnUseBottom    = findViewById(R.id.btn_trim_use_bottom);
         tvTitle         = findViewById(R.id.tv_trim_title);
         tvStartTime     = findViewById(R.id.tv_trim_start_time);
         tvEndTime       = findViewById(R.id.tv_trim_end_time);
@@ -383,7 +382,6 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         if (btnBack      != null) btnBack.setOnClickListener(v -> finish());
         if (btnPreview    != null) btnPreview.setOnClickListener(v -> togglePreview());
         if (btnUse        != null) btnUse.setOnClickListener(v -> useSelection());
-        if (btnUseBottom  != null) btnUseBottom.setOnClickListener(v -> useSelection());
     }
 
     private void togglePreview() {

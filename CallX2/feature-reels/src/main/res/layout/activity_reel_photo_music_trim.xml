@@ -62,14 +62,20 @@
                 android:ellipsize="end"/>
         </LinearLayout>
 
-        <ImageButton
+        <TextView
             android:id="@+id/btn_trim_use"
-            android:layout_width="40dp"
+            android:layout_width="wrap_content"
             android:layout_height="40dp"
-            android:src="@drawable/ic_send_fill"
+            android:minWidth="56dp"
+            android:text="Done"
+            android:gravity="center"
+            android:paddingHorizontal="12dp"
             android:background="@drawable/bg_trim_circle_btn"
-            android:padding="10dp"
-            android:tint="@color/trim_gradient_start"
+            android:textColor="@color/trim_gradient_start"
+            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium"
+            android:clickable="true"
+            android:focusable="true"
             android:contentDescription="Use selection"/>
     </LinearLayout>
 
@@ -388,7 +394,7 @@
             android:thumbTint="@color/trim_gradient_end"
             android:layout_marginBottom="18dp"/>
 
-        <!-- Total duration chip + primary CTA -->
+        <!-- Total duration chip -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -396,13 +402,12 @@
             android:gravity="center_vertical">
 
             <LinearLayout
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:background="@drawable/bg_trim_duration_chip"
-                android:paddingHorizontal="12dp"
-                android:layout_marginEnd="10dp">
+                android:paddingHorizontal="12dp">
 
                 <ImageButton
                     android:id="@+id/btn_trim_preview"
@@ -436,34 +441,6 @@
                         android:textSize="14sp"
                         android:fontFamily="sans-serif-medium"/>
                 </LinearLayout>
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/btn_trim_use_bottom"
-                android:layout_width="0dp"
-                android:layout_height="52dp"
-                android:layout_weight="1"
-                android:orientation="horizontal"
-                android:gravity="center"
-                android:background="@drawable/bg_trim_gradient_button_ripple"
-                android:clickable="true"
-                android:focusable="true">
-
-                <ImageView
-                    android:layout_width="18dp"
-                    android:layout_height="18dp"
-                    android:src="@drawable/ic_play"
-                    android:tint="#FFFFFFFF"
-                    android:layout_marginEnd="8dp"
-                    android:contentDescription="Use"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Use this audio"
-                    android:textColor="#FFFFFFFF"
-                    android:textSize="15sp"
-                    android:fontFamily="sans-serif-medium"/>
             </LinearLayout>
 
         </LinearLayout>
