@@ -141,6 +141,11 @@ public class ReelUploadActivity extends AppCompatActivity {
     private PlayerView        playerPreview;
     private ImageView         ivThumbPreview;
     private View              layoutPickVideo, layoutCompression, layoutVideoInfo;
+    /** ✅ FIX: whole video-preview card (not just the inner "Tap to select video" hint) —
+     *  needs to be hidden in Photo mode, otherwise its ImageView (iv_thumb_preview) stays
+     *  visible+clickable underneath and taps meant for the photo card below it instead
+     *  open the video picker. */
+    private View              cardVideoPreview;
     private View              layoutUploadProgress;
     private ProgressBar       progressCompress, progressUpload;
     private TextView          tvCompressStatus, tvUploadStatus;
@@ -662,6 +667,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         playerPreview        = findViewById(R.id.player_preview);
         ivThumbPreview       = findViewById(R.id.iv_thumb_preview);
         layoutPickVideo      = findViewById(R.id.layout_pick_video);
+        cardVideoPreview     = findViewById(R.id.card_video_preview);
         layoutCompression    = findViewById(R.id.layout_compression);
         layoutVideoInfo      = findViewById(R.id.layout_video_info);
         layoutUploadProgress = findViewById(R.id.layout_upload_progress);
@@ -1096,6 +1102,9 @@ public class ReelUploadActivity extends AppCompatActivity {
 
     private void switchToVideoMode() {
         isPhotoMode = false;
+        // ✅ FIX: show the whole video card again, not just the inner hint —
+        // it's the one that got hidden in switchToPhotoMode() below.
+        if (cardVideoPreview  != null) cardVideoPreview.setVisibility(View.VISIBLE);
         if (layoutPickVideo   != null) layoutPickVideo.setVisibility(View.VISIBLE);
         if (cardPhotos        != null) cardPhotos.setVisibility(View.GONE);
         if (btnMediaTypeVideo != null) {
@@ -1110,6 +1119,12 @@ public class ReelUploadActivity extends AppCompatActivity {
 
     private void switchToPhotoMode() {
         isPhotoMode = true;
+        // ✅ FIX: hide the ENTIRE video-preview card — previously only the inner
+        // "Tap to select video" hint (layoutPickVideo) was hidden, but iv_thumb_preview
+        // (same size, match_parent) has its own click listener and stayed visible +
+        // clickable in the same spot, so taps below the photo thumbnails were landing
+        // on it and opening the video picker instead.
+        if (cardVideoPreview   != null) cardVideoPreview.setVisibility(View.GONE);
         if (layoutPickVideo    != null) layoutPickVideo.setVisibility(View.GONE);
         if (cardPhotos         != null) cardPhotos.setVisibility(View.VISIBLE);
         if (playerPreview      != null) playerPreview.setVisibility(View.GONE);
@@ -1384,6 +1399,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         } else if (requestCode == REQ_PICK_PHOTOS && resultCode == Activity.RESULT_OK && data != null) {
             // Multi-select: data.getClipData() if multiple, data.getData() if single
             int remaining = MAX_PHOTOS - selectedPhotoUris.size();
+            int firstNewIndex = selectedPhotoUris.size();
             if (data.getClipData() != null) {
                 int count = Math.min(data.getClipData().getItemCount(), remaining);
                 for (int idx = 0; idx < count; idx++) {
@@ -1398,6 +1414,27 @@ public class ReelUploadActivity extends AppCompatActivity {
             }
             updatePhotoCountLabel();
             btnPostReel.setEnabled(!selectedPhotoUris.isEmpty());
+
+            // ✅ NEW: open the per-photo editor immediately for the first newly-picked
+            // photo, instead of waiting for a manual tap on its thumbnail — same
+            // handoff feel as the camera "+" → Photo mode flow, which already
+            // auto-opens the editor right after capture.
+            if (firstNewIndex < selectedPhotoUris.size()) {
+                photoEditIndex = firstNewIndex;
+                Uri firstUri = selectedPhotoUris.get(firstNewIndex);
+                com.callx.app.editor.ReelPhotoEditorActivity.start(
+                        this, firstUri.toString(), firstNewIndex,
+                        selectedPhotoUris.size(),
+                        getPhotoMeta(firstNewIndex, "filter"),
+                        getPhotoMeta(firstNewIndex, "effect"),
+                        getPhotoMeta(firstNewIndex, "caption"),
+                        getPhotoMeta(firstNewIndex, "captionStyle"),
+                        getPhotoMeta(firstNewIndex, "stickers"),
+                        getPhotoMeta(firstNewIndex, "kbDir"),
+                        getPhotoDuration(firstNewIndex),
+                        getPhotoRotation(firstNewIndex),
+                        REQ_PHOTO_EDIT);
+            }
         } else if (requestCode == REQ_PHOTO_EDIT && resultCode == Activity.RESULT_OK && data != null) {
             int pos = photoEditIndex;
             if (pos < 0 || pos >= selectedPhotoUris.size()) return;

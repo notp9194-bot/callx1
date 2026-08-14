@@ -1064,7 +1064,9 @@ public class ReelEditorActivity extends AppCompatActivity {
         playerView.setPlayer(player);
         Uri uri = isFilePath ? Uri.fromFile(new File(videoUriStr)) : Uri.parse(videoUriStr);
         player.setMediaItem(MediaItem.fromUri(uri));
-        player.setRepeatMode(Player.REPEAT_MODE_ONE);
+        // ✅ FIX: repeat mode OFF — looping is handled manually in playheadUpdater
+        // so playback loops only within [trimStartMs, trimEndMs], not the whole clip.
+        player.setRepeatMode(Player.REPEAT_MODE_OFF);
         player.prepare();
         player.setPlayWhenReady(true);
         // Apply recording speed (from camera) as soon as player is created
@@ -1113,11 +1115,22 @@ public class ReelEditorActivity extends AppCompatActivity {
         startPlayheadUpdater();
     }
 
-    /** Polls player position every ~150ms so the filmstrip's blue playhead line tracks playback. */
+    /**
+     * Polls player position every ~150ms so the filmstrip's blue playhead line tracks
+     * playback, and — ✅ FIX — loops preview playback within [trimStartMs, trimEndMs]
+     * only, instead of the whole source video, so the preview always matches exactly
+     * what the trim handles show and what gets uploaded.
+     */
     private final Runnable playheadUpdater = new Runnable() {
         @Override public void run() {
-            if (player != null && trimFilmstripView != null) {
-                trimFilmstripView.setPlayheadPosition(player.getCurrentPosition());
+            if (player != null) {
+                long pos = player.getCurrentPosition();
+                if (trimFilmstripView != null) {
+                    trimFilmstripView.setPlayheadPosition(pos);
+                }
+                if (trimEndMs > trimStartMs && pos >= trimEndMs) {
+                    player.seekTo(trimStartMs);
+                }
             }
             handler.postDelayed(this, 150);
         }
@@ -1496,20 +1509,28 @@ public class ReelEditorActivity extends AppCompatActivity {
     private void proceedToUpload() {
         boolean hasFilter   = !filterName.isEmpty() && !filterName.equals("Normal");
         boolean hasOverlays = !stickerJson.isEmpty();
+        // ✅ FIX: previously only filter/overlays triggered a re-encode, so a user
+        // who only adjusted the trim handles still had the FULL original video
+        // uploaded (trimStartMs/trimEndMs were sent to ReelUploadActivity but never
+        // read there). Now a real trim range also triggers the bake step.
+        boolean hasTrim = totalDurationMs > 0 && trimEndMs > trimStartMs
+            && (trimStartMs > 0 || trimEndMs < totalDurationMs);
 
-        // ✅ NEW: If a filter or text/sticker overlay is active and we have a local file,
-        // burn them into the actual video pixels (Media3 Transformer) before uploading.
-        if (isFilePath && (hasFilter || hasOverlays) && videoUriStr != null && !videoUriStr.isEmpty()) {
-            runHardBakeExport();
+        // ✅ NEW: If a filter, text/sticker overlay, or a trim range is active and we
+        // have a local file, burn them into the actual video pixels (Media3 Transformer)
+        // before uploading — this is also what makes the uploaded video length match
+        // exactly what the trim preview showed.
+        if (isFilePath && (hasFilter || hasOverlays || hasTrim) && videoUriStr != null && !videoUriStr.isEmpty()) {
+            runHardBakeExport(hasTrim);
             return;
         }
         proceedToUploadInternal();
     }
 
-    /** Re-encodes the video with the selected filter + text/stickers baked in, then continues to upload. */
-    private void runHardBakeExport() {
+    /** Re-encodes the video with the selected filter + text/stickers (+ trim range) baked in, then continues to upload. */
+    private void runHardBakeExport(boolean hasTrim) {
         android.app.ProgressDialog dialog = new android.app.ProgressDialog(this);
-        dialog.setMessage("Applying filter & overlays…");
+        dialog.setMessage(hasTrim ? "Trimming & applying edits…" : "Applying filter & overlays…");
         dialog.setCancelable(false);
         dialog.setIndeterminate(false);
         dialog.setMax(100);
@@ -1519,8 +1540,12 @@ public class ReelEditorActivity extends AppCompatActivity {
         java.util.List<ReelVideoExportEngine.OverlayItem> overlays =
             ReelVideoExportEngine.parseOverlayJsonArray(stickerJson);
 
+        long exportTrimStart = hasTrim ? trimStartMs : 0L;
+        long exportTrimEnd   = hasTrim ? trimEndMs   : 0L;
+
         ReelVideoExportEngine.export(this, videoUriStr, filterName,
             filterBrightness, filterContrast, filterSaturation, overlays,
+            exportTrimStart, exportTrimEnd,
             new ReelVideoExportEngine.ExportCallback() {
                 @Override public void onProgress(int percent) {
                     if (percent >= 0) dialog.setProgress(percent);
@@ -1530,14 +1555,23 @@ public class ReelEditorActivity extends AppCompatActivity {
                     dialog.dismiss();
                     videoUriStr = outputPath;
                     isFilePath  = true;
-                    Toast.makeText(ReelEditorActivity.this, "Filter & overlays applied ✓", Toast.LENGTH_SHORT).show();
+                    if (hasTrim) {
+                        // The exported file IS the trimmed range now, starting at 0 —
+                        // reset so downstream extras/UI don't re-apply the old offsets.
+                        totalDurationMs = trimEndMs - trimStartMs;
+                        trimStartMs = 0;
+                        trimEndMs   = totalDurationMs;
+                    }
+                    Toast.makeText(ReelEditorActivity.this,
+                        hasTrim ? "Trim & edits applied ✓" : "Filter & overlays applied ✓",
+                        Toast.LENGTH_SHORT).show();
                     proceedToUploadInternal();
                 }
                 @Override public void onError(Exception e) {
                     if (isFinishing() || isDestroyed()) return;
                     dialog.dismiss();
                     Toast.makeText(ReelEditorActivity.this,
-                        "Couldn't bake filter/overlay, uploading original video.", Toast.LENGTH_SHORT).show();
+                        "Couldn't apply edits, uploading original video.", Toast.LENGTH_SHORT).show();
                     // Fall back to original file — upload proceeds without hard-baked effects.
                     proceedToUploadInternal();
                 }

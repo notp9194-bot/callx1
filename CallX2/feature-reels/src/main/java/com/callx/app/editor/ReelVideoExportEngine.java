@@ -171,6 +171,22 @@ public class ReelVideoExportEngine {
                                float brightness, float contrast, float saturation,
                                @Nullable List<OverlayItem> overlays,
                                ExportCallback callback) {
+        export(context, inputPath, filterName, brightness, contrast, saturation,
+            overlays, 0L, 0L, callback);
+    }
+
+    /**
+     * Overload that also bakes a trim range into the export so the uploaded file
+     * always matches the range the user picked on the trim filmstrip. Pass
+     * {@code trimEndMs <= trimStartMs} (e.g. 0, 0) to skip clipping entirely.
+     */
+    public static void export(Context context,
+                               String inputPath,
+                               @Nullable String filterName,
+                               float brightness, float contrast, float saturation,
+                               @Nullable List<OverlayItem> overlays,
+                               long trimStartMs, long trimEndMs,
+                               ExportCallback callback) {
 
         Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -184,7 +200,17 @@ public class ReelVideoExportEngine {
             addFilterEffects(videoEffects, filterName, brightness, contrast, saturation);
             addOverlayEffect(context, videoEffects, input.getAbsolutePath(), overlays);
 
-            MediaItem mediaItem = MediaItem.fromUri(Uri.fromFile(input));
+            MediaItem.Builder itemBuilder = new MediaItem.Builder().setUri(Uri.fromFile(input));
+            // ✅ Bake the selected trim range into the exported file so the preview
+            // loop range and the actually-uploaded video always match.
+            if (trimEndMs > trimStartMs) {
+                itemBuilder.setClippingConfiguration(
+                    new MediaItem.ClippingConfiguration.Builder()
+                        .setStartPositionMs(trimStartMs)
+                        .setEndPositionMs(trimEndMs)
+                        .build());
+            }
+            MediaItem mediaItem = itemBuilder.build();
             EditedMediaItem.Builder editedBuilder = new EditedMediaItem.Builder(mediaItem);
             if (!videoEffects.isEmpty()) {
                 editedBuilder.setEffects(new Effects(ImmutableList.of(), ImmutableList.copyOf(videoEffects)));
