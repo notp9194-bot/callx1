@@ -248,6 +248,23 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ── Firebase ───────────────────────────────────────────────────────────
     private DatabaseReference  messagesRef;
     private ChildEventListener messageListener;
+    // LISTENER-LEAK FIX: messageListener/statusSyncListener are attached to
+    // FILTERED Query objects (messagesRef.orderByChild("timestamp")...), not
+    // to messagesRef itself. Firebase's removeEventListener(listener) only
+    // detaches a listener from the EXACT Query it was added to — path +
+    // order/filter params all have to match. onDestroy() used to call
+    // messagesRef.removeEventListener(...) (the bare reference, no
+    // orderByChild/limitToLast), which never matched and silently no-opped:
+    // the real listeners were NEVER removed. Every close+reopen of the same
+    // chat leaked one more live ChildEventListener on the messages node —
+    // 2nd open = 2 listeners firing onChildAdded for the initial burst, 3rd
+    // open = 3, etc. That's the "message dikhta hai do baar" symptom (every
+    // incoming/initial message got saved/markRead/emoji-burst'd once per
+    // leaked listener) and a growing memory/CPU/battery leak the longer the
+    // app session ran. Fix: keep the actual Query instances these listeners
+    // were attached to, and remove from THOSE in onDestroy.
+    private Query               messageQuery;
+    private Query               statusQuery;
     // TICK FIX: dedicated status-sync listener — see attachFirebaseListener()
     // doc comment below for why this is needed alongside messageListener.
     private ChildEventListener statusSyncListener;
@@ -1147,10 +1164,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         clearActivePreloadTargets();
         shimmerHandler.removeCallbacks(shimmerShowRunnable);
 
-        if (messagesRef != null && messageListener != null)
-            messagesRef.removeEventListener(messageListener);
-        if (messagesRef != null && statusSyncListener != null)
-            messagesRef.removeEventListener(statusSyncListener);
+        // LISTENER-LEAK FIX: remove from the exact Query each listener was
+        // attached to (see field doc above) — removing from bare messagesRef
+        // never matched and left these running forever across reopens.
+        if (messageQuery != null && messageListener != null)
+            messageQuery.removeEventListener(messageListener);
+        if (statusQuery != null && statusSyncListener != null)
+            statusQuery.removeEventListener(statusSyncListener);
 
         // PERF FIX: flush any buffered Firebase→Room writes immediately
         // instead of losing them if the debounce window hadn't fired yet.
@@ -2650,9 +2670,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     private void attachFirebaseListener(long lastTs) {
-        com.google.firebase.database.Query query = lastTs > 0
+        messageQuery = lastTs > 0
                 ? messagesRef.orderByChild("timestamp").startAfter((double) lastTs)
                 : messagesRef.orderByChild("timestamp").limitToLast(INITIAL_LOAD);
+        com.google.firebase.database.Query query = messageQuery;
 
         messageListener = new ChildEventListener() {
             @Override public void onChildAdded(DataSnapshot snapshot, String prev) {
@@ -2756,8 +2777,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // MessagePagingAdapter), so the UI does a draw-only tick update
         // instead of a full rebind. No effect on scroll/paging performance:
         // this listener never touches the Pager, only the messages table.
-        com.google.firebase.database.Query statusQuery =
-                messagesRef.orderByChild("timestamp").limitToLast(STATUS_SYNC_WINDOW);
+        statusQuery = messagesRef.orderByChild("timestamp").limitToLast(STATUS_SYNC_WINDOW);
         statusSyncListener = new ChildEventListener() {
             @Override public void onChildAdded(DataSnapshot snapshot, String prev) {
                 // Handled by messageListener / initial Room load — ignore here.

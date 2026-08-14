@@ -39,6 +39,8 @@ import com.callx.app.models.ReelModel;
   import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
+import com.google.android.gms.tasks.Task;
+import com.google.android.gms.tasks.Tasks;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.UserEntity;
@@ -4908,42 +4910,51 @@ public class UserReelsActivity extends AppCompatActivity
 
                     if (newIds.isEmpty()) { isLoadingMore = false; return; }
 
-                    // Fetch full ReelModel for each new ID
-                    final int[]           remaining = {newIds.size()};
-                    final List<ReelModel> fetched   = new ArrayList<>();
+                    // Batch-fetch full ReelModels for all new IDs as a single fan-out/join
+                    // instead of N independent addListenerForSingleValueEvent callbacks.
+                    //
+                    // NOTE (root cause): Realtime Database has no native multi-get across
+                    // arbitrary non-contiguous keys (unlike Firestore's getAll(docRefs)), and
+                    // reelsByUser/{uid}/{reelId} only stores a boolean marker — not enough
+                    // data to render the grid — so a single query can't replace this fetch
+                    // without denormalizing full reel data into reelsByUser at write time
+                    // (touches ReelUploadActivity, CollabPostAcceptActivity,
+                    // CollabRepostAcceptActivity, ReelNotificationActionReceiver + a data
+                    // migration for existing reelsByUser records). That's a real fix worth
+                    // doing, but out of scope here. Tasks.whenAllComplete() below removes the
+                    // fragile shared-counter callback pyramid and gives one safe join point
+                    // with per-item failure isolation — same number of reads, no race risk.
+                    List<Task<DataSnapshot>> tasks = new ArrayList<>(newIds.size());
                     for (String id : newIds) {
-                        FirebaseUtils.getReelsRef().child(id)
-                            .addListenerForSingleValueEvent(new ValueEventListener() {
-                                @Override
-                                public void onDataChange(@NonNull DataSnapshot s) {
-                                    if (!isFinishing() && !isDestroyed()) {
-                                        ReelModel r = s.getValue(ReelModel.class);
-                                        if (r != null) fetched.add(r);
-                                    }
-                                    if (--remaining[0] == 0) onAllFetched();
-                                }
-                                @Override
-                                public void onCancelled(@NonNull DatabaseError e) {
-                                    if (--remaining[0] == 0) onAllFetched();
-                                }
-
-                                private void onAllFetched() {
-                                    isLoadingMore = false;
-                                    if (isFinishing() || isDestroyed() || fetched.isEmpty()) return;
-                                    // Sort newest-first then prepend
-                                    fetched.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
-                                    reelsTabData.addAll(0, fetched);
-                                    if (activeTab == TAB_REELS && adapter != null) {
-                                        int basePos = adapter.hasPinned() ? 1 : 0;
-                                        adapter.notifyItemRangeInserted(basePos, fetched.size());
-                                        // Scroll to top so new reel is immediately visible
-                                        if (rvReels != null)
-                                            rvReels.post(() -> rvReels.smoothScrollToPosition(0));
-                                    }
-                                    refreshEmptyState();
-                                }
-                            });
+                        tasks.add(FirebaseUtils.getReelsRef().child(id).get());
                     }
+
+                    Tasks.whenAllComplete(tasks).addOnCompleteListener(ignored -> {
+                        isLoadingMore = false;
+                        if (isFinishing() || isDestroyed()) return;
+
+                        List<ReelModel> fetched = new ArrayList<>();
+                        for (Task<DataSnapshot> t : tasks) {
+                            if (!t.isSuccessful()) continue; // isolate per-item failure, don't drop the whole batch
+                            DataSnapshot s = t.getResult();
+                            if (s == null) continue;
+                            ReelModel r = s.getValue(ReelModel.class);
+                            if (r != null) fetched.add(r);
+                        }
+                        if (fetched.isEmpty()) return;
+
+                        // Sort newest-first then prepend
+                        fetched.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
+                        reelsTabData.addAll(0, fetched);
+                        if (activeTab == TAB_REELS && adapter != null) {
+                            int basePos = adapter.hasPinned() ? 1 : 0;
+                            adapter.notifyItemRangeInserted(basePos, fetched.size());
+                            // Scroll to top so new reel is immediately visible
+                            if (rvReels != null)
+                                rvReels.post(() -> rvReels.smoothScrollToPosition(0));
+                        }
+                        refreshEmptyState();
+                    });
                 }
                 @Override
                 public void onCancelled(@NonNull DatabaseError e) { isLoadingMore = false; }
