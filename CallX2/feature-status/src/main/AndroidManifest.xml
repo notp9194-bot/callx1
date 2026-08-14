@@ -17,6 +17,15 @@
             android:windowSoftInputMode="adjustResize"
             android:exported="false"/>
 
+        <!-- Channel info — full-screen details page reached via ⋮ overflow menu
+             ("Channel info"): avatar, followers, Following/Forward/Share/Search,
+             mute toggle, public/private + profile privacy info, clear media,
+             unfollow, report. CallX2's first Kotlin screen in feature-status. -->
+        <activity
+            android:name="com.callx.app.channel.ChannelInfoActivity"
+            android:theme="@style/Theme.CallX"
+            android:exported="false"/>
+
         <!-- New post composer: text / image / video / link / poll / audio / document -->
         <activity
             android:name="com.callx.app.channel.ChannelPostComposerActivity"

@@ -10,6 +10,13 @@
         app:showAsAction="ifRoom"
         app:actionViewClass="androidx.appcompat.widget.SearchView"/>
 
+    <!-- Channel info — full-screen details page (avatar, followers, mute,
+         public/private, profile privacy, clear media, unfollow, report) -->
+    <item
+        android:id="@+id/action_channel_info"
+        android:title="Channel info"
+        app:showAsAction="never"/>
+
     <!-- Notification mute -->
     <item
         android:id="@+id/action_channel_mute"

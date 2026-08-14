@@ -86,6 +86,7 @@ public class ChannelViewerActivity extends AppCompatActivity
 
     private static final int RC_NEW_POST    = 1001;
     private static final int RC_EDIT_CHAN   = 1002;
+    private static final int RC_CHANNEL_INFO = 1003;
 
     private String        channelId;
     private String        channelName;
@@ -116,6 +117,7 @@ public class ChannelViewerActivity extends AppCompatActivity
     private ImageButton        btnUnpin;
     private CircleImageView    ivChannelIcon;
     private TextView           tvChannelName, tvChannelFollowers, tvChannelVerified;
+    private MenuItem           searchMenuItem;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -467,6 +469,7 @@ public class ChannelViewerActivity extends AppCompatActivity
 
         // SearchView setup
         MenuItem searchItem = menu.findItem(R.id.action_channel_search);
+        searchMenuItem = searchItem;
         if (searchItem != null) {
             SearchView sv = (SearchView) searchItem.getActionView();
             if (sv != null) {
@@ -501,6 +504,9 @@ public class ChannelViewerActivity extends AppCompatActivity
 
     @Override public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();
+        if (id == R.id.action_channel_info) {
+            openChannelInfoScreen(); return true;
+        }
         if (id == R.id.action_channel_mute) {
             showMuteDurationPicker(); return true;
         }
@@ -616,6 +622,22 @@ public class ChannelViewerActivity extends AppCompatActivity
                 channelEntity.description, channelEntity.inviteLink, channelEntity.followers,
                 channelEntity.isFollowing, channelEntity.isMuted, channelEntity.isAdmin);
         sheet.show(getSupportFragmentManager(), ChannelViewerInfoBottomSheet.TAG);
+    }
+
+    /** ⋮ overflow → "Channel info" — full-screen Telegram/WhatsApp-style details page. */
+    private void openChannelInfoScreen() {
+        Intent i = new Intent(this, ChannelInfoActivity.class);
+        i.putExtra(ChannelInfoActivity.EXTRA_CHANNEL_ID,        channelId);
+        i.putExtra(ChannelInfoActivity.EXTRA_CHANNEL_NAME,      channelName);
+        i.putExtra(ChannelInfoActivity.EXTRA_CHANNEL_ICON,
+            channelEntity != null ? channelEntity.iconUrl : getIntent().getStringExtra(EXTRA_CHANNEL_ICON));
+        i.putExtra(ChannelInfoActivity.EXTRA_CHANNEL_VERIFIED,
+            channelEntity != null && (channelEntity.verified || channelEntity.isVerified));
+        i.putExtra(ChannelInfoActivity.EXTRA_CHANNEL_FOLLOWERS,
+            channelEntity != null ? channelEntity.followers : getIntent().getLongExtra(EXTRA_CHANNEL_FOLLOWERS, 0));
+        i.putExtra(ChannelInfoActivity.EXTRA_OWNER_UID,
+            channelEntity != null ? channelEntity.ownerUid : getIntent().getStringExtra(EXTRA_OWNER_UID));
+        startActivityForResult(i, RC_CHANNEL_INFO);
     }
 
     private void openPostComposer() {
@@ -1012,6 +1034,12 @@ public class ChannelViewerActivity extends AppCompatActivity
     @Override protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
         // Posts + channel update automatically via LiveData
+        if (req == RC_CHANNEL_INFO && res == RESULT_OK && data != null) {
+            String action = data.getStringExtra(ChannelInfoActivity.RESULT_EXTRA_ACTION);
+            if (ChannelInfoActivity.ACTION_OPEN_SEARCH.equals(action) && searchMenuItem != null) {
+                searchMenuItem.expandActionView();
+            }
+        }
     }
 
     @Override protected void onPause() {

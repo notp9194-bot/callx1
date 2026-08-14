@@ -1,5 +1,10 @@
 plugins {
     id 'com.android.library'
+    // Kotlin support — ChannelInfoActivity (status → channel → ⋮ → "Channel info")
+    // is CallX2's status-module first Kotlin screen, code-built UI jaisa
+    // app-module ke AboutActivity.kt me pattern hai (src/main/java + src/main/kotlin
+    // dono side-by-side compile hote hain).
+    id 'org.jetbrains.kotlin.android'
 }
 
 android {
@@ -13,6 +18,10 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
     buildFeatures { viewBinding true }
 
     lint {
@@ -22,6 +31,7 @@ android {
 }
 
 dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.22"
     implementation project(':core')
     // Reuses feature-chat's shared attach-sheet (AttachSheetRecentMediaBinder +
     // bottom_sheet_attach.xml + MediaEditActivity) for the Status "Upload"
