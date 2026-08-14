@@ -59,4 +59,24 @@
     <color name="colorTextPrimary">@color/text_primary</color>
     <color name="colorTextSecondary">@color/text_secondary</color>
     <color name="colorError">@color/action_danger</color>
+
+    <!-- Shared reel/status composer palette — dark mode. -->
+    <color name="trim_gradient_start">#FF3B5C</color>
+    <color name="trim_gradient_end">#A855F7</color>
+    <color name="trim_screen_bg">@color/surface_bg</color>
+    <color name="trim_card_bg">@color/surface_input</color>
+    <color name="trim_subcard_bg">@color/surface_card</color>
+    <color name="trim_divider">@color/divider</color>
+    <color name="trim_text_primary">@color/text_primary</color>
+    <color name="trim_text_secondary">@color/text_secondary</color>
+    <color name="trim_text_muted">@color/text_muted</color>
+    <color name="trim_photo_placeholder">#24242A</color>
+    <color name="trim_waveform_dim">#3A3A43</color>
+    <color name="trim_chip_bg">@color/surface_card</color>
+    <color name="trim_chip_stroke">@color/divider</color>
+    <color name="trim_chip_selected_bg">#33FF3B5C</color>
+    <color name="trim_circle_btn_bg">#26FFFFFF</color>
+    <color name="trim_circle_btn_bg_on_photo">#66000000</color>
+    <color name="trim_tooltip_bg">#E6FFFFFF</color>
+    <color name="trim_tooltip_text">#14141A</color>
 </resources>

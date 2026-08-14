@@ -93,4 +93,25 @@
          card surface color; accent_blue reuses the read-tick blue. -->
     <color name="surface_base">@color/surface_card</color>
     <color name="accent_blue">@color/tick_read_blue</color>
+
+    <!-- Shared reel/status composer palette. These tokens live in core so the
+         modern trim surfaces and controls can be reused by other features. -->
+    <color name="trim_gradient_start">#FF3B5C</color>
+    <color name="trim_gradient_end">#A855F7</color>
+    <color name="trim_screen_bg">@color/surface_bg</color>
+    <color name="trim_card_bg">@color/surface_input</color>
+    <color name="trim_subcard_bg">@color/surface_card</color>
+    <color name="trim_divider">@color/divider</color>
+    <color name="trim_text_primary">@color/text_primary</color>
+    <color name="trim_text_secondary">@color/text_secondary</color>
+    <color name="trim_text_muted">@color/text_muted</color>
+    <color name="trim_photo_placeholder">#ECECF1</color>
+    <color name="trim_waveform_dim">#D6D6DE</color>
+    <color name="trim_chip_bg">@color/surface_card</color>
+    <color name="trim_chip_stroke">@color/divider</color>
+    <color name="trim_chip_selected_bg">#1AFF3B5C</color>
+    <color name="trim_circle_btn_bg">#14000000</color>
+    <color name="trim_circle_btn_bg_on_photo">#4D000000</color>
+    <color name="trim_tooltip_bg">#E6141420</color>
+    <color name="trim_tooltip_text">#FFFFFF</color>
 </resources>
