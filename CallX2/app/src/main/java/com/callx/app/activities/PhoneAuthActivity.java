@@ -32,10 +32,27 @@ public class PhoneAuthActivity extends AppCompatActivity {
         setContentView(binding.getRoot());
         auth = FirebaseAuth.getInstance();
 
+        if (getIntent().getBooleanExtra(AuthActivity.EXTRA_FORCE_LOGIN, false)
+                && auth.getCurrentUser() != null) {
+            com.callx.app.utils.PresenceManager.getInstance().onLogout();
+            com.callx.app.chatlist.ChatSnapshotCache.clearSnapshotAsync(this);
+            com.callx.app.utils.BiometricLoginManager.getInstance(this).disable();
+            auth.signOut();
+        }
         if (auth.getCurrentUser() != null) { goToMain(); return; }
 
         binding.toolbar.setNavigationOnClickListener(v -> finish());
         showPhoneScreen();
+        String savedPhone = getIntent().getStringExtra(AuthActivity.EXTRA_ACCOUNT_PHONE);
+        if (savedPhone != null && !savedPhone.trim().isEmpty()) {
+            String digits = savedPhone.replaceAll("[^0-9]", "");
+            if (digits.length() > 10) {
+                binding.etCountryCode.setText(digits.substring(0, digits.length() - 10));
+                binding.etPhone.setText(digits.substring(digits.length() - 10));
+            } else {
+                binding.etPhone.setText(digits);
+            }
+        }
 
         binding.btnSendOtp.setOnClickListener(v -> {
             if (!otpSent) {
@@ -239,6 +256,15 @@ public class PhoneAuthActivity extends AppCompatActivity {
     }
 
     private void goToMain() {
+        FirebaseUser user = auth.getCurrentUser();
+        if (user == null) return;
+        String expectedUid = getIntent().getStringExtra(AuthActivity.EXTRA_SWITCH_UID);
+        if (expectedUid != null && !expectedUid.isEmpty() && !expectedUid.equals(user.getUid())) {
+            auth.signOut();
+            showError("Yeh login selected account se match nahi karta. Sahi number se login karo.");
+            return;
+        }
+        com.callx.app.utils.AccountSessionStore.rememberFirebaseUser(this, user);
         com.callx.app.utils.PresenceManager.getInstance().onLogin();
         startActivity(new Intent(this, MainActivity.class));
         finish();

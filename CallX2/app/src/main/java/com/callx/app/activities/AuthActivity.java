@@ -35,6 +35,12 @@ import java.util.Map;
 
 public class AuthActivity extends AppCompatActivity {
 
+    public static final String EXTRA_FORCE_LOGIN = "extra_force_login";
+    public static final String EXTRA_SWITCH_UID = "extra_switch_uid";
+    public static final String EXTRA_ACCOUNT_EMAIL = "extra_account_email";
+    public static final String EXTRA_ACCOUNT_PHONE = "extra_account_phone";
+    public static final String EXTRA_ACCOUNT_LABEL = "extra_account_label";
+
     private ActivityAuthBinding binding;
     private FirebaseAuth auth;
     private GoogleSignInClient googleSignInClient;
@@ -69,6 +75,13 @@ public class AuthActivity extends AppCompatActivity {
         // ActivityAuthBinding.inflate() (email/password fields, Google/
         // biometric buttons, etc.) just to immediately tear it down again.
         auth = FirebaseAuth.getInstance();
+        if (getIntent().getBooleanExtra(EXTRA_FORCE_LOGIN, false)
+                && auth.getCurrentUser() != null) {
+            com.callx.app.utils.PresenceManager.getInstance().onLogout();
+            com.callx.app.chatlist.ChatSnapshotCache.clearSnapshotAsync(this);
+            BiometricLoginManager.getInstance(this).disable();
+            auth.signOut();
+        }
         if (auth.getCurrentUser() != null) { goToMain(); return; }
 
         binding = ActivityAuthBinding.inflate(getLayoutInflater());
@@ -79,6 +92,10 @@ public class AuthActivity extends AppCompatActivity {
 
         // ── Remember Me: auto-fill saved email ────────────────────────────
         String savedEmail = prefs.getString(KEY_REMEMBER_EMAIL, "");
+        String accountEmail = getIntent().getStringExtra(EXTRA_ACCOUNT_EMAIL);
+        if (accountEmail != null && !accountEmail.trim().isEmpty()) {
+            savedEmail = accountEmail;
+        }
         if (!savedEmail.isEmpty()) {
             binding.etEmail.setText(savedEmail);
             binding.cbRememberMe.setChecked(true);
@@ -146,7 +163,10 @@ public class AuthActivity extends AppCompatActivity {
             googleSignInLauncher.launch(googleSignInClient.getSignInIntent());
         });
         binding.btnPhone.setOnClickListener(v ->
-            startActivity(new Intent(this, PhoneAuthActivity.class)));
+            startActivity(new Intent(this, PhoneAuthActivity.class)
+                .putExtra(EXTRA_FORCE_LOGIN, getIntent().getBooleanExtra(EXTRA_FORCE_LOGIN, false))
+                .putExtra(EXTRA_SWITCH_UID, getIntent().getStringExtra(EXTRA_SWITCH_UID))
+                .putExtra(EXTRA_ACCOUNT_PHONE, getIntent().getStringExtra(EXTRA_ACCOUNT_PHONE))));
         binding.tvForgotPassword.setOnClickListener(v -> showForgotPasswordDialog());
 
         // ── Password strength watcher (signup mode only) ───────────────────
@@ -723,6 +743,17 @@ public class AuthActivity extends AppCompatActivity {
     }
 
     private void goToMain() {
+        FirebaseUser user = auth.getCurrentUser();
+        if (user == null) return;
+
+        String expectedUid = getIntent().getStringExtra(EXTRA_SWITCH_UID);
+        if (expectedUid != null && !expectedUid.isEmpty() && !expectedUid.equals(user.getUid())) {
+            auth.signOut();
+            showError("Yeh login selected account se match nahi karta. Sahi account se login karo.");
+            return;
+        }
+
+        com.callx.app.utils.AccountSessionStore.rememberFirebaseUser(this, user);
         // Mark user online immediately after login
         com.callx.app.utils.PresenceManager.getInstance().onLogin();
         // Sync privacy settings to Firebase on login

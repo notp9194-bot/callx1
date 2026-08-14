@@ -16,6 +16,7 @@ import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.R;
 import com.callx.app.databinding.ActivityAccountMenuBinding;
 import com.callx.app.utils.BiometricLoginManager;
+import com.callx.app.utils.AccountSessionStore;
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -56,6 +57,16 @@ public class AccountMenuActivity extends AppCompatActivity {
                 String thumb = orEmpty(snap.child("thumbUrl").getValue(String.class));
                 myCallxId = orEmpty(snap.child("callxId").getValue(String.class));
                 myName = name; myPhoto = photo;
+                AccountSessionStore.remember(
+                    AccountMenuActivity.this,
+                    uid,
+                    name,
+                    FirebaseAuth.getInstance().getCurrentUser() == null
+                        ? "" : FirebaseAuth.getInstance().getCurrentUser().getEmail(),
+                    snap.child("phone").getValue(String.class),
+                    thumb.isEmpty() ? photo : thumb,
+                    snap.child("loginType").getValue(String.class),
+                    myCallxId);
                 binding.tvProfileName.setText(name.isEmpty() ? "User" : name);
                 binding.tvProfileAbout.setText(about.isEmpty() ? "Hey there! I am using CallX" : about);
                 binding.tvCallxId.setText("ID: " + (myCallxId.isEmpty() ? "—" : myCallxId));
@@ -79,6 +90,11 @@ public class AccountMenuActivity extends AppCompatActivity {
 
         configureRow(binding.rowProfile.getRoot(), R.drawable.ic_person, "Edit Profile", "Name, photo, about");
         binding.rowProfile.getRoot().setOnClickListener(v -> startActivity(new Intent(this, ProfileActivity.class)));
+
+        configureRow(binding.rowAccountCenter.getRoot(), R.drawable.ic_person_add,
+            "Account Center", "Add, switch, or remove accounts on this device");
+        binding.rowAccountCenter.getRoot().setOnClickListener(v ->
+            startActivity(new Intent(this, AccountCenterActivity.class)));
 
         configureRow(binding.rowCallxId.getRoot(), R.drawable.ic_person_add, "My CallX ID", myCallxId.isEmpty() ? "Tap to copy" : myCallxId);
         binding.rowCallxId.getRoot().setOnClickListener(v -> copyCallxId());
@@ -209,6 +225,7 @@ public class AccountMenuActivity extends AppCompatActivity {
             .addOnSuccessListener(x -> {
                 // Fix #2: Account delete pe bhi biometric disable karo
                 BiometricLoginManager.getInstance(this).disable();
+                AccountSessionStore.remove(this, uid);
                 // WHATSAPP-LEVEL FIX: same reasoning as logout — don't let
                 // the deleted account's chat previews survive in the
                 // plaintext snapshot for whoever logs in next.
