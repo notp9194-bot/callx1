@@ -134,19 +134,19 @@
         android:paddingBottom="20dp"
         android:visibility="visible">
 
-        <!-- Track info row — tap opens the sound details sheet for this audio -->
+        <!-- Track info row — tap opens the SoundDetail sheet for the original audio -->
         <LinearLayout
-            android:id="@+id/row_trim_track_info"
+            android:id="@+id/layout_trim_track_info"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:background="@drawable/bg_trim_subcard"
-            android:padding="10dp"
-            android:layout_marginBottom="16dp"
+            android:foreground="?attr/selectableItemBackground"
             android:clickable="true"
             android:focusable="true"
-            android:contentDescription="Original audio details">
+            android:padding="10dp"
+            android:layout_marginBottom="16dp">
 
             <ImageView
                 android:id="@+id/iv_trim_cover"
@@ -273,21 +273,19 @@
             android:orientation="horizontal"
             android:gravity="center_vertical">
 
+            <!-- Change — reopens the trending audio screen to pick a different track -->
             <TextView
                 android:id="@+id/btn_trim_change"
                 android:layout_width="wrap_content"
                 android:layout_height="52dp"
-                android:minWidth="84dp"
                 android:gravity="center"
                 android:paddingHorizontal="16dp"
                 android:text="Change"
                 android:textColor="@color/trim_text_primary"
                 android:textSize="14sp"
                 android:fontFamily="sans-serif-medium"
-                android:drawableStart="@drawable/ic_swap"
-                android:drawableTint="@color/trim_text_primary"
-                android:drawablePadding="6dp"
-                android:background="@drawable/bg_trim_change_chip"
+                android:background="@drawable/bg_trim_duration_chip"
+                android:foreground="?attr/selectableItemBackground"
                 android:clickable="true"
                 android:focusable="true"
                 android:layout_marginEnd="10dp"
@@ -298,7 +296,7 @@
                 android:layout_height="52dp"
                 android:layout_weight="1"
                 android:orientation="horizontal"
-                android:gravity="center_vertical"
+                android:gravity="center"
                 android:background="@drawable/bg_trim_duration_chip"
                 android:paddingHorizontal="12dp"
                 android:layout_marginEnd="10dp">
@@ -341,7 +339,7 @@
                 android:id="@+id/btn_trim_use"
                 android:layout_width="wrap_content"
                 android:layout_height="52dp"
-                android:minWidth="84dp"
+                android:minWidth="88dp"
                 android:gravity="center"
                 android:paddingHorizontal="20dp"
                 android:text="Done"
