@@ -40,7 +40,9 @@ public class ScanQrActivity extends PaymentBaseActivity {
 
     private void openScanner() {
         new IntentIntegrator(this)
-                .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE_TYPES)
+                // Use the ZXing format name directly for compatibility with
+                // the embedded scanner versions used by this project.
+                .setDesiredBarcodeFormats(new String[]{"QR_CODE"})
                 .setPrompt("Scan payment QR")
                 .setBeepEnabled(false)
                 .setOrientationLocked(false)

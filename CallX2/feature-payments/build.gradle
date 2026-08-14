@@ -13,6 +13,9 @@ android {
 
 dependencies {
     implementation project(':core')
+    // AppDatabase extends RoomDatabase; core keeps Room implementation-scoped,
+    // so this consumer needs the Room runtime on its own compile classpath.
+    implementation 'androidx.room:room-runtime:2.6.1'
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.activity:activity:1.8.2'
     implementation 'androidx.core:core:1.13.1'
