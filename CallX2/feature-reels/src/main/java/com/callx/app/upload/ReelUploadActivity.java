@@ -134,6 +134,8 @@ public class ReelUploadActivity extends AppCompatActivity {
     private static final int REQ_SOUND_DETAIL_UPLOAD = 908;
     /** NEW: open ReelPhotoMusicTrimActivity to adjust the trimmed range for a photo-reel track */
     private static final int REQ_PHOTO_MUSIC_TRIM     = 909;
+    /** NEW: open ReelAudioMixerActivity right after the trim screen (video/photo both) */
+    private static final int REQ_AUDIO_MIXER_AFTER_TRIM = 910;
     private static final int MAX_PHOTOS              = 10;
     /** Minimum reels-using-this-sound count before it's flagged "🔥 Trending". */
     private static final long TRENDING_REEL_THRESHOLD = 5L;
@@ -634,6 +636,69 @@ public class ReelUploadActivity extends AppCompatActivity {
         i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_ARTIST, currentSoundArtist);
         i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_SOUND_ID,     preSelectedSoundId);
         startActivityForResult(i, REQ_AUDIO_MIXER_UPLOAD);
+    }
+
+    /**
+     * Opens ReelAudioMixerActivity right after ReelPhotoMusicTrimActivity ("Use" tapped),
+     * for BOTH video and photo reel modes — unlike {@link #openAudioMixerFromUpload()}
+     * (the standalone "Mix" button), which only supports video. Photo mode has no local
+     * video file, so it's opened without a video preview; the mixer already handles a
+     * missing video URI gracefully.
+     */
+    private void openAudioMixerAfterTrim() {
+        boolean isFilePath = false;
+        String  videoPath  = null;
+        if (!isPhotoMode && selectedUri != null) {
+            try {
+                String scheme = selectedUri.getScheme();
+                if ("file".equals(scheme)) {
+                    isFilePath = true;
+                    videoPath  = selectedUri.getPath();
+                } else {
+                    videoPath = selectedUri.toString();
+                }
+            } catch (Exception e) {
+                videoPath = selectedUri.toString();
+            }
+        }
+
+        Intent i = new Intent(this, com.callx.app.editor.ReelAudioMixerActivity.class);
+        i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_VIDEO_URI,    videoPath);
+        i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_IS_FILE_PATH, isFilePath);
+        i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_URL,    preSelectedSoundUrl);
+        i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_TITLE,  currentSoundTitle);
+        i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_ARTIST, currentSoundArtist);
+        i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_SOUND_ID,     preSelectedSoundId);
+        startActivityForResult(i, REQ_AUDIO_MIXER_AFTER_TRIM);
+    }
+
+    /** Reads ReelAudioMixerActivity's result extras into the mix state fields + UI. Shared by
+     *  both mixer entry points (standalone "Mix" button and the post-trim auto-open). */
+    private void applyMixerResult(Intent data) {
+        mixOrigVol        = data.getFloatExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_ORIG_VOL,       1.0f);
+        mixMusicVol       = data.getFloatExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_MUSIC_VOL,      0.8f);
+        mixVoiceoverVol   = data.getFloatExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_VOICEOVER_VOL,  1.0f);
+        mixFadeInMs       = data.getIntExtra  (com.callx.app.editor.ReelAudioMixerActivity.RESULT_FADE_IN_MS,     0);
+        mixFadeOutMs      = data.getIntExtra  (com.callx.app.editor.ReelAudioMixerActivity.RESULT_FADE_OUT_MS,    0);
+        mixPitchSemitones = data.getFloatExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_PITCH_SEMITONES,0f);
+        mixNormalize      = data.getBooleanExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_NORMALIZE,    false);
+        String vPath      = data.getStringExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_VOICEOVER_PATH);
+        if (vPath != null) mixVoiceoverPath = vPath;
+
+        // If user changed the track inside the mixer, propagate it
+        String newUrl    = data.getStringExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_MUSIC_URL);
+        String newId     = data.getStringExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_MUSIC_ID);
+        String newTitle  = data.getStringExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_MUSIC_TITLE);
+        String newArtist = data.getStringExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_MUSIC_ARTIST);
+        if (newUrl != null && !newUrl.isEmpty()) {
+            preSelectedSoundUrl = newUrl;
+            if (newId     != null && !newId.isEmpty())     preSelectedSoundId  = newId;
+            if (newTitle  != null && !newTitle.isEmpty())  currentSoundTitle   = newTitle;
+            if (newArtist != null && !newArtist.isEmpty()) currentSoundArtist  = newArtist;
+            if (etMusic != null) etMusic.setText(currentSoundTitle);
+        }
+        updateAudioUI();
+        Toast.makeText(this, "Mix settings saved ✓", Toast.LENGTH_SHORT).show();
     }
 
     /** Opens SoundDetailActivity for the currently selected sound. */
@@ -1350,39 +1415,28 @@ public class ReelUploadActivity extends AppCompatActivity {
                 if (etMusic != null) etMusic.setText(currentSoundTitle);
                 updateAudioUI();
                 Toast.makeText(this, "Sound added: " + currentSoundTitle, Toast.LENGTH_SHORT).show();
-                // Trim confirmed ("Done") — auto-advance from Caption & Sound to the next step.
-                goToStep(currentStep + 1);
+                // Trim confirmed ("Done") — open the Audio Mixer next (video/photo both),
+                // instead of advancing the step directly. The mixer keeps the user on
+                // Step 2 (Caption & Sound) once it returns.
+                openAudioMixerAfterTrim();
             }
+            return;
+        }
+
+        // ── REQ_AUDIO_MIXER_AFTER_TRIM: mixer opened right after the trim screen ──
+        if (requestCode == REQ_AUDIO_MIXER_AFTER_TRIM && resultCode == Activity.RESULT_OK && data != null) {
+            applyMixerResult(data);
+            return;
+        }
+        if (requestCode == REQ_AUDIO_MIXER_AFTER_TRIM) {
+            // Mixer cancelled/back — the trimmed sound picked earlier stays applied,
+            // user simply remains on Step 2.
             return;
         }
 
         // ── REQ_AUDIO_MIXER_UPLOAD: user adjusted volumes/track in the mixer ──────
         if (requestCode == REQ_AUDIO_MIXER_UPLOAD && resultCode == Activity.RESULT_OK && data != null) {
-            // Volume + FX settings
-            mixOrigVol        = data.getFloatExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_ORIG_VOL,       1.0f);
-            mixMusicVol       = data.getFloatExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_MUSIC_VOL,      0.8f);
-            mixVoiceoverVol   = data.getFloatExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_VOICEOVER_VOL,  1.0f);
-            mixFadeInMs       = data.getIntExtra  (com.callx.app.editor.ReelAudioMixerActivity.RESULT_FADE_IN_MS,     0);
-            mixFadeOutMs      = data.getIntExtra  (com.callx.app.editor.ReelAudioMixerActivity.RESULT_FADE_OUT_MS,    0);
-            mixPitchSemitones = data.getFloatExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_PITCH_SEMITONES,0f);
-            mixNormalize      = data.getBooleanExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_NORMALIZE,    false);
-            String vPath      = data.getStringExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_VOICEOVER_PATH);
-            if (vPath != null) mixVoiceoverPath = vPath;
-
-            // If user changed the track inside the mixer, propagate it
-            String newUrl    = data.getStringExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_MUSIC_URL);
-            String newId     = data.getStringExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_MUSIC_ID);
-            String newTitle  = data.getStringExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_MUSIC_TITLE);
-            String newArtist = data.getStringExtra(com.callx.app.editor.ReelAudioMixerActivity.RESULT_MUSIC_ARTIST);
-            if (newUrl != null && !newUrl.isEmpty()) {
-                preSelectedSoundUrl = newUrl;
-                if (newId     != null && !newId.isEmpty())     preSelectedSoundId  = newId;
-                if (newTitle  != null && !newTitle.isEmpty())  currentSoundTitle   = newTitle;
-                if (newArtist != null && !newArtist.isEmpty()) currentSoundArtist  = newArtist;
-                if (etMusic != null) etMusic.setText(currentSoundTitle);
-            }
-            updateAudioUI();
-            Toast.makeText(this, "Mix settings saved ✓", Toast.LENGTH_SHORT).show();
+            applyMixerResult(data);
             return;
         }
 

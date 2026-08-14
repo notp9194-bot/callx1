@@ -83,7 +83,8 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     private static final int REQ_CHANGE_MUSIC = 902;
 
     private PlayerView    playerView;
-    private ImageButton   btnBack, btnApply;
+    private ImageButton   btnBack;
+    private TextView      btnApply;
     private TextView      tvMusicTitle, tvMusicArtist;
     private SeekBar       sbOrigVol, sbMusicVol, sbVoiceoverVol;
     private TextView      tvOrigVolPct, tvMusicVolPct, tvVoiceoverVolPct;
@@ -274,25 +275,29 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
 
     @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
     private void setupPlayer() {
-        if (videoUri == null || videoUri.isEmpty()) return;
-        exoPlayer = new ExoPlayer.Builder(this).build();
-        playerView.setPlayer(exoPlayer);
-        Uri uri = isFilePath
-            ? Uri.fromFile(new File(videoUri))
-            : Uri.parse(videoUri);
-        exoPlayer.setMediaItem(MediaItem.fromUri(uri));
-        exoPlayer.setRepeatMode(androidx.media3.common.Player.REPEAT_MODE_ONE);
-        exoPlayer.setVolume(origVol);
-        exoPlayer.prepare();
-        exoPlayer.setPlayWhenReady(true);
+        // Photo-reel flow: no local video file to preview (mixer opened right after the
+        // trim screen for photo slideshows too) — just skip ExoPlayer setup and still
+        // preview the music track below.
+        if (videoUri != null && !videoUri.isEmpty()) {
+            exoPlayer = new ExoPlayer.Builder(this).build();
+            playerView.setPlayer(exoPlayer);
+            Uri uri = isFilePath
+                ? Uri.fromFile(new File(videoUri))
+                : Uri.parse(videoUri);
+            exoPlayer.setMediaItem(MediaItem.fromUri(uri));
+            exoPlayer.setRepeatMode(androidx.media3.common.Player.REPEAT_MODE_ONE);
+            exoPlayer.setVolume(origVol);
+            exoPlayer.prepare();
+            exoPlayer.setPlayWhenReady(true);
 
-        exoPlayer.addListener(new androidx.media3.common.Player.Listener() {
-            @Override public void onPlaybackStateChanged(int state) {
-                progressBuf.setVisibility(
-                    state == androidx.media3.common.Player.STATE_BUFFERING
-                        ? View.VISIBLE : View.GONE);
-            }
-        });
+            exoPlayer.addListener(new androidx.media3.common.Player.Listener() {
+                @Override public void onPlaybackStateChanged(int state) {
+                    progressBuf.setVisibility(
+                        state == androidx.media3.common.Player.STATE_BUFFERING
+                            ? View.VISIBLE : View.GONE);
+                }
+            });
+        }
 
         startMusicPreview();
     }
