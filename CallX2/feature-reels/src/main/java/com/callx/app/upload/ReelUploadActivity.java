@@ -1341,6 +1341,8 @@ public class ReelUploadActivity extends AppCompatActivity {
                 if (etMusic != null) etMusic.setText(currentSoundTitle);
                 updateAudioUI();
                 Toast.makeText(this, "Sound added: " + currentSoundTitle, Toast.LENGTH_SHORT).show();
+                // Trim confirmed ("Done") — auto-advance from Caption & Sound to the next step.
+                goToStep(currentStep + 1);
             }
             return;
         }
