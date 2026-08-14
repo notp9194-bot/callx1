@@ -2087,7 +2087,7 @@ public class MessagePagingAdapter
                 || "view_once".equals(type);
     }
 
-
+    private void bindCanvasMessage(@NonNull VH h, @NonNull Message m) {
         final Context ctx = h.itemView.getContext();
         final com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
         final int myToken = ++h.canvasBindToken;
