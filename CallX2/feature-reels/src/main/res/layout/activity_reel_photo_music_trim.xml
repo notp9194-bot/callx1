@@ -134,15 +134,19 @@
         android:paddingBottom="20dp"
         android:visibility="visible">
 
-        <!-- Track info row -->
+        <!-- Track info row — tap opens the sound details sheet for this audio -->
         <LinearLayout
+            android:id="@+id/row_trim_track_info"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:background="@drawable/bg_trim_subcard"
             android:padding="10dp"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="16dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="Original audio details">
 
             <ImageView
                 android:id="@+id/iv_trim_cover"
@@ -262,12 +266,32 @@
                 android:paddingHorizontal="4dp"/>
         </FrameLayout>
 
-        <!-- Bottom action row: Total duration (left) + Done (right) -->
+        <!-- Bottom action row: Change (left) + Total duration (middle) + Done (right) -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/btn_trim_change"
+                android:layout_width="wrap_content"
+                android:layout_height="52dp"
+                android:minWidth="84dp"
+                android:gravity="center"
+                android:paddingHorizontal="16dp"
+                android:text="Change"
+                android:textColor="@color/trim_text_primary"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif-medium"
+                android:drawableStart="@drawable/ic_swap"
+                android:drawableTint="@color/trim_text_primary"
+                android:drawablePadding="6dp"
+                android:background="@drawable/bg_trim_change_chip"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_marginEnd="10dp"
+                android:contentDescription="Change audio"/>
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -317,9 +341,9 @@
                 android:id="@+id/btn_trim_use"
                 android:layout_width="wrap_content"
                 android:layout_height="52dp"
-                android:minWidth="100dp"
+                android:minWidth="84dp"
                 android:gravity="center"
-                android:paddingHorizontal="24dp"
+                android:paddingHorizontal="20dp"
                 android:text="Done"
                 android:textColor="#FFFFFFFF"
                 android:textSize="15sp"

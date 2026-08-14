@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- RadioButton "button" drawable for the trim preset chips — no visible dot,
+     the chip's own background selector already conveys checked state. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:width="0dp" android:height="0dp"/>
+</selector>

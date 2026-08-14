@@ -15,6 +15,8 @@ import androidx.core.content.ContextCompat;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
+import com.callx.app.music.ReelTrendingAudioActivity;
+import com.callx.app.music.SoundDetailSheetFragment;
 import com.callx.app.reels.R;
 import com.callx.app.views.AudioTrimWaveformView;
 
@@ -90,16 +92,19 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     }
 
     private ImageButton  btnBack, btnPreview;
-    private TextView      btnUse;
+    private TextView      btnUse, btnChange;
     private TextView     tvTitle, tvStartTime, tvEndTime, tvDuration, tvSelectedRange;
     private TextView     tvStartValue, tvEndValue;
     private TextView     tvTrackTitle, tvTrackArtist;
     private ImageView    ivCover, ivPhotoPreview, ivPlayHint;
+    private View          rowTrackInfo;
     private SeekBar      sbStart, sbEnd;
     private AudioTrimWaveformView waveformView;
     private RadioGroup   rgPresets;
     private ProgressBar  progressLoad;
     private View         layoutControls;
+
+    private static final int REQ_CHANGE_MUSIC = 771;
 
     private String soundId, soundUrl, soundTitle, soundArtist, soundCover;
     private int    totalDurationMs;
@@ -180,11 +185,13 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         btnBack         = findViewById(R.id.btn_trim_back);
         btnPreview      = findViewById(R.id.btn_trim_preview);
         btnUse          = findViewById(R.id.btn_trim_use);
+        btnChange       = findViewById(R.id.btn_trim_change);
         tvTitle         = findViewById(R.id.tv_trim_title);
         tvDuration      = findViewById(R.id.tv_trim_total_duration);
         tvTrackTitle    = findViewById(R.id.tv_trim_title_track);
         tvTrackArtist   = findViewById(R.id.tv_trim_artist);
         ivCover         = findViewById(R.id.iv_trim_cover);
+        rowTrackInfo    = findViewById(R.id.row_trim_track_info);
         ivPhotoPreview  = findViewById(R.id.iv_photo_preview);
         ivPlayHint      = findViewById(R.id.iv_preview_play_hint);
         sbStart         = findViewById(R.id.sb_trim_start);
@@ -377,6 +384,53 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         if (btnBack      != null) btnBack.setOnClickListener(v -> finish());
         if (btnPreview    != null) btnPreview.setOnClickListener(v -> togglePreview());
         if (btnUse        != null) btnUse.setOnClickListener(v -> useSelection());
+        if (btnChange     != null) btnChange.setOnClickListener(v -> openChangeMusicPicker());
+        if (rowTrackInfo  != null) rowTrackInfo.setOnClickListener(v -> openSoundDetailSheet());
+    }
+
+    /** "Change" button — reopens the trending audio picker to swap the track. */
+    private void openChangeMusicPicker() {
+        stopPreview();
+        startActivityForResult(
+            new Intent(this, ReelTrendingAudioActivity.class), REQ_CHANGE_MUSIC);
+    }
+
+    /** Tapping the original-audio row opens the sound details bottom sheet for it. */
+    private void openSoundDetailSheet() {
+        if (soundUrl == null || soundUrl.isEmpty()) return;
+        stopPreview();
+        SoundDetailSheetFragment sheet = SoundDetailSheetFragment.newInstance(
+            soundId, soundTitle, soundArtist, soundCover, soundUrl, totalDurationMs);
+        sheet.show(getSupportFragmentManager(), "sound_detail");
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_CHANGE_MUSIC || resultCode != RESULT_OK || data == null) return;
+
+        String newUrl = data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_URL);
+        if (newUrl == null || newUrl.isEmpty()) return;
+
+        soundId     = data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_ID);
+        soundTitle  = data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_TITLE);
+        soundArtist = data.getStringExtra(ReelTrendingAudioActivity.RESULT_AUDIO_ARTIST);
+        soundUrl    = newUrl;
+        soundCover  = data.getStringExtra(ReelTrendingAudioActivity.RESULT_COVER_URL);
+
+        // Reset the trim range/duration for the newly picked track.
+        totalDurationMs = 0;
+        startMs = 0;
+        endMs   = 30_000;
+
+        if (mediaPlayer != null) {
+            try { mediaPlayer.stop(); mediaPlayer.release(); } catch (Exception ignored) {}
+            mediaPlayer = null;
+        }
+
+        populateInfo();
+        if (layoutControls != null) layoutControls.setVisibility(View.GONE);
+        loadAudio();
     }
 
     private void togglePreview() {
