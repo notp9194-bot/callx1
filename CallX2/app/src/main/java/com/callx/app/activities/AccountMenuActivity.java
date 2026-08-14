@@ -193,6 +193,12 @@ public class AccountMenuActivity extends AppCompatActivity {
                     // account that logs in on this device never flashes
                     // this account's chat previews as its own first frame.
                     com.callx.app.chatlist.ChatSnapshotCache.clearSnapshotAsync(this);
+                    // FIX-ACCT-SWITCH: same reason as AuthActivity's
+                    // EXTRA_FORCE_LOGIN branch — chats/messages carry no
+                    // ownerUid in Room, so without wiping the DB here a
+                    // different account logging in later on this same
+                    // device would still see this account's cached chats.
+                    com.callx.app.db.AppDatabase.wipeForAccountSwitch(this);
                     FirebaseAuth.getInstance().signOut();
                     Intent i = new Intent(this, AuthActivity.class);
                     i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);

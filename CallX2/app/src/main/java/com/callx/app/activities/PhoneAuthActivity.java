@@ -37,6 +37,12 @@ public class PhoneAuthActivity extends AppCompatActivity {
             com.callx.app.utils.PresenceManager.getInstance().onLogout();
             com.callx.app.chatlist.ChatSnapshotCache.clearSnapshotAsync(this);
             com.callx.app.utils.BiometricLoginManager.getInstance(this).disable();
+            // FIX-ACCT-SWITCH: see AppDatabase.wipeForAccountSwitch() —
+            // chats/messages have no ownerUid scoping in Room, so the
+            // outgoing account's cached data must be wiped here too,
+            // otherwise switching to a phone-based account shows the
+            // previous account's chats just like the email/Google path did.
+            com.callx.app.db.AppDatabase.wipeForAccountSwitch(this);
             auth.signOut();
         }
         if (auth.getCurrentUser() != null) { goToMain(); return; }

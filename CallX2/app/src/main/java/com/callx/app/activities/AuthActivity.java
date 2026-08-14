@@ -80,6 +80,14 @@ public class AuthActivity extends AppCompatActivity {
             com.callx.app.utils.PresenceManager.getInstance().onLogout();
             com.callx.app.chatlist.ChatSnapshotCache.clearSnapshotAsync(this);
             BiometricLoginManager.getInstance(this).disable();
+            // FIX-ACCT-SWITCH: chats/messages have no per-user (ownerUid)
+            // scoping in Room, so without wiping the DB here the next
+            // account to log in on this device would read the OUTGOING
+            // account's cached chats/messages until Firebase happened to
+            // overwrite each row — and rows Firebase never touches for the
+            // new account would stay visible forever. Must run
+            // synchronously, before the new login can touch the DB again.
+            com.callx.app.db.AppDatabase.wipeForAccountSwitch(this);
             auth.signOut();
         }
         if (auth.getCurrentUser() != null) { goToMain(); return; }
@@ -160,7 +168,13 @@ public class AuthActivity extends AppCompatActivity {
         binding.btnSignup.setOnClickListener(v -> toggleSignupMode());
         binding.btnGoogle.setOnClickListener(v -> {
             showError("");
-            googleSignInLauncher.launch(googleSignInClient.getSignInIntent());
+            // FIX-ACCT-SWITCH: GoogleSignInClient caches the last-used Google
+            // account, so launching getSignInIntent() directly re-signs the
+            // same account silently with no chooser. Sign out of the cached
+            // client first so the account picker always shows and lets the
+            // user pick a *different* Gmail account when switching.
+            googleSignInClient.signOut().addOnCompleteListener(task ->
+                    googleSignInLauncher.launch(googleSignInClient.getSignInIntent()));
         });
         binding.btnPhone.setOnClickListener(v ->
             startActivity(new Intent(this, PhoneAuthActivity.class)
@@ -593,6 +607,14 @@ public class AuthActivity extends AppCompatActivity {
     }
 
     // ── Email Verification Dialog ──────────────────────────────────────────
+    /**
+     * FIX-ACCT-SWITCH: previously both buttons called auth.signOut() and
+     * never proceeded — so logging in (including switching accounts) with
+     * an unverified email got stuck back on this login screen forever,
+     * even though credentials were correct. Signup already lets unverified
+     * users into the app with a reminder (see saveProfile()); login/switch
+     * now does the same instead of dead-ending here.
+     */
     private void showEmailVerificationDialog(FirebaseUser user) {
         new MaterialAlertDialogBuilder(this)
             .setTitle("Email Verify Nahi Hua")
@@ -603,9 +625,13 @@ public class AuthActivity extends AppCompatActivity {
                         "Verification email bhej diya! Inbox check karo.", Toast.LENGTH_LONG).show())
                     .addOnFailureListener(e -> Toast.makeText(this,
                         "Email nahi bheja: " + e.getMessage(), Toast.LENGTH_SHORT).show());
-                auth.signOut();
+                saveFcmToken();
+                goToMain();
             })
-            .setNegativeButton("Baad Mein", (d, w) -> auth.signOut())
+            .setNegativeButton("Baad Mein", (d, w) -> {
+                saveFcmToken();
+                goToMain();
+            })
             .setCancelable(false)
             .show();
     }

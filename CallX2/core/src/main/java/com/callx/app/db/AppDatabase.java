@@ -609,6 +609,8 @@ public abstract class AppDatabase extends RoomDatabase {
 
     // ─── Singleton ────────────────────────────────────────────────────────────
 
+    private static final String DB_NAME = "callx_database";
+
     public static boolean isWarm() { return sInstance != null; }
 
     public static AppDatabase getInstance(Context ctx) {
@@ -618,7 +620,7 @@ public abstract class AppDatabase extends RoomDatabase {
                     sInstance = Room.databaseBuilder(
                                     ctx.getApplicationContext(),
                                     AppDatabase.class,
-                                    "callx_database")
+                                    DB_NAME)
                             // v207 — PERF FIX: WAL explicitly forced instead of
                             // relying on Room's default JournalMode.AUTOMATIC.
                             // AUTOMATIC silently falls back to TRUNCATE mode on
@@ -654,5 +656,47 @@ public abstract class AppDatabase extends RoomDatabase {
             }
         }
         return sInstance;
+    }
+
+    /**
+     * FIX-ACCT-SWITCH: closes and deletes the entire local Room DB so the
+     * next signed-in user starts from a clean slate.
+     *
+     * ROOT CAUSE this fixes: chats/messages/groups etc. are cached in one
+     * single, device-wide "callx_database" file. None of those entities
+     * (ChatEntity, MessageEntity, GroupEntity, ...) carry an ownerUid column
+     * — unlike e.g. PaymentAccountEntity, which does scope rows per user.
+     * So without wiping, ChatsFragment.loadFromRoom() would read straight
+     * from Room after a switch and show the PREVIOUS account's cached
+     * chats/messages to whoever just logged in — rows Firebase never
+     * happens to overwrite for the new account (e.g. the old user's private
+     * chats) would stay visible forever, not just until the next sync.
+     *
+     * Retrofitting per-row ownerUid scoping across every DAO/repository in
+     * the app would be the "proper" long-term fix but touches a huge,
+     * high-risk surface. Wiping the whole DB at the exact moment of switch
+     * (same place logout already clears presence, biometric state, and
+     * ChatSnapshotCache) is the safe, minimal-risk fix and is exactly what
+     * WhatsApp/Telegram-style clients do on "log into a different account".
+     * The new account simply re-syncs everything fresh from Firebase, same
+     * as a normal first login.
+     *
+     * MUST be called synchronously, BEFORE the new user's login flow can
+     * touch getInstance() again (see AuthActivity's EXTRA_FORCE_LOGIN
+     * branch) — never fire-and-forget this, or a race lets the new user's
+     * first Room read land on the old file mid-delete.
+     */
+    public static synchronized void wipeForAccountSwitch(Context ctx) {
+        if (sInstance != null) {
+            try {
+                sInstance.close();
+            } catch (Exception ignored) {
+                // Best-effort — proceed to delete the file regardless.
+            }
+            sInstance = null;
+        }
+        // deleteDatabase() also removes the -wal/-shm/-journal companion
+        // files Room's WAL journal mode creates, not just the main file.
+        ctx.getApplicationContext().deleteDatabase(DB_NAME);
     }
 }
