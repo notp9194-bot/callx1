@@ -648,6 +648,10 @@ public class ReelUploadActivity extends AppCompatActivity {
     private void openAudioMixerAfterTrim() {
         boolean isFilePath = false;
         String  videoPath  = null;
+        // ✅ FIX: photo mode has no video, so the mixer's preview card was blank.
+        // Pass the cover photo (falls back to the first photo) so the mixer can
+        // show a static image preview instead.
+        String  photoPath  = null;
         if (!isPhotoMode && selectedUri != null) {
             try {
                 String scheme = selectedUri.getScheme();
@@ -660,11 +664,16 @@ public class ReelUploadActivity extends AppCompatActivity {
             } catch (Exception e) {
                 videoPath = selectedUri.toString();
             }
+        } else if (isPhotoMode && !selectedPhotoUris.isEmpty()) {
+            int idx = (coverPhotoIndex >= 0 && coverPhotoIndex < selectedPhotoUris.size())
+                ? coverPhotoIndex : 0;
+            photoPath = selectedPhotoUris.get(idx).toString();
         }
 
         Intent i = new Intent(this, com.callx.app.editor.ReelAudioMixerActivity.class);
         i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_VIDEO_URI,    videoPath);
         i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_IS_FILE_PATH, isFilePath);
+        i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_PHOTO_URI,    photoPath);
         i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_URL,    preSelectedSoundUrl);
         i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_TITLE,  currentSoundTitle);
         i.putExtra(com.callx.app.editor.ReelAudioMixerActivity.EXTRA_MUSIC_ARTIST, currentSoundArtist);

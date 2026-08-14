@@ -55,6 +55,9 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     public static final String EXTRA_MUSIC_URL    = "mixer_music_url";
     /** ✅ NEW: optional sound ID passed in so Mixer can open SoundDetailActivity */
     public static final String EXTRA_SOUND_ID     = "mixer_sound_id";
+    /** ✅ FIX: photo-reel mode has no video file — caller passes the (cover) photo
+     *  URI/path here so the preview card can show a static image instead of ExoPlayer. */
+    public static final String EXTRA_PHOTO_URI    = "mixer_photo_uri";
 
     public static final String RESULT_ORIG_VOL        = "result_orig_vol";
     public static final String RESULT_MUSIC_VOL       = "result_music_vol";
@@ -83,6 +86,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
     private static final int REQ_CHANGE_MUSIC = 902;
 
     private PlayerView    playerView;
+    private ImageView     photoPreview;
     private ImageButton   btnBack;
     private TextView      btnApply;
     private TextView      tvMusicTitle, tvMusicArtist;
@@ -100,6 +104,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
 
     private String videoUri;
     private boolean isFilePath;
+    private String photoUri;
     private String musicUrl;
     private String voiceoverPath;
     // ✅ NEW: stored so we can open SoundDetailActivity
@@ -126,6 +131,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
 
         videoUri      = getIntent().getStringExtra(EXTRA_VIDEO_URI);
         isFilePath    = getIntent().getBooleanExtra(EXTRA_IS_FILE_PATH, true);
+        photoUri      = getIntent().getStringExtra(EXTRA_PHOTO_URI);
         musicUrl      = getIntent().getStringExtra(EXTRA_MUSIC_URL);
         soundId       = nvl(getIntent().getStringExtra(EXTRA_SOUND_ID));
         currentTitle  = nvl(getIntent().getStringExtra(EXTRA_MUSIC_TITLE));
@@ -222,6 +228,10 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
             @Override public void onProgressChanged(SeekBar sb, int p, boolean u) {
                 pitchSemitones = (p - 60) / 10f;
                 tvPL.setText(String.format(java.util.Locale.US, "Pitch: %+.1f semitones", pitchSemitones));
+                // ✅ FIX: previously this only stored the value with no audible
+                // effect, so the slider looked "broken". Now it live-shifts the
+                // background music preview so the user can actually hear it.
+                applyPitchToMusicPreview();
             }
             @Override public void onStartTrackingTouch(SeekBar sb) {}
             @Override public void onStopTrackingTouch(SeekBar sb) {}
@@ -234,6 +244,29 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
         b.setText(lbl); b.setTextColor(0xFFFFFFFF);
         b.setBackgroundColor(0xFF333333); b.setAlpha(0.5f); b.setAllCaps(false);
         return b;
+    }
+
+    /**
+     * ✅ FIX: Live-applies {@link #pitchSemitones} to the currently playing
+     * background-music preview via {@link android.media.PlaybackParams}, so
+     * moving the Pitch slider is actually audible in the mixer screen.
+     * Speed is kept at 1.0 — only pitch changes (semitone → frequency-ratio
+     * conversion: ratio = 2^(semitones/12)).
+     * Silently no-ops on API < 23 or if the player isn't in a valid state.
+     */
+    private void applyPitchToMusicPreview() {
+        if (musicPlayer == null) return;
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M) return;
+        try {
+            float ratio = (float) Math.pow(2.0, pitchSemitones / 12.0);
+            android.media.PlaybackParams params = new android.media.PlaybackParams();
+            params.setPitch(Math.max(0.5f, Math.min(2.0f, ratio)));
+            params.setSpeed(1.0f);
+            musicPlayer.setPlaybackParams(params);
+        } catch (Exception ignored) {
+            // Some OEM decoders throw if the player isn't started/prepared yet —
+            // harmless, the value is still applied at final mix via AudioMixHelper.
+        }
     }
 
     private void detectSilentOriginalAudio() {
@@ -249,6 +282,7 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
 
     private void bindViews() {
         playerView        = findViewById(R.id.mixer_player_view);
+        photoPreview      = findViewById(R.id.mixer_photo_preview);
         btnBack           = findViewById(R.id.btn_mixer_back);
         btnApply          = findViewById(R.id.btn_mixer_apply);
         tvMusicTitle      = findViewById(R.id.tv_mixer_music_title);
@@ -275,10 +309,21 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
 
     @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
     private void setupPlayer() {
-        // Photo-reel flow: no local video file to preview (mixer opened right after the
-        // trim screen for photo slideshows too) — just skip ExoPlayer setup and still
-        // preview the music track below.
+        // ✅ FIX: Photo-reel flow has no local video file to preview (mixer opened right
+        // after the trim screen for photo slideshows too). Previously this just skipped
+        // preview setup entirely, leaving the preview card blank. Now we show the
+        // selected/cover photo instead via ImageView + Glide.
+        if ((videoUri == null || videoUri.isEmpty()) && photoUri != null && !photoUri.isEmpty()) {
+            playerView.setVisibility(View.GONE);
+            photoPreview.setVisibility(View.VISIBLE);
+            com.bumptech.glide.Glide.with(this)
+                .load(photoUri)
+                .centerCrop()
+                .into(photoPreview);
+        }
+
         if (videoUri != null && !videoUri.isEmpty()) {
+            photoPreview.setVisibility(View.GONE);
             exoPlayer = new ExoPlayer.Builder(this).build();
             playerView.setPlayer(exoPlayer);
             Uri uri = isFilePath
@@ -310,7 +355,13 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
             musicPlayer.setLooping(true);
             musicPlayer.setVolume(musicVol, musicVol);
             musicPlayer.prepareAsync();
-            musicPlayer.setOnPreparedListener(MediaPlayer::start);
+            musicPlayer.setOnPreparedListener(mp -> {
+                mp.start();
+                // ✅ FIX: re-apply any pitch already set (e.g. user moved the
+                // slider before the player finished preparing, or is switching
+                // tracks) so pitch stays in sync with the current preview.
+                applyPitchToMusicPreview();
+            });
         } catch (Exception e) {
             Toast.makeText(this, "Music preview failed", Toast.LENGTH_SHORT).show();
         }
@@ -517,6 +568,8 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
             musicPlayer.setOnPreparedListener(mp -> {
                 mp.setVolume(musicVol, musicVol);
                 mp.start();
+                // ✅ FIX: keep pitch in sync after switching to a new track.
+                applyPitchToMusicPreview();
             });
         } catch (Exception ignored) {}
     }
