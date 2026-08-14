@@ -1290,15 +1290,29 @@ public class ReelUploadActivity extends AppCompatActivity {
                 // Let the user preview + trim exactly how much of the track to use
                 // before it's applied, instead of always defaulting to the start of
                 // the track. Photo reels pass their slideshow photos so the trim
-                // screen's live preview cycles through them; video reels pass an
-                // empty list — ReelPhotoMusicTrimActivity already no-ops its photo
-                // preview when the list is empty, so only the waveform trimmer +
-                // audio preview controls show, giving video-flow uploaders the same
-                // audio-adjust benefit photo reels already had.
+                // screen's live preview cycles through them; video reels pass the
+                // selected video uri instead, so the trim screen's preview plays the
+                // actual clip (muted) rather than just showing the track's cover art.
                 ArrayList<String> uriStrs = new ArrayList<>();
                 if (isPhotoMode && !selectedPhotoUris.isEmpty()) {
                     for (Uri u : selectedPhotoUris) uriStrs.add(u.toString());
                 }
+
+                String videoUriForTrim = null;
+                boolean videoIsFilePathForTrim = false;
+                if (!isPhotoMode && selectedUri != null) {
+                    try {
+                        if ("file".equals(selectedUri.getScheme())) {
+                            videoIsFilePathForTrim = true;
+                            videoUriForTrim = selectedUri.getPath();
+                        } else {
+                            videoUriForTrim = selectedUri.toString();
+                        }
+                    } catch (Exception e) {
+                        videoUriForTrim = selectedUri.toString();
+                    }
+                }
+
                 ReelPhotoMusicTrimActivity.start(
                     this, uriStrs, selectedDurationMs,
                     pickedId    != null ? pickedId    : "",
@@ -1307,6 +1321,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                     pickedUrl,
                     pickedCover != null ? pickedCover : "",
                     0, 0, 0,
+                    videoUriForTrim, videoIsFilePathForTrim,
                     REQ_PHOTO_MUSIC_TRIM);
             }
             return;

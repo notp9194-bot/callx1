@@ -87,6 +87,16 @@
             android:scaleType="centerCrop"
             android:contentDescription="Reel preview"/>
 
+        <!-- Video-reel flow: actual muted video plays here (over the poster-frame
+             ImageView above) while the trimmed music previews, so the uploader sees
+             the real clip instead of just the track's cover art. Hidden until preview
+             playback starts; GONE for photo-reel flow (no videoUri passed). -->
+        <VideoView
+            android:id="@+id/video_preview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"/>
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

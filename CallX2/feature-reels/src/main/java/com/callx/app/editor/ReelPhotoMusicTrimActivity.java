@@ -9,6 +9,8 @@ import android.os.Looper;
 import android.view.View;
 import android.widget.*;
 
+import java.io.File;
+
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
@@ -54,6 +56,11 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     /** Per-photo slide duration in ms, used to pace the preview. Default 3000. */
     public static final String EXTRA_SLIDE_MS     = "trim_slide_ms";
 
+    /** Video-reel flow only: the selected video's uri/path, so the preview can show
+     *  the actual clip instead of falling back to the track's cover art. */
+    public static final String EXTRA_VIDEO_URI         = "trim_video_uri";
+    public static final String EXTRA_VIDEO_IS_FILE_PATH = "trim_video_is_file_path";
+
     public static final String EXTRA_SOUND_ID     = "trim_sound_id";
     public static final String EXTRA_SOUND_TITLE  = "trim_sound_title";
     public static final String EXTRA_SOUND_ARTIST = "trim_sound_artist";
@@ -72,11 +79,22 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     public static final String RESULT_SOUND_URL   = "result_sound_url";
     public static final String RESULT_SOUND_COVER = "result_sound_cover";
 
-    /** Convenience launcher. */
+    /** Convenience launcher — photo-reel flow (no video preview). */
     public static void start(AppCompatActivity from, ArrayList<String> photoUris, int slideMs,
                               String soundId, String soundTitle, String soundArtist,
                               String soundUrl, String soundCover, int durationMs,
                               int initialStartMs, int initialEndMs, int requestCode) {
+        start(from, photoUris, slideMs, soundId, soundTitle, soundArtist, soundUrl, soundCover,
+            durationMs, initialStartMs, initialEndMs, null, false, requestCode);
+    }
+
+    /** Convenience launcher — video-reel flow: pass the selected video so the preview
+     *  can actually show it (muted, looping) instead of just the track's cover art. */
+    public static void start(AppCompatActivity from, ArrayList<String> photoUris, int slideMs,
+                              String soundId, String soundTitle, String soundArtist,
+                              String soundUrl, String soundCover, int durationMs,
+                              int initialStartMs, int initialEndMs,
+                              @Nullable String videoUri, boolean videoIsFilePath, int requestCode) {
         Intent i = new Intent(from, ReelPhotoMusicTrimActivity.class);
         i.putStringArrayListExtra(EXTRA_PHOTO_URIS, photoUris);
         i.putExtra(EXTRA_SLIDE_MS,     slideMs);
@@ -88,6 +106,10 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         i.putExtra(EXTRA_DURATION_MS,  durationMs);
         i.putExtra(EXTRA_INITIAL_START_MS, initialStartMs);
         i.putExtra(EXTRA_INITIAL_END_MS,   initialEndMs);
+        if (videoUri != null && !videoUri.isEmpty()) {
+            i.putExtra(EXTRA_VIDEO_URI, videoUri);
+            i.putExtra(EXTRA_VIDEO_IS_FILE_PATH, videoIsFilePath);
+        }
         from.startActivityForResult(i, requestCode);
     }
 
@@ -97,6 +119,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     private TextView     tvStartValue, tvEndValue;
     private TextView     tvTrackTitle, tvTrackArtist;
     private ImageView    ivCover, ivPhotoPreview, ivPlayHint;
+    private VideoView    videoPreview;
     private SeekBar      sbStart, sbEnd;
     private AudioTrimWaveformView waveformView;
     private RadioGroup   rgPresets;
@@ -118,6 +141,10 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     private List<String> photoUris = new ArrayList<>();
     private int slideMs = 3000;
     private int previewPhotoIndex = 0;
+
+    /** Video-reel flow: set when opened from video upload instead of photo slideshow. */
+    @Nullable private Uri videoUri;
+    private boolean videoIsFilePath;
 
     private MediaPlayer mediaPlayer;
     private boolean     isPreviewing = false;
@@ -167,6 +194,12 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         ArrayList<String> uris = getIntent().getStringArrayListExtra(EXTRA_PHOTO_URIS);
         if (uris != null) photoUris = uris;
 
+        String videoUriStr = getIntent().getStringExtra(EXTRA_VIDEO_URI);
+        videoIsFilePath     = getIntent().getBooleanExtra(EXTRA_VIDEO_IS_FILE_PATH, false);
+        if (videoUriStr != null && !videoUriStr.isEmpty()) {
+            videoUri = videoIsFilePath ? Uri.fromFile(new File(videoUriStr)) : Uri.parse(videoUriStr);
+        }
+
         int initStart = getIntent().getIntExtra(EXTRA_INITIAL_START_MS, 0);
         int initEnd   = getIntent().getIntExtra(EXTRA_INITIAL_END_MS, 0);
         if (initEnd > initStart) { startMs = initStart; endMs = initEnd; }
@@ -192,6 +225,7 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         tvTrackArtist   = findViewById(R.id.tv_trim_artist);
         ivCover         = findViewById(R.id.iv_trim_cover);
         ivPhotoPreview  = findViewById(R.id.iv_photo_preview);
+        videoPreview    = findViewById(R.id.video_preview);
         ivPlayHint      = findViewById(R.id.iv_preview_play_hint);
         sbStart         = findViewById(R.id.sb_trim_start);
         sbEnd           = findViewById(R.id.sb_trim_end);
@@ -205,6 +239,28 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         View.OnClickListener togglePreviewClick = v -> togglePreview();
         if (ivPhotoPreview != null) ivPhotoPreview.setOnClickListener(togglePreviewClick);
         if (ivPlayHint      != null) ivPlayHint.setOnClickListener(togglePreviewClick);
+        // videoPreview sits on top of ivPhotoPreview once visible, so it needs its
+        // own tap target to pause/resume, otherwise taps stop reaching ivPhotoPreview.
+        if (videoPreview    != null) videoPreview.setOnClickListener(togglePreviewClick);
+
+        setupVideoPreview();
+    }
+
+    /**
+     * Video-reel flow: wires the actual selected clip into the preview VideoView
+     * (muted, looped) so this screen shows the real video instead of leaving the
+     * preview on the track's cover art. No-op for photo reels (videoUri is null).
+     */
+    private void setupVideoPreview() {
+        if (videoPreview == null || videoUri == null) return;
+        try {
+            videoPreview.setVideoURI(videoUri);
+            videoPreview.setOnPreparedListener(mp -> {
+                mp.setLooping(true);
+                mp.setVolume(0f, 0f); // silent — the trimmed music track is the audio
+            });
+            videoPreview.setOnErrorListener((mp, what, extra) -> true); // swallow, poster frame still shows
+        } catch (Exception ignored) {}
     }
 
     /**
@@ -242,11 +298,16 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
     private void showPhoto(int index) {
         if (ivPhotoPreview == null) return;
         if (photoUris.isEmpty()) {
-            // Video-reel flow: no slideshow photos to cycle through, so fall back
-            // to the track's own cover art instead of leaving the preview card
-            // blank — this screen is also opened from the video upload flow now
-            // (audio trim only, no photo preview to cycle).
-            if (soundCover != null && !soundCover.isEmpty()) {
+            // Video-reel flow: no slideshow photos to cycle through. Show a poster
+            // frame grabbed from the actual selected video (Glide decodes a frame
+            // for local file/content uris) so the card reflects the real clip;
+            // the VideoView plays the clip itself once preview starts. Only fall
+            // back to the track's cover art if no video was passed in.
+            if (videoUri != null) {
+                Glide.with(this).load(videoUri)
+                    .transition(DrawableTransitionOptions.withCrossFade())
+                    .into(ivPhotoPreview);
+            } else if (soundCover != null && !soundCover.isEmpty()) {
                 Glide.with(this).load(soundCover)
                     .transition(DrawableTransitionOptions.withCrossFade())
                     .into(ivPhotoPreview);
@@ -478,6 +539,11 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
             previewPhotoIndex = 0;
             showPhoto(previewPhotoIndex);
             if (photoUris.size() > 1) slideHandler.postDelayed(slideRunnable, slideMs);
+            if (videoPreview != null && videoUri != null) {
+                videoPreview.setVisibility(View.VISIBLE);
+                videoPreview.seekTo(0);
+                videoPreview.start();
+            }
         } catch (Exception e) {
             Toast.makeText(this, "Playback failed", Toast.LENGTH_SHORT).show();
         }
@@ -493,6 +559,10 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
         if (waveformView != null) waveformView.setPlayheadMs(-1);
         handler.removeCallbacks(previewStopCheck);
         slideHandler.removeCallbacks(slideRunnable);
+        if (videoPreview != null && videoUri != null) {
+            try { videoPreview.pause(); } catch (Exception ignored) {}
+            videoPreview.setVisibility(View.GONE); // reveals the poster-frame ImageView beneath
+        }
     }
 
     private void useSelection() {
@@ -554,6 +624,9 @@ public class ReelPhotoMusicTrimActivity extends AppCompatActivity {
             try { mediaPlayer.stop(); } catch (Exception ignored) {}
             mediaPlayer.release();
             mediaPlayer = null;
+        }
+        if (videoPreview != null) {
+            try { videoPreview.stopPlayback(); } catch (Exception ignored) {}
         }
         super.onDestroy();
     }
