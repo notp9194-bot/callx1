@@ -165,57 +165,39 @@
 
             <TextView
                 android:id="@+id/tv_editor_trim_start"
-                android:layout_width="40dp"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
                 android:text="0:00"
                 android:textColor="#CCFFFFFF"
                 android:textSize="12sp"/>
 
-            <SeekBar
-                android:id="@+id/sb_editor_trim_start"
+            <TextView
+                android:id="@+id/tv_editor_trim_end"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:progressTint="@color/brand_primary"
-                android:thumbTint="@color/white"/>
+                android:text="0:30"
+                android:textColor="#CCFFFFFF"
+                android:textSize="12sp"
+                android:gravity="center"/>
 
             <TextView
                 android:id="@+id/tv_editor_duration"
-                android:layout_width="40dp"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
                 android:text="0:30"
                 android:textColor="#CCFFFFFF"
                 android:textSize="12sp"
                 android:gravity="end"/>
         </LinearLayout>
 
-        <LinearLayout
+        <com.callx.app.views.VideoTrimFilmstripView
+            android:id="@+id/trim_filmstrip_view"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="4dp">
-
-            <TextView
-                android:id="@+id/tv_editor_trim_end"
-                android:layout_width="40dp"
-                android:layout_height="wrap_content"
-                android:text="0:30"
-                android:textColor="#CCFFFFFF"
-                android:textSize="12sp"/>
-
-            <SeekBar
-                android:id="@+id/sb_editor_trim_end"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:progressTint="@color/brand_accent"
-                android:thumbTint="@color/white"/>
-
-            <View
-                android:layout_width="40dp"
-                android:layout_height="1dp"/>
-        </LinearLayout>
+            android:layout_height="64dp"
+            android:layout_marginTop="10dp"/>
 
         </LinearLayout>
         <!-- ═══════ /STEP 1 ═══════ -->

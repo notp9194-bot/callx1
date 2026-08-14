@@ -113,7 +113,7 @@ public class ReelEditorActivity extends AppCompatActivity {
     // ── XML views ─────────────────────────────────────────────────────────
     private PlayerView    playerView;
     private ImageButton   btnPlayPause, btnBack;
-    private SeekBar       sbTrimStart, sbTrimEnd;
+    private com.callx.app.views.VideoTrimFilmstripView trimFilmstripView;
     private TextView      tvTrimStart, tvTrimEnd, tvDuration;
     private EditText      etTextOverlay;
     private TextView      tvTextPreview;
@@ -362,8 +362,7 @@ public class ReelEditorActivity extends AppCompatActivity {
         playerView         = findViewById(R.id.editor_player_view);
         btnPlayPause       = findViewById(R.id.btn_editor_play_pause);
         btnBack            = findViewById(R.id.btn_editor_back);
-        sbTrimStart        = findViewById(R.id.sb_editor_trim_start);
-        sbTrimEnd          = findViewById(R.id.sb_editor_trim_end);
+        trimFilmstripView  = findViewById(R.id.trim_filmstrip_view);
         tvTrimStart        = findViewById(R.id.tv_editor_trim_start);
         tvTrimEnd          = findViewById(R.id.tv_editor_trim_end);
         tvDuration         = findViewById(R.id.tv_editor_duration);
@@ -1050,12 +1049,14 @@ public class ReelEditorActivity extends AppCompatActivity {
         }
         trimStartMs = 0;
         trimEndMs   = totalDurationMs;
-        int maxProgress = Math.max(1, (int)(totalDurationMs / 100));
-        sbTrimStart.setMax(maxProgress); sbTrimStart.setProgress(0);
-        sbTrimEnd.setMax(maxProgress);   sbTrimEnd.setProgress(maxProgress);
         tvDuration.setText(formatMs(totalDurationMs));
         tvTrimStart.setText("0:00");
         tvTrimEnd.setText(formatMs(totalDurationMs));
+        if (trimFilmstripView != null) {
+            trimFilmstripView.setDuration(totalDurationMs);
+            trimFilmstripView.setTrimRange(0, totalDurationMs);
+            trimFilmstripView.loadThumbnails(this, videoUriStr, isFilePath, totalDurationMs);
+        }
     }
 
     private void setupPlayer() {
@@ -1108,6 +1109,23 @@ public class ReelEditorActivity extends AppCompatActivity {
             }
             @Override public void onIsPlayingChanged(boolean p) { updatePlayPauseIcon(); }
         });
+
+        startPlayheadUpdater();
+    }
+
+    /** Polls player position every ~150ms so the filmstrip's blue playhead line tracks playback. */
+    private final Runnable playheadUpdater = new Runnable() {
+        @Override public void run() {
+            if (player != null && trimFilmstripView != null) {
+                trimFilmstripView.setPlayheadPosition(player.getCurrentPosition());
+            }
+            handler.postDelayed(this, 150);
+        }
+    };
+
+    private void startPlayheadUpdater() {
+        handler.removeCallbacks(playheadUpdater);
+        handler.post(playheadUpdater);
     }
 
     // ── Listener setup ────────────────────────────────────────────────────
@@ -1191,32 +1209,20 @@ public class ReelEditorActivity extends AppCompatActivity {
             tvTextPreview.setText("");
         });
 
-        sbTrimStart.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int prog, boolean fromUser) {
-                if (fromUser) {
-                    long ns = prog * 100L;
-                    if (ns >= trimEndMs - 1000) { sb.setProgress((int)((trimEndMs-1000)/100)); return; }
-                    trimStartMs = ns;
+        if (trimFilmstripView != null) {
+            trimFilmstripView.setOnTrimChangeListener(new com.callx.app.views.VideoTrimFilmstripView.OnTrimChangeListener() {
+                @Override public void onTrimChanged(long startMs, long endMs, boolean fromUser) {
+                    trimStartMs = startMs;
+                    trimEndMs   = endMs;
                     tvTrimStart.setText(formatMs(trimStartMs));
+                    tvTrimEnd.setText(formatMs(trimEndMs));
                     if (player != null) player.seekTo(trimStartMs);
                 }
-            }
-            @Override public void onStartTrackingTouch(SeekBar sb) {}
-            @Override public void onStopTrackingTouch(SeekBar sb) {}
-        });
-
-        sbTrimEnd.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int prog, boolean fromUser) {
-                if (fromUser) {
-                    long ne = prog * 100L;
-                    if (ne <= trimStartMs + 1000) { sb.setProgress((int)((trimStartMs+1000)/100)); return; }
-                    trimEndMs = ne;
-                    tvTrimEnd.setText(formatMs(trimEndMs));
+                @Override public void onTrimTouchEnd(long startMs, long endMs) {
+                    if (player != null) player.seekTo(trimStartMs);
                 }
-            }
-            @Override public void onStartTrackingTouch(SeekBar sb) {}
-            @Override public void onStopTrackingTouch(SeekBar sb) {}
-        });
+            });
+        }
 
         // ── Tool buttons ─────────────────────────────────────────────────
 

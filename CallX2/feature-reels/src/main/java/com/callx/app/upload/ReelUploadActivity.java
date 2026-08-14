@@ -944,7 +944,18 @@ public class ReelUploadActivity extends AppCompatActivity {
         String cameraPhotoPath = i.getStringExtra(EXTRA_CAMERA_PHOTO_PATH);
         if (cameraPhotoPath != null && !cameraPhotoPath.isEmpty()) {
             switchToPhotoMode();
-            Uri photoUri = Uri.fromFile(new java.io.File(cameraPhotoPath));
+            // ✅ FIX: cameraPhotoPath can be either a real filesystem path (actual
+            // camera capture) OR a content:// gallery Uri string (photo picked from
+            // the camera screen's recent-media sheet — CameraMediaSheetController
+            // forwards uri.toString()). Treating a content:// string as a raw file
+            // path via Uri.fromFile(new File(...)) produces an invalid
+            // "file:///content:/..." Uri that fails to resolve, so the photo never
+            // shows up on the next (photo editor) screen. Detect and parse each
+            // form correctly instead of always assuming a file path.
+            Uri photoUri = (cameraPhotoPath.startsWith("content://")
+                    || cameraPhotoPath.startsWith("file://"))
+                    ? Uri.parse(cameraPhotoPath)
+                    : Uri.fromFile(new java.io.File(cameraPhotoPath));
             selectedPhotoUris.add(photoUri);
             addPhotoPreviewThumbnail(photoUri, 0);
             updatePhotoCountLabel();
