@@ -294,6 +294,7 @@ public class ReelUploadActivity extends AppCompatActivity {
     // ── Step wizard (priority-ordered: Media → Caption & Sound →
     //    Audience & Permissions → Details & Post) ────────────────────────────
     private android.widget.ViewFlipper stepFlipper;
+    private androidx.core.widget.NestedScrollView stepScrollContainer;
     private TextView                   tvStepTitle;
     private android.widget.ProgressBar progressStep;
     private com.google.android.material.button.MaterialButton btnStepBack;
@@ -720,6 +721,7 @@ public class ReelUploadActivity extends AppCompatActivity {
      */
     private void setupStepWizard() {
         stepFlipper  = findViewById(R.id.step_flipper);
+        stepScrollContainer = findViewById(R.id.step_scroll_container);
         tvStepTitle  = findViewById(R.id.tv_step_title);
         progressStep = findViewById(R.id.progress_step);
         btnStepBack  = findViewById(R.id.btn_step_back);
@@ -770,10 +772,12 @@ public class ReelUploadActivity extends AppCompatActivity {
         stepFlipper.setDisplayedChild(currentStep);
         updateStepUi();
 
-        // Scroll the step back to the top so a long previous step (e.g.
-        // Details & Post) doesn't leave the new step mid-scroll.
-        View current = stepFlipper.getCurrentView();
-        if (current != null) current.scrollTo(0, 0);
+        // Scroll the OUTER scroll container back to the top — not the step's
+        // inner view (which isn't itself scrollable; the NestedScrollView
+        // wrapping the whole ViewFlipper is the real scroll owner, and its
+        // offset otherwise carries over from whichever step was scrolled
+        // before, hiding the new step's top options above the viewport).
+        if (stepScrollContainer != null) stepScrollContainer.scrollTo(0, 0);
     }
 
     private void updateStepUi() {
