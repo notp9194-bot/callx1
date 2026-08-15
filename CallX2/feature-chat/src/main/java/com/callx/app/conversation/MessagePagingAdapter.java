@@ -255,8 +255,8 @@ public class MessagePagingAdapter
                     && safeEquals(a.text, b.text)           // Content changed
                     && safeEquals(a.type, b.type)           // Type changed (e.g. call_entry)
                     && safeEquals(a.status, b.status)       // Read/delivered ticks
-                    && a.timestamp == b.timestamp
-                    && a.edited == b.edited
+                    && longEquals(a.timestamp, b.timestamp)
+                    && boolEquals(a.edited, b.edited)
                     && reactionsEqual(a.reactions, b.reactions)     // Emoji reactions
                     && pollVotesEqual(a.pollVotes, b.pollVotes)     // Poll updates
                     && safeEquals(asStr(a.pollClosed), asStr(b.pollClosed));
@@ -264,6 +264,33 @@ public class MessagePagingAdapter
 
             private String asStr(Boolean b) { return b == null ? "null" : b.toString(); }
             private String asStr(Long l) { return l == null ? "null" : l.toString(); }
+
+            // BUG FIX: timestamp/edited are boxed Long/Boolean. Every Paging
+            // refresh (triggered by reanchorPagingToBottom() on EVERY send —
+            // see ChatActivity#severPagingIfAtBottom) re-queries Room and maps
+            // fresh MessageEntity → Message objects for every currently-loaded
+            // row, including ones nothing changed for. Those fresh objects get
+            // brand-new Long instances for timestamp — epoch-millis values are
+            // always outside Java's Long autobox cache (-128..127), so the old
+            // `a.timestamp == b.timestamp` reference comparison was FALSE for
+            // literally every message, every single refresh, even when the
+            // value was numerically identical. That made areContentsTheSame()
+            // (and getChangePayload()'s structuralSame check, same bug) report
+            // "changed" for every visible row on every send — forcing a full
+            // rebind (Glide reload included) of every message, not just the
+            // new one. That's the "images above flicker/rebuild after sending"
+            // bug. Value-based equals() fixes it for both fields.
+            private boolean longEquals(Long x, Long y) {
+                if (x == null && y == null) return true;
+                if (x == null || y == null) return false;
+                return x.longValue() == y.longValue();
+            }
+
+            private boolean boolEquals(Boolean x, Boolean y) {
+                if (x == null && y == null) return true;
+                if (x == null || y == null) return false;
+                return x.booleanValue() == y.booleanValue();
+            }
 
             private boolean pollVotesEqual(java.util.Map<String, java.util.List<Integer>> x,
                                             java.util.Map<String, java.util.List<Integer>> y) {
@@ -293,7 +320,7 @@ public class MessagePagingAdapter
                 boolean structuralSame =
                         safeEquals(a.text, b.text) &&
                         safeEquals(a.type, b.type) &&
-                        a.timestamp == b.timestamp;
+                        longEquals(a.timestamp, b.timestamp);
                 if (!structuralSame) return null; // null → full rebind
 
                 // PERF: bit-flag combine — check each of the 4 fast-path
@@ -305,7 +332,7 @@ public class MessagePagingAdapter
                 if (!safeEquals(a.status, b.status))               flags |= FLAG_STATUS;
                 if (!reactionsEqual(a.reactions, b.reactions))     flags |= FLAG_REACTIONS;
                 if (!pollVotesEqual(a.pollVotes, b.pollVotes))     flags |= FLAG_POLL;
-                if (a.edited != b.edited)                          flags |= FLAG_EDITED;
+                if (!boolEquals(a.edited, b.edited))               flags |= FLAG_EDITED;
 
                 // No recognized fast-path field actually changed (e.g. a
                 // field outside the DIFF's areContentsTheSame() 6-field set
