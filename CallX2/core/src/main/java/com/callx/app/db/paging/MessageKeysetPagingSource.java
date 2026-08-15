@@ -90,10 +90,60 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
     // the very first refreshed page instead.
     private static final int MIN_BOTTOM_CONTEXT = 6;
 
+    // BUG FIX (list "rebuilds" on scroll-up after back-to-back sends, e.g.
+    // an image send immediately followed by a text send): getRefreshKey()
+    // falls back to `return null` whenever Paging3 hasn't recorded an
+    // anchorPosition for THIS PagingSource generation yet — see the null
+    // check below. Every invalidate() (one per debounced send) hands the
+    // NEXT refresh to a brand-new PagingSource instance (Paging3's normal
+    // behavior — a source can only be invalidated once), and that fresh
+    // instance's own PagingState starts with anchorPosition == null until
+    // Paging3's internal bookkeeping catches up to wherever the RecyclerView
+    // actually is. Two sends close together (image, then text) can each
+    // trigger their own invalidate()/new-generation cycle fast enough that
+    // the second one's getRefreshKey() lands on a generation with no
+    // anchor recorded yet — the null branch kicks in even though the user
+    // was genuinely reading/scrolled through real history a moment ago.
+    // A null key sends loadSingle() down the plain-REFRESH branch, which
+    // only loads the newest pageSize messages and drops every older page
+    // Paging had previously loaded — invisible at first, but the next time
+    // the user scrolls up past that fresh newest-only window, Paging has
+    // to reload all that "forgotten" history from Room from scratch, which
+    // is what shows up as the whole list rebuilding.
+    //
+    // Fix: remember the last anchor cursor we ever successfully resolved
+    // (across PagingSource generations — this field lives on the source
+    // instance, but ChatActivity always talks to "whichever instance is
+    // currently live" the same way, so a fresh generation still benefits
+    // from the previous generation's last known position). If a later
+    // getRefreshKey() call has no anchorPosition yet, reuse that last
+    // known cursor instead of discarding everything back to a bare
+    // newest-page load. Only a genuine first-ever refresh (chat just
+    // opened, nothing resolved yet) still returns null, which is the
+    // correct/intended "land on the newest messages" behavior for that
+    // one case.
+    private volatile MessageCursor lastKnownAnchor;
+
     public MessageKeysetPagingSource(MessageDao dao, String chatId, int pageSize) {
         this.dao = dao;
         this.chatId = chatId;
         this.pageSize = pageSize;
+    }
+
+    /**
+     * Carries the last resolved anchor forward into a brand-new
+     * PagingSource generation (see {@link #lastKnownAnchor}'s doc). Called
+     * by ChatActivity's Pager factory right after constructing each new
+     * instance, seeded from whichever instance it's replacing.
+     */
+    public void seedLastKnownAnchor(@Nullable MessageCursor anchor) {
+        if (anchor != null) this.lastKnownAnchor = anchor;
+    }
+
+    /** @return the last anchor this instance resolved, to seed the next generation with. */
+    @Nullable
+    public MessageCursor getLastKnownAnchor() {
+        return lastKnownAnchor;
     }
 
     public void setRefreshAtLatest(boolean refreshAtLatest) {
@@ -219,9 +269,17 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
         // timestamp, so this anchor can't collide with a same-timestamp
         // sibling of the closest item either.
         Integer anchorPosition = state.getAnchorPosition();
-        if (anchorPosition == null) return null;
-        MessageEntity anchor = state.closestItemToPosition(anchorPosition);
-        if (anchor == null || anchor.timestamp == null || anchor.id == null) return null;
-        return new MessageCursor(anchor.timestamp, anchor.id);
+        MessageEntity anchor = (anchorPosition != null) ? state.closestItemToPosition(anchorPosition) : null;
+        if (anchor != null && anchor.timestamp != null && anchor.id != null) {
+            MessageCursor resolved = new MessageCursor(anchor.timestamp, anchor.id);
+            lastKnownAnchor = resolved; // remember for the next generation, see field doc
+            return resolved;
+        }
+        // No anchor recorded yet on THIS generation (see field doc above) —
+        // reuse the last position we genuinely know about instead of
+        // silently discarding all previously-loaded history back to a bare
+        // newest-page load. Still null on a real first-ever refresh, which
+        // is the correct "land on newest messages" behavior for that case.
+        return lastKnownAnchor;
     }
 }

@@ -2574,6 +2574,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 () -> {
                     com.callx.app.db.paging.MessageKeysetPagingSource src =
                             new com.callx.app.db.paging.MessageKeysetPagingSource(db.messageDao(), chatId, PAGE_SIZE);
+                    // FIX: carry the previous generation's last-known anchor
+                    // forward — see MessageKeysetPagingSource#lastKnownAnchor's
+                    // doc. Without this, back-to-back sends (e.g. an image
+                    // send immediately followed by a text send) can each spin
+                    // up their own fresh PagingSource generation fast enough
+                    // that the second one's getRefreshKey() finds no anchor
+                    // recorded yet on ITS instance, falls back to a bare
+                    // newest-page-only load, and silently drops all the
+                    // older history the user had already scrolled through —
+                    // which then has to be reloaded from scratch (looks like
+                    // the whole list rebuilding) the next time they scroll up.
+                    com.callx.app.db.paging.MessageKeysetPagingSource previous = currentKeysetSource;
+                    if (previous != null) src.seedLastKnownAnchor(previous.getLastKnownAnchor());
                     // Paging3 calls this factory again on its own every time
                     // the previous source is invalidated (manually via
                     // reanchorPagingToBottom() below, or from any other
