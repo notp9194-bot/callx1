@@ -131,4 +131,10 @@ public interface ChatActivityDelegate extends ChatSearchController.SearchDelegat
 
     /** Call from any thread after a write for which severPagingIfAtBottom() returned true. */
     void reanchorPagingToBottom();
+
+    /**
+     * Updates a visible delivery-status tick without invalidating the Paging
+     * source. This keeps the local pending -> sent transition payload-only.
+     */
+    default void updateMessageStatus(String messageId, String status) {}
 }

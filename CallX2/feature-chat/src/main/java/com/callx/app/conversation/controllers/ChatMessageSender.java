@@ -122,14 +122,13 @@ public class ChatMessageSender {
                                 delegate.getChatId(), key, delegate.getPartnerUid());
                     } catch (Exception ignored) {}
 
-                    // BUG FIX: same direct-write issue as insertMessage()
-                    // above — this status update bypasses the buffered
-                    // flush path too.
-                    boolean willReanchor = delegate.severPagingIfAtBottom();
                     AppBgExecutor.execute(() -> {
                         AppDatabase.getInstance(delegate.getActivity())
                                 .messageDao().updateStatus(key, "sent");
-                        if (willReanchor) delegate.reanchorPagingToBottom();
+                        // Delivery ticks are a payload-only update. The
+                        // pending insert already owns the one tail refresh;
+                        // invalidating again here rebuilt the visible page.
+                        delegate.updateMessageStatus(key, "sent");
                     });
                 })
                 .addOnFailureListener(e -> {

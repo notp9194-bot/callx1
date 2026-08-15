@@ -48,11 +48,18 @@ public class MessageKeysetPagingSource extends RxPagingSource<Long, MessageEntit
     private final MessageDao dao;
     private final String chatId;
     private final int pageSize;
+    // A bottom-anchored write should refresh the latest window. A reader who
+    // is in history should instead refresh around the viewport anchor.
+    private volatile boolean refreshAtLatest;
 
     public MessageKeysetPagingSource(MessageDao dao, String chatId, int pageSize) {
         this.dao = dao;
         this.chatId = chatId;
         this.pageSize = pageSize;
+    }
+
+    public void setRefreshAtLatest(boolean refreshAtLatest) {
+        this.refreshAtLatest = refreshAtLatest;
     }
 
     @NonNull
@@ -138,6 +145,7 @@ public class MessageKeysetPagingSource extends RxPagingSource<Long, MessageEntit
         // a non-null refresh key as a centered jump and includes both sides of
         // that message, which also lets a bottom-anchored refresh pick up new
         // tail messages without flashing the older rows.
+        if (refreshAtLatest) return null;
         Integer anchorPosition = state.getAnchorPosition();
         if (anchorPosition == null) return null;
         MessageEntity anchor = state.closestItemToPosition(anchorPosition);

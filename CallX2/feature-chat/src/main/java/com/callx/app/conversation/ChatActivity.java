@@ -344,7 +344,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // (Firebase initial replay). Refresh the live PagingSource once per burst,
     // not once per write, so the differ's anchor cannot be repeatedly reset.
     private Runnable pendingPagingRefreshRunnable = null;
-    private static final long PAGING_REFRESH_DEBOUNCE_MS = 90L;
+    private static final long PAGING_REFRESH_DEBOUNCE_MS = 180L;
     // Material "standard decelerate" bezier — fast start, gentle settle.
     // Matches the motion feel WhatsApp/Telegram use for their own list
     // reveal instead of RecyclerView's default (linear-ish) scroller curve.
@@ -2630,12 +2630,35 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 pendingPagingRefreshRunnable = null;
                 if (isFinishing() || isDestroyed()) return;
                 com.callx.app.db.paging.MessageKeysetPagingSource src = currentKeysetSource;
-                if (src != null) src.invalidate();
+                if (src != null) {
+                    src.setRefreshAtLatest(isUserAtBottom);
+                    src.invalidate();
+                }
             };
         }
         binding.rvMessages.removeCallbacks(pendingPagingRefreshRunnable);
         binding.rvMessages.postDelayed(
                 pendingPagingRefreshRunnable, PAGING_REFRESH_DEBOUNCE_MS);
+    }
+
+    @Override
+    public void updateMessageStatus(String messageId, String status) {
+        if (messageId == null || status == null) return;
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            runOnUiThread(() -> updateMessageStatus(messageId, status));
+            return;
+        }
+        if (pagingAdapter == null) return;
+        for (int i = 0; i < pagingAdapter.getItemCount(); i++) {
+            Message message = pagingAdapter.peek(i);
+            if (message == null) continue;
+            String id = message.messageId != null ? message.messageId : message.id;
+            if (!messageId.equals(id)) continue;
+            if (status.equals(message.status)) return;
+            message.status = status;
+            pagingAdapter.notifyItemChanged(i, MessagePagingAdapter.PAYLOAD_STATUS);
+            return;
+        }
     }
 
     private void startRealtimeListenerEarly() {
