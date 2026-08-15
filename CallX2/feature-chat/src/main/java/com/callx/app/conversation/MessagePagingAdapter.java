@@ -4676,13 +4676,50 @@ public class MessagePagingAdapter
                     // ever shows the lightweight thumbnail; full quality is
                     // fetched on open, not upfront.
                     if (thumbUrl != null && !thumbUrl.isEmpty() && !isGifMsg) {
-                        glide(ctx)
-                            .load(thumbUrl)
-                            .apply(THUMB_RGB565)
-                            .override(200, 200)
-                            .placeholder(R.drawable.bg_skeleton_rect)
-                            .error(R.drawable.bg_skeleton_rect)
-                            .into(h.ivImage);
+                        // FIX: same flicker root cause as reel-share/seen-bubble/
+                        // contact/location above — this was the one remaining
+                        // spot with no in-memory cache check, so EVERY rebind
+                        // of an on-screen image bubble (e.g. the Room→PagingSource
+                        // requery that fires on every new message send, per
+                        // CHAT_OPEN_LAG_FIX_NOTES.md) blanked it to the grey
+                        // skeleton placeholder for a frame before Glide's
+                        // memory/disk-cache hit swapped the real thumbnail back
+                        // in — visible as "flicker / junk / rebuilding" on any
+                        // chat that has image messages, never on text-only
+                        // chats (text has no async placeholder step). A pool
+                        // hit now sets the bitmap straight onto the ImageView
+                        // with zero placeholder flash; a genuine miss (first
+                        // load of this thumb) falls through to Glide exactly
+                        // as before.
+                        final String imgPoolKey = poolKey(thumbUrl, 200, 200);
+                        Bitmap imgPoolHit = DECODED_BITMAP_CACHE.get(imgPoolKey);
+                        if (imgPoolHit != null && !imgPoolHit.isRecycled()) {
+                            h.ivImage.setImageBitmap(imgPoolHit);
+                        } else {
+                            glide(ctx)
+                                .asBitmap()
+                                .load(thumbUrl)
+                                .apply(THUMB_RGB565)
+                                .override(200, 200)
+                                .placeholder(R.drawable.bg_skeleton_rect)
+                                .error(R.drawable.bg_skeleton_rect)
+                                .listener(new com.bumptech.glide.request.RequestListener<Bitmap>() {
+                                    @Override
+                                    public boolean onLoadFailed(@Nullable com.bumptech.glide.load.engine.GlideException e,
+                                            Object model, com.bumptech.glide.request.target.Target<Bitmap> target,
+                                            boolean isFirstResource) {
+                                        return false;
+                                    }
+                                    @Override
+                                    public boolean onResourceReady(Bitmap resource, Object model,
+                                            com.bumptech.glide.request.target.Target<Bitmap> target,
+                                            com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
+                                        DECODED_BITMAP_CACHE.put(imgPoolKey, resource);
+                                        return false; // let Glide still deliver it to h.ivImage
+                                    }
+                                })
+                                .into(h.ivImage);
+                        }
                     } else if (!isGifMsg) {
                         // PERF FIX: this used to be the real remaining leak —
                         // any message missing a real thumbnailUrl (thumb
@@ -4702,13 +4739,39 @@ public class MessagePagingAdapter
                         // below, which is already passed the real fullUrl.
                         String derivedThumb = com.callx.app.utils.CloudinaryUploader
                                 .deriveThumbUrl(fullUrl, 200);
-                        glide(ctx)
-                            .load(derivedThumb)
-                            .apply(THUMB_RGB565)
-                            .override(200, 200)
-                            .placeholder(R.drawable.bg_skeleton_rect)
-                            .error(R.drawable.bg_skeleton_rect)
-                            .into(h.ivImage);
+                        // FIX: same cache-first pattern as the thumbUrl branch
+                        // above — otherwise this fallback path reintroduces
+                        // the identical rebind-flicker for any image whose
+                        // thumbnailUrl upload failed.
+                        final String derivedPoolKey = poolKey(derivedThumb, 200, 200);
+                        Bitmap derivedPoolHit = DECODED_BITMAP_CACHE.get(derivedPoolKey);
+                        if (derivedPoolHit != null && !derivedPoolHit.isRecycled()) {
+                            h.ivImage.setImageBitmap(derivedPoolHit);
+                        } else {
+                            glide(ctx)
+                                .asBitmap()
+                                .load(derivedThumb)
+                                .apply(THUMB_RGB565)
+                                .override(200, 200)
+                                .placeholder(R.drawable.bg_skeleton_rect)
+                                .error(R.drawable.bg_skeleton_rect)
+                                .listener(new com.bumptech.glide.request.RequestListener<Bitmap>() {
+                                    @Override
+                                    public boolean onLoadFailed(@Nullable com.bumptech.glide.load.engine.GlideException e,
+                                            Object model, com.bumptech.glide.request.target.Target<Bitmap> target,
+                                            boolean isFirstResource) {
+                                        return false;
+                                    }
+                                    @Override
+                                    public boolean onResourceReady(Bitmap resource, Object model,
+                                            com.bumptech.glide.request.target.Target<Bitmap> target,
+                                            com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
+                                        DECODED_BITMAP_CACHE.put(derivedPoolKey, resource);
+                                        return false;
+                                    }
+                                })
+                                .into(h.ivImage);
+                        }
                     } else {
                         // GIF: asGif() se URL directly load karo — MediaCache file use
                         // mat karo kyunki file mein .gif extension nahi hogi, Glide

@@ -5198,8 +5198,29 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // NEW: pause on SETTLING (fling) AND DRAGGING (while finger
                 //   moves), resume ONLY on IDLE (list fully stopped).
                 //   This mirrors Glide's own RecyclerViewPreloader recommendation.
-                if (newState == RecyclerView.SCROLL_STATE_SETTLING
-                        || newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                // FLICKER/JUNK FIX (image bubbles, post-send): same root cause
+                // as the LAYER_TYPE_HARDWARE fix above — this used to pause on
+                // ANY SETTLING, including the short programmatic
+                // smoothScrollBy() reveal fired from onItemRangeInserted()
+                // when OUR OWN new message (text or media) auto-scrolls the
+                // list to the bottom while already at the tail. That
+                // pendingAutoScrollRunnable settle is exactly the "naya
+                // message send karne par upar ke image messages flicker/
+                // rebuild" report: pauseRequestsRecursive() froze any image
+                // bubble bind that happened to land in the same frame as that
+                // settle (a row reattached/rebound by the layout pass the
+                // insert triggers) mid-load, holding it on the skeleton
+                // placeholder — invisible for text bubbles (no async load),
+                // very visible for image ones — until resumeRequestsRecursive()
+                // finally ran on IDLE moments later, popping the real thumbnail
+                // in. A real user fling never had this problem because
+                // isUserTouchOnMessages is true throughout it.
+                // Fix: only pause for a genuine finger-driven drag/fling, same
+                // gate already used for the hardware-layer switch above — the
+                // short 1-2 row auto-scroll-to-bottom settle never needed
+                // Glide paused in the first place.
+                if (isUserTouchOnMessages && (newState == RecyclerView.SCROLL_STATE_SETTLING
+                        || newState == RecyclerView.SCROLL_STATE_DRAGGING)) {
                     // Finger moving or list flinging — halt all pending decodes.
                     com.bumptech.glide.Glide.with(ChatActivity.this).pauseRequestsRecursive();
                     com.callx.app.utils.LinkPreviewFetcher.setScrolling(true);
