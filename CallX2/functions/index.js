@@ -24,7 +24,8 @@
 
 const { initializeApp } = require("firebase-admin/app");
 const { getAuth } = require("firebase-admin/auth");
-const { getDatabase } = require("firebase-admin/database");
+const { getDatabase, ServerValue } = require("firebase-admin/database");
+const { getMessaging } = require("firebase-admin/messaging");
 const functions = require("firebase-functions/v1");
 
 initializeApp();
@@ -100,6 +101,160 @@ exports.cleanupExpiredPairingSessions = functions.pubsub
     if (Object.keys(updates).length > 0) {
       await db.ref("pairingSessions").update(updates);
       console.log(`Cleaned up ${Object.keys(updates).length} stale pairing session(s).`);
+    }
+    return null;
+  });
+
+/**
+ * ⏳ Countdown sticker — auto-notify-on-expiry (Status).
+ * ======================================================
+ * This is the one piece of the Countdown sticker's "🔔 Remind me" flow that
+ * CANNOT run client-side (see UPGRADE_NOTES_v209_CountdownStickerFullFlow.md
+ * and UPGRADE_NOTES_v260_CountdownStickerExpiryPush.md): actually pushing a
+ * notification to every subscribed viewer the moment a countdown hits zero
+ * needs something watching the clock even when nobody has the status open —
+ * there's no cron/scheduler available on-device for that. Everything else
+ * (subscribe/unsubscribe toggle, persistence, notifying the poster that
+ * someone subscribed) is already handled client-side in
+ * StatusStickerOverlayView / StatusViewerActivity / StatusReplyBottomSheet.
+ *
+ * Data model (see FirebaseUtils.getStatusCountdownSubscriberRef and
+ * StatusStickerOverlayView#buildCountdown):
+ *   status/{ownerUid}/{statusId}/stickersJson
+ *     → JSON array; a countdown entry looks like
+ *       { "type": "countdown", "label": "...", "targetDate": "yyyy-MM-dd" }
+ *   status/{ownerUid}/{statusId}/stickerSubscribers/{stickerIndex}/{viewerUid}
+ *     → { subscribed: true, timestamp, notified?: true, notifiedAt? }
+ *   users/{uid}/fcmToken
+ *     → the same per-user token every other push path in this app reads
+ *       (see PushNotify.java / ChatRepository#fcmToken).
+ *
+ * Every 5 minutes: scan statuses for a countdown sticker whose targetDate
+ * has passed, and for each of its subscribers who hasn't been notified yet,
+ * send one FCM push and mark `notified: true` so a later run (or the
+ * countdown having several subscribers) never double-sends.
+ *
+ * SCOPE NOTE: this sends the push notification only — it does not also send
+ * a quoted chat DM the way subscribe-time does, because building that
+ * message requires the same on-device E2E encryption the chat pipeline
+ * uses for every other message (see MessageEntity#mediaKeyEnc's doc), which
+ * an Admin-privileged backend function has no legitimate reason to hold.
+ *
+ * SCALE NOTE: like cleanupExpiredPairingSessions above, this walks the
+ * whole `status` node once per run. Fine at this app's current data volume
+ * (statuses already self-expire after 24h); if that ever becomes a real
+ * cost, the fix is a lightweight write-time index — e.g.
+ * countdownExpiryQueue/{targetDateEpochDay}/{ownerUid}_{statusId}_{stickerIndex}
+ * populated by the composer when a countdown sticker is attached — so this
+ * function can query just "today's" bucket instead of every status.
+ *
+ * TIMEZONE NOTE: targetDate is a bare "yyyy-MM-dd" with no timezone — the
+ * composer never captured one, and the client itself parses it with the
+ * device's default timezone (see StatusStickerOverlayView#startCountdown).
+ * This function treats it as UTC midnight, which matches the client to
+ * within a few hours depending on the poster's timezone; tightening that
+ * would need the composer to start storing an explicit UTC epoch instead of
+ * a date string, which is a separate, larger change to the sticker JSON
+ * shape shared by the composer, the overlay view, and every existing
+ * countdown already posted.
+ */
+exports.notifyExpiredCountdownStickers = functions.pubsub
+  .schedule("every 5 minutes")
+  .onRun(async () => {
+    const db = getDatabase();
+    const statusRootSnap = await db.ref("status").once("value");
+    if (!statusRootSnap.exists()) return null;
+
+    const now = Date.now();
+    const messaging = getMessaging();
+
+    // A viewer can be subscribed to countdowns on several different
+    // statuses in the same run — cache each uid's token lookup once.
+    const tokenCache = new Map();
+    async function tokenFor(uid) {
+      if (tokenCache.has(uid)) return tokenCache.get(uid);
+      const snap = await db.ref("users").child(uid).child("fcmToken").once("value");
+      const token = snap.exists() ? snap.val() : null;
+      tokenCache.set(uid, token);
+      return token;
+    }
+
+    let notifiedCount = 0;
+    let staleTokenCount = 0;
+    const pendingWork = [];
+
+    statusRootSnap.forEach((ownerSnap) => {
+      const ownerUid = ownerSnap.key;
+
+      ownerSnap.forEach((statusSnap) => {
+        const statusId = statusSnap.key;
+        const stickersJsonRaw = statusSnap.child("stickersJson").val();
+        if (!stickersJsonRaw) return;
+
+        let stickers;
+        try {
+          stickers = JSON.parse(stickersJsonRaw);
+        } catch (e) {
+          return; // malformed/legacy stickersJson — same tolerance the client's own parser uses
+        }
+        if (!Array.isArray(stickers)) return;
+
+        stickers.forEach((sticker, stickerIndex) => {
+          if (!sticker || sticker.type !== "countdown" || !sticker.targetDate) return;
+
+          const targetMs = Date.parse(`${sticker.targetDate}T00:00:00Z`);
+          if (!Number.isFinite(targetMs) || targetMs > now) return; // not expired yet
+
+          const subscribersSnap = statusSnap.child("stickerSubscribers").child(String(stickerIndex));
+          if (!subscribersSnap.exists()) return;
+
+          subscribersSnap.forEach((subSnap) => {
+            const viewerUid = subSnap.key;
+            const sub = subSnap.val() || {};
+            if (!sub.subscribed || sub.notified) return;
+
+            pendingWork.push((async () => {
+              const token = await tokenFor(viewerUid);
+              if (!token) {
+                staleTokenCount++;
+                // No token on file — still mark notified so this doesn't
+                // get retried forever; the viewer will see the "ended"
+                // state next time they open the status either way.
+                await subSnap.ref.update({ notified: true, notifiedAt: ServerValue.TIMESTAMP });
+                return;
+              }
+
+              try {
+                await messaging.send({
+                  token,
+                  notification: {
+                    title: "⏳ Countdown ended",
+                    body: `"${sticker.label || "Countdown"}" just hit zero — tap to see what's next.`,
+                  },
+                  data: {
+                    type: "countdown_expired",
+                    ownerUid,
+                    statusId,
+                    stickerIndex: String(stickerIndex),
+                  },
+                });
+                notifiedCount++;
+              } catch (err) {
+                // Expired/unregistered token, etc. — don't let one bad
+                // token throw the whole run; skip and mark notified so it
+                // isn't retried every 5 minutes forever.
+                console.error(`Countdown push failed for viewer=${viewerUid}:`, err.message || err);
+              }
+              await subSnap.ref.update({ notified: true, notifiedAt: ServerValue.TIMESTAMP });
+            })());
+          });
+        });
+      });
+    });
+
+    await Promise.all(pendingWork);
+    if (notifiedCount > 0 || staleTokenCount > 0) {
+      console.log(`Countdown expiry sweep: ${notifiedCount} push(es) sent, ${staleTokenCount} subscriber(s) had no token on file.`);
     }
     return null;
   });

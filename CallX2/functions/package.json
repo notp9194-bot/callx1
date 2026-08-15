@@ -1,6 +1,6 @@
 {
   "name": "callx2-functions",
-  "description": "CallX2 backend — mints short-lived custom auth tokens for approved Linked Devices (web companion) pairings.",
+  "description": "CallX2 backend — mints short-lived custom auth tokens for approved Linked Devices (web companion) pairings, and pushes Countdown-sticker expiry notifications to subscribed Status viewers.",
   "engines": {
     "node": "20"
   },

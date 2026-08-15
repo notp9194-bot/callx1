@@ -1284,6 +1284,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     @Override
     public void pushMessage(Message m, String previewText) {
+        // TELEGRAM-LEVEL SCROLL FIX: when WE send something, we always want
+        // to land on it — Telegram/WhatsApp never leave you stranded up in
+        // old history after you hit Send, even if you'd scrolled up to read
+        // something first. The auto-scroll-on-tail-insert listener in
+        // setupPagingRecyclerView() only fires when isUserAtBottom is true,
+        // so without this, sending while scrolled up left the viewport
+        // exactly where it was — the just-sent bubble landed off-screen
+        // below, and the list visibly stayed "stuck" in old messages
+        // instead of following the message you just sent. Setting this
+        // eagerly (before the Room write / Paging refresh even happens)
+        // guarantees the flag is already true by the time the insert
+        // callback runs, however soon that fires.
+        isUserAtBottom = true;
+
         // Feature 13: View Once — apply tag if toggle is ON, then auto-reset
         // (one-shot per message, same UX pattern as WhatsApp's view-once camera).
         if (isViewOnceModeOn) {
@@ -1302,7 +1316,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             previewText = "🔒 View Once";
         }
         messageSender.pushMessage(m, previewText);
+
+        // TELEGRAM-STYLE SEND ANIMATION: messageSender.pushMessage() sets
+        // m.id synchronously before returning, so by this point the id is
+        // final. Stash it so the adapter can play a one-shot rise+fade-in
+        // animation on this exact bubble the moment it's bound, instead of
+        // it just instantly popping into the list.
+        if (m.id != null && pagingAdapter != null) {
+            pagingAdapter.markMessageForSendAnimation(m.id);
+        }
     }
+
 
     // ─────────────────────────────────────────────────────────────────────
     // POLLS — moved to ChatPollController (showCreatePollDialog / castVote /
@@ -2318,10 +2342,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 }
                 int total = pagingAdapter.getItemCount();
                 int othersCount = 0;
+                boolean ownMessageInThisInsert = false;
                 for (int i = positionStart; i < Math.min(positionStart + itemCount, total); i++) {
                     Message m = pagingAdapter.peek(i);
                     if (m != null && m.senderId != null && !m.senderId.equals(currentUid)) {
                         othersCount++;
+                    } else if (m != null && m.senderId != null && m.senderId.equals(currentUid)) {
+                        ownMessageInThisInsert = true;
                     }
                 }
                 // WHATSAPP-STYLE AUTO-SCROLL: only fires when the freshly
@@ -2330,7 +2357,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // user has scrolled up to read history; that insert happens
                 // at positionStart 0 and must NOT move the viewport).
                 boolean isTailInsert = (positionStart + itemCount) >= total;
-                if (isTailInsert && isUserAtBottom) {
+                // TELEGRAM-LEVEL: a message WE just sent always wins the
+                // auto-scroll, even if isUserAtBottom somehow hasn't been
+                // flipped yet by pushMessage()'s eager set (belt-and-braces
+                // — pushMessage() already sets it, this just removes any
+                // possible race entirely instead of depending on timing).
+                if (isTailInsert && (isUserAtBottom || ownMessageInThisInsert)) {
                     // User is already sitting at the bottom, so the new
                     // message should reveal itself the way WhatsApp does:
                     // the existing bubbles glide upward smoothly and the new
@@ -2361,6 +2393,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     binding.rvMessages.post(pendingAutoScrollRunnable);
                     pendingNewMsgCount = 0;
                     hideNewMessagesIndicator();
+                    isUserAtBottom = true; // keep flag consistent with where we're actually landing
                 } else if (othersCount > 0 && !isUserAtBottom) {
                     pendingNewMsgCount += othersCount;
                     updateNewMessagesIndicator(pendingNewMsgCount);

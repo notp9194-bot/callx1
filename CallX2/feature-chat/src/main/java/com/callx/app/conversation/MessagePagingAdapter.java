@@ -64,6 +64,130 @@ public class MessagePagingAdapter
         this.recyclerViewScrollState = state;
     }
 
+    // ── TELEGRAM-STYLE "SEND" ANIMATION — single-spring, multi-property ──
+    // The bulk-load ItemAnimator in ChatActivity is intentionally instant
+    // (0ms) for performance during history/pagination loads — see the
+    // WHATSAPP-STYLE FIX comment on rvMessages' ItemAnimator. We don't touch
+    // that. Instead, the one bubble WE just sent gets a one-shot physics
+    // rise+fade applied directly on bind, driven by the message id that
+    // ChatActivity.pushMessage() stashes here right after the id is minted.
+    // Single-shot: consumed (nulled) the instant it matches, so scrolling
+    // the same holder off/on screen later never re-triggers it, and it
+    // never fires for incoming/forwarded/history items.
+    //
+    // ADVANCED: driven by ONE SpringAnimation over an abstract 0→1 progress
+    // value (FloatValueHolder), not one spring per property. Each
+    // SpringAnimation is its own Choreographer frame-callback registration,
+    // so 4 independent springs (translationY/scaleX/scaleY/alpha) means the
+    // animation subsystem does 4x the per-frame bookkeeping for one visual
+    // effect. Collapsing to a single physics simulation — with translationY,
+    // scale, and alpha all derived from the same progress value inside one
+    // update listener — cuts that to 1x while looking identical (alpha is
+    // clamped to [0,1] so it doesn't inherit the small bounce-overshoot
+    // that gives translationY/scale their "pop"). SpringForce holds no
+    // per-animation mutable state (its physics coefficients are a pure
+    // function of stiffness/damping/finalPosition), so one config instance
+    // is safely reused for every send. androidx.dynamicanimation is already
+    // a feature-chat dependency (used by feature-reels too) — no new deps.
+    private volatile String pendingSendAnimMessageId;
+
+    private static final androidx.dynamicanimation.animation.SpringForce SEND_ANIM_FORCE =
+            new androidx.dynamicanimation.animation.SpringForce(1f)
+                    .setStiffness(1200f)
+                    .setDampingRatio(androidx.dynamicanimation.animation.SpringForce.DAMPING_RATIO_LOW_BOUNCY);
+
+    /** Called by ChatActivity right after an outgoing message's id is set. */
+    public void markMessageForSendAnimation(String messageId) {
+        this.pendingSendAnimMessageId = messageId;
+    }
+
+    /**
+     * Cancels any in-flight send-in spring on this holder and snaps its
+     * itemView back to a clean identity transform. MUST be called before
+     * reusing a holder for a different message (onViewRecycled) and is also
+     * the fast no-op path taken on every ordinary bind so a holder that was
+     * mid-bounce can never bleed its transform onto unrelated content.
+     */
+    private void cancelSendAnim(VH h) {
+        if (h.sendSpringProgress != null) {
+            h.sendSpringProgress.cancel(); // triggers the end listener synchronously -> restores layer type
+            h.sendSpringProgress = null;
+        }
+    }
+
+    private void resetSendAnimState(VH h) {
+        cancelSendAnim(h);
+        View v = h.itemView;
+        // Cheap float compares — skips the (rare) write + invalidate when
+        // already clean, which is the case for ~every bind that isn't the
+        // one just-sent bubble.
+        if (v.getAlpha()        != 1f) v.setAlpha(1f);
+        if (v.getScaleX()       != 1f) v.setScaleX(1f);
+        if (v.getScaleY()       != 1f) v.setScaleY(1f);
+        if (v.getTranslationY() != 0f) v.setTranslationY(0f);
+        if (v.getLayerType()    != View.LAYER_TYPE_NONE) v.setLayerType(View.LAYER_TYPE_NONE, null);
+    }
+
+    private void playSendInAnimation(VH h) {
+        final View v = h.itemView;
+        cancelSendAnim(h);
+
+        // Respect the OS-level "remove animations" accessibility/dev-option
+        // setting — DynamicAnimation springs are real-time physics and do
+        // NOT auto-respect ValueAnimator's duration-scale the way a normal
+        // ObjectAnimator does, so this has to be checked explicitly. Also
+        // skip while the list is actively being flung: stacking a physics
+        // animation on top of an in-progress fling is pure added GPU work
+        // that can only cost frames, never add polish, since the item is
+        // about to be scrolled past anyway.
+        boolean animsEnabled = android.animation.ValueAnimator.areAnimatorsEnabled();
+        if (!animsEnabled || recyclerViewScrollState != RecyclerView.SCROLL_STATE_IDLE) {
+            v.setAlpha(1f); v.setScaleX(1f); v.setScaleY(1f); v.setTranslationY(0f);
+            return;
+        }
+
+        final float density = v.getResources().getDisplayMetrics().density;
+        final float riseDistancePx = 40f * density; // rises from ~where the compose bar sits
+
+        // Cache the row as a GPU texture for the transform's lifetime so
+        // every physics frame is a cheap composited blit instead of a full
+        // re-draw of the canvas-rendered bubble (text layout/paint/shadow).
+        // Mirrors the same trick bindCanvasMessage() already uses on
+        // canvasView during scroll — released back to LAYER_TYPE_NONE the
+        // instant the spring settles so an idle row never keeps a GPU
+        // texture pinned in the RecycledViewPool.
+        v.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        v.setAlpha(0f);
+        v.setScaleX(0.9f);
+        v.setScaleY(0.9f);
+        v.setTranslationY(riseDistancePx);
+
+        androidx.dynamicanimation.animation.FloatValueHolder progress =
+                new androidx.dynamicanimation.animation.FloatValueHolder(0f);
+
+        h.sendSpringProgress = new androidx.dynamicanimation.animation.SpringAnimation(progress)
+                .setSpring(SEND_ANIM_FORCE)
+                .setStartVelocity(3.2f) // "flicked up" momentum from the Send tap (progress-units/sec, not px/sec)
+                .addUpdateListener((animation, value, velocity) -> {
+                    // value oscillates slightly past 1 near the end (the
+                    // LOW_BOUNCY damping ratio) — that overshoot is exactly
+                    // what gives translationY/scale their single "pop"
+                    // rather than a dead-stop. Alpha is clamped since going
+                    // past full/zero opacity would be visually invalid.
+                    v.setTranslationY((1f - value) * riseDistancePx);
+                    float scale = 0.9f + 0.1f * value;
+                    v.setScaleX(scale);
+                    v.setScaleY(scale);
+                    v.setAlpha(Math.max(0f, Math.min(1f, value)));
+                })
+                .addEndListener((animation, canceled, value, velocity) -> {
+                    if (v.getLayerType() != View.LAYER_TYPE_NONE) {
+                        v.setLayerType(View.LAYER_TYPE_NONE, null);
+                    }
+                });
+        h.sendSpringProgress.start();
+    }
+
     /**
      * Wires the "Read more / Read less" expand toggle for a bound holder —
      * shared by the plain-text bubble AND the image/video/media-group
@@ -1600,6 +1724,18 @@ public class MessagePagingAdapter
         
         // Store reference for height caching on recycle
         h.boundMessage = m;
+
+        // TELEGRAM-STYLE SEND ANIMATION — one-shot spring rise+fade, only
+        // for the bubble we just sent (see markMessageForSendAnimation /
+        // playSendInAnimation). Every other bind takes the cheap reset path
+        // so a recycled holder can never bleed a stray transform onto
+        // unrelated content (see resetSendAnimState).
+        if (m.id != null && m.id.equals(pendingSendAnimMessageId)) {
+            pendingSendAnimMessageId = null; // consume once
+            playSendInAnimation(h);
+        } else {
+            resetSendAnimState(h);
+        }
         
         // WHATSAPP-STYLE SMOOTHNESS: Set a fixed height hint BEFORE binding
         // This prevents the RecyclerView from recalculating layout when new
@@ -6665,6 +6801,12 @@ public class MessagePagingAdapter
         if (holder.canvasView != null) {
             holder.canvasView.setLayerType(android.view.View.LAYER_TYPE_NONE, null);
         }
+        // TELEGRAM-STYLE SEND ANIMATION: cancel + snap back any in-flight
+        // send-in springs before this holder goes back into the pool — a
+        // fast-scroll recycle mid-bounce must never leave the row's
+        // transform (or its GPU layer) bleeding onto the next message this
+        // holder gets rebound to.
+        resetSendAnimState(holder);
     }
 
     // PERF: onViewDetachedFromWindow — called when the ViewHolder scrolls off
@@ -6959,6 +7101,16 @@ public class MessagePagingAdapter
 
     static class VH extends RecyclerView.ViewHolder {
         TextView     tvMessage, tvTime, tvSenderName, tvFileName;
+        // ── TELEGRAM-STYLE SEND ANIMATION (single-spring, multi-property) ──
+        // One physics simulation drives translationY + scale + alpha off a
+        // shared 0→1 progress value (see playSendInAnimation) — cheaper
+        // than running 3-4 independent SpringAnimations, since each spring
+        // is its own Choreographer frame-callback registration. Live ref
+        // kept here (not a local) so onViewRecycled() can cancel it the
+        // instant this holder is reused for an unrelated message; otherwise
+        // a fast-scroll recycle mid-bounce would leave a stray transform
+        // bleeding onto whatever gets bound next.
+        androidx.dynamicanimation.animation.SpringAnimation sendSpringProgress;
         // Phase 1 Canvas rendering — non-null ONLY for TYPE_CANVAS_SENT/
         // TYPE_CANVAS_RECEIVED holders (see onCreateViewHolder). When set,
         // onBindViewHolder routes to bindCanvasMessage() instead of the
