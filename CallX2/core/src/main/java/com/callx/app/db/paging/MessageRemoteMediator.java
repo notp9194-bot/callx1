@@ -39,7 +39,7 @@ import io.reactivex.rxjava3.core.Single;
  *     listener path (not through paging upward), so there's never "newer"
  *     history to fetch from the network on APPEND for this chat screen.
  */
-public class MessageRemoteMediator extends RxRemoteMediator<Long, MessageEntity> {
+public class MessageRemoteMediator extends RxRemoteMediator<MessageCursor, MessageEntity> {
 
     private final ChatRepository repository;
     private final String chatId;
@@ -54,7 +54,7 @@ public class MessageRemoteMediator extends RxRemoteMediator<Long, MessageEntity>
     @NonNull
     @Override
     public Single<MediatorResult> loadSingle(@NonNull LoadType loadType,
-                                              @NonNull PagingState<Long, MessageEntity> state) {
+                                              @NonNull PagingState<MessageCursor, MessageEntity> state) {
         if (loadType == LoadType.REFRESH) {
             // Freshness for the newest page is already handled by the
             // existing delta-sync path (getMessages() → syncMessagesDelta()).

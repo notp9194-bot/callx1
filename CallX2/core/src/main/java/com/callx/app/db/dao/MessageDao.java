@@ -116,40 +116,73 @@ public interface MessageDao {
     // messages can visibly stall for a second or more, purely from the
     // OFFSET walk, even though the (chatId, timestamp) index is used.
     //
-    // These two queries back MessageKeysetPagingSource instead: pages are
-    // fetched by comparing against a `timestamp` key (WHERE timestamp <
-    // :before / > :after), which the (chatId, timestamp) index answers in
-    // effectively constant time regardless of how many messages exist
-    // before/after that point. No OFFSET, no scan proportional to history
-    // size — this is the same technique Telegram/Signal-style chat apps
-    // use for large conversations.
+    // These queries back MessageKeysetPagingSource instead: pages are
+    // fetched by comparing against a cursor (WHERE timestamp < :before /
+    // > :after), which the (chatId, timestamp) index answers in effectively
+    // constant time regardless of how many messages exist before/after that
+    // point. No OFFSET, no scan proportional to history size — this is the
+    // same technique Telegram/Signal-style chat apps use for large
+    // conversations.
+    //
+    // ADVANCED FIX — compound (timestamp, id) cursor: a plain `timestamp`
+    // boundary is only safe if timestamps are unique per chat, which they
+    // are not (see MessageCursor's class doc for how a shared millisecond
+    // timestamp silently skips or duplicates rows). Every boundary
+    // comparison below breaks the timestamp tie with `id` (the primary
+    // key, always unique), so the (timestamp, id) pair is a true total
+    // order and every row is reachable exactly once no matter how many
+    // messages land on the same millisecond.
     // ─────────────────────────────────────────────────────────────
 
-    /** Most recent `limit` messages, newest-first (used for REFRESH / initial bottom-anchor). */
+    /** Most recent `limit` messages, newest-first (used for REFRESH / initial bottom-anchor).
+     *  Secondary `id DESC` sort is just for deterministic ordering among
+     *  same-timestamp rows — this query takes no cursor, so there's nothing
+     *  to tie-break against, but a stable order still avoids the page
+     *  looking like it "shuffled" same-timestamp rows across repeated
+     *  REFRESH calls. */
     @WorkerThread
-    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp DESC LIMIT :limit")
+    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp DESC, id DESC LIMIT :limit")
     List<MessageEntity> getMessagesLatestDesc(String chatId, int limit);
 
-    /** Older page: strictly before `beforeTimestamp`, newest-first (caller reverses to ASC). */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE chatId = :chatId AND timestamp < :beforeTimestamp ORDER BY timestamp DESC LIMIT :limit")
-    List<MessageEntity> getMessagesBeforeDesc(String chatId, long beforeTimestamp, int limit);
-
-    /** Newer page: strictly after `afterTimestamp`, oldest-first (already display order). */
-    @WorkerThread
-    @Query("SELECT * FROM messages WHERE chatId = :chatId AND timestamp > :afterTimestamp ORDER BY timestamp ASC LIMIT :limit")
-    List<MessageEntity> getMessagesAfterAsc(String chatId, long afterTimestamp, int limit);
-
     /**
-     * JUMP-TO-MESSAGE FIX: inclusive variant of getMessagesAfterAsc — timestamp
-     * >= :fromTimestamp instead of strictly >. Used by MessageKeysetPagingSource's
-     * anchor-REFRESH window (see its class doc) to build a page that is
-     * guaranteed to actually contain the target message (whose own timestamp
-     * equals :fromTimestamp) instead of skipping past it.
+     * Older page: strictly before the (beforeTimestamp, beforeId) cursor,
+     * newest-first (caller reverses to ASC). The OR-clause is the compound
+     * boundary: rows with an earlier timestamp qualify outright; rows that
+     * tie on timestamp only qualify if their id also sorts before
+     * beforeId, matching the ORDER BY below so no row is skipped or
+     * repeated across pages.
      */
     @WorkerThread
-    @Query("SELECT * FROM messages WHERE chatId = :chatId AND timestamp >= :fromTimestamp ORDER BY timestamp ASC LIMIT :limit")
-    List<MessageEntity> getMessagesFromAsc(String chatId, long fromTimestamp, int limit);
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND " +
+           "(timestamp < :beforeTimestamp OR (timestamp = :beforeTimestamp AND id < :beforeId)) " +
+           "ORDER BY timestamp DESC, id DESC LIMIT :limit")
+    List<MessageEntity> getMessagesBeforeDesc(String chatId, long beforeTimestamp, String beforeId, int limit);
+
+    /**
+     * Newer page: strictly after the (afterTimestamp, afterId) cursor,
+     * oldest-first (already display order). Same compound-boundary
+     * reasoning as getMessagesBeforeDesc, mirrored for the ASC direction.
+     */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND " +
+           "(timestamp > :afterTimestamp OR (timestamp = :afterTimestamp AND id > :afterId)) " +
+           "ORDER BY timestamp ASC, id ASC LIMIT :limit")
+    List<MessageEntity> getMessagesAfterAsc(String chatId, long afterTimestamp, String afterId, int limit);
+
+    /**
+     * JUMP-TO-MESSAGE FIX: inclusive variant of getMessagesAfterAsc — the
+     * (fromTimestamp, fromId) row itself qualifies (`>=` on the compound
+     * pair) instead of strictly `>`. Used by MessageKeysetPagingSource's
+     * anchor-REFRESH window (see its class doc) to build a page that is
+     * guaranteed to actually contain the target message, identified
+     * unambiguously by its own (timestamp, id) pair — not just its
+     * timestamp, which another message in the same chat may share.
+     */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND " +
+           "(timestamp > :fromTimestamp OR (timestamp = :fromTimestamp AND id >= :fromId)) " +
+           "ORDER BY timestamp ASC, id ASC LIMIT :limit")
+    List<MessageEntity> getMessagesFromAsc(String chatId, long fromTimestamp, String fromId, int limit);
 
     /**
      * 1-based position of a message within its chat's ASC ordering — subtract 1

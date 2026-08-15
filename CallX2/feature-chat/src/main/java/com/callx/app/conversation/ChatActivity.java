@@ -132,7 +132,7 @@ import java.util.concurrent.Executor;
  *
  * Architecture:
  *   Firebase RT DB ──ChildEventListener──► Room DB (auto-invalidates PagingSource)
- *   Pager<Long, MessageEntity> (keyset) ──LiveData──► PagingAdapter ──► RecyclerView
+ *   Pager<MessageCursor, MessageEntity> (keyset) ──LiveData──► PagingAdapter ──► RecyclerView
  */
 public class ChatActivity extends AppCompatActivity implements ChatActivityDelegate,
         com.callx.app.conversation.info.MessageInfoBottomSheet.HostRecyclerPauseListener,
@@ -2525,7 +2525,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * "jumps to top / lands in some old batch" bug on every send/receive)
      * can never push another update into the adapter once replaced.
      */
-    private void attachPagerWithKey(Long initialKey) {
+    private void attachPagerWithKey(com.callx.app.db.paging.MessageCursor initialKey) {
         if (isFinishing() || isDestroyed() || binding == null || pagingMediator == null) return;
         if (currentPagingLiveSource != null) pagingMediator.removeSource(currentPagingLiveSource);
         // FIX: RemoteMediator added — previously the Pager only ever read
@@ -2534,7 +2534,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // doc). This lets PREPEND reach further back into Firebase on demand.
         com.callx.app.repository.ChatRepository chatRepository =
                 com.callx.app.repository.ChatRepository.getInstance(this);
-        Pager<Long, MessageEntity> pager = new Pager<>(
+        Pager<com.callx.app.db.paging.MessageCursor, MessageEntity> pager = new Pager<>(
                 new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
                 initialKey,
                 new com.callx.app.db.paging.MessageRemoteMediator(chatRepository, chatId, PAGE_SIZE),
@@ -2599,9 +2599,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * instead of severing/rebuilding anything. invalidate() is exactly the
      * API Paging3 expects for "the underlying data changed, please
      * reload" — it reuses the SAME Pager/RemoteMediator/LiveData chain
-     * (no visible reset), and MessageKeysetPagingSource.getRefreshKey()
-     * unconditionally returns null, so the reload this triggers always
-     * lands on the newest page regardless of what triggered it.
+     * (no visible reset). MessageKeysetPagingSource.getRefreshKey() anchors
+     * the reload on whatever's closest to the current viewport (see that
+     * method's doc) instead of forcing the newest page, so the reload this
+     * triggers preserves scroll position for a reader in history and still
+     * picks up new tail messages for a reader at the bottom — see
+     * setRefreshAtLatest() below for how that distinction is passed in.
      */
     @Override
     public boolean severPagingIfAtBottom() {
@@ -4614,12 +4617,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     return;
                 }
                 MessageEntity target = db.messageDao().getMessageById(messageId);
-                if (target == null || target.timestamp == null) {
+                if (target == null || target.timestamp == null || target.id == null) {
                     runOnUiThread(() -> Toast.makeText(this, "Original message not found", Toast.LENGTH_SHORT).show());
                     return;
                 }
                 final long anchorTs = target.timestamp;
-                runOnUiThread(() -> jumpToMessageViaAnchor(messageId, anchorTs));
+                final String anchorId = target.id;
+                runOnUiThread(() -> jumpToMessageViaAnchor(messageId, anchorTs, anchorId));
             });
         }
     }
@@ -4636,20 +4640,29 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * not the real target — hence "kabhi kabhi galat message pe ja raha".
      *
      * Telegram-style fix: rebuild the Pager anchored exactly on the target
-     * message's own timestamp (MessageKeysetPagingSource's anchor-REFRESH —
-     * see its class doc) so the target is guaranteed to be inside the very
-     * first page loaded, regardless of how old it is or how large the chat
-     * is. Once that fresh page lands (addOnPagesUpdatedListener — the same
-     * official Paging3 signal already used elsewhere in this class), find
-     * the message's exact adapter position by id and scroll+flash it.
+     * message's own (timestamp, id) (MessageKeysetPagingSource's
+     * anchor-REFRESH — see its class doc) so the target is guaranteed to be
+     * inside the very first page loaded, regardless of how old it is or how
+     * large the chat is. Once that fresh page lands (addOnPagesUpdatedListener
+     * — the same official Paging3 signal already used elsewhere in this
+     * class), find the message's exact adapter position by id and scroll+
+     * flash it.
+     *
+     * ADVANCED FIX: the anchor used to be just the target's timestamp. If
+     * another message in the chat happened to share that exact millisecond
+     * (see MessageCursor's class doc), the old `timestamp >=` query could
+     * land the anchor page on the WRONG one of the two, or include both and
+     * leave the highlight searching for the right adapter position. Passing
+     * the target's id alongside its timestamp (MessageCursor) makes the
+     * anchor unambiguous.
      */
-    private void jumpToMessageViaAnchor(String messageId, long anchorTimestamp) {
+    private void jumpToMessageViaAnchor(String messageId, long anchorTimestamp, String anchorId) {
         if (binding == null || pagingAdapter == null) return;
         if (binding.fabBackToLatest != null) {
             binding.fabBackToLatest.setVisibility(View.VISIBLE);
             binding.fabBackToLatest.setAlpha(1f);
         }
-        attachPagerWithKey(anchorTimestamp);
+        attachPagerWithKey(new com.callx.app.db.paging.MessageCursor(anchorTimestamp, anchorId));
         final kotlin.jvm.functions.Function0<kotlin.Unit>[] listenerHolder = new kotlin.jvm.functions.Function0[1];
         listenerHolder[0] = () -> {
             pagingAdapter.removeOnPagesUpdatedListener(listenerHolder[0]);
