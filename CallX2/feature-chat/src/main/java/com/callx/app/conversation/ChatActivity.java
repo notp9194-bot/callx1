@@ -306,12 +306,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // (a genuinely new message arriving while the user is at the bottom).
     private boolean firstPageRendered = false;
 
-    // initialScrollDone: guards the one-time "first data on screen" scroll
-    // logic in onItemRangeInserted. Deliberately SEPARATE from firstPageRendered
-    // because firstPageRendered is also set early (line ~350) on a warm-cache hit,
-    // which caused onItemRangeInserted to skip the guard and call an explicit
-    // scrollToPosition() on an un-anchored RecyclerView — producing the visible
-    // "top → bottom" scroll animation every time chat opened from the cache.
+    // initialScrollDone: guards the one-time "first data on screen" scroll.
+    // The real Paging generation is the only source allowed to perform this
+    // first layout; the reopen cache is never submitted to the adapter.
     private boolean initialScrollDone = false;
 
     // ── WhatsApp-style intelligent scroll state ───────────────────────────
@@ -343,6 +340,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // smoothScrollBy() calls (which is what causes a stutter/"double
     // bounce" feel instead of one continuous glide).
     private Runnable pendingAutoScrollRunnable = null;
+    // Room writes can arrive in pairs (local pending -> sent) or in a burst
+    // (Firebase initial replay). Refresh the live PagingSource once per burst,
+    // not once per write, so the differ's anchor cannot be repeatedly reset.
+    private Runnable pendingPagingRefreshRunnable = null;
+    private static final long PAGING_REFRESH_DEBOUNCE_MS = 90L;
     // Material "standard decelerate" bezier — fast start, gentle settle.
     // Matches the motion feel WhatsApp/Telegram use for their own list
     // reveal instead of RecyclerView's default (linear-ish) scroller curve.
@@ -648,44 +650,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         setupStickyDateHeader();
         setupNetworkMonitor();
 
-        // ─────────────────────────────────────────────────────────────────
-        // PERF FIX: in-memory "last messages" cache — instant warm-render.
-        //
-        // Even with the DB-warm fast path (onDbReady same-frame call below),
-        // a Room query is still a real query — cursor open, row mapping,
-        // PagingSource construction. That's microseconds normally, but on a
-        // loaded low-end device under jank it can still cost a visible frame
-        // or two. LastMessagesCache sidesteps even that: if we already have
-        // this chat's last ≤20 messages sitting in memory from a previous
-        // visit (this session), submit them to the adapter RIGHT NOW, same
-        // frame, with zero I/O. Room's real PagingData arrives a moment
-        // later and PagingDataAdapter's DiffUtil reconciles the two lists —
-        // since they're almost always identical, that reconciliation is a
-        // no-op (no flicker, no jump). If the cache is stale, the diff just
-        // patches the few rows that changed.
-        //
-        // This is a *rendering* fast path only — Room + Firebase remain the
-        // only sources of truth; see onDbReady()/observePagedMessages() and
-        // flushPendingRoomWrites() below for the real pipeline, which always
-        // runs regardless of whether this cache hit anything.
-        // ─────────────────────────────────────────────────────────────────
-        boolean warmCacheHit = AppDatabase.isWarm() && LastMessagesCache.getInstance().has(chatId);
-        if (warmCacheHit) {
-            java.util.List<Message> cached = LastMessagesCache.getInstance().get(chatId);
-            pagingAdapter.submitData(getLifecycle(), PagingData.from(withDateSeparators(cached)));
-            // NOTE: do NOT call startPostponedContentTransition() here.
-            // submitData() is async — AsyncPagingDataDiffer computes the
-            // diff on a background dispatcher and only applies it to the
-            // RecyclerView (notifyItemRangeInserted) a frame or two later.
-            // Calling the preDraw-wait immediately after this line was
-            // racing that diff: the very next preDraw often fired while
-            // the RecyclerView was STILL EMPTY, so the slide-in resumed
-            // against a blank list and messages then blinked/popped in a
-            // frame later. The real trigger now lives in
-            // onItemRangeInserted() below, which only fires once the diff
-            // has actually landed and the RecyclerView truly has laid-out
-            // content — see there for the corresponding call.
-        }
+        // LastMessagesCache remains a warm-reopen metadata/cache source, but
+        // it is not submitted to this adapter. Room Paging is the single
+        // render source so opening a chat cannot create two list generations.
+        // LastMessagesCache is still maintained for warm reopen metadata, but
+        // it is intentionally NOT submitted to this adapter. Submitting cache
+        // first and Room Paging second creates two adapter generations and two
+        // RecyclerView layouts — the visible "list draws twice" pop on open.
+        // Room Paging is the single render source for this screen.
 
         // PERF FIX: don't flash shimmer for fast/cached loads — schedule it
         // 150ms out instead of showing it unconditionally right away. See
@@ -739,14 +711,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private void onDbReady() {
         if (isFinishing() || isDestroyed()) return;
 
-        // DB ready hai — ab Room-dependent cheezein start karo
-        observePagedMessages();      // Paging3 Room se load karna shuru karega
-        markMessagesReadOnOpen();
-
-        // Buffered Firebase events (jo pehle se aa chuke hain) ab flush karo
-        // Ek hi Room transaction mein — ek invalidation — ek render pass
+        // Flush the Firebase replay before attaching the first Pager. This
+        // prevents "Pager first render -> Room write -> Pager refresh" during
+        // the same open, which was the second source of duplicate drawing.
         writeFlushHandler.removeCallbacks(writeFlushRunnable);
-        flushPendingRoomWrites();
+        flushPendingRoomWrites(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            observePagedMessages();
+            markMessagesReadOnOpen();
+        });
 
         restoreDraft();
 
@@ -1176,6 +1149,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // PERF FIX: flush any buffered Firebase→Room writes immediately
         // instead of losing them if the debounce window hadn't fired yet.
         writeFlushHandler.removeCallbacks(writeFlushRunnable);
+        if (pendingPagingRefreshRunnable != null && binding != null) {
+            binding.rvMessages.removeCallbacks(pendingPagingRefreshRunnable);
+            pendingPagingRefreshRunnable = null;
+        }
         flushPendingRoomWrites();
 
         typingHandler.removeCallbacks(stopTypingRunnable);
@@ -2628,17 +2605,37 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      */
     @Override
     public boolean severPagingIfAtBottom() {
-        return isUserAtBottom;
+        // The hand-written keyset source does not observe Room invalidations by
+        // itself. Return true whenever a live source exists so writes received
+        // while the user is reading history also become visible; the refresh
+        // below preserves the current anchor instead of forcing the tail.
+        return currentKeysetSource != null;
     }
 
-    /** Call from ANY thread, AFTER a live write commits, when
-     *  severPagingIfAtBottom() returned true for that same write. See its
-     *  doc above — this just invalidates the current PagingSource instance
-     *  instead of rebuilding the whole Pager. */
+    /**
+     * Request one lightweight Paging refresh after a Room write. Multiple
+     * callbacks in the same send/receive burst collapse into one invalidate().
+     * Keeping this on the main queue also guarantees that RecyclerView sees
+     * one coherent differ update instead of several competing refreshes.
+     */
     @Override
     public void reanchorPagingToBottom() {
-        com.callx.app.db.paging.MessageKeysetPagingSource src = currentKeysetSource;
-        if (src != null) src.invalidate();
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            runOnUiThread(this::reanchorPagingToBottom);
+            return;
+        }
+        if (binding == null || isFinishing() || isDestroyed()) return;
+        if (pendingPagingRefreshRunnable == null) {
+            pendingPagingRefreshRunnable = () -> {
+                pendingPagingRefreshRunnable = null;
+                if (isFinishing() || isDestroyed()) return;
+                com.callx.app.db.paging.MessageKeysetPagingSource src = currentKeysetSource;
+                if (src != null) src.invalidate();
+            };
+        }
+        binding.rvMessages.removeCallbacks(pendingPagingRefreshRunnable);
+        binding.rvMessages.postDelayed(
+                pendingPagingRefreshRunnable, PAGING_REFRESH_DEBOUNCE_MS);
     }
 
     private void startRealtimeListenerEarly() {
@@ -2893,8 +2890,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     /** Applies every buffered Firebase event since the last flush in ONE Room transaction. */
     private void flushPendingRoomWrites() {
+        flushPendingRoomWrites(null);
+    }
+
+    /**
+     * Applies the current Firebase batch in one Room transaction. The optional
+     * callback is used only during first-open startup so the initial Pager is
+     * attached after that batch commits, rather than rendering an old snapshot
+     * and immediately refreshing it.
+     */
+    private void flushPendingRoomWrites(@Nullable Runnable afterCommit) {
         writeFlushScheduled = false;
-        if (pendingUpserts.isEmpty() && pendingRemovals.isEmpty() && pendingReadIds.isEmpty()) return;
+        if (pendingUpserts.isEmpty() && pendingRemovals.isEmpty() && pendingReadIds.isEmpty()) {
+            if (afterCommit != null) afterCommit.run();
+            return;
+        }
 
         java.util.List<Message> upsertsSnapshot = new java.util.ArrayList<>(pendingUpserts.values());
         java.util.List<String> removalsSnapshot = new java.util.ArrayList<>(pendingRemovals);
@@ -2903,7 +2913,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pendingRemovals.clear();
         pendingReadIds.clear();
 
-        if (db == null) return;
+        if (db == null) {
+            if (afterCommit != null) afterCommit.run();
+            return;
+        }
         // PERF FIX: keep LastMessagesCache in sync with every Firebase-driven
         // Room write — new messages, edits/status changes, and removals all
         // flow through here (see queueRoomWrite/onChildRemoved above), so
@@ -2913,21 +2926,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         for (Message m : upsertsSnapshot) LastMessagesCache.getInstance().upsert(chatId, m);
         for (String removedId : removalsSnapshot) LastMessagesCache.getInstance().removeMessage(chatId, removedId);
 
-        // BUG FIX (v2): sever the OLD Pager's source HERE, before the write
-        // starts — see severPagingIfAtBottom() doc above for why doing this
-        // after the write loses the race against Room's invalidation
-        // tracker (which is what caused the top-jump to persist even after
-        // the v1 fix). Shared with ChatMessageSender's direct write paths
-        // (insertMessage / updateStatus) which bypass this buffered method
-        // entirely — see severPagingIfAtBottom()/reanchorPagingToBottom().
-        boolean willReanchor = severPagingIfAtBottom();
+        // Keep the current source alive until the transaction has committed.
+        // The refresh is coalesced after the write, so the list never observes
+        // a half-written message and never performs two refreshes for one send.
+        boolean willRefresh = severPagingIfAtBottom();
 
         safeIoExecute(() -> {
             java.util.List<MessageEntity> entities = new java.util.ArrayList<>(upsertsSnapshot.size());
             for (Message m : upsertsSnapshot) entities.add(modelToEntity(m));
             db.messageDao().applyBufferedChanges(entities, removalsSnapshot, readSnapshot);
 
-            if (willReanchor) reanchorPagingToBottom();
+            if (willRefresh) reanchorPagingToBottom();
+            if (afterCommit != null) runOnUiThread(afterCommit);
         });
     }
 

@@ -132,12 +132,15 @@ public class MessageKeysetPagingSource extends RxPagingSource<Long, MessageEntit
     @Nullable
     @Override
     public Long getRefreshKey(@NonNull PagingState<Long, MessageEntity> state) {
-        // We always want REFRESH to mean "most recent page" (see loadSingle
-        // above, which ignores the key on REFRESH), so there's no anchor-
-        // preserving refresh key to compute here — every refresh of this
-        // Pager happens because we explicitly built a brand-new one
-        // (attachPagerWithKey), never because Room auto-invalidated this
-        // exact PagingSource instance mid-scroll.
-        return null;
+        // Writes invalidate this hand-written source explicitly. Preserve the
+        // message nearest the viewport so a user reading older history stays
+        // anchored instead of being rebuilt at the tail. loadSingle() treats
+        // a non-null refresh key as a centered jump and includes both sides of
+        // that message, which also lets a bottom-anchored refresh pick up new
+        // tail messages without flashing the older rows.
+        Integer anchorPosition = state.getAnchorPosition();
+        if (anchorPosition == null) return null;
+        MessageEntity anchor = state.closestItemToPosition(anchorPosition);
+        return anchor != null ? anchor.timestamp : null;
     }
 }
