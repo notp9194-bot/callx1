@@ -731,6 +731,33 @@ public class MessagePagingAdapter
         return s;
     }
 
+    // ── PERF: view-once timestamp cache ("h:mm a" — no leading zero) ─────────
+    // bindViewOnceSentWaiting()/bindViewOnceExpired()/openedAt label used to
+    // `new SimpleDateFormat("h:mm a", ...).format(new Date(ts))` fresh on every
+    // single onBindViewHolder() — a SimpleDateFormat construction (locale/
+    // pattern parsing) plus a Date allocation, every rebind. View-once rows
+    // are less common than text bubbles but still rebind on every list
+    // update (tick changes, payload updates), same as everything else.
+    // Separate cache/field from formatTime() above because the pattern is
+    // "h:mm a" (no leading zero) here vs "hh:mm a" there — kept distinct so
+    // the displayed text is byte-identical to before this change.
+    private final SimpleDateFormat viewOnceTimeFmt =
+            new SimpleDateFormat("h:mm a", Locale.getDefault());
+    private final android.util.LongSparseArray<String> viewOnceTimeCache =
+            new android.util.LongSparseArray<>(64);
+    private final java.util.Date reuseDateViewOnce = new java.util.Date();
+
+    private String formatViewOnceTime(long ts) {
+        long key = (ts / 60_000L) * 60_000L;
+        String s = viewOnceTimeCache.get(key);
+        if (s != null) return s;
+        reuseDateViewOnce.setTime(ts);
+        s = viewOnceTimeFmt.format(reuseDateViewOnce);
+        if (viewOnceTimeCache.size() >= 64) viewOnceTimeCache.clear();
+        viewOnceTimeCache.put(key, s);
+        return s;
+    }
+
     // ── PERF: date-label cache — "Today"/"Yesterday"/"3 Jan" per day ─────────
     // Keys are midnight-truncated timestamps. Recomputed once per day per key.
     // PERF: LongSparseArray, same autoboxing rationale as timeStringCache.
@@ -2171,9 +2198,8 @@ public class MessagePagingAdapter
                     expiredLabel = "Opened";
                     showOpenedAt = sent && m.openedAt != null;
                     if (showOpenedAt) {
-                        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
-                                "h:mm a", java.util.Locale.getDefault());
-                        openedAtText = "Opened \u00b7 " + sdf.format(new java.util.Date(m.openedAt));
+                        // PERF: cached formatter — was `new SimpleDateFormat(...)` per bind
+                        openedAtText = "Opened \u00b7 " + formatViewOnceTime(m.openedAt);
                     }
                 }
                 cv.bindViewOnce(com.callx.app.conversation.canvas.MessageBubbleCanvasView.VIEW_ONCE_EXPIRED,
@@ -7168,8 +7194,8 @@ public class MessagePagingAdapter
         android.view.View root = holder.itemView;
         android.widget.TextView tvTime = root.findViewById(com.callx.app.chat.R.id.tv_time);
         if (tvTime != null && m.timestamp != null) {
-            tvTime.setText(new java.text.SimpleDateFormat("h:mm a",
-                    java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
+            // PERF: cached formatter — was `new SimpleDateFormat(...)` per bind
+            tvTime.setText(formatViewOnceTime(m.timestamp));
         }
         android.view.View bubble = root.findViewById(com.callx.app.chat.R.id.ll_bubble);
         android.view.View tapTarget = bubble != null ? bubble : root;
@@ -7203,8 +7229,8 @@ public class MessagePagingAdapter
         // Time
         android.widget.TextView tvTime = root.findViewById(com.callx.app.chat.R.id.tv_time);
         if (tvTime != null && m.timestamp != null) {
-            tvTime.setText(new java.text.SimpleDateFormat("h:mm a",
-                    java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
+            // PERF: cached formatter — was `new SimpleDateFormat(...)` per bind
+            tvTime.setText(formatViewOnceTime(m.timestamp));
         }
 
         // BUG FIX: the click listener must go on `ll_bubble` (the actual 200dp
@@ -7237,8 +7263,8 @@ public class MessagePagingAdapter
         // Message sent time (bottom-right)
         android.widget.TextView tvTime = root.findViewById(com.callx.app.chat.R.id.tv_time);
         if (tvTime != null && m.timestamp != null) {
-            tvTime.setText(new java.text.SimpleDateFormat("h:mm a",
-                    java.util.Locale.getDefault()).format(new java.util.Date(m.timestamp)));
+            // PERF: cached formatter — was `new SimpleDateFormat(...)` per bind
+            tvTime.setText(formatViewOnceTime(m.timestamp));
         }
 
         // Determine label based on state
@@ -7265,9 +7291,8 @@ public class MessagePagingAdapter
             if (isOpenedNormally
                     && currentUid != null && currentUid.equals(m.senderId) && m.openedAt != null) {
                 // Feature 6: format is "h:mm a" only — time, no date (e.g. "Opened · 3:45 PM")
-                java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
-                        "h:mm a", java.util.Locale.getDefault());
-                tvOpenedAt.setText("Opened · " + sdf.format(new java.util.Date(m.openedAt)));
+                // PERF: cached formatter — was `new SimpleDateFormat(...)` per bind
+                tvOpenedAt.setText("Opened · " + formatViewOnceTime(m.openedAt));
                 tvOpenedAt.setVisibility(android.view.View.VISIBLE);
             } else {
                 tvOpenedAt.setVisibility(android.view.View.GONE);

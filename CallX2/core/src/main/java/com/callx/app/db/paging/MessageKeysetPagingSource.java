@@ -145,7 +145,30 @@ public class MessageKeysetPagingSource extends RxPagingSource<Long, MessageEntit
         // a non-null refresh key as a centered jump and includes both sides of
         // that message, which also lets a bottom-anchored refresh pick up new
         // tail messages without flashing the older rows.
-        if (refreshAtLatest) return null;
+        //
+        // BUG FIX (flicker/junk on every send): the line that used to sit
+        // here — `if (refreshAtLatest) return null;` — short-circuited BEFORE
+        // the anchor logic below ever ran, for every single local send while
+        // the user was at the bottom (ChatActivity always calls
+        // setRefreshAtLatest(isUserAtBottom) before invalidate(), and sending
+        // a message always happens while at the bottom). A null refresh key
+        // makes loadSingle() take the "no anchor" REFRESH branch — which
+        // fetches ONLY the newest `pageSize` messages and discards every
+        // other page Paging had previously loaded (e.g. from the user having
+        // scrolled up earlier in the session). AsyncPagingDataDiffer then had
+        // to diff a brand-new, much-smaller generation against whatever was
+        // on screen — the "purani messages upar jaate time flicker/junk"
+        // symptom, reproducing on every single send exactly as reported.
+        // Removing the bypass restores the comment's own stated intent:
+        // ALWAYS refresh anchored on the closest loaded item (whether that's
+        // the reader's viewport or — just as validly — the last visible
+        // bubble when the user is at the bottom), so a send-triggered
+        // refresh re-fetches a page CENTERED on what's already on screen
+        // (loadSingle()'s anchor branch queries both "before" and "after"
+        // the anchor timestamp) instead of blowing away the loaded window.
+        // refreshAtLatest is left in place (harmless, still set by
+        // ChatActivity) in case a future caller needs the old force-latest
+        // behavior explicitly, but it no longer bypasses anchoring here.
         Integer anchorPosition = state.getAnchorPosition();
         if (anchorPosition == null) return null;
         MessageEntity anchor = state.closestItemToPosition(anchorPosition);
