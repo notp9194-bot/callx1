@@ -2140,6 +2140,17 @@ public class ChatMediaController {
                 });
     }
 
+    /** Drives ChatIconBarView's micIconScale bean property, replacing the
+     *  old direct btnMic.animate().scaleX/scaleY() calls now that the mic
+     *  icon is drawn inside the combined canvas view instead of being its
+     *  own ImageButton. */
+    private void animateMicScale(ActivityChatBinding binding, float target, android.view.animation.Interpolator interpolator) {
+        ObjectAnimator anim = ObjectAnimator.ofFloat(binding.chatIconBar, "micIconScale", target);
+        anim.setDuration(150);
+        anim.setInterpolator(interpolator);
+        anim.start();
+    }
+
     private static String mediaPreview(String type, String fileName) {
         switch (type) {
             case "image": return "\uD83D\uDCF7 Photo";
@@ -2177,7 +2188,7 @@ public class ChatMediaController {
         maxLockDragPx     = MAX_LOCK_DRAG_DP    * density;
         axisDeadzonePx    = AXIS_DEADZONE_DP    * density;
 
-        binding.btnMic.setOnTouchListener(this::onMicTouch);
+        binding.chatIconBar.setMicTouchListener(this::onMicTouch);
         // PERF: don't touch binding.stubRecordingBar.inflate() here — that
         // would defeat the point of the stub by inflating it on every chat
         // open. Instead wire the delete/send clicks once, the first time it
@@ -2281,9 +2292,8 @@ public class ChatMediaController {
         binding.cvRecordLock.animate().alpha(1f).setDuration(120).start();
         binding.ivRecordLockIcon.setImageResource(R.drawable.ic_record_lock_open);
 
-        binding.btnMic.animate().scaleX(1.15f).scaleY(1.15f).setDuration(150)
-                .setInterpolator(new OvershootInterpolator()).start();
-        binding.btnMic.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        animateMicScale(binding, 1.15f, new OvershootInterpolator());
+        binding.chatIconBar.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
 
         excludeDragZoneFromSystemGestures(binding);
 
@@ -2332,11 +2342,10 @@ public class ChatMediaController {
         float cancelProgress = Math.min(1f, -clampedDx / cancelThresholdPx);
         rb.llSlideCancel.setAlpha(1f - cancelProgress * 0.85f);
         float micShrink = 1.15f - cancelProgress * 0.15f;
-        binding.btnMic.setScaleX(micShrink);
-        binding.btnMic.setScaleY(micShrink);
+        binding.chatIconBar.setMicIconScale(micShrink);
 
         if (-dx >= cancelThresholdPx) {
-            binding.btnMic.performHapticFeedback(HapticFeedbackConstants.REJECT);
+            binding.chatIconBar.performHapticFeedback(HapticFeedbackConstants.REJECT);
             finishCancel();
         }
     }
@@ -2350,7 +2359,7 @@ public class ChatMediaController {
         recordState = RecordState.LOCKED;
         ActivityChatBinding binding = delegate.getBinding();
         LayoutRecordingBarBinding rb = recordingBar(binding);
-        binding.btnMic.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
+        binding.chatIconBar.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
         binding.ivRecordLockIcon.setImageResource(R.drawable.ic_record_lock_closed);
 
         binding.cvRecordLock.animate()
@@ -2360,8 +2369,7 @@ public class ChatMediaController {
                 .withEndAction(() -> binding.cvRecordLock.setVisibility(View.GONE))
                 .start();
 
-        binding.btnMic.animate().scaleX(1f).scaleY(1f).setDuration(150)
-                .setInterpolator(new OvershootInterpolator()).start();
+        animateMicScale(binding, 1f, new OvershootInterpolator());
 
         rb.llSlideCancel.animate().alpha(0f).setDuration(150)
                 .withEndAction(() -> rb.llSlideCancel.setVisibility(View.INVISIBLE)).start();
@@ -2399,7 +2407,7 @@ public class ChatMediaController {
         recordHandler.removeCallbacksAndMessages(null);
         recorder.cancel();
         resetRecordingUi(binding);
-        binding.btnMic.performHapticFeedback(HapticFeedbackConstants.REJECT);
+        binding.chatIconBar.performHapticFeedback(HapticFeedbackConstants.REJECT);
         Toast.makeText(activity, "Hold the mic to record a voice message", Toast.LENGTH_SHORT).show();
         if (recordingListener != null) recordingListener.onRecordingStateChanged(false);
     }
@@ -2420,8 +2428,7 @@ public class ChatMediaController {
         dragAxis = null;
         LayoutRecordingBarBinding rb = recordingBar(binding);
 
-        binding.btnMic.animate().scaleX(1f).scaleY(1f).setDuration(150)
-                .setInterpolator(new OvershootInterpolator()).start();
+        animateMicScale(binding, 1f, new OvershootInterpolator());
 
         rb.getRoot().animate().alpha(0f).setDuration(120).withEndAction(() -> {
             rb.getRoot().setVisibility(View.GONE);
@@ -2456,19 +2463,22 @@ public class ChatMediaController {
     private void excludeDragZoneFromSystemGestures(ActivityChatBinding binding) {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return;
         View root = binding.getRoot();
-        View mic  = binding.btnMic;
-        if (mic.getWidth() == 0 || root.getWidth() == 0) return;
+        View iconBar = binding.chatIconBar;
+        android.graphics.Rect micLocal = binding.chatIconBar.getMicBoundsInView();
+        if (iconBar.getWidth() == 0 || root.getWidth() == 0) return;
 
-        int[] micLoc  = new int[2];
+        int[] barLoc  = new int[2];
         int[] rootLoc = new int[2];
-        mic.getLocationInWindow(micLoc);
+        iconBar.getLocationInWindow(barLoc);
         root.getLocationInWindow(rootLoc);
+        int micX = barLoc[0] + micLocal.left;
+        int micY = barLoc[1] + micLocal.top;
 
         int pad = (int) (16f * activity.getResources().getDisplayMetrics().density);
-        int left   = micLoc[0] - rootLoc[0] - (int) maxCancelDragPx - pad;
-        int top    = micLoc[1] - rootLoc[1] - (int) maxLockDragPx - pad;
-        int right  = micLoc[0] - rootLoc[0] + mic.getWidth() + pad;
-        int bottom = micLoc[1] - rootLoc[1] + mic.getHeight() + pad;
+        int left   = micX - rootLoc[0] - (int) maxCancelDragPx - pad;
+        int top    = micY - rootLoc[1] - (int) maxLockDragPx - pad;
+        int right  = micX - rootLoc[0] + micLocal.width() + pad;
+        int bottom = micY - rootLoc[1] + micLocal.height() + pad;
 
         android.graphics.Rect rect = new android.graphics.Rect(
                 Math.max(0, left), Math.max(0, top), right, bottom);

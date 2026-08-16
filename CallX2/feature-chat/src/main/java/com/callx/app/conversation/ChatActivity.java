@@ -1,9 +1,6 @@
 package com.callx.app.conversation;
 
 import android.Manifest;
-import android.animation.Animator;
-import android.animation.AnimatorListenerAdapter;
-import android.animation.ValueAnimator;
 import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -28,7 +25,6 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.DecelerateInterpolator;
-import android.view.animation.OvershootInterpolator;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
@@ -3482,9 +3478,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             }
         });
 
-        binding.btnSend.setOnClickListener(v -> sendTextMessage());
-        binding.btnSend.setOnLongClickListener(v -> {
-            v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+        binding.chatIconBar.setOnSendClickListener(this::sendTextMessage);
+        binding.chatIconBar.setOnSendLongClickListener(() -> {
+            binding.chatIconBar.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
             String text = binding.etMessage.getText().toString().trim();
             scheduledSendController.showSchedulePicker(text, () -> {
                 binding.etMessage.setText("");
@@ -3495,11 +3491,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     if (db != null && chatId != null) db.chatDao().saveDraft(chatId, "");
                 });
             });
-            return true;
         });
-        binding.btnAttach.setOnClickListener(v -> mediaController.showAttachSheet());
+        binding.chatIconBar.setOnAttachClickListener(() -> mediaController.showAttachSheet());
         binding.btnViewOnce.setOnClickListener(v -> showViewOnceExpiryPicker());
-        binding.btnCamera.setOnClickListener(v -> mediaController.launchCamera());
+        binding.chatIconBar.setOnCameraClickListener(() -> mediaController.launchCamera());
 
         if (binding.btnCancelReply != null)
             binding.btnCancelReply.setOnClickListener(v -> clearReply());
@@ -3631,93 +3626,24 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * jump-cut.
      */
     private void animateSendMicSwap(boolean hasText) {
-        animateIconTo(binding.btnSend, hasText);
-        animateIconTo(binding.btnMic, !hasText);
+        binding.chatIconBar.setHasText(hasText);
     }
 
     /**
      * Telegram/Instagram-style: attach + camera icons shrink & fade away as
      * soon as text is typed, freeing up room for the multi-line input, and
      * smoothly grow back in when the text is cleared.
+     *
+     * PERF (icon-bar merge pass): this used to drive two separate
+     * ImageButtons via animateIconTo(), which called setLayoutParams() on
+     * every animation frame for each of them -- see ChatIconBarView's class
+     * doc for the full rationale. Now it's a single call into the combined
+     * view, which only touches layout once per cycle.
      */
     private void animateAttachCameraIcons(boolean expand) {
         if (inputIconsExpanded != null && inputIconsExpanded == expand) return;
         inputIconsExpanded = expand;
-        animateIconTo(binding.btnAttach, expand);
-        animateIconTo(binding.btnCamera, expand);
-    }
-
-    // Shared overshoot interpolator for the icon "pop back in" bounce.
-    // Tension 2.2 gives a lively but tasteful overshoot -- noticeably springy
-    // without wobbling past a natural finger-tap target size.
-    private static final OvershootInterpolator ICON_EXPAND_OVERSHOOT = new OvershootInterpolator(2.2f);
-
-    /**
-     * Animates a single icon button between fully shown (original width,
-     * alpha 1, scale 1) and fully collapsed (width 0, alpha 0, scale 0.6).
-     *
-     * Collapsing (text typed in) stays a clean shrink+fade -- no bounce --
-     * since that motion is about ceding space quickly and a bounce there
-     * reads as jittery. Expanding (text cleared) overshoots slightly past
-     * full size before settling, which reads as a lively "pop" back in.
-     */
-    private void animateIconTo(final ImageButton icon, boolean expand) {
-        if (icon == null) return;
-
-        Integer fullWidth = (Integer) icon.getTag(icon.getId());
-        if (fullWidth == null) {
-            ViewGroup.LayoutParams initialLp = icon.getLayoutParams();
-            fullWidth = initialLp.width > 0 ? initialLp.width : (int) dpToPxInput(34);
-            icon.setTag(icon.getId(), fullWidth);
-        }
-        final int targetWidth = fullWidth;
-
-        boolean currentlyVisible = icon.getVisibility() == View.VISIBLE && icon.getAlpha() > 0.4f;
-        if (currentlyVisible == expand) return;
-
-        Object runningTag = icon.getTag();
-        if (runningTag instanceof ValueAnimator) {
-            ((ValueAnimator) runningTag).cancel();
-        }
-
-        float startFraction = icon.getVisibility() == View.VISIBLE
-                ? Math.max(0f, Math.min(1f, icon.getAlpha())) : 0f;
-        float endFraction = expand ? 1f : 0f;
-
-        ValueAnimator animator = ValueAnimator.ofFloat(startFraction, endFraction);
-        animator.setDuration(expand ? 320 : 200);
-        animator.setInterpolator(expand ? ICON_EXPAND_OVERSHOOT : new DecelerateInterpolator());
-        icon.setTag(animator);
-        if (expand) icon.setVisibility(View.VISIBLE);
-        animator.addUpdateListener(a -> {
-            // f can briefly exceed 1 during the overshoot portion of the
-            // expand curve -- that's intentional, it's what drives the bounce.
-            float f = (float) a.getAnimatedValue();
-            float alphaClamped = Math.max(0f, Math.min(1f, f));
-            icon.setAlpha(alphaClamped);
-            icon.setScaleX(0.6f + 0.4f * f);
-            icon.setScaleY(0.6f + 0.4f * f);
-            ViewGroup.LayoutParams lp = icon.getLayoutParams();
-            lp.width = Math.max(1, Math.round(targetWidth * Math.max(0f, f)));
-            icon.setLayoutParams(lp);
-        });
-        animator.addListener(new AnimatorListenerAdapter() {
-            @Override public void onAnimationEnd(Animator animation) {
-                if (!expand) {
-                    icon.setVisibility(View.GONE);
-                } else {
-                    // Land exactly on the resting values in case the overshoot
-                    // curve's last emitted frame wasn't precisely 1.0.
-                    icon.setScaleX(1f);
-                    icon.setScaleY(1f);
-                    icon.setAlpha(1f);
-                    ViewGroup.LayoutParams lp = icon.getLayoutParams();
-                    lp.width = targetWidth;
-                    icon.setLayoutParams(lp);
-                }
-            }
-        });
-        animator.start();
+        binding.chatIconBar.setIconsExpanded(expand);
     }
 
     // ─────────────────────────────────────────────────────────────────────

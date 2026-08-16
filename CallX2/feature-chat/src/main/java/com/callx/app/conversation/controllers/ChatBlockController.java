@@ -118,8 +118,7 @@ public class ChatBlockController {
         binding.etMessage.setEnabled(!isBlocked);
         if (isBlocked) {
             binding.etMessage.setHint("You have blocked " + partnerName);
-            binding.btnSend.setVisibility(View.GONE);
-            binding.btnMic.setVisibility(View.GONE);
+            binding.chatIconBar.setMicSendVisible(false);
             binding.llBlockBanner.setVisibility(View.VISIBLE);
             binding.tvBlockBannerText.setText("You have blocked " + partnerName);
             if (delegate.isIPermaBlockedPartner()) {
@@ -131,7 +130,7 @@ public class ChatBlockController {
             }
         } else {
             binding.etMessage.setHint(delegate.getActivity().getString(R.string.hint_message));
-            binding.btnMic.setVisibility(View.VISIBLE);
+            binding.chatIconBar.setMicSendVisible(true);
             binding.llBlockBanner.setVisibility(View.GONE);
         }
     }
@@ -149,8 +148,7 @@ public class ChatBlockController {
         }
         binding.etMessage.setEnabled(false);
         binding.etMessage.setHint(partnerName + " has blocked you");
-        binding.btnSend.setVisibility(View.GONE);
-        binding.btnMic.setVisibility(View.GONE);
+        binding.chatIconBar.setMicSendVisible(false);
 
         FirebaseUtils.db().getReference("specialRequests")
                 .child(delegate.getPartnerUid()).child(delegate.getCurrentUid()).child("attemptCount")

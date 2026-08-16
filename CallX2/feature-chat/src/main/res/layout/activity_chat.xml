@@ -776,78 +776,24 @@
                             app:layout_constraintTop_toTopOf="parent"
                             app:layout_constraintBottom_toBottomOf="parent"/>
 
-                        <ImageButton
-                            android:id="@+id/btn_attach"
-                            android:layout_width="34dp"
-                            android:layout_height="34dp"
-                            android:padding="6dp"
-                            android:src="@drawable/ic_attach"
-                            android:tint="@color/white"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:contentDescription="Attach"
+                        <!-- PERF (icon-bar merge pass): btn_attach, btn_camera,
+                             btn_mic and btn_send used to be four separate
+                             ImageButtons here (four measure/layout passes,
+                             four background drawables, and a per-frame
+                             setLayoutParams() animation on attach+camera
+                             every time they collapsed/expanded around typed
+                             text). Replaced with one Canvas-drawn view — see
+                             ChatIconBarView for the full rationale. Mic
+                             drag-to-lock/cancel geometry code still reads
+                             this view's live on-screen position via
+                             getLocationInWindow() + getMicBoundsInView(),
+                             so it keeps working correctly from here. -->
+                        <com.callx.app.chat.ui.ChatIconBarView
+                            android:id="@+id/chat_icon_bar"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:contentDescription="Attach, camera, voice message and send"
                             app:layout_constraintStart_toEndOf="@id/et_message"
-                            app:layout_constraintEnd_toStartOf="@id/btn_camera"
-                            app:layout_constraintTop_toTopOf="parent"
-                            app:layout_constraintBottom_toBottomOf="parent"/>
-
-                        <ImageButton
-                            android:id="@+id/btn_camera"
-                            android:layout_width="34dp"
-                            android:layout_height="34dp"
-                            android:padding="6dp"
-                            android:src="@drawable/ic_camera"
-                            android:tint="@color/white"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:layout_marginStart="2dp"
-                            android:contentDescription="Camera"
-                            app:layout_constraintStart_toEndOf="@id/btn_attach"
-                            app:layout_constraintEnd_toStartOf="@id/btn_mic"
-                            app:layout_constraintTop_toTopOf="parent"
-                            app:layout_constraintBottom_toBottomOf="parent"/>
-
-                        <!-- Mic / Send — back INSIDE the capsule row (trailing
-                             end), WhatsApp-style. Only one is visible at a
-                             time (existing controller logic just toggles
-                             mic↔send visibility as the user types — geometry
-                             code (excludeDragZoneFromSystemGestures, lock-
-                             bubble drag threshold) reads the button's live
-                             on-screen position via getLocationInWindow(), so
-                             it keeps working correctly from here). Sized to
-                             match the pill's own row height instead of the
-                             old 44dp floating-outside size.
-
-                             btn_mic and btn_send share the same constrained
-                             slot (both anchored to parent end) since only
-                             one is ever visible — this mirrors the old
-                             LinearLayout's sequential-in-place swap without
-                             needing a third measure pass for a shared
-                             container. -->
-                        <ImageButton
-                            android:id="@+id/btn_mic"
-                            android:layout_width="34dp"
-                            android:layout_height="34dp"
-                            android:layout_marginStart="4dp"
-                            android:padding="7dp"
-                            android:src="@drawable/ic_mic"
-                            android:tint="@color/white"
-                            android:background="@drawable/circle_primary"
-                            android:contentDescription="Voice message"
-                            app:layout_constraintStart_toEndOf="@id/btn_camera"
-                            app:layout_constraintEnd_toEndOf="parent"
-                            app:layout_constraintTop_toTopOf="parent"
-                            app:layout_constraintBottom_toBottomOf="parent"/>
-                        <ImageButton
-                            android:id="@+id/btn_send"
-                            android:layout_width="34dp"
-                            android:layout_height="34dp"
-                            android:layout_marginStart="4dp"
-                            android:padding="7dp"
-                            android:src="@drawable/ic_send"
-                            android:tint="@color/white"
-                            android:background="@drawable/circle_primary"
-                            android:visibility="gone"
-                            android:contentDescription="Send"
-                            app:layout_constraintStart_toEndOf="@id/btn_camera"
                             app:layout_constraintEnd_toEndOf="parent"
                             app:layout_constraintTop_toTopOf="parent"
                             app:layout_constraintBottom_toBottomOf="parent"/>

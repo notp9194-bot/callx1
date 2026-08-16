@@ -40,10 +40,9 @@ public class ChatThemeController {
                 binding.toolbar,
                 binding.getRoot(),
                 binding.llInputRow,
-                binding.btnSend,
-                binding.btnMic,
                 binding.fabBackToLatest,
                 binding.viewReplyAccent);
+        binding.chatIconBar.setAccentColor(mgr.getPrimaryColor());
 
         applyWallpaper();
     }

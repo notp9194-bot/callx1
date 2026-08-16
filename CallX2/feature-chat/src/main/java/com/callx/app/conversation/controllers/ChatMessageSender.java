@@ -187,10 +187,8 @@ public class ChatMessageSender {
     public void updateSendButtonState(boolean online) {
         com.callx.app.chat.databinding.ActivityChatBinding binding = delegate.getBinding();
         if (binding == null) return;
-        binding.btnSend.setEnabled(online);
-        binding.btnSend.setAlpha(online ? 1.0f : 0.4f);
-        binding.btnMic.setEnabled(online);
-        binding.btnMic.setAlpha(online ? 1.0f : 0.4f);
+        binding.chatIconBar.setSendEnabled(online);
+        binding.chatIconBar.setMicEnabled(online);
     }
 
     // ── Retry pending on reconnect ─────────────────────────────────────────

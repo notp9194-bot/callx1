@@ -156,8 +156,6 @@ public class ChatThemeManager {
             View toolbar,
             View chatRoot,
             View inputBarRoot,
-            View btnSend,
-            View btnMic,
             View fab,
             View replyAccent) {
 
@@ -176,18 +174,13 @@ public class ChatThemeManager {
         if (chatRoot != null)    chatRoot.setBackgroundColor(chatBgColor);
         if (inputBarRoot != null) inputBarRoot.setBackgroundColor(barColor);
 
-        if (btnSend != null) {
-            GradientDrawable sd = new GradientDrawable();
-            sd.setShape(GradientDrawable.OVAL);
-            sd.setColor(brandColor);
-            btnSend.setBackground(sd);
-        }
-        if (btnMic != null) {
-            GradientDrawable md = new GradientDrawable();
-            md.setShape(GradientDrawable.OVAL);
-            md.setColor(brandColor);
-            btnMic.setBackground(md);
-        }
+        // NOTE: the mic/send accent used to be applied here via a
+        // GradientDrawable background swap on btnSend/btnMic. Since the
+        // icon-bar merge, mic/send are painted inside the single
+        // ChatIconBarView (feature-chat module, which core can't depend
+        // on) — callers now apply the accent themselves via
+        // ChatIconBarView#setAccentColor(getPrimaryColor()) after calling
+        // this method.
         if (fab != null) {
             fab.setBackgroundTintList(ColorStateList.valueOf(brandColor));
         }

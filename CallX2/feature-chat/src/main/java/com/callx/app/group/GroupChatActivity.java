@@ -4365,10 +4365,26 @@ public class GroupChatActivity extends AppCompatActivity
                 toolbar,
                 chatRoot,
                 inputRow,
-                binding.btnSend,
-                binding.btnMic,
                 binding.fabBackToLatest,
                 replyAccent);
+
+        // Kept inline here (GroupChatActivity still uses separate
+        // ImageButtons, not the merged ChatIconBarView) since
+        // ChatThemeManager#applyScreenTheme() no longer touches
+        // btnSend/btnMic backgrounds directly.
+        int brandColor = mgr.getPrimaryColor();
+        if (binding.btnSend != null) {
+            android.graphics.drawable.GradientDrawable sd = new android.graphics.drawable.GradientDrawable();
+            sd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            sd.setColor(brandColor);
+            binding.btnSend.setBackground(sd);
+        }
+        if (binding.btnMic != null) {
+            android.graphics.drawable.GradientDrawable md = new android.graphics.drawable.GradientDrawable();
+            md.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            md.setColor(brandColor);
+            binding.btnMic.setBackground(md);
+        }
 
         // Apply wallpaper
         applyWallpaper();
