@@ -3,16 +3,22 @@
      RECORDING BAR — replaces ll_input_row while a voice message is being
      held/locked. WhatsApp-style: red dot + timer + live waveform on the
      left, "‹ Slide to cancel" on the right that tracks the finger while
-     dragging. Delete/Send buttons appear only once locked (Feature:
-     voice waveform + swipe-to-cancel/lock).
+     dragging (unlocked phase). Once LOCKED, adds a pause/resume/preview
+     flow (Feature: voice waveform + swipe-to-cancel/lock + pause/resume/
+     play/adjust/send):
+
+       ll_record_top_live     — dot + timer + live waveform (recording)
+       ll_record_top_preview  — play icon + frozen scrubbable waveform +
+                                 timer (shown once paused, for preview)
+       ll_record_actions      — Delete | Pause⇄Resume pill | Send, only
+                                 visible once locked
 
      PERF: pulled out of activity_chat.xml into its own file and inflated
      lazily via a ViewStub (see stub_recording_bar in activity_chat.xml).
      This bar is only ever shown while actively recording a voice message
      — most chat sessions never touch it — so there's no reason to pay
-     for inflating + measuring 8 views (including a custom
-     RecordingWaveformView) on every single chat screen open. The stub
-     inflates this layout on first mic-press only, via
+     for inflating + measuring these views on every single chat screen
+     open. The stub inflates this layout on first mic-press only, via
      ChatMediaController.recordingBar().
      ═══════════════════════════════════════════════════════════════════ -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -20,83 +26,172 @@
     android:id="@+id/ll_recording_bar"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="horizontal"
-    android:paddingStart="14dp"
-    android:paddingEnd="10dp"
+    android:orientation="vertical"
     android:paddingTop="4dp"
-    android:paddingBottom="4dp"
-    android:gravity="center_vertical">
+    android:paddingBottom="4dp">
 
-    <ImageView
-        android:id="@+id/iv_record_dot"
-        android:layout_width="10dp"
-        android:layout_height="10dp"
-        android:background="@drawable/circle_reject"
-        android:contentDescription="Recording"/>
-
-    <TextView
-        android:id="@+id/tv_record_timer"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
-        android:text="00:00"
-        android:textColor="@color/chat_input_text"
-        android:textSize="13sp"
-        android:fontFamily="monospace"/>
-
-    <com.callx.app.chat.ui.RecordingWaveformView
-        android:id="@+id/waveform_recording"
-        android:layout_width="0dp"
-        android:layout_height="28dp"
-        android:layout_weight="1"
-        android:layout_marginStart="10dp"
-        android:layout_marginEnd="6dp"/>
-
+    <!-- ── Row 1a: live recording (dot + timer + scrolling waveform + slide-to-cancel) ── -->
     <LinearLayout
-        android:id="@+id/ll_slide_cancel"
-        android:layout_width="wrap_content"
+        android:id="@+id/ll_record_top_live"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingEnd="10dp"
         android:gravity="center_vertical">
 
         <ImageView
-            android:id="@+id/iv_slide_chevron"
-            android:layout_width="14dp"
-            android:layout_height="14dp"
-            android:src="@drawable/ic_chevron_left"
-            app:tint="@color/text_muted"
-            android:contentDescription="Slide to cancel"/>
+            android:id="@+id/iv_record_dot"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:background="@drawable/circle_reject"
+            android:contentDescription="Recording"/>
 
         <TextView
-            android:id="@+id/tv_slide_cancel"
+            android:id="@+id/tv_record_timer"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="4dp"
-            android:text="@string/slide_to_cancel"
-            android:textColor="@color/text_muted"
-            android:textSize="12sp"/>
+            android:layout_marginStart="8dp"
+            android:text="00:00"
+            android:textColor="@color/chat_input_text"
+            android:textSize="13sp"
+            android:fontFamily="monospace"/>
+
+        <com.callx.app.chat.ui.RecordingWaveformView
+            android:id="@+id/waveform_recording"
+            android:layout_width="0dp"
+            android:layout_height="28dp"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="6dp"/>
+
+        <LinearLayout
+            android:id="@+id/ll_slide_cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <ImageView
+                android:id="@+id/iv_slide_chevron"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:src="@drawable/ic_chevron_left"
+                app:tint="@color/text_muted"
+                android:contentDescription="Slide to cancel"/>
+
+            <TextView
+                android:id="@+id/tv_slide_cancel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:text="@string/slide_to_cancel"
+                android:textColor="@color/text_muted"
+                android:textSize="12sp"/>
+        </LinearLayout>
     </LinearLayout>
 
-    <ImageButton
-        android:id="@+id/btn_record_delete"
-        android:layout_width="34dp"
-        android:layout_height="34dp"
-        android:padding="7dp"
-        android:src="@drawable/ic_record_delete"
-        android:tint="@color/text_secondary"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:visibility="gone"
-        android:contentDescription="Delete recording"/>
+    <!-- ── Row 1b: paused preview (play/pause + frozen scrubbable waveform + timer) ──
+         Hidden until the user taps Pause while locked. -->
+    <LinearLayout
+        android:id="@+id/ll_record_top_preview"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:gravity="center_vertical"
+        android:visibility="gone">
 
-    <ImageButton
-        android:id="@+id/btn_record_send"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
-        android:padding="8dp"
-        android:src="@drawable/ic_send"
-        android:tint="@color/white"
-        android:background="@drawable/circle_primary"
-        android:layout_marginStart="6dp"
-        android:visibility="gone"
-        android:contentDescription="Send recording"/>
+        <ImageButton
+            android:id="@+id/btn_preview_playpause"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:padding="4dp"
+            android:src="@drawable/ic_play"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:tint="@color/brand_primary"
+            android:contentDescription="Play recording"/>
+
+        <com.callx.app.chat.ui.VoiceNotePreviewWaveformView
+            android:id="@+id/waveform_preview"
+            android:layout_width="0dp"
+            android:layout_height="28dp"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp"/>
+
+        <TextView
+            android:id="@+id/tv_preview_timer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="00:00"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:fontFamily="monospace"/>
+    </LinearLayout>
+
+    <!-- ── Row 2: Delete | Pause⇄Resume | Send — only visible once locked ── -->
+    <LinearLayout
+        android:id="@+id/ll_record_actions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="10dp"
+        android:gravity="center_vertical"
+        android:visibility="gone">
+
+        <ImageButton
+            android:id="@+id/btn_record_delete"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:padding="9dp"
+            android:src="@drawable/ic_record_delete"
+            android:background="@drawable/circle_reject"
+            android:contentDescription="Delete recording"/>
+
+        <LinearLayout
+            android:id="@+id/btn_pause_resume"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:background="@drawable/bg_pill_record_action"
+            android:clickable="true"
+            android:focusable="true">
+
+            <ImageView
+                android:id="@+id/iv_pause_resume_icon"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@drawable/ic_pause"
+                app:tint="@color/brand_primary"
+                android:contentDescription="@null"/>
+
+            <TextView
+                android:id="@+id/tv_pause_resume_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="@string/record_pause"
+                android:textColor="@color/brand_primary"
+                android:textSize="14sp"
+                android:textStyle="bold"/>
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/btn_record_send"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:padding="9dp"
+            android:src="@drawable/ic_send"
+            app:tint="@color/white"
+            android:background="@drawable/circle_primary"
+            android:contentDescription="Send recording"/>
+    </LinearLayout>
 </LinearLayout>

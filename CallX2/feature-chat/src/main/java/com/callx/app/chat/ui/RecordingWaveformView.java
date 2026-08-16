@@ -55,10 +55,19 @@ public class RecordingWaveformView extends View {
     private long totalPushed = 0;
     private int capacity = 40; // recomputed from width in onSizeChanged
 
+    /** Sentinel written into `buffer` by {@link #pushGapMarker()} to mark a
+     *  pause/resume boundary — onDraw renders it as three small dots
+     *  instead of a bar (WhatsApp shows the same cue when you resume a
+     *  paused recording), so the discontinuity in the clip stays visible
+     *  even while the live strip keeps scrolling. */
+    private static final float GAP_MARKER = -1f;
+
     private final Paint barPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private float barWidthPx;
     private float gapPx;
     private float minBarHeightPx;
+    private float dotRadiusPx;
 
     public RecordingWaveformView(Context context) {
         super(context);
@@ -80,13 +89,24 @@ public class RecordingWaveformView extends View {
         gapPx = BAR_GAP_DP * density;
         minBarHeightPx = BAR_MIN_DP * density;
         barPaint.setColor(0xFF4CAF50); // brand_primary — overridden via setBarColor() if needed
+        dotPaint.setColor(0xFF4CAF50);
+        dotRadiusPx = 1.3f * density;
         setMinimumHeight((int) (28 * density));
     }
 
     /** Optional — lets callers match theme colors instead of the hardcoded default. */
     public void setBarColor(int color) {
         barPaint.setColor(color);
+        dotPaint.setColor(color);
         invalidate();
+    }
+
+    /** Marks a pause/resume boundary in the stream — renders as three tiny
+     *  dots instead of a bar once it scrolls into view. Call once when the
+     *  recording is resumed (not on every tick). */
+    public void pushGapMarker() {
+        writeSample(GAP_MARKER);
+        postInvalidateOnAnimation();
     }
 
     @Override
@@ -128,7 +148,8 @@ public class RecordingWaveformView extends View {
     }
 
     private void writeSample(float level) {
-        float clamped = Math.max(0f, Math.min(1f, level));
+        // GAP_MARKER (-1) passes through unclamped — onDraw special-cases it.
+        float clamped = (level == GAP_MARKER) ? GAP_MARKER : Math.max(0f, Math.min(1f, level));
         buffer[(int) (totalPushed % MAX_CAPACITY)] = clamped;
         totalPushed++;
     }
@@ -163,11 +184,22 @@ public class RecordingWaveformView extends View {
         for (int i = 0; i < count && x >= -barWidthPx; i++) {
             long sampleIndex = totalPushed - 1 - i;
             float lvl = buffer[(int) (sampleIndex % MAX_CAPACITY)];
-            float barHeight = Math.max(minBarHeightPx, lvl * getHeight());
-            canvas.drawRoundRect(
-                    x, centerY - barHeight / 2f,
-                    x + barWidthPx, centerY + barHeight / 2f,
-                    radius, radius, barPaint);
+            if (lvl == GAP_MARKER) {
+                // Three small dots in a horizontal row ("···") at the
+                // vertical center — reads as a pause boundary, not a
+                // vertical ellipsis, matching the WhatsApp reference cue.
+                float dotCx = x + barWidthPx / 2f;
+                float dotSpacing = dotRadiusPx * 2.6f;
+                canvas.drawCircle(dotCx - dotSpacing, centerY, dotRadiusPx, dotPaint);
+                canvas.drawCircle(dotCx, centerY, dotRadiusPx, dotPaint);
+                canvas.drawCircle(dotCx + dotSpacing, centerY, dotRadiusPx, dotPaint);
+            } else {
+                float barHeight = Math.max(minBarHeightPx, lvl * getHeight());
+                canvas.drawRoundRect(
+                        x, centerY - barHeight / 2f,
+                        x + barWidthPx, centerY + barHeight / 2f,
+                        radius, radius, barPaint);
+            }
             x -= slot;
         }
     }

@@ -158,10 +158,24 @@ public class ChatMediaController {
 
     /** Gesture lifecycle for the mic button. IDLE = finger not down /
      *  nothing recording. DRAGGING = finger down, recording, still free to
-     *  slide left (cancel) or up (lock). LOCKED = hands-free, finger has
-     *  been released; Delete/Send buttons drive it from here. */
-    private enum RecordState { IDLE, DRAGGING, LOCKED }
+     *  slide left (cancel) or up (lock). LOCKED_RECORDING = hands-free,
+     *  finger released, actively recording; Delete/Pause/Send drive it
+     *  from here. LOCKED_PAUSED = recording paused, showing the frozen
+     *  scrubbable preview waveform with Play/Resume/Send (Feature:
+     *  pause/resume/play/adjust/send). */
+    private enum RecordState { IDLE, DRAGGING, LOCKED_RECORDING, LOCKED_PAUSED }
     private RecordState recordState = RecordState.IDLE;
+
+    /** Full amplitude history of the CURRENT recording (every sample since
+     *  the last start(), across any number of pause/resume cycles) — used
+     *  to build the frozen, whole-clip waveform in the paused preview.
+     *  Separate from RecordingWaveformView's own ring buffer, which only
+     *  ever keeps the last few seconds for the live scrolling effect. */
+    private final List<Float> allAmplitudeSamples = new ArrayList<>();
+
+    /** Plays back the paused-but-unsent clip so the user can preview it
+     *  before Resume/Send (Feature: pause/resume/play/adjust/send). */
+    private final VoicePreviewPlayer previewPlayer = new VoicePreviewPlayer();
 
     /** Once the drag clears a small deadzone it commits to ONE axis
      *  (horizontal = cancel, vertical = lock) for the rest of the gesture,
@@ -2209,6 +2223,22 @@ public class ChatMediaController {
             recordingBarBinding = rb;
             rb.btnRecordDelete.setOnClickListener(v -> finishCancel());
             rb.btnRecordSend.setOnClickListener(v -> finishAndSend());
+            rb.btnPauseResume.setOnClickListener(v -> onPauseResumeClicked());
+            rb.btnPreviewPlaypause.setOnClickListener(v -> onPreviewPlayPauseClicked());
+            rb.waveformPreview.setOnSeekListener((progress, released) -> {
+                if (released) seekPreviewTo(progress);
+                else rb.waveformPreview.setProgress(progress); // live-follow the finger only
+            });
+            previewPlayer.setListener(new VoicePreviewPlayer.Listener() {
+                @Override public void onProgress(float progress0to1) {
+                    rb.waveformPreview.setProgress(progress0to1);
+                }
+                @Override public void onPlaybackFinished() {
+                    rb.btnPreviewPlaypause.setImageResource(R.drawable.ic_play);
+                    rb.waveformPreview.setProgress(0f);
+                    previewPlayer.seekTo(0f);
+                }
+            });
         });
     }
 
@@ -2291,10 +2321,13 @@ public class ChatMediaController {
         rb.llSlideCancel.setVisibility(View.VISIBLE);
         rb.llSlideCancel.setTranslationX(0f);
         rb.llSlideCancel.setAlpha(1f);
-        rb.btnRecordDelete.setVisibility(View.GONE);
-        rb.btnRecordSend.setVisibility(View.GONE);
+        rb.llRecordActions.setVisibility(View.GONE);
+        rb.llRecordTopPreview.setVisibility(View.GONE);
+        rb.llRecordTopLive.setVisibility(View.VISIBLE);
         rb.tvRecordTimer.setText("00:00");
         rb.waveformRecording.reset();
+        rb.waveformPreview.reset();
+        allAmplitudeSamples.clear();
         startDotBlink(rb.ivRecordDot);
 
         binding.cvRecordLock.setTranslationY(0f);
@@ -2315,6 +2348,7 @@ public class ChatMediaController {
             rb.tvRecordTimer.setText(formatTimer(recorder.getDuration()));
             float level = normalizeAmplitude(recorder.getMaxAmplitudeSafe());
             rb.waveformRecording.pushLevel(level);
+            allAmplitudeSamples.add(level);
             // Same sample, forwarded to the partner-facing preview — no
             // second call to recorder.getMaxAmplitudeSafe(), no second timer.
             if (amplitudeListener != null) amplitudeListener.onAmplitudeSample(level);
@@ -2366,8 +2400,8 @@ public class ChatMediaController {
     }
 
     private void lockRecording() {
-        if (recordState == RecordState.LOCKED) return;
-        recordState = RecordState.LOCKED;
+        if (recordState == RecordState.LOCKED_RECORDING) return;
+        recordState = RecordState.LOCKED_RECORDING;
         ActivityChatBinding binding = delegate.getBinding();
         LayoutRecordingBarBinding rb = recordingBar(binding);
         binding.chatIconBar.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
@@ -2385,13 +2419,113 @@ public class ChatMediaController {
         rb.llSlideCancel.animate().alpha(0f).setDuration(150)
                 .withEndAction(() -> rb.llSlideCancel.setVisibility(View.INVISIBLE)).start();
 
-        rb.btnRecordDelete.setAlpha(0f);
-        rb.btnRecordDelete.setVisibility(View.VISIBLE);
-        rb.btnRecordDelete.animate().alpha(1f).setDuration(150).start();
+        // Delete | Pause⇄Resume | Send row — hidden until now, replaces the
+        // hold-gesture-only flow (Feature: pause/resume/play/adjust/send).
+        setPauseResumeUi(rb, true /* showPause */);
+        rb.btnPauseResume.setVisibility(
+                VoiceRecorder.isPauseResumeSupported() ? View.VISIBLE : View.GONE);
 
-        rb.btnRecordSend.setAlpha(0f);
-        rb.btnRecordSend.setVisibility(View.VISIBLE);
-        rb.btnRecordSend.animate().alpha(1f).setDuration(150).start();
+        rb.llRecordActions.setAlpha(0f);
+        rb.llRecordActions.setVisibility(View.VISIBLE);
+        rb.llRecordActions.animate().alpha(1f).setDuration(150).start();
+    }
+
+    /** Toggles the pill's icon/label between Pause (mid-recording) and
+     *  Resume (paused-preview) states. */
+    private void setPauseResumeUi(LayoutRecordingBarBinding rb, boolean showPause) {
+        rb.ivPauseResumeIcon.setImageResource(showPause ? R.drawable.ic_pause : R.drawable.ic_mic);
+        rb.tvPauseResumeLabel.setText(showPause ? R.string.record_pause : R.string.record_resume);
+    }
+
+    private void onPauseResumeClicked() {
+        if (recordState == RecordState.LOCKED_RECORDING) {
+            pauseRecording();
+        } else if (recordState == RecordState.LOCKED_PAUSED) {
+            resumeRecording();
+        }
+    }
+
+    /** Pauses the in-progress recording and switches the top row over to
+     *  the frozen, scrubbable whole-clip preview (Feature: pause/resume/
+     *  play/adjust/send). No-op (silently) below API 24, where the Pause
+     *  button is hidden entirely — see lockRecording(). */
+    private void pauseRecording() {
+        if (!recorder.pause()) return;
+        ActivityChatBinding binding = delegate.getBinding();
+        LayoutRecordingBarBinding rb = recordingBar(binding);
+
+        recordState = RecordState.LOCKED_PAUSED;
+        recordHandler.removeCallbacksAndMessages(null);
+        stopDotBlink();
+
+        float[] samples = new float[allAmplitudeSamples.size()];
+        for (int i = 0; i < samples.length; i++) samples[i] = allAmplitudeSamples.get(i);
+        rb.waveformPreview.setSamples(samples);
+        rb.waveformPreview.setProgress(0f);
+        rb.tvPreviewTimer.setText(formatTimer(recorder.getDuration()));
+
+        String path = recorder.getOutputFilePath();
+        boolean prepared = path != null && previewPlayer.prepare(path);
+        rb.waveformPreview.setDraggable(prepared);
+        rb.btnPreviewPlaypause.setImageResource(R.drawable.ic_play);
+
+        rb.llRecordTopLive.setVisibility(View.GONE);
+        rb.llRecordTopPreview.setVisibility(View.VISIBLE);
+        setPauseResumeUi(rb, false /* showResume */);
+    }
+
+    /** Resumes recording into the SAME output file (MediaRecorder#resume
+     *  appends in place — no merge step) and switches back to the live
+     *  waveform, with a gap marker dropped in to mark where the pause was. */
+    private void resumeRecording() {
+        ActivityChatBinding binding = delegate.getBinding();
+        LayoutRecordingBarBinding rb = recordingBar(binding);
+
+        previewPlayer.release();
+        if (!recorder.resume()) return;
+
+        recordState = RecordState.LOCKED_RECORDING;
+        rb.llRecordTopPreview.setVisibility(View.GONE);
+        rb.llRecordTopLive.setVisibility(View.VISIBLE);
+        setPauseResumeUi(rb, true /* showPause */);
+        startDotBlink(rb.ivRecordDot);
+        rb.waveformRecording.pushGapMarker();
+
+        recordTickRunnable = () -> {
+            if (recordState != RecordState.LOCKED_RECORDING && recordState != RecordState.DRAGGING) return;
+            rb.tvRecordTimer.setText(formatTimer(recorder.getDuration()));
+            float level = normalizeAmplitude(recorder.getMaxAmplitudeSafe());
+            rb.waveformRecording.pushLevel(level);
+            allAmplitudeSamples.add(level);
+            if (amplitudeListener != null) amplitudeListener.onAmplitudeSample(level);
+            recordHandler.postDelayed(recordTickRunnable, AMPLITUDE_POLL_MS);
+        };
+        recordHandler.postDelayed(recordTickRunnable, AMPLITUDE_POLL_MS);
+    }
+
+    /** Play/pause the paused-preview playback (does NOT affect the
+     *  recording itself — Resume is the only thing that continues it). */
+    private void onPreviewPlayPauseClicked() {
+        ActivityChatBinding binding = delegate.getBinding();
+        LayoutRecordingBarBinding rb = recordingBar(binding);
+        if (!previewPlayer.isPrepared()) return;
+        if (previewPlayer.isPlaying()) {
+            previewPlayer.pause();
+            rb.btnPreviewPlaypause.setImageResource(R.drawable.ic_play);
+        } else {
+            // Restart from the beginning once playback has run to the end.
+            if (rb.waveformPreview.getProgress() >= 0.999f) previewPlayer.seekTo(0f);
+            previewPlayer.play();
+            rb.btnPreviewPlaypause.setImageResource(R.drawable.ic_pause);
+        }
+    }
+
+    /** "Adjust" — user dragged the preview waveform to a new position. */
+    private void seekPreviewTo(float progress0to1) {
+        ActivityChatBinding binding = delegate.getBinding();
+        LayoutRecordingBarBinding rb = recordingBar(binding);
+        rb.waveformPreview.setProgress(progress0to1);
+        if (previewPlayer.isPrepared()) previewPlayer.seekTo(progress0to1);
     }
 
     private void finishAndSend() {
@@ -2400,6 +2534,10 @@ public class ChatMediaController {
         delegate.setRecording(false);
         stopDotBlink();
         recordHandler.removeCallbacksAndMessages(null);
+        // Must release the preview MediaPlayer before recorder.stop() —
+        // both would otherwise hold the same file at once (only matters if
+        // Send is tapped straight from the paused-preview state).
+        previewPlayer.release();
         Uri uri = recorder.stop(activity);
         resetRecordingUi(binding);
         if (uri != null) uploadAndSend(uri, "audio", "raw", null);
@@ -2416,6 +2554,7 @@ public class ChatMediaController {
         delegate.setRecording(false);
         stopDotBlink();
         recordHandler.removeCallbacksAndMessages(null);
+        previewPlayer.release();
         recorder.cancel();
         resetRecordingUi(binding);
         binding.chatIconBar.performHapticFeedback(HapticFeedbackConstants.REJECT);
@@ -2429,6 +2568,7 @@ public class ChatMediaController {
         delegate.setRecording(false);
         stopDotBlink();
         recordHandler.removeCallbacksAndMessages(null);
+        previewPlayer.release();
         recorder.cancel();
         resetRecordingUi(binding);
         Toast.makeText(activity, "Recording cancelled", Toast.LENGTH_SHORT).show();
@@ -2456,10 +2596,16 @@ public class ChatMediaController {
         rb.llSlideCancel.setTranslationX(0f);
         rb.llSlideCancel.setAlpha(1f);
 
-        rb.btnRecordDelete.setVisibility(View.GONE);
-        rb.btnRecordSend.setVisibility(View.GONE);
+        rb.llRecordActions.animate().cancel();
+        rb.llRecordActions.setAlpha(1f);
+        rb.llRecordActions.setVisibility(View.GONE);
+        rb.llRecordTopPreview.setVisibility(View.GONE);
+        rb.llRecordTopLive.setVisibility(View.VISIBLE);
+        setPauseResumeUi(rb, true /* showPause */);
 
         rb.waveformRecording.reset();
+        rb.waveformPreview.reset();
+        allAmplitudeSamples.clear();
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             binding.getRoot().setSystemGestureExclusionRects(java.util.Collections.emptyList());

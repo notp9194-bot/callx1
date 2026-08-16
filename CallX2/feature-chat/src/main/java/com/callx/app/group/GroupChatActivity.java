@@ -61,6 +61,8 @@ import android.net.NetworkRequest;
 
 import java.util.*;
 import java.util.concurrent.Executor;
+
+import com.callx.app.conversation.controllers.VoicePreviewPlayer;
 import com.callx.app.conversation.ChatActivity;
 import com.callx.app.conversation.controllers.ChatContactShareController;
 import com.callx.app.conversation.controllers.ChatLocationShareController;
@@ -246,8 +248,14 @@ public class GroupChatActivity extends AppCompatActivity
     // Mirrors ChatMediaController's mic gesture in the 1:1 chat screen —
     // waveform + swipe-to-cancel/lock, ported here since GroupChatActivity
     // previously only had a bare tap-to-toggle mic with no capsule UI.
-    private enum RecordState { IDLE, DRAGGING, LOCKED }
+    private enum RecordState { IDLE, DRAGGING, LOCKED_RECORDING, LOCKED_PAUSED }
     private RecordState recordState = RecordState.IDLE;
+
+    /** Full amplitude history of the current recording — feeds the frozen
+     *  whole-clip preview waveform once paused (Feature: pause/resume/
+     *  play/adjust/send). Mirrors ChatMediaController's 1:1 chat version. */
+    private final List<Float> allAmplitudeSamples = new ArrayList<>();
+    private final VoicePreviewPlayer previewPlayer = new VoicePreviewPlayer();
     private enum DragAxis { HORIZONTAL, VERTICAL }
     private DragAxis dragAxis;
 
@@ -3968,6 +3976,22 @@ public class GroupChatActivity extends AppCompatActivity
             recordingBarBinding = rb;
             rb.btnRecordDelete.setOnClickListener(v -> finishCancel());
             rb.btnRecordSend.setOnClickListener(v -> finishAndSend());
+            rb.btnPauseResume.setOnClickListener(v -> onPauseResumeClicked());
+            rb.btnPreviewPlaypause.setOnClickListener(v -> onPreviewPlayPauseClicked());
+            rb.waveformPreview.setOnSeekListener((progress, released) -> {
+                if (released) seekPreviewTo(progress);
+                else rb.waveformPreview.setProgress(progress);
+            });
+            previewPlayer.setListener(new VoicePreviewPlayer.Listener() {
+                @Override public void onProgress(float progress0to1) {
+                    rb.waveformPreview.setProgress(progress0to1);
+                }
+                @Override public void onPlaybackFinished() {
+                    rb.btnPreviewPlaypause.setImageResource(R.drawable.ic_play);
+                    rb.waveformPreview.setProgress(0f);
+                    previewPlayer.seekTo(0f);
+                }
+            });
         });
     }
 
@@ -4034,10 +4058,13 @@ public class GroupChatActivity extends AppCompatActivity
         rb.llSlideCancel.setVisibility(View.VISIBLE);
         rb.llSlideCancel.setTranslationX(0f);
         rb.llSlideCancel.setAlpha(1f);
-        rb.btnRecordDelete.setVisibility(View.GONE);
-        rb.btnRecordSend.setVisibility(View.GONE);
+        rb.llRecordActions.setVisibility(View.GONE);
+        rb.llRecordTopPreview.setVisibility(View.GONE);
+        rb.llRecordTopLive.setVisibility(View.VISIBLE);
         rb.tvRecordTimer.setText("00:00");
         rb.waveformRecording.reset();
+        rb.waveformPreview.reset();
+        allAmplitudeSamples.clear();
         startDotBlink(rb.ivRecordDot);
 
         binding.cvRecordLock.setTranslationY(0f);
@@ -4052,7 +4079,9 @@ public class GroupChatActivity extends AppCompatActivity
         recordTickRunnable = () -> {
             if (recordState == RecordState.IDLE) return;
             rb.tvRecordTimer.setText(formatTimer(recorder.getDuration()));
-            rb.waveformRecording.pushLevel(normalizeAmplitude(recorder.getMaxAmplitudeSafe()));
+            float level = normalizeAmplitude(recorder.getMaxAmplitudeSafe());
+            rb.waveformRecording.pushLevel(level);
+            allAmplitudeSamples.add(level);
             recordHandler.postDelayed(recordTickRunnable, AMPLITUDE_POLL_MS);
         };
         recordHandler.postDelayed(recordTickRunnable, AMPLITUDE_POLL_MS);
@@ -4093,8 +4122,8 @@ public class GroupChatActivity extends AppCompatActivity
     }
 
     private void lockRecording() {
-        if (recordState == RecordState.LOCKED) return;
-        recordState = RecordState.LOCKED;
+        if (recordState == RecordState.LOCKED_RECORDING) return;
+        recordState = RecordState.LOCKED_RECORDING;
         LayoutRecordingBarBinding rb = recordingBar();
         binding.chatIconBar.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
         binding.ivRecordLockIcon.setImageResource(R.drawable.ic_record_lock_closed);
@@ -4111,13 +4140,96 @@ public class GroupChatActivity extends AppCompatActivity
         rb.llSlideCancel.animate().alpha(0f).setDuration(150)
                 .withEndAction(() -> rb.llSlideCancel.setVisibility(View.INVISIBLE)).start();
 
-        rb.btnRecordDelete.setAlpha(0f);
-        rb.btnRecordDelete.setVisibility(View.VISIBLE);
-        rb.btnRecordDelete.animate().alpha(1f).setDuration(150).start();
+        setPauseResumeUi(rb, true /* showPause */);
+        rb.btnPauseResume.setVisibility(
+                VoiceRecorder.isPauseResumeSupported() ? View.VISIBLE : View.GONE);
 
-        rb.btnRecordSend.setAlpha(0f);
-        rb.btnRecordSend.setVisibility(View.VISIBLE);
-        rb.btnRecordSend.animate().alpha(1f).setDuration(150).start();
+        rb.llRecordActions.setAlpha(0f);
+        rb.llRecordActions.setVisibility(View.VISIBLE);
+        rb.llRecordActions.animate().alpha(1f).setDuration(150).start();
+    }
+
+    private void setPauseResumeUi(LayoutRecordingBarBinding rb, boolean showPause) {
+        rb.ivPauseResumeIcon.setImageResource(showPause ? R.drawable.ic_pause : R.drawable.ic_mic);
+        rb.tvPauseResumeLabel.setText(showPause ? R.string.record_pause : R.string.record_resume);
+    }
+
+    private void onPauseResumeClicked() {
+        if (recordState == RecordState.LOCKED_RECORDING) {
+            pauseRecording();
+        } else if (recordState == RecordState.LOCKED_PAUSED) {
+            resumeRecording();
+        }
+    }
+
+    /** Pauses the in-progress recording and switches to the frozen,
+     *  scrubbable whole-clip preview (Feature: pause/resume/play/adjust/
+     *  send). Mirrors ChatMediaController's 1:1 chat version. */
+    private void pauseRecording() {
+        if (!recorder.pause()) return;
+        LayoutRecordingBarBinding rb = recordingBar();
+
+        recordState = RecordState.LOCKED_PAUSED;
+        recordHandler.removeCallbacksAndMessages(null);
+        stopDotBlink();
+
+        float[] samples = new float[allAmplitudeSamples.size()];
+        for (int i = 0; i < samples.length; i++) samples[i] = allAmplitudeSamples.get(i);
+        rb.waveformPreview.setSamples(samples);
+        rb.waveformPreview.setProgress(0f);
+        rb.tvPreviewTimer.setText(formatTimer(recorder.getDuration()));
+
+        String path = recorder.getOutputFilePath();
+        boolean prepared = path != null && previewPlayer.prepare(path);
+        rb.waveformPreview.setDraggable(prepared);
+        rb.btnPreviewPlaypause.setImageResource(R.drawable.ic_play);
+
+        rb.llRecordTopLive.setVisibility(View.GONE);
+        rb.llRecordTopPreview.setVisibility(View.VISIBLE);
+        setPauseResumeUi(rb, false /* showResume */);
+    }
+
+    private void resumeRecording() {
+        LayoutRecordingBarBinding rb = recordingBar();
+
+        previewPlayer.release();
+        if (!recorder.resume()) return;
+
+        recordState = RecordState.LOCKED_RECORDING;
+        rb.llRecordTopPreview.setVisibility(View.GONE);
+        rb.llRecordTopLive.setVisibility(View.VISIBLE);
+        setPauseResumeUi(rb, true /* showPause */);
+        startDotBlink(rb.ivRecordDot);
+        rb.waveformRecording.pushGapMarker();
+
+        recordTickRunnable = () -> {
+            if (recordState != RecordState.LOCKED_RECORDING && recordState != RecordState.DRAGGING) return;
+            rb.tvRecordTimer.setText(formatTimer(recorder.getDuration()));
+            float level = normalizeAmplitude(recorder.getMaxAmplitudeSafe());
+            rb.waveformRecording.pushLevel(level);
+            allAmplitudeSamples.add(level);
+            recordHandler.postDelayed(recordTickRunnable, AMPLITUDE_POLL_MS);
+        };
+        recordHandler.postDelayed(recordTickRunnable, AMPLITUDE_POLL_MS);
+    }
+
+    private void onPreviewPlayPauseClicked() {
+        LayoutRecordingBarBinding rb = recordingBar();
+        if (!previewPlayer.isPrepared()) return;
+        if (previewPlayer.isPlaying()) {
+            previewPlayer.pause();
+            rb.btnPreviewPlaypause.setImageResource(R.drawable.ic_play);
+        } else {
+            if (rb.waveformPreview.getProgress() >= 0.999f) previewPlayer.seekTo(0f);
+            previewPlayer.play();
+            rb.btnPreviewPlaypause.setImageResource(R.drawable.ic_pause);
+        }
+    }
+
+    private void seekPreviewTo(float progress0to1) {
+        LayoutRecordingBarBinding rb = recordingBar();
+        rb.waveformPreview.setProgress(progress0to1);
+        if (previewPlayer.isPrepared()) previewPlayer.seekTo(progress0to1);
     }
 
     private void finishAndSend() {
@@ -4125,6 +4237,7 @@ public class GroupChatActivity extends AppCompatActivity
         isRecording = false;
         stopDotBlink();
         recordHandler.removeCallbacksAndMessages(null);
+        previewPlayer.release();
         Uri uri = recorder.stop(this);
         resetRecordingUi();
         if (uri != null) uploadAndSend(uri, "audio", "raw", null);
@@ -4138,6 +4251,7 @@ public class GroupChatActivity extends AppCompatActivity
         isRecording = false;
         stopDotBlink();
         recordHandler.removeCallbacksAndMessages(null);
+        previewPlayer.release();
         recorder.cancel();
         resetRecordingUi();
         binding.chatIconBar.performHapticFeedback(HapticFeedbackConstants.REJECT);
@@ -4149,6 +4263,7 @@ public class GroupChatActivity extends AppCompatActivity
         isRecording = false;
         stopDotBlink();
         recordHandler.removeCallbacksAndMessages(null);
+        previewPlayer.release();
         recorder.cancel();
         resetRecordingUi();
         Toast.makeText(this, "Recording cancelled", Toast.LENGTH_SHORT).show();
@@ -4175,10 +4290,16 @@ public class GroupChatActivity extends AppCompatActivity
         rb.llSlideCancel.setTranslationX(0f);
         rb.llSlideCancel.setAlpha(1f);
 
-        rb.btnRecordDelete.setVisibility(View.GONE);
-        rb.btnRecordSend.setVisibility(View.GONE);
+        rb.llRecordActions.animate().cancel();
+        rb.llRecordActions.setAlpha(1f);
+        rb.llRecordActions.setVisibility(View.GONE);
+        rb.llRecordTopPreview.setVisibility(View.GONE);
+        rb.llRecordTopLive.setVisibility(View.VISIBLE);
+        setPauseResumeUi(rb, true /* showPause */);
 
         rb.waveformRecording.reset();
+        rb.waveformPreview.reset();
+        allAmplitudeSamples.clear();
     }
 
     private void startDotBlink(View dot) {

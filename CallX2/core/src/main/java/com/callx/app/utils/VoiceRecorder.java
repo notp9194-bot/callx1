@@ -25,7 +25,60 @@ public class VoiceRecorder {
     private File          outFile;
     private long          startedAt;
 
+    /** ms accumulated across all completed record segments, i.e. everything
+     *  BEFORE the current (possibly still running) segment. Rolled into
+     *  getDuration() so the timer/waveform stay correct across pause/resume
+     *  instead of resetting or double-counting the paused gap. */
+    private long elapsedBeforeSegment = 0L;
+    private boolean paused = false;
+
     public VoiceRecorder() {}
+
+    /** Pause/resume (MediaRecorder#pause/#resume) needs API 24 — below that,
+     *  callers should hide the pause control entirely and keep the old
+     *  hold-to-record-then-send/delete flow. */
+    public static boolean isPauseResumeSupported() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N;
+    }
+
+    public boolean isPaused() {
+        return paused;
+    }
+
+    /** Pause the current recording segment in place (same output file —
+     *  resume() continues writing into it, no merge step needed). No-op if
+     *  not currently recording or already paused, or on APIs below 24. */
+    public boolean pause() {
+        if (mediaRecorder == null || paused || !isPauseResumeSupported()) return false;
+        try {
+            mediaRecorder.pause();
+            elapsedBeforeSegment += System.currentTimeMillis() - startedAt;
+            paused = true;
+            return true;
+        } catch (IllegalStateException e) {
+            return false;
+        }
+    }
+
+    /** Resume a paused recording. No-op if not paused. */
+    public boolean resume() {
+        if (mediaRecorder == null || !paused || !isPauseResumeSupported()) return false;
+        try {
+            mediaRecorder.resume();
+            startedAt = System.currentTimeMillis();
+            paused = false;
+            return true;
+        } catch (IllegalStateException e) {
+            return false;
+        }
+    }
+
+    /** Absolute path of the in-progress/paused output file — used to build
+     *  a MediaPlayer preview while the recording is paused. Null before
+     *  start() or after cancel(). */
+    public String getOutputFilePath() {
+        return outFile != null ? outFile.getAbsolutePath() : null;
+    }
 
     /**
      * Start recording to a temp .m4a file in the app cache.
@@ -53,6 +106,8 @@ public class VoiceRecorder {
             mediaRecorder.prepare();
             mediaRecorder.start();
             startedAt = System.currentTimeMillis();
+            elapsedBeforeSegment = 0L;
+            paused = false;
             return true;
         } catch (IOException | RuntimeException e) {
             cleanup();
@@ -66,9 +121,13 @@ public class VoiceRecorder {
      */
     public Uri stop(Context ctx) {
         if (mediaRecorder == null || outFile == null) return null;
+        // stop() is valid from PAUSED too (API 24+, which is the only API
+        // level pause() could have gotten us into that state on) — no need
+        // to resume first.
         try { mediaRecorder.stop(); }   catch (Exception ignored) {}
         try { mediaRecorder.release(); } catch (Exception ignored) {}
         mediaRecorder = null;
+        paused = false;
 
         if (!outFile.exists() || outFile.length() == 0) return null;
 
@@ -79,9 +138,11 @@ public class VoiceRecorder {
         );
     }
 
-    /** Duration in milliseconds since start() was called. */
+    /** Total recorded duration in ms, correct across any number of
+     *  pause()/resume() cycles — does NOT include time spent paused. */
     public long getDuration() {
-        return System.currentTimeMillis() - startedAt;
+        long current = paused ? 0L : (System.currentTimeMillis() - startedAt);
+        return elapsedBeforeSegment + current;
     }
 
     /**
@@ -110,5 +171,7 @@ public class VoiceRecorder {
         mediaRecorder = null;
         if (outFile != null && outFile.exists()) outFile.delete();
         outFile = null;
+        paused = false;
+        elapsedBeforeSegment = 0L;
     }
 }
