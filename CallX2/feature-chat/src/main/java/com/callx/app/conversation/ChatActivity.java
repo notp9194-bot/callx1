@@ -2372,6 +2372,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // user has scrolled up to read history; that insert happens
                 // at positionStart 0 and must NOT move the viewport).
                 boolean isTailInsert = (positionStart + itemCount) >= total;
+                com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
+                        "onItemRangeInserted: positionStart=" + positionStart + " itemCount=" + itemCount
+                        + " total=" + total + " isTailInsert=" + isTailInsert
+                        + " isUserAtBottom(before)=" + isUserAtBottom);
                 // TELEGRAM-LEVEL: a message WE just sent always wins the
                 // auto-scroll, even if isUserAtBottom somehow hasn't been
                 // flipped yet by pushMessage()'s eager set (belt-and-braces
@@ -2700,6 +2704,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 pendingPagingRefreshRunnable = null;
                 if (isFinishing() || isDestroyed()) return;
                 com.callx.app.db.paging.MessageKeysetPagingSource src = currentKeysetSource;
+                com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
+                        "reanchorPagingToBottom FIRING: isUserAtBottom=" + isUserAtBottom
+                        + " srcNonNull=" + (src != null));
                 if (src != null) {
                     src.setRefreshAtLatest(isUserAtBottom);
                     src.invalidate();
@@ -5326,7 +5333,49 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         }
         if (id == R.id.action_small_window)          { openSmallWindow();                          return true; }
         if (id == R.id.action_display_mode)          { showChatDisplayModePicker();                return true; }
+        if (id == R.id.action_paging_debug_log)      { showPagingDebugLogDialog();                 return true; }
         return super.onOptionsItemSelected(item);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // TEMPORARY: on-device viewer for the buffered "ChatPagingDebug" log
+    // lines (send/scroll flicker investigation). No adb/computer needed —
+    // open this, reproduce the flicker, tap Copy, paste wherever it needs
+    // to go. Safe to delete this method + its menu item once the root
+    // cause is confirmed fixed.
+    // ─────────────────────────────────────────────────────────────────────
+    private void showPagingDebugLogDialog() {
+        String logText = com.callx.app.debug.DebugLogBuffer.getAll();
+
+        final android.widget.TextView tv = new android.widget.TextView(this);
+        tv.setText(logText);
+        tv.setTextIsSelectable(true);
+        tv.setTypeface(android.graphics.Typeface.MONOSPACE);
+        tv.setTextSize(11f);
+        int pad = (int) (12 * getResources().getDisplayMetrics().density);
+        tv.setPadding(pad, pad, pad, pad);
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(tv);
+
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+                .setTitle("🐞 Paging Debug Log (" + com.callx.app.debug.DebugLogBuffer.size() + " lines)")
+                .setView(scroll)
+                .setPositiveButton("Copy", (d, w) -> {
+                    ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (cm != null) {
+                        cm.setPrimaryClip(ClipData.newPlainText("ChatPagingDebug log",
+                                com.callx.app.debug.DebugLogBuffer.getAll()));
+                        Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNeutralButton("Clear", (d, w) -> {
+                    com.callx.app.debug.DebugLogBuffer.clear();
+                    Toast.makeText(this, "Log cleared", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Close", null)
+                .create();
+        dialog.show();
     }
 
     // ─────────────────────────────────────────────────────────────────────

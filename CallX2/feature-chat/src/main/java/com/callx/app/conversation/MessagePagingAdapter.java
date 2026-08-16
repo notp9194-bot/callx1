@@ -251,7 +251,7 @@ public class MessagePagingAdapter
                 // These trigger full reblind but aren't shown during normal scroll.
                 // They're caught by getChangePayload() if needed later.
                 // Result: 19→6 field comparisons = 3x faster on 1000-message lists
-                return a.messageId.equals(b.messageId)
+                boolean same = a.messageId.equals(b.messageId)
                     && safeEquals(a.text, b.text)           // Content changed
                     && safeEquals(a.type, b.type)           // Type changed (e.g. call_entry)
                     && safeEquals(a.status, b.status)       // Read/delivered ticks
@@ -260,6 +260,21 @@ public class MessagePagingAdapter
                     && reactionsEqual(a.reactions, b.reactions)     // Emoji reactions
                     && pollVotesEqual(a.pollVotes, b.pollVotes)     // Poll updates
                     && safeEquals(asStr(a.pollClosed), asStr(b.pollClosed));
+                // DEBUG (temporary): if this is STILL flagging unchanged
+                // messages as "different" on a plain send, this log proves
+                // it directly — with exactly which field tripped it.
+                if (!same) {
+                    com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug", "areContentsTheSame=FALSE id=" + a.messageId
+                        + " text=" + safeEquals(a.text, b.text)
+                        + " type=" + safeEquals(a.type, b.type)
+                        + " status=" + safeEquals(a.status, b.status)
+                        + " ts=" + longEquals(a.timestamp, b.timestamp)
+                        + " edited=" + boolEquals(a.edited, b.edited)
+                        + " reactions=" + reactionsEqual(a.reactions, b.reactions)
+                        + " pollVotes=" + pollVotesEqual(a.pollVotes, b.pollVotes)
+                        + " pollClosed=" + safeEquals(asStr(a.pollClosed), asStr(b.pollClosed)));
+                }
+                return same;
             }
 
             private String asStr(Boolean b) { return b == null ? "null" : b.toString(); }

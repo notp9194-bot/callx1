@@ -64,4 +64,11 @@
         android:title="🖥️ Display Mode"
         app:showAsAction="never"/>
 
+    <!-- TEMPORARY (debug build only, added for send/scroll-flicker investigation):
+         shows the buffered ChatPagingDebug log lines on-device, no adb needed.
+         Safe to delete this item once the flicker root cause is fixed. -->
+    <item android:id="@+id/action_paging_debug_log"
+        android:title="🐞 Paging Debug Log"
+        app:showAsAction="never"/>
+
 </menu>

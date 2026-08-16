@@ -271,6 +271,16 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
                 // pageSize budget so new tail messages are never starved by
                 // a big preserved "before" window.
                 int afterLimit = refreshAtLatest ? pageSize : (pageSize - before.size());
+                // DEBUG (temporary — remove once the flicker-on-send root
+                // cause is confirmed from a real device log): logs exactly
+                // what every anchor-REFRESH actually fetches, so a repro'd
+                // log can show definitively whether this layer is still
+                // discarding/reshaping the window on a plain at-bottom send.
+                com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
+                        "loadSingle REFRESH(anchored): refreshAtLatest=" + refreshAtLatest
+                        + " lastKnownBeforeCount=" + lastKnownBeforeCount
+                        + " beforeLimit=" + beforeLimit + " afterLimit(requested)=" + afterLimit
+                        + " anchor.ts=" + anchor.timestamp + " anchor.id=" + anchor.id);
                 // Inclusive of the anchor itself, so the target message
                 // (whose (timestamp, id) == anchor) is guaranteed to be part
                 // of this page even if other messages share its timestamp.
@@ -282,6 +292,10 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
                 if (before.size() < beforeLimit) prevKey = null; // reached true start of history
                 nextKey = page.isEmpty() ? null : cursorOf(page.get(page.size() - 1));
                 if (fromAnchor.size() < afterLimit) nextKey = null; // reached true end of history
+                com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
+                        "loadSingle REFRESH(anchored) RESULT: before.size=" + before.size()
+                        + " fromAnchor.size=" + fromAnchor.size() + " totalPage=" + page.size()
+                        + " prevKey=" + (prevKey != null) + " nextKey=" + (nextKey != null));
             }
 
             return (LoadResult<MessageCursor, MessageEntity>) new LoadResult.Page<>(
@@ -327,6 +341,11 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
         // sibling of the closest item either.
         Integer anchorPosition = state.getAnchorPosition();
         MessageEntity anchor = (anchorPosition != null) ? state.closestItemToPosition(anchorPosition) : null;
+        com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
+                "getRefreshKey: anchorPosition=" + anchorPosition
+                + " anchorFound=" + (anchor != null)
+                + " lastKnownAnchor=" + (lastKnownAnchor != null)
+                + " lastKnownBeforeCount(before-update)=" + lastKnownBeforeCount);
         if (anchor != null && anchor.timestamp != null && anchor.id != null) {
             MessageCursor resolved = new MessageCursor(anchor.timestamp, anchor.id);
             lastKnownAnchor = resolved; // remember for the next generation, see field doc
