@@ -65,6 +65,6 @@ class SplashActivity : AppCompatActivity() {
     }
 
     companion object {
-        private const val SPLASH_DURATION_MS = 1200L
+        private const val SPLASH_DURATION_MS = 700L
     }
 }
