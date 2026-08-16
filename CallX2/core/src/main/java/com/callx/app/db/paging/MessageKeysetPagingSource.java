@@ -269,30 +269,43 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
                 // chat history, no OFFSET scan — so this lands correctly on
                 // message #1 or message #100,000 alike.
                 //
-                // ADVANCED FIX: the before/after split is no longer a fixed
-                // 50/50 — see MIN_BOTTOM_CONTEXT's doc for why a
-                // bottom-anchored refresh (refreshAtLatest) uses a small
-                // fixed "before" budget instead, so nearly the whole page
-                // goes to fresh tail content. A mid-history jump (not at the
-                // bottom) keeps the original 50/50 centering, since there's
-                // no "latest" bias to apply there.
+                // ROOT-CAUSE FIX #5 (list still fully rebuilding — this time
+                // confirmed for the "reading history, not at the bottom"
+                // case): the fix above only preserved existing "before"
+                // context when refreshAtLatest was true. A write arriving
+                // while the user is scrolled up into history still fell
+                // through to a tiny fixed pageSize/2 (~7) "before" budget —
+                // discarding almost the entire currently-visible window
+                // (which, in real chats, is routinely 50-100+ loaded rows)
+                // down to ~7, then cascading back through repeated
+                // PREPEND loads to regrow it — the exact same "whole list
+                // rebuilds" symptom, just triggered by a background write
+                // landing while reading history instead of by a send. A
+                // live refresh should never discard already-loaded content
+                // regardless of where the user currently is in the chat, so
+                // this now preserves lastKnownBeforeCount the same way for
+                // BOTH cases — the bottom-vs-history distinction only
+                // affects how far past the anchor to look (see afterLimit
+                // below): the bottom case must reach the true tail in one
+                // shot, but a reader in history has no such urgency.
                 MessageCursor anchor = params.getKey();
-                int beforeLimit = refreshAtLatest
-                        ? Math.min(Math.max(lastKnownBeforeCount, MIN_BOTTOM_CONTEXT), MAX_PRESERVED_BEFORE_CONTEXT)
-                        : pageSize / 2;
+                int beforeLimit = Math.min(
+                        Math.max(lastKnownBeforeCount, MIN_BOTTOM_CONTEXT), MAX_PRESERVED_BEFORE_CONTEXT);
                 List<MessageEntity> beforeDesc = dao.getMessagesBeforeDesc(chatId, anchor.timestamp, anchor.id, beforeLimit);
                 List<MessageEntity> before = new ArrayList<>(beforeDesc);
                 Collections.reverse(before); // DESC → ASC
-                // Bottom-anchored: "after" no longer has to squeeze into
-                // (pageSize - before.size()) now that before.size() can be
-                // much larger than pageSize/2 — always give it a full
-                // pageSize budget so new tail messages are never starved by
-                // a big preserved "before" window.
                 // ROOT-CAUSE FIX #2 (see MAX_BOTTOM_CATCHUP_AFTER's doc): a
                 // bottom-anchored refresh always resolves fully to the true
                 // tail in one query instead of leaving nextKey non-null for
-                // Paging to auto-append a moment later.
-                int afterLimit = refreshAtLatest ? MAX_BOTTOM_CATCHUP_AFTER : (pageSize - before.size());
+                // Paging to auto-append a moment later. A reader in history
+                // doesn't need that — there's no "latest" to race to reach —
+                // so it keeps a modest fixed catch-up instead. This can no
+                // longer be derived from (pageSize - before.size()) like it
+                // used to be: before.size() can now be much larger than
+                // pageSize (fix #5 above), which would go negative.
+                int afterLimit = refreshAtLatest
+                        ? MAX_BOTTOM_CATCHUP_AFTER
+                        : Math.max(pageSize / 2, MIN_BOTTOM_CONTEXT);
                 // DEBUG (temporary — remove once the flicker-on-send root
                 // cause is confirmed from a real device log): logs exactly
                 // what every anchor-REFRESH actually fetches, so a repro'd
@@ -324,9 +337,22 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
                 // real new tail instead of the pre-refresh anchor — and so
                 // the next refresh's "before" budget reflects how much is
                 // genuinely on screen now, not a stale pre-refresh value.
-                if (refreshAtLatest && !page.isEmpty()) {
-                    lastKnownAnchor = cursorOf(page.get(page.size() - 1));
-                    lastKnownBeforeCount = Math.max(lastKnownBeforeCount, page.size() - 1);
+                // ROOT-CAUSE FIX #5: lastKnownBeforeCount now needs updating
+                // after EVERY anchored refresh, not just a bottom-anchored
+                // one — otherwise a reader-in-history refresh keeps reusing
+                // whatever smaller value was last recorded (possibly from
+                // a much earlier bottom refresh), undermining the beforeLimit
+                // fix just above it. lastKnownAnchor itself, though, should
+                // only jump to the tail of this page for the bottom case —
+                // for a reader in history it should stay wherever
+                // getRefreshKey() actually anchored this load (already set,
+                // above), not silently relocate to the newest message while
+                // they're reading something else entirely.
+                if (!page.isEmpty()) {
+                    lastKnownBeforeCount = Math.max(lastKnownBeforeCount, before.size());
+                    if (refreshAtLatest) {
+                        lastKnownAnchor = cursorOf(page.get(page.size() - 1));
+                    }
                 }
             }
 
