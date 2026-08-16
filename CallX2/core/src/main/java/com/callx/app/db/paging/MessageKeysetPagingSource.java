@@ -395,15 +395,32 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
         // Fix: when ChatActivity has told us the user IS at the bottom
         // (refreshAtLatest, set from its own isUserAtBottom scroll-listener
         // tracking — see reanchorPagingToBottom() — which is authoritative
-        // here, unlike Paging3's internal tracker), skip the position-based
-        // anchor entirely and refresh from lastKnownAnchor: this generation's
-        // own last genuinely-resolved tail (seeded from the previous
-        // generation, and kept current by loadSingle()'s post-load update
-        // above). Only a true first-ever refresh has no lastKnownAnchor yet,
-        // which correctly falls through to null → "load the newest page".
-        // Position-based tracking remains exactly as before for the "reading
-        // history" (not at the bottom) case, where it's accurate and wanted.
-        if (refreshAtLatest) {
+        // here, unlike Paging3's internal tracker), prefer lastKnownAnchor:
+        // this generation's own last genuinely-resolved tail (seeded from
+        // the previous generation, and kept current by loadSingle()'s
+        // post-load update above). Position-based tracking remains exactly
+        // as before for the "reading history" (not at the bottom) case,
+        // where it's accurate and wanted.
+        //
+        // ROOT-CAUSE FIX #4 (list still fully rebuilding on send — confirmed
+        // by an isolated single-send log): the version above returned bare
+        // `lastKnownAnchor` for every refreshAtLatest=true call, full stop.
+        // But lastKnownAnchor is ONLY ever populated by the position-based
+        // branch below (or by loadSingle()'s post-load update after an
+        // anchored refresh actually ran) — and getRefreshKey() is only
+        // called ONCE per PagingSource generation, right at construction.
+        // So a generation whose very first (and only) getRefreshKey() call
+        // happens to have refreshAtLatest=true — e.g. the very first send
+        // right after opening a chat — had NO prior chance to populate
+        // lastKnownAnchor via either path: it returned null outright,
+        // sending loadSingle() down the "no anchor" branch, which discards
+        // every previously-loaded row and loads a bare newest-pageSize
+        // page — the exact "whole list rebuilds" symptom, now reproduced
+        // deterministically by a clean single-send test. Falling back to
+        // the position-based anchor whenever lastKnownAnchor isn't
+        // populated yet closes that gap: it's the same one-time bootstrap
+        // the non-bottom case already relies on, just also available here.
+        if (refreshAtLatest && lastKnownAnchor != null) {
             return lastKnownAnchor;
         }
         if (anchor != null && anchor.timestamp != null && anchor.id != null) {
