@@ -58,6 +58,69 @@ public final class MediaFilters {
         return new ColorMatrixColorFilter(matrixFor(index));
     }
 
+    // ── Manual fine-tune adjustments (Brightness / Contrast / Saturation /
+    //    Exposure) — WhatsApp/Instagram-style "Adjust" sliders layered on
+    //    top of the preset filter carousel above. Each slider's value is
+    //    stored on EditState in the -100..100 range (0 = no change) and
+    //    combined with the active preset filter's matrix into ONE
+    //    ColorMatrix, so the preview and the baked send-out image always
+    //    match exactly — same one-definition-two-use-sites pattern as the
+    //    preset filters.
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Builds a single ColorMatrix combining the selected preset filter with
+     * manual brightness/contrast/saturation/exposure adjustments.
+     *
+     * @param filterIndex index into {@link #NAMES}; 0 = None
+     * @param brightness  -100..100, 0 = no change (additive offset)
+     * @param contrast    -100..100, 0 = no change
+     * @param saturation  -100..100, 0 = no change (-100 = fully desaturated)
+     * @param exposure    -100..100, 0 = no change (multiplicative gain)
+     */
+    public static ColorMatrix combinedMatrix(int filterIndex, float brightness,
+                                              float contrast, float saturation, float exposure) {
+        ColorMatrix m = (filterIndex > 0) ? matrixFor(filterIndex) : identity();
+        if (exposure != 0f)   m.postConcat(exposureMatrix(exposure));
+        if (contrast != 0f)   m.postConcat(contrastMatrix(1f + (contrast / 100f)));
+        if (saturation != 0f) m.postConcat(saturationMatrix(1f + (saturation / 100f)));
+        if (brightness != 0f) m.postConcat(brightnessMatrix(brightness));
+        return m;
+    }
+
+    public static boolean hasAdjustments(float brightness, float contrast, float saturation, float exposure) {
+        return brightness != 0f || contrast != 0f || saturation != 0f || exposure != 0f;
+    }
+
+    /** Additive brightness — shifts every RGB channel by the same offset. */
+    private static ColorMatrix brightnessMatrix(float value) {
+        float offset = (value / 100f) * 100f; // -100..100 → roughly -100..100 in 0-255 space
+        return new ColorMatrix(new float[]{
+                1f, 0f, 0f, 0f, offset,
+                0f, 1f, 0f, 0f, offset,
+                0f, 0f, 1f, 0f, offset,
+                0f, 0f, 0f, 1f, 0f
+        });
+    }
+
+    /** Multiplicative exposure — gain applied to RGB before offset, mimics camera exposure. */
+    private static ColorMatrix exposureMatrix(float value) {
+        float gain = 1f + (value / 100f) * 1.2f; // wider range than brightness's flat add
+        gain = Math.max(0f, gain);
+        return new ColorMatrix(new float[]{
+                gain, 0f,   0f,   0f, 0f,
+                0f,   gain, 0f,   0f, 0f,
+                0f,   0f,   gain, 0f, 0f,
+                0f,   0f,   0f,   1f, 0f
+        });
+    }
+
+    private static ColorMatrix saturationMatrix(float sat) {
+        ColorMatrix m = new ColorMatrix();
+        m.setSaturation(Math.max(0f, sat));
+        return m;
+    }
+
     // ── Filter implementations ────────────────────────────────────────────
 
     private static ColorMatrix identity() {

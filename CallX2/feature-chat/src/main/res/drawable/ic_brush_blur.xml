@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Blur/Pixelate brush — checkerboard-style blocks hint at face/plate redaction. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="22dp"
+    android:height="22dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M3,3h5v5h-5z"/>
+    <path android:fillColor="#88FFFFFF" android:pathData="M9,3h5v5h-5z"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M15,3h6v5h-6z"/>
+    <path android:fillColor="#88FFFFFF" android:pathData="M3,9h5v5h-5z"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M9,9h5v5h-5z"/>
+    <path android:fillColor="#88FFFFFF" android:pathData="M15,9h6v5h-6z"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M3,15h5v6h-5z"/>
+    <path android:fillColor="#88FFFFFF" android:pathData="M9,15h5v6h-5z"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M15,15h6v6h-6z"/>
+</vector>

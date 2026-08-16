@@ -138,6 +138,19 @@
             android:layout_marginEnd="2dp"
             android:contentDescription="Rotate"/>
 
+        <!-- Flip/mirror (image only) — tap: horizontal, long-press: vertical -->
+        <ImageButton
+            android:id="@+id/btnEditFlip"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:background="@drawable/bg_media_edit_toolbtn"
+            android:src="@drawable/ic_media_edit_flip"
+            android:scaleType="center"
+            android:padding="9dp"
+            android:layout_marginEnd="2dp"
+            android:contentDescription="Flip"/>
+
         <!-- Crop (image only) -->
         <ImageButton
             android:id="@+id/btnEditCrop"
@@ -150,6 +163,19 @@
             android:padding="9dp"
             android:layout_marginEnd="2dp"
             android:contentDescription="Crop"/>
+
+        <!-- Adjust — manual Brightness/Contrast/Saturation/Exposure (image only) -->
+        <ImageButton
+            android:id="@+id/btnEditAdjust"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:background="@drawable/bg_media_edit_toolbtn"
+            android:src="@drawable/ic_media_edit_adjust"
+            android:scaleType="center"
+            android:padding="9dp"
+            android:layout_marginEnd="2dp"
+            android:contentDescription="Adjust"/>
 
         <!-- Trim (video only — toggled via visibility in code) -->
         <TextView
@@ -194,6 +220,22 @@
             android:padding="9dp"
             android:layout_marginEnd="2dp"
             android:contentDescription="Add text"/>
+
+        <!-- Overlay layer ordering for the currently selected sticker/text -->
+        <TextView
+            android:id="@+id/btnEditLayers"
+            android:layout_width="52dp"
+            android:layout_height="32dp"
+            android:layout_marginEnd="2dp"
+            android:background="@drawable/bg_media_edit_toolbtn"
+            android:gravity="center"
+            android:text="Layers"
+            android:textColor="#FFFFFF"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="Arrange overlay layers"/>
 
         <!-- Freehand draw -->
         <ImageButton
@@ -384,6 +426,98 @@
             </LinearLayout>
         </HorizontalScrollView>
 
+        <!-- ── Row 1b: Shape tool row — Freehand toggle + Line / Arrow /
+             Rectangle / Circle. Selecting a shape draws a straight-edged
+             primitive by dragging from start to end point instead of a
+             freehand path; tapping Freehand again returns to normal
+             drawing. ── -->
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginTop="4dp"
+            android:scrollbars="none"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:clipToPadding="false">
+
+            <LinearLayout
+                android:id="@+id/shapeToolRow"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <ImageButton
+                    android:id="@+id/btnShapeFreehand"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:padding="8dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_shape_freehand"
+                    android:background="@drawable/bg_media_edit_brush_active"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="Freehand"/>
+
+                <ImageButton
+                    android:id="@+id/btnShapeLine"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:padding="8dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_shape_line"
+                    android:background="@drawable/bg_media_edit_toolbtn"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="Line"/>
+
+                <ImageButton
+                    android:id="@+id/btnShapeArrow"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:padding="8dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_shape_arrow"
+                    android:background="@drawable/bg_media_edit_toolbtn"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="Arrow"/>
+
+                <ImageButton
+                    android:id="@+id/btnShapeRect"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:padding="8dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_shape_rect"
+                    android:background="@drawable/bg_media_edit_toolbtn"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="Rectangle"/>
+
+                <ImageButton
+                    android:id="@+id/btnShapeCircle"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:padding="8dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_shape_circle"
+                    android:background="@drawable/bg_media_edit_toolbtn"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="Circle"/>
+            </LinearLayout>
+        </HorizontalScrollView>
+
         <!-- ── Row 2: Eraser toggle (brush width now lives in the teardrop
              slider overlaid on the canvas edge — screenshot 2) ── -->
         <LinearLayout
@@ -456,6 +590,36 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Undo"
+                    android:textColor="#DDDDDD"
+                    android:textSize="13sp"/>
+            </LinearLayout>
+
+            <!-- Redo button -->
+            <LinearLayout
+                android:id="@+id/btnDrawRedo"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_media_edit_toolbtn"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:layout_marginStart="8dp"
+                android:clickable="true"
+                android:focusable="true">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="↪"
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp"
+                    android:layout_marginEnd="5dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Redo"
                     android:textColor="#DDDDDD"
                     android:textSize="13sp"/>
             </LinearLayout>
@@ -680,6 +844,190 @@
                 android:gravity="center_vertical"
                 android:paddingBottom="12dp"/>
         </HorizontalScrollView>
+    </LinearLayout>
+
+    <!-- ── Adjust panel (Brightness / Contrast / Saturation / Exposure) ──
+         Slides up from below, mirrors filterPanel's structure. Each slider
+         is centered at 0 (progress 100 of 0..200) so users can push a value
+         up or down from "no change". ─────────────────────────────────── -->
+    <LinearLayout
+        android:id="@+id/adjustPanel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:background="#EE111111"
+        android:paddingBottom="14dp"
+        android:visibility="gone">
+
+        <!-- Collapse handle + Reset -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp">
+
+            <TextView
+                android:id="@+id/btnAdjustCollapse"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="↓ Adjust"
+                android:textColor="#AAAAAA"
+                android:textSize="13sp"
+                android:clickable="true"
+                android:focusable="true"/>
+
+            <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+
+            <TextView
+                android:id="@+id/btnAdjustReset"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Reset"
+                android:textColor="#FF6666"
+                android:textSize="13sp"
+                android:clickable="true"
+                android:focusable="true"/>
+        </LinearLayout>
+
+        <!-- Brightness -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp">
+
+            <TextView
+                android:layout_width="86dp"
+                android:layout_height="wrap_content"
+                android:text="Brightness"
+                android:textColor="#DDDDDD"
+                android:textSize="13sp"/>
+
+            <SeekBar
+                android:id="@+id/sbAdjustBrightness"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="200"
+                android:progress="100"/>
+
+            <TextView
+                android:id="@+id/tvAdjustBrightness"
+                android:layout_width="34dp"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:gravity="end"/>
+        </LinearLayout>
+
+        <!-- Contrast -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp">
+
+            <TextView
+                android:layout_width="86dp"
+                android:layout_height="wrap_content"
+                android:text="Contrast"
+                android:textColor="#DDDDDD"
+                android:textSize="13sp"/>
+
+            <SeekBar
+                android:id="@+id/sbAdjustContrast"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="200"
+                android:progress="100"/>
+
+            <TextView
+                android:id="@+id/tvAdjustContrast"
+                android:layout_width="34dp"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:gravity="end"/>
+        </LinearLayout>
+
+        <!-- Saturation -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp">
+
+            <TextView
+                android:layout_width="86dp"
+                android:layout_height="wrap_content"
+                android:text="Saturation"
+                android:textColor="#DDDDDD"
+                android:textSize="13sp"/>
+
+            <SeekBar
+                android:id="@+id/sbAdjustSaturation"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="200"
+                android:progress="100"/>
+
+            <TextView
+                android:id="@+id/tvAdjustSaturation"
+                android:layout_width="34dp"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:gravity="end"/>
+        </LinearLayout>
+
+        <!-- Exposure -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp">
+
+            <TextView
+                android:layout_width="86dp"
+                android:layout_height="wrap_content"
+                android:text="Exposure"
+                android:textColor="#DDDDDD"
+                android:textSize="13sp"/>
+
+            <SeekBar
+                android:id="@+id/sbAdjustExposure"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="200"
+                android:progress="100"/>
+
+            <TextView
+                android:id="@+id/tvAdjustExposure"
+                android:layout_width="34dp"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:gravity="end"/>
+        </LinearLayout>
+
     </LinearLayout>
 
 </FrameLayout>

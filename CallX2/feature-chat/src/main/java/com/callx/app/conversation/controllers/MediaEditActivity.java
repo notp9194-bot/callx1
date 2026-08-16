@@ -6,6 +6,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Matrix;
 import android.graphics.Paint;
@@ -16,6 +17,7 @@ import android.os.Bundle;
 import android.util.DisplayMetrics;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.OvershootInterpolator;
@@ -33,6 +35,7 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.FileProvider;
 
 import com.bumptech.glide.Glide;
@@ -54,6 +57,7 @@ import java.util.concurrent.Executors;
  *
  * Images:
  *  ✅ Rotate (90° incremental)
+ *  ✅ Flip/mirror — horizontal (tap) and vertical (long-press), independent of rotation
  *  ✅ Crop (dedicated {@link ChatImageCropActivity} with aspect-ratio presets + drag handles)
  *  ✅ Filters — swipe-up carousel (None/Pop/B&W/Cool/Chrome/Film/Warm/Vivid/Fade)
  *  ✅ Sticker picker — full emoji/text/GIF/trending via {@link ChatStickerPickerActivity}
@@ -128,15 +132,28 @@ public class MediaEditActivity extends AppCompatActivity {
         boolean isVideo;
         boolean deleted    = false;
         int    rotationDeg = 0;
+        boolean flipHorizontal = false;
+        boolean flipVertical   = false;
         int    filterIndex = 0;
+        // Manual fine-tune sliders — -100..100, 0 = no change. Layered on
+        // top of filterIndex's preset matrix via MediaFilters.combinedMatrix().
+        float  adjBrightness = 0f;
+        float  adjContrast   = 0f;
+        float  adjSaturation = 0f;
+        float  adjExposure   = 0f;
         Uri    trimmedUri  = null; // set after video trim
         final List<OverlayItem>         overlays = new ArrayList<>();
         final List<DrawOverlayView.Stroke> strokes  = new ArrayList<>();
 
         boolean hasEdits() {
-            return rotationDeg != 0 || filterIndex != 0
+            return rotationDeg != 0 || flipHorizontal || flipVertical || filterIndex != 0
                 || !overlays.isEmpty() || !strokes.isEmpty()
-                || trimmedUri != null;
+                || trimmedUri != null
+                || MediaFilters.hasAdjustments(adjBrightness, adjContrast, adjSaturation, adjExposure);
+        }
+
+        ColorMatrix colorMatrix() {
+            return MediaFilters.combinedMatrix(filterIndex, adjBrightness, adjContrast, adjSaturation, adjExposure);
         }
         Uri effectiveUri() {
             return (trimmedUri != null) ? trimmedUri : uri;
@@ -155,9 +172,13 @@ public class MediaEditActivity extends AppCompatActivity {
     private ImageView    ivVideoPlayBadge;
     private FrameLayout  stickerLayer;
     private DrawOverlayView drawOverlay;
-    private ImageButton  btnEditRotate, btnEditSticker, btnEditText,
-                         btnEditDraw, btnEditDownload, btnEditCrop;
-    private TextView     btnEditHd, btnEditTrim;
+    private ImageButton  btnEditRotate, btnEditFlip, btnEditSticker, btnEditText,
+                         btnEditDraw, btnEditDownload, btnEditCrop, btnEditAdjust;
+    private TextView     btnEditHd, btnEditTrim, btnEditLayers;
+    private View         adjustPanel;
+    private boolean      adjustPanelOpen = false;
+    private SeekBar      sbAdjustBrightness, sbAdjustContrast, sbAdjustSaturation, sbAdjustExposure;
+    private TextView     tvAdjustBrightness, tvAdjustContrast, tvAdjustSaturation, tvAdjustExposure;
     private HorizontalScrollView emojiRowScroll;
     private LinearLayout emojiRowContent, thumbStripContent, filterStripContent, drawToolRow;
     private final List<ImageView> filterCheckViews = new ArrayList<>();
@@ -169,6 +190,7 @@ public class MediaEditActivity extends AppCompatActivity {
     private TeardropWidthSlider   drawWidthSlider;
     private ImageButton  btnBrushPen, btnBrushHighlighter, btnBrushInk,
                           btnBrushCrayon, btnBrushNeon, btnBrushMarker, btnBrushMore;
+    private ImageButton  btnShapeFreehand, btnShapeLine, btnShapeArrow, btnShapeRect, btnShapeCircle;
 
     // ── Background thread for baking ──────────────────────────────────────
     private final ExecutorService bgExec = Executors.newSingleThreadExecutor();
@@ -203,6 +225,7 @@ public class MediaEditActivity extends AppCompatActivity {
         setupEmojiRow();
         setupDrawTools();
         setupFilterPanel();
+        setupAdjustPanel();
         setupBottomBar();
         setupFilterSwipeGesture();
 
@@ -268,6 +291,7 @@ public class MediaEditActivity extends AppCompatActivity {
                     overlay.hasBg     = data.getBooleanExtra(ChatStickerPickerActivity.RESULT_HAS_BG, false);
                 }
                 current().overlays.add(overlay);
+                selectedOverlay = overlay;
                 renderOverlayView(overlay);
             }
         });
@@ -281,13 +305,16 @@ public class MediaEditActivity extends AppCompatActivity {
         stickerLayer     = findViewById(R.id.stickerLayer);
         drawOverlay      = findViewById(R.id.drawOverlay);
         btnEditRotate    = findViewById(R.id.btnEditRotate);
+        btnEditFlip      = findViewById(R.id.btnEditFlip);
         btnEditSticker   = findViewById(R.id.btnEditSticker);
         btnEditText      = findViewById(R.id.btnEditText);
         btnEditDraw      = findViewById(R.id.btnEditDraw);
         btnEditDownload  = findViewById(R.id.btnEditDownload);
         btnEditCrop      = findViewById(R.id.btnEditCrop);
+        btnEditAdjust    = findViewById(R.id.btnEditAdjust);
         btnEditHd        = findViewById(R.id.btnEditHd);
         btnEditTrim      = findViewById(R.id.btnEditTrim);
+        btnEditLayers    = findViewById(R.id.btnEditLayers);
         emojiRow         = findViewById(R.id.emojiRow);
         emojiRowScroll   = (HorizontalScrollView) emojiRow;
         emojiRowContent  = findViewById(R.id.emojiRowContent);
@@ -303,8 +330,22 @@ public class MediaEditActivity extends AppCompatActivity {
         btnBrushNeon        = findViewById(R.id.btnBrushNeon);
         btnBrushMarker      = findViewById(R.id.btnBrushMarker);
         btnBrushMore        = findViewById(R.id.btnBrushMore);
+        btnShapeFreehand    = findViewById(R.id.btnShapeFreehand);
+        btnShapeLine        = findViewById(R.id.btnShapeLine);
+        btnShapeArrow       = findViewById(R.id.btnShapeArrow);
+        btnShapeRect        = findViewById(R.id.btnShapeRect);
+        btnShapeCircle      = findViewById(R.id.btnShapeCircle);
         filterPanel      = findViewById(R.id.filterPanel);
         filterStripContent = findViewById(R.id.filterStripContent);
+        adjustPanel      = findViewById(R.id.adjustPanel);
+        sbAdjustBrightness = findViewById(R.id.sbAdjustBrightness);
+        sbAdjustContrast   = findViewById(R.id.sbAdjustContrast);
+        sbAdjustSaturation = findViewById(R.id.sbAdjustSaturation);
+        sbAdjustExposure   = findViewById(R.id.sbAdjustExposure);
+        tvAdjustBrightness = findViewById(R.id.tvAdjustBrightness);
+        tvAdjustContrast   = findViewById(R.id.tvAdjustContrast);
+        tvAdjustSaturation = findViewById(R.id.tvAdjustSaturation);
+        tvAdjustExposure   = findViewById(R.id.tvAdjustExposure);
         bottomBar        = findViewById(R.id.bottomBar);
         thumbStripContent= findViewById(R.id.thumbStripContent);
         etCaption        = findViewById(R.id.etCaption);
@@ -335,6 +376,27 @@ public class MediaEditActivity extends AppCompatActivity {
             rebuildThumbStrip();
         });
 
+        // Flip/mirror (image only) — tap flips horizontal, long-press flips vertical.
+        if (btnEditFlip != null) {
+            btnEditFlip.setOnClickListener(v -> {
+                EditState st = current();
+                if (st.isVideo) return;
+                st.flipHorizontal = !st.flipHorizontal;
+                applyFlipToPreview();
+                rebuildThumbStrip();
+            });
+            btnEditFlip.setOnLongClickListener(v -> {
+                EditState st = current();
+                if (st.isVideo) return true;
+                st.flipVertical = !st.flipVertical;
+                applyFlipToPreview();
+                rebuildThumbStrip();
+                Toast.makeText(this, st.flipVertical ? "Flipped vertically" : "Vertical flip removed",
+                        Toast.LENGTH_SHORT).show();
+                return true;
+            });
+        }
+
         // Crop — images only, launches ChatImageCropActivity
         if (btnEditCrop != null) btnEditCrop.setOnClickListener(v -> {
             EditState st = current();
@@ -345,6 +407,15 @@ public class MediaEditActivity extends AppCompatActivity {
             Intent i = new Intent(this, ChatImageCropActivity.class);
             i.putExtra(ChatImageCropActivity.EXTRA_IMAGE_URI, st.effectiveUri().toString());
             cropLauncher.launch(i);
+        });
+
+        // Adjust — manual brightness/contrast/saturation/exposure (image only)
+        if (btnEditAdjust != null) btnEditAdjust.setOnClickListener(v -> {
+            if (current().isVideo) {
+                Toast.makeText(this, "Adjustments aren't available on video", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (adjustPanelOpen) closeAdjustPanel(); else openAdjustPanel();
         });
 
         // Video Trim — videos only, launches ChatVideoTrimActivity
@@ -380,6 +451,13 @@ public class MediaEditActivity extends AppCompatActivity {
 
         // Draw
         if (btnEditDraw != null) btnEditDraw.setOnClickListener(v -> toggleDrawMode());
+
+        // Layer ordering applies to the currently selected sticker/text.
+        // Selection happens by touching an overlay; long-press remains the
+        // dedicated delete gesture.
+        if (btnEditLayers != null) {
+            btnEditLayers.setOnClickListener(v -> showOverlayLayerDialog());
+        }
     }
 
     private void refreshHdButton() {
@@ -397,6 +475,77 @@ public class MediaEditActivity extends AppCompatActivity {
                 .setDuration(220).setInterpolator(new OvershootInterpolator(1.5f)).start();
         drawOverlay.setRotation(ivPreview.getRotation() + 90);
         stickerLayer.setRotation(ivPreview.getRotation() + 90);
+        applyMediaViewportTransform();
+    }
+
+    /** Live-animates horizontal/vertical flip on the preview + overlay layers to match {@link EditState}. */
+    private void applyFlipToPreview() {
+        if (ivPreview == null) return;
+        applyMediaViewportTransform(true);
+    }
+
+    /**
+     * Applies the shared preview viewport transform. ImageView scaleType
+     * remains fitCenter; scaling the three sibling layers together gives the
+     * editor a real photo zoom without changing the normalized coordinates
+     * used by the final bitmap/video bake.
+     */
+    private void applyMediaViewportTransform() {
+        applyMediaViewportTransform(false);
+    }
+
+    private void applyMediaViewportTransform(boolean animate) {
+        if (ivPreview == null || stickerLayer == null || drawOverlay == null) return;
+        EditState st = current();
+        float sx = mediaZoomScale * (st.flipHorizontal ? -1f : 1f);
+        float sy = mediaZoomScale * (st.flipVertical   ? -1f : 1f);
+        float duration = animate ? 220f : 0f;
+
+        if (animate) {
+            ivPreview.animate().scaleX(sx).scaleY(sy)
+                    .setDuration((long) duration)
+                    .setInterpolator(new OvershootInterpolator(1.2f)).start();
+            stickerLayer.animate().scaleX(sx).scaleY(sy)
+                    .setDuration((long) duration).start();
+            drawOverlay.animate().scaleX(sx).scaleY(sy)
+                    .setDuration((long) duration).start();
+        } else {
+            ivPreview.setScaleX(sx);
+            ivPreview.setScaleY(sy);
+            stickerLayer.setScaleX(sx);
+            stickerLayer.setScaleY(sy);
+            drawOverlay.setScaleX(sx);
+            drawOverlay.setScaleY(sy);
+        }
+        ivPreview.setTranslationX(mediaPanX);
+        ivPreview.setTranslationY(mediaPanY);
+        stickerLayer.setTranslationX(mediaPanX);
+        stickerLayer.setTranslationY(mediaPanY);
+        drawOverlay.setTranslationX(mediaPanX);
+        drawOverlay.setTranslationY(mediaPanY);
+    }
+
+    private void resetMediaViewport() {
+        mediaZoomScale = 1f;
+        mediaPanX = 0f;
+        mediaPanY = 0f;
+        mediaZoomGestureActive = false;
+        mediaTouchMoved = false;
+        applyMediaViewportTransform();
+    }
+
+    private void setMediaZoom(float scale) {
+        mediaZoomScale = Math.max(1f, Math.min(4f, scale));
+        clampMediaPan();
+        applyMediaViewportTransform();
+    }
+
+    private void clampMediaPan() {
+        if (ivPreview == null) return;
+        float maxX = Math.max(0f, (mediaZoomScale - 1f) * ivPreview.getWidth() / 2f);
+        float maxY = Math.max(0f, (mediaZoomScale - 1f) * ivPreview.getHeight() / 2f);
+        mediaPanX = Math.max(-maxX, Math.min(maxX, mediaPanX));
+        mediaPanY = Math.max(-maxY, Math.min(maxY, mediaPanY));
     }
 
     // ── Tool row visibility ───────────────────────────────────────────────
@@ -425,13 +574,34 @@ public class MediaEditActivity extends AppCompatActivity {
     private int     activeDrawColor = Color.RED;
     private boolean eraserActive    = false;
     private int     activeBrushType = DrawOverlayView.BRUSH_PEN;
+    private int     activeShapeType = DrawOverlayView.SHAPE_FREEHAND;
     private ImageButton[] brushButtons;
+    private ImageButton[] shapeButtons;
+
+    // ── Preview viewport (pinch zoom + pan) ───────────────────────────────
+    // The same transform is applied to the photo, sticker layer and drawing
+    // layer, so overlays stay attached to the image while the user explores
+    // a zoomed-in area. Overlay/stroke state remains normalized for export.
+    private float mediaZoomScale = 1f;
+    private float mediaPanX = 0f;
+    private float mediaPanY = 0f;
+    private boolean mediaZoomGestureActive = false;
+    private float lastMediaTouchX;
+    private float lastMediaTouchY;
+    private boolean mediaTouchMoved = false;
+
+    // ── Overlay selection / ordering ─────────────────────────────────────
+    private OverlayItem selectedOverlay;
+    private View selectedOverlayView;
+    private AlertDialog overlayLayerDialog;
 
     private void setupDrawTools() {
         brushButtons = new ImageButton[] {
             btnBrushPen, btnBrushHighlighter, btnBrushInk,
             btnBrushCrayon, btnBrushNeon, btnBrushMarker
         };
+
+        drawOverlay.setOnStrokeChangeListener(this::refreshUndoRedoState);
 
         // ── Color circle (screenshot 1) — opens the shared "core" rainbow
         //    color sheet instead of a fixed swatch row ──
@@ -464,10 +634,28 @@ public class MediaEditActivity extends AppCompatActivity {
         }
         selectBrushType(DrawOverlayView.BRUSH_PEN);
 
+        // More brushes — opens a real chooser instead of the old
+        // "coming soon" placeholder. The selected brush is still a normal
+        // DrawOverlayView brush, so it is undoable and included in exports.
         if (btnBrushMore != null) {
-            btnBrushMore.setOnClickListener(v ->
-                    android.widget.Toast.makeText(this, "More brushes coming soon", android.widget.Toast.LENGTH_SHORT).show());
+            btnBrushMore.setContentDescription("More brushes");
+            btnBrushMore.setOnClickListener(v -> showMoreBrushesMenu());
         }
+
+        // ── Shape tool row — Freehand + Line / Arrow / Rectangle / Circle ──
+        shapeButtons = new ImageButton[] {
+            btnShapeFreehand, btnShapeLine, btnShapeArrow, btnShapeRect, btnShapeCircle
+        };
+        int[] shapeTypes = {
+            DrawOverlayView.SHAPE_FREEHAND, DrawOverlayView.SHAPE_LINE, DrawOverlayView.SHAPE_ARROW,
+            DrawOverlayView.SHAPE_RECT, DrawOverlayView.SHAPE_OVAL
+        };
+        for (int i = 0; i < shapeButtons.length; i++) {
+            final int shapeType = shapeTypes[i];
+            ImageButton btn = shapeButtons[i];
+            if (btn != null) btn.setOnClickListener(v -> selectShapeType(shapeType));
+        }
+        selectShapeType(DrawOverlayView.SHAPE_FREEHAND);
 
         // ── Brush width — teardrop slider overlaid on the canvas edge (screenshot 2) ──
         if (drawWidthSlider != null) {
@@ -493,11 +681,19 @@ public class MediaEditActivity extends AppCompatActivity {
             }
         });
 
-        // ── Undo ──
+        // ── Undo / Redo ──
         View btnUndo = findViewById(R.id.btnDrawUndo);
         if (btnUndo != null) btnUndo.setOnClickListener(v -> {
             drawOverlay.undoLastStroke();
+            refreshUndoRedoState();
         });
+
+        View btnRedo = findViewById(R.id.btnDrawRedo);
+        if (btnRedo != null) btnRedo.setOnClickListener(v -> {
+            drawOverlay.redoLastStroke();
+            refreshUndoRedoState();
+        });
+        refreshUndoRedoState();
 
         // ── Clear all ──
         View btnClear = findViewById(R.id.btnDrawClear);
@@ -508,6 +704,7 @@ public class MediaEditActivity extends AppCompatActivity {
                     "Clear", () -> {
                         drawOverlay.clearStrokes();
                         current().strokes.clear();
+                        refreshUndoRedoState();
                     },
                     null, null,
                     "Cancel");
@@ -552,6 +749,47 @@ public class MediaEditActivity extends AppCompatActivity {
                         : R.drawable.bg_media_edit_toolbtn));
             }
         }
+        if (btnBrushMore != null) {
+            btnBrushMore.setBackground(getDrawable(brushType == DrawOverlayView.BRUSH_BLUR
+                    ? R.drawable.bg_media_edit_brush_active
+                    : R.drawable.bg_media_edit_toolbtn));
+        }
+    }
+
+    /** Selects a shape tool (or Freehand) — highlights its button, updates the overlay. */
+    private void selectShapeType(int shapeType) {
+        activeShapeType = shapeType;
+        drawOverlay.setActiveShapeType(shapeType);
+        if (shapeButtons != null) {
+            for (ImageButton btn : shapeButtons) {
+                if (btn == null) continue;
+                boolean isActive =
+                        (btn == btnShapeFreehand && shapeType == DrawOverlayView.SHAPE_FREEHAND) ||
+                        (btn == btnShapeLine     && shapeType == DrawOverlayView.SHAPE_LINE) ||
+                        (btn == btnShapeArrow    && shapeType == DrawOverlayView.SHAPE_ARROW) ||
+                        (btn == btnShapeRect     && shapeType == DrawOverlayView.SHAPE_RECT) ||
+                        (btn == btnShapeCircle   && shapeType == DrawOverlayView.SHAPE_OVAL);
+                btn.setBackground(getDrawable(isActive
+                        ? R.drawable.bg_media_edit_brush_active
+                        : R.drawable.bg_media_edit_toolbtn));
+            }
+        }
+    }
+
+    /** Enables/dims the Undo and Redo buttons to reflect whether there's anything to undo/redo. */
+    private void refreshUndoRedoState() {
+        View btnUndo = findViewById(R.id.btnDrawUndo);
+        View btnRedo = findViewById(R.id.btnDrawRedo);
+        if (btnUndo != null) {
+            boolean can = drawOverlay.canUndo();
+            btnUndo.setAlpha(can ? 1f : 0.4f);
+            btnUndo.setEnabled(can);
+        }
+        if (btnRedo != null) {
+            boolean can = drawOverlay.canRedo();
+            btnRedo.setAlpha(can ? 1f : 0.4f);
+            btnRedo.setEnabled(can);
+        }
     }
 
     private void toggleDrawMode() {
@@ -566,6 +804,7 @@ public class MediaEditActivity extends AppCompatActivity {
         drawModeActive = true;
         drawOverlay.setDrawingEnabled(true);
         if (filterPanel != null) closeFilterPanel();
+        if (adjustPanel != null) closeAdjustPanel();
         if (emojiRow    != null) emojiRow.setVisibility(View.GONE);
 
         // Hide the caption/send bottom bar — draw panel replaces it
@@ -575,6 +814,33 @@ public class MediaEditActivity extends AppCompatActivity {
         if (drawToolsRow != null) drawToolsRow.setVisibility(View.VISIBLE);
         if (drawWidthSlider != null) drawWidthSlider.setVisibility(View.VISIBLE);
         if (btnEditDraw  != null) btnEditDraw.setAlpha(1f);
+        refreshUndoRedoState();
+    }
+
+    /** Shows the additional brush choices behind the More button. */
+    private void showMoreBrushesMenu() {
+        final String[] names = {
+                "Blur / Pixelate",
+                "Glow marker",
+                "Wet ink",
+                "Crayon texture"
+        };
+        final int[] types = {
+                DrawOverlayView.BRUSH_BLUR,
+                DrawOverlayView.BRUSH_NEON,
+                DrawOverlayView.BRUSH_INK,
+                DrawOverlayView.BRUSH_CRAYON
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("More brushes")
+                .setItems(names, (dialog, which) -> {
+                    selectBrushType(types[which]);
+                    if (types[which] == DrawOverlayView.BRUSH_BLUR) {
+                        refreshBlurSource();
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void exitDrawMode() {
@@ -657,8 +923,10 @@ public class MediaEditActivity extends AppCompatActivity {
         EditState st = current();
         if (st.isVideo) return;
         st.filterIndex = index;
-        // Instant live preview on the main ImageView
-        ivPreview.setColorFilter(index == 0 ? null : MediaFilters.filterFor(index));
+        // Instant live preview on the main ImageView (combined with any active adjustments)
+        boolean anyEffect = index != 0 || MediaFilters.hasAdjustments(
+                st.adjBrightness, st.adjContrast, st.adjSaturation, st.adjExposure);
+        ivPreview.setColorFilter(anyEffect ? new ColorMatrixColorFilter(st.colorMatrix()) : null);
         // Update checkmark visibility in the strip
         for (int i = 0; i < filterCheckViews.size(); i++) {
             ImageView check = filterCheckViews.get(i);
@@ -669,6 +937,7 @@ public class MediaEditActivity extends AppCompatActivity {
     private void openFilterPanel() {
         if (filterPanel == null || filterPanelOpen) return;
         if (current().isVideo) return; // no filters on video
+        if (adjustPanelOpen) closeAdjustPanel();
         filterPanelOpen = true;
         refreshFilterThumbs();
         filterPanel.setVisibility(View.VISIBLE);
@@ -685,8 +954,102 @@ public class MediaEditActivity extends AppCompatActivity {
         filterPanel.animate().translationY(slideAmt).setDuration(200)
                 .withEndAction(() -> {
                     filterPanel.setVisibility(View.INVISIBLE);
-                    if (bottomBar   != null) bottomBar.setVisibility(View.VISIBLE);
-                    if (!current().isVideo && tvSwipeHint != null)
+                    if (bottomBar   != null && !adjustPanelOpen) bottomBar.setVisibility(View.VISIBLE);
+                    if (!current().isVideo && tvSwipeHint != null && !adjustPanelOpen)
+                        tvSwipeHint.setVisibility(View.VISIBLE);
+                }).start();
+    }
+
+    // ── Adjust panel (Brightness / Contrast / Saturation / Exposure) ──────
+
+    /**
+     * Binds the 4 fine-tune sliders. Each SeekBar runs 0..200 with 100 as
+     * the "no change" center point, so dragging left/right maps to a
+     * -100..100 value that's stored on {@link EditState} and combined with
+     * the active preset filter into one live ColorMatrix — mirrors exactly
+     * what {@link #bakeBitmap} applies on send, via {@link EditState#colorMatrix()}.
+     */
+    private void setupAdjustPanel() {
+        if (adjustPanel == null) return;
+
+        View btnCollapse = findViewById(R.id.btnAdjustCollapse);
+        if (btnCollapse != null) btnCollapse.setOnClickListener(v -> closeAdjustPanel());
+
+        View btnReset = findViewById(R.id.btnAdjustReset);
+        if (btnReset != null) btnReset.setOnClickListener(v -> {
+            EditState st = current();
+            st.adjBrightness = 0f;
+            st.adjContrast   = 0f;
+            st.adjSaturation = 0f;
+            st.adjExposure   = 0f;
+            refreshAdjustSliders();
+            applyAdjustmentsToPreview();
+        });
+
+        bindAdjustSlider(sbAdjustBrightness, tvAdjustBrightness, (st, v) -> st.adjBrightness = v);
+        bindAdjustSlider(sbAdjustContrast,   tvAdjustContrast,   (st, v) -> st.adjContrast   = v);
+        bindAdjustSlider(sbAdjustSaturation, tvAdjustSaturation, (st, v) -> st.adjSaturation = v);
+        bindAdjustSlider(sbAdjustExposure,   tvAdjustExposure,   (st, v) -> st.adjExposure   = v);
+    }
+
+    private interface AdjustSetter { void set(EditState st, float value); }
+
+    private void bindAdjustSlider(SeekBar sb, TextView tv, AdjustSetter setter) {
+        if (sb == null) return;
+        sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                float value = progress - 100; // 0..200 → -100..100
+                if (tv != null) tv.setText(String.valueOf((int) value));
+                if (fromUser) {
+                    setter.set(current(), value);
+                    applyAdjustmentsToPreview();
+                }
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+    }
+
+    /** Pushes current EditState's slider values into the SeekBars/labels without re-triggering listeners' side effects. */
+    private void refreshAdjustSliders() {
+        EditState st = current();
+        if (sbAdjustBrightness != null) sbAdjustBrightness.setProgress((int) (st.adjBrightness + 100));
+        if (sbAdjustContrast   != null) sbAdjustContrast.setProgress((int) (st.adjContrast + 100));
+        if (sbAdjustSaturation != null) sbAdjustSaturation.setProgress((int) (st.adjSaturation + 100));
+        if (sbAdjustExposure   != null) sbAdjustExposure.setProgress((int) (st.adjExposure + 100));
+    }
+
+    /** Re-applies the combined filter+adjustments ColorMatrix to the live preview. */
+    private void applyAdjustmentsToPreview() {
+        EditState st = current();
+        if (st.isVideo || ivPreview == null) return;
+        boolean anyEffect = st.filterIndex != 0 || MediaFilters.hasAdjustments(
+                st.adjBrightness, st.adjContrast, st.adjSaturation, st.adjExposure);
+        ivPreview.setColorFilter(anyEffect ? new ColorMatrixColorFilter(st.colorMatrix()) : null);
+    }
+
+    private void openAdjustPanel() {
+        if (adjustPanel == null || adjustPanelOpen) return;
+        if (current().isVideo) return; // no manual adjustments on video
+        if (filterPanelOpen) closeFilterPanel();
+        adjustPanelOpen = true;
+        refreshAdjustSliders();
+        adjustPanel.setVisibility(View.VISIBLE);
+        if (bottomBar   != null) bottomBar.setVisibility(View.GONE);
+        if (tvSwipeHint != null) tvSwipeHint.setVisibility(View.GONE);
+        adjustPanel.setTranslationY(adjustPanel.getHeight() > 0 ? adjustPanel.getHeight() : dp(280));
+        adjustPanel.animate().translationY(0).setDuration(220).start();
+    }
+
+    private void closeAdjustPanel() {
+        if (!adjustPanelOpen) return;
+        adjustPanelOpen = false;
+        float slideAmt = adjustPanel.getHeight() > 0 ? adjustPanel.getHeight() : dp(280);
+        adjustPanel.animate().translationY(slideAmt).setDuration(200)
+                .withEndAction(() -> {
+                    adjustPanel.setVisibility(View.INVISIBLE);
+                    if (bottomBar   != null && !filterPanelOpen) bottomBar.setVisibility(View.VISIBLE);
+                    if (!current().isVideo && tvSwipeHint != null && !filterPanelOpen)
                         tvSwipeHint.setVisibility(View.VISIBLE);
                 }).start();
     }
@@ -718,17 +1081,80 @@ public class MediaEditActivity extends AppCompatActivity {
                 }
                 return false;
             }
+
+            @Override
+            public boolean onDoubleTap(MotionEvent e) {
+                // A quick double tap is a convenient reset/toggle in addition
+                // to the explicit pinch gesture.
+                if (mediaZoomScale > 1.01f) {
+                    resetMediaViewport();
+                } else {
+                    setMediaZoom(2f);
+                }
+                return true;
+            }
+        });
+
+        ScaleGestureDetector scaleDetector = new ScaleGestureDetector(this,
+                new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            @Override
+            public boolean onScaleBegin(ScaleGestureDetector detector) {
+                if (drawModeActive) return false;
+                mediaZoomGestureActive = true;
+                mediaTouchMoved = true;
+                return true;
+            }
+
+            @Override
+            public boolean onScale(ScaleGestureDetector detector) {
+                setMediaZoom(mediaZoomScale * detector.getScaleFactor());
+                return true;
+            }
+
+            @Override
+            public void onScaleEnd(ScaleGestureDetector detector) {
+                mediaZoomGestureActive = false;
+            }
         });
         mediaContainer.setOnTouchListener((v, event) -> {
             if (drawModeActive) return false; // let draw overlay handle it
-            gd.onTouchEvent(event);
-            // Returning false here meant ACTION_DOWN was never "consumed",
-            // so Android never delivered the follow-up ACTION_MOVE/ACTION_UP
-            // events to this listener at all — the GestureDetector never
-            // saw a full gesture and onFling() could never fire, which is
-            // why "swipe up for filters" appeared to do nothing. Returning
-            // true consumes the whole touch stream here so the detector
-            // actually gets to see it.
+            scaleDetector.onTouchEvent(event);
+
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    lastMediaTouchX = event.getRawX();
+                    lastMediaTouchY = event.getRawY();
+                    mediaTouchMoved = false;
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    if (event.getPointerCount() == 1
+                            && !mediaZoomGestureActive
+                            && mediaZoomScale > 1.01f) {
+                        float dx = event.getRawX() - lastMediaTouchX;
+                        float dy = event.getRawY() - lastMediaTouchY;
+                        mediaPanX += dx;
+                        mediaPanY += dy;
+                        clampMediaPan();
+                        applyMediaViewportTransform();
+                        lastMediaTouchX = event.getRawX();
+                        lastMediaTouchY = event.getRawY();
+                        mediaTouchMoved = true;
+                    }
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    mediaZoomGestureActive = false;
+                    break;
+            }
+
+            // Keep the existing filter swipe gesture only when the viewport
+            // is at its normal scale. At zoom > 1, one-finger movement is pan.
+            if (mediaZoomScale <= 1.01f && !mediaZoomGestureActive) {
+                gd.onTouchEvent(event);
+            }
+
+            // Consuming the stream is required so pinch and pan receive every
+            // pointer event, including ACTION_POINTER_* transitions.
             return true;
         });
     }
@@ -844,6 +1270,7 @@ public class MediaEditActivity extends AppCompatActivity {
 
     private void showCurrentItem() {
         EditState st = current();
+        resetMediaViewport();
 
         // Sync draw overlay to this item's stroke list
         drawOverlay.bindStrokes(st.strokes);
@@ -851,6 +1278,9 @@ public class MediaEditActivity extends AppCompatActivity {
 
         // Sync sticker layer
         stickerLayer.removeAllViews();
+        selectedOverlay = st.overlays.isEmpty()
+                ? null : st.overlays.get(st.overlays.size() - 1);
+        selectedOverlayView = null;
         for (OverlayItem ov : st.overlays) renderOverlayView(ov);
 
         // Reset rotation display
@@ -858,11 +1288,24 @@ public class MediaEditActivity extends AppCompatActivity {
         drawOverlay.setRotation(st.rotationDeg);
         stickerLayer.setRotation(st.rotationDeg);
 
+        // Reset flip display
+        float sx = st.flipHorizontal ? -1f : 1f;
+        float sy = st.flipVertical   ? -1f : 1f;
+        ivPreview.setScaleX(sx);
+        ivPreview.setScaleY(sy);
+        drawOverlay.setScaleX(sx);
+        drawOverlay.setScaleY(sy);
+        stickerLayer.setScaleX(sx);
+        stickerLayer.setScaleY(sy);
+        applyMediaViewportTransform();
+
         // Toggle video vs image tools
         boolean isVideo = st.isVideo;
         ivVideoPlayBadge.setVisibility(isVideo ? View.VISIBLE : View.GONE);
         if (btnEditRotate != null) btnEditRotate.setAlpha(isVideo ? 0.35f : 1f);
+        if (btnEditFlip   != null) btnEditFlip.setAlpha(isVideo ? 0.35f : 1f);
         if (btnEditCrop   != null) btnEditCrop.setAlpha(isVideo ? 0.35f : 1f);
+        if (btnEditAdjust != null) btnEditAdjust.setAlpha(isVideo ? 0.35f : 1f);
         if (btnEditTrim   != null) {
             btnEditTrim.setVisibility(isVideo ? View.VISIBLE : View.GONE);
         }
@@ -871,6 +1314,7 @@ public class MediaEditActivity extends AppCompatActivity {
         if (isVideo) {
             // Glide thumbnail from video
             Glide.with(this).load(st.effectiveUri()).override(720, 720).into(ivPreview);
+            drawOverlay.setBlurSource(null, null); // no static frame to sample for the Blur brush
         } else {
             // Image — apply filter via ColorMatrix
             loadImageWithFilter(st);
@@ -882,6 +1326,9 @@ public class MediaEditActivity extends AppCompatActivity {
                 filterStripContent.getChildAt(c).setAlpha(c == st.filterIndex ? 1f : 0.6f);
             }
         }
+
+        // Adjust sliders — reflect this item's saved values if the panel happens to be open
+        if (adjustPanelOpen) refreshAdjustSliders();
 
         // Swipe hint
         if (tvSwipeHint != null) {
@@ -928,26 +1375,38 @@ public class MediaEditActivity extends AppCompatActivity {
     // late-arriving stale decode is silently dropped instead of painted.
     private volatile int previewLoadGeneration = 0;
 
+    /** Last decoded (rotation/flip-baked, pre-filter) bitmap shown on ivPreview — used as the Blur brush's pixelation source. */
+    private Bitmap currentPreviewRawBitmap;
+
     private void loadImageWithFilter(EditState st) {
         final int myGeneration = ++previewLoadGeneration;
-        // Load bitmap, apply rotation matrix + filter ColorMatrix
+        // Load bitmap, apply rotation + flip matrix + filter ColorMatrix
         bgExec.submit(() -> {
             try {
                 Bitmap bmp = decodeSampledBitmap(st.uri, 1080);
                 Matrix m = new Matrix();
+                if (st.flipHorizontal) m.postScale(-1f, 1f);
+                if (st.flipVertical)   m.postScale(1f, -1f);
                 m.postRotate(st.rotationDeg);
                 Bitmap rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.getWidth(), bmp.getHeight(), m, true);
                 runOnUiThread(() -> {
                     if (myGeneration != previewLoadGeneration) return; // stale — user already moved on
                     ivPreview.setRotation(0); // already rotated
-                    if (st.filterIndex > 0) {
-                        android.graphics.ColorMatrix cm = new android.graphics.ColorMatrix(
-                                MediaFilters.matrixFor(st.filterIndex));
-                        ivPreview.setColorFilter(new ColorMatrixColorFilter(cm));
+                    ivPreview.setScaleX(1f);  // already flipped
+                    ivPreview.setScaleY(1f);
+                    if (st.filterIndex > 0 || MediaFilters.hasAdjustments(
+                            st.adjBrightness, st.adjContrast, st.adjSaturation, st.adjExposure)) {
+                        ivPreview.setColorFilter(new ColorMatrixColorFilter(st.colorMatrix()));
                     } else {
                         ivPreview.clearColorFilter();
                     }
                     ivPreview.setImageBitmap(rotated);
+                    currentPreviewRawBitmap = rotated;
+                    // Rotation/flip are baked into this bitmap. Re-apply the
+                    // viewport transform because ImageView state was reset
+                    // while the async decode was in flight.
+                    applyMediaViewportTransform();
+                    refreshBlurSource();
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
@@ -955,6 +1414,31 @@ public class MediaEditActivity extends AppCompatActivity {
                     Glide.with(this).load(st.effectiveUri()).override(720, 720).into(ivPreview);
                 });
             }
+        });
+    }
+
+    /**
+     * Recomputes the pixelated bitmap the Blur/Pixelate draw brush samples
+     * from, matching whatever is currently on {@link #ivPreview}. Cheap
+     * enough to call after every item load; a no-op for videos (there's no
+     * single static frame to sample, so the brush falls back to a solid
+     * redaction color instead — see {@link DrawOverlayView}).
+     */
+    private void refreshBlurSource() {
+        if (current().isVideo) {
+            drawOverlay.setBlurSource(null, null);
+            return;
+        }
+        Bitmap raw = currentPreviewRawBitmap;
+        if (raw == null || raw.isRecycled()) return;
+        ivPreview.post(() -> {
+            final Matrix matrix = new Matrix(ivPreview.getImageMatrix());
+            bgExec.submit(() -> {
+                try {
+                    Bitmap pixelated = DrawOverlayView.pixelate(raw, 24);
+                    runOnUiThread(() -> drawOverlay.setBlurSource(pixelated, matrix));
+                } catch (Exception ignored) { /* blur brush just won't have a live preview source */ }
+            });
         });
     }
 
@@ -1125,8 +1609,10 @@ public class MediaEditActivity extends AppCompatActivity {
             int maxDim = isHD ? 2160 : 1280;
             Bitmap base = decodeSampledBitmap(st.uri, maxDim);
 
-            // Rotation
+            // Flip + Rotation
             Matrix m = new Matrix();
+            if (st.flipHorizontal) m.postScale(-1f, 1f);
+            if (st.flipVertical)   m.postScale(1f, -1f);
             m.postRotate(st.rotationDeg);
             Bitmap out = Bitmap.createBitmap(base, 0, 0,
                     base.getWidth(), base.getHeight(), m, true);
@@ -1144,15 +1630,24 @@ public class MediaEditActivity extends AppCompatActivity {
             }
             canvas = new Canvas(out);
 
-            // Filter
-            if (st.filterIndex > 0) {
+            // Filter + manual brightness/contrast/saturation/exposure adjustments
+            boolean hasColorEdit = st.filterIndex > 0 || MediaFilters.hasAdjustments(
+                    st.adjBrightness, st.adjContrast, st.adjSaturation, st.adjExposure);
+            if (hasColorEdit) {
                 Paint fp = new Paint();
-                fp.setColorFilter(new ColorMatrixColorFilter(
-                        MediaFilters.matrixFor(st.filterIndex)));
+                fp.setColorFilter(new ColorMatrixColorFilter(st.colorMatrix()));
                 canvas.drawBitmap(out.copy(Bitmap.Config.ARGB_8888, false), 0, 0, fp);
             }
 
-            paintOverlaysAndStrokes(canvas, st, out.getWidth(), out.getHeight());
+            // Pixelated snapshot for the Blur/Pixelate brush's BRUSH_BLUR
+            // strokes — built from the (rotation/flip/filter-baked) pixels
+            // already on `out`, at the exact same resolution, so it aligns
+            // 1:1 with the canvas the strokes are about to be drawn onto.
+            Bitmap blurBake = st.strokes.isEmpty() ? null
+                    : DrawOverlayView.pixelate(out.copy(Bitmap.Config.ARGB_8888, false), 24);
+
+            paintOverlaysAndStrokes(canvas, st, out.getWidth(), out.getHeight(), blurBake);
+            if (blurBake != null) blurBake.recycle();
 
             return out;
         } catch (Exception e) {
@@ -1172,6 +1667,10 @@ public class MediaEditActivity extends AppCompatActivity {
      * can't drift out of sync with each other.
      */
     private void paintOverlaysAndStrokes(Canvas canvas, EditState st, int contentW, int contentH) {
+        paintOverlaysAndStrokes(canvas, st, contentW, contentH, null);
+    }
+
+    private void paintOverlaysAndStrokes(Canvas canvas, EditState st, int contentW, int contentH, Bitmap blurBakeBitmap) {
         // ── Screen → content-pixel mapping ────────────────────────────────
         // Overlay positions (xFrac/yFrac) and stroke points are recorded
         // normalized against the *editor's* full-screen preview view — but
@@ -1233,7 +1732,7 @@ public class MediaEditActivity extends AppCompatActivity {
         // Freehand strokes — same screen→content remap as overlays above.
         DrawOverlayView.drawStrokes(canvas, st.strokes,
                 contentW, contentH,
-                viewW, viewH, offX, offY, fitScale, density);
+                viewW, viewH, offX, offY, fitScale, density, blurBakeBitmap);
     }
 
     /**
@@ -1289,6 +1788,7 @@ public class MediaEditActivity extends AppCompatActivity {
         tv.setLayoutParams(lp);
         tv.setTag(overlay);
         stickerLayer.addView(tv);
+        if (overlay == selectedOverlay) selectedOverlayView = tv;
         tv.post(() -> positionOverlayView(tv, overlay));
         attachDragAndPinch(tv, overlay);
     }
@@ -1318,7 +1818,13 @@ public class MediaEditActivity extends AppCompatActivity {
                 new GestureDetector.SimpleOnGestureListener() {
             @Override public boolean onDown(MotionEvent e) { return true; }
             @Override public boolean onSingleTapConfirmed(MotionEvent e) {
+                selectOverlay(overlay, v);
                 if (!overlay.isEmoji) launchEditTextOverlay(overlay, v);
+                return true;
+            }
+            @Override public boolean onDoubleTap(MotionEvent e) {
+                selectOverlay(overlay, v);
+                showOverlayLayerDialog();
                 return true;
             }
             @Override public void onLongPress(MotionEvent e) {
@@ -1331,6 +1837,7 @@ public class MediaEditActivity extends AppCompatActivity {
             int pw = stickerLayer.getWidth(), ph = stickerLayer.getHeight();
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
+                    selectOverlay(overlay, view);
                     lastTouch[0] = event.getRawX();
                     lastTouch[1] = event.getRawY();
                     return true;
@@ -1352,8 +1859,12 @@ public class MediaEditActivity extends AppCompatActivity {
                         view.setScaleY(overlay.scale);
                         view.setRotation(overlay.rotationDeg);
                     } else {
-                        float dx = event.getRawX() - lastTouch[0];
-                        float dy = event.getRawY() - lastTouch[1];
+                        // The parent layer may be scaled by the main-image
+                        // pinch zoom. Convert screen movement back into the
+                        // layer's local coordinate space before persisting it.
+                        float zoom = Math.max(1f, mediaZoomScale);
+                        float dx = (event.getRawX() - lastTouch[0]) / zoom;
+                        float dy = (event.getRawY() - lastTouch[1]) / zoom;
                         view.setX(view.getX() + dx);
                         view.setY(view.getY() + dy);
                         lastTouch[0] = event.getRawX();
@@ -1380,9 +1891,102 @@ public class MediaEditActivity extends AppCompatActivity {
     private void removeOverlay(OverlayItem overlay, View v) {
         current().overlays.remove(overlay);
         stickerLayer.removeView(v);
+        if (selectedOverlay == overlay) {
+            selectedOverlay = null;
+            selectedOverlayView = null;
+        }
         Toast.makeText(this,
                 overlay.isEmoji ? "Sticker removed" : "Text removed",
                 Toast.LENGTH_SHORT).show();
+    }
+
+    private void selectOverlay(OverlayItem overlay, View view) {
+        selectedOverlay = overlay;
+        selectedOverlayView = view;
+        if (btnEditLayers != null) {
+            btnEditLayers.setEnabled(true);
+            btnEditLayers.setAlpha(1f);
+        }
+    }
+
+    private View findOverlayView(OverlayItem overlay) {
+        if (overlay == null || stickerLayer == null) return null;
+        for (int i = 0; i < stickerLayer.getChildCount(); i++) {
+            View child = stickerLayer.getChildAt(i);
+            if (child.getTag() == overlay) return child;
+        }
+        return null;
+    }
+
+    /**
+     * Opens the layer controls for the selected overlay. The data list and
+     * FrameLayout child order are updated together so the preview and baked
+     * image/video use exactly the same stacking order.
+     */
+    private void showOverlayLayerDialog() {
+        EditState st = current();
+        if (st.overlays.isEmpty()) {
+            Toast.makeText(this, "Add a sticker or text first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (selectedOverlay == null || !st.overlays.contains(selectedOverlay)) {
+            selectedOverlay = st.overlays.get(st.overlays.size() - 1);
+            selectedOverlayView = findOverlayView(selectedOverlay);
+        }
+
+        String label = selectedOverlay.isEmoji ? "Sticker" : "Text";
+        overlayLayerDialog = new AlertDialog.Builder(this)
+                .setTitle("Arrange " + label)
+                .setItems(new String[]{
+                        "Bring to front",
+                        "Move forward",
+                        "Move backward",
+                        "Send to back"
+                }, (dialog, which) -> {
+                    switch (which) {
+                        case 0:
+                            moveOverlayTo(st, selectedOverlay, st.overlays.size() - 1);
+                            break;
+                        case 1:
+                            moveOverlayTo(st, selectedOverlay,
+                                    Math.min(st.overlays.size() - 1,
+                                            st.overlays.indexOf(selectedOverlay) + 1));
+                            break;
+                        case 2:
+                            moveOverlayTo(st, selectedOverlay,
+                                    Math.max(0, st.overlays.indexOf(selectedOverlay) - 1));
+                            break;
+                        case 3:
+                            moveOverlayTo(st, selectedOverlay, 0);
+                            break;
+                        default:
+                            break;
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void moveOverlayTo(EditState st, OverlayItem overlay, int targetIndex) {
+        int oldIndex = st.overlays.indexOf(overlay);
+        if (oldIndex < 0) return;
+        targetIndex = Math.max(0, Math.min(st.overlays.size() - 1, targetIndex));
+        if (oldIndex != targetIndex) {
+            st.overlays.remove(oldIndex);
+            st.overlays.add(targetIndex, overlay);
+        }
+
+        View view = findOverlayView(overlay);
+        if (view != null) {
+            ViewGroup.LayoutParams lp = view.getLayoutParams();
+            stickerLayer.removeView(view);
+            stickerLayer.addView(view, targetIndex, lp);
+            selectedOverlayView = view;
+        }
+        if (overlayLayerDialog != null) {
+            overlayLayerDialog.dismiss();
+            overlayLayerDialog = null;
+        }
     }
 
     /** Tap on existing TEXT overlay → re-launch ChatStickerPickerActivity in text mode. */

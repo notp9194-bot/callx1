@@ -2,15 +2,18 @@ package com.callx.app.conversation.controllers;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.BitmapShader;
 import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PathMeasure;
 import android.graphics.PointF;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
+import android.graphics.Shader;
 import android.util.AttributeSet;
 import android.view.View;
 
@@ -44,37 +47,78 @@ public class DrawOverlayView extends View {
     public static final int BRUSH_CRAYON      = 3; // round cap, grainy stippled texture
     public static final int BRUSH_NEON        = 4; // blurred glow halo + bright core
     public static final int BRUSH_MARKER      = 5; // flat cap, bold, semi-opaque
+    public static final int BRUSH_BLUR        = 6; // pixelate/blur reveal — for hiding faces, plates, etc.
+
+    // ── Shape tools ──────────────────────────────────────────────────────
+    public static final int SHAPE_FREEHAND = 0; // ordinary multi-point freehand path (default)
+    public static final int SHAPE_LINE     = 1; // straight line, start → end
+    public static final int SHAPE_ARROW    = 2; // straight line with an arrowhead at the end
+    public static final int SHAPE_RECT     = 3; // axis-aligned rectangle from the drag bounding box
+    public static final int SHAPE_OVAL     = 4; // oval/circle inscribed in the drag bounding box
 
     // ── Stroke model ──────────────────────────────────────────────────────
 
-    /** One freehand stroke — ordered normalized points + style. */
+    /**
+     * One stroke — either a freehand path (many points) or a two-point
+     * shape (start/end only; see {@link #shapeType}). Ordered normalized
+     * (0..1) points + style.
+     */
     public static final class Stroke {
         public final List<PointF> points = new ArrayList<>();
         public final int   color;
         public final float widthDp;
         public final boolean eraser;   // true → CLEAR xfer mode (erase pixels)
         public final int   brushType;  // one of the BRUSH_* constants above
+        public final int   shapeType;  // one of the SHAPE_* constants above
 
         public Stroke(int color, float widthDp, boolean eraser) {
-            this(color, widthDp, eraser, BRUSH_PEN);
+            this(color, widthDp, eraser, BRUSH_PEN, SHAPE_FREEHAND);
         }
 
         public Stroke(int color, float widthDp, boolean eraser, int brushType) {
+            this(color, widthDp, eraser, brushType, SHAPE_FREEHAND);
+        }
+
+        public Stroke(int color, float widthDp, boolean eraser, int brushType, int shapeType) {
             this.color     = color;
             this.widthDp   = widthDp;
             this.eraser    = eraser;
             this.brushType = brushType;
+            this.shapeType = shapeType;
         }
     }
 
     // ── State ─────────────────────────────────────────────────────────────
     private List<Stroke> strokes         = new ArrayList<>();
+    /** Strokes popped by undo, replayable via {@link #redoLastStroke()} until a new stroke is drawn. */
+    private List<Stroke> redoStack       = new ArrayList<>();
     private Stroke       currentStroke;
     private int          activeColor     = Color.WHITE;
     private float        activeWidthDp   = 8f;
     private boolean      drawingEnabled  = false;
     private boolean      eraserMode      = false;
     private int          activeBrushType = BRUSH_PEN;
+    private int          activeShapeType = SHAPE_FREEHAND;
+
+    // ── Blur/pixelate brush source ──────────────────────────────────────
+    // A pre-pixelated snapshot of what's currently showing underneath this
+    // overlay (the photo, post rotation/flip/filter), plus the matrix that
+    // maps ITS pixel space into THIS view's local pixel space. Painting a
+    // BRUSH_BLUR stroke with a BitmapShader built from this bitmap+matrix
+    // makes the stroke reveal blurred/pixelated content exactly where the
+    // finger drags — the classic "redact a face/plate" brush. Refreshed by
+    // MediaEditActivity any time the underlying image changes (item switch,
+    // rotate, flip, filter, or adjustment change).
+    private Bitmap blurSourceBitmap;
+    private Matrix blurSourceMatrix;
+
+    /** Notified after a stroke is committed, undone, redone, or cleared — lets the host refresh Undo/Redo button state. */
+    public interface OnStrokeChangeListener { void onStrokesChanged(); }
+    private OnStrokeChangeListener strokeChangeListener;
+    public void setOnStrokeChangeListener(OnStrokeChangeListener l) { this.strokeChangeListener = l; }
+    private void notifyStrokesChanged() {
+        if (strokeChangeListener != null) strokeChangeListener.onStrokesChanged();
+    }
 
     // ── Offscreen layer (required for PorterDuff.CLEAR to work) ──────────
     private Bitmap offscreen;
@@ -131,22 +175,85 @@ public class DrawOverlayView extends View {
         return activeBrushType;
     }
 
+    /** Sets the shape used for the NEXT stroke — one of the SHAPE_* constants. SHAPE_FREEHAND is ordinary drawing. */
+    public void setActiveShapeType(int shapeType) {
+        this.activeShapeType = shapeType;
+    }
+
+    public int getActiveShapeType() {
+        return activeShapeType;
+    }
+
     public List<Stroke> getStrokes() {
         return strokes;
     }
 
+    /**
+     * Supplies the pixelated snapshot used by the Blur/Pixelate brush, and
+     * the matrix mapping that bitmap's pixel space into this view's local
+     * pixel space (typically {@code ivPreview.getImageMatrix()}, since this
+     * overlay sits exactly on top of the preview ImageView). Pass
+     * {@code null} for either to disable the blur brush (it will silently
+     * fall back to a solid redaction color instead of crashing).
+     */
+    public void setBlurSource(Bitmap pixelatedBitmap, Matrix viewMatrix) {
+        this.blurSourceBitmap = pixelatedBitmap;
+        this.blurSourceMatrix = viewMatrix;
+        needsFullRedraw = true;
+        invalidate();
+    }
+
+    /**
+     * Produces a blocky pixelated copy of {@code src} at its own resolution —
+     * downscale to roughly {@code src.width / blockDivisor} then scale back
+     * up with nearest-neighbour filtering off, so blocks stay crisp instead
+     * of blurring into a smooth gaussian look. Used both for the live-preview
+     * blur source and for the final full-res bake, so the sent photo always
+     * matches what the brush showed on screen.
+     */
+    public static Bitmap pixelate(Bitmap src, int blockDivisor) {
+        if (src == null || src.getWidth() <= 0 || src.getHeight() <= 0) return src;
+        int smallW = Math.max(1, src.getWidth()  / Math.max(4, blockDivisor));
+        int smallH = Math.max(1, src.getHeight() / Math.max(4, blockDivisor));
+        Bitmap small = Bitmap.createScaledBitmap(src, smallW, smallH, true);
+        Bitmap result = Bitmap.createScaledBitmap(small, src.getWidth(), src.getHeight(), false);
+        if (small != result) small.recycle();
+        return result;
+    }
+
     public void undoLastStroke() {
         if (!strokes.isEmpty()) {
-            strokes.remove(strokes.size() - 1);
+            redoStack.add(strokes.remove(strokes.size() - 1));
             needsFullRedraw = true;
             invalidate();
+            notifyStrokesChanged();
         }
+    }
+
+    /** Re-applies the most recently undone stroke, if any. Cleared once a new stroke is drawn. */
+    public void redoLastStroke() {
+        if (!redoStack.isEmpty()) {
+            strokes.add(redoStack.remove(redoStack.size() - 1));
+            needsFullRedraw = true;
+            invalidate();
+            notifyStrokesChanged();
+        }
+    }
+
+    public boolean canUndo() {
+        return !strokes.isEmpty();
+    }
+
+    public boolean canRedo() {
+        return !redoStack.isEmpty();
     }
 
     public void clearStrokes() {
         strokes.clear();
+        redoStack.clear();
         needsFullRedraw = true;
         invalidate();
+        notifyStrokesChanged();
     }
 
     /**
@@ -155,6 +262,7 @@ public class DrawOverlayView extends View {
      */
     public void bindStrokes(List<Stroke> backing) {
         this.strokes = (backing != null) ? backing : new ArrayList<>();
+        this.redoStack.clear();
         needsFullRedraw = true;
         invalidate();
     }
@@ -170,34 +278,65 @@ public class DrawOverlayView extends View {
         if (w <= 0 || h <= 0) return false;
 
         switch (event.getActionMasked()) {
-            case android.view.MotionEvent.ACTION_DOWN:
-                currentStroke = new Stroke(activeColor, activeWidthDp, eraserMode, activeBrushType);
-                currentStroke.points.add(new PointF(event.getX() / w, event.getY() / h));
+            case android.view.MotionEvent.ACTION_DOWN: {
+                // Starting a new stroke invalidates whatever was undone before it.
+                redoStack.clear();
+
+                float sx = event.getX() / w, sy = event.getY() / h;
+                boolean isShape = activeShapeType != SHAPE_FREEHAND;
+                // Shapes are always drawn (not erased) with a plain solid stroke.
+                currentStroke = new Stroke(activeColor, activeWidthDp,
+                        !isShape && eraserMode, activeBrushType, activeShapeType);
+                currentStroke.points.add(new PointF(sx, sy));
+                if (isShape) {
+                    // Second point is the live end-point, updated on every move.
+                    currentStroke.points.add(new PointF(sx, sy));
+                }
                 strokes.add(currentStroke);
-                // Draw this first point live
-                drawSingleStrokeOnOffscreen(currentStroke);
+
+                if (isShape) {
+                    // Shape strokes can shrink/move on every move event, so they
+                    // can't be drawn additively — force a full repaint.
+                    needsFullRedraw = true;
+                } else {
+                    drawSingleStrokeOnOffscreen(currentStroke);
+                }
                 invalidate();
                 return true;
+            }
 
             case android.view.MotionEvent.ACTION_MOVE:
                 if (currentStroke != null) {
-                    // Historical points for smooth curves at high speed
-                    int histCount = event.getHistorySize();
-                    for (int hi = 0; hi < histCount; hi++) {
-                        currentStroke.points.add(
-                                new PointF(event.getHistoricalX(hi) / w,
-                                           event.getHistoricalY(hi) / h));
+                    if (currentStroke.shapeType == SHAPE_FREEHAND) {
+                        // Historical points for smooth curves at high speed
+                        int histCount = event.getHistorySize();
+                        for (int hi = 0; hi < histCount; hi++) {
+                            currentStroke.points.add(
+                                    new PointF(event.getHistoricalX(hi) / w,
+                                               event.getHistoricalY(hi) / h));
+                        }
+                        currentStroke.points.add(new PointF(event.getX() / w, event.getY() / h));
+                        // Redraw just the current stroke on top of committed offscreen
+                        drawSingleStrokeOnOffscreen(currentStroke);
+                    } else {
+                        // Shape: only the end-point (index 1) moves.
+                        float ex = event.getX() / w, ey = event.getY() / h;
+                        if (currentStroke.points.size() >= 2) {
+                            currentStroke.points.set(1, new PointF(ex, ey));
+                        } else {
+                            currentStroke.points.add(new PointF(ex, ey));
+                        }
+                        needsFullRedraw = true;
                     }
-                    currentStroke.points.add(new PointF(event.getX() / w, event.getY() / h));
-                    // Redraw just the current stroke on top of committed offscreen
-                    drawSingleStrokeOnOffscreen(currentStroke);
                     invalidate();
                 }
                 return true;
 
             case android.view.MotionEvent.ACTION_UP:
             case android.view.MotionEvent.ACTION_CANCEL:
+                boolean hadStroke = currentStroke != null;
                 currentStroke = null;
+                if (hadStroke) notifyStrokesChanged();
                 return true;
         }
         return false;
@@ -261,6 +400,14 @@ public class DrawOverlayView extends View {
         float w = getWidth(), h = getHeight();
         if (w <= 0 || h <= 0) return;
 
+        if (s.shapeType != SHAPE_FREEHAND) {
+            if (s.points.size() < 2) return;
+            PointF a = s.points.get(0), b = s.points.get(1);
+            renderShapePrimitive(offscreenCanvas, s.shapeType, s.color, strokePx,
+                    a.x * w, a.y * h, b.x * w, b.y * h);
+            return;
+        }
+
         if (s.brushType == BRUSH_PEN) {
             Paint p = reusableStrokePaint;
             p.reset();
@@ -300,12 +447,13 @@ public class DrawOverlayView extends View {
         // ── Advanced brushes (Highlighter / Marker / Ink / Crayon / Neon) ──
         if (s.points.size() == 1) {
             PointF pt = s.points.get(0);
-            renderStroke(offscreenCanvas, s, null, new PointF(pt.x * w, pt.y * h), strokePx);
+            renderStroke(offscreenCanvas, s, null, new PointF(pt.x * w, pt.y * h), strokePx,
+                    blurSourceBitmap, blurSourceMatrix);
             return;
         }
         Path path = new Path();
         buildQuadPath(path, s.points, w, h);
-        renderStroke(offscreenCanvas, s, path, null, strokePx);
+        renderStroke(offscreenCanvas, s, path, null, strokePx, blurSourceBitmap, blurSourceMatrix);
     }
 
     private static void buildQuadPath(Path path, List<PointF> pts, float w, float h) {
@@ -330,9 +478,39 @@ public class DrawOverlayView extends View {
     // each brush's look, so the exported image always matches the preview.
     // ═════════════════════════════════════════════════════════════════════
 
-    private static void renderStroke(Canvas canvas, Stroke s, Path path, PointF singlePoint, float strokePx) {
+    private static void renderStroke(Canvas canvas, Stroke s, Path path, PointF singlePoint, float strokePx,
+                                      Bitmap blurBmp, Matrix blurMatrix) {
         boolean erase = s.eraser;
         switch (s.brushType) {
+            case BRUSH_BLUR: {
+                // Reveals a pixelated copy of the underlying photo along the
+                // stroke — this IS the redaction, so eraser mode is a no-op
+                // for this brush (nothing sensible to "erase" back to).
+                if (blurBmp != null && !blurBmp.isRecycled() && blurMatrix != null) {
+                    Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+                    p.setStyle(Paint.Style.STROKE);
+                    p.setStrokeCap(Paint.Cap.ROUND);
+                    p.setStrokeJoin(Paint.Join.ROUND);
+                    p.setStrokeWidth(Math.max(strokePx, strokePx * 1.6f)); // blur brush reads best a bit wider
+                    BitmapShader shader = new BitmapShader(blurBmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+                    shader.setLocalMatrix(blurMatrix);
+                    p.setShader(shader);
+                    drawShape(canvas, p, path, singlePoint, strokePx * 1.6f);
+                } else {
+                    // No pixelated source available yet (e.g. mid-load, or
+                    // video where there's no static frame to sample from) —
+                    // fall back to a solid redaction block so the tool still
+                    // visibly hides something instead of doing nothing.
+                    Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+                    p.setStyle(Paint.Style.STROKE);
+                    p.setStrokeCap(Paint.Cap.ROUND);
+                    p.setStrokeJoin(Paint.Join.ROUND);
+                    p.setStrokeWidth(strokePx * 1.6f);
+                    p.setColor(0xFF2B2B2B);
+                    drawShape(canvas, p, path, singlePoint, strokePx * 1.6f);
+                }
+                break;
+            }
             case BRUSH_NEON: {
                 Paint halo = new Paint(Paint.ANTI_ALIAS_FLAG);
                 halo.setStyle(Paint.Style.STROKE);
@@ -423,6 +601,55 @@ public class DrawOverlayView extends View {
         }
     }
 
+    // ═════════════════════════════════════════════════════════════════════
+    // Shape tool rendering (Line / Arrow / Rectangle / Circle) — shared by
+    // the live view (view-space pixel coords) and the static full-res bake
+    // below, exactly like renderStroke() above for freehand brushes.
+    // ═════════════════════════════════════════════════════════════════════
+
+    private static void renderShapePrimitive(Canvas canvas, int shapeType, int color, float strokePx,
+                                               float x1, float y1, float x2, float y2) {
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeJoin(Paint.Join.ROUND);
+        p.setStrokeWidth(strokePx);
+        p.setColor(color);
+
+        switch (shapeType) {
+            case SHAPE_LINE:
+                canvas.drawLine(x1, y1, x2, y2, p);
+                break;
+            case SHAPE_ARROW: {
+                canvas.drawLine(x1, y1, x2, y2, p);
+                float angle = (float) Math.atan2(y2 - y1, x2 - x1);
+                float headLen = Math.max(18f, strokePx * 3.2f);
+                float headAngle = (float) Math.toRadians(28);
+                float hx1 = x2 - headLen * (float) Math.cos(angle - headAngle);
+                float hy1 = y2 - headLen * (float) Math.sin(angle - headAngle);
+                float hx2 = x2 - headLen * (float) Math.cos(angle + headAngle);
+                float hy2 = y2 - headLen * (float) Math.sin(angle + headAngle);
+                canvas.drawLine(x2, y2, hx1, hy1, p);
+                canvas.drawLine(x2, y2, hx2, hy2, p);
+                break;
+            }
+            case SHAPE_RECT: {
+                float left = Math.min(x1, x2), right = Math.max(x1, x2);
+                float top = Math.min(y1, y2), bottom = Math.max(y1, y2);
+                canvas.drawRect(left, top, right, bottom, p);
+                break;
+            }
+            case SHAPE_OVAL: {
+                float left = Math.min(x1, x2), right = Math.max(x1, x2);
+                float top = Math.min(y1, y2), bottom = Math.max(y1, y2);
+                canvas.drawOval(left, top, right, bottom, p);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
     private static void drawShape(Canvas canvas, Paint paint, Path path, PointF singlePoint, float strokePx) {
         if (singlePoint != null) {
             Paint dot = new Paint(paint);
@@ -498,8 +725,27 @@ public class DrawOverlayView extends View {
                                    float viewW, float viewH,
                                    float offX, float offY, float fitScale,
                                    float density) {
+        drawStrokes(canvas, strokes, targetW, targetH, viewW, viewH, offX, offY, fitScale, density, null);
+    }
+
+    /**
+     * Same as {@link #drawStrokes} above, plus a full-resolution pixelated
+     * copy of the baked photo (sized exactly {@code targetW x targetH}, i.e.
+     * already in this canvas's own pixel space) so BRUSH_BLUR strokes reveal
+     * blurred content in the final send-out image, matching what the Blur
+     * brush showed live in the editor.
+     */
+    public static void drawStrokes(Canvas canvas, List<Stroke> strokes,
+                                   float targetW, float targetH,
+                                   float viewW, float viewH,
+                                   float offX, float offY, float fitScale,
+                                   float density, Bitmap blurBakeBitmap) {
         if (strokes == null || strokes.isEmpty()) return;
         if (fitScale <= 0f) fitScale = 1f;
+        // blurBakeBitmap is already sized targetW x targetH (same pixel
+        // space as `canvas`), so an identity matrix aligns it directly —
+        // unlike the live-preview path, no fitCenter remap is needed here.
+        Matrix blurBakeMatrix = new Matrix();
 
         // Save layer for CLEAR mode (and for BlurMaskFilter on Ink/Neon) to work correctly
         int sc = canvas.saveLayer(0, 0, targetW, targetH, null);
@@ -507,6 +753,17 @@ public class DrawOverlayView extends View {
         for (Stroke s : strokes) {
             if (s.points.isEmpty()) continue;
             float strokePx = (s.widthDp * density) / fitScale;
+
+            if (s.shapeType != SHAPE_FREEHAND) {
+                if (s.points.size() < 2) continue;
+                PointF a = s.points.get(0), b = s.points.get(1);
+                float ax = ((a.x * viewW) - offX) / fitScale;
+                float ay = ((a.y * viewH) - offY) / fitScale;
+                float bx = ((b.x * viewW) - offX) / fitScale;
+                float by = ((b.y * viewH) - offY) / fitScale;
+                renderShapePrimitive(canvas, s.shapeType, s.color, strokePx, ax, ay, bx, by);
+                continue;
+            }
 
             Path path = null;
             PointF singlePoint = null;
@@ -539,7 +796,7 @@ public class DrawOverlayView extends View {
                 path.lineTo(lx, ly);
             }
 
-            renderStroke(canvas, s, path, singlePoint, strokePx);
+            renderStroke(canvas, s, path, singlePoint, strokePx, blurBakeBitmap, blurBakeMatrix);
         }
 
         canvas.restoreToCount(sc);

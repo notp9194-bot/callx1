@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adjust icon — three horizontal slider tracks with knobs at different
+  positions, matching the style of the other ic_media_edit_* toolbar icons.
+  Used for the manual Brightness/Contrast/Saturation/Exposure panel.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Track 1 -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#88FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M3,6 L21,6"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M15,6m-2.6,0a2.6,2.6 0,1 1,5.2 0a2.6,2.6 0,1 1,-5.2 0"/>
+
+    <!-- Track 2 -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#88FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M3,12 L21,12"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M9,12m-2.6,0a2.6,2.6 0,1 1,5.2 0a2.6,2.6 0,1 1,-5.2 0"/>
+
+    <!-- Track 3 -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#88FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M3,18 L21,18"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M17,18m-2.6,0a2.6,2.6 0,1 1,5.2 0a2.6,2.6 0,1 1,-5.2 0"/>
+</vector>
