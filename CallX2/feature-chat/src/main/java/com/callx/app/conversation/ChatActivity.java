@@ -1157,6 +1157,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         typingHandler.removeCallbacks(stopTypingRunnable);
         if (expiryRunnable != null) expiryHandler.removeCallbacks(expiryRunnable);
+        if (pendingInputVisibilityUpdate != null) {
+            inputVisibilityDebounceHandler.removeCallbacks(pendingInputVisibilityUpdate);
+            pendingInputVisibilityUpdate = null;
+        }
 
         if (connMgr != null && netCallback != null) {
             try { connMgr.unregisterNetworkCallback(netCallback); } catch (Exception ignored) {}
@@ -1935,6 +1939,38 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         binding.btnToolbarVoiceCall.setOnClickListener(v -> startCall(false));
         binding.btnToolbarVideoCall.setOnClickListener(v -> startCall(true));
+
+        // PERF: btn_toolbar_reel/x/youtube are android:visibility="gone" in
+        // the layout now (they used to be VISIBLE from inflate, drawing
+        // their default drawable before we even knew the partner had a
+        // linked profile, then again once real data arrived). Reveal each
+        // one only after the partner's node confirms that profile exists;
+        // stays hidden otherwise, saving a draw pass on screens where the
+        // partner has none of these linked.
+        // NOTE: field names below (hasReelProfile/xHandle/youtubeChannelId)
+        // are a placeholder guess at your users/{uid} schema — rename the
+        // .child(...) keys to whatever your actual DB uses.
+        if (partnerUid != null && !partnerUid.isEmpty()) {
+            FirebaseUtils.getUserRef(partnerUid).addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot s) {
+                    Boolean hasReel = s.child("hasReelProfile").getValue(Boolean.class);
+                    String xHandle = s.child("xHandle").getValue(String.class);
+                    String ytChannel = s.child("youtubeChannelId").getValue(String.class);
+
+                    if (Boolean.TRUE.equals(hasReel)) {
+                        binding.llReelHanging.setVisibility(View.VISIBLE);
+                        binding.btnToolbarReel.setVisibility(View.VISIBLE);
+                    }
+                    if (xHandle != null && !xHandle.isEmpty()) {
+                        binding.btnToolbarX.setVisibility(View.VISIBLE);
+                    }
+                    if (ytChannel != null && !ytChannel.isEmpty()) {
+                        binding.btnToolbarYoutube.setVisibility(View.VISIBLE);
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+        }
 
         // Reel button
         binding.btnToolbarReel.setOnClickListener(v -> {
@@ -3363,6 +3399,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private SpringAnimation capsuleHeightSpring;
     private boolean isCapsuleHeightAnimating = false;
 
+    // PERF: mic<->send swap + attach/camera collapse are what actually
+    // drive the capsule's relayout (icon width changes -> ll_input_row
+    // relayout -> capsule height spring). onTextChanged can fire faster
+    // than the UI can usefully relayout during fast typing/paste, so we
+    // coalesce bursts onto a single Choreographer-frame-aligned callback
+    // (~16ms) instead of re-deriving hasText and re-triggering the icon
+    // animations on every single character.
+    private final android.os.Handler inputVisibilityDebounceHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable pendingInputVisibilityUpdate = null;
+    private static final long INPUT_VISIBILITY_DEBOUNCE_MS = 16;
+
     // Smart link detection — compose-time preview card above input bar.
     private com.callx.app.chat.ui.ComposeLinkPreviewController composeLinkPreview;
 
@@ -3387,9 +3435,23 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // whole buffer (up to MAX_MESSAGE_LENGTH chars) — compute it
                 // once and reuse everywhere below instead of calling it 3x.
                 String text = s.toString();
-                boolean hasText = !text.trim().isEmpty();
-                animateSendMicSwap(hasText);
-                animateAttachCameraIcons(!hasText);
+                final boolean hasText = !text.trim().isEmpty();
+
+                // PERF: debounce the relayout-triggering calls only (mic<->send
+                // swap + attach/camera collapse, which drive ll_input_row's
+                // width changes and the capsule height spring). Coalesce
+                // same-frame/rapid-typing bursts into one update instead of
+                // running the icon animations + relayout once per keystroke.
+                if (pendingInputVisibilityUpdate != null) {
+                    inputVisibilityDebounceHandler.removeCallbacks(pendingInputVisibilityUpdate);
+                }
+                pendingInputVisibilityUpdate = () -> {
+                    animateSendMicSwap(hasText);
+                    animateAttachCameraIcons(!hasText);
+                    pendingInputVisibilityUpdate = null;
+                };
+                inputVisibilityDebounceHandler.postDelayed(
+                        pendingInputVisibilityUpdate, INPUT_VISIBILITY_DEBOUNCE_MS);
 
                 int remaining = MAX_MESSAGE_LENGTH - s.length();
                 if (binding.tvCharCount != null) {

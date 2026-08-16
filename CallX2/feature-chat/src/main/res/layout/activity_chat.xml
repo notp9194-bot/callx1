@@ -708,18 +708,32 @@
 
                     <!-- Input row — view-once toggle on the left, message
                          field in the middle, attach+camera grouped on the
-                         right, all inside the pill (WhatsApp layout). -->
-                    <LinearLayout
+                         right, all inside the pill (WhatsApp layout).
+
+                         PERF (ultra-opt pass v12): converted from a nested-
+                         weight LinearLayout to ConstraintLayout. The old
+                         LinearLayout had a single weighted child (et_message)
+                         so it was already single-pass, but it still sat
+                         inside ll_input_bar_row -> cv_input_capsule, two
+                         more weight/measure-bearing ancestors above it —
+                         every one of those participates in the same
+                         measure/layout pass whenever the capsule resizes
+                         (keyboard show/hide, line-count change). A flat
+                         ConstraintLayout resolves all six children's
+                         positions in one pass via constraints instead of
+                         LinearLayout's sequential child measurement, which
+                         matters most here since this row re-measures on
+                         every capsule height change. -->
+                    <androidx.constraintlayout.widget.ConstraintLayout
                         android:id="@+id/ll_input_row"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
                         android:paddingStart="4dp"
                         android:paddingEnd="4dp"
                         android:paddingTop="4dp"
                         android:paddingBottom="4dp"
-                        android:background="@android:color/transparent"
-                        android:gravity="center_vertical">
+                        android:background="@android:color/transparent">
+
                         <ImageButton
                             android:id="@+id/btn_view_once"
                             android:layout_width="34dp"
@@ -728,7 +742,11 @@
                             android:src="@drawable/ic_view_once"
                             android:tint="@color/white"
                             android:background="?attr/selectableItemBackgroundBorderless"
-                            android:contentDescription="View Once"/>
+                            android:contentDescription="View Once"
+                            app:layout_constraintStart_toStartOf="parent"
+                            app:layout_constraintTop_toTopOf="parent"
+                            app:layout_constraintBottom_toBottomOf="parent"/>
+
                         <!-- PERF (ultra-opt pass): et_message used to sit inside a
                              FrameLayout that existed only to hold its weight/
                              margins/padding — one extra ViewGroup measured and
@@ -740,7 +758,6 @@
                             android:id="@+id/et_message"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
                             android:layout_marginStart="4dp"
                             android:layout_marginEnd="4dp"
                             android:hint="@string/hint_message"
@@ -753,7 +770,12 @@
                             android:paddingEnd="10dp"
                             android:textSize="17sp"
                             android:maxLines="4"
-                            android:maxLength="4000"/>
+                            android:maxLength="4000"
+                            app:layout_constraintStart_toEndOf="@id/btn_view_once"
+                            app:layout_constraintEnd_toStartOf="@id/btn_attach"
+                            app:layout_constraintTop_toTopOf="parent"
+                            app:layout_constraintBottom_toBottomOf="parent"/>
+
                         <ImageButton
                             android:id="@+id/btn_attach"
                             android:layout_width="34dp"
@@ -762,7 +784,12 @@
                             android:src="@drawable/ic_attach"
                             android:tint="@color/white"
                             android:background="?attr/selectableItemBackgroundBorderless"
-                            android:contentDescription="Attach"/>
+                            android:contentDescription="Attach"
+                            app:layout_constraintStart_toEndOf="@id/et_message"
+                            app:layout_constraintEnd_toStartOf="@id/btn_camera"
+                            app:layout_constraintTop_toTopOf="parent"
+                            app:layout_constraintBottom_toBottomOf="parent"/>
+
                         <ImageButton
                             android:id="@+id/btn_camera"
                             android:layout_width="34dp"
@@ -772,7 +799,11 @@
                             android:tint="@color/white"
                             android:background="?attr/selectableItemBackgroundBorderless"
                             android:layout_marginStart="2dp"
-                            android:contentDescription="Camera"/>
+                            android:contentDescription="Camera"
+                            app:layout_constraintStart_toEndOf="@id/btn_attach"
+                            app:layout_constraintEnd_toStartOf="@id/btn_mic"
+                            app:layout_constraintTop_toTopOf="parent"
+                            app:layout_constraintBottom_toBottomOf="parent"/>
 
                         <!-- Mic / Send — back INSIDE the capsule row (trailing
                              end), WhatsApp-style. Only one is visible at a
@@ -783,7 +814,14 @@
                              on-screen position via getLocationInWindow(), so
                              it keeps working correctly from here). Sized to
                              match the pill's own row height instead of the
-                             old 44dp floating-outside size. -->
+                             old 44dp floating-outside size.
+
+                             btn_mic and btn_send share the same constrained
+                             slot (both anchored to parent end) since only
+                             one is ever visible — this mirrors the old
+                             LinearLayout's sequential-in-place swap without
+                             needing a third measure pass for a shared
+                             container. -->
                         <ImageButton
                             android:id="@+id/btn_mic"
                             android:layout_width="34dp"
@@ -793,7 +831,11 @@
                             android:src="@drawable/ic_mic"
                             android:tint="@color/white"
                             android:background="@drawable/circle_primary"
-                            android:contentDescription="Voice message"/>
+                            android:contentDescription="Voice message"
+                            app:layout_constraintStart_toEndOf="@id/btn_camera"
+                            app:layout_constraintEnd_toEndOf="parent"
+                            app:layout_constraintTop_toTopOf="parent"
+                            app:layout_constraintBottom_toBottomOf="parent"/>
                         <ImageButton
                             android:id="@+id/btn_send"
                             android:layout_width="34dp"
@@ -804,102 +846,31 @@
                             android:tint="@color/white"
                             android:background="@drawable/circle_primary"
                             android:visibility="gone"
-                            android:contentDescription="Send"/>
-                    </LinearLayout>
+                            android:contentDescription="Send"
+                            app:layout_constraintStart_toEndOf="@id/btn_camera"
+                            app:layout_constraintEnd_toEndOf="parent"
+                            app:layout_constraintTop_toTopOf="parent"
+                            app:layout_constraintBottom_toBottomOf="parent"/>
+                    </androidx.constraintlayout.widget.ConstraintLayout>
 
                     <!-- ═══════════════════════════════════════════════════════
                          RECORDING BAR — replaces ll_input_row while a voice
-                         message is being held/locked. WhatsApp-style: red dot +
-                         timer + live waveform on the left, "‹ Slide to cancel"
-                         on the right that tracks the finger while dragging.
-                         Delete/Send buttons appear only once locked (Feature:
-                         voice waveform + swipe-to-cancel/lock).
-                         ═══════════════════════════════════════════════════════ -->
-                    <LinearLayout
-                        android:id="@+id/ll_recording_bar"
+                         message is being held/locked (see
+                         layout_recording_bar.xml for the full view tree and
+                         PERF rationale). Lazily inflated via ViewStub on
+                         first mic-press instead of always inflating with
+                         this screen — saves 8 views' worth of inflate +
+                         measure on every chat open, since most sessions
+                         never record a voice message.
+                         android:inflatedId keeps the same ll_recording_bar
+                         id the rest of the codebase already references once
+                         inflated. ═══════════════════════════════════════ -->
+                    <ViewStub
+                        android:id="@+id/stub_recording_bar"
+                        android:inflatedId="@+id/ll_recording_bar"
+                        android:layout="@layout/layout_recording_bar"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:paddingStart="14dp"
-                        android:paddingEnd="10dp"
-                        android:paddingTop="4dp"
-                        android:paddingBottom="4dp"
-                        android:gravity="center_vertical"
-                        android:visibility="gone">
-
-                        <ImageView
-                            android:id="@+id/iv_record_dot"
-                            android:layout_width="10dp"
-                            android:layout_height="10dp"
-                            android:background="@drawable/circle_reject"
-                            android:contentDescription="Recording"/>
-
-                        <TextView
-                            android:id="@+id/tv_record_timer"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:text="00:00"
-                            android:textColor="@color/chat_input_text"
-                            android:textSize="13sp"
-                            android:fontFamily="monospace"/>
-
-                        <com.callx.app.chat.ui.RecordingWaveformView
-                            android:id="@+id/waveform_recording"
-                            android:layout_width="0dp"
-                            android:layout_height="28dp"
-                            android:layout_weight="1"
-                            android:layout_marginStart="10dp"
-                            android:layout_marginEnd="6dp"/>
-
-                        <LinearLayout
-                            android:id="@+id/ll_slide_cancel"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:orientation="horizontal"
-                            android:gravity="center_vertical">
-
-                            <ImageView
-                                android:id="@+id/iv_slide_chevron"
-                                android:layout_width="14dp"
-                                android:layout_height="14dp"
-                                android:src="@drawable/ic_chevron_left"
-                                app:tint="@color/text_muted"
-                                android:contentDescription="Slide to cancel"/>
-
-                            <TextView
-                                android:id="@+id/tv_slide_cancel"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginStart="4dp"
-                                android:text="@string/slide_to_cancel"
-                                android:textColor="@color/text_muted"
-                                android:textSize="12sp"/>
-                        </LinearLayout>
-
-                        <ImageButton
-                            android:id="@+id/btn_record_delete"
-                            android:layout_width="34dp"
-                            android:layout_height="34dp"
-                            android:padding="7dp"
-                            android:src="@drawable/ic_record_delete"
-                            android:tint="@color/text_secondary"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:visibility="gone"
-                            android:contentDescription="Delete recording"/>
-
-                        <ImageButton
-                            android:id="@+id/btn_record_send"
-                            android:layout_width="36dp"
-                            android:layout_height="36dp"
-                            android:padding="8dp"
-                            android:src="@drawable/ic_send"
-                            android:tint="@color/white"
-                            android:background="@drawable/circle_primary"
-                            android:layout_marginStart="6dp"
-                            android:visibility="gone"
-                            android:contentDescription="Send recording"/>
-                    </LinearLayout>
+                        android:layout_height="wrap_content"/>
                 </com.google.android.material.card.MaterialCardView>
 
             </LinearLayout>
@@ -1050,7 +1021,8 @@
                     android:orientation="vertical"
                     android:gravity="center_horizontal"
                     android:layout_marginEnd="3dp"
-                    android:translationY="-4dp">
+                    android:translationY="-4dp"
+                    android:visibility="gone">
 
                     <!-- Patli rassi (thin string from top of header) -->
                     <View
@@ -1060,7 +1032,15 @@
                         android:background="@drawable/ic_reel_thread"
                         android:layout_gravity="center_horizontal"/>
 
-                    <!-- Reel button itself — jhulta hua -->
+                    <!-- Reel button itself — jhulta hua.
+                         PERF: GONE by default — was VISIBLE from inflate,
+                         so it drew its default drawable for one frame before
+                         partner data even loaded, then a second draw pass
+                         once we knew whether the partner actually has a
+                         reel/X/YouTube profile. Revealed in ChatActivity
+                         once that check comes back true; stays GONE (saving
+                         a draw pass every time this screen opens) when the
+                         partner has no linked profile for that feature. -->
                     <ImageButton
                         android:id="@+id/btn_toolbar_reel"
                         android:layout_width="30dp"
@@ -1069,11 +1049,12 @@
                         android:tint="@color/white"
                         android:background="@drawable/bg_social_reel_btn"
                         android:padding="6dp"
+                        android:visibility="gone"
                         android:contentDescription="View Reels Profile"/>
 
                 </LinearLayout>
 
-                <!-- X button -->
+                <!-- X button — GONE by default, see note above ll_reel_hanging. -->
                 <ImageButton
                     android:id="@+id/btn_toolbar_x"
                     android:layout_width="30dp"
@@ -1083,9 +1064,10 @@
                     android:background="@drawable/bg_social_x_btn"
                     android:padding="6dp"
                     android:layout_marginEnd="3dp"
+                    android:visibility="gone"
                     android:contentDescription="View X Profile"/>
 
-                <!-- YouTube button -->
+                <!-- YouTube button — GONE by default, see note above ll_reel_hanging. -->
                 <ImageButton
                     android:id="@+id/btn_toolbar_youtube"
                     android:layout_width="30dp"
@@ -1095,6 +1077,7 @@
                     android:background="@drawable/bg_social_youtube_btn"
                     android:padding="6dp"
                     android:layout_marginEnd="1dp"
+                    android:visibility="gone"
                     android:contentDescription="View YouTube Channel"/>
 
                 <!-- Video call button -->

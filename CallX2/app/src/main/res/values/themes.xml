@@ -119,15 +119,4 @@
     <!-- Theme.App.Immersive — used by feature-status manifest entries -->
     <style name="Theme.App.Immersive" parent="Theme.CallX.Fullscreen" />
 
-    <!-- Kali X image splash — AppCompat descendant (SplashActivity extends
-         AppCompatActivity, so it needs a Theme.AppCompat theme, unlike the
-         androidx.core Theme.SplashScreen used on MainActivity's old OS
-         splash). Pure black, no window animation of its own (the
-         ImageView fade is handled in code / activity transition). -->
-    <style name="Theme.CallX.ImageSplash" parent="Theme.CallX">
-        <item name="android:windowBackground">@android:color/black</item>
-        <item name="android:windowNoTitle">true</item>
-        <item name="android:windowFullscreen">false</item>
-    </style>
-
 </resources>
