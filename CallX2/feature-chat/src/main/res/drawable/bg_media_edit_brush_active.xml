@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Selected-brush pill background — neutral grey highlight (screenshot 1 style,
+     distinct from the green bg_media_edit_toolbtn_active used elsewhere) -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="#4DFFFFFF"/>
+</shape>

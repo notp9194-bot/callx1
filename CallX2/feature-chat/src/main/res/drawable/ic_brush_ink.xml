@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ink brush — fountain-pen bottle glyph, soft wet-ink bleed -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="22dp"
+    android:height="22dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M8,9 L16,9 L16,18 A2,2 0 0,1 14,20 L10,20 A2,2 0 0,1 8,18 Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.7"
+        android:strokeLineJoin="round"/>
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M10,9 L10,5 L14,5 L14,9"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.7"
+        android:strokeLineJoin="round"/>
+    <path
+        android:fillColor="#66FFFFFF"
+        android:pathData="M9,14 L15,14 L15,18 A1,1 0 0,1 14,19 L10,19 A1,1 0 0,1 9,18 Z"/>
+</vector>

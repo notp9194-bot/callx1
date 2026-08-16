@@ -159,13 +159,16 @@ public class MediaEditActivity extends AppCompatActivity {
                          btnEditDraw, btnEditDownload, btnEditCrop;
     private TextView     btnEditHd, btnEditTrim;
     private HorizontalScrollView emojiRowScroll;
-    private LinearLayout emojiRowContent, thumbStripContent, filterStripContent, drawColorRow;
+    private LinearLayout emojiRowContent, thumbStripContent, filterStripContent, drawToolRow;
     private final List<ImageView> filterCheckViews = new ArrayList<>();
     private boolean filterPanelOpen = false;
     private View         emojiRow, drawToolsRow, filterPanel, bottomBar, tvSwipeHint;
     private EditText     etCaption;
-    private SeekBar      sbBrushSize;
     private View         brushSizeRow;
+    private RainbowColorDotView   btnDrawColorPicker;
+    private TeardropWidthSlider   drawWidthSlider;
+    private ImageButton  btnBrushPen, btnBrushHighlighter, btnBrushInk,
+                          btnBrushCrayon, btnBrushNeon, btnBrushMarker, btnBrushMore;
 
     // ── Background thread for baking ──────────────────────────────────────
     private final ExecutorService bgExec = Executors.newSingleThreadExecutor();
@@ -289,9 +292,17 @@ public class MediaEditActivity extends AppCompatActivity {
         emojiRowScroll   = (HorizontalScrollView) emojiRow;
         emojiRowContent  = findViewById(R.id.emojiRowContent);
         drawToolsRow     = findViewById(R.id.drawToolsRow);
-        drawColorRow     = findViewById(R.id.drawColorRow);
-        sbBrushSize      = findViewById(R.id.sbBrushSize);
+        drawToolRow      = findViewById(R.id.drawToolRow);
         brushSizeRow     = findViewById(R.id.brushSizeRow);
+        btnDrawColorPicker  = findViewById(R.id.btnDrawColorPicker);
+        drawWidthSlider     = findViewById(R.id.drawWidthSlider);
+        btnBrushPen         = findViewById(R.id.btnBrushPen);
+        btnBrushHighlighter = findViewById(R.id.btnBrushHighlighter);
+        btnBrushInk         = findViewById(R.id.btnBrushInk);
+        btnBrushCrayon      = findViewById(R.id.btnBrushCrayon);
+        btnBrushNeon        = findViewById(R.id.btnBrushNeon);
+        btnBrushMarker      = findViewById(R.id.btnBrushMarker);
+        btnBrushMore        = findViewById(R.id.btnBrushMore);
         filterPanel      = findViewById(R.id.filterPanel);
         filterStripContent = findViewById(R.id.filterStripContent);
         bottomBar        = findViewById(R.id.bottomBar);
@@ -413,94 +424,57 @@ public class MediaEditActivity extends AppCompatActivity {
     /** Currently selected draw color (default red); synced with eraser state. */
     private int     activeDrawColor = Color.RED;
     private boolean eraserActive    = false;
-    private View    dotBrushSmall, dotBrushLarge;
+    private int     activeBrushType = DrawOverlayView.BRUSH_PEN;
+    private ImageButton[] brushButtons;
 
     private void setupDrawTools() {
-        dotBrushSmall = findViewById(R.id.dotBrushSmall);
-        dotBrushLarge = findViewById(R.id.dotBrushLarge);
+        brushButtons = new ImageButton[] {
+            btnBrushPen, btnBrushHighlighter, btnBrushInk,
+            btnBrushCrayon, btnBrushNeon, btnBrushMarker
+        };
 
-        // ── Color swatches — circular, with border ring on selected ──
-        if (drawColorRow != null) {
-            drawColorRow.removeAllViews();
-            int[] colors = {
-                Color.WHITE, Color.BLACK,
-                0xFFFF5252, 0xFFFF9800, 0xFFFFEB3B,
-                0xFF4CAF50, 0xFF2196F3, 0xFF9C27B0,
-                0xFFFF4081, 0xFF00BCD4
-            };
-            for (int color : colors) {
-                android.widget.FrameLayout wrapper = new android.widget.FrameLayout(this);
-                LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(dp(38), dp(38));
-                wlp.setMarginEnd(dp(6));
-                wrapper.setLayoutParams(wlp);
-
-                // Outer ring (white border — visible when selected)
-                View ring = new View(this);
-                android.widget.FrameLayout.LayoutParams rlp =
-                        new android.widget.FrameLayout.LayoutParams(dp(38), dp(38));
-                ring.setLayoutParams(rlp);
-                ring.setBackground(makeCircle(Color.WHITE));
-                ring.setAlpha(0f); // hidden by default
-                wrapper.addView(ring);
-
-                // Color circle
-                View dot = new View(this);
-                android.widget.FrameLayout.LayoutParams dlp =
-                        new android.widget.FrameLayout.LayoutParams(dp(28), dp(28));
-                dlp.gravity = android.view.Gravity.CENTER;
-                dot.setLayoutParams(dlp);
-                dot.setBackground(makeCircle(color));
-                wrapper.addView(dot);
-
-                final int dotColor = color;
-                final View dotRing = ring;
-                wrapper.setOnClickListener(v -> {
-                    selectDrawColor(dotColor, dotRing);
-                });
-                drawColorRow.addView(wrapper);
-            }
-            // Select default (first = white)
-            if (drawColorRow.getChildCount() > 0) {
-                View firstRing = ((android.widget.FrameLayout) drawColorRow.getChildAt(0))
-                        .getChildAt(0);
-                firstRing.setAlpha(1f);
-                activeDrawColor = Color.WHITE;
-                drawOverlay.setActiveColor(activeDrawColor);
-            }
+        // ── Color circle (screenshot 1) — opens the shared "core" rainbow
+        //    color sheet instead of a fixed swatch row ──
+        activeDrawColor = Color.WHITE;
+        drawOverlay.setActiveColor(activeDrawColor);
+        if (btnDrawColorPicker != null) {
+            btnDrawColorPicker.setCurrentColor(activeDrawColor);
+            btnDrawColorPicker.setOnClickListener(v -> {
+                String currentHex = String.format("#%06X", (0xFFFFFF & activeDrawColor));
+                com.callx.app.utils.RainbowStripColorPickerBottomSheet.show(
+                        this, "Draw color", currentHex, false,
+                        hex -> {
+                            if (hex == null) return;
+                            try {
+                                selectDrawColor(Color.parseColor(hex));
+                            } catch (Exception ignored) { /* keep previous color on parse failure */ }
+                        });
+            });
         }
 
-        // ── Brush size slider ──
-        if (sbBrushSize != null) {
-            sbBrushSize.setMax(44);
-            sbBrushSize.setProgress(8);
-            drawOverlay.setActiveWidthDp(8);
-            sbBrushSize.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-                @Override public void onProgressChanged(SeekBar sb, int p, boolean u) {
-                    int size = Math.max(2, p);
-                    drawOverlay.setActiveWidthDp(size);
-                    // Animate the large dot to reflect current size.
-                    // dotBrushLarge's parent (brushSizeRow) is a LinearLayout,
-                    // so its LayoutParams must be LinearLayout.LayoutParams —
-                    // passing FrameLayout.LayoutParams here threw a
-                    // ClassCastException on every seekbar move (the crash on
-                    // brush-size adjust).
-                    if (dotBrushLarge != null) {
-                        int dotPx = Math.max(dp(6), Math.min(dp(28), (int)(size * getResources().getDisplayMetrics().density * 0.8f)));
-                        ViewGroup.LayoutParams existing = dotBrushLarge.getLayoutParams();
-                        if (existing instanceof LinearLayout.LayoutParams) {
-                            LinearLayout.LayoutParams lp2 = (LinearLayout.LayoutParams) existing;
-                            lp2.width  = dotPx;
-                            lp2.height = dotPx;
-                            dotBrushLarge.setLayoutParams(lp2);
-                        } else {
-                            LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(dotPx, dotPx);
-                            dotBrushLarge.setLayoutParams(lp2);
-                        }
-                    }
-                }
-                @Override public void onStartTrackingTouch(SeekBar sb) {}
-                @Override public void onStopTrackingTouch(SeekBar sb) {}
-            });
+        // ── Brush type row (screenshot 1) ──
+        int[] brushTypes = {
+            DrawOverlayView.BRUSH_PEN, DrawOverlayView.BRUSH_HIGHLIGHTER, DrawOverlayView.BRUSH_INK,
+            DrawOverlayView.BRUSH_CRAYON, DrawOverlayView.BRUSH_NEON, DrawOverlayView.BRUSH_MARKER
+        };
+        for (int i = 0; i < brushButtons.length; i++) {
+            final int brushType = brushTypes[i];
+            ImageButton btn = brushButtons[i];
+            if (btn != null) btn.setOnClickListener(v -> selectBrushType(brushType));
+        }
+        selectBrushType(DrawOverlayView.BRUSH_PEN);
+
+        if (btnBrushMore != null) {
+            btnBrushMore.setOnClickListener(v ->
+                    android.widget.Toast.makeText(this, "More brushes coming soon", android.widget.Toast.LENGTH_SHORT).show());
+        }
+
+        // ── Brush width — teardrop slider overlaid on the canvas edge (screenshot 2) ──
+        if (drawWidthSlider != null) {
+            drawWidthSlider.setAccentColor(activeDrawColor);
+            drawWidthSlider.setWidthDp(8f);
+            drawOverlay.setActiveWidthDp(8f);
+            drawWidthSlider.setOnWidthChangeListener(widthDp -> drawOverlay.setActiveWidthDp(widthDp));
         }
 
         // ── Eraser toggle ──
@@ -544,22 +518,13 @@ public class MediaEditActivity extends AppCompatActivity {
         if (btnDrawDone != null) btnDrawDone.setOnClickListener(v -> exitDrawMode());
     }
 
-    /** Selects a color swatch — highlights its ring, updates overlay. */
-    private void selectDrawColor(int color, View selectedRing) {
-        // Deselect all rings
-        if (drawColorRow != null) {
-            for (int ci = 0; ci < drawColorRow.getChildCount(); ci++) {
-                android.widget.FrameLayout wrapper =
-                        (android.widget.FrameLayout) drawColorRow.getChildAt(ci);
-                wrapper.getChildAt(0).setAlpha(0f);
-            }
-        }
-        // Activate this ring
-        if (selectedRing != null) selectedRing.setAlpha(1f);
-        // Apply color
+    /** Applies a newly picked color from the color sheet (or eraser exit) to the overlay + UI. */
+    private void selectDrawColor(int color) {
         activeDrawColor = color;
-        eraserActive    = false;
+        eraserActive     = false;
         drawOverlay.setActiveColor(color);
+        if (btnDrawColorPicker != null) btnDrawColorPicker.setCurrentColor(color);
+        if (drawWidthSlider != null) drawWidthSlider.setAccentColor(color);
         // Reset eraser button style
         View btnEraser = findViewById(R.id.btnDrawEraser);
         if (btnEraser != null) {
@@ -568,12 +533,25 @@ public class MediaEditActivity extends AppCompatActivity {
         }
     }
 
-    /** Builds a circular ShapeDrawable of the given fill color. */
-    private android.graphics.drawable.ShapeDrawable makeCircle(int color) {
-        android.graphics.drawable.ShapeDrawable d =
-                new android.graphics.drawable.ShapeDrawable(new android.graphics.drawable.shapes.OvalShape());
-        d.getPaint().setColor(color);
-        return d;
+    /** Selects a brush type — highlights its button, updates the overlay. */
+    private void selectBrushType(int brushType) {
+        activeBrushType = brushType;
+        drawOverlay.setActiveBrushType(brushType);
+        if (brushButtons != null) {
+            for (ImageButton btn : brushButtons) {
+                if (btn == null) continue;
+                boolean isActive =
+                        (btn == btnBrushPen         && brushType == DrawOverlayView.BRUSH_PEN) ||
+                        (btn == btnBrushHighlighter && brushType == DrawOverlayView.BRUSH_HIGHLIGHTER) ||
+                        (btn == btnBrushInk         && brushType == DrawOverlayView.BRUSH_INK) ||
+                        (btn == btnBrushCrayon      && brushType == DrawOverlayView.BRUSH_CRAYON) ||
+                        (btn == btnBrushNeon        && brushType == DrawOverlayView.BRUSH_NEON) ||
+                        (btn == btnBrushMarker      && brushType == DrawOverlayView.BRUSH_MARKER);
+                btn.setBackground(getDrawable(isActive
+                        ? R.drawable.bg_media_edit_brush_active
+                        : R.drawable.bg_media_edit_toolbtn));
+            }
+        }
     }
 
     private void toggleDrawMode() {
@@ -595,6 +573,7 @@ public class MediaEditActivity extends AppCompatActivity {
         if (tvSwipeHint != null) tvSwipeHint.setVisibility(View.GONE);
 
         if (drawToolsRow != null) drawToolsRow.setVisibility(View.VISIBLE);
+        if (drawWidthSlider != null) drawWidthSlider.setVisibility(View.VISIBLE);
         if (btnEditDraw  != null) btnEditDraw.setAlpha(1f);
     }
 
@@ -604,6 +583,7 @@ public class MediaEditActivity extends AppCompatActivity {
         eraserActive = false;
 
         if (drawToolsRow != null) drawToolsRow.setVisibility(View.GONE);
+        if (drawWidthSlider != null) drawWidthSlider.setVisibility(View.GONE);
 
         // Restore the normal bottom bar
         if (bottomBar   != null) bottomBar.setVisibility(View.VISIBLE);

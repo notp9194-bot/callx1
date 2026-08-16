@@ -56,6 +56,16 @@
             android:id="@+id/drawOverlay"
             android:layout_width="match_parent"
             android:layout_height="match_parent"/>
+
+        <!-- Teardrop brush-width slider (screenshot 2) — overlays the right edge
+             of the canvas, shown only while draw mode is active. Drag up = thicker. -->
+        <com.callx.app.conversation.controllers.TeardropWidthSlider
+            android:id="@+id/drawWidthSlider"
+            android:layout_width="46dp"
+            android:layout_height="190dp"
+            android:layout_gravity="end|center_vertical"
+            android:layout_marginEnd="10dp"
+            android:visibility="gone"/>
     </FrameLayout>
 
     <!-- ── Top toolbar ─────────────────────────────────────────────── -->
@@ -247,24 +257,135 @@
             android:layout_marginBottom="10dp"
             android:background="#55FFFFFF"/>
 
-        <!-- ── Row 1: Color swatches (horizontal scroll) ── -->
+        <!-- ── Row 1: Brush tool row (screenshot 1) — color picker circle +
+             6 brush types (Pen / Highlighter / Ink / Crayon / Neon / Marker)
+             + a "more" button, horizontal scroll ── -->
         <HorizontalScrollView
             android:layout_width="match_parent"
-            android:layout_height="44dp"
+            android:layout_height="48dp"
             android:scrollbars="none"
             android:paddingStart="14dp"
             android:paddingEnd="14dp"
             android:clipToPadding="false">
 
             <LinearLayout
-                android:id="@+id/drawColorRow"
+                android:id="@+id/drawToolRow"
                 android:layout_width="wrap_content"
                 android:layout_height="match_parent"
                 android:orientation="horizontal"
-                android:gravity="center_vertical"/>
+                android:gravity="center_vertical">
+
+                <!-- Color circle — tap opens the shared rainbow color sheet (core) -->
+                <com.callx.app.conversation.controllers.RainbowColorDotView
+                    android:id="@+id/btnDrawColorPicker"
+                    android:layout_width="34dp"
+                    android:layout_height="34dp"
+                    android:layout_marginEnd="14dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="Choose color"/>
+
+                <ImageButton
+                    android:id="@+id/btnBrushPen"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginEnd="6dp"
+                    android:padding="9dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_brush_pen"
+                    android:background="@drawable/bg_media_edit_brush_active"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="Pen"/>
+
+                <ImageButton
+                    android:id="@+id/btnBrushHighlighter"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginEnd="6dp"
+                    android:padding="9dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_brush_highlighter"
+                    android:background="@drawable/bg_media_edit_toolbtn"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="Highlighter"/>
+
+                <ImageButton
+                    android:id="@+id/btnBrushInk"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginEnd="6dp"
+                    android:padding="9dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_brush_ink"
+                    android:background="@drawable/bg_media_edit_toolbtn"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="Ink"/>
+
+                <ImageButton
+                    android:id="@+id/btnBrushCrayon"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginEnd="6dp"
+                    android:padding="9dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_brush_crayon"
+                    android:background="@drawable/bg_media_edit_toolbtn"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="Crayon"/>
+
+                <ImageButton
+                    android:id="@+id/btnBrushNeon"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginEnd="6dp"
+                    android:padding="9dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_brush_neon"
+                    android:background="@drawable/bg_media_edit_toolbtn"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="Neon"/>
+
+                <ImageButton
+                    android:id="@+id/btnBrushMarker"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginEnd="6dp"
+                    android:padding="9dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_brush_marker"
+                    android:background="@drawable/bg_media_edit_toolbtn"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="Marker"/>
+
+                <ImageButton
+                    android:id="@+id/btnBrushMore"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:padding="9dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_media_edit_plus_tool"
+                    android:background="@drawable/bg_media_edit_toolbtn"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="More brushes"/>
+            </LinearLayout>
         </HorizontalScrollView>
 
-        <!-- ── Row 2: Eraser + Size label + SeekBar + preview dot ── -->
+        <!-- ── Row 2: Eraser toggle (brush width now lives in the teardrop
+             slider overlaid on the canvas edge — screenshot 2) ── -->
         <LinearLayout
             android:id="@+id/brushSizeRow"
             android:layout_width="match_parent"
@@ -290,32 +411,13 @@
                 android:focusable="true"
                 android:contentDescription="Eraser"/>
 
-            <!-- Small brush preview dot (left) -->
-            <View
-                android:id="@+id/dotBrushSmall"
-                android:layout_width="4dp"
-                android:layout_height="4dp"
-                android:background="#AAFFFFFF"
-                android:layout_marginEnd="8dp"/>
-
-            <!-- Brush size SeekBar -->
-            <SeekBar
-                android:id="@+id/sbBrushSize"
+            <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:max="44"
-                android:progress="8"
-                android:progressTint="#FFFFFF"
-                android:thumbTint="#FFFFFF"/>
-
-            <!-- Large brush preview dot (right) -->
-            <View
-                android:id="@+id/dotBrushLarge"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:background="#AAFFFFFF"
-                android:layout_marginStart="8dp"/>
+                android:text="Drag the slider on the canvas edge to resize the brush"
+                android:textColor="#88FFFFFF"
+                android:textSize="12sp"/>
 
         </LinearLayout>
 
