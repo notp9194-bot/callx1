@@ -346,6 +346,9 @@ public class ChatMessageSender {
         // had no Room column and were silently dropped on every round-trip.
         e.mediaWidth          = m.mediaWidth;
         e.mediaHeight         = m.mediaHeight;
+        // v48: Voice Caption on Photo — see MessageEntity#voiceUrl.
+        e.voiceUrl            = m.voiceUrl;
+        e.voiceDuration       = m.voiceDuration;
         return e;
     }
 

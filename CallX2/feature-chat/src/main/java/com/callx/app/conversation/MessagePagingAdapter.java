@@ -980,6 +980,13 @@ public class MessagePagingAdapter
     // Feature 4: Voice speed. Resets to 1.0f each time a new audio starts.
     private float currentPlaybackSpeed = 1.0f;
 
+    // Feature: Voice Caption on Photo — messageIds whose attached voice
+    // note has already auto-played once for the receiver in this adapter's
+    // lifetime (walkie-talkie style — see bindMessage's "image" case).
+    // Plain in-memory set is enough: it only needs to survive scroll/rebind
+    // within a single chat-screen session, not across app restarts.
+    private final java.util.Set<String> autoPlayedVoiceOnImage = new java.util.HashSet<>();
+
     // Feature 3: Spoiler — per-message map of revealed span-start indices.
     // Keyed by messageId so reveal state persists across recycler reuse.
     // When user taps a spoiler span, its startIndex is added here and the
@@ -1491,6 +1498,18 @@ public class MessagePagingAdapter
             // Manual download-overlay pill (mirrors fl_download_overlay) is
             // now modeled (MessageBubbleCanvasView.setMediaDownloadGate) —
             // received images are eligible too, same as sent.
+            //
+            // Feature: Voice Caption on Photo — an image that also carries
+            // a short attached voice note (m.voiceUrl != null) is routed to
+            // the LEGACY View-based bubble instead, so it lands in
+            // content_frame (a real FrameLayout) where a play-badge overlay
+            // can sit on top of iv_image — see bindMessage()'s "image" case
+            // and fl_voice_on_image in item_message_sent/received.xml.
+            // Teaching Canvas itself to draw + hit-test that badge is a
+            // bigger change left for later; every plain image (the
+            // overwhelming majority) keeps rendering on Canvas exactly as
+            // before, unaffected.
+            if (m.voiceUrl != null && !m.voiceUrl.isEmpty()) return false;
             return true;
         }
         if ("multi_media".equals(type)) {
@@ -4871,6 +4890,11 @@ public class MessagePagingAdapter
                     } else if (h.fl_download_overlay != null) {
                         h.fl_download_overlay.setVisibility(View.GONE);
                     }
+
+                    // ── Voice Caption on Photo (image + attached voice note) ──
+                    // Only reached at all when isCanvasEligible() routed this
+                    // message here for exactly this reason (m.voiceUrl set).
+                    bindVoiceOnImage(h, m, position);
                 }
                 break;
             // ── MULTI MEDIA (WhatsApp-style grid, multi-image send) ──────
@@ -6010,12 +6034,14 @@ public class MessagePagingAdapter
             });
     }
 
-    /** Sets the play/pause glyph on whichever UI this holder actually uses — the Canvas audio bubble (setAudioPlaying) if bound to one, else the legacy ImageButton. */
+    /** Sets the play/pause glyph on whichever UI this holder actually uses — the Canvas audio bubble (setAudioPlaying) if bound to one, else the legacy ImageButton, else (Feature: Voice Caption on Photo) the play-badge overlay on an image bubble. */
     private void setPlayPauseIcon(@NonNull VH h, boolean playing) {
         if (h.canvasView != null) {
             h.canvasView.setAudioPlaying(playing);
         } else if (h.btnPlayPause != null) {
             h.btnPlayPause.setImageResource(playing ? R.drawable.ic_pause : R.drawable.ic_play);
+        } else if (h.ivVoicePlayOnImage != null) {
+            h.ivVoicePlayOnImage.setImageResource(playing ? R.drawable.ic_pause : R.drawable.ic_play);
         }
     }
 
@@ -6023,9 +6049,13 @@ public class MessagePagingAdapter
     private void resetAudioUi(@NonNull VH h) {
         if (h.canvasView != null) {
             h.canvasView.resetAudioPlayback();
-        } else {
-            if (h.btnPlayPause != null) h.btnPlayPause.setImageResource(R.drawable.ic_play);
+        } else if (h.btnPlayPause != null) {
+            h.btnPlayPause.setImageResource(R.drawable.ic_play);
             if (h.seekAudio != null) h.seekAudio.setProgress(0f);
+        } else if (h.ivVoicePlayOnImage != null) {
+            // Feature: Voice Caption on Photo — no seekbar on the compact
+            // image overlay, just the glyph back to "play".
+            h.ivVoicePlayOnImage.setImageResource(R.drawable.ic_play);
         }
     }
 
@@ -6123,6 +6153,56 @@ public class MessagePagingAdapter
         } catch (Exception e) {
             android.util.Log.e("AudioPlay", "playAudioFromPath error: " + e.getMessage() + " path: " + path);
             if (player != null) { try { player.release(); } catch (Exception ignored) {} player = null; }
+        }
+    }
+
+    /**
+     * Feature: Voice Caption on Photo — play-badge + duration pill overlaid
+     * on an image bubble that also carries a short attached voice note
+     * (m.voiceUrl). Reuses the adapter's existing shared-MediaPlayer
+     * toggleAudio()/playAudioFromPath() machinery (same one standalone
+     * voice-message bubbles use) — tap toggles play/pause, and the glyph
+     * is driven by setPlayPauseIcon()/resetAudioUi() (both already know
+     * about h.ivVoicePlayOnImage). For the RECEIVER only, the voice note
+     * auto-plays once (walkie-talkie style) the first time this message's
+     * bubble is bound — tracked in autoPlayedVoiceOnImage so it never
+     * replays on later scroll/rebind, and skipped if some other bubble is
+     * already mid-playback so we don't step on the user's own listening.
+     */
+    private void bindVoiceOnImage(@NonNull VH h, @NonNull Message m, int position) {
+        if (h.flVoiceOnImage == null) return;
+        boolean hasVoice = m.voiceUrl != null && !m.voiceUrl.isEmpty();
+        if (!hasVoice) {
+            h.flVoiceOnImage.setVisibility(View.GONE);
+            return;
+        }
+        h.flVoiceOnImage.setVisibility(View.VISIBLE);
+
+        // Duration pill text — mirrors the audio bubble's mm:ss formatting.
+        if (h.tvVoiceDurationOnImage != null) {
+            long ms = m.voiceDuration != null ? m.voiceDuration : 0L;
+            long secs = ms / 1000;
+            h.tvVoiceDurationOnImage.setText(
+                    String.format(java.util.Locale.US, "%d:%02d", secs / 60, secs % 60));
+        }
+
+        // Icon reflects whether THIS message's voice note is the one
+        // currently playing (matches how the standalone audio bubble icon
+        // is kept in sync across rebinds).
+        boolean isThisPlaying = playingPos == position && player != null && player.isPlaying();
+        if (h.ivVoicePlayOnImage != null) {
+            h.ivVoicePlayOnImage.setImageResource(isThisPlaying ? R.drawable.ic_pause : R.drawable.ic_play);
+        }
+
+        h.flVoiceOnImage.setOnClickListener(v -> toggleAudio(h, m.voiceUrl, position));
+
+        // Receiver-only, once-per-message auto-play.
+        String msgKey = m.messageId != null ? m.messageId : m.id;
+        boolean sentByMe = currentUid.equals(m.senderId);
+        if (!sentByMe && msgKey != null && playingPos == -1
+                && !autoPlayedVoiceOnImage.contains(msgKey)) {
+            autoPlayedVoiceOnImage.add(msgKey);
+            toggleAudio(h, m.voiceUrl, position);
         }
     }
 
@@ -7249,6 +7329,14 @@ public class MessagePagingAdapter
         com.callx.app.conversation.canvas.DateSeparatorCanvasView dateSeparatorView;
         TextView     tvDateHeader;   // date separator chip (Today / Yesterday / MMM d) — legacy fallback, unreachable
         ImageView    ivImage;
+        // Feature: Voice Caption on Photo — overlay sitting exactly on top
+        // of ivImage (same 180x180dp slot in content_frame's FrameLayout),
+        // shown only for image messages carrying m.voiceUrl. See
+        // isCanvasEligible()'s image branch for why these route here
+        // instead of Canvas, and bindMessage()'s "image" case for the bind.
+        View      flVoiceOnImage;
+        ImageView ivVoicePlayOnImage;
+        TextView  tvVoiceDurationOnImage;
         TextView     tvStatus;   // tv_status in both item layouts
         // Manual media download overlay (WhatsApp-style) — received images only.
         // Null in item_message_sent.xml (sender already has the local file).
@@ -7371,6 +7459,10 @@ public class MessagePagingAdapter
             tvSenderName   = v.findViewById(R.id.tv_sender_name);
             tvDateHeader   = null; // removed from item layouts — date chip is now a separate ViewHolder type
             ivImage        = v.findViewById(R.id.iv_image);
+            // Feature: Voice Caption on Photo — overlay views on top of ivImage
+            flVoiceOnImage        = v.findViewById(R.id.fl_voice_on_image);
+            ivVoicePlayOnImage    = v.findViewById(R.id.iv_voice_play_on_image);
+            tvVoiceDurationOnImage = v.findViewById(R.id.tv_voice_duration_on_image);
             fl_download_overlay = v.findViewById(R.id.fl_download_overlay);
             ll_download_pill    = v.findViewById(R.id.ll_download_pill);
             iv_download_icon    = v.findViewById(R.id.iv_download_icon);

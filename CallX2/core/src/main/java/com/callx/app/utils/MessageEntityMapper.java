@@ -67,6 +67,9 @@ public final class MessageEntityMapper {
         // always evaluated false, so the canvas upload-progress gate (spinner /
         // tap-to-retry) was never armed — only a gray placeholder was drawn.
         m.mediaLocalPath = e.mediaLocalPath;
+        // v48: Voice Caption on Photo — see MessageEntity#voiceUrl.
+        m.voiceUrl = e.voiceUrl;
+        m.voiceDuration = e.voiceDuration;
         return m;
     }
 }

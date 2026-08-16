@@ -298,6 +298,30 @@ public class Message {
      *  portable across devices, so this is best-effort — may be null). */
     public String contactPhotoUrl;
 
+    // ── Feature: Voice Caption on Photo (image + attached voice note) ──────
+    /**
+     * Present only on 1:1 IMAGE messages that also carry a short voice note
+     * (walkie-talkie style — recorded on MediaEditActivity's preview screen
+     * via the same mic-hold gesture used for standalone voice messages).
+     * {@link #type} stays "image" — this is deliberately just an optional
+     * extra field on a normal image message (NOT a new msgType) so every
+     * existing image code path (canvas rendering gate, forwarding, replies,
+     * "📷 Photo" preview text, etc.) keeps working unchanged. Only
+     * MessagePagingAdapter#isCanvasEligible() checks this field, to route
+     * image+voice messages to the legacy View-based bubble (which has room
+     * for the extra play-badge overlay) instead of the Canvas-only image path.
+     * Null on every plain image message. See ChatMediaController#finishImageUploadSuccess.
+     */
+    public String voiceUrl;
+    /** Duration of {@link #voiceUrl} in ms — shown on the play-badge pill. */
+    public Long voiceDuration;
+    /** Local file path of a recorded-but-not-yet-uploaded voice caption, set
+     *  by MediaEditActivity's mic button. Never sent to Firebase (@Exclude);
+     *  ChatMediaController reads this once, after the image itself finishes
+     *  uploading, to kick off the voice upload (see finishImageUploadSuccess). */
+    @Exclude
+    public transient String voiceLocalPath;
+
     // ── Feature: Location Share (pin-drop) ──────────────────────────────────
     /** Set when type = "location". Latitude of the shared point. */
     public Double locationLat;

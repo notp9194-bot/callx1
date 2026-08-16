@@ -674,7 +674,47 @@
 
         </LinearLayout>
 
-        <!-- Bottom row: caption + send -->
+        <!--
+            Voice Caption on Photo — attached-clip chip. Shown above the
+            caption row once a recording finishes (see attachVoiceCaptureUi()
+            in MediaEditActivity). Tap the ✕ to discard and re-record.
+        -->
+        <LinearLayout
+            android:id="@+id/llVoiceCaptureAttached"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:layout_marginBottom="6dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_media_edit_caption_pill"
+            android:paddingStart="12dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvVoiceCaptureDuration"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="\uD83C\uDFA4 Voice caption \u00b7 0:00"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"/>
+
+            <ImageButton
+                android:id="@+id/btnVoiceCaptureRemove"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_marginStart="6dp"
+                android:src="@drawable/ic_close"
+                android:scaleType="center"
+                android:padding="5dp"
+                android:contentDescription="Remove voice caption"/>
+        </LinearLayout>
+
+        <!-- Bottom row: caption + mic + send -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -743,6 +783,24 @@
                 android:scaleType="center"
                 android:padding="9dp"
                 android:contentDescription="Add text"/>
+
+            <!--
+                Feature: Voice Caption on Photo — hold to record a short
+                walkie-talkie-style voice note attached to this photo (see
+                MediaEditActivity#attachVoiceCaptureUi). Hidden for
+                multi-item sends — see the same method.
+            -->
+            <ImageButton
+                android:id="@+id/btnEditMic"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_media_edit_toolbtn"
+                android:src="@drawable/ic_mic"
+                android:scaleType="center"
+                android:padding="9dp"
+                android:contentDescription="Hold to record voice caption"/>
 
             <!-- Send button -->
             <ImageButton

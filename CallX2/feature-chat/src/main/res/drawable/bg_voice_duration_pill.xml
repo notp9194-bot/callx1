@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Feature: Voice Caption on Photo — dark translucent pill behind the
+     play-badge + duration text overlaid on an image bubble that also
+     carries a voice note (m.voiceUrl). Mirrors bg_download_pill's style
+     so both overlays feel like the same visual family. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#8A000000"/>
+    <corners android:radius="16dp"/>
+</shape>

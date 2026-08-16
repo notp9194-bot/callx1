@@ -235,6 +235,14 @@ public class MessageEntity {
      *  GroupReceiptJsonUtil. Null outside group chats / before any member acks. */
     public String groupReadByJson;
 
+    // ── Voice Caption on Photo (v48) ──────────────────────────────────────
+    /** Mirrors Message#voiceUrl — set only on 1:1 image messages that also
+     *  carry a short attached voice note. Null for every plain image. See
+     *  AppDatabase.MIGRATION_47_48. */
+    public String voiceUrl;
+    /** Mirrors Message#voiceDuration (ms). */
+    public Long voiceDuration;
+
     // ── Media dimensions (v43) ──────────────────────────────────────────────
     /**
      * Pixel dimensions of the original image / video-thumbnail — mirrors

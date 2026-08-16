@@ -104,6 +104,10 @@ public class MediaEditActivity extends AppCompatActivity {
     public static final String EXTRA_MEDIA_TYPE_COMPAT = "media_edit_type";
     public static final String RESULT_CAPTION = "media_edit_result_caption";
     public static final String RESULT_HD      = "media_edit_result_hd";
+    /** Feature: Voice Caption on Photo — local file URI of the recorded
+     *  voice clip (see attachVoiceCaptureUi), or absent for a plain send. */
+    public static final String RESULT_VOICE_URI      = "media_edit_result_voice_uri";
+    public static final String RESULT_VOICE_DURATION = "media_edit_result_voice_duration_ms";
 
     // ── Text colors ──────────────────────────────────────────────────────
     static final int[] TEXT_COLORS = {
@@ -206,6 +210,22 @@ public class MediaEditActivity extends AppCompatActivity {
      *  the result is applied in place instead of adding a new overlay. */
     private OverlayItem editingOverlay;
 
+    // ── Feature: Voice Caption on Photo ─────────────────────────────────
+    // Hold-to-record mic button, same VoiceRecorder used by the standalone
+    // chat voice-message gesture (see ChatMediaController#finishAndSend),
+    // just driven from this preview screen instead of the chat input bar.
+    // Only offered for a single-item send — see attachVoiceCaptureUi().
+    private final com.callx.app.utils.VoiceRecorder voiceCaptureRecorder =
+            new com.callx.app.utils.VoiceRecorder();
+    private ImageButton btnEditMic;
+    private View        llVoiceCaptureAttached;
+    private TextView    tvVoiceCaptureDuration;
+    private boolean     isRecordingVoiceCaption = false;
+    /** Local file URI of the finished recording, or null if none/removed. */
+    private Uri  recordedVoiceUri;
+    private long recordedVoiceDurationMs;
+    private ActivityResultLauncher<String> micPermissionLauncher;
+
     // ── Lifecycle ─────────────────────────────────────────────────────────
 
     @Override
@@ -234,6 +254,7 @@ public class MediaEditActivity extends AppCompatActivity {
         setupAdjustPanel();
         setupBottomBar();
         setupFilterSwipeGesture();
+        attachVoiceCaptureUi();
 
         etCaption.setText(getIntent().getStringExtra(EXTRA_CAPTION));
         rebuildThumbStrip();
@@ -315,6 +336,17 @@ public class MediaEditActivity extends AppCompatActivity {
                 renderOverlayView(overlay);
             } else {
                 editingOverlay = null;
+            }
+        });
+
+        // Feature: Voice Caption on Photo — RECORD_AUDIO permission
+        micPermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(), granted -> {
+            if (granted) {
+                startVoiceCaptureRecording();
+            } else {
+                Toast.makeText(this, "Mic permission needed to record a voice caption",
+                        Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -1210,6 +1242,108 @@ public class MediaEditActivity extends AppCompatActivity {
     /** Set on the first Send tap to block a duplicate bake+upload from a fast double-tap. */
     private boolean sendInProgress = false;
 
+    // ── Feature: Voice Caption on Photo ─────────────────────────────────
+    //
+    // Hold btnEditMic → record → release → attach. Deliberately simple
+    // compared to the chat input bar's full press-hold gesture (no
+    // slide-to-cancel/lock/waveform preview here) — this is a short
+    // "walkie-talkie" caption on ONE photo, not a standalone voice message,
+    // so a plain hold-then-release is the right amount of UI. Tap the
+    // attached chip's ✕ to discard and record again.
+
+    private static final long MIN_VOICE_CAPTURE_MS = 500;
+
+    private void attachVoiceCaptureUi() {
+        btnEditMic              = findViewById(R.id.btnEditMic);
+        llVoiceCaptureAttached  = findViewById(R.id.llVoiceCaptureAttached);
+        tvVoiceCaptureDuration  = findViewById(R.id.tvVoiceCaptureDuration);
+        View btnRemove          = findViewById(R.id.btnVoiceCaptureRemove);
+
+        if (btnEditMic == null) return;
+
+        // A voice caption belongs to exactly one photo — hide the mic
+        // entirely for a multi-item send rather than leave an ambiguous
+        // affordance (see RESULT_VOICE_URI's doc for why).
+        if (items.size() != 1 || items.get(0).isVideo) {
+            btnEditMic.setVisibility(View.GONE);
+            return;
+        }
+
+        btnEditMic.setOnTouchListener((v, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    onMicPressDown();
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    if (isRecordingVoiceCaption) onMicRelease();
+                    return true;
+                default:
+                    return false;
+            }
+        });
+
+        if (btnRemove != null) {
+            btnRemove.setOnClickListener(v -> {
+                recordedVoiceUri = null;
+                recordedVoiceDurationMs = 0;
+                if (llVoiceCaptureAttached != null) llVoiceCaptureAttached.setVisibility(View.GONE);
+            });
+        }
+    }
+
+    private void onMicPressDown() {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(this,
+                android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO);
+            return;
+        }
+        startVoiceCaptureRecording();
+    }
+
+    private void startVoiceCaptureRecording() {
+        if (isRecordingVoiceCaption) return;
+        if (!voiceCaptureRecorder.start(this)) {
+            Toast.makeText(this, "Couldn't start recording", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        isRecordingVoiceCaption = true;
+        if (btnEditMic != null) {
+            btnEditMic.setImageResource(R.drawable.ic_mic);
+            btnEditMic.setAlpha(1f);
+            btnEditMic.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+        }
+        Toast.makeText(this, "Recording… release to attach", Toast.LENGTH_SHORT).show();
+    }
+
+    private void onMicRelease() {
+        isRecordingVoiceCaption = false;
+        long durationMs = voiceCaptureRecorder.getDuration();
+        if (durationMs < MIN_VOICE_CAPTURE_MS) {
+            voiceCaptureRecorder.cancel();
+            Toast.makeText(this, "Hold the mic to record a voice caption", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        File finalFile = voiceCaptureRecorder.stopToFile(this);
+        if (finalFile == null) {
+            Toast.makeText(this, "Recording was empty", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        recordedVoiceUri = FileProvider.getUriForFile(
+                this, getPackageName() + ".fileprovider", finalFile);
+        recordedVoiceDurationMs = durationMs;
+
+        if (llVoiceCaptureAttached != null && tvVoiceCaptureDuration != null) {
+            tvVoiceCaptureDuration.setText("\uD83C\uDFA4 Voice caption \u00b7 " + formatVoiceCaptureDuration(durationMs));
+            llVoiceCaptureAttached.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private String formatVoiceCaptureDuration(long ms) {
+        long totalSec = ms / 1000;
+        return String.format(java.util.Locale.getDefault(), "%d:%02d", totalSec / 60, totalSec % 60);
+    }
+
     // ── Thumbnail strip ───────────────────────────────────────────────────
 
     private void rebuildThumbStrip() {
@@ -1539,6 +1673,14 @@ public class MediaEditActivity extends AppCompatActivity {
             String cap = etCaption.getText() != null ? etCaption.getText().toString() : "";
             res.putExtra(RESULT_CAPTION, cap);
             res.putExtra(RESULT_HD, isHD);
+            // Feature: Voice Caption on Photo — only ever set when there's
+            // exactly one item (voiceCaptureUi hides the mic for multi-item
+            // sends, see attachVoiceCaptureUi), so no ambiguity about which
+            // photo it belongs to on the receiving end.
+            if (recordedVoiceUri != null && items.size() == 1) {
+                res.putExtra(RESULT_VOICE_URI, recordedVoiceUri.toString());
+                res.putExtra(RESULT_VOICE_DURATION, recordedVoiceDurationMs);
+            }
             setResult(Activity.RESULT_OK, res);
             finish();
             return;
@@ -2129,5 +2271,6 @@ public class MediaEditActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         bgExec.shutdownNow();
+        if (isRecordingVoiceCaption) voiceCaptureRecorder.cancel();
     }
 }

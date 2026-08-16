@@ -373,6 +373,23 @@ public class ChatMediaController {
                     String caption = result.getData().getStringExtra(MediaEditActivity.RESULT_CAPTION);
                     boolean isHD = result.getData().getBooleanExtra(MediaEditActivity.RESULT_HD, false);
                     pendingMultiSendViewOnce = false;
+
+                    // Feature: Voice Caption on Photo — mic-hold recording
+                    // done right on this preview screen (see
+                    // MediaEditActivity#attachVoiceCaptureUi). Only wired up
+                    // for the single-image case — a voice caption on a
+                    // multi-photo send isn't well-defined, so the mic button
+                    // is hidden there in MediaEditActivity itself.
+                    String voiceUriStr = result.getData().getStringExtra(MediaEditActivity.RESULT_VOICE_URI);
+                    long voiceDurationMs = result.getData().getLongExtra(MediaEditActivity.RESULT_VOICE_DURATION, 0);
+                    if (voiceUriStr != null && !voiceUriStr.isEmpty() && uris.size() == 1) {
+                        Uri imageUri = uris.get(0);
+                        Uri voiceUri = Uri.parse(voiceUriStr);
+                        String finalCaption = caption == null || caption.isEmpty() ? null : caption;
+                        uploadImageWithCaptionAndVoice(imageUri, finalCaption, voiceUri, voiceDurationMs);
+                        return;
+                    }
+
                     uploadSequentially(uris, null, caption == null || caption.isEmpty() ? null : caption, 0, isHD);
                 });
 
@@ -1075,6 +1092,63 @@ public class ChatMediaController {
     // ── Upload & send ─────────────────────────────────────────────────────
 
     public void uploadAndSend(Uri uri, String msgType, String resourceType, String fileName) {
+        uploadAndSend(uri, msgType, resourceType, fileName, null, 0);
+    }
+
+    /**
+     * Feature: Voice Caption on Photo — same as the 4-arg uploadAndSend()
+     * above, but for a single IMAGE that also carries a short voice note
+     * recorded on the MediaEditActivity preview screen (mic-hold gesture,
+     * same VoiceRecorder/VoiceTrimmer pipeline a standalone voice message
+     * uses — see MediaEditActivity#attachVoiceCaptureUi). 1:1 chat only —
+     * GroupChatActivity keeps its own separate ChatMediaController copy and
+     * was intentionally left untouched.
+     *
+     * @param voiceUri        local file URI of the trimmed voice clip, or
+     *                        null for a plain image (falls through to the
+     *                        existing single-bubble image path unchanged).
+     * @param voiceDurationMs duration of the voice clip in ms — carried on
+     *                        the message up front so the play-badge can show
+     *                        a duration even before the clip finishes upload.
+     */
+    /** Entry point used by the MediaEditActivity result handler above —
+     *  single image, optional caption typed on that screen, optional voice
+     *  caption recorded with the mic-hold gesture there. Builds the same
+     *  local-first "image" bubble uploadAndSend() would, just with a
+     *  caption applied up front. */
+    private void uploadImageWithCaptionAndVoice(Uri imageUri, String caption, Uri voiceUri, long voiceDurationMs) {
+        if (!delegate.isOnline()) {
+            Toast.makeText(activity,
+                    "No connection — media send karne ke liye internet chahiye",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        int[] bounds = decodeLocalImageBounds(imageUri);
+        Message pending = delegate.buildOutgoing();
+        pending.type           = "image";
+        pending.mediaLocalPath = imageUri.toString();
+        pending.mediaWidth     = bounds[0] > 0 ? bounds[0] : null;
+        pending.mediaHeight    = bounds[1] > 0 ? bounds[1] : null;
+        if (caption != null && !caption.isEmpty()) {
+            pending.text    = caption;
+            pending.caption = caption;
+        }
+        if (voiceUri != null) {
+            pending.voiceLocalPath = voiceUri.toString();
+            pending.voiceDuration  = voiceDurationMs > 0 ? voiceDurationMs : null;
+        }
+
+        String id = delegate.insertLocalPendingMedia(pending);
+        if (id == null) {
+            Toast.makeText(activity, "Couldn't queue photo — try again", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        delegate.clearReply();
+        startImageUpload(imageUri, pending, false);
+    }
+
+    public void uploadAndSend(Uri uri, String msgType, String resourceType, String fileName,
+                               Uri voiceUri, long voiceDurationMs) {
         if (!delegate.isOnline()) {
             Toast.makeText(activity,
                     "No connection — media send karne ke liye internet chahiye",
@@ -1098,6 +1172,13 @@ public class ChatMediaController {
             pending.mediaLocalPath = uri.toString();
             pending.mediaWidth    = bounds[0] > 0 ? bounds[0] : null;
             pending.mediaHeight   = bounds[1] > 0 ? bounds[1] : null;
+            // Feature: Voice Caption on Photo — see uploadVoiceCaptionThenFinalize()
+            // in finishImageUploadSuccess(), which uploads this once the image
+            // itself succeeds and attaches the result to this SAME message.
+            if (voiceUri != null) {
+                pending.voiceLocalPath = voiceUri.toString();
+                pending.voiceDuration  = voiceDurationMs > 0 ? voiceDurationMs : null;
+            }
 
             String id = delegate.insertLocalPendingMedia(pending);
             if (id == null) {
@@ -1405,7 +1486,45 @@ public class ChatMediaController {
     private void finishImageUploadSuccess(Message pending) {
         String id = pending.messageId != null ? pending.messageId : pending.id;
         if (delegate.getPagingAdapter() != null) delegate.getPagingAdapter().onMediaUploadFinished(id);
+
+        // ── Feature: Voice Caption on Photo ──────────────────────────────
+        // If a voice note was recorded on the MediaEditActivity preview
+        // screen (see attachVoiceCaptureUi/pendingVoiceCaptureUri), the
+        // image itself just finished uploading above — now upload the
+        // voice clip and attach it to this SAME message before finalizing,
+        // so the bubble appears exactly once, already carrying both.
+        if (pending.voiceLocalPath != null && !pending.voiceLocalPath.isEmpty()) {
+            uploadVoiceCaptionThenFinalize(pending);
+            return;
+        }
+
         delegate.finalizeMediaMessage(pending, "\uD83D\uDCF7 Photo");
+    }
+
+    /** Uploads the recorded voice-caption clip (plaintext — E2E for this
+     *  clip is a follow-up, mirrors the graceful-fallback pattern used
+     *  elsewhere in this file) and attaches mediaUrl/duration to `pending`
+     *  before finalizing. If the voice upload fails, the photo is still
+     *  sent on its own rather than blocking/losing the whole message. */
+    private void uploadVoiceCaptionThenFinalize(Message pending) {
+        Uri voiceUri = Uri.parse(pending.voiceLocalPath);
+        String fileNameHint = FileUtils.fileName(activity, voiceUri);
+        CloudinaryUploader.upload(activity, voiceUri, "callx/voice_caption", "raw", fileNameHint,
+                new CloudinaryUploader.UploadCallback() {
+                    @Override public void onProgress(int percent) { /* image progress already reported 100% */ }
+                    @Override public void onSuccess(CloudinaryUploader.Result result) {
+                        pending.voiceUrl = result.secureUrl;
+                        // pending.voiceDuration is already set by the caller
+                        // (see uploadAndSend's image+voice branch below) from
+                        // the recorder's own reported duration at capture time.
+                        delegate.finalizeMediaMessage(pending, "\uD83D\uDCF7\uD83C\uDFA4 Photo");
+                    }
+                    @Override public void onError(String err) {
+                        android.util.Log.w("ChatMediaController",
+                                "Voice caption upload failed, sending photo without it: " + err);
+                        delegate.finalizeMediaMessage(pending, "\uD83D\uDCF7 Photo");
+                    }
+                });
     }
 
     private void finishImageUploadFailure(Message pending, String err) {
@@ -2606,6 +2725,25 @@ public class ChatMediaController {
      *  drag that didn't meaningfully move anything. */
     private static final float TRIM_NOOP_EPSILON = 0.01f;
 
+    /** PERF FIX (ultra-advanced pass): this used to do
+     *  recorder.stopToFile() + VoiceTrimmer.trim() INLINE, on the main
+     *  thread, right here. Both are real I/O-and-codec work —
+     *  MediaRecorder#stop() finalizes the MP4 header (documented to
+     *  potentially block for a while, worse on some OEM encoders), and
+     *  VoiceTrimmer.trim() does a full MediaExtractor→MediaMuxer
+     *  stream-copy of the recorded clip. On a long voice note (or a
+     *  device mid-GC), that was a visible freeze at the exact moment the
+     *  user tapped Send — the mic bar, the whole chat screen, everything
+     *  hitched until the copy finished.
+     *
+     *  Fix: reset the recording UI immediately (nothing below this point
+     *  needs the View tree), then push stop+merge+trim onto
+     *  AppBgExecutor — the same shared background pool this file already
+     *  uses for every other non-UI media step — and hop back to the main
+     *  thread only once we have the final Uri, purely to call
+     *  uploadAndSend(). Net effect: Send now feels instant regardless of
+     *  clip length, and the upload kicks off the moment finalize+trim
+     *  actually complete instead of after an artificial main-thread stall. */
     private void finishAndSend() {
         ActivityChatBinding binding = delegate.getBinding();
         LayoutRecordingBarBinding rb = recordingBar(binding);
@@ -2616,41 +2754,53 @@ public class ChatMediaController {
 
         // Capture the trim selection (Feature: preview adjust — trim
         // start/end drag handles) before resetRecordingUi() wipes it.
-        float trimStart = rb.waveformPreview.getTrimStart();
-        float trimEnd = rb.waveformPreview.getTrimEnd();
+        final float trimStart = rb.waveformPreview.getTrimStart();
+        final float trimEnd = rb.waveformPreview.getTrimEnd();
 
         // Must release the preview MediaPlayer before recorder.stop() —
         // both would otherwise hold the same file at once (only matters if
-        // Send is tapped straight from the paused-preview state).
+        // Send is tapped straight from the paused-preview state). Cheap
+        // (async internal release), stays on the main thread.
         previewPlayer.release();
-        File finalFile = recorder.stopToFile(activity);
+
+        // Snap the input bar back to idle right away — this is pure View
+        // work and has zero dependency on the recorder finalizing, so it
+        // no longer waits behind stop()/trim() like it used to.
         resetRecordingUi(binding);
 
-        if (finalFile == null) {
-            Toast.makeText(activity, "Recording was empty", Toast.LENGTH_SHORT).show();
-            if (recordingListener != null) recordingListener.onRecordingStateChanged(false);
-            return;
-        }
-
-        File toSend = finalFile;
-        boolean trimmed = trimStart > TRIM_NOOP_EPSILON || trimEnd < 1f - TRIM_NOOP_EPSILON;
-        if (trimmed) {
-            File workDir = recorder.getWorkingDir();
-            File out = new File(workDir != null ? workDir : finalFile.getParentFile(),
-                    "vm_trim_" + System.currentTimeMillis() + ".m4a");
-            File result = VoiceTrimmer.trim(finalFile, out, trimStart, trimEnd);
-            if (result != null) {
-                finalFile.delete();
-                toSend = result;
+        com.callx.app.utils.AppBgExecutor.execute(() -> {
+            File finalFile = recorder.stopToFile(activity);
+            if (finalFile == null) {
+                activity.runOnUiThread(() -> {
+                    Toast.makeText(activity, "Recording was empty", Toast.LENGTH_SHORT).show();
+                    if (recordingListener != null) recordingListener.onRecordingStateChanged(false);
+                });
+                return;
             }
-            // If VoiceTrimmer failed, silently fall back to sending the
-            // untrimmed clip — a failed trim should never block a send.
-        }
 
-        Uri uri = FileProvider.getUriForFile(
-                activity, activity.getPackageName() + ".fileprovider", toSend);
-        uploadAndSend(uri, "audio", "raw", null);
-        if (recordingListener != null) recordingListener.onRecordingStateChanged(false);
+            File toSend = finalFile;
+            boolean trimmed = trimStart > TRIM_NOOP_EPSILON || trimEnd < 1f - TRIM_NOOP_EPSILON;
+            if (trimmed) {
+                File workDir = recorder.getWorkingDir();
+                File out = new File(workDir != null ? workDir : finalFile.getParentFile(),
+                        "vm_trim_" + System.currentTimeMillis() + ".m4a");
+                File result = VoiceTrimmer.trim(finalFile, out, trimStart, trimEnd);
+                if (result != null) {
+                    finalFile.delete();
+                    toSend = result;
+                }
+                // If VoiceTrimmer failed, silently fall back to sending the
+                // untrimmed clip — a failed trim should never block a send.
+            }
+
+            final Uri uri = FileProvider.getUriForFile(
+                    activity, activity.getPackageName() + ".fileprovider", toSend);
+
+            activity.runOnUiThread(() -> {
+                uploadAndSend(uri, "audio", "raw", null);
+                if (recordingListener != null) recordingListener.onRecordingStateChanged(false);
+            });
+        });
     }
 
     /** Release happened before MIN_RECORD_DURATION_MS — treat like a

@@ -3447,6 +3447,24 @@ public class GroupChatActivity extends AppCompatActivity
                             com.callx.app.conversation.controllers.MediaEditActivity.RESULT_CAPTION);
                     boolean isHD = result.getData().getBooleanExtra(
                             com.callx.app.conversation.controllers.MediaEditActivity.RESULT_HD, false);
+
+                    // Feature: Voice Caption on Photo — group chat mirror of
+                    // ChatMediaController's 1:1 handling of the same result
+                    // extras (see that class's mediaEditLauncher). Only
+                    // wired for the single-image case, same restriction as
+                    // 1:1 — MediaEditActivity itself hides the mic button
+                    // for a multi-photo send.
+                    String voiceUriStr = result.getData().getStringExtra(
+                            com.callx.app.conversation.controllers.MediaEditActivity.RESULT_VOICE_URI);
+                    long voiceDurationMs = result.getData().getLongExtra(
+                            com.callx.app.conversation.controllers.MediaEditActivity.RESULT_VOICE_DURATION, 0);
+                    if (voiceUriStr != null && !voiceUriStr.isEmpty() && uris.size() == 1) {
+                        Uri voiceUri = Uri.parse(voiceUriStr);
+                        String finalCaption = caption == null || caption.isEmpty() ? null : caption;
+                        uploadGroupImageWithVoice(uris.get(0), finalCaption, voiceUri, voiceDurationMs);
+                        return;
+                    }
+
                     uploadSequentially(uris, null, caption == null || caption.isEmpty() ? null : caption,
                             0, new java.util.ArrayList<>(), isHD);
                 });
@@ -3930,6 +3948,68 @@ public class GroupChatActivity extends AppCompatActivity
             case "file":  return "📎 " + (fileName != null ? fileName : "File");
             default:      return "Media";
         }
+    }
+
+    /**
+     * Feature: Voice Caption on Photo — group chat mirror of
+     * ChatMediaController#uploadImageWithCaptionAndVoice /
+     * uploadVoiceCaptionThenFinalize (1:1 chat). Group chat has no
+     * local-first pending-bubble pipeline for images (see doUpload above —
+     * it already just shows the shared uploadProgress bar and pushes once
+     * on success), so this simply chains the two Cloudinary uploads
+     * (image, then voice clip) and pushes a single "image" message that
+     * already carries both mediaUrl and voiceUrl — same one-bubble result
+     * as the 1:1 path, just without the optimistic local render step.
+     * If the voice upload fails, the photo still sends on its own rather
+     * than losing the whole message.
+     */
+    private void uploadGroupImageWithVoice(Uri imageUri, String caption, Uri voiceUri, long voiceDurationMs) {
+        if (!isOnline()) {
+            Toast.makeText(this,
+                    "No connection — media send kar'ne ke liye internet chahiye",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        binding.uploadProgress.setVisibility(View.VISIBLE);
+        CloudinaryUploader.upload(this, imageUri, "callx/image", "image",
+                new CloudinaryUploader.UploadCallback() {
+                    @Override public void onSuccess(CloudinaryUploader.Result imgResult) {
+                        Message m  = buildOutgoing();
+                        m.type     = "image";
+                        m.mediaUrl = imgResult.secureUrl;
+                        m.imageUrl = imgResult.secureUrl;
+                        m.fileSize = imgResult.bytes;
+                        if (caption != null && !caption.isEmpty()) {
+                            m.text    = caption;
+                            m.caption = caption;
+                        }
+
+                        String voiceFileNameHint = FileUtils.fileName(GroupChatActivity.this, voiceUri);
+                        CloudinaryUploader.upload(GroupChatActivity.this, voiceUri,
+                                "callx/voice_caption", "raw", voiceFileNameHint,
+                                new CloudinaryUploader.UploadCallback() {
+                                    @Override public void onSuccess(CloudinaryUploader.Result voiceResult) {
+                                        m.voiceUrl      = voiceResult.secureUrl;
+                                        m.voiceDuration = voiceDurationMs > 0 ? voiceDurationMs : null;
+                                        binding.uploadProgress.setVisibility(View.GONE);
+                                        pushMessage(m, "\uD83D\uDCF7\uD83C\uDFA4 Photo");
+                                        clearReply();
+                                    }
+                                    @Override public void onError(String err) {
+                                        android.util.Log.w("GroupChat",
+                                                "Voice caption upload failed, sending photo without it: " + err);
+                                        binding.uploadProgress.setVisibility(View.GONE);
+                                        pushMessage(m, "\uD83D\uDCF7 Photo");
+                                        clearReply();
+                                    }
+                                });
+                    }
+                    @Override public void onError(String err) {
+                        binding.uploadProgress.setVisibility(View.GONE);
+                        Toast.makeText(GroupChatActivity.this,
+                                err != null ? err : "Upload failed", Toast.LENGTH_LONG).show();
+                    }
+                });
     }
 
     // ── Voice recording — press & hold, WhatsApp style ──────────────────────

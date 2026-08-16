@@ -274,6 +274,59 @@
                 </LinearLayout>
             </FrameLayout>
 
+            <!--
+                Feature: Voice Caption on Photo — play badge + duration pill
+                overlaid on iv_image's bottom-start corner, shown only when
+                m.voiceUrl is set (see MessagePagingAdapter's "image" bind
+                case). wrap_content + bottom|start gravity so it never
+                blocks the rest of the photo from being tapped to open the
+                full-screen viewer — only this small pill is clickable.
+                Drawn after fl_download_overlay so it stays on top once the
+                photo finishes downloading and the overlay hides.
+            -->
+            <FrameLayout
+                android:id="@+id/fl_voice_on_image"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|start"
+                android:layout_margin="8dp"
+                android:background="@drawable/bg_voice_duration_pill"
+                android:clickable="true"
+                android:focusable="true"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingStart="4dp"
+                    android:paddingEnd="10dp"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="4dp">
+
+                    <ImageView
+                        android:id="@+id/iv_voice_play_on_image"
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
+                        android:padding="4dp"
+                        android:background="@drawable/bg_voice_play_badge"
+                        android:src="@drawable/ic_play"
+                        android:tint="#FFFFFFFF"/>
+
+                    <TextView
+                        android:id="@+id/tv_voice_duration_on_image"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:text="0:00"
+                        android:textColor="#FFFFFFFF"
+                        android:textSize="11sp"
+                        android:textStyle="bold"/>
+
+                </LinearLayout>
+            </FrameLayout>
+
             <!-- Multi Media Group -->
             <LinearLayout
                 android:id="@+id/ll_media_group"

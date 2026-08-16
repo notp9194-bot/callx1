@@ -58,7 +58,7 @@ import com.callx.app.db.entity.*;
         PaymentAccountEntity.class,
         PaymentPinEntity.class
     },
-    version = 47,
+    version = 48,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -607,6 +607,18 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** v48: Voice Caption on Photo — messages table gets voiceUrl/voiceDuration
+     *  columns (see MessageEntity#voiceUrl / Message#voiceUrl). Set only on
+     *  1:1 image messages recorded with the mic-hold gesture on
+     *  MediaEditActivity's preview screen; null on every other message. */
+    static final Migration MIGRATION_47_48 = new Migration(47, 48) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN voiceUrl TEXT");
+            db.execSQL("ALTER TABLE messages ADD COLUMN voiceDuration INTEGER");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -647,7 +659,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_38_39, MIGRATION_39_40,
                                     MIGRATION_40_41, MIGRATION_41_42,
                                     MIGRATION_42_43, MIGRATION_43_44,
-                                    MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47)
+                                    MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47,
+                                    MIGRATION_47_48)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)
