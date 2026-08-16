@@ -118,6 +118,24 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
     // whole table.
     private static final int MAX_PRESERVED_BEFORE_CONTEXT = 400;
 
+    // ROOT-CAUSE FIX #2 (still-flickering after the before-context fix
+    // above — confirmed by on-device ChatPagingDebug log): a bottom-
+    // anchored REFRESH used to cap its "after the anchor" fetch at a
+    // plain `pageSize` (15). Combined with the stale-anchor bug fixed in
+    // getRefreshKey() below, the anchor was often already several+
+    // messages BEHIND the true tail, so 15 "after" rows wasn't enough to
+    // reach it — nextKey stayed non-null, and Paging3's own prefetch
+    // machinery immediately fired a follow-up APPEND load a moment later
+    // to fetch the rest. That's a SECOND, separate insert/diff pass per
+    // send — visibly the list "rebuilding again" a beat after the first
+    // update. A bottom-anchored refresh should always resolve the WHOLE
+    // way to the true tail in one query — there is normally only a
+    // handful of new messages to catch up on, never remotely close to
+    // this ceiling — so raising it to a generous cap (matching
+    // MAX_PRESERVED_BEFORE_CONTEXT's magnitude) means nextKey comes back
+    // null and there is nothing left for Paging to auto-append.
+    private static final int MAX_BOTTOM_CATCHUP_AFTER = 400;
+
     // Set by getRefreshKey() to the real number of messages already loaded
     // before the anchor; read by loadSingle() to size the anchor-REFRESH's
     // "before" fetch. Defaults to MIN_BOTTOM_CONTEXT only for the (rare)
@@ -270,7 +288,11 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
                 // much larger than pageSize/2 — always give it a full
                 // pageSize budget so new tail messages are never starved by
                 // a big preserved "before" window.
-                int afterLimit = refreshAtLatest ? pageSize : (pageSize - before.size());
+                // ROOT-CAUSE FIX #2 (see MAX_BOTTOM_CATCHUP_AFTER's doc): a
+                // bottom-anchored refresh always resolves fully to the true
+                // tail in one query instead of leaving nextKey non-null for
+                // Paging to auto-append a moment later.
+                int afterLimit = refreshAtLatest ? MAX_BOTTOM_CATCHUP_AFTER : (pageSize - before.size());
                 // DEBUG (temporary — remove once the flicker-on-send root
                 // cause is confirmed from a real device log): logs exactly
                 // what every anchor-REFRESH actually fetches, so a repro'd
@@ -296,6 +318,16 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
                         "loadSingle REFRESH(anchored) RESULT: before.size=" + before.size()
                         + " fromAnchor.size=" + fromAnchor.size() + " totalPage=" + page.size()
                         + " prevKey=" + (prevKey != null) + " nextKey=" + (nextKey != null));
+                // Keep this generation's own bookkeeping in sync with what
+                // was ACTUALLY just loaded, so a second send/receive shortly
+                // after (before the user does anything else) anchors on the
+                // real new tail instead of the pre-refresh anchor — and so
+                // the next refresh's "before" budget reflects how much is
+                // genuinely on screen now, not a stale pre-refresh value.
+                if (refreshAtLatest && !page.isEmpty()) {
+                    lastKnownAnchor = cursorOf(page.get(page.size() - 1));
+                    lastKnownBeforeCount = Math.max(lastKnownBeforeCount, page.size() - 1);
+                }
             }
 
             return (LoadResult<MessageCursor, MessageEntity>) new LoadResult.Page<>(
@@ -345,7 +377,35 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
                 "getRefreshKey: anchorPosition=" + anchorPosition
                 + " anchorFound=" + (anchor != null)
                 + " lastKnownAnchor=" + (lastKnownAnchor != null)
-                + " lastKnownBeforeCount(before-update)=" + lastKnownBeforeCount);
+                + " lastKnownBeforeCount(before-update)=" + lastKnownBeforeCount
+                + " refreshAtLatest=" + refreshAtLatest);
+        // ROOT-CAUSE FIX #3 (still-flickering after fixes #1/#2 — confirmed
+        // by on-device log): state.getAnchorPosition()/closestItemToPosition
+        // reflect wherever Paging3's OWN internal scroll tracker last landed
+        // — which only updates from genuine user-driven scroll events. This
+        // app auto-scrolls to the bottom programmatically on send/receive,
+        // so that tracker routinely stays parked at position 0 (the OLDEST
+        // loaded row) instead of the newest one — the log showed the exact
+        // same old anchor.ts repeating across several sends in a row even
+        // though newer messages existed. Anchoring a bottom-refresh on that
+        // stale position meant the fetch started from way behind the true
+        // tail, which is what forced the too-small MAX_BOTTOM_CATCHUP_AFTER-
+        // sized fetch (see fix #2) to fall short in the first place.
+        //
+        // Fix: when ChatActivity has told us the user IS at the bottom
+        // (refreshAtLatest, set from its own isUserAtBottom scroll-listener
+        // tracking — see reanchorPagingToBottom() — which is authoritative
+        // here, unlike Paging3's internal tracker), skip the position-based
+        // anchor entirely and refresh from lastKnownAnchor: this generation's
+        // own last genuinely-resolved tail (seeded from the previous
+        // generation, and kept current by loadSingle()'s post-load update
+        // above). Only a true first-ever refresh has no lastKnownAnchor yet,
+        // which correctly falls through to null → "load the newest page".
+        // Position-based tracking remains exactly as before for the "reading
+        // history" (not at the bottom) case, where it's accurate and wanted.
+        if (refreshAtLatest) {
+            return lastKnownAnchor;
+        }
         if (anchor != null && anchor.timestamp != null && anchor.id != null) {
             MessageCursor resolved = new MessageCursor(anchor.timestamp, anchor.id);
             lastKnownAnchor = resolved; // remember for the next generation, see field doc
