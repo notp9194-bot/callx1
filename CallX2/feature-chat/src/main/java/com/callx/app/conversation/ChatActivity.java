@@ -2612,6 +2612,23 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         // too, not just the anchor cursor itself.
                         src.seedLastKnownBeforeCount(previous.getLastKnownBeforeCount());
                     }
+                    // BUG FIX (flicker/double-insert on every send — confirmed via
+                    // ChatPagingDebug log): setRefreshAtLatest() used to only be
+                    // called from reanchorPagingToBottom(), on the OLD source
+                    // instance, right before .invalidate(). But invalidate() makes
+                    // Paging3 call THIS factory to build a brand-new
+                    // MessageKeysetPagingSource for the next generation — so that
+                    // set-on-the-old-instance call never reached the source that
+                    // actually runs loadSingle(). The new instance's refreshAtLatest
+                    // silently defaulted back to false every time, so a bottom-
+                    // anchored send was refreshing as if the user were mid-history:
+                    // smaller beforeLimit/afterLimit, nextKey left non-null, and
+                    // Paging then auto-fired an immediate follow-up APPEND load a
+                    // moment later — two separate insert/rebuild passes per send,
+                    // which is exactly the flicker/junk. Seed it here, on every new
+                    // instance, from the live isUserAtBottom field — same pattern
+                    // already used for lastKnownAnchor/lastKnownBeforeCount above.
+                    src.setRefreshAtLatest(isUserAtBottom);
                     // Paging3 calls this factory again on its own every time
                     // the previous source is invalidated (manually via
                     // reanchorPagingToBottom() below, or from any other
@@ -2708,6 +2725,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         "reanchorPagingToBottom FIRING: isUserAtBottom=" + isUserAtBottom
                         + " srcNonNull=" + (src != null));
                 if (src != null) {
+                    // NOTE: this setRefreshAtLatest() call only affects the
+                    // CURRENT (about-to-be-invalidated) instance — harmless to
+                    // leave in case anything else ever reads the flag off `src`
+                    // directly, but it is NOT what the next generation's
+                    // loadSingle() actually sees. See the factory lambda in
+                    // attachPagerWithKey() (search "BUG FIX (flicker/double-
+                    // insert") for where the value that matters is now seeded.
                     src.setRefreshAtLatest(isUserAtBottom);
                     src.invalidate();
                 }
