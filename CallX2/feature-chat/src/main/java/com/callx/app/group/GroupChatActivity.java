@@ -1632,8 +1632,7 @@ public class GroupChatActivity extends AppCompatActivity
             @Override public void afterTextChanged(Editable s) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
                 boolean has = s.toString().trim().length() > 0;
-                binding.btnSend.setVisibility(has ? View.VISIBLE : View.GONE);
-                binding.btnMic.setVisibility(has ? View.GONE : View.VISIBLE);
+                binding.chatIconBar.setHasText(has);
                 if (composeLinkPreview != null) composeLinkPreview.onTextChanged(s.toString());
 
                 // Character counter: 200 se kam bacha ho toh dikhao
@@ -1663,17 +1662,17 @@ public class GroupChatActivity extends AppCompatActivity
                 }
             }
         });
-        binding.btnAttach.setOnClickListener(v -> showAttachSheet());
-        binding.btnCamera.setOnClickListener(v -> imagePicker.launch("image/*"));
-        binding.btnSend.setOnClickListener(v -> sendText());
-        binding.btnSend.setOnLongClickListener(v -> {
-            if (groupScheduledController == null) return false;
+        binding.chatIconBar.setOnAttachClickListener(() -> showAttachSheet());
+        binding.chatIconBar.setOnCameraClickListener(() -> imagePicker.launch("image/*"));
+        binding.chatIconBar.setOnSendClickListener(this::sendText);
+        binding.chatIconBar.setOnSendLongClickListener(() -> {
+            if (groupScheduledController == null) return;
+            binding.chatIconBar.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
             String text = binding.etMessage.getText().toString().trim();
             groupScheduledController.showSchedulePicker(text, () -> {
                 binding.etMessage.setText("");
                 clearReply();
             });
-            return true;
         });
         attachMicGesture();
 
@@ -2062,14 +2061,8 @@ public class GroupChatActivity extends AppCompatActivity
     // v17: Send button offline hone par disable
     private void updateSendButtonState(boolean online) {
         if (binding == null) return;
-        if (binding.btnSend != null) {
-            binding.btnSend.setEnabled(online);
-            binding.btnSend.setAlpha(online ? 1.0f : 0.4f);
-        }
-        if (binding.btnMic != null) {
-            binding.btnMic.setEnabled(online);
-            binding.btnMic.setAlpha(online ? 1.0f : 0.4f);
-        }
+        binding.chatIconBar.setSendEnabled(online);
+        binding.chatIconBar.setMicEnabled(online);
     }
 
     // v17: Online hone par pending messages retry
@@ -3933,6 +3926,17 @@ public class GroupChatActivity extends AppCompatActivity
     // sends the recording as-is (this is what makes a plain quick tap record
     // + send a short clip — same as WhatsApp, not a bug).
 
+    /** Drives ChatIconBarView's micIconScale bean property, replacing the
+     *  old direct btnMic.animate().scaleX/scaleY() calls now that the mic
+     *  icon is drawn inside the combined canvas view instead of being its
+     *  own ImageButton. */
+    private void animateMicScale(float target, android.view.animation.Interpolator interpolator) {
+        ObjectAnimator anim = ObjectAnimator.ofFloat(binding.chatIconBar, "micIconScale", target);
+        anim.setDuration(150);
+        anim.setInterpolator(interpolator);
+        anim.start();
+    }
+
     private void attachMicGesture() {
         float density = getResources().getDisplayMetrics().density;
         cancelThresholdPx = CANCEL_THRESHOLD_DP * density;
@@ -3941,7 +3945,7 @@ public class GroupChatActivity extends AppCompatActivity
         maxLockDragPx     = MAX_LOCK_DRAG_DP    * density;
         axisDeadzonePx    = AXIS_DEADZONE_DP    * density;
 
-        binding.btnMic.setOnTouchListener(this::onMicTouch);
+        binding.chatIconBar.setMicTouchListener(this::onMicTouch);
         binding.btnRecordDelete.setOnClickListener(v -> finishCancel());
         binding.btnRecordSend.setOnClickListener(v -> finishAndSend());
     }
@@ -4019,9 +4023,8 @@ public class GroupChatActivity extends AppCompatActivity
         binding.cvRecordLock.animate().alpha(1f).setDuration(120).start();
         binding.ivRecordLockIcon.setImageResource(R.drawable.ic_record_lock_open);
 
-        binding.btnMic.animate().scaleX(1.15f).scaleY(1.15f).setDuration(150)
-                .setInterpolator(new OvershootInterpolator()).start();
-        binding.btnMic.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        animateMicScale(1.15f, new OvershootInterpolator());
+        binding.chatIconBar.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
 
         recordTickRunnable = () -> {
             if (recordState == RecordState.IDLE) return;
@@ -4053,11 +4056,10 @@ public class GroupChatActivity extends AppCompatActivity
         float cancelProgress = Math.min(1f, -clampedDx / cancelThresholdPx);
         binding.llSlideCancel.setAlpha(1f - cancelProgress * 0.85f);
         float micShrink = 1.15f - cancelProgress * 0.15f;
-        binding.btnMic.setScaleX(micShrink);
-        binding.btnMic.setScaleY(micShrink);
+        binding.chatIconBar.setMicIconScale(micShrink);
 
         if (-dx >= cancelThresholdPx) {
-            binding.btnMic.performHapticFeedback(HapticFeedbackConstants.REJECT);
+            binding.chatIconBar.performHapticFeedback(HapticFeedbackConstants.REJECT);
             finishCancel();
         }
     }
@@ -4069,7 +4071,7 @@ public class GroupChatActivity extends AppCompatActivity
     private void lockRecording() {
         if (recordState == RecordState.LOCKED) return;
         recordState = RecordState.LOCKED;
-        binding.btnMic.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
+        binding.chatIconBar.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
         binding.ivRecordLockIcon.setImageResource(R.drawable.ic_record_lock_closed);
 
         binding.cvRecordLock.animate()
@@ -4079,8 +4081,7 @@ public class GroupChatActivity extends AppCompatActivity
                 .withEndAction(() -> binding.cvRecordLock.setVisibility(View.GONE))
                 .start();
 
-        binding.btnMic.animate().scaleX(1f).scaleY(1f).setDuration(150)
-                .setInterpolator(new OvershootInterpolator()).start();
+        animateMicScale(1f, new OvershootInterpolator());
 
         binding.llSlideCancel.animate().alpha(0f).setDuration(150)
                 .withEndAction(() -> binding.llSlideCancel.setVisibility(View.INVISIBLE)).start();
@@ -4114,7 +4115,7 @@ public class GroupChatActivity extends AppCompatActivity
         recordHandler.removeCallbacksAndMessages(null);
         recorder.cancel();
         resetRecordingUi();
-        binding.btnMic.performHapticFeedback(HapticFeedbackConstants.REJECT);
+        binding.chatIconBar.performHapticFeedback(HapticFeedbackConstants.REJECT);
         Toast.makeText(this, "Hold the mic to record a voice message", Toast.LENGTH_SHORT).show();
     }
 
@@ -4131,8 +4132,7 @@ public class GroupChatActivity extends AppCompatActivity
     private void resetRecordingUi() {
         dragAxis = null;
 
-        binding.btnMic.animate().scaleX(1f).scaleY(1f).setDuration(150)
-                .setInterpolator(new OvershootInterpolator()).start();
+        animateMicScale(1f, new OvershootInterpolator());
 
         binding.llRecordingBar.animate().alpha(0f).setDuration(120).withEndAction(() -> {
             binding.llRecordingBar.setVisibility(View.GONE);
@@ -4368,23 +4368,11 @@ public class GroupChatActivity extends AppCompatActivity
                 binding.fabBackToLatest,
                 replyAccent);
 
-        // Kept inline here (GroupChatActivity still uses separate
-        // ImageButtons, not the merged ChatIconBarView) since
-        // ChatThemeManager#applyScreenTheme() no longer touches
-        // btnSend/btnMic backgrounds directly.
-        int brandColor = mgr.getPrimaryColor();
-        if (binding.btnSend != null) {
-            android.graphics.drawable.GradientDrawable sd = new android.graphics.drawable.GradientDrawable();
-            sd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-            sd.setColor(brandColor);
-            binding.btnSend.setBackground(sd);
-        }
-        if (binding.btnMic != null) {
-            android.graphics.drawable.GradientDrawable md = new android.graphics.drawable.GradientDrawable();
-            md.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-            md.setColor(brandColor);
-            binding.btnMic.setBackground(md);
-        }
+        // Icon-bar merge: mic/send are now painted inside the single
+        // ChatIconBarView, so the accent is applied via setAccentColor()
+        // instead of swapping a GradientDrawable background on separate
+        // btnSend/btnMic ImageButtons.
+        binding.chatIconBar.setAccentColor(mgr.getPrimaryColor());
 
         // Apply wallpaper
         applyWallpaper();

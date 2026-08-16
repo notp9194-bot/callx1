@@ -772,7 +772,7 @@
                             android:maxLines="4"
                             android:maxLength="4000"
                             app:layout_constraintStart_toEndOf="@id/btn_view_once"
-                            app:layout_constraintEnd_toStartOf="@id/btn_attach"
+                            app:layout_constraintEnd_toStartOf="@id/chat_icon_bar"
                             app:layout_constraintTop_toTopOf="parent"
                             app:layout_constraintBottom_toBottomOf="parent"/>
 
