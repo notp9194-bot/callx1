@@ -1284,19 +1284,34 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     @Override
     public void pushMessage(Message m, String previewText) {
-        // TELEGRAM-LEVEL SCROLL FIX: when WE send something, we always want
-        // to land on it — Telegram/WhatsApp never leave you stranded up in
-        // old history after you hit Send, even if you'd scrolled up to read
-        // something first. The auto-scroll-on-tail-insert listener in
-        // setupPagingRecyclerView() only fires when isUserAtBottom is true,
-        // so without this, sending while scrolled up left the viewport
-        // exactly where it was — the just-sent bubble landed off-screen
-        // below, and the list visibly stayed "stuck" in old messages
-        // instead of following the message you just sent. Setting this
-        // eagerly (before the Room write / Paging refresh even happens)
-        // guarantees the flag is already true by the time the insert
-        // callback runs, however soon that fires.
-        isUserAtBottom = true;
+        // ROOT-CAUSE FIX (list flicker/rebuild + forced jump-to-bottom on
+        // every text/forward send — NOT present on media sends, which never
+        // touch this method): this used to force `isUserAtBottom = true`
+        // right here, eagerly, before the Room write / Paging refresh even
+        // ran — even when the user was genuinely scrolled up reading old
+        // history. That value feeds straight into
+        // reanchorPagingToBottom() → MessageKeysetPagingSource.setRefreshAtLatest(),
+        // which trims the refreshed window down to just MIN_BOTTOM_CONTEXT
+        // (6) messages of "before" context around the anchor — correct for
+        // someone who really is at the bottom, but catastrophic for someone
+        // in history: it silently dropped most of the already-loaded older
+        // messages from Paging's window. Nothing looked wrong yet — until
+        // the auto-scroll (below) landed the user at the bottom and they
+        // scrolled back up, at which point Paging had to reload all that
+        // "forgotten" history from Room from scratch. THAT reload is what
+        // showed up as old messages flickering/rebuilding, immediately
+        // followed by getting yanked back to the bottom.
+        //
+        // This eager set was never actually needed for the auto-scroll
+        // itself: onItemRangeInserted's `ownMessageInThisInsert` check
+        // (search that name below) already auto-scrolls to any message WE
+        // just sent regardless of isUserAtBottom's prior value — that's
+        // the real "Telegram/WhatsApp never leave you stranded in old
+        // history after you hit Send" mechanism, and it correctly sets
+        // isUserAtBottom = true itself, AFTER the refresh, once we've
+        // actually decided to land there. Forcing the flag here, before
+        // the refresh, only fed the wrong bias into the refresh sizing
+        // above — so it's removed rather than fixed-in-place.
 
         // Feature 13: View Once — apply tag if toggle is ON, then auto-reset
         // (one-shot per message, same UX pattern as WhatsApp's view-once camera).
@@ -2586,7 +2601,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     // which then has to be reloaded from scratch (looks like
                     // the whole list rebuilding) the next time they scroll up.
                     com.callx.app.db.paging.MessageKeysetPagingSource previous = currentKeysetSource;
-                    if (previous != null) src.seedLastKnownAnchor(previous.getLastKnownAnchor());
+                    if (previous != null) {
+                        src.seedLastKnownAnchor(previous.getLastKnownAnchor());
+                        // See MessageKeysetPagingSource#seedLastKnownBeforeCount's
+                        // doc — carries the real preserved-history size forward
+                        // too, not just the anchor cursor itself.
+                        src.seedLastKnownBeforeCount(previous.getLastKnownBeforeCount());
+                    }
                     // Paging3 calls this factory again on its own every time
                     // the previous source is invalidated (manually via
                     // reanchorPagingToBottom() below, or from any other

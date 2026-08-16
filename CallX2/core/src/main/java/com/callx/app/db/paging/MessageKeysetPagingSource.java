@@ -90,6 +90,40 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
     // the very first refreshed page instead.
     private static final int MIN_BOTTOM_CONTEXT = 6;
 
+    // ROOT-CAUSE FIX (flicker + jump-then-snap-back-to-bottom on EVERY send,
+    // even while genuinely at the bottom): MIN_BOTTOM_CONTEXT above caps the
+    // "before" context of a bottom-anchored refresh at a tiny fixed 6 rows —
+    // meaning every single send discards almost the ENTIRE previously-loaded
+    // window (however many messages were actually loaded — often way more
+    // than 6 in any real session) down to just those 6. That's invisible for
+    // exactly one frame... until Paging3's own prefetch machinery (PREFETCH_DIST
+    // in ChatActivity's PagingConfig) immediately notices the window shrank
+    // and fires a follow-up PREPEND to refill it back to where it was. That
+    // shrink-then-immediately-regrow is a second, distinct diff/relayout
+    // happening a frame or two after the first — which is exactly what shows
+    // up as: screen jumps, flickers, "list rebuilds", then snaps back to the
+    // bottom. This reproduces on every send, not just ones made from history,
+    // because refreshAtLatest is true (hence this trimming path runs) for
+    // every bottom-anchored send.
+    //
+    // Fix: don't trim to a tiny fixed budget at all. Preserve however much
+    // "before" context was ACTUALLY already loaded (state.getAnchorPosition()
+    // in getRefreshKey() below already IS that count, with placeholders
+    // disabled — see ChatActivity's PagingConfig(..., false, ...)), so a
+    // refresh never has to discard-then-immediately-refetch anything. Capped
+    // at MAX_PRESERVED_BEFORE_CONTEXT purely as a safety ceiling for a
+    // session that's scrolled through a huge amount of history right before
+    // sending — still a plain keyset LIMIT query (see loadSingle()), so this
+    // costs proportionally to rows returned, never an OFFSET scan of the
+    // whole table.
+    private static final int MAX_PRESERVED_BEFORE_CONTEXT = 400;
+
+    // Set by getRefreshKey() to the real number of messages already loaded
+    // before the anchor; read by loadSingle() to size the anchor-REFRESH's
+    // "before" fetch. Defaults to MIN_BOTTOM_CONTEXT only for the (rare)
+    // case a refresh fires before any anchor position has ever been resolved.
+    private volatile int lastKnownBeforeCount = MIN_BOTTOM_CONTEXT;
+
     // BUG FIX (list "rebuilds" on scroll-up after back-to-back sends, e.g.
     // an image send immediately followed by a text send): getRefreshKey()
     // falls back to `return null` whenever Paging3 hasn't recorded an
@@ -138,6 +172,24 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
      */
     public void seedLastKnownAnchor(@Nullable MessageCursor anchor) {
         if (anchor != null) this.lastKnownAnchor = anchor;
+    }
+
+    /**
+     * Carries the last known "before" context size forward into a brand-new
+     * PagingSource generation, same reasoning as {@link #seedLastKnownAnchor}
+     * — see {@link #lastKnownBeforeCount}'s doc. Without this, two sends
+     * close together would each start their own fresh generation at the
+     * MIN_BOTTOM_CONTEXT default, re-introducing the discard-then-regrow
+     * flicker for the second send even though the first send's generation
+     * already knew the real count.
+     */
+    public void seedLastKnownBeforeCount(int count) {
+        if (count > this.lastKnownBeforeCount) this.lastKnownBeforeCount = count;
+    }
+
+    /** @return the real "before" context size this instance last resolved. */
+    public int getLastKnownBeforeCount() {
+        return lastKnownBeforeCount;
     }
 
     /** @return the last anchor this instance resolved, to seed the next generation with. */
@@ -208,12 +260,17 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
                 // no "latest" bias to apply there.
                 MessageCursor anchor = params.getKey();
                 int beforeLimit = refreshAtLatest
-                        ? Math.min(pageSize / 2, MIN_BOTTOM_CONTEXT)
+                        ? Math.min(Math.max(lastKnownBeforeCount, MIN_BOTTOM_CONTEXT), MAX_PRESERVED_BEFORE_CONTEXT)
                         : pageSize / 2;
                 List<MessageEntity> beforeDesc = dao.getMessagesBeforeDesc(chatId, anchor.timestamp, anchor.id, beforeLimit);
                 List<MessageEntity> before = new ArrayList<>(beforeDesc);
                 Collections.reverse(before); // DESC → ASC
-                int afterLimit = pageSize - before.size();
+                // Bottom-anchored: "after" no longer has to squeeze into
+                // (pageSize - before.size()) now that before.size() can be
+                // much larger than pageSize/2 — always give it a full
+                // pageSize budget so new tail messages are never starved by
+                // a big preserved "before" window.
+                int afterLimit = refreshAtLatest ? pageSize : (pageSize - before.size());
                 // Inclusive of the anchor itself, so the target message
                 // (whose (timestamp, id) == anchor) is guaranteed to be part
                 // of this page even if other messages share its timestamp.
@@ -273,6 +330,13 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
         if (anchor != null && anchor.timestamp != null && anchor.id != null) {
             MessageCursor resolved = new MessageCursor(anchor.timestamp, anchor.id);
             lastKnownAnchor = resolved; // remember for the next generation, see field doc
+            // anchorPosition is a real loaded-item count before the anchor
+            // (placeholders are disabled — enablePlaceholders=false in
+            // ChatActivity's PagingConfig), so this is exactly how many
+            // "before" rows loadSingle() needs to fetch to avoid discarding
+            // anything already on screen. See MAX_PRESERVED_BEFORE_CONTEXT's
+            // doc for why this replaced the old fixed MIN_BOTTOM_CONTEXT trim.
+            lastKnownBeforeCount = anchorPosition;
             return resolved;
         }
         // No anchor recorded yet on THIS generation (see field doc above) —
