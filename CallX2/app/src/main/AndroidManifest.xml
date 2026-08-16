@@ -99,6 +99,21 @@
             android:exported="false"
             android:theme="@style/Theme.CallX"/>
 
+        <!-- Kali X image splash screen — app ka LAUNCHER entry point.
+             User-supplied PNG (res/drawable-nodpi/splash_screen_image.png)
+             full-bleed dikhata hai, phir MainActivity par forward karta
+             hai. See com.callx.app.splash.SplashActivity. -->
+        <activity
+            android:name="com.callx.app.splash.SplashActivity"
+            android:exported="true"
+            android:theme="@style/Theme.CallX.Splash"
+            android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".activities.MainActivity"
             android:exported="true"
@@ -106,21 +121,16 @@
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboard|keyboardHidden|uiMode"
-            android:theme="@style/Theme.CallX.Splash"
+            android:theme="@style/Theme.CallX"
             android:layout="@xml/layout">
-            <!-- FASTEST-OPEN FIX: MainActivity is now the app's single
-                 LAUNCHER entry point (WhatsApp/Instagram-style — the home
-                 screen IS the app; login is only a detour, not the front
-                 door). android:theme is Theme.CallX.Splash so the OS-level
-                 SplashScreen (icon on solid background, drawn before any
-                 app code runs) shows on EVERY cold start, then
-                 SplashScreen.installSplashScreen(this) in onCreate() swaps
-                 to Theme.CallX and keeps the splash up until the real
-                 first frame is ready to draw. -->
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
+            <!-- FASTEST-OPEN FIX note (superseded): MainActivity used to be
+                 the app's single LAUNCHER entry point for cold-start speed.
+                 SplashActivity (above) is now the LAUNCHER instead, showing
+                 the Kali X image splash first, then forwarding here — so
+                 MainActivity keeps its plain Theme.CallX (no OS-level
+                 SplashScreen.installSplashScreen double-flash on top of our
+                 own image splash). MainActivity is still reachable directly
+                 via the intent-filters below (notifications / deep links). -->
 
             <!-- Handles taps on reel notifications when app is killed/Doze
                  FCM notification payload: click_action = "OPEN_REEL_NOTIFICATION" -->

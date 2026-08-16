@@ -129,18 +129,12 @@ public class MainActivity extends AppCompatActivity
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // ── FASTEST-OPEN FIX: install the system splash screen FIRST ──────
-        // Must be called before super.onCreate(). This makes the OS keep
-        // showing the Theme.CallX.Splash icon/background (already on
-        // screen since before Application.onCreate even ran) instead of
-        // tearing it down for a blank window while the rest of onCreate
-        // below does its work. Default dismiss condition is "this
-        // Activity's first frame is drawn", which — since we now gate
-        // everything behind the auth check right below — means the splash
-        // stays up either through the brief auth-check-and-redirect (not
-        // logged in) or straight through to the real UI being ready to
-        // paint (logged in), never a blank/white flash in between.
-        androidx.core.splashscreen.SplashScreen.installSplashScreen(this);
+        // NOTE: OS-level SplashScreen.installSplashScreen() removed from
+        // here — com.callx.app.splash.SplashActivity (the Kali X image
+        // splash) is now the app's LAUNCHER and always runs before this
+        // Activity, so a second system splash on top of it is unnecessary
+        // and would just double-flash. MainActivity now uses plain
+        // Theme.CallX (see AndroidManifest).
 
         // MUST be called before super.onCreate / setContentView so the window
         // is configured for edge-to-edge before any layout pass happens.

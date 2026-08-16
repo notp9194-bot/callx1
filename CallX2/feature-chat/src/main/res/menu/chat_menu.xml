@@ -64,28 +64,6 @@
         android:title="🖥️ Display Mode"
         app:showAsAction="never"/>
 
-    <!-- Header/input bar shape toggle — default is Fixed (flat, Telegram-
-         style, lighter to draw). Selecting this switches to the rounded
-         floating Capsule look instead; title flips to reflect current
-         state (see ChatActivity#setupOverflowMenu). -->
-    <item android:id="@+id/action_bar_style"
-        android:title="🧊 Bar Style: Capsule"
-        app:showAsAction="never"/>
-
-    <!-- Social profile shortcuts — moved out of the header into the
-         overflow menu to keep the header lean (perf + cleaner look). -->
-    <item android:id="@+id/action_view_reel"
-        android:title="🎬 View Reels Profile"
-        app:showAsAction="never"/>
-
-    <item android:id="@+id/action_view_x_profile"
-        android:title="✖️ View X Profile"
-        app:showAsAction="never"/>
-
-    <item android:id="@+id/action_view_youtube"
-        android:title="▶️ View YouTube Channel"
-        app:showAsAction="never"/>
-
     <!-- TEMPORARY (debug build only, added for send/scroll-flicker investigation):
          shows the buffered ChatPagingDebug log lines on-device, no adb needed.
          Safe to delete this item once the flicker root cause is fixed. -->
