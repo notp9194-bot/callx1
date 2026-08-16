@@ -35,6 +35,7 @@ import com.callx.app.chat.R;
 import com.callx.app.conversation.MessagePagingAdapter;
 import com.callx.app.cache.CacheManager;
 import com.callx.app.chat.databinding.ActivityChatBinding;
+import com.callx.app.chat.databinding.LayoutRecordingBarBinding;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.models.Message;
@@ -3937,6 +3938,22 @@ public class GroupChatActivity extends AppCompatActivity
         anim.start();
     }
 
+    // PERF: ll_recording_bar is behind a ViewStub in activity_chat.xml
+    // (see layout_recording_bar.xml) — only inflated the first time a mic
+    // press actually starts a recording, instead of on every chat screen
+    // open. Cached here once inflated; use recordingBar() to get it, never
+    // reference the field directly (it's null until first recording).
+    private LayoutRecordingBarBinding recordingBarBinding;
+
+    /** Lazily inflates the recording-bar ViewStub on first use. Safe to
+     *  call repeatedly — only actually inflates once per activity lifetime. */
+    private LayoutRecordingBarBinding recordingBar() {
+        if (recordingBarBinding == null) {
+            binding.stubRecordingBar.inflate(); // triggers the OnInflateListener set in attachMicGesture()
+        }
+        return recordingBarBinding;
+    }
+
     private void attachMicGesture() {
         float density = getResources().getDisplayMetrics().density;
         cancelThresholdPx = CANCEL_THRESHOLD_DP * density;
@@ -3946,8 +3963,12 @@ public class GroupChatActivity extends AppCompatActivity
         axisDeadzonePx    = AXIS_DEADZONE_DP    * density;
 
         binding.chatIconBar.setMicTouchListener(this::onMicTouch);
-        binding.btnRecordDelete.setOnClickListener(v -> finishCancel());
-        binding.btnRecordSend.setOnClickListener(v -> finishAndSend());
+        binding.stubRecordingBar.setOnInflateListener((stub, inflated) -> {
+            LayoutRecordingBarBinding rb = LayoutRecordingBarBinding.bind(inflated);
+            recordingBarBinding = rb;
+            rb.btnRecordDelete.setOnClickListener(v -> finishCancel());
+            rb.btnRecordSend.setOnClickListener(v -> finishAndSend());
+        });
     }
 
     private boolean onMicTouch(View v, MotionEvent event) {
@@ -4003,19 +4024,21 @@ public class GroupChatActivity extends AppCompatActivity
         dragAxis = null;
         isRecording = true;
 
-        binding.llInputRow.setVisibility(View.GONE);
-        binding.llRecordingBar.setAlpha(0f);
-        binding.llRecordingBar.setVisibility(View.VISIBLE);
-        binding.llRecordingBar.animate().alpha(1f).setDuration(120).start();
+        LayoutRecordingBarBinding rb = recordingBar();
 
-        binding.llSlideCancel.setVisibility(View.VISIBLE);
-        binding.llSlideCancel.setTranslationX(0f);
-        binding.llSlideCancel.setAlpha(1f);
-        binding.btnRecordDelete.setVisibility(View.GONE);
-        binding.btnRecordSend.setVisibility(View.GONE);
-        binding.tvRecordTimer.setText("00:00");
-        binding.waveformRecording.reset();
-        startDotBlink(binding.ivRecordDot);
+        binding.llInputRow.setVisibility(View.GONE);
+        rb.getRoot().setAlpha(0f);
+        rb.getRoot().setVisibility(View.VISIBLE);
+        rb.getRoot().animate().alpha(1f).setDuration(120).start();
+
+        rb.llSlideCancel.setVisibility(View.VISIBLE);
+        rb.llSlideCancel.setTranslationX(0f);
+        rb.llSlideCancel.setAlpha(1f);
+        rb.btnRecordDelete.setVisibility(View.GONE);
+        rb.btnRecordSend.setVisibility(View.GONE);
+        rb.tvRecordTimer.setText("00:00");
+        rb.waveformRecording.reset();
+        startDotBlink(rb.ivRecordDot);
 
         binding.cvRecordLock.setTranslationY(0f);
         binding.cvRecordLock.setAlpha(0f);
@@ -4028,8 +4051,8 @@ public class GroupChatActivity extends AppCompatActivity
 
         recordTickRunnable = () -> {
             if (recordState == RecordState.IDLE) return;
-            binding.tvRecordTimer.setText(formatTimer(recorder.getDuration()));
-            binding.waveformRecording.pushLevel(normalizeAmplitude(recorder.getMaxAmplitudeSafe()));
+            rb.tvRecordTimer.setText(formatTimer(recorder.getDuration()));
+            rb.waveformRecording.pushLevel(normalizeAmplitude(recorder.getMaxAmplitudeSafe()));
             recordHandler.postDelayed(recordTickRunnable, AMPLITUDE_POLL_MS);
         };
         recordHandler.postDelayed(recordTickRunnable, AMPLITUDE_POLL_MS);
@@ -4051,10 +4074,11 @@ public class GroupChatActivity extends AppCompatActivity
     }
 
     private void updateCancelDrag(float dx) {
+        LayoutRecordingBarBinding rb = recordingBar();
         float clampedDx = clamp(dx, -maxCancelDragPx, 0f);
-        binding.llSlideCancel.setTranslationX(clampedDx * 0.6f);
+        rb.llSlideCancel.setTranslationX(clampedDx * 0.6f);
         float cancelProgress = Math.min(1f, -clampedDx / cancelThresholdPx);
-        binding.llSlideCancel.setAlpha(1f - cancelProgress * 0.85f);
+        rb.llSlideCancel.setAlpha(1f - cancelProgress * 0.85f);
         float micShrink = 1.15f - cancelProgress * 0.15f;
         binding.chatIconBar.setMicIconScale(micShrink);
 
@@ -4071,6 +4095,7 @@ public class GroupChatActivity extends AppCompatActivity
     private void lockRecording() {
         if (recordState == RecordState.LOCKED) return;
         recordState = RecordState.LOCKED;
+        LayoutRecordingBarBinding rb = recordingBar();
         binding.chatIconBar.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
         binding.ivRecordLockIcon.setImageResource(R.drawable.ic_record_lock_closed);
 
@@ -4083,16 +4108,16 @@ public class GroupChatActivity extends AppCompatActivity
 
         animateMicScale(1f, new OvershootInterpolator());
 
-        binding.llSlideCancel.animate().alpha(0f).setDuration(150)
-                .withEndAction(() -> binding.llSlideCancel.setVisibility(View.INVISIBLE)).start();
+        rb.llSlideCancel.animate().alpha(0f).setDuration(150)
+                .withEndAction(() -> rb.llSlideCancel.setVisibility(View.INVISIBLE)).start();
 
-        binding.btnRecordDelete.setAlpha(0f);
-        binding.btnRecordDelete.setVisibility(View.VISIBLE);
-        binding.btnRecordDelete.animate().alpha(1f).setDuration(150).start();
+        rb.btnRecordDelete.setAlpha(0f);
+        rb.btnRecordDelete.setVisibility(View.VISIBLE);
+        rb.btnRecordDelete.animate().alpha(1f).setDuration(150).start();
 
-        binding.btnRecordSend.setAlpha(0f);
-        binding.btnRecordSend.setVisibility(View.VISIBLE);
-        binding.btnRecordSend.animate().alpha(1f).setDuration(150).start();
+        rb.btnRecordSend.setAlpha(0f);
+        rb.btnRecordSend.setVisibility(View.VISIBLE);
+        rb.btnRecordSend.animate().alpha(1f).setDuration(150).start();
     }
 
     private void finishAndSend() {
@@ -4131,12 +4156,13 @@ public class GroupChatActivity extends AppCompatActivity
 
     private void resetRecordingUi() {
         dragAxis = null;
+        LayoutRecordingBarBinding rb = recordingBar();
 
         animateMicScale(1f, new OvershootInterpolator());
 
-        binding.llRecordingBar.animate().alpha(0f).setDuration(120).withEndAction(() -> {
-            binding.llRecordingBar.setVisibility(View.GONE);
-            binding.llRecordingBar.setAlpha(1f);
+        rb.getRoot().animate().alpha(0f).setDuration(120).withEndAction(() -> {
+            rb.getRoot().setVisibility(View.GONE);
+            rb.getRoot().setAlpha(1f);
             binding.llInputRow.setVisibility(View.VISIBLE);
         }).start();
 
@@ -4145,14 +4171,14 @@ public class GroupChatActivity extends AppCompatActivity
         binding.cvRecordLock.setTranslationY(0f);
         binding.cvRecordLock.setAlpha(0f);
 
-        binding.llSlideCancel.setVisibility(View.VISIBLE);
-        binding.llSlideCancel.setTranslationX(0f);
-        binding.llSlideCancel.setAlpha(1f);
+        rb.llSlideCancel.setVisibility(View.VISIBLE);
+        rb.llSlideCancel.setTranslationX(0f);
+        rb.llSlideCancel.setAlpha(1f);
 
-        binding.btnRecordDelete.setVisibility(View.GONE);
-        binding.btnRecordSend.setVisibility(View.GONE);
+        rb.btnRecordDelete.setVisibility(View.GONE);
+        rb.btnRecordSend.setVisibility(View.GONE);
 
-        binding.waveformRecording.reset();
+        rb.waveformRecording.reset();
     }
 
     private void startDotBlink(View dot) {
