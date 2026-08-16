@@ -226,6 +226,46 @@ public class MediaCache {
     }
 
     /**
+     * Seeds the cache with a LOCAL file for a given remote URL — used right
+     * after a successful upload so the sender can immediately self-play
+     * their own just-sent media without re-downloading it (and, for
+     * E2E-encrypted media, without needing to decrypt it — the sender
+     * already has the plaintext locally, and {@link #get} intentionally
+     * never derives the decrypt key for the sender's own outgoing message).
+     * No-op (silently) on any failure — self-playback just falls back to
+     * the normal decrypt/download path if seeding didn't happen.
+     */
+    public static void put(Context ctx, String url, android.net.Uri sourceUri) {
+        if (ctx == null || url == null || url.isEmpty() || sourceUri == null) return;
+        sPool.execute(() -> {
+            File tmp = null;
+            try {
+                evictIfNeeded(ctx);
+                File out = cacheFileFor(ctx, url);
+                if (out == null) return;
+                tmp = new File(out.getParentFile(), out.getName() + ".seed.tmp");
+                try (InputStream in = ctx.getContentResolver().openInputStream(sourceUri);
+                     FileOutputStream fos = new FileOutputStream(tmp)) {
+                    if (in == null) return;
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) != -1) fos.write(buf, 0, n);
+                    fos.flush();
+                    try { fos.getFD().sync(); } catch (Exception ignored) {}
+                }
+                if (tmp.exists() && tmp.length() > 0) {
+                    if (out.exists()) out.delete();
+                    if (!tmp.renameTo(out)) tmp.delete();
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "put() seed-cache failed for " + url + ": " + e.getMessage());
+            } finally {
+                if (tmp != null && tmp.exists()) tmp.delete();
+            }
+        });
+    }
+
+    /**
      * Cache size check (bytes mein).
      */
     public static long getCacheSizeBytes(Context ctx) {

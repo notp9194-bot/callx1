@@ -2128,6 +2128,17 @@ public class ChatMediaController {
                         m.fileSize = r.bytes != null ? r.bytes : size;
                         m.duration = r.durationMs;
                         m.mediaKeyEnc = finalMediaKeyEnc;
+                        // Seed the local media cache with our own plaintext
+                        // audio (the original `uri`, never the encrypted
+                        // `uploadUri` temp file) so we can self-play the
+                        // bubble we just sent immediately — MessagePagingAdapter's
+                        // toggleAudio() deliberately never derives the E2E
+                        // decrypt key for our own outgoing messages, so
+                        // without this seed it would try to play the raw
+                        // ciphertext straight off Cloudinary and fail silently.
+                        if ("audio".equals(msgType)) {
+                            com.callx.app.utils.MediaCache.put(activity, r.secureUrl, uri);
+                        }
                         delegate.pushMessage(m, mediaPreview(msgType, fileName));
                         delegate.clearReply();
                     }
