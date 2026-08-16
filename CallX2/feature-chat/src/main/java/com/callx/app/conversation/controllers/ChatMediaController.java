@@ -35,6 +35,7 @@ import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 
 import com.callx.app.chat.R;
 import com.callx.app.chat.databinding.ActivityChatBinding;
@@ -48,10 +49,12 @@ import com.callx.app.utils.VideoCompressor;
 import com.callx.app.utils.VideoQualityPreferences;
 import com.callx.app.utils.VideoUploader;
 import com.callx.app.utils.VoiceRecorder;
+import com.callx.app.utils.VoiceTrimmer;
 import com.callx.app.conversation.MultiMediaPreviewDialog;
 import com.callx.app.payments.ui.ChatPaymentBottomSheet;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 
+import java.io.File;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -2229,6 +2232,20 @@ public class ChatMediaController {
                 if (released) seekPreviewTo(progress);
                 else rb.waveformPreview.setProgress(progress); // live-follow the finger only
             });
+            // "Adjust" — drag the left/right edge handles in to trim dead
+            // air off the start/end before send (Feature: preview trim
+            // handles, Telegram-style). The actual cut only happens once,
+            // in finishAndSend(); dragging just narrows the preview window.
+            rb.waveformPreview.setOnTrimChangeListener((trimStart, trimEnd, released) -> {
+                previewPlayer.setTrimRange(trimStart, trimEnd);
+                if (released) {
+                    // Keep the playhead inside the (possibly narrower) new
+                    // window instead of leaving it stranded on cut audio.
+                    float clamped = Math.max(trimStart, Math.min(trimEnd, rb.waveformPreview.getProgress()));
+                    rb.waveformPreview.setProgress(clamped);
+                    if (previewPlayer.isPrepared()) previewPlayer.seekTo(clamped);
+                }
+            });
             previewPlayer.setListener(new VoicePreviewPlayer.Listener() {
                 @Override public void onProgress(float progress0to1) {
                     rb.waveformPreview.setProgress(progress0to1);
@@ -2461,10 +2478,15 @@ public class ChatMediaController {
         float[] samples = new float[allAmplitudeSamples.size()];
         for (int i = 0; i < samples.length; i++) samples[i] = allAmplitudeSamples.get(i);
         rb.waveformPreview.setSamples(samples);
+        // Fresh preview each pause — start with the full clip selected,
+        // not whatever trim window was left over from an earlier pause
+        // (resumeRecording() appends more audio, changing what the old
+        // fractions would even point at).
+        rb.waveformPreview.setTrimRange(0f, 1f);
         rb.waveformPreview.setProgress(0f);
         rb.tvPreviewTimer.setText(formatTimer(recorder.getDuration()));
 
-        String path = recorder.getOutputFilePath();
+        String path = recorder.getOutputFilePathForPreview();
         boolean prepared = path != null && previewPlayer.prepare(path);
         rb.waveformPreview.setDraggable(prepared);
         rb.btnPreviewPlaypause.setImageResource(R.drawable.ic_play);
@@ -2528,20 +2550,55 @@ public class ChatMediaController {
         if (previewPlayer.isPrepared()) previewPlayer.seekTo(progress0to1);
     }
 
+    /** Below this margin from either edge, the trim handles are treated as
+     *  "still at the default full range" — skips the extra file-copy for a
+     *  drag that didn't meaningfully move anything. */
+    private static final float TRIM_NOOP_EPSILON = 0.01f;
+
     private void finishAndSend() {
         ActivityChatBinding binding = delegate.getBinding();
+        LayoutRecordingBarBinding rb = recordingBar(binding);
         recordState = RecordState.IDLE;
         delegate.setRecording(false);
         stopDotBlink();
         recordHandler.removeCallbacksAndMessages(null);
+
+        // Capture the trim selection (Feature: preview adjust — trim
+        // start/end drag handles) before resetRecordingUi() wipes it.
+        float trimStart = rb.waveformPreview.getTrimStart();
+        float trimEnd = rb.waveformPreview.getTrimEnd();
+
         // Must release the preview MediaPlayer before recorder.stop() —
         // both would otherwise hold the same file at once (only matters if
         // Send is tapped straight from the paused-preview state).
         previewPlayer.release();
-        Uri uri = recorder.stop(activity);
+        File finalFile = recorder.stopToFile(activity);
         resetRecordingUi(binding);
-        if (uri != null) uploadAndSend(uri, "audio", "raw", null);
-        else Toast.makeText(activity, "Recording was empty", Toast.LENGTH_SHORT).show();
+
+        if (finalFile == null) {
+            Toast.makeText(activity, "Recording was empty", Toast.LENGTH_SHORT).show();
+            if (recordingListener != null) recordingListener.onRecordingStateChanged(false);
+            return;
+        }
+
+        File toSend = finalFile;
+        boolean trimmed = trimStart > TRIM_NOOP_EPSILON || trimEnd < 1f - TRIM_NOOP_EPSILON;
+        if (trimmed) {
+            File workDir = recorder.getWorkingDir();
+            File out = new File(workDir != null ? workDir : finalFile.getParentFile(),
+                    "vm_trim_" + System.currentTimeMillis() + ".m4a");
+            File result = VoiceTrimmer.trim(finalFile, out, trimStart, trimEnd);
+            if (result != null) {
+                finalFile.delete();
+                toSend = result;
+            }
+            // If VoiceTrimmer failed, silently fall back to sending the
+            // untrimmed clip — a failed trim should never block a send.
+        }
+
+        Uri uri = FileProvider.getUriForFile(
+                activity, activity.getPackageName() + ".fileprovider", toSend);
+        uploadAndSend(uri, "audio", "raw", null);
         if (recordingListener != null) recordingListener.onRecordingStateChanged(false);
     }
 

@@ -195,32 +195,6 @@
             android:clickable="true"
             android:focusable="true"/>
 
-        <!-- Sticker picker -->
-        <ImageButton
-            android:id="@+id/btnEditSticker"
-            style="?android:attr/borderlessButtonStyle"
-            android:layout_width="42dp"
-            android:layout_height="42dp"
-            android:background="@drawable/bg_media_edit_toolbtn"
-            android:src="@drawable/ic_media_edit_sticker"
-            android:scaleType="center"
-            android:padding="9dp"
-            android:layout_marginEnd="2dp"
-            android:contentDescription="Add sticker"/>
-
-        <!-- Text overlay -->
-        <ImageButton
-            android:id="@+id/btnEditText"
-            style="?android:attr/borderlessButtonStyle"
-            android:layout_width="42dp"
-            android:layout_height="42dp"
-            android:background="@drawable/bg_media_edit_toolbtn"
-            android:src="@drawable/ic_media_edit_text"
-            android:scaleType="center"
-            android:padding="9dp"
-            android:layout_marginEnd="2dp"
-            android:contentDescription="Add text"/>
-
         <!-- Overlay layer ordering for the currently selected sticker/text -->
         <TextView
             android:id="@+id/btnEditLayers"
@@ -237,17 +211,6 @@
             android:focusable="true"
             android:contentDescription="Arrange overlay layers"/>
 
-        <!-- Freehand draw -->
-        <ImageButton
-            android:id="@+id/btnEditDraw"
-            style="?android:attr/borderlessButtonStyle"
-            android:layout_width="42dp"
-            android:layout_height="42dp"
-            android:background="@drawable/bg_media_edit_toolbtn"
-            android:src="@drawable/ic_media_edit_draw"
-            android:scaleType="center"
-            android:padding="9dp"
-            android:contentDescription="Draw"/>
     </LinearLayout>
 
     <!-- ── Emoji quick-row (legacy / hidden) ────────────────────────── -->
@@ -740,6 +703,46 @@
                 android:maxLines="3"
                 android:inputType="text|textMultiLine"
                 android:imeOptions="actionDone"/>
+
+            <!-- Freehand draw -->
+            <ImageButton
+                android:id="@+id/btnEditDrawBottom"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_media_edit_toolbtn"
+                android:src="@drawable/ic_media_edit_draw"
+                android:scaleType="center"
+                android:padding="9dp"
+                android:alpha="0.7"
+                android:contentDescription="Draw"/>
+
+            <!-- Sticker picker -->
+            <ImageButton
+                android:id="@+id/btnEditSticker"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_media_edit_toolbtn"
+                android:src="@drawable/ic_media_edit_sticker"
+                android:scaleType="center"
+                android:padding="9dp"
+                android:contentDescription="Add sticker"/>
+
+            <!-- Text overlay -->
+            <ImageButton
+                android:id="@+id/btnEditText"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_media_edit_toolbtn"
+                android:src="@drawable/ic_media_edit_text"
+                android:scaleType="center"
+                android:padding="9dp"
+                android:contentDescription="Add text"/>
 
             <!-- Send button -->
             <ImageButton

@@ -16,6 +16,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.DisplayMetrics;
 import android.view.GestureDetector;
+import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.View;
@@ -124,6 +125,8 @@ public class MediaEditActivity extends AppCompatActivity {
         boolean isBold     = false;
         boolean isItalic   = false;
         boolean hasBg      = false;
+        /** "left" | "center" | "right" — how the (possibly multi-line) text is justified. */
+        String  textAlign  = "center";
     }
 
     // ── Per-item edit state ───────────────────────────────────────────────
@@ -173,7 +176,7 @@ public class MediaEditActivity extends AppCompatActivity {
     private FrameLayout  stickerLayer;
     private DrawOverlayView drawOverlay;
     private ImageButton  btnEditRotate, btnEditFlip, btnEditSticker, btnEditText,
-                         btnEditDraw, btnEditDownload, btnEditCrop, btnEditAdjust;
+                         btnEditDrawBottom, btnEditDownload, btnEditCrop, btnEditAdjust;
     private TextView     btnEditHd, btnEditTrim, btnEditLayers;
     private View         adjustPanel;
     private boolean      adjustPanelOpen = false;
@@ -199,6 +202,9 @@ public class MediaEditActivity extends AppCompatActivity {
     private ActivityResultLauncher<Intent> cropLauncher;
     private ActivityResultLauncher<Intent> trimLauncher;
     private ActivityResultLauncher<Intent> stickerLauncher;
+    /** Non-null while re-editing an existing text overlay via the picker, so
+     *  the result is applied in place instead of adding a new overlay. */
+    private OverlayItem editingOverlay;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -276,9 +282,15 @@ public class MediaEditActivity extends AppCompatActivity {
                 Intent data = result.getData();
                 String type  = data.getStringExtra(ChatStickerPickerActivity.RESULT_TYPE);
                 String value = data.getStringExtra(ChatStickerPickerActivity.RESULT_VALUE);
-                if (value == null || value.isEmpty()) return;
+                if (value == null || value.isEmpty()) { editingOverlay = null; return; }
 
-                OverlayItem overlay = new OverlayItem();
+                // Editing an existing text overlay: update it in place so its
+                // position/size/rotation on the canvas are preserved instead
+                // of resetting to a brand new overlay's defaults.
+                OverlayItem overlay = (editingOverlay != null) ? editingOverlay : new OverlayItem();
+                boolean isEditInPlace = (editingOverlay != null);
+                editingOverlay = null;
+
                 overlay.text    = value;
                 overlay.isEmoji = "emoji".equals(type);
                 overlay.color   = data.getIntExtra(ChatStickerPickerActivity.RESULT_COLOR, Color.WHITE);
@@ -289,10 +301,20 @@ public class MediaEditActivity extends AppCompatActivity {
                     overlay.isBold    = data.getBooleanExtra(ChatStickerPickerActivity.RESULT_BOLD, false);
                     overlay.isItalic  = data.getBooleanExtra(ChatStickerPickerActivity.RESULT_ITALIC, false);
                     overlay.hasBg     = data.getBooleanExtra(ChatStickerPickerActivity.RESULT_HAS_BG, false);
+                    String align = data.getStringExtra(ChatStickerPickerActivity.RESULT_ALIGN);
+                    overlay.textAlign = (align != null) ? align : "center";
                 }
-                current().overlays.add(overlay);
+
+                if (isEditInPlace) {
+                    View oldView = findOverlayView(overlay);
+                    if (oldView != null) stickerLayer.removeView(oldView);
+                } else {
+                    current().overlays.add(overlay);
+                }
                 selectedOverlay = overlay;
                 renderOverlayView(overlay);
+            } else {
+                editingOverlay = null;
             }
         });
     }
@@ -308,7 +330,7 @@ public class MediaEditActivity extends AppCompatActivity {
         btnEditFlip      = findViewById(R.id.btnEditFlip);
         btnEditSticker   = findViewById(R.id.btnEditSticker);
         btnEditText      = findViewById(R.id.btnEditText);
-        btnEditDraw      = findViewById(R.id.btnEditDraw);
+        btnEditDrawBottom = findViewById(R.id.btnEditDrawBottom);
         btnEditDownload  = findViewById(R.id.btnEditDownload);
         btnEditCrop      = findViewById(R.id.btnEditCrop);
         btnEditAdjust    = findViewById(R.id.btnEditAdjust);
@@ -436,6 +458,7 @@ public class MediaEditActivity extends AppCompatActivity {
                 // Stickers on video go via sticker picker still
             }
             hideAllToolRows();
+            editingOverlay = null;
             Intent i = new Intent(this, ChatStickerPickerActivity.class);
             i.putExtra(ChatStickerPickerActivity.EXTRA_TEXT_MODE, false);
             stickerLauncher.launch(i);
@@ -444,13 +467,14 @@ public class MediaEditActivity extends AppCompatActivity {
         // Text — launches ChatStickerPickerActivity in text mode
         if (btnEditText != null) btnEditText.setOnClickListener(v -> {
             hideAllToolRows();
+            editingOverlay = null;
             Intent i = new Intent(this, ChatStickerPickerActivity.class);
             i.putExtra(ChatStickerPickerActivity.EXTRA_TEXT_MODE, true);
             stickerLauncher.launch(i);
         });
 
-        // Draw
-        if (btnEditDraw != null) btnEditDraw.setOnClickListener(v -> toggleDrawMode());
+        // Draw — button lives next to Send in the caption row.
+        if (btnEditDrawBottom != null) btnEditDrawBottom.setOnClickListener(v -> toggleDrawMode());
 
         // Layer ordering applies to the currently selected sticker/text.
         // Selection happens by touching an overlay; long-press remains the
@@ -813,7 +837,7 @@ public class MediaEditActivity extends AppCompatActivity {
 
         if (drawToolsRow != null) drawToolsRow.setVisibility(View.VISIBLE);
         if (drawWidthSlider != null) drawWidthSlider.setVisibility(View.VISIBLE);
-        if (btnEditDraw  != null) btnEditDraw.setAlpha(1f);
+        if (btnEditDrawBottom != null) btnEditDrawBottom.setAlpha(1f);
         refreshUndoRedoState();
     }
 
@@ -855,7 +879,7 @@ public class MediaEditActivity extends AppCompatActivity {
         if (bottomBar   != null) bottomBar.setVisibility(View.VISIBLE);
         if (tvSwipeHint != null && !current().isVideo) tvSwipeHint.setVisibility(View.VISIBLE);
 
-        if (btnEditDraw != null) btnEditDraw.setAlpha(0.7f);
+        if (btnEditDrawBottom != null) btnEditDrawBottom.setAlpha(0.7f);
     }
 
     // ── Filter panel ──────────────────────────────────────────────────────
@@ -1715,17 +1739,47 @@ public class MediaEditActivity extends AppCompatActivity {
             float screenY = ov.yFrac * viewH;
             float x = (screenX - offX) / fitScale;
             float y = (screenY - offY) / fitScale;
+
+            // Split into lines so multi-line text (typed with a newline in
+            // the editor) can be laid out and justified line-by-line instead
+            // of drawing the whole block as one string starting at the
+            // vertical center.
+            String[] lines = ov.text.split("\n", -1);
+            float lineHeight = ts * 1.2f;
+            float blockH = lineHeight * lines.length;
+            float maxLineW = 0f;
+            for (String line : lines) maxLineW = Math.max(maxLineW, tp.measureText(line));
+
             if (ov.hasBg) {
-                float tw = tp.measureText(ov.text);
                 Paint bgP = new Paint(Paint.ANTI_ALIAS_FLAG);
                 bgP.setColor(0xCC000000);
-                canvas.drawRoundRect(x - tw / 2 - dp(6), y - ts,
-                        x + tw / 2 + dp(6), y + dp(6), dp(8), dp(8), bgP);
+                canvas.save();
+                canvas.translate(x, y);
+                canvas.rotate(ov.rotationDeg);
+                canvas.drawRoundRect(-maxLineW / 2 - dp(6), -blockH / 2 - dp(4),
+                        maxLineW / 2 + dp(6), blockH / 2 + dp(4), dp(8), dp(8), bgP);
+                canvas.restore();
             }
+
             canvas.save();
             canvas.translate(x, y);
             canvas.rotate(ov.rotationDeg);
-            canvas.drawText(ov.text, -tp.measureText(ov.text) / 2f, 0, tp);
+            // Baseline of the first line, so the whole block is vertically
+            // centered on the overlay's anchor point.
+            float lineY = -blockH / 2f + ts * 0.85f;
+            for (String line : lines) {
+                float lw = tp.measureText(line);
+                float lineX;
+                if ("left".equals(ov.textAlign)) {
+                    lineX = -maxLineW / 2f;
+                } else if ("right".equals(ov.textAlign)) {
+                    lineX = maxLineW / 2f - lw;
+                } else {
+                    lineX = -lw / 2f;
+                }
+                canvas.drawText(line, lineX, lineY, tp);
+                lineY += lineHeight;
+            }
             canvas.restore();
         }
 
@@ -1780,6 +1834,15 @@ public class MediaEditActivity extends AppCompatActivity {
             tv.setPadding(dp(8), dp(4), dp(8), dp(4));
         } else {
             tv.setPadding(dp(4), dp(4), dp(4), dp(4));
+        }
+
+        // Alignment — matters once the text wraps to multiple lines.
+        if ("left".equals(overlay.textAlign)) {
+            tv.setGravity(Gravity.START);
+        } else if ("right".equals(overlay.textAlign)) {
+            tv.setGravity(Gravity.END);
+        } else {
+            tv.setGravity(Gravity.CENTER);
         }
 
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
@@ -1991,10 +2054,21 @@ public class MediaEditActivity extends AppCompatActivity {
 
     /** Tap on existing TEXT overlay → re-launch ChatStickerPickerActivity in text mode. */
     private void launchEditTextOverlay(OverlayItem overlay, View v) {
-        // Remove old, let user re-add via picker
-        removeOverlay(overlay, v);
+        // Re-open the picker pre-filled with this overlay's current text and
+        // styling. The overlay itself is left in place (not removed) — its
+        // position/scale/rotation stay put and are only overwritten if the
+        // user actually saves an edit (see stickerLauncher result handler).
+        editingOverlay = overlay;
         Intent i = new Intent(this, ChatStickerPickerActivity.class);
         i.putExtra(ChatStickerPickerActivity.EXTRA_TEXT_MODE, true);
+        i.putExtra(ChatStickerPickerActivity.EXTRA_PREFILL_TEXT, overlay.text);
+        i.putExtra(ChatStickerPickerActivity.EXTRA_PREFILL_COLOR, overlay.color);
+        i.putExtra(ChatStickerPickerActivity.EXTRA_PREFILL_FONT, overlay.fontFamily);
+        i.putExtra(ChatStickerPickerActivity.EXTRA_PREFILL_SIZE, overlay.textSizeSp);
+        i.putExtra(ChatStickerPickerActivity.EXTRA_PREFILL_BOLD, overlay.isBold);
+        i.putExtra(ChatStickerPickerActivity.EXTRA_PREFILL_ITALIC, overlay.isItalic);
+        i.putExtra(ChatStickerPickerActivity.EXTRA_PREFILL_ALIGN, overlay.textAlign);
+        i.putExtra(ChatStickerPickerActivity.EXTRA_PREFILL_HAS_BG, overlay.hasBg);
         stickerLauncher.launch(i);
     }
 

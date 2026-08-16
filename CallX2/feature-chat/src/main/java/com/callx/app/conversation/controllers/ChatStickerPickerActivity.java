@@ -62,6 +62,22 @@ public class ChatStickerPickerActivity extends AppCompatActivity {
     /** When launching for text overlays instead of emoji, caller sets this extra = true. */
     public static final String EXTRA_TEXT_MODE = "text_mode";
 
+    /**
+     * When re-opening the editor on an *existing* text overlay (as opposed to
+     * adding a brand new one), the caller passes the overlay's current values
+     * through these extras so the editor opens pre-filled instead of blank.
+     * All are optional; any omitted extra falls back to the picker's normal
+     * default for that field.
+     */
+    public static final String EXTRA_PREFILL_TEXT   = "prefill_text";
+    public static final String EXTRA_PREFILL_COLOR  = "prefill_color";
+    public static final String EXTRA_PREFILL_FONT   = "prefill_font";
+    public static final String EXTRA_PREFILL_SIZE   = "prefill_size";
+    public static final String EXTRA_PREFILL_BOLD   = "prefill_bold";
+    public static final String EXTRA_PREFILL_ITALIC = "prefill_italic";
+    public static final String EXTRA_PREFILL_ALIGN  = "prefill_align";
+    public static final String EXTRA_PREFILL_HAS_BG = "prefill_has_bg";
+
     // ── Tabs ─────────────────────────────────────────────────────────────
     private static final int TAB_EMOJI    = 0;
     private static final int TAB_TEXT     = 1;
@@ -178,6 +194,7 @@ public class ChatStickerPickerActivity extends AppCompatActivity {
         setupSearch();
         setupTextEditor();
         buildEmojiList("");
+        applyPrefillIfPresent();
 
         boolean textMode = getIntent().getBooleanExtra(EXTRA_TEXT_MODE, false);
         if (textMode) {
@@ -185,6 +202,43 @@ public class ChatStickerPickerActivity extends AppCompatActivity {
         } else {
             switchTab(TAB_EMOJI);
         }
+    }
+
+    /**
+     * If launched to re-edit an existing text overlay, restores its text,
+     * color, font, size, bold/italic, alignment and background-pill state
+     * into the editor UI so editing is truly in-place instead of starting
+     * from a blank text box every time.
+     */
+    private void applyPrefillIfPresent() {
+        Intent in = getIntent();
+        if (!in.hasExtra(EXTRA_PREFILL_TEXT)) return;
+
+        String prefillText = in.getStringExtra(EXTRA_PREFILL_TEXT);
+        if (etTextInput != null && prefillText != null) {
+            etTextInput.setText(prefillText);
+            etTextInput.setSelection(prefillText.length());
+        }
+
+        selectedColor = in.getIntExtra(EXTRA_PREFILL_COLOR, selectedColor);
+        if (etTextInput != null) etTextInput.setTextColor(selectedColor);
+
+        String prefillFont = in.getStringExtra(EXTRA_PREFILL_FONT);
+        if (prefillFont != null) selectedFont = prefillFont;
+
+        selectedSize = in.getFloatExtra(EXTRA_PREFILL_SIZE, selectedSize);
+        isBold       = in.getBooleanExtra(EXTRA_PREFILL_BOLD, isBold);
+        isItalic     = in.getBooleanExtra(EXTRA_PREFILL_ITALIC, isItalic);
+        hasTextBg    = in.getBooleanExtra(EXTRA_PREFILL_HAS_BG, hasTextBg);
+
+        String prefillAlign = in.getStringExtra(EXTRA_PREFILL_ALIGN);
+        if (prefillAlign != null) textAlign = prefillAlign;
+
+        applyFontToInput();
+        setAlign(textAlign);
+        if (btnBold   != null) btnBold.setAlpha(isBold ? 1f : 0.45f);
+        if (btnItalic != null) btnItalic.setAlpha(isItalic ? 1f : 0.45f);
+        if (btnTextBg != null) btnTextBg.setAlpha(hasTextBg ? 1f : 0.45f);
     }
 
     private void bindViews() {
