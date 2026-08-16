@@ -342,31 +342,16 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
                 // one — otherwise a reader-in-history refresh keeps reusing
                 // whatever smaller value was last recorded (possibly from
                 // a much earlier bottom refresh), undermining the beforeLimit
-                // fix just above it.
-                //
-                // ROOT-CAUSE FIX #6 (back-to-back sends still dropping a
-                // chunk — confirmed by a two-sends-in-a-row log): fix #5
-                // above counted only before.size() here for BOTH cases,
-                // which broke the bottom case specifically. For a bottom
-                // refresh, lastKnownAnchor moves to the tail of THIS page
-                // (below) — so on the NEXT bottom refresh, the entire page
-                // just loaded here (the old "before" portion AND whatever
-                // was freshly caught up via fromAnchor) sits before that
-                // new anchor. Counting only before.size() under-recorded
-                // how much was genuinely preserved, so the very next send
-                // recomputed too small a beforeLimit and silently cut off
-                // exactly the messages the previous refresh had just
-                // caught up on — visible as a chunk disappearing then
-                // being re-fetched via a PREPEND cascade a moment later.
-                // A reader in history doesn't have this issue (their
-                // anchor doesn't jump to the page's tail — see below), so
-                // only before.size() is genuinely "before" their anchor.
+                // fix just above it. lastKnownAnchor itself, though, should
+                // only jump to the tail of this page for the bottom case —
+                // for a reader in history it should stay wherever
+                // getRefreshKey() actually anchored this load (already set,
+                // above), not silently relocate to the newest message while
+                // they're reading something else entirely.
                 if (!page.isEmpty()) {
+                    lastKnownBeforeCount = Math.max(lastKnownBeforeCount, before.size());
                     if (refreshAtLatest) {
-                        lastKnownBeforeCount = Math.max(lastKnownBeforeCount, page.size());
                         lastKnownAnchor = cursorOf(page.get(page.size() - 1));
-                    } else {
-                        lastKnownBeforeCount = Math.max(lastKnownBeforeCount, before.size());
                     }
                 }
             }

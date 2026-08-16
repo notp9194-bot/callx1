@@ -685,26 +685,33 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:layout_marginBottom="10dp"
+                android:layout_marginBottom="6dp"
                 android:orientation="horizontal"
                 android:gravity="bottom"
                 android:clipChildren="false"
                 android:clipToPadding="false">
 
+                <!-- DEFAULT STYLE = FIXED (Telegram-style, flat, edge-to-edge,
+                     no elevation/corner radius) for lighter draw/perf cost.
+                     Capsule look (rounded, floating, elevated) is available
+                     as a runtime toggle from the 3-dot menu → "Bar Style" —
+                     see BarStylePreference.apply() in ChatActivity, which
+                     overwrites cardCornerRadius/cardElevation/margins on
+                     this card at runtime. Keep these XML defaults at 0/flat. -->
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/cv_input_capsule"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:layout_marginStart="10dp"
-                    android:layout_marginEnd="10dp"
-                    app:cardCornerRadius="28dp"
-                    app:cardElevation="6dp"
+                    android:layout_marginStart="0dp"
+                    android:layout_marginEnd="0dp"
+                    app:cardCornerRadius="0dp"
+                    app:cardElevation="0dp"
                     app:cardBackgroundColor="@color/surface_input"
                     app:strokeColor="@color/divider"
                     app:strokeWidth="0.5dp"
                     app:cardPreventCornerOverlap="false"
-                    app:cardUseCompatPadding="true">
+                    app:cardUseCompatPadding="false">
 
                     <!-- Input row — view-once toggle on the left, message
                          field in the middle, attach+camera grouped on the
@@ -955,22 +962,26 @@
         android:orientation="vertical">
 
         <!-- ═══════════════════════════════════════════════════════════
-             FLOATING CAPSULE HEADER — rounded card, subtle elevation,
-             floats above the chat area at the top safe-area.
+             HEADER — DEFAULT STYLE = FIXED (Telegram-style: flat,
+             edge-to-edge, no corner radius/elevation → lighter draw cost).
+             Capsule (rounded, floating, elevated) is a runtime-only
+             toggle from the 3-dot menu → "Bar Style", applied by
+             BarStylePreference.apply() in ChatActivity. Keep XML defaults
+             flat here; do not hardcode capsule values back in.
              ═══════════════════════════════════════════════════════════ -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/cv_header_capsule"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:layout_marginEnd="10dp"
-            android:layout_marginTop="10dp"
-            android:layout_marginBottom="6dp"
-            app:cardCornerRadius="24dp"
-            app:cardElevation="6dp"
+            android:layout_marginStart="0dp"
+            android:layout_marginEnd="0dp"
+            android:layout_marginTop="0dp"
+            android:layout_marginBottom="0dp"
+            app:cardCornerRadius="0dp"
+            app:cardElevation="0dp"
             app:cardBackgroundColor="@color/bar_background"
             app:cardPreventCornerOverlap="false"
-            app:cardUseCompatPadding="true">
+            app:cardUseCompatPadding="false">
 
             <!-- WhatsApp-style Chat Header -->
             <LinearLayout
@@ -1041,8 +1052,10 @@
                         android:visibility="gone"/>
                 </LinearLayout>
 
-                <!-- Reel button — patli rassi se latakta hua, hawa mein jhulta -->
-                <!-- Pura container: rassi + button ek saath upar se neeche -->
+                <!-- Reel button — MOVED to 3-dot overflow menu (action_view_reel)
+                     to keep the header lean (perf + Telegram-style clean look).
+                     Container kept in layout (gone) so binding.* refs used by
+                     the reused click-handler methods still resolve. -->
                 <LinearLayout
                     android:id="@+id/ll_reel_hanging"
                     android:layout_width="wrap_content"
@@ -1050,7 +1063,8 @@
                     android:orientation="vertical"
                     android:gravity="center_horizontal"
                     android:layout_marginEnd="3dp"
-                    android:translationY="-4dp">
+                    android:translationY="-4dp"
+                    android:visibility="gone">
 
                     <!-- Patli rassi (thin string from top of header) -->
                     <View
@@ -1073,7 +1087,7 @@
 
                 </LinearLayout>
 
-                <!-- X button -->
+                <!-- X button — MOVED to 3-dot overflow menu (action_view_x_profile) -->
                 <ImageButton
                     android:id="@+id/btn_toolbar_x"
                     android:layout_width="30dp"
@@ -1083,9 +1097,10 @@
                     android:background="@drawable/bg_social_x_btn"
                     android:padding="6dp"
                     android:layout_marginEnd="3dp"
+                    android:visibility="gone"
                     android:contentDescription="View X Profile"/>
 
-                <!-- YouTube button -->
+                <!-- YouTube button — MOVED to 3-dot overflow menu (action_view_youtube) -->
                 <ImageButton
                     android:id="@+id/btn_toolbar_youtube"
                     android:layout_width="30dp"
@@ -1095,6 +1110,7 @@
                     android:background="@drawable/bg_social_youtube_btn"
                     android:padding="6dp"
                     android:layout_marginEnd="1dp"
+                    android:visibility="gone"
                     android:contentDescription="View YouTube Channel"/>
 
                 <!-- Video call button -->

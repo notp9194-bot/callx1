@@ -1936,55 +1936,23 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         binding.btnToolbarVoiceCall.setOnClickListener(v -> startCall(false));
         binding.btnToolbarVideoCall.setOnClickListener(v -> startCall(true));
 
-        // Reel button
-        binding.btnToolbarReel.setOnClickListener(v -> {
-            if (partnerUid == null || partnerUid.isEmpty()) return;
-            try {
-                Class<?> cls = Class.forName("com.callx.app.profile.UserReelsActivity");
-                Intent in = new Intent(this, cls);
-                in.putExtra("uid",   partnerUid);
-                in.putExtra("name",  partnerName != null ? partnerName : "");
-                in.putExtra("photo", partnerPhoto != null ? partnerPhoto : "");
-                startActivity(in);
-            } catch (ClassNotFoundException e) {
-                Toast.makeText(this, "Reels profile not available", Toast.LENGTH_SHORT).show();
-            }
-        });
+        // Reel/X/YouTube header buttons are hidden (moved to 3-dot menu —
+        // see action_view_reel/action_view_x_profile/action_view_youtube in
+        // onOptionsItemSelected), so no click listeners needed here anymore.
 
-        // Hanging reel animation removed for performance
-
-        // X profile
-        binding.btnToolbarX.setOnClickListener(v -> {
-            if (partnerUid == null || partnerUid.isEmpty()) return;
-            try {
-                Class<?> cls = Class.forName("com.callx.app.profile.XProfileSheet");
-                java.lang.reflect.Method method = cls.getMethod("showProfile",
-                        androidx.fragment.app.FragmentManager.class, String.class);
-                method.invoke(null, getSupportFragmentManager(), partnerUid);
-            } catch (Exception e) {
-                Toast.makeText(this, "X profile not available", Toast.LENGTH_SHORT).show();
-            }
-        });
-
-        // YouTube channel
-        binding.btnToolbarYoutube.setOnClickListener(v -> {
-            if (partnerUid == null || partnerUid.isEmpty()) return;
-            try {
-                Class<?> cls = Class.forName("com.callx.app.channel.YouTubeChannelActivity");
-                Intent in = new Intent(this, cls);
-                in.putExtra("uid",  partnerUid);
-                in.putExtra("name", partnerName != null ? partnerName : "");
-                startActivity(in);
-            } catch (ClassNotFoundException e) {
-                Toast.makeText(this, "YouTube channel not available", Toast.LENGTH_SHORT).show();
-            }
-        });
+        // Apply saved Bar Style (Fixed default / Capsule) on screen load.
+        applyBarStyle(isCapsuleBarStyle());
 
         binding.btnMoreOptions.setOnClickListener(v -> {
             android.widget.PopupMenu popup = new android.widget.PopupMenu(this, binding.btnMoreOptions);
             popup.getMenuInflater().inflate(com.callx.app.chat.R.menu.chat_menu, popup.getMenu());
             android.view.MenuItem muteItem = popup.getMenu().findItem(R.id.action_mute);
             if (muteItem != null) muteItem.setTitle(isMuted ? "\uD83D\uDD14 Unmute" : "\uD83D\uDD15 Mute");
+            android.view.MenuItem barStyleItem = popup.getMenu().findItem(R.id.action_bar_style);
+            if (barStyleItem != null) {
+                barStyleItem.setTitle(isCapsuleBarStyle()
+                        ? "\uD83D\uDCF1 Bar Style: Fixed" : "\uD83E\uDDCA Bar Style: Capsule");
+            }
             popup.setOnMenuItemClickListener(item -> onOptionsItemSelected(item));
             popup.show();
         });
@@ -5357,8 +5325,110 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         }
         if (id == R.id.action_small_window)          { openSmallWindow();                          return true; }
         if (id == R.id.action_display_mode)          { showChatDisplayModePicker();                return true; }
+        if (id == R.id.action_bar_style)             { toggleBarStyle();                           return true; }
+        if (id == R.id.action_view_reel)             { openReelProfile();                          return true; }
+        if (id == R.id.action_view_x_profile)        { openXProfile();                             return true; }
+        if (id == R.id.action_view_youtube)          { openYoutubeChannel();                       return true; }
         if (id == R.id.action_paging_debug_log)      { showPagingDebugLogDialog();                 return true; }
         return super.onOptionsItemSelected(item);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // BAR STYLE — Fixed (default, Telegram-style flat/edge-to-edge, lighter
+    // draw cost) vs Capsule (rounded, floating, elevated). Toggled from the
+    // 3-dot menu; persisted per-app (SharedPreferences) so it carries over
+    // to the next chat opened. XML layout defaults stay FIXED — capsule
+    // values are only ever applied here, at runtime.
+    // ─────────────────────────────────────────────────────────────────────
+
+    private static final String PREFS_CHAT_UI       = "chat_ui_prefs";
+    private static final String KEY_BAR_STYLE_CAPSULE = "bar_style_capsule";
+
+    private boolean isCapsuleBarStyle() {
+        return getSharedPreferences(PREFS_CHAT_UI, MODE_PRIVATE)
+                .getBoolean(KEY_BAR_STYLE_CAPSULE, false);
+    }
+
+    private void toggleBarStyle() {
+        boolean nowCapsule = !isCapsuleBarStyle();
+        getSharedPreferences(PREFS_CHAT_UI, MODE_PRIVATE)
+                .edit().putBoolean(KEY_BAR_STYLE_CAPSULE, nowCapsule).apply();
+        applyBarStyle(nowCapsule);
+        Toast.makeText(this, nowCapsule ? "Bar style: Capsule" : "Bar style: Fixed",
+                Toast.LENGTH_SHORT).show();
+    }
+
+    /** Applies Fixed vs Capsule appearance to the header + input bar cards. */
+    private void applyBarStyle(boolean capsule) {
+        float density = getResources().getDisplayMetrics().density;
+        int marginDp   = capsule ? 10 : 0;
+        int headerTopMarginDp = capsule ? 10 : 0;
+        float cornerDp = capsule ? 24f : 0f;
+        float inputCornerDp = capsule ? 28f : 0f;
+        float elevationDp = capsule ? 6f : 0f;
+
+        com.google.android.material.card.MaterialCardView header = binding.cvHeaderCapsule;
+        header.setRadius(cornerDp * density);
+        header.setCardElevation(elevationDp * density);
+        android.view.ViewGroup.MarginLayoutParams headerLp =
+                (android.view.ViewGroup.MarginLayoutParams) header.getLayoutParams();
+        headerLp.setMargins((int) (marginDp * density), (int) (headerTopMarginDp * density),
+                (int) (marginDp * density), (int) ((capsule ? 6 : 0) * density));
+        header.setLayoutParams(headerLp);
+
+        com.google.android.material.card.MaterialCardView input = binding.cvInputCapsule;
+        input.setRadius(inputCornerDp * density);
+        input.setCardElevation(elevationDp * density);
+        android.view.ViewGroup.MarginLayoutParams inputLp =
+                (android.view.ViewGroup.MarginLayoutParams) input.getLayoutParams();
+        inputLp.setMargins((int) (marginDp * density), 0, (int) (marginDp * density), 0);
+        input.setLayoutParams(inputLp);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // SOCIAL PROFILE SHORTCUTS (Reel / X / YouTube) — moved out of the
+    // header into the 3-dot overflow menu (action_view_reel /
+    // action_view_x_profile / action_view_youtube) to keep the header lean.
+    // Same logic as before, just callable from the menu now.
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void openReelProfile() {
+        if (partnerUid == null || partnerUid.isEmpty()) return;
+        try {
+            Class<?> cls = Class.forName("com.callx.app.profile.UserReelsActivity");
+            Intent in = new Intent(this, cls);
+            in.putExtra("uid",   partnerUid);
+            in.putExtra("name",  partnerName != null ? partnerName : "");
+            in.putExtra("photo", partnerPhoto != null ? partnerPhoto : "");
+            startActivity(in);
+        } catch (ClassNotFoundException e) {
+            Toast.makeText(this, "Reels profile not available", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void openXProfile() {
+        if (partnerUid == null || partnerUid.isEmpty()) return;
+        try {
+            Class<?> cls = Class.forName("com.callx.app.profile.XProfileSheet");
+            java.lang.reflect.Method method = cls.getMethod("showProfile",
+                    androidx.fragment.app.FragmentManager.class, String.class);
+            method.invoke(null, getSupportFragmentManager(), partnerUid);
+        } catch (Exception e) {
+            Toast.makeText(this, "X profile not available", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void openYoutubeChannel() {
+        if (partnerUid == null || partnerUid.isEmpty()) return;
+        try {
+            Class<?> cls = Class.forName("com.callx.app.channel.YouTubeChannelActivity");
+            Intent in = new Intent(this, cls);
+            in.putExtra("uid",  partnerUid);
+            in.putExtra("name", partnerName != null ? partnerName : "");
+            startActivity(in);
+        } catch (ClassNotFoundException e) {
+            Toast.makeText(this, "YouTube channel not available", Toast.LENGTH_SHORT).show();
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
