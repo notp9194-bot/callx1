@@ -195,7 +195,7 @@ public class VoiceNotePreviewWaveformView extends View {
         badgeTextPaint.setTextAlign(Paint.Align.CENTER);
         setMinimumHeight((int) (28 * density));
 
-        scaleGestureDetector = new ScaleGestureDetector(context, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        scaleGestureDetector = new ScaleGestureDetector(getContext(), new ScaleGestureDetector.SimpleOnScaleGestureListener() {
             @Override public boolean onScaleBegin(ScaleGestureDetector detector) {
                 isScaling = true;
                 // Abandon any single-finger drag the moment a second finger lands.
