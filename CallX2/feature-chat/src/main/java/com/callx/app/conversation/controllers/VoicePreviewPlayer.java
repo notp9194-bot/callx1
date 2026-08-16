@@ -25,6 +25,12 @@ import java.io.IOException;
  * reaches trimEnd — so previewing always plays exactly what will be sent,
  * never the cut head/tail. The actual audio file isn't touched here; the
  * physical cut happens once, at send time, via VoiceTrimmer.
+ *
+ * Feature: TRIM PREVIEW LOOP. {@link #setLoopEnabled(boolean)} — when on,
+ * hitting trimEnd (or, for an untrimmed clip, MediaPlayer's own natural
+ * completion) seeks back to trimStart and keeps playing instead of
+ * stopping, so the user can audition the selected window on repeat while
+ * dragging the handles rather than re-tapping Play after every listen.
  */
 public class VoicePreviewPlayer {
 
@@ -42,6 +48,7 @@ public class VoicePreviewPlayer {
 
     private float trimStartFrac = 0f;
     private float trimEndFrac = 1f;
+    private boolean loopEnabled = false;
 
     private final Runnable progressTick = new Runnable() {
         @Override public void run() {
@@ -51,14 +58,20 @@ public class VoicePreviewPlayer {
                     int pos = player.getCurrentPosition();
                     float progress = durationMs > 0 ? Math.min(1f, pos / (float) durationMs) : 0f;
                     if (progress >= trimEndFrac - 0.001f) {
-                        // Hit the trimmed-out tail — stop here instead of
-                        // playing into audio that got cut, then rewind the
-                        // playhead back to the start of the selection.
-                        pause();
+                        // Hit the trimmed-out tail — rewind to trimStart
+                        // either way; loop mode keeps playing from there,
+                        // non-loop mode stops.
                         seekTo(trimStartFrac);
-                        if (listener != null) {
-                            listener.onProgress(trimStartFrac);
-                            listener.onPlaybackFinished();
+                        if (loopEnabled) {
+                            player.start();
+                            if (listener != null) listener.onProgress(trimStartFrac);
+                            handler.postDelayed(this, 50L);
+                        } else {
+                            pause();
+                            if (listener != null) {
+                                listener.onProgress(trimStartFrac);
+                                listener.onPlaybackFinished();
+                            }
                         }
                         return;
                     }
@@ -80,6 +93,16 @@ public class VoicePreviewPlayer {
         trimEndFrac = Math.max(trimStartFrac, Math.min(1f, endFrac));
     }
 
+    /** Toggles trim-preview looping — see class doc. Safe to call whether
+     *  or not playback is currently in progress. */
+    public void setLoopEnabled(boolean loopEnabled) {
+        this.loopEnabled = loopEnabled;
+    }
+
+    public boolean isLoopEnabled() {
+        return loopEnabled;
+    }
+
     /** Prepares (synchronously — file is local and tiny) a player over the
      *  given path. Safe to call once per pause window; call release()
      *  before preparing again over a different/updated file. Resets the
@@ -97,7 +120,18 @@ public class VoicePreviewPlayer {
             prepared = true;
             player.setOnCompletionListener(mp -> {
                 handler.removeCallbacks(progressTick);
-                if (listener != null) listener.onPlaybackFinished();
+                // Natural end-of-file (only reachable when trimEnd==1 — an
+                // untrimmed clip; the tick above always intercepts first
+                // when there's an actual trim). Loop mode restarts from
+                // trimStart same as the mid-clip case.
+                if (loopEnabled) {
+                    seekTo(trimStartFrac);
+                    try { player.start(); } catch (IllegalStateException ignored) {}
+                    if (listener != null) listener.onProgress(trimStartFrac);
+                    handler.postDelayed(progressTick, 50L);
+                } else if (listener != null) {
+                    listener.onPlaybackFinished();
+                }
             });
             return true;
         } catch (IOException | IllegalStateException e) {

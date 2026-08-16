@@ -50,6 +50,7 @@ import com.callx.app.utils.VideoQualityPreferences;
 import com.callx.app.utils.VideoUploader;
 import com.callx.app.utils.VoiceRecorder;
 import com.callx.app.utils.VoiceTrimmer;
+import android.graphics.PorterDuff;
 import com.callx.app.conversation.MultiMediaPreviewDialog;
 import com.callx.app.payments.ui.ChatPaymentBottomSheet;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
@@ -179,6 +180,13 @@ public class ChatMediaController {
     /** Plays back the paused-but-unsent clip so the user can preview it
      *  before Resume/Send (Feature: pause/resume/play/adjust/send). */
     private final VoicePreviewPlayer previewPlayer = new VoicePreviewPlayer();
+    /** Snapshot of recorder.getDuration() taken the moment preview mode
+     *  starts (pauseRecording()) — stays fixed while paused, so trim-drag
+     *  math (selection fraction × total) doesn't need to keep re-querying
+     *  the recorder. Used to show the SELECTED clip's length in
+     *  tv_preview_timer as the handles move, e.g. "0:08" for an 8s
+     *  selection out of a longer recording. */
+    private long previewTotalDurationMs = 0L;
 
     /** Once the drag clears a small deadzone it commits to ONE axis
      *  (horizontal = cancel, vertical = lock) for the rest of the gesture,
@@ -2227,6 +2235,8 @@ public class ChatMediaController {
             rb.btnRecordDelete.setOnClickListener(v -> finishCancel());
             rb.btnRecordSend.setOnClickListener(v -> finishAndSend());
             rb.btnPauseResume.setOnClickListener(v -> onPauseResumeClicked());
+            rb.btnPreviewResetTrim.setOnClickListener(v -> onResetTrimClicked());
+            rb.btnPreviewLoop.setOnClickListener(v -> onToggleLoopClicked());
             rb.btnPreviewPlaypause.setOnClickListener(v -> onPreviewPlayPauseClicked());
             rb.waveformPreview.setOnSeekListener((progress, released) -> {
                 if (released) seekPreviewTo(progress);
@@ -2238,6 +2248,11 @@ public class ChatMediaController {
             // in finishAndSend(); dragging just narrows the preview window.
             rb.waveformPreview.setOnTrimChangeListener((trimStart, trimEnd, released) -> {
                 previewPlayer.setTrimRange(trimStart, trimEnd);
+                // Live duration readout — "0:08" for whatever's currently
+                // between the handles, updating on every drag sample, not
+                // just on release.
+                long selectedMs = Math.round((trimEnd - trimStart) * previewTotalDurationMs);
+                rb.tvPreviewTimer.setText(formatTimer(selectedMs));
                 if (released) {
                     // Keep the playhead inside the (possibly narrower) new
                     // window instead of leaving it stranded on cut audio.
@@ -2484,12 +2499,20 @@ public class ChatMediaController {
         // fractions would even point at).
         rb.waveformPreview.setTrimRange(0f, 1f);
         rb.waveformPreview.setProgress(0f);
-        rb.tvPreviewTimer.setText(formatTimer(recorder.getDuration()));
+        previewTotalDurationMs = recorder.getDuration();
+        rb.tvPreviewTimer.setText(formatTimer(previewTotalDurationMs));
+        // Duration badges on the trim handles (Feature: visual duration
+        // badge on handles) need to know the clip length to convert their
+        // fraction into mm:ss.
+        rb.waveformPreview.setTotalDurationMs((int) previewTotalDurationMs);
 
         String path = recorder.getOutputFilePathForPreview();
         boolean prepared = path != null && previewPlayer.prepare(path);
         rb.waveformPreview.setDraggable(prepared);
         rb.btnPreviewPlaypause.setImageResource(R.drawable.ic_play);
+        // Fresh pause: loop-preview always starts off, same as trim range.
+        previewPlayer.setLoopEnabled(false);
+        setLoopButtonUi(rb, false);
 
         rb.llRecordTopLive.setVisibility(View.GONE);
         rb.llRecordTopPreview.setVisibility(View.VISIBLE);
@@ -2540,6 +2563,34 @@ public class ChatMediaController {
             previewPlayer.play();
             rb.btnPreviewPlaypause.setImageResource(R.drawable.ic_pause);
         }
+    }
+
+    /** UNDO TRIM — reset button next to the preview timer. Snaps both
+     *  handles back to [0,1]; the view's own OnTrimChangeListener (wired
+     *  in attachMicGesture()) picks up the callback and re-syncs
+     *  previewPlayer's range, the duration readout, and the playhead —
+     *  same code path a manual drag-back-out would take. */
+    private void onResetTrimClicked() {
+        ActivityChatBinding binding = delegate.getBinding();
+        LayoutRecordingBarBinding rb = recordingBar(binding);
+        rb.waveformPreview.resetTrim();
+    }
+
+    /** TRIM PREVIEW LOOP TOGGLE — flips whether preview playback repeats
+     *  the selected [trimStart, trimEnd] window instead of stopping at the
+     *  end of it. */
+    private void onToggleLoopClicked() {
+        ActivityChatBinding binding = delegate.getBinding();
+        LayoutRecordingBarBinding rb = recordingBar(binding);
+        boolean nowEnabled = !previewPlayer.isLoopEnabled();
+        previewPlayer.setLoopEnabled(nowEnabled);
+        setLoopButtonUi(rb, nowEnabled);
+    }
+
+    private void setLoopButtonUi(LayoutRecordingBarBinding rb, boolean enabled) {
+        int color = ContextCompat.getColor(activity,
+                enabled ? R.color.brand_primary : R.color.text_muted);
+        rb.btnPreviewLoop.setColorFilter(color, PorterDuff.Mode.SRC_IN);
     }
 
     /** "Adjust" — user dragged the preview waveform to a new position. */

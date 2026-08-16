@@ -117,7 +117,7 @@
         <com.callx.app.chat.ui.VoiceNotePreviewWaveformView
             android:id="@+id/waveform_preview"
             android:layout_width="0dp"
-            android:layout_height="28dp"
+            android:layout_height="34dp"
             android:layout_weight="1"
             android:layout_marginStart="10dp"
             android:layout_marginEnd="10dp"/>
@@ -126,10 +126,38 @@
             android:id="@+id/tv_preview_timer"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginEnd="4dp"
             android:text="00:00"
             android:textColor="@color/text_secondary"
             android:textSize="13sp"
             android:fontFamily="monospace"/>
+
+        <!-- Trim preview loop toggle — repeats playback of just the
+             selected [trimStart, trimEnd] window instead of stopping at
+             trimEnd, so the user can audition a cut on repeat while
+             dragging handles (Feature: trim preview loop toggle). -->
+        <ImageButton
+            android:id="@+id/btn_preview_loop"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:padding="4dp"
+            android:src="@drawable/ic_preview_loop"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:tint="@color/text_muted"
+            android:contentDescription="@string/toggle_trim_loop"/>
+
+        <!-- Undo trim — snaps both handles back to [0,1] in one tap
+             (Feature: undo trim reset button). -->
+        <ImageButton
+            android:id="@+id/btn_preview_reset_trim"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:layout_marginStart="2dp"
+            android:padding="4dp"
+            android:src="@drawable/ic_media_edit_undo"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:tint="@color/text_muted"
+            android:contentDescription="@string/reset_trim"/>
     </LinearLayout>
 
     <!-- ── Row 2: Delete | Pause⇄Resume | Send — only visible once locked ── -->

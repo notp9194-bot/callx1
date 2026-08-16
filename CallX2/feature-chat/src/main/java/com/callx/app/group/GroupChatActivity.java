@@ -259,6 +259,10 @@ public class GroupChatActivity extends AppCompatActivity
      *  play/adjust/send). Mirrors ChatMediaController's 1:1 chat version. */
     private final List<Float> allAmplitudeSamples = new ArrayList<>();
     private final VoicePreviewPlayer previewPlayer = new VoicePreviewPlayer();
+    /** Snapshot of recorder.getDuration() taken when preview mode starts
+     *  (pauseRecording()) — used to turn the trim handles' fractions into
+     *  the selected clip's actual length for tv_preview_timer. */
+    private long previewTotalDurationMs = 0L;
     private enum DragAxis { HORIZONTAL, VERTICAL }
     private DragAxis dragAxis;
 
@@ -3980,6 +3984,12 @@ public class GroupChatActivity extends AppCompatActivity
             rb.btnRecordDelete.setOnClickListener(v -> finishCancel());
             rb.btnRecordSend.setOnClickListener(v -> finishAndSend());
             rb.btnPauseResume.setOnClickListener(v -> onPauseResumeClicked());
+            rb.btnPreviewResetTrim.setOnClickListener(v -> rb.waveformPreview.resetTrim());
+            rb.btnPreviewLoop.setOnClickListener(v -> {
+                boolean nowEnabled = !previewPlayer.isLoopEnabled();
+                previewPlayer.setLoopEnabled(nowEnabled);
+                setLoopButtonUi(rb, nowEnabled);
+            });
             rb.btnPreviewPlaypause.setOnClickListener(v -> onPreviewPlayPauseClicked());
             rb.waveformPreview.setOnSeekListener((progress, released) -> {
                 if (released) seekPreviewTo(progress);
@@ -3991,6 +4001,8 @@ public class GroupChatActivity extends AppCompatActivity
             // in finishAndSend(); dragging just narrows the preview window.
             rb.waveformPreview.setOnTrimChangeListener((trimStart, trimEnd, released) -> {
                 previewPlayer.setTrimRange(trimStart, trimEnd);
+                long selectedMs = Math.round((trimEnd - trimStart) * previewTotalDurationMs);
+                rb.tvPreviewTimer.setText(formatTimer(selectedMs));
                 if (released) {
                     float clamped = Math.max(trimStart, Math.min(trimEnd, rb.waveformPreview.getProgress()));
                     rb.waveformPreview.setProgress(clamped);
@@ -4177,6 +4189,12 @@ public class GroupChatActivity extends AppCompatActivity
         }
     }
 
+    private void setLoopButtonUi(LayoutRecordingBarBinding rb, boolean enabled) {
+        int color = androidx.core.content.ContextCompat.getColor(this,
+                enabled ? R.color.brand_primary : R.color.text_muted);
+        rb.btnPreviewLoop.setColorFilter(color, android.graphics.PorterDuff.Mode.SRC_IN);
+    }
+
     /** Pauses the in-progress recording and switches to the frozen,
      *  scrubbable whole-clip preview (Feature: pause/resume/play/adjust/
      *  send). Mirrors ChatMediaController's 1:1 chat version. */
@@ -4195,12 +4213,16 @@ public class GroupChatActivity extends AppCompatActivity
         // stale trim window from before resumeRecording() added more audio.
         rb.waveformPreview.setTrimRange(0f, 1f);
         rb.waveformPreview.setProgress(0f);
-        rb.tvPreviewTimer.setText(formatTimer(recorder.getDuration()));
+        previewTotalDurationMs = recorder.getDuration();
+        rb.tvPreviewTimer.setText(formatTimer(previewTotalDurationMs));
+        rb.waveformPreview.setTotalDurationMs((int) previewTotalDurationMs);
 
         String path = recorder.getOutputFilePathForPreview();
         boolean prepared = path != null && previewPlayer.prepare(path);
         rb.waveformPreview.setDraggable(prepared);
         rb.btnPreviewPlaypause.setImageResource(R.drawable.ic_play);
+        previewPlayer.setLoopEnabled(false);
+        setLoopButtonUi(rb, false);
 
         rb.llRecordTopLive.setVisibility(View.GONE);
         rb.llRecordTopPreview.setVisibility(View.VISIBLE);
