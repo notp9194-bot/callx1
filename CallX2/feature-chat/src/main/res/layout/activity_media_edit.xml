@@ -69,8 +69,7 @@
         android:paddingStart="8dp"
         android:paddingEnd="10dp"
         android:paddingTop="36dp"
-        android:paddingBottom="10dp"
-        android:background="#88000000">
+        android:paddingBottom="10dp">
 
         <!-- Close -->
         <ImageButton
@@ -277,14 +276,14 @@
             android:layout_marginTop="4dp">
 
             <!-- Eraser toggle -->
-            <TextView
+            <ImageButton
                 android:id="@+id/btnDrawEraser"
+                style="?android:attr/borderlessButtonStyle"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
-                android:text="⌫"
-                android:textSize="18sp"
-                android:textColor="#CCFFFFFF"
-                android:gravity="center"
+                android:src="@drawable/ic_media_edit_eraser"
+                android:scaleType="center"
+                android:padding="7dp"
                 android:background="@drawable/bg_media_edit_toolbtn"
                 android:layout_marginEnd="10dp"
                 android:clickable="true"

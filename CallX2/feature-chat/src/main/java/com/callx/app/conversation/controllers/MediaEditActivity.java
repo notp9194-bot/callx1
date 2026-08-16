@@ -373,8 +373,11 @@ public class MediaEditActivity extends AppCompatActivity {
 
     private void refreshHdButton() {
         if (btnEditHd == null) return;
-        btnEditHd.setText(isHD ? "HD" : "HD");
-        btnEditHd.setAlpha(isHD ? 1f : 0.45f);
+        btnEditHd.setText("HD");
+        btnEditHd.setAlpha(1f);
+        btnEditHd.setBackgroundResource(isHD
+                ? R.drawable.bg_hd_toggle_active
+                : R.drawable.bg_hd_toggle_inactive);
     }
 
     private void applyRotationToPreview() {
