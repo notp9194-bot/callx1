@@ -686,9 +686,46 @@ public class UserReelsActivity extends AppCompatActivity
         setupMoreMenu();
 
         if (ivAvatar != null) {
-            ivAvatar.setOnClickListener(v -> openStatusIfAvailable());
-            ivAvatar.setOnLongClickListener(v -> { showAvatarZoom(v, targetPhoto, targetName); return true; });
+            // Tap: status ring hai to status open, warna avatar-zoom seedha
+            // simple tap se hi khulta hai — pehle yeh sirf long-press se
+            // khulta tha, ab woh trigger click pe move ho gaya hai (long-
+            // press listener isliye hata diya, ab redundant hai).
+            ivAvatar.setOnClickListener(v -> openStatusOrAvatarZoom(v));
         }
+    }
+
+    /**
+     * Avatar tap handler: agar target user ka active (24h) status hai to
+     * status viewer khulta hai — jaisa pehle hota tha. Status na ho (ya
+     * check abhi pending ho) to avatar-zoom dialog khulta hai, jo pehle
+     * sirf long-press se accessible tha.
+     */
+    private void openStatusOrAvatarZoom(View sourceView) {
+        long cutoff = System.currentTimeMillis() - 24 * 60 * 60 * 1000L;
+        FirebaseUtils.getUserStatusRef(targetUid)
+            .orderByChild("timestamp").startAt((double) cutoff).limitToFirst(1)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (snap.exists() && snap.getChildrenCount() > 0) {
+                        try {
+                            Class<?> cls = Class.forName("com.callx.app.viewer.StatusViewerActivity");
+                            Intent i = new Intent(UserReelsActivity.this, cls);
+                            i.putExtra("ownerUid",  targetUid);
+                            i.putExtra("ownerName", targetName != null ? targetName : "");
+                            startActivity(i);
+                        } catch (ClassNotFoundException e) {
+                            Toast.makeText(UserReelsActivity.this, "Status viewer unavailable", Toast.LENGTH_SHORT).show();
+                        }
+                    } else {
+                        showAvatarZoom(sourceView, targetPhoto, targetName);
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    // Firebase check fail ho jaye to bhi avatar-zoom dikha do —
+                    // tap kabhi silently no-op nahi hona chahiye.
+                    showAvatarZoom(sourceView, targetPhoto, targetName);
+                }
+            });
     }
 
     /**
@@ -1716,28 +1753,6 @@ public class UserReelsActivity extends AppCompatActivity
         }
     }
 
-    private void openStatusIfAvailable() {
-        long cutoff = System.currentTimeMillis() - 24 * 60 * 60 * 1000L;
-        FirebaseUtils.getUserStatusRef(targetUid)
-            .orderByChild("timestamp").startAt((double) cutoff).limitToFirst(1)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (snap.exists() && snap.getChildrenCount() > 0) {
-                        try {
-                            Class<?> cls = Class.forName("com.callx.app.viewer.StatusViewerActivity");
-                            Intent i = new Intent(UserReelsActivity.this, cls);
-                            i.putExtra("ownerUid",  targetUid);
-                            i.putExtra("ownerName", targetName != null ? targetName : "");
-                            startActivity(i);
-                        } catch (ClassNotFoundException e) {
-                            Toast.makeText(UserReelsActivity.this, "Status viewer unavailable", Toast.LENGTH_SHORT).show();
-                        }
-                    }
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
-    }
-
     // ── Share Profile (Feature 8) ─────────────────────────────────────────
 
     private void shareProfile() {
@@ -2567,8 +2582,26 @@ public class UserReelsActivity extends AppCompatActivity
                         }
                         if (--remaining[0] == 0) {
                             fetched.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
-                            target.addAll(fetched);
-                            finishLoading(refresh, tab, insertStart, fetched.size());
+                            // De-dupe against whatever is already in `target`. This matters
+                            // because loadReelGridFromRoom() warm-starts the Reels tab from
+                            // the Room cache on a background thread while this Firebase
+                            // fetch is in flight — if Room's callback lands first (list was
+                            // empty right after the synchronous reelsTabData.clear() in
+                            // loadUserReels(), before Firebase responded), it fills `target`
+                            // with the same page we're about to fetch. Blindly appending here
+                            // used to double every reel in the grid. Same guard also protects
+                            // pagination against a repeated key landing in two pages.
+                            Set<String> existingIds = new HashSet<>();
+                            for (ReelModel r : target)
+                                if (r != null && r.reelId != null) existingIds.add(r.reelId);
+                            int added = 0;
+                            for (ReelModel r : fetched) {
+                                if (r == null) continue;
+                                if (r.reelId != null && !existingIds.add(r.reelId)) continue; // already present
+                                target.add(r);
+                                added++;
+                            }
+                            finishLoading(refresh, tab, insertStart, added);
                         }
                     }
                     @Override public void onCancelled(@NonNull DatabaseError e) {
