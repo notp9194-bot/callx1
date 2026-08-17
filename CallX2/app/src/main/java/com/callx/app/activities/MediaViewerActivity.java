@@ -63,6 +63,15 @@ public class MediaViewerActivity extends AppCompatActivity {
 
     // Local-first single-item mode (see onCreate doc + LocalMediaAvailability).
     private String singleItemLocalPath;
+    // BUG FIX (Voice Caption on Photo — image can't be opened after send):
+    // a Media-E2E image's `url` extra is CIPHERTEXT (resource_type=raw).
+    // Previously this activity had no way to decrypt it at all — only the
+    // sender's own singleItemLocalPath fallback ever rendered correctly.
+    // showMediaActionSheet now derives the full-res subkey and passes it
+    // here (see MessagePagingAdapter#sheetMediaKeyB64) so a receiver's
+    // View/Edit actually decrypts instead of trying to decode raw
+    // ciphertext bytes as an image.
+    private byte[] mediaDecryptKey;
 
     // ── Gallery mode (swipeable grouped-media viewer) ────────────────────
     private GalleryPagerAdapter galleryAdapter;
@@ -108,6 +117,16 @@ public class MediaViewerActivity extends AppCompatActivity {
         // of the (possibly compressed) remote mediaUrl. Falls back to `url`
         // automatically if the file's gone (see LocalMediaAvailability).
         singleItemLocalPath = getIntent().getStringExtra("localPath");
+
+        // Media E2E — see mediaDecryptKey field doc above.
+        String mediaKeyB64 = getIntent().getStringExtra("mediaKeyB64");
+        if (mediaKeyB64 != null && !mediaKeyB64.isEmpty()) {
+            try {
+                mediaDecryptKey = android.util.Base64.decode(mediaKeyB64, android.util.Base64.NO_WRAP);
+            } catch (Exception ignored) {
+                mediaDecryptKey = null;
+            }
+        }
 
         // Optional — only present when opened from a grouped-media message
         // tap. Used to send a swipe-up "reply" request back to the chat
@@ -590,6 +609,20 @@ public class MediaViewerActivity extends AppCompatActivity {
                 File source;
                 if (cached != null) {
                     source = cached;
+                } else if (mediaDecryptKey != null) {
+                    // Media E2E: sharedUrl is ciphertext — a raw byte-copy
+                    // (the old fallback below) would save undecodable
+                    // garbage to the gallery. Route through the decrypting
+                    // MediaCache instead, same fix as loadImageProgressive.
+                    final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+                    final File[] result = new File[1];
+                    MediaCache.get(this, sharedUrl, mediaDecryptKey, new MediaCache.Callback() {
+                        @Override public void onReady(File f) { result[0] = f; latch.countDown(); }
+                        @Override public void onError(String r) { latch.countDown(); }
+                    });
+                    latch.await();
+                    if (result[0] == null) throw new java.io.IOException("Decrypt failed");
+                    source = result[0];
                 } else {
                     // Blocking download fallback (off main thread already).
                     java.io.InputStream in = new java.net.URL(sharedUrl).openStream();
@@ -695,6 +728,22 @@ public class MediaViewerActivity extends AppCompatActivity {
                 Glide.with(this).load(cachedImg)
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
                     .into(pv);
+            } else if (mediaDecryptKey != null) {
+                // Media E2E: fullUrl is ciphertext (resource_type=raw) — it
+                // can't be Glide-loaded directly (that used to happen here
+                // unconditionally, showing a broken image). Decrypt via
+                // MediaCache first, then load the resulting plaintext file.
+                MediaCache.get(this, fullUrl, mediaDecryptKey, new MediaCache.Callback() {
+                    @Override public void onReady(File f) {
+                        Glide.with(MediaViewerActivity.this).load(f)
+                            .diskCacheStrategy(DiskCacheStrategy.ALL)
+                            .into(pv);
+                    }
+                    @Override public void onError(String r) {
+                        Toast.makeText(MediaViewerActivity.this,
+                                "Couldn't decrypt photo: " + r, Toast.LENGTH_SHORT).show();
+                    }
+                });
             } else {
                 Glide.with(this).load(fullUrl)
                     .diskCacheStrategy(DiskCacheStrategy.ALL)

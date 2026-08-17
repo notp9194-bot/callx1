@@ -4886,7 +4886,7 @@ public class MessagePagingAdapter
                     // pill; only then is fullUrl actually fetched. Sent
                     // messages (sender's own upload) and GIFs skip this.
                     if (h.fl_download_overlay != null && !sent && !isGifMsg) {
-                        bindDownloadOverlay(ctx, h, fullUrl);
+                        bindDownloadOverlay(ctx, h, fullUrl, m);
                     } else if (h.fl_download_overlay != null) {
                         h.fl_download_overlay.setVisibility(View.GONE);
                     }
@@ -6212,8 +6212,26 @@ public class MessagePagingAdapter
      *   full-res local file (sharper than the 200x200 thumb).
      * - Not cached → show the pill with the remote file size, wired to
      *   start the download (with live % progress) on tap.
+     *
+     * BUG FIX (Voice Caption on Photo — image can't be opened after send):
+     * this is the ONLY entry point that downloads the full-res image for
+     * the legacy image bubble used when m.voiceUrl is set (see
+     * isCanvasEligible()) — plain images never reach this method, they go
+     * through the Canvas path's own decrypt-aware download-gate instead.
+     * For a Media-E2E chat, m.mediaUrl/fullUrl is CIPHERTEXT
+     * (resource_type=raw) — this used to call MediaCache.getWithProgress()
+     * with no decrypt key at all, so it downloaded and cached the raw
+     * ciphertext bytes as if they were a plain image, then handed that
+     * undecodable file straight to Glide. Result: the download pill
+     * "succeeds" but the bubble (and every viewer opened from it, since
+     * showMediaActionSheet's VIEW falls back to this same cached file)
+     * shows a broken image — exactly the "photo open nahi ho raha" report.
+     * Now mirrors the Canvas path (see onImageClick's aWarmKey /
+     * decryptKeyOnly pattern): derive the full-res subkey from m.mediaKeyEnc
+     * up front and pass it through so MediaCache decrypts on the way down,
+     * same as every other E2E media type already does.
      */
-    private void bindDownloadOverlay(Context ctx, VH h, String fullUrl) {
+    private void bindDownloadOverlay(Context ctx, VH h, String fullUrl, @NonNull Message m) {
         if (fullUrl == null || fullUrl.isEmpty()) {
             h.fl_download_overlay.setVisibility(View.GONE);
             return;
@@ -6221,6 +6239,14 @@ public class MessagePagingAdapter
         // Guards async callbacks below against the holder having been
         // recycled onto a different message by the time they fire.
         h.fl_download_overlay.setTag(fullUrl);
+
+        // Media E2E (image): derive the full-res subkey once up front so
+        // both the cache lookup key-space and the actual download below
+        // agree on plaintext — see method doc above.
+        final byte[] dlMediaKey = (m.mediaKeyEnc != null)
+                ? com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(ctx, m.mediaKeyEnc,
+                        m.senderId, (m.messageId != null ? m.messageId : m.id))
+                : null;
 
         java.io.File cachedFile = com.callx.app.utils.MediaCache.getCached(ctx, fullUrl);
         if (cachedFile != null) {
@@ -6251,7 +6277,7 @@ public class MessagePagingAdapter
             downloadingMediaUrls.add(fullUrl);
             setDownloadPillState(h, true, 0, null);
 
-            com.callx.app.utils.MediaCache.getWithProgress(ctx, fullUrl,
+            com.callx.app.utils.MediaCache.getWithProgress(ctx, fullUrl, dlMediaKey,
                     new com.callx.app.utils.MediaCache.ProgressCallback() {
                 @Override public void onProgress(int percent) {
                     if (!fullUrl.equals(h.fl_download_overlay.getTag())) return;
@@ -6436,6 +6462,25 @@ public class MessagePagingAdapter
         boolean isOwnMsg = currentUid != null && currentUid.equals(m.senderId);
         final String sheetMessageId = (m.messageId != null && !m.messageId.isEmpty()) ? m.messageId : m.id;
 
+        // BUG FIX (Voice Caption on Photo — image can't be opened after
+        // send): a Media-E2E image/video's fullUrl is CIPHERTEXT
+        // (resource_type=raw). VIEW/EDIT/SAVE below used to hand that
+        // straight to MediaViewerActivity / MediaCache with no decrypt key
+        // at all — only the sender's own mediaLocalPath fallback ever made
+        // it viewable, so a RECEIVER tapping View/Save on an E2E image (the
+        // legacy voice-caption bubble is the only bubble that reaches this
+        // gap in practice, since the Canvas path decrypts inline before the
+        // sheet ever opens) got a broken/undecodable file. Derive the
+        // full-res subkey once here — same decryptKeyOnly() pattern already
+        // used for E2E audio/video elsewhere — and thread it through.
+        final byte[] sheetMediaKey = (!isOwnMsg && m.mediaKeyEnc != null)
+                ? com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(ctx, m.mediaKeyEnc,
+                        m.senderId, sheetMessageId)
+                : null;
+        final String sheetMediaKeyB64 = (sheetMediaKey != null)
+                ? android.util.Base64.encodeToString(sheetMediaKey, android.util.Base64.NO_WRAP)
+                : null;
+
         for (int idx = 0; idx < labels.length; idx++) {
             // Skip Delete if not own message; skip Edit if not own message
             if (labels[idx].contains("Delete") && !isOwnMsg) continue;
@@ -6492,6 +6537,10 @@ public class MessagePagingAdapter
                             i.putExtra("chatId",    chatId);
                             i.putExtra("messageId", sheetMessageId);
                         }
+                        // Media E2E — see sheetMediaKeyB64 derivation above.
+                        if (sheetMediaKeyB64 != null) {
+                            i.putExtra("mediaKeyB64", sheetMediaKeyB64);
+                        }
                         ctx.startActivity(i);
                         break;
                     }
@@ -6521,6 +6570,10 @@ public class MessagePagingAdapter
                             android.widget.Toast.makeText(ctx, "Can't edit — not opened from a chat", android.widget.Toast.LENGTH_SHORT).show();
                             break;
                         }
+                        // Media E2E — see sheetMediaKeyB64 derivation above.
+                        if (sheetMediaKeyB64 != null) {
+                            ei.putExtra("mediaKeyB64", sheetMediaKeyB64);
+                        }
                         ctx.startActivity(ei);
                         break;
                     }
@@ -6547,7 +6600,10 @@ public class MessagePagingAdapter
                         } else {
                             android.widget.Toast.makeText(appCtx,
                                     "Downloading…", android.widget.Toast.LENGTH_SHORT).show();
-                            com.callx.app.utils.MediaCache.getWithProgress(appCtx, fullUrl,
+                            // Media E2E — see sheetMediaKey derivation above; without
+                            // this, a Media-E2E image/video saved to gallery via this
+                            // path saved raw ciphertext bytes instead of the photo.
+                            com.callx.app.utils.MediaCache.getWithProgress(appCtx, fullUrl, sheetMediaKey,
                                     new com.callx.app.utils.MediaCache.ProgressCallback() {
                                 @Override public void onProgress(int percent) {}
                                 @Override public void onReady(java.io.File file) {
