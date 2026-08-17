@@ -198,12 +198,47 @@ public class HighlightRingColorPickerBottomSheet {
             refreshPreview[0].run();
         });
 
+        // ── Precise sliders — RGB + HEX + opacity, same advanced widget used
+        // by RainbowStripColorPickerBottomSheet in feature-reels/feature-chat ──
+        com.callx.app.utils.RainbowColorSlidersView slidersView =
+                new com.callx.app.utils.RainbowColorSlidersView(ctx);
+        slidersView.setVisibility(View.GONE);
+        LinearLayout.LayoutParams slidersLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        slidersLp.bottomMargin = dp(ctx, 16);
+        root.addView(slidersView, slidersLp);
+        slidersView.setOnColorChangeListener(color -> {
+            selectedColor[0] = color;
+            swatchAdapter.setSelectedColor(-1);
+            refreshPreview[0].run();
+        });
+
+        TextView toggleSliders = new TextView(ctx);
+        toggleSliders.setText("Use precise sliders");
+        toggleSliders.setTextSize(13);
+        toggleSliders.setTextColor(Color.parseColor("#6200EE"));
+        toggleSliders.setPadding(0, 0, 0, dp(ctx, 16));
+        root.addView(toggleSliders);
+        boolean[] slidersMode = { false };
+        toggleSliders.setOnClickListener(v -> {
+            slidersMode[0] = !slidersMode[0];
+            rvColors.setVisibility(slidersMode[0] ? View.GONE : View.VISIBLE);
+            rainbowLabel.setVisibility(slidersMode[0] ? View.GONE : View.VISIBLE);
+            rainbowPicker.setVisibility(slidersMode[0] ? View.GONE : View.VISIBLE);
+            slidersView.setVisibility(slidersMode[0] ? View.VISIBLE : View.GONE);
+            toggleSliders.setText(slidersMode[0] ? "Back to presets & spectrum" : "Use precise sliders");
+            if (slidersMode[0]) slidersView.setColor(selectedColor[0]);
+        });
+
         // ── Actions ─────────────────────────────────────────────────────
         Button apply = new Button(ctx);
         apply.setText("Apply");
         apply.setAllCaps(false);
         apply.setOnClickListener(v -> {
-            String hex = String.format("#%06X", (0xFFFFFF & selectedColor[0]));
+            int a = Color.alpha(selectedColor[0]);
+            String hex = a >= 255
+                    ? String.format("#%06X", (0xFFFFFF & selectedColor[0]))
+                    : String.format("#%08X", selectedColor[0]);
             String mode = selectedDominant[0] ? HighlightRingDrawable.MODE_DOMINANT : HighlightRingDrawable.MODE_SOLID;
             if (listener != null) listener.onPicked(hex, mode);
             sheet.dismiss();

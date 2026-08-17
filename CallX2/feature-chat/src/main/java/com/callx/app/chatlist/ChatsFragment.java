@@ -1367,11 +1367,17 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         if (avatarUrl != null && !avatarUrl.isEmpty() && ivAvatar != null) {
             Glide.with(getContext()).load(avatarUrl)
                 .apply(RequestOptions.circleCropTransform())
+                .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .placeholder(R.drawable.ic_person)
                 .override(96, 96)
                 .into(ivAvatar);
         }
 
+        // Presence-only read: the avatar we just bound from `user` (list data,
+        // already fresh from the adapter) is reused as-is — no second network
+        // round trip + Glide decode for the same image on every single open.
+        // Only the (cheap) online/offline text needs a live read, and only the
+        // image is re-fetched if the server actually reports a *different* url.
         if (user.uid != null) {
             FirebaseUtils.getUserRef(user.uid)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
@@ -1393,9 +1399,12 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                         String photo = snap.child("photoUrl").getValue(String.class);
                         String thumb = snap.child("thumbUrl").getValue(String.class);
                         String url   = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-                        if (url != null && !url.isEmpty() && getContext() != null && ivAvatar != null)
+                        boolean changed = url != null && !url.isEmpty() && !url.equals(avatarUrl);
+                        if (changed && getContext() != null && ivAvatar != null)
                             Glide.with(getContext()).load(url)
                                 .apply(RequestOptions.circleCropTransform())
+                                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                .override(96, 96)
                                 .placeholder(R.drawable.ic_person).into(ivAvatar);
                     }
                     @Override public void onCancelled(DatabaseError e) {}
@@ -1521,6 +1530,21 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         sheet.show();
     }
 
+    /** Contact-sheet social snapshot (X/Reels/YouTube presence + counts +
+     *  follow state) for one contact, cached in-memory so reopening the same
+     *  contact's sheet again soon after paints instantly with zero network
+     *  round trips instead of re-firing 3-6 Firebase reads every single tap. */
+    private static final class SocialSnapshot {
+        long timestamp;
+        boolean hasX, hasReels, hasYt;
+        String xPhoto, reelsPhoto, ytPhoto;
+        long xCount, reelsCount, ytCount;
+        boolean xFollowing, reelsFollowing, ytSubscribed;
+    }
+
+    private static final long SOCIAL_CACHE_TTL_MS = 3 * 60 * 1000L; // 3 min — long enough for repeat taps in one session, short enough to stay fresh
+    private static String socialCacheKey(String uid) { return "contact_sheet_social:" + uid; }
+
     private void loadChatSocialButtons(
             String partnerUid, View sv,
             View btnXSheet, View btnReelsSheet, View btnYoutubeSheet,
@@ -1533,10 +1557,53 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             Handler[] animHandler, boolean[] animRunning, Runnable[] animRunnable) {
 
         if (getContext() == null) return;
+
+        // ── Instant path: fresh cache hit → paint immediately, skip Firebase entirely ──
+        Object cachedObj = com.callx.app.cache.MemoryCache.getInstance().get(socialCacheKey(partnerUid));
+        if (cachedObj instanceof SocialSnapshot) {
+            SocialSnapshot c = (SocialSnapshot) cachedObj;
+            if (System.currentTimeMillis() - c.timestamp < SOCIAL_CACHE_TTL_MS) {
+                if (c.hasX && c.xPhoto != null && ivAnimX != null)
+                    Glide.with(getContext()).load(c.xPhoto).circleCrop()
+                        .diskCacheStrategy(DiskCacheStrategy.ALL).override(96, 96)
+                        .placeholder(R.drawable.ic_person).into(ivAnimX);
+                if (c.hasX && tvXCount != null) tvXCount.setText(formatCount(c.xCount) + " Followers");
+                if (c.hasX && layoutXRow != null) layoutXRow.setVisibility(View.VISIBLE);
+                if (c.hasX && btnXFollow != null) updateXBtn(btnXFollow, c.xFollowing);
+
+                if (c.hasReels && c.reelsPhoto != null && ivAnimReel != null)
+                    Glide.with(getContext()).load(c.reelsPhoto).circleCrop()
+                        .diskCacheStrategy(DiskCacheStrategy.ALL).override(96, 96)
+                        .placeholder(R.drawable.ic_person).into(ivAnimReel);
+                if (c.hasReels && tvReelsCount != null) tvReelsCount.setText(formatCount(c.reelsCount) + " Followers");
+                if (c.hasReels && layoutReelsRow != null) layoutReelsRow.setVisibility(View.VISIBLE);
+                if (c.hasReels && btnReelsFollow != null) updateReelsBtn(btnReelsFollow, c.reelsFollowing);
+
+                if (c.hasYt && c.ytPhoto != null && ivAnimYt != null)
+                    Glide.with(getContext()).load(c.ytPhoto).circleCrop()
+                        .diskCacheStrategy(DiskCacheStrategy.ALL).override(96, 96)
+                        .placeholder(R.drawable.ic_person).into(ivAnimYt);
+                if (c.hasYt && tvYtCount != null) tvYtCount.setText(formatCount(c.ytCount) + " Subscribers");
+                if (c.hasYt && layoutYtRow != null) layoutYtRow.setVisibility(View.VISIBLE);
+                if (c.hasYt && btnYtSub != null) updateYtBtn(btnYtSub, c.ytSubscribed);
+
+                if (c.hasX || c.hasReels || c.hasYt)
+                    startChatAvatarPeekLoop(peekViews, animHandler, animRunning, animRunnable);
+
+                // Click-throughs (X/Reels/YouTube profile) and follow-toggle buttons still
+                // need real listeners wired even on the cached instant-paint path.
+                wireSocialClickThroughs(partnerUid, sheet, btnXSheet, btnReelsSheet, btnYoutubeSheet);
+                wireFollowToggles(partnerUid, c, btnXFollow, btnReelsFollow, btnYtSub, tvXCount, tvReelsCount, tvYtCount);
+                return; // no network reads on the cache-hit path
+            }
+        }
+
         final String DB = "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app";
         final FirebaseDatabase db = FirebaseDatabase.getInstance(DB);
         String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
             ? FirebaseUtils.getCurrentUid() : null;
+        final SocialSnapshot snap0 = new SocialSnapshot();
+        snap0.timestamp = System.currentTimeMillis();
 
         // ── X ──
         db.getReference("x/users").child(partnerUid)
@@ -1546,6 +1613,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     String xPhoto = snap.child("photoUrl").getValue(String.class);
                     if (xPhoto != null && !xPhoto.isEmpty() && ivAnimX != null)
                         Glide.with(getContext()).load(xPhoto).circleCrop()
+                            .diskCacheStrategy(DiskCacheStrategy.ALL)
                             .override(96, 96)
                             .placeholder(R.drawable.ic_person).into(ivAnimX);
                     startChatAvatarPeekLoop(peekViews, animHandler, animRunning, animRunnable);
@@ -1554,6 +1622,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     long xFCount = xF != null ? xF : 0;
                     if (tvXCount != null) tvXCount.setText(formatCount(xFCount) + " Followers");
                     if (layoutXRow != null) layoutXRow.setVisibility(View.VISIBLE);
+                    snap0.hasX = true; snap0.xPhoto = xPhoto; snap0.xCount = xFCount;
+                    com.callx.app.cache.MemoryCache.getInstance().put(socialCacheKey(partnerUid), snap0);
 
                     if (myUid != null && btnXFollow != null) {
                         db.getReference("x/followers").child(partnerUid).child(myUid)
@@ -1561,17 +1631,22 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                                 @Override public void onDataChange(DataSnapshot ds) {
                                     boolean[] isF = {ds.exists() && Boolean.TRUE.equals(ds.getValue(Boolean.class))};
                                     updateXBtn(btnXFollow, isF[0]);
+                                    snap0.xFollowing = isF[0];
                                     btnXFollow.setOnClickListener(v -> {
                                         isF[0] = !isF[0]; updateXBtn(btnXFollow, isF[0]);
+                                        snap0.xFollowing = isF[0];
                                         if (isF[0]) {
                                             db.getReference("x/followers").child(partnerUid).child(myUid).setValue(true);
                                             db.getReference("x/following").child(myUid).child(partnerUid).setValue(true);
                                             if (tvXCount != null) bumpCount(tvXCount, 1, "Followers");
+                                            snap0.xCount++;
                                         } else {
                                             db.getReference("x/followers").child(partnerUid).child(myUid).removeValue();
                                             db.getReference("x/following").child(myUid).child(partnerUid).removeValue();
                                             if (tvXCount != null) bumpCount(tvXCount, -1, "Followers");
+                                            snap0.xCount--;
                                         }
+                                        com.callx.app.cache.MemoryCache.getInstance().put(socialCacheKey(partnerUid), snap0);
                                     });
                                 }
                                 @Override public void onCancelled(DatabaseError e) {}
@@ -1606,8 +1681,10 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     String rp    = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
                     if (rp != null && !rp.isEmpty() && ivAnimReel != null)
                         Glide.with(getContext()).load(rp).circleCrop()
+                            .diskCacheStrategy(DiskCacheStrategy.ALL)
                             .override(96, 96)
                             .placeholder(R.drawable.ic_person).into(ivAnimReel);
+                    snap0.hasReels = true; snap0.reelsPhoto = rp;
 
                     db.getReference("reels/followers").child(partnerUid)
                         .addListenerForSingleValueEvent(new ValueEventListener() {
@@ -1615,22 +1692,29 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                                 long cnt = fSnap.getChildrenCount();
                                 if (tvReelsCount != null) tvReelsCount.setText(formatCount(cnt) + " Followers");
                                 if (layoutReelsRow != null) layoutReelsRow.setVisibility(View.VISIBLE);
+                                snap0.reelsCount = cnt;
                                 if (myUid != null && btnReelsFollow != null) {
                                     boolean[] isF = {fSnap.hasChild(myUid)};
                                     updateReelsBtn(btnReelsFollow, isF[0]);
+                                    snap0.reelsFollowing = isF[0];
                                     btnReelsFollow.setOnClickListener(v -> {
                                         isF[0] = !isF[0]; updateReelsBtn(btnReelsFollow, isF[0]);
+                                        snap0.reelsFollowing = isF[0];
                                         if (isF[0]) {
                                             db.getReference("reels/followers").child(partnerUid).child(myUid).setValue(true);
                                             db.getReference("reels/following").child(myUid).child(partnerUid).setValue(true);
                                             if (tvReelsCount != null) bumpCount(tvReelsCount, 1, "Followers");
+                                            snap0.reelsCount++;
                                         } else {
                                             db.getReference("reels/followers").child(partnerUid).child(myUid).removeValue();
                                             db.getReference("reels/following").child(myUid).child(partnerUid).removeValue();
                                             if (tvReelsCount != null) bumpCount(tvReelsCount, -1, "Followers");
+                                            snap0.reelsCount--;
                                         }
+                                        com.callx.app.cache.MemoryCache.getInstance().put(socialCacheKey(partnerUid), snap0);
                                     });
                                 }
+                                com.callx.app.cache.MemoryCache.getInstance().put(socialCacheKey(partnerUid), snap0);
                             }
                             @Override public void onCancelled(DatabaseError e) {}
                         });
@@ -1663,6 +1747,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     String ya = (yt != null && !yt.isEmpty()) ? yt : yp;
                     if (ya != null && !ya.isEmpty() && ivAnimYt != null)
                         Glide.with(getContext()).load(ya).circleCrop()
+                            .diskCacheStrategy(DiskCacheStrategy.ALL)
                             .override(96, 96)
                             .placeholder(R.drawable.ic_person).into(ivAnimYt);
 
@@ -1670,6 +1755,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     long subs = subC != null ? subC : 0;
                     if (tvYtCount != null) tvYtCount.setText(formatCount(subs) + " Subscribers");
                     if (layoutYtRow != null) layoutYtRow.setVisibility(View.VISIBLE);
+                    snap0.hasYt = true; snap0.ytPhoto = ya; snap0.ytCount = subs;
+                    com.callx.app.cache.MemoryCache.getInstance().put(socialCacheKey(partnerUid), snap0);
 
                     if (myUid != null && btnYtSub != null) {
                         db.getReference("youtube/subscribers").child(partnerUid).child(myUid)
@@ -1677,15 +1764,20 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                                 @Override public void onDataChange(DataSnapshot ds) {
                                     boolean[] isS = {ds.exists() && Boolean.TRUE.equals(ds.getValue(Boolean.class))};
                                     updateYtBtn(btnYtSub, isS[0]);
+                                    snap0.ytSubscribed = isS[0];
                                     btnYtSub.setOnClickListener(v -> {
                                         isS[0] = !isS[0]; updateYtBtn(btnYtSub, isS[0]);
+                                        snap0.ytSubscribed = isS[0];
                                         if (isS[0]) {
                                             db.getReference("youtube/subscribers").child(partnerUid).child(myUid).setValue(true);
                                             if (tvYtCount != null) bumpCount(tvYtCount, 1, "Subscribers");
+                                            snap0.ytCount++;
                                         } else {
                                             db.getReference("youtube/subscribers").child(partnerUid).child(myUid).removeValue();
                                             if (tvYtCount != null) bumpCount(tvYtCount, -1, "Subscribers");
+                                            snap0.ytCount--;
                                         }
+                                        com.callx.app.cache.MemoryCache.getInstance().put(socialCacheKey(partnerUid), snap0);
                                     });
                                 }
                                 @Override public void onCancelled(DatabaseError e) {}
@@ -1709,6 +1801,120 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 }
                 @Override public void onCancelled(DatabaseError e) {}
             });
+    }
+
+    /** Profile click-throughs (X/Reels/YouTube) — same navigation used by the
+     *  live-fetch path, extracted so the cache-hit instant-paint path in
+     *  {@link #loadChatSocialButtons} can wire them without waiting on network. */
+    private void wireSocialClickThroughs(String partnerUid, BottomSheetDialog sheet,
+            View btnXSheet, View btnReelsSheet, View btnYoutubeSheet) {
+        if (btnXSheet != null) {
+            btnXSheet.setOnClickListener(v -> {
+                sheet.dismiss();
+                try {
+                    Class<?> cls = Class.forName("com.callx.app.profile.XProfileSheet");
+                    java.lang.reflect.Method m = cls.getMethod("showProfile",
+                        androidx.fragment.app.FragmentManager.class, String.class);
+                    m.invoke(null, getParentFragmentManager(), partnerUid);
+                } catch (Exception ex) {
+                    if (getContext() != null)
+                        Toast.makeText(getContext(), "X profile not available", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+        if (btnReelsSheet != null) {
+            btnReelsSheet.setOnClickListener(v -> {
+                sheet.dismiss();
+                if (getContext() == null) return;
+                try {
+                    Class<?> cls = Class.forName("com.callx.app.profile.UserReelsActivity");
+                    Intent i = new Intent(getContext(), cls);
+                    i.putExtra("uid", partnerUid);
+                    startActivity(i);
+                } catch (ClassNotFoundException ex) {
+                    Toast.makeText(getContext(), "Reels not available", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+        if (btnYoutubeSheet != null) {
+            btnYoutubeSheet.setOnClickListener(v -> {
+                sheet.dismiss();
+                if (getContext() == null) return;
+                try {
+                    Class<?> cls = Class.forName("com.callx.app.channel.YouTubeChannelActivity");
+                    Intent i = new Intent(getContext(), cls);
+                    i.putExtra("uid", partnerUid);
+                    startActivity(i);
+                } catch (ClassNotFoundException ex) {
+                    Toast.makeText(getContext(), "YouTube not available", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+    }
+
+    /** Follow/subscribe toggle wiring for the cache-hit instant-paint path —
+     *  starts from the cached follow state so the button paints correctly
+     *  immediately, and still writes through to Firebase + keeps the cached
+     *  {@link SocialSnapshot} in sync on every tap. */
+    private void wireFollowToggles(String partnerUid, SocialSnapshot c,
+            Button btnXFollow, Button btnReelsFollow, Button btnYtSub,
+            TextView tvXCount, TextView tvReelsCount, TextView tvYtCount) {
+        if (getContext() == null) return;
+        final String DB = "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app";
+        final FirebaseDatabase db = FirebaseDatabase.getInstance(DB);
+        String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
+            ? FirebaseUtils.getCurrentUid() : null;
+        if (myUid == null) return;
+
+        if (c.hasX && btnXFollow != null) {
+            btnXFollow.setOnClickListener(v -> {
+                c.xFollowing = !c.xFollowing; updateXBtn(btnXFollow, c.xFollowing);
+                if (c.xFollowing) {
+                    db.getReference("x/followers").child(partnerUid).child(myUid).setValue(true);
+                    db.getReference("x/following").child(myUid).child(partnerUid).setValue(true);
+                    if (tvXCount != null) bumpCount(tvXCount, 1, "Followers");
+                    c.xCount++;
+                } else {
+                    db.getReference("x/followers").child(partnerUid).child(myUid).removeValue();
+                    db.getReference("x/following").child(myUid).child(partnerUid).removeValue();
+                    if (tvXCount != null) bumpCount(tvXCount, -1, "Followers");
+                    c.xCount--;
+                }
+                com.callx.app.cache.MemoryCache.getInstance().put(socialCacheKey(partnerUid), c);
+            });
+        }
+        if (c.hasReels && btnReelsFollow != null) {
+            btnReelsFollow.setOnClickListener(v -> {
+                c.reelsFollowing = !c.reelsFollowing; updateReelsBtn(btnReelsFollow, c.reelsFollowing);
+                if (c.reelsFollowing) {
+                    db.getReference("reels/followers").child(partnerUid).child(myUid).setValue(true);
+                    db.getReference("reels/following").child(myUid).child(partnerUid).setValue(true);
+                    if (tvReelsCount != null) bumpCount(tvReelsCount, 1, "Followers");
+                    c.reelsCount++;
+                } else {
+                    db.getReference("reels/followers").child(partnerUid).child(myUid).removeValue();
+                    db.getReference("reels/following").child(myUid).child(partnerUid).removeValue();
+                    if (tvReelsCount != null) bumpCount(tvReelsCount, -1, "Followers");
+                    c.reelsCount--;
+                }
+                com.callx.app.cache.MemoryCache.getInstance().put(socialCacheKey(partnerUid), c);
+            });
+        }
+        if (c.hasYt && btnYtSub != null) {
+            btnYtSub.setOnClickListener(v -> {
+                c.ytSubscribed = !c.ytSubscribed; updateYtBtn(btnYtSub, c.ytSubscribed);
+                if (c.ytSubscribed) {
+                    db.getReference("youtube/subscribers").child(partnerUid).child(myUid).setValue(true);
+                    if (tvYtCount != null) bumpCount(tvYtCount, 1, "Subscribers");
+                    c.ytCount++;
+                } else {
+                    db.getReference("youtube/subscribers").child(partnerUid).child(myUid).removeValue();
+                    if (tvYtCount != null) bumpCount(tvYtCount, -1, "Subscribers");
+                    c.ytCount--;
+                }
+                com.callx.app.cache.MemoryCache.getInstance().put(socialCacheKey(partnerUid), c);
+            });
+        }
     }
 
     // ── Avatar Peek Loop ───────────────────────────────────────────────────

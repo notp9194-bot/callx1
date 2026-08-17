@@ -3940,7 +3940,11 @@ public class MessagePagingAdapter
                         return;
                     }
                     String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
-                    showImageActionSheet(ctx, m, fullUrl, fullUrl);
+                    // Telegram-style close animation — capture this bubble's
+                    // on-screen image rect now (while `cv` is still laid
+                    // out here) so the sheet's "View" action can hand it to
+                    // MediaViewerActivity (see MediaViewerSourceRect).
+                    showImageActionSheet(ctx, m, fullUrl, fullUrl, cv.getMediaRectOnScreen());
                 } else if (isVideo) {
                     // WhatsApp-style video tap, now mirroring the single-image
                     // flow exactly:
@@ -3974,7 +3978,8 @@ public class MessagePagingAdapter
                         // single-image bubble gets.
                         String vLocalPath = vHasLocal ? m.mediaLocalPath
                                 : (vCachedFile != null ? vCachedFile.getAbsolutePath() : null);
-                        showMediaActionSheet(ctx, m, vUrl2, vUrl2, "video", vLocalPath);
+                        showMediaActionSheet(ctx, m, vUrl2, vUrl2, "video", vLocalPath,
+                                null, -1, cv.getMediaRectOnScreen());
                     } else if (downloadingMediaUrls.contains(vUrl2)) {
                         // Already downloading — the gate shows progress; nothing to do.
                     } else {
@@ -4004,6 +4009,7 @@ public class MessagePagingAdapter
                                         i2.putExtra("chatId", chatId);
                                         i2.putExtra("messageId",
                                                 m.messageId != null ? m.messageId : m.id);
+                                        com.callx.app.utils.MediaViewerSourceRect.attach(i2, cv.getMediaRectOnScreen());
                                         ctx.startActivity(i2);
                                     });
                                 }
@@ -4348,6 +4354,7 @@ public class MessagePagingAdapter
                 if (chatId != null) i.putExtra("chatId", chatId);
                 String mid = m.messageId != null ? m.messageId : m.id;
                 if (mid != null) i.putExtra("messageId", mid);
+                com.callx.app.utils.MediaViewerSourceRect.attach(i, cv.getMediaRectOnScreen());
                 i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
                 try { ctx.startActivity(i); } catch (Exception ignored) {}
             }
@@ -4856,7 +4863,8 @@ public class MessagePagingAdapter
                             h.itemView.callOnClick();
                             return;
                         }
-                        showImageActionSheet(ctx, m, fullUrl, thumbUrl != null ? thumbUrl : fullUrl);
+                        showImageActionSheet(ctx, m, fullUrl, thumbUrl != null ? thumbUrl : fullUrl,
+                                com.callx.app.utils.MediaViewerSourceRect.ofView(h.ivImage));
                     });
                     // Long-press → GAP FIX: this used to jump STRAIGHT to
                     // showActionBottomSheet(), skipping multi-select mode
@@ -4994,6 +5002,7 @@ public class MessagePagingAdapter
                         // video is actually playing — null-safe extras.
                         i.putExtra("chatId", chatId);
                         i.putExtra("messageId", vMid);
+                        com.callx.app.utils.MediaViewerSourceRect.attach(i, h.flVideo);
                         ctx.startActivity(i);
                     });
                     h.flVideo.setOnLongClickListener(v -> {
@@ -5030,6 +5039,7 @@ public class MessagePagingAdapter
                         }
                         i.putExtra("chatId", chatId);
                         i.putExtra("messageId", vMid);
+                        com.callx.app.utils.MediaViewerSourceRect.attach(i, h.ivImage);
                         ctx.startActivity(i);
                     });
                     // GAP FIX: same missing long-press wiring as the flVideo
@@ -6373,7 +6383,17 @@ public class MessagePagingAdapter
     // ──────────────────────────────────────────────────────────────
     // ── WhatsApp-style image action bottom sheet ──────────────────
     private void showImageActionSheet(Context ctx, Message m, String fullUrl, String thumbForViewer) {
-        showMediaActionSheet(ctx, m, fullUrl, thumbForViewer, "image", null);
+        showImageActionSheet(ctx, m, fullUrl, thumbForViewer, null);
+    }
+
+    // srcRect — this bubble's on-screen image rect at tap time, threaded
+    // through to MediaViewerActivity's "View"/"Edit" intents so it can
+    // open/close with the Telegram-style shrink-into-thumbnail animation
+    // (see MediaViewerSourceRect). Null is a safe no-op — falls back to
+    // the plain fade/translate close.
+    private void showImageActionSheet(Context ctx, Message m, String fullUrl, String thumbForViewer,
+                                       @Nullable android.graphics.Rect srcRect) {
+        showMediaActionSheet(ctx, m, fullUrl, thumbForViewer, "image", null, null, -1, srcRect);
     }
 
     /**
@@ -6405,7 +6425,14 @@ public class MessagePagingAdapter
      */
     private void showMediaActionSheet(Context ctx, Message m, String fullUrl, String thumbForViewer,
                                        String mediaType, @Nullable String localPathHint) {
-        showMediaActionSheet(ctx, m, fullUrl, thumbForViewer, mediaType, localPathHint, null, -1);
+        showMediaActionSheet(ctx, m, fullUrl, thumbForViewer, mediaType, localPathHint, null, -1, null);
+    }
+
+    private void showMediaActionSheet(Context ctx, Message m, String fullUrl, String thumbForViewer,
+                                       String mediaType, @Nullable String localPathHint,
+                                       @Nullable String mediaItemsJson, int startIndex) {
+        showMediaActionSheet(ctx, m, fullUrl, thumbForViewer, mediaType, localPathHint,
+                mediaItemsJson, startIndex, null);
     }
 
     /**
@@ -6432,7 +6459,8 @@ public class MessagePagingAdapter
      */
     private void showMediaActionSheet(Context ctx, Message m, String fullUrl, String thumbForViewer,
                                        String mediaType, @Nullable String localPathHint,
-                                       @Nullable String mediaItemsJson, int startIndex) {
+                                       @Nullable String mediaItemsJson, int startIndex,
+                                       @Nullable android.graphics.Rect srcRect) {
         final boolean isVideoSheet = "video".equals(mediaType);
         com.google.android.material.bottomsheet.BottomSheetDialog bsd =
                 new com.google.android.material.bottomsheet.BottomSheetDialog(ctx);
@@ -6556,6 +6584,11 @@ public class MessagePagingAdapter
                         if (sheetMediaKeyB64 != null) {
                             i.putExtra("mediaKeyB64", sheetMediaKeyB64);
                         }
+                        // Telegram-style open/close animation — see
+                        // MediaViewerSourceRect class doc. No-op if srcRect
+                        // is null (grouped-canvas-cell taps don't have a
+                        // precise per-cell rect yet).
+                        com.callx.app.utils.MediaViewerSourceRect.attach(i, srcRect);
                         ctx.startActivity(i);
                         break;
                     }

@@ -1262,6 +1262,25 @@ public class MessageBubbleCanvasView extends View {
     final Paint mediaPillBorderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     final RectF mediaRect = new RectF();
     final RectF mediaPillRect = new RectF();
+
+    /**
+     * Telegram-style viewer open/close animation ke liye — is bubble ke
+     * andar image/video ka on-screen rect (mediaRect ko screen-coordinates
+     * mein convert karke), taaki MediaViewerActivity ko wahi exact rect
+     * Intent extra ke through diya ja sake (see MediaViewerSourceRect).
+     * mediaRect abhi empty/unset hai (bind hone se pehle ya text-only
+     * message) to null return karta hai.
+     */
+    public android.graphics.Rect getMediaRectOnScreen() {
+        if (mediaRect.isEmpty() || mediaRect.width() <= 0f || mediaRect.height() <= 0f) return null;
+        int[] loc = new int[2];
+        getLocationOnScreen(loc);
+        return new android.graphics.Rect(
+                loc[0] + Math.round(mediaRect.left),
+                loc[1] + Math.round(mediaRect.top),
+                loc[0] + Math.round(mediaRect.right),
+                loc[1] + Math.round(mediaRect.bottom));
+    }
     final android.graphics.Matrix mediaShaderMatrix = new android.graphics.Matrix();
     // Real image width/height ratio (width / height) of the currently bound
     // media bitmap, used to size mediaRect like WhatsApp/Telegram instead of

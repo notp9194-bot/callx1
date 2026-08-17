@@ -1,11 +1,15 @@
 package com.callx.app.activities;
 
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.animation.DecelerateInterpolator;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
@@ -27,6 +31,7 @@ import com.callx.app.databinding.ActivityMediaViewerBinding;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.MediaCache;
 import com.callx.app.utils.MediaSwipeReplyCloseHelper;
+import com.callx.app.utils.MediaViewerSourceRect;
 import com.callx.app.utils.PhotoViewZoomUtils;
 import com.google.firebase.database.DatabaseReference;
 
@@ -85,6 +90,16 @@ public class MediaViewerActivity extends AppCompatActivity {
     private String replyMessageId;
     private MediaSwipeReplyCloseHelper swipeHelper;
 
+    // ── Telegram-style open/close animation ───────────────────────────
+    // The tapped chat-bubble thumbnail's on-screen rect (null if the
+    // caller didn't supply one — falls back to the plain fade/translate
+    // close everywhere below). `activeDragView` is whichever content view
+    // is actually on screen for the current mode (ivFull / player /
+    // mediaPager) — set once in setupSwipeHelper() and reused by both the
+    // open and close animations.
+    private Rect sourceRect;
+    private View activeDragView;
+
     // ── Video playback presence (see class doc above) ───────────────────
     private String playbackChatId;
     private String playbackMessageId;
@@ -110,6 +125,9 @@ public class MediaViewerActivity extends AppCompatActivity {
         String url  = getIntent().getStringExtra("url");
         String type = getIntent().getStringExtra("type");
         sharedUrl   = url;
+
+        // Telegram-style open/close animation — see field doc above.
+        sourceRect = MediaViewerSourceRect.read(getIntent());
 
         // WhatsApp-style local-first: when the chat bubble passed along the
         // original local file/content Uri (still present on the device),
@@ -142,7 +160,7 @@ public class MediaViewerActivity extends AppCompatActivity {
         playbackMessageId = getIntent().getStringExtra("messageId");
 
         // Close button
-        binding.btnClose.setOnClickListener(v -> finish());
+        binding.btnClose.setOnClickListener(v -> closeViewer());
 
         // Share button
         binding.btnShare.setOnClickListener(v -> shareMedia(sharedUrl));
@@ -217,6 +235,7 @@ public class MediaViewerActivity extends AppCompatActivity {
 
             // Video isn't zoomable, so no pinch-zoom guard needed here.
             setupSwipeHelper(binding.player, null, null);
+            animateOpenFromSource(binding.player, sourceRect);
 
         } else {
             binding.ivFull.setVisibility(View.VISIBLE);
@@ -237,6 +256,7 @@ public class MediaViewerActivity extends AppCompatActivity {
             // against pinch-zoom via the shared PhotoViewZoomUtils check.
             setupSwipeHelper(binding.ivFull, null,
                     () -> PhotoViewZoomUtils.isZoomedIn(binding.ivFull));
+            animateOpenFromSource(binding.ivFull, sourceRect);
         }
     }
 
@@ -253,24 +273,127 @@ public class MediaViewerActivity extends AppCompatActivity {
      */
     private void setupSwipeHelper(View dragView, View viewToCancelOnDrag,
                                    MediaSwipeReplyCloseHelper.ZoomedStateProvider zoomedStateProvider) {
+        activeDragView = dragView;
         swipeHelper = new MediaSwipeReplyCloseHelper(
                 this, dragView, binding.getRoot(), viewToCancelOnDrag, zoomedStateProvider,
                 new MediaSwipeReplyCloseHelper.Callback() {
                     @Override public void onSwipeUpReply() {
-                        // Single-media mode has no per-item gallery index —
-                        // -1 tells GalleryReplyBridge "reply to the whole item".
-                        if (replyChatId != null && replyMessageId != null) {
-                            com.callx.app.conversation.GalleryReplyBridge
-                                    .requestReply(replyChatId, replyMessageId, galleryActivePos);
-                        }
-                        finish();
-                        overridePendingTransition(0, 0);
+                        // Retired — MediaSwipeReplyCloseHelper now routes
+                        // BOTH swipe-up and swipe-down to onSwipeDownClose()
+                        // (see that class), so this never actually fires
+                        // anymore. Left in place only because the interface
+                        // still declares it.
                     }
                     @Override public void onSwipeDownClose() {
-                        finish();
-                        overridePendingTransition(0, 0);
+                        closeViewer();
                     }
                 });
+    }
+
+    /**
+     * Closes the viewer. If a source thumbnail rect was supplied (see
+     * MediaViewerSourceRect), animates the visible content shrinking back
+     * into that exact spot — Telegram-style "chipakna" — instead of just
+     * cutting away. Safe no-op fallback (plain instant close) when there's
+     * no rect or no content view to animate.
+     */
+    private void closeViewer() {
+        if (sourceRect != null && activeDragView != null && !isFinishing()) {
+            animateCloseToSource(sourceRect);
+        } else {
+            finishNow();
+        }
+    }
+
+    private void finishNow() {
+        finish();
+        overridePendingTransition(0, 0);
+    }
+
+    /** Shrinks+moves `activeDragView` from its current on-screen spot into `target`, then finishes. */
+    private void animateCloseToSource(Rect target) {
+        final View v = activeDragView;
+        int[] loc = new int[2];
+        v.getLocationOnScreen(loc);
+        float curCenterX = loc[0] + (v.getWidth() * v.getScaleX()) / 2f;
+        float curCenterY = loc[1] + (v.getHeight() * v.getScaleY()) / 2f;
+        float targetCenterX = target.left + target.width() / 2f;
+        float targetCenterY = target.top + target.height() / 2f;
+
+        float scaleX = v.getWidth()  > 0 ? target.width()  / (float) v.getWidth()  : 1f;
+        float scaleY = v.getHeight() > 0 ? target.height() / (float) v.getHeight() : 1f;
+        float dx = v.getTranslationX() + (targetCenterX - curCenterX);
+        float dy = v.getTranslationY() + (targetCenterY - curCenterY);
+
+        // Chrome fades out together with the shrink — only the photo/video
+        // stays visible sliding into the thumbnail slot, then the activity
+        // finishes right as it lands there.
+        binding.llTopBar.animate().alpha(0f).setDuration(200).start();
+        binding.llSelectToolbar.animate().alpha(0f).setDuration(200).start();
+        binding.tvPageCounter.animate().alpha(0f).setDuration(200).start();
+        ValueAnimator bgAnim = ValueAnimator.ofInt(Color.alpha(currentBgAlphaOr(255)), 0);
+        bgAnim.setDuration(260);
+        bgAnim.addUpdateListener(a -> binding.getRoot().setBackgroundColor(
+                Color.argb((int) a.getAnimatedValue(), 0, 0, 0)));
+        bgAnim.start();
+
+        v.animate().cancel();
+        v.animate()
+                .translationX(dx)
+                .translationY(dy)
+                .scaleX(scaleX)
+                .scaleY(scaleY)
+                .alpha(1f)
+                .setDuration(260)
+                .setInterpolator(new DecelerateInterpolator())
+                .withEndAction(this::finishNow)
+                .start();
+    }
+
+    /** Starts `v` scaled/translated to look like it's still `source`, then animates up to full-screen. */
+    private void animateOpenFromSource(View v, Rect source) {
+        if (source == null || v == null) return;
+        v.post(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            if (v.getWidth() == 0 || v.getHeight() == 0) return;
+            int[] loc = new int[2];
+            v.getLocationOnScreen(loc);
+            float targetCenterX = loc[0] + v.getWidth() / 2f;
+            float targetCenterY = loc[1] + v.getHeight() / 2f;
+            float srcCenterX = source.left + source.width() / 2f;
+            float srcCenterY = source.top + source.height() / 2f;
+
+            v.setScaleX(source.width()  / (float) v.getWidth());
+            v.setScaleY(source.height() / (float) v.getHeight());
+            v.setTranslationX(srcCenterX - targetCenterX);
+            v.setTranslationY(srcCenterY - targetCenterY);
+
+            binding.getRoot().setBackgroundColor(Color.TRANSPARENT);
+            binding.llTopBar.setAlpha(0f);
+
+            v.animate()
+                    .scaleX(1f).scaleY(1f)
+                    .translationX(0f).translationY(0f)
+                    .setDuration(260)
+                    .setInterpolator(new DecelerateInterpolator())
+                    .start();
+
+            ValueAnimator bgAnim = ValueAnimator.ofInt(0, 255);
+            bgAnim.setDuration(260);
+            bgAnim.addUpdateListener(a -> binding.getRoot().setBackgroundColor(
+                    Color.argb((int) a.getAnimatedValue(), 0, 0, 0)));
+            bgAnim.start();
+            binding.llTopBar.animate().alpha(1f).setDuration(200).setStartDelay(80).start();
+        });
+    }
+
+    /** Best-effort read of the root's current background alpha (falls back to `fallback` if not a solid color). */
+    private int currentBgAlphaOr(int fallback) {
+        android.graphics.drawable.Drawable bg = binding.getRoot().getBackground();
+        if (bg instanceof android.graphics.drawable.ColorDrawable) {
+            return Color.alpha(((android.graphics.drawable.ColorDrawable) bg).getColor());
+        }
+        return fallback;
     }
 
     // ── Gallery mode — swipeable multi-image/video viewer ────────────────
@@ -313,6 +436,12 @@ public class MediaViewerActivity extends AppCompatActivity {
         // swipe once we've claimed it.
         setupSwipeHelper(binding.mediaPager, binding.mediaPager,
                 () -> PhotoViewZoomUtils.isZoomedIn(currentGalleryPhotoView()));
+        // Only meaningful when the gallery opened directly on the tapped
+        // item (grouped-media grid tap) — sourceRect corresponds to that
+        // one cell, so the animation only looks right for the page that's
+        // actually showing at `start`. Fine either way: it's a no-op when
+        // sourceRect is null.
+        animateOpenFromSource(binding.mediaPager, sourceRect);
     }
 
     /** Currently-active page's PhotoView, or null (video page / not bound yet). */
@@ -394,7 +523,10 @@ public class MediaViewerActivity extends AppCompatActivity {
             exitSelectMode();
             return;
         }
-        super.onBackPressed();
+        // Same shrink-into-thumbnail animation as swipe/close-button — see
+        // closeViewer(). Falls back to a plain finish() when there's no
+        // sourceRect (super.onBackPressed()'s old behavior).
+        closeViewer();
     }
 
     // ── #1 — Multi-select / forward from gallery ─────────────────────────

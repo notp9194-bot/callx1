@@ -609,6 +609,11 @@ public class MediaGroupLayoutHelper {
                     intent.putExtra("chatId",    cbChatId);
                     intent.putExtra("messageId", cbMessageId);
                 }
+                // Telegram-style open/close animation — this grid cell IS a
+                // real View here (unlike the canvas-drawn single-bubble
+                // case), so we can hand its exact on-screen rect straight
+                // through. See MediaViewerSourceRect.
+                com.callx.app.utils.MediaViewerSourceRect.attach(intent, cell);
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 ctx.startActivity(intent);
             } catch (Exception ignored) {}

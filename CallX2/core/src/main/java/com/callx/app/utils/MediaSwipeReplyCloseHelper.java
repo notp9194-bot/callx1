@@ -133,9 +133,12 @@ public class MediaSwipeReplyCloseHelper {
                 float dy = ev.getRawY() - startY;
                 float thresholdPx = dp((int) SWIPE_DISMISS_THRESHOLD_DP);
                 dragging = false;
-                if (dy <= -thresholdPx) {
-                    callback.onSwipeUpReply();
-                } else if (dy >= thresholdPx) {
+                // UPDATE: swipe-up-to-reply retired — ab UP aur DOWN dono
+                // hi directions viewer ko close karte hain (pehle sirf DOWN
+                // close karta tha, UP reply trigger karta tha). onSwipeUpReply
+                // ab kabhi fire nahi hota; interface mein backward-compat ke
+                // liye reh gaya hai.
+                if (dy <= -thresholdPx || dy >= thresholdPx) {
                     callback.onSwipeDownClose();
                 } else {
                     // Threshold tak nahi pahuncha — snap back.
