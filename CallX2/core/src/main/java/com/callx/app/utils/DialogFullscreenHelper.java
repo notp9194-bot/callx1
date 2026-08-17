@@ -78,6 +78,12 @@ public final class DialogFullscreenHelper {
      */
     private static final float AVATAR_FULLSCREEN_CIRCLE_RATIO = 0.8f;
 
+    /** Resting (fully open) circle radius in px — shared by idle-state config and the open animation's end target. */
+    private static float avatarRestingRadiusPx(Context ctx) {
+        android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+        return Math.min(dm.widthPixels, dm.heightPixels) * AVATAR_FULLSCREEN_CIRCLE_RATIO / 2f;
+    }
+
     // ── Public entry points (backward compatible — no sourceView) ──────────
 
     /** Avatar zoom dialog — bina name label ke, bina dock animation ke (no source view). */
@@ -174,6 +180,15 @@ public final class DialogFullscreenHelper {
         if (finalTvName != null) swipeHelper.setChromeViews(btnClose, finalTvName);
         else swipeHelper.setChromeViews(btnClose);
         root.swipeHelper = swipeHelper;
+        // BUG FIX: without this, the shared gesture helper assumes the old
+        // media-viewer baseline (scale=1, radius=0, full-view-rect rounded
+        // corners) — the instant a swipe-to-close drag started, radius/scale
+        // snapped to that wrong baseline, which is what made the photo pop
+        // to a near-full rectangle on the very first drag frame. Also
+        // switches the outline to an inset-square clip, since a rounded-rect
+        // spanning the FULL (non-square, full-screen) view only ever reads
+        // as a circle when the view itself happens to be square.
+        swipeHelper.configureIdleState(1f, avatarRestingRadiusPx(ctx), true);
 
         photoView.setOnOutsidePhotoTapListener(v ->
             closeToSource(dialog, root, photoView, srcRect, 0f, btnClose, finalTvName, swipeHelper));
@@ -299,8 +314,11 @@ public final class DialogFullscreenHelper {
         float startTy = photoView.getTranslationY();
         float endTx = startTx + (targetCenterX - curCenterX);
         float endTy = startTy + (targetCenterY - curCenterY);
-        float endScaleX = photoView.getWidth()  > 0 ? target.width()  / (float) photoView.getWidth()  : 1f;
-        float endScaleY = photoView.getHeight() > 0 ? target.height() / (float) photoView.getHeight() : 1f;
+        // Scale always relaxes back to 1 (never shrinks the view itself) —
+        // sizing is handled entirely by the shrinking circular clip radius
+        // below, same reasoning as animateOpenFromSource.
+        float endScaleX = 1f;
+        float endScaleY = 1f;
 
         float startAlpha = photoView.getAlpha();
         float startBgAlpha = currentBgAlpha(root);
@@ -353,33 +371,36 @@ public final class DialogFullscreenHelper {
             }
             int[] loc = new int[2];
             photoView.getLocationOnScreen(loc);
+            // photoView itself NEVER changes size (stays match_parent /
+            // scale=1 for the whole open→resting→close lifecycle) — only
+            // its TRANSLATION (position) and its circular CLIP RADIUS
+            // change. This is deliberate: photoView's real width/height is
+            // the full (rectangular) screen, not a square, and a
+            // rounded-rect outline only ever reads as a true circle when
+            // it's clipping a SQUARE region — trying to also scale the
+            // view anisotropically (different X/Y factors, since a
+            // rectangle can't become a square via uniform scale) is what
+            // previously made the "circle" render as a warped oval/pill.
+            // Position+radius-only animation sidesteps that entirely, and
+            // is also exactly how a real circular avatar aperture behaves:
+            // the photo underneath doesn't resize, just how much of it is
+            // revealed through the growing/shrinking circular window.
             float targetCenterX = loc[0] + photoView.getWidth() / 2f;
             float targetCenterY = loc[1] + photoView.getHeight() / 2f;
             float srcCenterX = source.left + source.width() / 2f;
             float srcCenterY = source.top + source.height() / 2f;
 
-            float startScaleX = source.width()  / (float) photoView.getWidth();
-            float startScaleY = source.height() / (float) photoView.getHeight();
             float startTx = srcCenterX - targetCenterX;
             float startTy = srcCenterY - targetCenterY;
             // Circular at the source spot — matches an avatar's own round shape.
             float startOnScreenRadius = Math.min(source.width(), source.height()) / 2f;
+            float endOnScreenRadius = avatarRestingRadiusPx(photoView.getContext());
 
-            // Resting size: a fixed circle centered on screen, sized off the
-            // shorter screen dimension — NOT full-bleed match_parent. This is
-            // what keeps it a true circle (a rounded-rect outline only reads
-            // as a circle when the view is square) instead of a pill/rect.
-            android.util.DisplayMetrics dm = photoView.getResources().getDisplayMetrics();
-            float diameterPx = Math.min(dm.widthPixels, dm.heightPixels) * AVATAR_FULLSCREEN_CIRCLE_RATIO;
-            float endScaleX = diameterPx / (float) photoView.getWidth();
-            float endScaleY = diameterPx / (float) photoView.getHeight();
-            float endOnScreenRadius = diameterPx / 2f;
-
-            photoView.setScaleX(startScaleX);
-            photoView.setScaleY(startScaleY);
+            photoView.setScaleX(1f);
+            photoView.setScaleY(1f);
             photoView.setTranslationX(startTx);
             photoView.setTranslationY(startTy);
-            swipeHelper.setLiveCornerRadius(startOnScreenRadius, startScaleX);
+            swipeHelper.setLiveCornerRadius(startOnScreenRadius, 1f);
             // PERF: see closeToSource's identical comment — cache the view
             // into a GPU layer for the open animation's duration too.
             if (photoView.getLayerType() != View.LAYER_TYPE_HARDWARE) {
@@ -406,14 +427,10 @@ public final class DialogFullscreenHelper {
                 float t = (float) a.getAnimatedValue();
                 photoView.setTranslationX(lerp(startTx, 0f, t));
                 photoView.setTranslationY(lerp(startTy, 0f, t));
-                float sx = lerp(startScaleX, endScaleX, t);
-                float sy = lerp(startScaleY, endScaleY, t);
-                photoView.setScaleX(sx);
-                photoView.setScaleY(sy);
                 // Grows from the small avatar circle to the bigger resting
                 // circle — stays round the whole way, never un-rounds to a
                 // square (WhatsApp/Instagram profile-photo viewer feel).
-                swipeHelper.setLiveCornerRadius(lerp(startOnScreenRadius, endOnScreenRadius, t), sx);
+                swipeHelper.setLiveCornerRadius(lerp(startOnScreenRadius, endOnScreenRadius, t), 1f);
                 int bgAlpha = Math.round(lerp(0f, SCRIM_ALPHA, t));
                 root.setBackgroundColor(Color.argb(bgAlpha, 0, 0, 0));
             });

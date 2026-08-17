@@ -109,6 +109,12 @@ public class MediaSwipeReplyCloseHelper {
     private float currentLocalRadiusPx = 0f;
     private SpringAnimation snapBackSpring;
 
+    // ── Idle-state override (default = old behaviour: full-bleed square,
+    //    scale 1, radius 0 — matches MediaViewerActivity's chat-media use).
+    private float idleScale = 1f;
+    private float idleOnScreenRadiusPx = 0f;
+    private boolean insetSquareClip = false;
+
     public MediaSwipeReplyCloseHelper(Context context, View dragView, View backgroundView,
                                        View viewToCancelOnDrag, ZoomedStateProvider zoomedStateProvider,
                                        Callback callback) {
@@ -125,6 +131,30 @@ public class MediaSwipeReplyCloseHelper {
     /** Optional — top bar / toolbar / page-counter jaisi views jo drag ke saath live fade ho. */
     public void setChromeViews(View... views) {
         this.chromeViews = (views != null) ? views : new View[0];
+    }
+
+    /**
+     * Overrides the "resting" (undragged) baseline this gesture springs
+     * back to / drags away from. Default is (scale=1, radius=0) — the
+     * old full-bleed-square media-viewer assumption. A caller whose idle
+     * state is itself a circle smaller than the full view (e.g. the
+     * WhatsApp/Instagram-style avatar viewer, which never un-rounds to a
+     * square) MUST call this before any drag happens, otherwise the very
+     * first drag frame snaps to the wrong baseline (visible as a jarring
+     * "pops to a square" glitch).
+     *
+     * @param insetSquareClip true for a dragView whose own width/height
+     *        aren't square (e.g. full-screen match_parent) — clips an
+     *        inset centered square instead of rounding the full view
+     *        rect's corners, which is the only way a rounded-rect outline
+     *        reads as an actual circle instead of a stadium/pill shape.
+     */
+    public void configureIdleState(float idleScale, float idleOnScreenRadiusPx, boolean insetSquareClip) {
+        this.idleScale = idleScale;
+        this.idleOnScreenRadiusPx = idleOnScreenRadiusPx;
+        this.insetSquareClip = insetSquareClip;
+        this.currentLocalRadiusPx = idleScale > 0.001f ? idleOnScreenRadiusPx / idleScale : 0f;
+        dragView.invalidateOutline();
     }
 
     /** Select-mode jaise cases mein gesture ko temporarily band karne ke liye. */
@@ -192,8 +222,28 @@ public class MediaSwipeReplyCloseHelper {
         dragView.setOutlineProvider(new ViewOutlineProvider() {
             @Override public void getOutline(View view, Outline outline) {
                 if (view.getWidth() <= 0 || view.getHeight() <= 0) return;
-                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(),
-                        Math.max(0f, currentLocalRadiusPx));
+                float r = Math.max(0f, currentLocalRadiusPx);
+                if (insetSquareClip) {
+                    // TRUE CIRCLE fix: a rounded-rect spanning the view's
+                    // FULL (possibly non-square, e.g. full-screen) width/
+                    // height only ever looks like a circle when the view
+                    // itself is square — otherwise, for any radius under
+                    // half the LARGER dimension, it reads as a stadium/pill
+                    // (rounded corners, straight sides), not a circle. So
+                    // instead clip an inset SQUARE region of side 2r,
+                    // centered in the view — that square-in-square-view
+                    // relationship is what makes the outline a real circle
+                    // regardless of the outer dragView's own aspect ratio.
+                    float side = Math.min(2f * r, Math.min(view.getWidth(), view.getHeight()));
+                    float cx = view.getWidth() / 2f;
+                    float cy = view.getHeight() / 2f;
+                    outline.setRoundRect(
+                            Math.round(cx - side / 2f), Math.round(cy - side / 2f),
+                            Math.round(cx + side / 2f), Math.round(cy + side / 2f),
+                            side / 2f);
+                } else {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), r);
+                }
             }
         });
     }
@@ -294,17 +344,29 @@ public class MediaSwipeReplyCloseHelper {
         dragView.setTranslationY(dy);
 
         float t = Math.min(1f, Math.abs(dy) / dp(MAX_EFFECT_DRAG_DP));
-        float scale = 1f - t * (1f - MIN_DRAG_SCALE);
+        float scale = idleScale - t * (idleScale - idleScale * MIN_DRAG_SCALE);
         dragView.setScaleX(scale);
         dragView.setScaleY(scale);
 
-        // On-screen radius directly t-driven (0 → MAX_DRAG_RADIUS_DP); local
-        // (pre-transform) radius compensates for the current scale so the
-        // *visible* radius on screen grows smoothly and linearly with t —
-        // see class doc for the math.
-        float onScreenRadiusPx = t * dp(MAX_DRAG_RADIUS_DP);
-        currentLocalRadiusPx = scale > 0.001f ? onScreenRadiusPx / scale : 0f;
-        dragView.invalidateOutline();
+        if (insetSquareClip) {
+            // Idle-circle case: leave the LOCAL (pre-transform) radius
+            // exactly where configureIdleState left it. Since on-screen
+            // radius = local * scale, it then shrinks automatically and
+            // smoothly in lockstep with the rubber-band scale-down above —
+            // the circle stays a circle the whole drag. (The old formula
+            // below reset local radius toward 0 every frame, which is what
+            // made the circle instantly snap to a near-full rectangle the
+            // moment any drag started.)
+            dragView.invalidateOutline();
+        } else {
+            // On-screen radius directly t-driven (0 → MAX_DRAG_RADIUS_DP); local
+            // (pre-transform) radius compensates for the current scale so the
+            // *visible* radius on screen grows smoothly and linearly with t —
+            // see class doc for the math.
+            float onScreenRadiusPx = t * dp(MAX_DRAG_RADIUS_DP);
+            currentLocalRadiusPx = scale > 0.001f ? onScreenRadiusPx / scale : 0f;
+            dragView.invalidateOutline();
+        }
 
         // Content itself fades a little as it's dragged out — subtle, not
         // a full fade (background scrim carries most of the dimming).
@@ -350,11 +412,13 @@ public class MediaSwipeReplyCloseHelper {
             // spring instead of running a second, separately-timed tween.
             float frac = 1f - Math.min(1f, Math.abs(value) / Math.abs(startTranslation));
             float t = 1f - frac; // same meaning as `t` in applyLiveDragFrame
-            float scale = 1f - t * (1f - MIN_DRAG_SCALE);
+            float scale = idleScale - t * (idleScale - idleScale * MIN_DRAG_SCALE);
             dragView.setScaleX(scale);
             dragView.setScaleY(scale);
-            float onScreenRadiusPx = t * dp(MAX_DRAG_RADIUS_DP);
-            currentLocalRadiusPx = scale > 0.001f ? onScreenRadiusPx / scale : 0f;
+            if (!insetSquareClip) {
+                float onScreenRadiusPx = t * dp(MAX_DRAG_RADIUS_DP);
+                currentLocalRadiusPx = scale > 0.001f ? onScreenRadiusPx / scale : 0f;
+            }
             dragView.invalidateOutline();
             dragView.setAlpha(1f - t * 0.22f);
             float chromeAlpha = 1f - Math.min(1f, t * 1.6f);
@@ -376,10 +440,10 @@ public class MediaSwipeReplyCloseHelper {
     /** Hard-resets all live-drag visual state to "resting" — used once a spring/gesture fully settles. */
     private void resetVisualsInstant() {
         dragView.setTranslationY(0f);
-        dragView.setScaleX(1f);
-        dragView.setScaleY(1f);
+        dragView.setScaleX(idleScale);
+        dragView.setScaleY(idleScale);
         dragView.setAlpha(1f);
-        currentLocalRadiusPx = 0f;
+        currentLocalRadiusPx = idleScale > 0.001f ? idleOnScreenRadiusPx / idleScale : 0f;
         dragView.invalidateOutline();
         for (View v : chromeViews) {
             if (v != null) v.setAlpha(1f);
