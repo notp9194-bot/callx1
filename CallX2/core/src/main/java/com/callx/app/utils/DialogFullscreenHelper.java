@@ -40,8 +40,10 @@ import com.github.chrisbanes.photoview.PhotoView;
  * MediaViewerSourceRect machinery, no gesture/animation code duplicated):
  *   - OPEN: agar caller ek `sourceView` (jis avatar ImageView par tap hua
  *     tha) pass karta hai, photo us view ke exact on-screen rect se
- *     shuru hoke, ek Instagram-style CIRCLE se full-screen SQUARE tak
- *     "un-round" hote hue expand hoti hai.
+ *     shuru hoke ek CIRCLE ke roop me hi expand hoti hai — chhoti avatar
+ *     circle se ek bade, screen-center pe fixed-size circle tak (kabhi
+ *     square me "un-round" nahi hoti) — WhatsApp/Instagram profile-photo
+ *     viewer jaisa exact feel.
  *   - CLOSE: close button / back-press / outside-tap / swipe (up ya down,
  *     dono) — sab isi ek `closeToSource()` path se hote hain, jo photo ko
  *     wapas usi avatar ke gol (circular) rect ki taraf shrink karta hai
@@ -66,6 +68,15 @@ public final class DialogFullscreenHelper {
     private static final long DOCK_ANIM_BASE_MS = 300L;
     private static final long DOCK_ANIM_MIN_MS = 170L;
     private static final Interpolator DOCK_EASE = new PathInterpolator(0.2f, 0f, 0f, 1f);
+    /**
+     * WHATSAPP/INSTAGRAM-STYLE FULLSCREEN CIRCLE: the resting (fully open)
+     * avatar photo diameter, as a fraction of the screen's shorter side.
+     * Unlike the old behaviour (un-round to a full-bleed square), the photo
+     * now stops growing at this fixed circular size and stays a circle for
+     * the whole time it's open — matching WhatsApp/Instagram's profile
+     * photo viewer, not the chat-media viewer's square dock.
+     */
+    private static final float AVATAR_FULLSCREEN_CIRCLE_RATIO = 0.8f;
 
     // ── Public entry points (backward compatible — no sourceView) ──────────
 
@@ -167,6 +178,12 @@ public final class DialogFullscreenHelper {
         photoView.setOnOutsidePhotoTapListener(v ->
             closeToSource(dialog, root, photoView, srcRect, 0f, btnClose, finalTvName, swipeHelper));
         btnClose.setOnClickListener(v ->
+            closeToSource(dialog, root, photoView, srcRect, 0f, btnClose, finalTvName, swipeHelper));
+        // Now that the resting photo is a circle smaller than the screen
+        // (not a full-bleed square), tapping the dark area *around* the
+        // circle lands on `root` itself, not on photoView — wire that up
+        // as an outside-tap close too (WhatsApp/Instagram behaviour).
+        root.setOnClickListener(v ->
             closeToSource(dialog, root, photoView, srcRect, 0f, btnClose, finalTvName, swipeHelper));
 
         // PERF (ultra-advanced pass): if the tapped avatar view already has
@@ -323,7 +340,7 @@ public final class DialogFullscreenHelper {
         anim.start();
     }
 
-    /** Starts `photoView` scaled/positioned/rounded to look like `source`, then docks up to full-screen square. */
+    /** Starts `photoView` scaled/positioned/rounded to look like `source`, then docks up to a centered, fixed-size WhatsApp/Instagram-style circle (never un-rounds to a square). */
     private static void animateOpenFromSource(View root, View photoView, Rect source,
                                                ImageButton btnClose, TextView tvName,
                                                MediaSwipeReplyCloseHelper swipeHelper) {
@@ -347,6 +364,16 @@ public final class DialogFullscreenHelper {
             float startTy = srcCenterY - targetCenterY;
             // Circular at the source spot — matches an avatar's own round shape.
             float startOnScreenRadius = Math.min(source.width(), source.height()) / 2f;
+
+            // Resting size: a fixed circle centered on screen, sized off the
+            // shorter screen dimension — NOT full-bleed match_parent. This is
+            // what keeps it a true circle (a rounded-rect outline only reads
+            // as a circle when the view is square) instead of a pill/rect.
+            android.util.DisplayMetrics dm = photoView.getResources().getDisplayMetrics();
+            float diameterPx = Math.min(dm.widthPixels, dm.heightPixels) * AVATAR_FULLSCREEN_CIRCLE_RATIO;
+            float endScaleX = diameterPx / (float) photoView.getWidth();
+            float endScaleY = diameterPx / (float) photoView.getHeight();
+            float endOnScreenRadius = diameterPx / 2f;
 
             photoView.setScaleX(startScaleX);
             photoView.setScaleY(startScaleY);
@@ -379,13 +406,14 @@ public final class DialogFullscreenHelper {
                 float t = (float) a.getAnimatedValue();
                 photoView.setTranslationX(lerp(startTx, 0f, t));
                 photoView.setTranslationY(lerp(startTy, 0f, t));
-                float sx = lerp(startScaleX, 1f, t);
-                float sy = lerp(startScaleY, 1f, t);
+                float sx = lerp(startScaleX, endScaleX, t);
+                float sy = lerp(startScaleY, endScaleY, t);
                 photoView.setScaleX(sx);
                 photoView.setScaleY(sy);
-                // Un-rounds from a full circle to a square as it expands —
-                // the Instagram-style "avatar pops open into a photo" feel.
-                swipeHelper.setLiveCornerRadius(lerp(startOnScreenRadius, 0f, t), sx);
+                // Grows from the small avatar circle to the bigger resting
+                // circle — stays round the whole way, never un-rounds to a
+                // square (WhatsApp/Instagram profile-photo viewer feel).
+                swipeHelper.setLiveCornerRadius(lerp(startOnScreenRadius, endOnScreenRadius, t), sx);
                 int bgAlpha = Math.round(lerp(0f, SCRIM_ALPHA, t));
                 root.setBackgroundColor(Color.argb(bgAlpha, 0, 0, 0));
             });
