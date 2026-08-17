@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    MEDIA VIEWER TOP-BAR BUTTON — individual circle background
+    ──────────────────────────────────────────────────────────────────
+    Same semi-transparent black oval style as feature-chat's
+    bg_media_edit_toolbtn (the media EDITING screen's toolbar buttons) —
+    duplicated here in app's own res so activity_media_viewer.xml doesn't
+    need a cross-module resource reference into feature-chat for a plain
+    3-line shape.
+
+    Replaces the old single full-width #99000000 / #CC000000 strip behind
+    the whole top bar — now each button (back/edit/save/share/more,
+    select-toolbar back/star/delete/forward) carries its own small circle,
+    matching the editor's per-button look instead of one big black box.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#33000000"/>
+</shape>

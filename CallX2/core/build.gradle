@@ -47,6 +47,10 @@ dependencies {
     // without a circular module dependency (AppLockManager stays in :app).
     implementation 'androidx.biometric:biometric:1.1.0'
     implementation 'androidx.fragment:fragment:1.6.2'
+    // Physics-based spring snap-back for the media viewer's interactive
+    // swipe-to-close gesture (MediaSwipeReplyCloseHelper) — natural
+    // deceleration + slight bounce instead of a flat linear tween.
+    implementation 'androidx.dynamicanimation:dynamicanimation:1.0.0'
 
     implementation platform('com.google.firebase:firebase-bom:32.7.0')
     implementation 'com.google.firebase:firebase-auth'

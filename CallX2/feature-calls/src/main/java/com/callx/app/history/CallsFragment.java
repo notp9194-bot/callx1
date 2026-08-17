@@ -236,10 +236,10 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                         // Fall back to resolvedPhoto (thumb) if full not available
                         String toShow = (fullPhoto != null && !fullPhoto.isEmpty())
                             ? fullPhoto : resolvedPhoto;
-                        showAvatarZoom(toShow);
+                        showAvatarZoom(ivAvatar, toShow);
                     }
                     @Override public void onCancelled(DatabaseError e) {
-                        showAvatarZoom(resolvedPhoto);
+                        showAvatarZoom(ivAvatar, resolvedPhoto);
                     }
                 });
         });
@@ -1000,10 +1000,10 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                         String fullPhoto = snap.child("photoUrl").getValue(String.class);
                         String toShow = (fullPhoto != null && !fullPhoto.isEmpty())
                             ? fullPhoto : resolvedPhoto;
-                        showAvatarZoom(toShow);
+                        showAvatarZoom(ivAvatar, toShow);
                     }
                     @Override public void onCancelled(DatabaseError e) {
-                        showAvatarZoom(resolvedPhoto);
+                        showAvatarZoom(ivAvatar, resolvedPhoto);
                     }
                 });
         });
@@ -1029,10 +1029,10 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
      * Opens a full-screen dialog with PhotoView (pinch-to-zoom support).
      * Always uses full photoUrl — not thumb — for maximum quality.
      */
-    private void showAvatarZoom(String photoUrl) {
+    private void showAvatarZoom(View sourceView, String photoUrl) {
         if (getContext() == null) return;
         com.callx.app.utils.DialogFullscreenHelper.showAvatarZoom(
-            getContext(), photoUrl,
+            getContext(), sourceView, photoUrl,
             com.callx.app.calls.R.drawable.ic_person,
             com.callx.app.calls.R.drawable.ic_close);
     }

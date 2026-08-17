@@ -129,7 +129,11 @@ public class ReelEditorActivity extends AppCompatActivity {
     //    on to the Upload screen after all editing is done. ────────────────
     private android.widget.ViewFlipper editorStepFlipper;
     private TextView                   tvEditorStepTitle;
-    private ProgressBar                pbEditorStep;
+    // Dot-stepper (reused from Add Status / Reel Upload's stepper UI — see
+    // updateEditorStepDots() below) — replaces the old thin horizontal
+    // pb_editor_step ProgressBar.
+    private TextView[]                 editorStepDots;
+    private View[]                     editorStepLines;
     private View                       btnEditorStepBack, btnEditorStepNext;
     private int                        editorCurrentStep = 0;
     private static final String[] EDITOR_STEP_TITLES = {
@@ -1153,7 +1157,15 @@ public class ReelEditorActivity extends AppCompatActivity {
     private void setupEditorStepWizard() {
         editorStepFlipper = findViewById(R.id.editor_step_flipper);
         tvEditorStepTitle = findViewById(R.id.tv_editor_step_title);
-        pbEditorStep      = findViewById(R.id.pb_editor_step);
+        editorStepDots  = new TextView[] {
+                findViewById(R.id.step_dot_1), findViewById(R.id.step_dot_2),
+                findViewById(R.id.step_dot_3), findViewById(R.id.step_dot_4),
+                findViewById(R.id.step_dot_5)
+        };
+        editorStepLines = new View[] {
+                findViewById(R.id.step_line_1), findViewById(R.id.step_line_2),
+                findViewById(R.id.step_line_3), findViewById(R.id.step_line_4)
+        };
         btnEditorStepBack = findViewById(R.id.btn_editor_step_back);
         btnEditorStepNext = findViewById(R.id.btn_editor_step_next);
 
@@ -1178,13 +1190,42 @@ public class ReelEditorActivity extends AppCompatActivity {
 
     private void updateEditorStepUi() {
         if (tvEditorStepTitle != null) tvEditorStepTitle.setText(EDITOR_STEP_TITLES[editorCurrentStep]);
-        if (pbEditorStep != null) pbEditorStep.setProgress(editorCurrentStep + 1);
+        updateEditorStepDots();
         if (btnEditorStepBack != null) {
             btnEditorStepBack.setVisibility(editorCurrentStep == 0 ? View.INVISIBLE : View.VISIBLE);
         }
         boolean isLastStep = editorCurrentStep == EDITOR_STEP_TITLES.length - 1;
         if (btnEditorStepNext != null) {
             btnEditorStepNext.setVisibility(isLastStep ? View.INVISIBLE : View.VISIBLE);
+        }
+    }
+
+    /**
+     * Reused from NewStatusActivity's updateWizardProgress() / ReelUploadActivity's
+     * updateStepDots() — same dot stepper visuals (numbered circle turns
+     * brand-gradient once its step is reached/passed, connecting line to its
+     * right fills solid, everything ahead stays the neutral "not yet" grey) —
+     * just sized for this wizard's 5 steps.
+     */
+    private void updateEditorStepDots() {
+        if (editorStepDots == null) return;
+        for (int i = 0; i < editorStepDots.length; i++) {
+            if (editorStepDots[i] == null) continue;
+            boolean active = i <= editorCurrentStep;
+            editorStepDots[i].setBackgroundResource(active
+                    ? com.callx.app.core.R.drawable.bg_trim_gradient_button
+                    : com.callx.app.core.R.drawable.bg_trim_circle_btn);
+            editorStepDots[i].setTextColor(androidx.core.content.ContextCompat.getColor(this,
+                    active ? com.callx.app.core.R.color.white
+                           : com.callx.app.core.R.color.trim_text_secondary));
+        }
+        if (editorStepLines == null) return;
+        for (int i = 0; i < editorStepLines.length; i++) {
+            if (editorStepLines[i] == null) continue;
+            editorStepLines[i].setBackgroundColor(androidx.core.content.ContextCompat.getColor(this,
+                    editorCurrentStep >= i + 1
+                            ? com.callx.app.core.R.color.trim_gradient_start
+                            : com.callx.app.core.R.color.trim_divider));
         }
     }
 

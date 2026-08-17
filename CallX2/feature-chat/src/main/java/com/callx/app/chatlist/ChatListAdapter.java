@@ -592,7 +592,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             User u = h.boundUser;
             if (u == null) return true;
             if (isSelecting) return true;
-            showAvatarZoom(h.itemView.getContext(), u.photoUrl, u.name);
+            showAvatarZoom(h.itemView.getContext(), h.ivAvatar, u.photoUrl, u.name);
             return true;
         });
 
@@ -959,9 +959,9 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         return sel;
     }
 
-    private void showAvatarZoom(Context ctx, String photoUrl, String name) {
+    private void showAvatarZoom(Context ctx, android.view.View sourceView, String photoUrl, String name) {
         com.callx.app.utils.DialogFullscreenHelper.showAvatarZoom(
-                ctx, photoUrl, name, R.drawable.ic_person, R.drawable.ic_close);
+                ctx, sourceView, photoUrl, name, R.drawable.ic_person, R.drawable.ic_close);
     }
 
     @Override public int getItemCount() { return differ.getCurrentList().size(); }

@@ -9,7 +9,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowManager;
-import android.view.animation.DecelerateInterpolator;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
@@ -284,11 +283,27 @@ public class MediaViewerActivity extends AppCompatActivity {
                         // anymore. Left in place only because the interface
                         // still declares it.
                     }
-                    @Override public void onSwipeDownClose() {
-                        closeViewer();
+                    @Override public void onSwipeDownClose(float velocityY) {
+                        closeViewer(velocityY);
                     }
                 });
+        // Top bar / select-toolbar / page-counter now fade LIVE with the
+        // drag itself (not just once release triggers the close animation)
+        // — see MediaSwipeReplyCloseHelper's class doc.
+        swipeHelper.setChromeViews(binding.llTopBar, binding.llSelectToolbar, binding.tvPageCounter);
     }
+
+    /** Bubble media corner radius (MessageBubbleCanvasView#MEDIA_CORNER_RADIUS_DP) — kept in sync so the
+     *  docking animation's final rounding matches the actual chat-bubble thumbnail exactly. */
+    private static final float BUBBLE_MEDIA_CORNER_RADIUS_DP = 18f;
+    /** Base duration for the dock-to-source / expand-from-source animation, before velocity adjusts it. */
+    private static final long DOCK_ANIM_BASE_MS = 300L;
+    private static final long DOCK_ANIM_MIN_MS = 170L;
+    // Material "emphasized" easing — fast out, gentle settle. Reads far more
+    // premium than a plain DecelerateInterpolator for a docking/undocking
+    // motion like this.
+    private static final android.view.animation.Interpolator DOCK_EASE =
+            new android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f);
 
     /**
      * Closes the viewer. If a source thumbnail rect was supplied (see
@@ -296,13 +311,22 @@ public class MediaViewerActivity extends AppCompatActivity {
      * into that exact spot — Telegram-style "chipakna" — instead of just
      * cutting away. Safe no-op fallback (plain instant close) when there's
      * no rect or no content view to animate.
+     *
+     * @param velocityY signed px/sec from the swipe gesture that triggered
+     *                  this close (0 for close-button/back-press), used to
+     *                  shorten the dock animation on a fast fling so it
+     *                  reads as a continuation of the throw, not a reset.
      */
-    private void closeViewer() {
+    private void closeViewer(float velocityY) {
         if (sourceRect != null && activeDragView != null && !isFinishing()) {
-            animateCloseToSource(sourceRect);
+            animateCloseToSource(sourceRect, velocityY);
         } else {
             finishNow();
         }
+    }
+
+    private void closeViewer() {
+        closeViewer(0f);
     }
 
     private void finishNow() {
@@ -310,47 +334,77 @@ public class MediaViewerActivity extends AppCompatActivity {
         overridePendingTransition(0, 0);
     }
 
-    /** Shrinks+moves `activeDragView` from its current on-screen spot into `target`, then finishes. */
-    private void animateCloseToSource(Rect target) {
+    /**
+     * Shrinks+moves `activeDragView` from its current on-screen spot (which
+     * may already be mid-drag — scaled/translated/rounded by
+     * MediaSwipeReplyCloseHelper's live gesture) into `target`, then
+     * finishes. Everything — position, scale, corner radius, content alpha,
+     * chrome alpha, background scrim — is driven off a single ValueAnimator
+     * fraction so nothing can drift out of sync with anything else.
+     */
+    private void animateCloseToSource(Rect target, float velocityY) {
         final View v = activeDragView;
+        v.animate().cancel();
+
         int[] loc = new int[2];
         v.getLocationOnScreen(loc);
-        float curCenterX = loc[0] + (v.getWidth() * v.getScaleX()) / 2f;
-        float curCenterY = loc[1] + (v.getHeight() * v.getScaleY()) / 2f;
+        float startScaleX = v.getScaleX();
+        float startScaleY = v.getScaleY();
+        float curCenterX = loc[0] + (v.getWidth() * startScaleX) / 2f;
+        float curCenterY = loc[1] + (v.getHeight() * startScaleY) / 2f;
         float targetCenterX = target.left + target.width() / 2f;
         float targetCenterY = target.top + target.height() / 2f;
 
-        float scaleX = v.getWidth()  > 0 ? target.width()  / (float) v.getWidth()  : 1f;
-        float scaleY = v.getHeight() > 0 ? target.height() / (float) v.getHeight() : 1f;
-        float dx = v.getTranslationX() + (targetCenterX - curCenterX);
-        float dy = v.getTranslationY() + (targetCenterY - curCenterY);
+        float startTx = v.getTranslationX();
+        float startTy = v.getTranslationY();
+        float endTx = startTx + (targetCenterX - curCenterX);
+        float endTy = startTy + (targetCenterY - curCenterY);
+        float endScaleX = v.getWidth()  > 0 ? target.width()  / (float) v.getWidth()  : 1f;
+        float endScaleY = v.getHeight() > 0 ? target.height() / (float) v.getHeight() : 1f;
 
-        // Chrome fades out together with the shrink — only the photo/video
-        // stays visible sliding into the thumbnail slot, then the activity
-        // finishes right as it lands there.
-        binding.llTopBar.animate().alpha(0f).setDuration(200).start();
-        binding.llSelectToolbar.animate().alpha(0f).setDuration(200).start();
-        binding.tvPageCounter.animate().alpha(0f).setDuration(200).start();
-        ValueAnimator bgAnim = ValueAnimator.ofInt(Color.alpha(currentBgAlphaOr(255)), 0);
-        bgAnim.setDuration(260);
-        bgAnim.addUpdateListener(a -> binding.getRoot().setBackgroundColor(
-                Color.argb((int) a.getAnimatedValue(), 0, 0, 0)));
-        bgAnim.start();
+        float startAlpha = v.getAlpha();
+        float startBgAlpha = Color.alpha(currentBgAlphaOr(255));
+        float startChromeAlpha = binding.llTopBar.getAlpha();
+        float startOnScreenRadius = swipeHelper != null ? swipeHelper.getCurrentOnScreenRadiusPx() : 0f;
+        float endOnScreenRadius = dp(BUBBLE_MEDIA_CORNER_RADIUS_DP);
 
-        v.animate().cancel();
-        v.animate()
-                .translationX(dx)
-                .translationY(dy)
-                .scaleX(scaleX)
-                .scaleY(scaleY)
-                .alpha(1f)
-                .setDuration(260)
-                .setInterpolator(new DecelerateInterpolator())
-                .withEndAction(this::finishNow)
-                .start();
+        // A fast fling should feel like the photo is being THROWN into the
+        // thumbnail slot — shorten the animation proportionally instead of
+        // always running the same fixed duration regardless of how hard the
+        // user flicked.
+        long duration = velocityAdjustedDuration(velocityY);
+
+        ValueAnimator anim = ValueAnimator.ofFloat(0f, 1f);
+        anim.setDuration(duration);
+        anim.setInterpolator(DOCK_EASE);
+        anim.addUpdateListener(a -> {
+            float t = (float) a.getAnimatedValue();
+            v.setTranslationX(lerp(startTx, endTx, t));
+            v.setTranslationY(lerp(startTy, endTy, t));
+            float sx = lerp(startScaleX, endScaleX, t);
+            float sy = lerp(startScaleY, endScaleY, t);
+            v.setScaleX(sx);
+            v.setScaleY(sy);
+            v.setAlpha(lerp(startAlpha, 1f, t));
+            if (swipeHelper != null) {
+                swipeHelper.setLiveCornerRadius(lerp(startOnScreenRadius, endOnScreenRadius, t), sx);
+            }
+            int bgAlpha = Math.round(lerp(startBgAlpha, 0f, t));
+            binding.getRoot().setBackgroundColor(Color.argb(bgAlpha, 0, 0, 0));
+            float chromeAlpha = lerp(startChromeAlpha, 0f, t);
+            binding.llTopBar.setAlpha(chromeAlpha);
+            binding.llSelectToolbar.setAlpha(chromeAlpha);
+            binding.tvPageCounter.setAlpha(chromeAlpha);
+        });
+        anim.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator animation) {
+                finishNow();
+            }
+        });
+        anim.start();
     }
 
-    /** Starts `v` scaled/translated to look like it's still `source`, then animates up to full-screen. */
+    /** Starts `v` scaled/translated/rounded to look like it's still `source`, then docks up to full-screen. */
     private void animateOpenFromSource(View v, Rect source) {
         if (source == null || v == null) return;
         v.post(() -> {
@@ -363,28 +417,60 @@ public class MediaViewerActivity extends AppCompatActivity {
             float srcCenterX = source.left + source.width() / 2f;
             float srcCenterY = source.top + source.height() / 2f;
 
-            v.setScaleX(source.width()  / (float) v.getWidth());
-            v.setScaleY(source.height() / (float) v.getHeight());
-            v.setTranslationX(srcCenterX - targetCenterX);
-            v.setTranslationY(srcCenterY - targetCenterY);
+            float startScaleX = source.width()  / (float) v.getWidth();
+            float startScaleY = source.height() / (float) v.getHeight();
+            float startTx = srcCenterX - targetCenterX;
+            float startTy = srcCenterY - targetCenterY;
+            float startOnScreenRadius = dp(BUBBLE_MEDIA_CORNER_RADIUS_DP);
+
+            v.setScaleX(startScaleX);
+            v.setScaleY(startScaleY);
+            v.setTranslationX(startTx);
+            v.setTranslationY(startTy);
+            if (swipeHelper != null) swipeHelper.setLiveCornerRadius(startOnScreenRadius, startScaleX);
 
             binding.getRoot().setBackgroundColor(Color.TRANSPARENT);
             binding.llTopBar.setAlpha(0f);
+            binding.tvPageCounter.setAlpha(0f);
 
-            v.animate()
-                    .scaleX(1f).scaleY(1f)
-                    .translationX(0f).translationY(0f)
-                    .setDuration(260)
-                    .setInterpolator(new DecelerateInterpolator())
-                    .start();
-
-            ValueAnimator bgAnim = ValueAnimator.ofInt(0, 255);
-            bgAnim.setDuration(260);
-            bgAnim.addUpdateListener(a -> binding.getRoot().setBackgroundColor(
-                    Color.argb((int) a.getAnimatedValue(), 0, 0, 0)));
-            bgAnim.start();
-            binding.llTopBar.animate().alpha(1f).setDuration(200).setStartDelay(80).start();
+            ValueAnimator anim = ValueAnimator.ofFloat(0f, 1f);
+            anim.setDuration(DOCK_ANIM_BASE_MS);
+            anim.setInterpolator(DOCK_EASE);
+            anim.addUpdateListener(a -> {
+                float t = (float) a.getAnimatedValue();
+                v.setTranslationX(lerp(startTx, 0f, t));
+                v.setTranslationY(lerp(startTy, 0f, t));
+                float sx = lerp(startScaleX, 1f, t);
+                float sy = lerp(startScaleY, 1f, t);
+                v.setScaleX(sx);
+                v.setScaleY(sy);
+                if (swipeHelper != null) {
+                    swipeHelper.setLiveCornerRadius(lerp(startOnScreenRadius, 0f, t), sx);
+                }
+                int bgAlpha = Math.round(lerp(0f, 255f, t));
+                binding.getRoot().setBackgroundColor(Color.argb(bgAlpha, 0, 0, 0));
+            });
+            anim.start();
+            // Chrome eases in slightly after the content starts moving —
+            // matches the reference Telegram timing (chrome never leads).
+            binding.llTopBar.animate().alpha(1f).setDuration(220).setStartDelay(90).start();
         });
+    }
+
+    private long velocityAdjustedDuration(float velocityY) {
+        float speedDpPerSec = Math.abs(velocityY) / getResources().getDisplayMetrics().density;
+        // 0 dp/s → base duration; ~2500 dp/s (a hard flick) → floor duration.
+        float speedFactor = Math.min(1f, speedDpPerSec / 2500f);
+        long duration = Math.round(lerp(DOCK_ANIM_BASE_MS, DOCK_ANIM_MIN_MS, speedFactor));
+        return Math.max(DOCK_ANIM_MIN_MS, duration);
+    }
+
+    private static float lerp(float start, float end, float t) {
+        return start + (end - start) * t;
+    }
+
+    private float dp(float value) {
+        return value * getResources().getDisplayMetrics().density;
     }
 
     /** Best-effort read of the root's current background alpha (falls back to `fallback` if not a solid color). */

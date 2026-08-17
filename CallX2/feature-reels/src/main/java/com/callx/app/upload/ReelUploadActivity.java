@@ -298,7 +298,10 @@ public class ReelUploadActivity extends AppCompatActivity {
     private android.widget.ViewFlipper stepFlipper;
     private androidx.core.widget.NestedScrollView stepScrollContainer;
     private TextView                   tvStepTitle;
-    private android.widget.ProgressBar progressStep;
+    // Dot-stepper (reused from Add Status's stepper UI — see updateStepDots()
+    // below) — replaces the old thin horizontal progress_step ProgressBar.
+    private TextView[]                 stepDots;
+    private View[]                     stepLines;
     private com.google.android.material.button.MaterialButton btnStepBack;
     private Button                     btnStepNext;
     private int                        currentStep = 0;
@@ -797,7 +800,14 @@ public class ReelUploadActivity extends AppCompatActivity {
         stepFlipper  = findViewById(R.id.step_flipper);
         stepScrollContainer = findViewById(R.id.step_scroll_container);
         tvStepTitle  = findViewById(R.id.tv_step_title);
-        progressStep = findViewById(R.id.progress_step);
+        stepDots  = new TextView[] {
+                findViewById(R.id.step_dot_1), findViewById(R.id.step_dot_2),
+                findViewById(R.id.step_dot_3), findViewById(R.id.step_dot_4)
+        };
+        stepLines = new View[] {
+                findViewById(R.id.step_line_1), findViewById(R.id.step_line_2),
+                findViewById(R.id.step_line_3)
+        };
         btnStepBack  = findViewById(R.id.btn_step_back);
         btnStepNext  = findViewById(R.id.btn_step_next);
 
@@ -856,7 +866,7 @@ public class ReelUploadActivity extends AppCompatActivity {
 
     private void updateStepUi() {
         if (tvStepTitle != null) tvStepTitle.setText(STEP_TITLES[currentStep]);
-        if (progressStep != null) progressStep.setProgress(currentStep + 1);
+        updateStepDots();
         if (btnStepBack != null) {
             btnStepBack.setVisibility(currentStep == 0 ? View.INVISIBLE : View.VISIBLE);
         }
@@ -865,6 +875,35 @@ public class ReelUploadActivity extends AppCompatActivity {
             // actions inside the step, so the shared Next button is hidden there.
             boolean isLastStep = currentStep == STEP_TITLES.length - 1;
             btnStepNext.setVisibility(isLastStep ? View.GONE : View.VISIBLE);
+        }
+    }
+
+    /**
+     * Reused from NewStatusActivity's updateWizardProgress() — same dot
+     * stepper visuals (numbered circle turns brand-gradient once its step is
+     * reached/passed, connecting line to its right fills solid, everything
+     * ahead stays the neutral "not yet" grey) — just sized for this wizard's
+     * 4 steps instead of Status's 3.
+     */
+    private void updateStepDots() {
+        if (stepDots == null) return;
+        for (int i = 0; i < stepDots.length; i++) {
+            if (stepDots[i] == null) continue;
+            boolean active = i <= currentStep;
+            stepDots[i].setBackgroundResource(active
+                    ? com.callx.app.core.R.drawable.bg_trim_gradient_button
+                    : com.callx.app.core.R.drawable.bg_trim_circle_btn);
+            stepDots[i].setTextColor(androidx.core.content.ContextCompat.getColor(this,
+                    active ? com.callx.app.core.R.color.white
+                           : com.callx.app.core.R.color.trim_text_secondary));
+        }
+        if (stepLines == null) return;
+        for (int i = 0; i < stepLines.length; i++) {
+            if (stepLines[i] == null) continue;
+            stepLines[i].setBackgroundColor(androidx.core.content.ContextCompat.getColor(this,
+                    currentStep >= i + 1
+                            ? com.callx.app.core.R.color.trim_gradient_start
+                            : com.callx.app.core.R.color.trim_divider));
         }
     }
 

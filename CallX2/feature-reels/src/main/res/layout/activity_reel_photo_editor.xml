@@ -63,13 +63,13 @@
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:text="Done"
-            android:textColor="#000000"
+            android:textColor="@color/white"
             android:textSize="14sp"
             android:fontFamily="sans-serif-medium"
             android:gravity="center"
             android:paddingStart="18dp"
             android:paddingEnd="18dp"
-            android:background="#A855F7"
+            android:background="@drawable/bg_trim_gradient_button_ripple"
             android:clickable="true"
             android:focusable="true"/>
     </LinearLayout>
@@ -157,7 +157,13 @@
     </LinearLayout>
 
     <!-- ── Step indicator (5-step wizard: Filter -> Effect -> Caption ->
-         Sticker -> Adjust) ─────────────────────────────────────────── -->
+         Sticker -> Adjust) ─────────────────────────────────────────────
+         Reused from the Add Status / Reel Upload / Reel Editor screens'
+         dot-stepper UI (same bg_trim_gradient_button / bg_trim_circle_btn
+         drawables from :core, same active/inactive coloring logic) instead
+         of the old thin horizontal pb_photo_editor_step ProgressBar — same
+         numbered-circle + connecting-line look, sized for this wizard's
+         5 steps. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -166,7 +172,7 @@
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
         android:paddingTop="8dp"
-        android:paddingBottom="4dp">
+        android:paddingBottom="8dp">
 
         <TextView
             android:id="@+id/tv_photo_editor_step_title"
@@ -176,16 +182,94 @@
             android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:fontFamily="sans-serif-medium"
-            android:layout_marginBottom="6dp"/>
+            android:layout_marginBottom="8dp"/>
 
-        <ProgressBar
-            android:id="@+id/pb_photo_editor_step"
-            style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+        <LinearLayout
+            android:id="@+id/photo_editor_stepper"
             android:layout_width="match_parent"
-            android:layout_height="4dp"
-            android:max="5"
-            android:progress="1"
-            android:progressTint="#A855F7"/>
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/step_dot_1"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:gravity="center"
+                android:text="1"
+                android:textSize="11sp"
+                android:textColor="@color/white"
+                android:textStyle="bold"
+                android:background="@drawable/bg_trim_gradient_button"/>
+            <View
+                android:id="@+id/step_line_1"
+                android:layout_width="0dp"
+                android:layout_height="2dp"
+                android:layout_weight="1"
+                android:layout_marginHorizontal="4dp"
+                android:background="@color/trim_divider"/>
+            <TextView
+                android:id="@+id/step_dot_2"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:gravity="center"
+                android:text="2"
+                android:textSize="11sp"
+                android:textColor="@color/trim_text_secondary"
+                android:textStyle="bold"
+                android:background="@drawable/bg_trim_circle_btn"/>
+            <View
+                android:id="@+id/step_line_2"
+                android:layout_width="0dp"
+                android:layout_height="2dp"
+                android:layout_weight="1"
+                android:layout_marginHorizontal="4dp"
+                android:background="@color/trim_divider"/>
+            <TextView
+                android:id="@+id/step_dot_3"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:gravity="center"
+                android:text="3"
+                android:textSize="11sp"
+                android:textColor="@color/trim_text_secondary"
+                android:textStyle="bold"
+                android:background="@drawable/bg_trim_circle_btn"/>
+            <View
+                android:id="@+id/step_line_3"
+                android:layout_width="0dp"
+                android:layout_height="2dp"
+                android:layout_weight="1"
+                android:layout_marginHorizontal="4dp"
+                android:background="@color/trim_divider"/>
+            <TextView
+                android:id="@+id/step_dot_4"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:gravity="center"
+                android:text="4"
+                android:textSize="11sp"
+                android:textColor="@color/trim_text_secondary"
+                android:textStyle="bold"
+                android:background="@drawable/bg_trim_circle_btn"/>
+            <View
+                android:id="@+id/step_line_4"
+                android:layout_width="0dp"
+                android:layout_height="2dp"
+                android:layout_weight="1"
+                android:layout_marginHorizontal="4dp"
+                android:background="@color/trim_divider"/>
+            <TextView
+                android:id="@+id/step_dot_5"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:gravity="center"
+                android:text="5"
+                android:textSize="11sp"
+                android:textColor="@color/trim_text_secondary"
+                android:textStyle="bold"
+                android:background="@drawable/bg_trim_circle_btn"/>
+        </LinearLayout>
     </LinearLayout>
 
     <!-- ── Tab bar ────────────────────────────────────────────────── -->

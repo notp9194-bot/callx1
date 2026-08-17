@@ -77,13 +77,21 @@
                 android:layout_marginTop="16dp"
                 android:visibility="gone"/>
 
+            <!-- Save Changes — reuses the core Done-button style (same
+                 bg_trim_gradient_button_ripple as the Photo Editor's Done
+                 button, the Audio Mixer's Done button, and the Reel Upload
+                 screen's Next/Post Reel buttons) instead of the default
+                 Material button styling. -->
             <Button
                 android:id="@+id/btn_save_reel_edit"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:layout_marginTop="20dp"
                 android:text="Save Changes"
-                android:textSize="16sp"/>
+                android:textSize="16sp"
+                android:textColor="#FFFFFF"
+                android:fontFamily="sans-serif-medium"
+                android:background="@drawable/bg_trim_gradient_button_ripple"/>
 
             <View
                 android:layout_width="match_parent"

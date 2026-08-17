@@ -1418,10 +1418,10 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     .addListenerForSingleValueEvent(new ValueEventListener() {
                         @Override public void onDataChange(DataSnapshot snap) {
                             String full = snap.child("photoUrl").getValue(String.class);
-                            showChatAvatarZoom((full != null && !full.isEmpty()) ? full : avatarUrl);
+                            showChatAvatarZoom(ivAvatar, (full != null && !full.isEmpty()) ? full : avatarUrl);
                         }
                         @Override public void onCancelled(DatabaseError e) {
-                            showChatAvatarZoom(avatarUrl);
+                            showChatAvatarZoom(ivAvatar, avatarUrl);
                         }
                     });
             });
@@ -2006,7 +2006,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         }
 
         if (ivAvatar != null) {
-            ivAvatar.setOnClickListener(x -> showChatAvatarZoom(avatarUrl));
+            ivAvatar.setOnClickListener(x -> showChatAvatarZoom(ivAvatar, avatarUrl));
         }
         if (btnClose != null) {
             btnClose.setOnClickListener(x -> histSheet.dismiss());
@@ -2149,9 +2149,9 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     }
 
     // ── Avatar Zoom ────────────────────────────────────────────────────────
-    private void showChatAvatarZoom(String photoUrl) {
+    private void showChatAvatarZoom(android.view.View sourceView, String photoUrl) {
         if (getContext() == null) return;
         com.callx.app.utils.DialogFullscreenHelper.showAvatarZoom(
-            getContext(), photoUrl, R.drawable.ic_person, R.drawable.ic_close);
+            getContext(), sourceView, photoUrl, R.drawable.ic_person, R.drawable.ic_close);
     }
 }

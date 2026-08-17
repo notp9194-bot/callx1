@@ -113,7 +113,7 @@ public class UserProfileActivity extends AppCompatActivity {
         }
 
         // Avatar click → fullscreen zoom
-        binding.ivAvatarLarge.setOnClickListener(v -> showAvatarZoom(partnerPhoto));
+        binding.ivAvatarLarge.setOnClickListener(v -> showAvatarZoom(v, partnerPhoto));
 
         // ── Action buttons ─────────────────────────────────────────────
         binding.btnActionReel.setOnClickListener(v -> openUserReels());
@@ -589,9 +589,9 @@ public class UserProfileActivity extends AppCompatActivity {
     // AVATAR FULLSCREEN ZOOM
     // ──────────────────────────────────────────────────────────────────────
 
-    private void showAvatarZoom(String photoUrl) {
+    private void showAvatarZoom(View sourceView, String photoUrl) {
         com.callx.app.utils.DialogFullscreenHelper.showAvatarZoom(
-            this, photoUrl, R.drawable.ic_person, R.drawable.ic_close);
+            this, sourceView, photoUrl, R.drawable.ic_person, R.drawable.ic_close);
     }
 
     // ──────────────────────────────────────────────────────────────────────

@@ -125,7 +125,7 @@ public class ReelUserProfileSheet {
                             final String finalUrl = ytUrl;
                             if (ivAvatar != null)
                                 ivAvatar.setOnClickListener(x ->
-                                    showAvatarZoom(activity, finalUrl));
+                                    showAvatarZoom(activity, ivAvatar, finalUrl));
                         }
                     }
                     @Override public void onCancelled(DatabaseError e) {}
@@ -270,11 +270,11 @@ public class ReelUserProfileSheet {
                     FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
                         @Override public void onDataChange(DataSnapshot snap) {
                             String full = snap.child("photoUrl").getValue(String.class);
-                            showAvatarZoom(activity,
+                            showAvatarZoom(activity, ivAvatar,
                                 (full != null && !full.isEmpty()) ? full : photoUrl);
                         }
                         @Override public void onCancelled(DatabaseError e) {
-                            showAvatarZoom(activity, photoUrl);
+                            showAvatarZoom(activity, ivAvatar, photoUrl);
                         }
                     });
                 });
@@ -587,10 +587,10 @@ public class ReelUserProfileSheet {
 
     // ── Avatar full-screen zoom ────────────────────────────────────────────
 
-    private static void showAvatarZoom(Activity activity, String photoUrl) {
+    private static void showAvatarZoom(Activity activity, android.view.View sourceView, String photoUrl) {
         if (activity == null || activity.isFinishing()) return;
         com.callx.app.utils.DialogFullscreenHelper.showAvatarZoom(
-            activity, photoUrl, R.drawable.ic_person, R.drawable.ic_close);
+            activity, sourceView, photoUrl, R.drawable.ic_person, R.drawable.ic_close);
     }
 
     // ── Button state helpers ───────────────────────────────────────────────

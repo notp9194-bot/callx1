@@ -687,7 +687,7 @@ public class UserReelsActivity extends AppCompatActivity
 
         if (ivAvatar != null) {
             ivAvatar.setOnClickListener(v -> openStatusIfAvailable());
-            ivAvatar.setOnLongClickListener(v -> { showAvatarZoom(targetPhoto, targetName); return true; });
+            ivAvatar.setOnLongClickListener(v -> { showAvatarZoom(v, targetPhoto, targetName); return true; });
         }
     }
 
@@ -4824,10 +4824,10 @@ public class UserReelsActivity extends AppCompatActivity
 
     // ── Avatar zoom dialog ────────────────────────────────────────────────
 
-    private void showAvatarZoom(String photoUrl, String name) {
+    private void showAvatarZoom(View sourceView, String photoUrl, String name) {
         if (isFinishing() || isDestroyed()) return;
         com.callx.app.utils.DialogFullscreenHelper.showAvatarZoom(
-            this, photoUrl, name, R.drawable.ic_person, R.drawable.ic_close);
+            this, sourceView, photoUrl, name, R.drawable.ic_person, R.drawable.ic_close);
     }
 
     @Override protected void onPause()  { super.onPause();  dismissPreviewDialog(); stopAvatarAnimation(); if (lottieEmpty != null) lottieEmpty.pauseAnimation(); }

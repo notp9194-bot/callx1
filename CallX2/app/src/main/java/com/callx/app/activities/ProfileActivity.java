@@ -68,7 +68,7 @@ public class ProfileActivity extends AppCompatActivity {
 
         // Long press avatar → zoom full photo
         binding.ivAvatar.setOnLongClickListener(v -> {
-            showAvatarZoom(currentPhoto);
+            showAvatarZoom(v, currentPhoto);
             return true;
         });
 
@@ -235,9 +235,9 @@ public class ProfileActivity extends AppCompatActivity {
         finish();
     }
 
-    private void showAvatarZoom(String photoUrl) {
+    private void showAvatarZoom(View sourceView, String photoUrl) {
         com.callx.app.utils.DialogFullscreenHelper.showAvatarZoom(
-            this, photoUrl, R.drawable.ic_person, R.drawable.ic_close);
+            this, sourceView, photoUrl, R.drawable.ic_person, R.drawable.ic_close);
     }
 
     // ─────────────────────────────────────────────────────────────────────
