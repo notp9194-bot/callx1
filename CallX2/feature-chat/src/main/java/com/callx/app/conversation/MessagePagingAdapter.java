@@ -5996,8 +5996,23 @@ public class MessagePagingAdapter
         // file first via MediaCache (voice notes are small; the extra
         // wait vs. partial-stream-start is negligible) instead of
         // MediaStreamCache.preloadPartial below.
+        //
+        // BUG FIX (Voice Caption on Photo — recorded audio never plays):
+        // audioMsg.mediaKeyEnc belongs to the PHOTO's own E2E envelope —
+        // it's set whenever the image is E2E, completely independent of
+        // whether a voice caption is attached. The caption clip itself is
+        // always uploaded plaintext (see
+        // ChatMediaController#uploadVoiceCaptionThenFinalize's javadoc:
+        // "E2E for this clip is a follow-up"). Without the type=="audio"
+        // guard below, this used to grab the photo's decrypt key for a
+        // combo image+voice-caption message and "decrypt" the already-
+        // plaintext voice clip with it — corrupting the bytes into
+        // unplayable garbage even though the download itself succeeded.
+        // Only a genuine standalone voice-message bubble (type=="audio")
+        // is ever actually E2E-encrypted at this URL.
         Message audioMsg = getItem(position);
-        byte[] audioKey = (audioMsg != null && !currentUid.equals(audioMsg.senderId) && audioMsg.mediaKeyEnc != null)
+        byte[] audioKey = (audioMsg != null && "audio".equals(audioMsg.type)
+                && !currentUid.equals(audioMsg.senderId) && audioMsg.mediaKeyEnc != null)
                 ? com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(h.itemView.getContext(), audioMsg.mediaKeyEnc,
                         audioMsg.senderId, (audioMsg.messageId != null ? audioMsg.messageId : audioMsg.id))
                 : null;
