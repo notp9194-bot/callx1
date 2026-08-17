@@ -98,6 +98,11 @@ public class MediaSwipeReplyCloseHelper {
     private final ZoomedStateProvider zoomedStateProvider; // nullable
     private final Callback callback;
     private final int touchSlop;
+    // PERF (ultra-advanced pass v2): cached once instead of re-resolving
+    // Resources → DisplayMetrics → density on every dp() call — dp() runs
+    // multiple times per ACTION_MOVE frame during a live drag, so this
+    // avoids a repeated lookup chain on the hottest path in this class.
+    private final float density;
 
     private View[] chromeViews = new View[0];
 
@@ -107,6 +112,15 @@ public class MediaSwipeReplyCloseHelper {
     private VelocityTracker velocityTracker;
 
     private float currentLocalRadiusPx = 0f;
+    // PERF (ultra-advanced pass v2): the local (pre-transform) radius that
+    // was actually last handed to invalidateOutline(). Kept separate from
+    // currentLocalRadiusPx (which must always hold the exact live value —
+    // getCurrentOnScreenRadiusPx() and animation-continuity math depend on
+    // it) so radius updates can be tracked precisely while the relatively
+    // expensive native outline recompute is only triggered when the value
+    // has moved enough to matter. See updateLocalRadius() below.
+    private float lastInvalidatedLocalRadiusPx = -1f;
+    private static final float RADIUS_INVALIDATE_EPSILON_PX = 0.5f;
     private SpringAnimation snapBackSpring;
 
     // ── Idle-state override (default = old behaviour: full-bleed square,
@@ -125,6 +139,7 @@ public class MediaSwipeReplyCloseHelper {
         this.zoomedStateProvider = zoomedStateProvider;
         this.callback = callback;
         this.touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
+        this.density = context.getResources().getDisplayMetrics().density;
         installCornerClip();
     }
 
@@ -154,6 +169,10 @@ public class MediaSwipeReplyCloseHelper {
         this.idleOnScreenRadiusPx = idleOnScreenRadiusPx;
         this.insetSquareClip = insetSquareClip;
         this.currentLocalRadiusPx = idleScale > 0.001f ? idleOnScreenRadiusPx / idleScale : 0f;
+        // Keep the epsilon-tracker in sync so the very next live-radius
+        // update correctly compares against this real baseline instead of
+        // a stale value from a previous dialog instance.
+        this.lastInvalidatedLocalRadiusPx = currentLocalRadiusPx;
         dragView.invalidateOutline();
     }
 
@@ -170,18 +189,28 @@ public class MediaSwipeReplyCloseHelper {
      */
     public void setLiveCornerRadius(float onScreenRadiusPx, float currentScale) {
         float newLocalRadius = currentScale > 0.001f ? onScreenRadiusPx / currentScale : 0f;
-        // PERF (ultra-advanced pass): invalidateOutline() forces a native
-        // outline recompute + RenderNode re-clip every single call. During a
-        // 60fps drag/dock animation most consecutive frames move the radius
-        // by a sub-pixel amount that's visually identical either way — so we
-        // still track the *exact* value (getCurrentOnScreenRadiusPx stays
-        // correct every frame) but only pay the native re-clip cost once the
-        // radius has actually moved enough to matter (~0.5px on screen).
-        // Over a ~300ms/18-frame dock animation this skips a meaningful
-        // fraction of redundant outline recomputes for zero visual cost.
-        float delta = Math.abs(newLocalRadius - currentLocalRadiusPx);
+        updateLocalRadius(newLocalRadius);
+    }
+
+    /**
+     * PERF (ultra-advanced pass v2): single choke point for every radius
+     * change in this class (live drag, spring-back, and the dock open/close
+     * animators via setLiveCornerRadius). currentLocalRadiusPx is always
+     * kept exact, but the native invalidateOutline() → outline recompute →
+     * RenderNode re-clip is only actually triggered once the LOCAL radius
+     * has moved by more than RADIUS_INVALIDATE_EPSILON_PX since the last
+     * time it was invalidated — sub-pixel moves are visually identical
+     * either way, so paying the native re-clip cost for them is pure waste.
+     * On a 90/120Hz-touch-sampling device a drag can call this far more
+     * often than the display actually redraws, so this is a meaningful cut
+     * in native work, not just a cosmetic threshold.
+     */
+    private void updateLocalRadius(float newLocalRadius) {
         currentLocalRadiusPx = newLocalRadius;
-        if (delta >= 0.5f) dragView.invalidateOutline();
+        if (Math.abs(newLocalRadius - lastInvalidatedLocalRadiusPx) >= RADIUS_INVALIDATE_EPSILON_PX) {
+            lastInvalidatedLocalRadiusPx = newLocalRadius;
+            dragView.invalidateOutline();
+        }
     }
 
     /**
@@ -357,15 +386,25 @@ public class MediaSwipeReplyCloseHelper {
             // below reset local radius toward 0 every frame, which is what
             // made the circle instantly snap to a near-full rectangle the
             // moment any drag started.)
-            dragView.invalidateOutline();
+            //
+            // PERF (ultra-advanced pass v2): because the LOCAL radius is
+            // deliberately left untouched here, the outline's actual
+            // pre-transform geometry is bit-for-bit identical every frame
+            // of this gesture — only dragView's scale/translationY change,
+            // and those are composited transforms applied *after* clipping,
+            // not part of the outline itself. So this branch used to call
+            // invalidateOutline() ~every touch-move frame for genuinely zero
+            // visual effect. It's removed entirely (not just throttled) —
+            // every avatar-viewer drag in the app now does zero native
+            // outline recomputes for its whole duration.
         } else {
             // On-screen radius directly t-driven (0 → MAX_DRAG_RADIUS_DP); local
             // (pre-transform) radius compensates for the current scale so the
             // *visible* radius on screen grows smoothly and linearly with t —
             // see class doc for the math.
             float onScreenRadiusPx = t * dp(MAX_DRAG_RADIUS_DP);
-            currentLocalRadiusPx = scale > 0.001f ? onScreenRadiusPx / scale : 0f;
-            dragView.invalidateOutline();
+            float newLocalRadius = scale > 0.001f ? onScreenRadiusPx / scale : 0f;
+            updateLocalRadius(newLocalRadius);
         }
 
         // Content itself fades a little as it's dragged out — subtle, not
@@ -415,11 +454,18 @@ public class MediaSwipeReplyCloseHelper {
             float scale = idleScale - t * (idleScale - idleScale * MIN_DRAG_SCALE);
             dragView.setScaleX(scale);
             dragView.setScaleY(scale);
+            // PERF (ultra-advanced pass v2): same reasoning as
+            // applyLiveDragFrame — for the insetSquareClip (avatar) case the
+            // local radius never moves during this spring, so skip the
+            // outline call for it entirely; for the non-circle case, route
+            // through updateLocalRadius so sub-pixel spring ticks (this
+            // listener can fire well above 60Hz) don't each force a native
+            // re-clip.
             if (!insetSquareClip) {
                 float onScreenRadiusPx = t * dp(MAX_DRAG_RADIUS_DP);
-                currentLocalRadiusPx = scale > 0.001f ? onScreenRadiusPx / scale : 0f;
+                float newLocalRadius = scale > 0.001f ? onScreenRadiusPx / scale : 0f;
+                updateLocalRadius(newLocalRadius);
             }
-            dragView.invalidateOutline();
             dragView.setAlpha(1f - t * 0.22f);
             float chromeAlpha = 1f - Math.min(1f, t * 1.6f);
             for (View v : chromeViews) {
@@ -444,6 +490,7 @@ public class MediaSwipeReplyCloseHelper {
         dragView.setScaleY(idleScale);
         dragView.setAlpha(1f);
         currentLocalRadiusPx = idleScale > 0.001f ? idleOnScreenRadiusPx / idleScale : 0f;
+        lastInvalidatedLocalRadiusPx = currentLocalRadiusPx;
         dragView.invalidateOutline();
         for (View v : chromeViews) {
             if (v != null) v.setAlpha(1f);
@@ -461,6 +508,6 @@ public class MediaSwipeReplyCloseHelper {
     }
 
     private float dp(float value) {
-        return value * context.getResources().getDisplayMetrics().density;
+        return value * density;
     }
 }

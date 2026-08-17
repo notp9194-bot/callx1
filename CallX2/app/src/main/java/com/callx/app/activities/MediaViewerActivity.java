@@ -351,6 +351,21 @@ public class MediaViewerActivity extends AppCompatActivity {
     private void animateCloseToSource(Rect target, float velocityY) {
         final View v = activeDragView;
         v.animate().cancel();
+        // PERF (ultra-advanced pass): same GPU-layer caching trick already
+        // used by the avatar-zoom dock animation (DialogFullscreenHelper) —
+        // this animator drives translation+scale+alpha+outline-clip on `v`
+        // together every frame, which without a hardware layer means a full
+        // re-draw (and, for video, a full re-composite) of the content each
+        // frame. Caching it once up front turns every subsequent frame into
+        // a cheap GPU-composited transform instead. Matters most for the
+        // close-button/back-press/tap-outside paths, where no swipe drag
+        // happened first — in that case `v` was never layered by
+        // MediaSwipeReplyCloseHelper's live-drag gesture, so without this it
+        // would run completely un-cached for the whole animation. Released
+        // in onAnimationEnd, right before the Activity finishes anyway.
+        if (v.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+            v.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        }
 
         int[] loc = new int[2];
         v.getLocationOnScreen(loc);
@@ -404,6 +419,7 @@ public class MediaViewerActivity extends AppCompatActivity {
         });
         anim.addListener(new android.animation.AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(android.animation.Animator animation) {
+                v.setLayerType(View.LAYER_TYPE_NONE, null);
                 finishNow();
             }
         });
@@ -434,6 +450,12 @@ public class MediaViewerActivity extends AppCompatActivity {
             v.setTranslationX(startTx);
             v.setTranslationY(startTy);
             if (swipeHelper != null) swipeHelper.setLiveCornerRadius(startOnScreenRadius, startScaleX);
+            // PERF (ultra-advanced pass): see animateCloseToSource's identical
+            // comment — cache `v` into a GPU layer for the open animation's
+            // duration too, released once it settles into its idle state.
+            if (v.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+                v.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+            }
 
             binding.getRoot().setBackgroundColor(Color.TRANSPARENT);
             binding.llTopBar.setAlpha(0f);
@@ -442,6 +464,15 @@ public class MediaViewerActivity extends AppCompatActivity {
             ValueAnimator anim = ValueAnimator.ofFloat(0f, 1f);
             anim.setDuration(DOCK_ANIM_BASE_MS);
             anim.setInterpolator(DOCK_EASE);
+            anim.addListener(new android.animation.AnimatorListenerAdapter() {
+                @Override public void onAnimationEnd(android.animation.Animator animation) {
+                    // Open dock finished — view is now idle (pinch-zoomable /
+                    // paging) until the next drag/close, so release the GPU
+                    // layer; the swipe helper re-acquires it itself the
+                    // moment a new drag starts.
+                    v.setLayerType(View.LAYER_TYPE_NONE, null);
+                }
+            });
             anim.addUpdateListener(a -> {
                 float t = (float) a.getAnimatedValue();
                 v.setTranslationX(lerp(startTx, 0f, t));
