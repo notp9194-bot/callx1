@@ -986,16 +986,23 @@
                       android:gravity="center_vertical"/>
               </HorizontalScrollView>
 
+  <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+      android:id="@+id/swipe_refresh_reels"
+      android:layout_width="match_parent"
+      android:layout_height="0dp"
+      android:layout_weight="1">
+
   <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rv_reels"
                 android:background="@color/reel_grid_gutter"
                 android:nestedScrollingEnabled="true"
                 android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1"
+                android:layout_height="match_parent"
                 android:clipToPadding="false"
                 android:overScrollMode="ifContentScrolls"
                 android:paddingTop="2dp"/>
+
+  </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
             <!-- Series grid (visibility toggled by Java) -->
             <androidx.recyclerview.widget.RecyclerView

@@ -258,6 +258,10 @@ public class UserReelsActivity extends AppCompatActivity
     private TabLayout       tabLayout;
     private RecyclerView    rvReels;
       private RecyclerView    rvSeries;
+    private androidx.swiperefreshlayout.widget.SwipeRefreshLayout swipeRefreshReels;
+    // Guards against a second pull-to-refresh network round-trip stacking on
+    // top of one already in flight (e.g. user yanks the list twice fast).
+    private boolean pullRefreshInFlight = false;
     private ReelGridAdapter       adapter;
       private UserSeriesGridAdapter seriesAdapter;
     private ProgressBar     progressBar;
@@ -448,6 +452,7 @@ public class UserReelsActivity extends AppCompatActivity
         loadPinnedReel();
         loadCurrentTab(true);
         setupViewAllReelsButton();
+        setupPullToRefresh();
         loadReelCount();
         checkActiveStory();
         loadAccountPrivacy();
@@ -524,6 +529,7 @@ public class UserReelsActivity extends AppCompatActivity
         tabLayout            = findViewById(R.id.tab_layout);
         rvReels              = findViewById(R.id.rv_reels);
           rvSeries             = findViewById(R.id.rv_series);
+        swipeRefreshReels    = findViewById(R.id.swipe_refresh_reels);
         hsvFilterChips       = findViewById(R.id.hsv_filter_chips);
         llFilterChips        = findViewById(R.id.ll_filter_chips);
         progressBar          = findViewById(R.id.progress_bar);
@@ -2705,6 +2711,143 @@ public class UserReelsActivity extends AppCompatActivity
             case TAB_COLLAB_REPOST: return collabRepostTabData;
             default:         return reelsTabData;
         }
+    }
+
+    /** Firebase index ref backing each tab — same refs loadCurrentTab() already reads from. */
+    private DatabaseReference refForTab(int tab) {
+        switch (tab) {
+            case TAB_LIKED:  return FirebaseUtils.getReelLikedByUserRef(targetUid);
+            case TAB_SAVED:  return FirebaseUtils.getReelSavesRef(targetUid);
+            case TAB_REPOST: return FirebaseUtils.getReelRepostsByUserRef(targetUid);
+            case TAB_DUET:   return FirebaseUtils.getUserDuetReelsRef(targetUid);
+            case TAB_COLLAB_REPOST: return FirebaseUtils.getUserCollabRepostReelsRef(targetUid);
+            default:         return FirebaseUtils.getReelsByUserRef(targetUid);
+        }
+    }
+
+    /**
+     * Pull-to-refresh (swipe_refresh_reels).
+     *
+     * ULTRA-OPTIMIZED refresh path — deliberately NOT a call to loadCurrentTab(true):
+     * that path clears the whole tab list, shows the shimmer skeleton, re-fetches
+     * everything already-loaded, and finishes with a full notifyDataSetChanged()
+     * (every visible cell re-bound, every thumbnail re-decoded). Fine for a first
+     * load / tab switch, way too heavy for "user flicked the list down and wants
+     * to see new stuff in under a second":
+     *
+     *  - Network:  fetch ONLY the newest PAGE_SIZE ids (orderByKey().limitToLast),
+     *              never the whole loaded history — smallest possible payload.
+     *  - Memory:   merge into the SAME List instance already backing the adapter
+     *              (in place update/prepend) — no allocation of a fresh tab list,
+     *              no touching the older pages already scrolled past.
+     *  - Render:   ReelGridAdapter#diffDataSetChanged() (DiffUtil) dispatches only
+     *              the actual inserted/changed rows — untouched cells are never
+     *              rebound, so Glide never re-decodes thumbnails that didn't change.
+     *  - Network debounce: pullRefreshInFlight guards against a second yank
+     *              stacking another round-trip on top of one still in flight.
+     *  - Pagination cursor (reelsLastKey/likedLastKey/...) is left untouched, so
+     *    "load more" at the bottom keeps working from exactly where it was.
+     */
+    private void setupPullToRefresh() {
+        if (swipeRefreshReels == null) return;
+        swipeRefreshReels.setColorSchemeResources(
+                R.color.brand_primary,
+                R.color.brand_primary_dark);
+        swipeRefreshReels.setOnRefreshListener(this::onPullToRefresh);
+    }
+
+    private void onPullToRefresh() {
+        if (swipeRefreshReels == null) return;
+        if (activeTab == TAB_SERIES) {
+            // Series lists are tiny (a handful of albums) — the normal
+            // refresh path is already cheap enough here, no need for a
+            // second bespoke code path just for this tab.
+            loadCurrentTab(true);
+            swipeRefreshReels.postDelayed(() -> {
+                if (swipeRefreshReels != null) swipeRefreshReels.setRefreshing(false);
+            }, 500);
+            return;
+        }
+        if (pullRefreshInFlight) return;
+        pullRefreshInFlight = true;
+        final int tabAtStart = activeTab;
+        refForTab(tabAtStart).orderByKey().limitToLast(PAGE_SIZE)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (isFinishing() || isDestroyed()) { finishPullRefresh(); return; }
+                    List<String> ids = extractIds(snap);
+                    if (ids.isEmpty()) { finishPullRefresh(); return; }
+                    mergeFreshIds(ids, tabAtStart);
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) { finishPullRefresh(); }
+            });
+    }
+
+    /** Parallel single-value fetch of just the freshest page's ReelModels (mirrors fetchAndAppend's fan-out). */
+    private void mergeFreshIds(List<String> ids, int tabAtStart) {
+        final int[] remaining = {ids.size()};
+        final Map<String, ReelModel> fetchedById = new HashMap<>();
+        for (String id : ids) {
+            FirebaseUtils.getReelsRef().child(id)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        if (!isFinishing() && !isDestroyed()) {
+                            try {
+                                ReelModel r = snap.getValue(ReelModel.class);
+                                if (r != null && r.reelId != null) fetchedById.put(r.reelId, r);
+                            } catch (Exception ignored) {
+                                // Same defensive skip as fetchAndAppend — one bad record
+                                // must not stall the whole refresh.
+                            }
+                        }
+                        if (--remaining[0] == 0) applyPullRefreshMerge(fetchedById, tabAtStart);
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                        if (--remaining[0] == 0) applyPullRefreshMerge(fetchedById, tabAtStart);
+                    }
+                });
+        }
+    }
+
+    private void applyPullRefreshMerge(Map<String, ReelModel> fetchedById, int tabAtStart) {
+        if (isFinishing() || isDestroyed()) { finishPullRefresh(); return; }
+        List<ReelModel> target = dataForTab(tabAtStart);
+        // Snapshot BEFORE mutating target in place — diffDataSetChanged() needs
+        // the pre-mutation shape to compute a real diff against post-mutation.
+        List<ReelModel> oldSnapshot = new ArrayList<>(target);
+        for (ReelModel fresh : fetchedById.values()) {
+            int idx = -1;
+            for (int i = 0; i < target.size(); i++) {
+                ReelModel existing = target.get(i);
+                if (existing != null && fresh.reelId.equals(existing.reelId)) { idx = i; break; }
+            }
+            if (idx >= 0) target.set(idx, fresh); // refreshed stats/caption/thumb, same slot
+            else          target.add(0, fresh);   // brand-new since last load → newest, goes on top
+        }
+        target.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
+        if (tabAtStart == activeTab && adapter != null) {
+            if (activeFilter == FILTER_ALL) {
+                // displayList == target here (same reference, re-pointed on
+                // every tab switch — see setupTabs()), so a direct diff against
+                // it is safe and gives the minimal-rebind path described above.
+                adapter.diffDataSetChanged(oldSnapshot);
+            } else {
+                // A filter chip (Oldest/Newest/Most-viewed) is active, so the
+                // adapter's displayList is a separately-sorted copy, not
+                // `target` itself — re-derive it through the normal filter
+                // path instead of diffing the wrong list.
+                applyFilter();
+            }
+            refreshEmptyState();
+            updateViewAllButton();
+        }
+        if (!target.isEmpty()) cacheGridPage(tabAtStart, target);
+        finishPullRefresh();
+    }
+
+    private void finishPullRefresh() {
+        pullRefreshInFlight = false;
+        if (swipeRefreshReels != null) swipeRefreshReels.setRefreshing(false);
     }
 
     private void finishLoading(boolean refresh, int tab) {

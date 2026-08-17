@@ -343,7 +343,8 @@
             android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:gravity="center"
-            android:layout_marginBottom="12dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="16dp"
             android:clickable="true"
             android:focusable="true"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -375,7 +376,8 @@
             android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:gravity="center"
-            android:layout_marginBottom="12dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="16dp"
             android:clickable="true"
             android:focusable="true"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -407,6 +409,7 @@
             android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:gravity="center"
+            android:layout_marginTop="4dp"
             android:layout_marginBottom="16dp"
             android:clickable="true"
             android:focusable="true"
@@ -439,6 +442,7 @@
             android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:gravity="center"
+            android:layout_marginTop="4dp"
             android:layout_marginBottom="16dp"
             app:layout_constraintTop_toBottomOf="@id/btn_save"
             app:layout_constraintStart_toStartOf="parent"
@@ -464,20 +468,22 @@
             android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:gravity="center"
-            android:layout_marginBottom="10dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="16dp"
             app:layout_constraintTop_toBottomOf="@id/btn_repost"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"/>
 
         <!-- Screenshot-style menu action: long line above, shorter line below.
-             Equal 10dp margin top + bottom so this sits centered between the
-             repost count above and the audio photo tile below it. -->
+             16dp gap to repost count above (matches the classic gap used
+             between every icon group in this rail) and 16dp gap to the
+             audio tile below it. -->
         <ImageButton
             android:id="@+id/btn_more"
             android:layout_width="42dp"
             android:layout_height="30dp"
-            android:layout_marginTop="10dp"
-            android:layout_marginBottom="10dp"
+            android:layout_marginTop="0dp"
+            android:layout_marginBottom="16dp"
             android:src="@drawable/ic_reel_more_lines"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"

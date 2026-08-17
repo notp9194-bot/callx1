@@ -3,6 +3,8 @@ package com.callx.app.feed.controllers;
 import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
 import android.content.Intent;
+import android.content.res.ColorStateList;
+import android.graphics.Color;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -266,7 +268,10 @@ public class ReelSocialController {
 
         if (isLiked) {
             isLiked = false;
-            if (btnLike != null) btnLike.setImageResource(R.drawable.ic_heart);
+            if (btnLike != null) {
+                btnLike.setImageResource(R.drawable.ic_heart);
+                btnLike.setImageTintList(ColorStateList.valueOf(Color.WHITE));
+            }
             likeRef.removeValue();
             likedByUserRef.removeValue();
             countRef.runTransaction(new Transaction.Handler() {
@@ -279,7 +284,10 @@ public class ReelSocialController {
             });
         } else {
             isLiked = true;
-            if (btnLike != null) btnLike.setImageResource(R.drawable.ic_heart_filled);
+            if (btnLike != null) {
+                btnLike.setImageResource(R.drawable.ic_heart_filled);
+                btnLike.setImageTintList(ColorStateList.valueOf(Color.parseColor("#FF416C")));
+            }
             // FIX (Instagram-level liker row): value is now a timestamp, not a
             // bare `true`. reelLikes/{reelId}/{uid} doubles as an ordering key —
             // fetchLikerAvatars() runs orderByValue().limitToLast(3) on this same
@@ -610,8 +618,12 @@ public class ReelSocialController {
             @Override public void onDataChange(@NonNull DataSnapshot s) {
                 if (!delegate.isAdded() || delegate.getContext() == null) return;
                 isLiked = s.exists();
-                if (btnLike != null) btnLike.setImageResource(
-                    isLiked ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
+                if (btnLike != null) {
+                    btnLike.setImageResource(
+                        isLiked ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
+                    btnLike.setImageTintList(ColorStateList.valueOf(
+                        isLiked ? Color.parseColor("#FF416C") : Color.WHITE));
+                }
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };

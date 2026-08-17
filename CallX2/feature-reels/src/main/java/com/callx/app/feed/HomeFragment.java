@@ -11,6 +11,8 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.ColorStateList;
+import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
@@ -2021,6 +2023,7 @@ public class HomeFragment extends Fragment {
         if (btnLike != null) {
             btnLike.setImageResource(isLiked[0]
                 ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
+            setLikeButtonTint(btnLike, isLiked[0]);
         }
 
         // ── Photo slideshow support ─────────────────────────────────────────
@@ -2107,6 +2110,7 @@ public class HomeFragment extends Fragment {
                             if (!isLiked[0]) {
                                 isLiked[0] = true;
                                 btnLike.setImageResource(R.drawable.ic_heart_filled);
+                                setLikeButtonTint(btnLike, true);
                                 FirebaseUtils.getReelLikesRef(reelId).child(myUid).setValue(System.currentTimeMillis()); // FIX: timestamp value enables orderByValue().limitToLast(3) recency query for the liker-avatar row
                                 FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId)
                                     .setValue(System.currentTimeMillis());
@@ -2160,7 +2164,10 @@ public class HomeFragment extends Fragment {
                             if (myUid == null || reelId == null) return true;
                             if (!isLiked[0]) {
                                 isLiked[0] = true;
-                                if (btnLike != null) btnLike.setImageResource(R.drawable.ic_heart_filled);
+                                if (btnLike != null) {
+                                    btnLike.setImageResource(R.drawable.ic_heart_filled);
+                                    setLikeButtonTint(btnLike, true);
+                                }
                                 FirebaseUtils.getReelLikesRef(reelId).child(myUid).setValue(System.currentTimeMillis()); // FIX: timestamp value enables orderByValue().limitToLast(3) recency query for the liker-avatar row
                                 FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId)
                                     .setValue(System.currentTimeMillis());
@@ -2219,6 +2226,7 @@ public class HomeFragment extends Fragment {
                 isLiked[0] = !isLiked[0];
                 if (isLiked[0]) {
                     btnLike.setImageResource(R.drawable.ic_heart_filled);
+                    setLikeButtonTint(btnLike, true);
                     FirebaseUtils.getReelLikesRef(reelId).child(myUid).setValue(System.currentTimeMillis()); // FIX: timestamp value enables orderByValue().limitToLast(3) recency query for the liker-avatar row
                     FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId)
                         .setValue(System.currentTimeMillis());
@@ -2230,6 +2238,7 @@ public class HomeFragment extends Fragment {
                     } catch (Exception ignored) {}
                 } else {
                     btnLike.setImageResource(R.drawable.ic_heart);
+                    setLikeButtonTint(btnLike, false);
                     FirebaseUtils.getReelLikesRef(reelId).child(myUid).removeValue();
                     FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId).removeValue();
                 }
@@ -3130,5 +3139,14 @@ public class HomeFragment extends Fragment {
     private int dpToPx(int dp) {
         if (getContext() == null) return dp * 3;
         return (int)(dp * getContext().getResources().getDisplayMetrics().density);
+    }
+
+    /** Same red used by the full-screen reel player's like button (#FF416C) —
+     *  keeps the liked-state color consistent between the home feed's inline
+     *  reel card and ReelPlayerFragment/ReelSocialController. */
+    private void setLikeButtonTint(ImageButton btnLike, boolean liked) {
+        if (btnLike == null) return;
+        btnLike.setImageTintList(ColorStateList.valueOf(
+            liked ? Color.parseColor("#FF416C") : Color.WHITE));
     }
 }
