@@ -217,6 +217,18 @@ public final class DialogFullscreenHelper {
             // We drive our own open/close transform — disable the system
             // dialog show/hide animation so it can't fight it.
             w.setWindowAnimations(0);
+            // MEDIA_VIEWER_TELEGRAM_CLOSE — Theme_Black_NoTitleBar_Fullscreen's
+            // own windowBackground paints solid opaque black at the Window
+            // level, underneath `root`. Without clearing it, MediaSwipeReply-
+            // CloseHelper's live-drag scrim fade (root's background alpha
+            // going 255→0 as the user drags) has nothing real to reveal — it
+            // just fades from black to the theme's own black. Making the
+            // Window itself transparent means the actual screen behind this
+            // dialog (already fully resumed, since a Dialog never stops its
+            // host Activity) becomes visible immediately as the drag starts,
+            // and progressively more visible as the drag continues — same
+            // live "peek behind" feel Telegram's avatar viewer has.
+            w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         }
         dialog.show();
 

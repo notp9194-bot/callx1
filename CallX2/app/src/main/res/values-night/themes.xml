@@ -40,6 +40,22 @@
         <item name="android:navigationBarColor">@color/black</item>
     </style>
 
+    <!-- MEDIA_VIEWER_TELEGRAM_CLOSE — translucent variant of Fullscreen used
+         by MediaViewerActivity so the calling screen (chat) stays composited
+         underneath instead of being stopped/covered by an opaque window.
+         MediaSwipeReplyCloseHelper already fades the content root's own
+         background alpha live as the user drags (see applyLiveDragFrame) —
+         without this translucency that fade had nothing real behind it to
+         reveal. The root view itself still paints solid black at rest (see
+         activity_media_viewer.xml), so nothing looks different until a
+         close-swipe actually starts. -->
+    <style name="Theme.CallX.Fullscreen.Translucent" parent="Theme.CallX.Fullscreen">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
+
     <style name="Theme.CallX.NoActionBar" parent="Theme.CallX" />
 
     <!-- FASTEST-OPEN FIX: dark-mode splash background — see values/themes.xml

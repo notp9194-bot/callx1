@@ -115,6 +115,12 @@ public class MediaViewerActivity extends AppCompatActivity {
         // Full-screen immersive
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        // MEDIA_VIEWER_TELEGRAM_CLOSE — belt-and-suspenders alongside the
+        // Theme.CallX.Fullscreen.Translucent manifest theme: makes sure the
+        // Window itself paints nothing behind binding.getRoot(), so the
+        // live-drag scrim fade in MediaSwipeReplyCloseHelper actually
+        // reveals the calling screen (chat) instead of an opaque backdrop.
+        getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
 
         binding = ActivityMediaViewerBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());

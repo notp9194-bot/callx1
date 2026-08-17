@@ -189,7 +189,7 @@
             android:parentActivityName=".activities.ChatActivity"/>
         <activity android:name=".activities.MediaViewerActivity"
             android:exported="false"
-            android:theme="@style/Theme.CallX.Fullscreen"/>
+            android:theme="@style/Theme.CallX.Fullscreen.Translucent"/>
         <activity android:name=".activities.VideoPlayerActivity"
             android:exported="false"
             android:theme="@style/Theme.AppCompat.NoActionBar"
