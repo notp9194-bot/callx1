@@ -44,6 +44,7 @@ import com.google.android.gms.tasks.Tasks;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.UserEntity;
+import com.callx.app.db.entity.ReelWatchHistoryCacheEntity;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -294,6 +295,11 @@ public class UserReelsActivity extends AppCompatActivity
       private static final int FILTER_OLDEST = 1; // sorted by timestamp ascending
       private static final int FILTER_NEWEST = 2; // sorted by timestamp descending
       private static final int FILTER_VIEWED = 3; // most viewed
+      // GAP FIX: no way to filter the grid by watched status at all before —
+      // reuses the same watchedReelIdsCache the "Just watched" overlay is
+      // built from (see loadWatchedReelIds()), so it's always in sync with
+      // whatever's currently showing the badge.
+      private static final int FILTER_NOT_WATCHED = 4;
       private int              activeFilter  = FILTER_ALL;
       private android.widget.HorizontalScrollView hsvFilterChips;
       private android.widget.LinearLayout         llFilterChips;
@@ -325,6 +331,16 @@ public class UserReelsActivity extends AppCompatActivity
                     savedHasMore = true, repostsHasMore = true,
                     duetHasMore = true, collabRepostHasMore = true;
     private boolean isLoadingMore = false;
+    // Adapter position of the pagination footer row, captured the instant it's
+    // shown (before any further list mutation) — see maybeLoadNextPage() /
+    // finishLoading(). Needed to remove it with a precise notifyItemRemoved
+    // instead of recomputing a position from a getItemCount() that may
+    // already reflect items appended by the fetch that's completing.
+    private int footerPositionAtShow = -1;
+    // Mirror of whatever's currently passed to adapter.setWatchedReelIds() —
+    // kept so the "Not watched" filter chip (FILTER_NOT_WATCHED) can check
+    // membership without asking the adapter for its private state.
+    private final java.util.Set<String> watchedReelIdsCache = new java.util.HashSet<>();
 
     // ── Realtime update helpers (self only) ───────────────────────────────
     /** Skip the silent grid refresh on the very first onResume (right after onCreate). */
@@ -453,6 +469,7 @@ public class UserReelsActivity extends AppCompatActivity
         loadCurrentTab(true);
         setupViewAllReelsButton();
         setupPullToRefresh();
+        loadWatchedReelIds();
         loadReelCount();
         checkActiveStory();
         loadAccountPrivacy();
@@ -607,7 +624,15 @@ public class UserReelsActivity extends AppCompatActivity
 
         adapter = new ReelGridAdapter(
               this, activeTabData(),
-            pos -> { if (isMultiSelect) toggleSelection(pos); else openPlayerAt(pos); },
+            pos -> {
+                // GAP FIX: the pagination footer spinner row (see
+                // setupPullToRefresh/maybeLoadNextPage) is a real adapter
+                // position with no reel behind it — without this guard a tap
+                // there fell through to openPlayerAt()'s clamp-to-last-item
+                // fallback and silently opened the wrong (last) reel.
+                if (adapter != null && adapter.getItemViewType(pos) == ReelGridAdapter.TYPE_FOOTER_LOADING) return;
+                if (isMultiSelect) toggleSelection(pos); else openPlayerAt(pos);
+            },
             this, this
         );
         peekController = new ReelPeekPreviewController(this);
@@ -649,7 +674,9 @@ public class UserReelsActivity extends AppCompatActivity
         gridLayoutManager = new SwipeAwareGridLayoutManager(this, 3);
         gridLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
             @Override public int getSpanSize(int position) {
-                return adapter.getItemViewType(position) == ReelGridAdapter.TYPE_PINNED ? 3 : 1;
+                int type = adapter.getItemViewType(position);
+                return (type == ReelGridAdapter.TYPE_PINNED
+                        || type == ReelGridAdapter.TYPE_FOOTER_LOADING) ? 3 : 1;
             }
         });
 
@@ -657,9 +684,10 @@ public class UserReelsActivity extends AppCompatActivity
         rvReels.setAdapter(adapter);
         rvReels.addItemDecoration(new ReelGridAdapter.WhiteGridDecoration(this));
         // KEY FIX: RecyclerView must NOT have nested scrolling disabled.
-        // It lives directly inside a plain FrameLayout (no SwipeRefreshLayout,
-        // no NestedScrollView wrapper), so it scrolls normally on its own and
-        // drives AppBarLayout's collapse natively via nested scrolling.
+        // It lives inside swipe_refresh_reels (SwipeRefreshLayout), which is
+        // itself a NestedScrollingParent — nested scroll events still pass
+        // through it to drive AppBarLayout's collapse exactly as before, so
+        // adding pull-to-refresh didn't change anything here.
         rvReels.setNestedScrollingEnabled(true);
         // ULTRA: rv_reels is match_parent width / 0dp+weight=1 height in the
         // layout — its own bounds never depend on adapter content, so
@@ -863,7 +891,18 @@ public class UserReelsActivity extends AppCompatActivity
         if (!getCurrentTabHasMore()) return;
         int total       = gridLayoutManager.getItemCount();
         int lastVisible = gridLayoutManager.findLastVisibleItemPosition();
-        if (lastVisible >= total - 6) {
+        // Instagram-level prefetch distance: fire a full row-set (spanCount * 3,
+        // i.e. ~3 rows) before the user actually hits the bottom, not right at
+        // it. By the time they've scrolled those last few rows into view the
+        // next page has almost always already landed, so the grid just keeps
+        // going with no visible pause/footer flash — that's the whole trick,
+        // not any particular network cleverness.
+        int prefetchDistance = gridLayoutManager.getSpanCount() * 3;
+        if (lastVisible >= total - prefetchDistance) {
+            if (adapter != null) {
+                adapter.setLoadingFooterVisible(true);
+                footerPositionAtShow = adapter.getItemCount() - 1;
+            }
             loadCurrentTab(false);
         }
     }
@@ -945,8 +984,8 @@ public class UserReelsActivity extends AppCompatActivity
           popup.setOutsideTouchable(true);
           popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
 
-          String[] labels = {"All", "Oldest", "Newest", "Most viewed"};
-          int[]    filters = {FILTER_ALL, FILTER_OLDEST, FILTER_NEWEST, FILTER_VIEWED};
+          String[] labels = {"All", "Oldest", "Newest", "Most viewed", "Not watched"};
+          int[]    filters = {FILTER_ALL, FILTER_OLDEST, FILTER_NEWEST, FILTER_VIEWED, FILTER_NOT_WATCHED};
 
           for (int i = 0; i < labels.length; i++) {
               final int filter = filters[i];
@@ -1007,6 +1046,12 @@ public class UserReelsActivity extends AppCompatActivity
                   filtered = new ArrayList<>(source);
                   filtered.sort((a, b2) -> b2.viewsCount - a.viewsCount);
                   break;
+              case FILTER_NOT_WATCHED:
+                  filtered = new ArrayList<>();
+                  for (ReelModel r : source) {
+                      if (r.reelId == null || !watchedReelIdsCache.contains(r.reelId)) filtered.add(r);
+                  }
+                  break;
               default:
                   filtered = source;
           }
@@ -1057,6 +1102,13 @@ public class UserReelsActivity extends AppCompatActivity
                     // THIS tab's own backing list every time the tab changes —
                     // otherwise it keeps showing whichever list it was last
                     // pointed at (e.g. Liked/Saved/Repost all showing Reels).
+                    // A pagination footer left over from the tab just switched
+                    // away from must never survive as a phantom row here — the
+                    // setDataList() call right below already fires its own
+                    // structural notify that will reflect the corrected count,
+                    // so this is a plain flag reset, no separate notify needed.
+                    if (adapter.isLoadingFooterVisible()) adapter.resetLoadingFooterState();
+                    footerPositionAtShow = -1;
                     if (!isSeries) adapter.setDataList(activeTabData());
                     if (isSeries ? seriesTabData.isEmpty() : activeTabData().isEmpty()) loadCurrentTab(true);
                     else { refreshEmptyState(); updateViewAllButton(); }
@@ -2554,6 +2606,13 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     private void showSkeleton() {
+        // Defensive: a pagination footer left set from a prior in-flight
+        // page load must never survive into skeleton mode's own item count
+        // math (getItemCount() ignores the footer flag while skeletonMode is
+        // on, but the flag would otherwise still be stale/true once skeleton
+        // mode turns back off in finishLoading()).
+        if (adapter.isLoadingFooterVisible()) adapter.resetLoadingFooterState();
+        footerPositionAtShow = -1;
         adapter.setSkeletonMode(true);
         adapter.notifyDataSetChanged();
         showEmptyLayout(false);
@@ -2879,7 +2938,16 @@ public class UserReelsActivity extends AppCompatActivity
                     adapter.notifyDataSetChanged();
                 }
             } else if (insertCount > 0) {
+                if (adapter.isLoadingFooterVisible()) {
+                    adapter.hideLoadingFooterAt(footerPositionAtShow);
+                    footerPositionAtShow = -1;
+                }
                 adapter.notifyItemRangeInserted(insertStart, insertCount);
+            } else if (adapter.isLoadingFooterVisible()) {
+                // No new rows landed (page came back empty / hasMore flipped
+                // false) — still need to take the spinner row back down.
+                adapter.hideLoadingFooterAt(footerPositionAtShow);
+                footerPositionAtShow = -1;
             }
         }
         if (progressBar  != null) progressBar.setVisibility(View.GONE);
@@ -4279,6 +4347,90 @@ public class UserReelsActivity extends AppCompatActivity
         if (tab != TAB_REELS) return; // sirf apni "reels" grid ko hi persist karo (liked/saved dusre ke data hain)
         com.callx.app.cache.ReelThumbCacheManager.savePage(getApplicationContext(), targetUid, tab, data);
         com.callx.app.cache.ReelGridPrefetchCache.put(targetUid, tab, data);
+    }
+
+    /**
+     * Instagram-style "Just watched" grid overlay (see item_saved_reel.xml's
+     * view_watched_scrim/tv_just_watched + ReelGridAdapter#setWatchedReelIds).
+     *
+     * Works on ANY profile's Reels grid (own or someone else's) — the
+     * membership check is always against the CURRENT signed-in viewer's own
+     * watch history (Firebase reelWatchHistory/{myUid}, written once per
+     * reel by ReelSocialController#recordView() whenever THIS viewer
+     * actually watches something, on any profile's grid or the main feed).
+     *
+     * Two-phase load, same "cache first, sync second" shape as the rest of
+     * this screen's Room usage:
+     *  1) Local reel_watch_history_cache (Room) — full membership set read
+     *     off the main thread, applied to the adapter the instant it lands.
+     *     No Firebase round-trip needed for the common case (nothing new
+     *     watched since last time this screen was open).
+     *  2) A SINGLE incremental Firebase read — reelWatchHistory/{myUid}
+     *     filtered to entries newer than the latest one already cached
+     *     (orderByValue().startAt(cursor)) — picks up anything watched on
+     *     another device/session since, merges it into Room, and only then
+     *     re-applies to the adapter if it actually added anything new.
+     */
+    // GAP FIX: "Just watched" is a recency indicator, not a permanent mark —
+    // matches Instagram's own behaviour (a reel watched weeks ago shouldn't
+    // still show the badge). Applied both to the local Room read and as the
+    // Firebase sync's floor, and old rows are actually deleted (not just
+    // capped by count) so the cache stays small for a heavy reels user too.
+    private static final long RECENT_WATCH_WINDOW_MS = 7L * 24 * 60 * 60 * 1000; // 7 days
+
+    private void loadWatchedReelIds() {
+        final String myUid = safeMyUid();
+        if (myUid == null) return;
+        final long windowStart = System.currentTimeMillis() - RECENT_WATCH_WINDOW_MS;
+        dbExecutor.execute(() -> {
+            AppDatabase db = AppDatabase.getInstance(getApplicationContext());
+            // Expire anything past the recency window before reading, so a
+            // stale badge never has the chance to flash even once.
+            db.reelWatchHistoryCacheDao().pruneOlderThan(windowStart);
+            List<String> cachedIds = db.reelWatchHistoryCacheDao().getRecentReelIds(windowStart);
+            Long latestCached = db.reelWatchHistoryCacheDao().getLatestWatchedAt();
+            final java.util.Set<String> watchedSet = new java.util.HashSet<>(cachedIds);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                watchedReelIdsCache.clear();
+                watchedReelIdsCache.addAll(watchedSet);
+                if (adapter != null && !watchedSet.isEmpty()) adapter.setWatchedReelIds(watchedSet);
+            });
+
+            long cursor = latestCached != null ? latestCached + 1 : 0L;
+            Query syncQuery = FirebaseUtils.getReelWatchHistoryRef(myUid).orderByValue().startAt(cursor);
+            syncQuery.addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (!snap.exists()) return;
+                    List<ReelWatchHistoryCacheEntity> fresh = new java.util.ArrayList<>();
+                    for (DataSnapshot child : snap.getChildren()) {
+                        Long ts = child.getValue(Long.class);
+                        if (child.getKey() != null) {
+                            long watchedAt = ts != null ? ts : 0L;
+                            fresh.add(new ReelWatchHistoryCacheEntity(child.getKey(), watchedAt));
+                            if (watchedAt >= windowStart) watchedSet.add(child.getKey());
+                        }
+                    }
+                    if (fresh.isEmpty()) return;
+                    dbExecutor.execute(() -> {
+                        AppDatabase db2 = AppDatabase.getInstance(getApplicationContext());
+                        db2.reelWatchHistoryCacheDao().insertAll(fresh);
+                        // Heavy-user grid users could accumulate this table
+                        // indefinitely otherwise — 2000 reelIds is far more
+                        // than any grid will ever scroll through in one
+                        // session, so trimming past that costs nothing real.
+                        db2.reelWatchHistoryCacheDao().pruneToMax(2000);
+                    });
+                    runOnUiThread(() -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        watchedReelIdsCache.clear();
+                        watchedReelIdsCache.addAll(watchedSet);
+                        if (adapter != null) adapter.setWatchedReelIds(watchedSet);
+                    });
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+        });
     }
 
     private void loadFromRoom() {

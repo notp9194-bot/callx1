@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bottom "loading more" row shown by ReelGridAdapter while infinite-scroll
+     pagination fetches the next page (see UserReelsActivity#maybeLoadNextPage
+     and ReelGridAdapter#setLoadingFooterVisible). Spans all 3 grid columns
+     (GridLayoutManager.SpanSizeLookup in UserReelsActivity). Deliberately just
+     a small spinner, no label — matches Instagram's own minimal bottom loader. -->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="56dp"
+    android:orientation="horizontal"
+    android:gravity="center">
+
+    <ProgressBar
+        android:layout_width="22dp"
+        android:layout_height="22dp"
+        android:indeterminateTint="@color/brand_primary"/>
+
+</LinearLayout>

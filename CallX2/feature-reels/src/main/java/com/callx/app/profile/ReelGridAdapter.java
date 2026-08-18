@@ -52,6 +52,9 @@ package com.callx.app.profile;
       public static final int TYPE_SKELETON = 0;
       public static final int TYPE_REEL     = 1;
       public static final int TYPE_PINNED   = 2;
+      // Instagram-style bottom spinner row shown during infinite-scroll
+      // pagination — see setLoadingFooterVisible().
+      public static final int TYPE_FOOTER_LOADING = 3;
       private static final int SKELETON_COUNT = 12;
 
       // Grid cells are ~1/3 screen width; pinned cell spans full width (3x wider).
@@ -145,6 +148,12 @@ package com.callx.app.profile;
       private final int     touchSlopPx;
 
       private ReelModel                   pinnedReel        = null;
+      // Instagram-style bottom spinner row — see setLoadingFooterVisible().
+      private boolean                     showLoadingFooter = false;
+      // reelIds the CURRENT viewer has already watched (their own
+      // reelWatchHistory, regardless of whose profile grid this is) —
+      // powers the "Just watched" overlay. See setWatchedReelIds().
+      private java.util.Set<String>       watchedReelIds    = java.util.Collections.emptySet();
       private boolean                     skeletonMode      = false;
       private boolean                     showViewsOverlay  = false;
       private boolean                     multiSelectMode   = false;
@@ -574,11 +583,72 @@ package com.callx.app.profile;
       @Override public int getItemViewType(int pos) {
           if (skeletonMode) return TYPE_SKELETON;
           if (hasPinned() && pos == 0) return TYPE_PINNED;
+          if (showLoadingFooter && pos == getItemCount() - 1) return TYPE_FOOTER_LOADING;
           return TYPE_REEL;
       }
       @Override public int getItemCount() {
           if (skeletonMode) return SKELETON_COUNT;
-          return displayList.size() + (hasPinned() ? 1 : 0);
+          return displayList.size() + (hasPinned() ? 1 : 0) + (showLoadingFooter ? 1 : 0);
+      }
+
+      /**
+       * Instagram-style bottom "loading more" row for infinite scroll:
+       * shown the instant pagination decides to fetch the next page (see
+       * UserReelsActivity#maybeLoadNextPage), hidden the instant that fetch
+       * lands — whether it added rows or found there was nothing left.
+       * A single notifyItemInserted/Removed on just the footer slot; every
+       * other bound cell is left completely untouched.
+       */
+      public void setLoadingFooterVisible(boolean show) {
+          if (show == showLoadingFooter) return;
+          if (show) {
+              showLoadingFooter = true;
+              notifyItemInserted(getItemCount() - 1);
+          } else {
+              int footerPos = getItemCount() - 1; // still true here, so this IS the footer's position
+              showLoadingFooter = false;
+              notifyItemRemoved(footerPos);
+          }
+      }
+      public boolean isLoadingFooterVisible() { return showLoadingFooter; }
+
+      /**
+       * Removes the footer at the EXACT position it occupied at show-time.
+       * Callers must pass the position captured right after
+       * setLoadingFooterVisible(true) returned, before any further list
+       * mutation — RecyclerView's own internal bookkeeping hasn't seen those
+       * mutations either yet, so this keeps the notify call in sync with
+       * what RecyclerView currently believes, instead of recomputing from a
+       * getItemCount() that may already reflect items appended since.
+       */
+      public void hideLoadingFooterAt(int position) {
+          if (!showLoadingFooter) return;
+          showLoadingFooter = false;
+          if (position >= 0) notifyItemRemoved(position);
+      }
+
+      /**
+       * Instant, no-notify reset — for when a broader structural change
+       * (tab switch → setDataList()'s own diff/notifyDataSetChanged) is
+       * about to run anyway and will already reflect the corrected item
+       * count on its own. Prevents a footer shown on the previous tab from
+       * silently surviving as a phantom row on the tab just switched to.
+       */
+      public void resetLoadingFooterState() { showLoadingFooter = false; }
+
+      /**
+       * Instagram-style "Just watched" grid overlay: pass the full set of
+       * reelIds the CURRENT viewer has already watched (see
+       * UserReelsActivity#loadWatchedReelIds() — local Room cache first for
+       * an instant first paint, then merged with a Firebase incremental
+       * sync). Called at most twice per screen open (once per source), so a
+       * plain notifyDataSetChanged() here is the right tradeoff — same as
+       * every other "whole-grid recompute" moment in this adapter (tab
+       * switch, filter change).
+       */
+      public void setWatchedReelIds(java.util.Set<String> ids) {
+          this.watchedReelIds = ids != null ? ids : java.util.Collections.emptySet();
+          notifyDataSetChanged();
       }
 
       @NonNull @Override
@@ -594,6 +664,7 @@ package com.callx.app.profile;
               LayoutInflater inf = LayoutInflater.from(context);
               if (type == TYPE_SKELETON) return new SkeletonVH(inf.inflate(R.layout.item_reel_skeleton, p, false));
               if (type == TYPE_PINNED)   return new PinnedVH(inf.inflate(R.layout.item_pinned_reel, p, false));
+              if (type == TYPE_FOOTER_LOADING) return new FooterVH(inf.inflate(R.layout.item_reel_loading_footer, p, false));
               View reelView = inf.inflate(R.layout.item_saved_reel, p, false);
               // Height fixed here, once, instead of measured+applied on every
               // onViewAttachedToWindow() — see precomputedCellHeightPx.
@@ -629,6 +700,7 @@ package com.callx.app.profile;
       private void bindViewHolderInternal(@NonNull RecyclerView.ViewHolder holder, int position) {
           if (holder instanceof SkeletonVH) { ((SkeletonVH) holder).shimmer.startShimmer(); return; }
           if (holder instanceof PinnedVH)   { bindPinned((PinnedVH) holder); return; }
+          if (holder instanceof FooterVH)   { return; } // indeterminate ProgressBar animates on its own, nothing to bind
           if (!(holder instanceof ReelVH))  return;
           ReelVH h = (ReelVH) holder;
           int idx = reelIndexFor(position);
@@ -661,6 +733,9 @@ package com.callx.app.profile;
               h.tvViewsOverlay.setText(formatCount(Math.max(r.viewsCount, 0)));
               h.tvViewsOverlay.setVisibility(View.VISIBLE);
           }
+          boolean justWatched = r.reelId != null && watchedReelIds.contains(r.reelId);
+          if (h.viewWatchedScrim != null) h.viewWatchedScrim.setVisibility(justWatched ? View.VISIBLE : View.GONE);
+          if (h.tvJustWatched != null)    h.tvJustWatched.setVisibility(justWatched ? View.VISIBLE : View.GONE);
           // Carousel indicator — Instagram-style stack icon for reels backed
           // by more than one photo/clip (r.photoUrls has 2+ entries).
           if (h.ivStackIndicator != null) {
@@ -719,6 +794,10 @@ package com.callx.app.profile;
           if (h.tvLikes    != null) h.tvLikes.setText(formatCount(pinnedReel.likesCount));
           if (h.tvComments != null) h.tvComments.setText(formatCount(pinnedReel.commentsCount));
           if (h.tvViews    != null) h.tvViews.setText(formatCount(pinnedReel.viewsCount));
+          if (h.tvJustWatched != null) {
+              boolean justWatched = pinnedReel.reelId != null && watchedReelIds.contains(pinnedReel.reelId);
+              h.tvJustWatched.setVisibility(justWatched ? View.VISIBLE : View.GONE);
+          }
           h.itemView.setOnClickListener(v -> { if (clickListener != null) clickListener.onItemClick(0); });
           wireItemInteractions(h, h.ivDoubleTapHeart);
       }
@@ -805,21 +884,23 @@ package com.callx.app.profile;
 
       static class ReelVH extends RecyclerView.ViewHolder {
           ImageView ivThumb, ivCheckmark, ivStackIndicator, ivDoubleTapHeart;
-          TextView tvDuration, tvViewsOverlay, tvCaption;
-          View viewSelectOverlay, viewDimOverlay;
+          TextView tvDuration, tvViewsOverlay, tvCaption, tvJustWatched;
+          View viewSelectOverlay, viewDimOverlay, viewWatchedScrim;
           ReelVH(@NonNull View v) {
               super(v);
               ivThumb=v.findViewById(R.id.iv_thumb); tvDuration=v.findViewById(R.id.tv_duration);
               tvViewsOverlay=v.findViewById(R.id.tv_views_overlay); tvCaption=v.findViewById(R.id.tv_caption);
               viewSelectOverlay=v.findViewById(R.id.view_select_overlay);
               viewDimOverlay=v.findViewById(R.id.view_dim_overlay);
+              viewWatchedScrim=v.findViewById(R.id.view_watched_scrim);
+              tvJustWatched=v.findViewById(R.id.tv_just_watched);
               ivCheckmark=v.findViewById(R.id.iv_checkmark);
               ivStackIndicator=v.findViewById(R.id.iv_stack_indicator);
               ivDoubleTapHeart=v.findViewById(R.id.iv_double_tap_heart);
           }
       }
       static class PinnedVH extends RecyclerView.ViewHolder {
-          ImageView ivThumb, ivStackIndicator, ivDoubleTapHeart; TextView tvDuration, tvCaption, tvLikes, tvComments, tvViews;
+          ImageView ivThumb, ivStackIndicator, ivDoubleTapHeart; TextView tvDuration, tvCaption, tvLikes, tvComments, tvViews, tvJustWatched;
           PinnedVH(@NonNull View v) {
               super(v);
               ivThumb=v.findViewById(R.id.iv_pinned_thumb); tvDuration=v.findViewById(R.id.tv_pinned_duration);
@@ -827,11 +908,15 @@ package com.callx.app.profile;
               tvComments=v.findViewById(R.id.tv_pinned_comments); tvViews=v.findViewById(R.id.tv_pinned_views);
               ivStackIndicator=v.findViewById(R.id.iv_pinned_stack_indicator);
               ivDoubleTapHeart=v.findViewById(R.id.iv_double_tap_heart);
+              tvJustWatched=v.findViewById(R.id.tv_pinned_just_watched);
           }
       }
       static class SkeletonVH extends RecyclerView.ViewHolder {
           ShimmerFrameLayout shimmer;
           SkeletonVH(@NonNull View v) { super(v); shimmer=v.findViewById(R.id.shimmer_layout); }
+      }
+      static class FooterVH extends RecyclerView.ViewHolder {
+          FooterVH(@NonNull View v) { super(v); }
       }
   }
   

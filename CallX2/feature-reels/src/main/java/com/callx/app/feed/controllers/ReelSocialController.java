@@ -562,7 +562,7 @@ public class ReelSocialController {
                     reel.uid, reel.reelId,
                     reel.thumbUrl != null ? reel.thumbUrl : reel.thumbnailUrl);
 
-                if (s.exists()) return; // viewsCount / watch-history already recorded once — skip below
+                if (s.exists()) return; // viewsCount already recorded once — skip below
                 viewRef.setValue(true);
                 FirebaseUtils.getReelsRef().child(reel.reelId).child("viewsCount")
                     .runTransaction(new Transaction.Handler() {
@@ -573,12 +573,29 @@ public class ReelSocialController {
                         }
                         @Override public void onComplete(@Nullable DatabaseError e, boolean b, @Nullable DataSnapshot sn) {}
                     });
-                FirebaseUtils.getReelWatchHistoryRef(myUid).child(reel.reelId)
-                    .setValue(System.currentTimeMillis());
-                FirebaseUtils.getReelWatchProgressRef(myUid).child(reel.reelId).setValue(0);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });
+    }
+
+    /**
+     * "Just watched" grid overlay write (reelWatchHistory/{myUid}/{reelId}).
+     *
+     * GAP FIX: deliberately split out of recordView() above, which fires the
+     * instant a reel becomes visible — fine for a view COUNT (that's exactly
+     * what a "view" means: it was seen), but wrong for "Just watched", which
+     * should mean the viewer actually watched it, not that it flashed by
+     * mid-fast-scroll. Callers (see ReelPlayerFragment#scheduleWatchHistoryMark)
+     * only invoke this after a duration-aware dwell timer, cancelled if the
+     * viewer swipes away first.
+     */
+    public void markReelWatchedForHistory() {
+        String myUid = delegate.safeMyUid();
+        ReelModel reel = delegate.getReel();
+        if (myUid == null || reel == null || reel.reelId == null) return;
+        FirebaseUtils.getReelWatchHistoryRef(myUid).child(reel.reelId)
+            .setValue(System.currentTimeMillis());
+        FirebaseUtils.getReelWatchProgressRef(myUid).child(reel.reelId).setValue(0);
     }
 
     // ── Mark notifications read ───────────────────────────────────────────

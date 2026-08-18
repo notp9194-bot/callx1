@@ -56,9 +56,12 @@ import com.callx.app.db.entity.*;
         SavedMessageEntity.class,
         PaymentTransactionEntity.class,
         PaymentAccountEntity.class,
-        PaymentPinEntity.class
+        PaymentPinEntity.class,
+        // Local cache of the viewer's own reel-watch history (v49) —
+        // powers the "Just watched" profile-grid overlay.
+        ReelWatchHistoryCacheEntity.class
     },
-    version = 48,
+    version = 49,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -98,6 +101,7 @@ public abstract class AppDatabase extends RoomDatabase {
     public abstract PaymentTransactionDao      paymentTransactionDao();
     public abstract PaymentAccountDao          paymentAccountDao();
     public abstract PaymentPinDao              paymentPinDao();
+    public abstract ReelWatchHistoryCacheDao   reelWatchHistoryCacheDao();
 
     // ─── Migrations ───────────────────────────────────────────────────────────
 
@@ -619,6 +623,21 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** v49: "Just watched" reels-grid overlay — local cache table mirroring
+     *  each entry the viewer already has in Firebase's reelWatchHistory/{myUid}
+     *  (written by ReelSocialController#recordView()), so any profile's Reels
+     *  grid can answer "did I already watch this one?" from disk instantly
+     *  instead of a Firebase round-trip on every grid open. */
+    static final Migration MIGRATION_48_49 = new Migration(48, 49) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS reel_watch_history_cache (" +
+                    "reelId TEXT NOT NULL PRIMARY KEY, watchedAt INTEGER NOT NULL DEFAULT 0)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_reel_watch_history_cache_watchedAt " +
+                    "ON reel_watch_history_cache (watchedAt)");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -660,7 +679,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_40_41, MIGRATION_41_42,
                                     MIGRATION_42_43, MIGRATION_43_44,
                                     MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47,
-                                    MIGRATION_47_48)
+                                    MIGRATION_47_48, MIGRATION_48_49)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

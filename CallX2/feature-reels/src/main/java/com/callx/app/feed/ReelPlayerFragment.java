@@ -317,6 +317,7 @@ public class ReelPlayerFragment extends Fragment
                 && !photoController.isPhotoMode(); // photo reels have nothing to keep "playing"
         if (!keepPlayingInBackground) {
             playerController.pausePlayback();
+            mainHandler.removeCallbacks(watchHistoryRunnable);
         }
         super.onPause();
     }
@@ -327,6 +328,7 @@ public class ReelPlayerFragment extends Fragment
         // offscreenPageLimit recycling) while it still thought it was the
         // visible one, don't leave the outer tab pager's swipe stuck off.
         if (isVisible) com.callx.app.utils.ReelTabSwipeLock.unlock();
+        mainHandler.removeCallbacks(watchHistoryRunnable);
         playerController.stopProgressTracking();
         playerController.releasePlayer();
         socialController.removeFirebaseListeners();
@@ -436,6 +438,7 @@ public class ReelPlayerFragment extends Fragment
             socialController.startFirebaseListeners();
             socialController.recordView();
             socialController.markReelNotificationsRead();
+            scheduleWatchHistoryMark();
             // v5: Notify predictive preloader in parent ReelsFragment
             if (reel != null && getParentFragment() instanceof ReelsFragment) {
                 ((ReelsFragment) getParentFragment()).notifyReelWatched(
@@ -451,7 +454,34 @@ public class ReelPlayerFragment extends Fragment
             // reel ke listeners ghante bhar chal sakte the. Ab swipe karte hi
             // listeners stop → Firebase connections & CPU dono free.
             socialController.removeFirebaseListeners();
+            mainHandler.removeCallbacks(watchHistoryRunnable);
         }
+    }
+
+    // ── "Just watched" grid overlay (profile Reels tab) ────────────────────
+    //
+    // GAP FIX: this used to fire the instant the reel became visible — same
+    // moment as the viewCount increment — so a reel that merely flashed by
+    // during a fast scroll got marked "watched" just like one actually
+    // watched start-to-finish. Instagram's own "Just watched" only appears
+    // after a meaningful watch, so this is now gated behind an actual dwell
+    // timer instead of view registration:
+    //   - Scheduled only while the reel is the one currently visible.
+    //   - Cancelled immediately if the user swipes away before it fires —
+    //     see the `else` branch above.
+    //   - Threshold is duration-aware: capped at 3s for normal-length
+    //     reels, but never more than half the reel's own length, so a 2s
+    //     reel doesn't need an impossible 3s dwell to count as watched.
+    private static final long WATCH_HISTORY_MAX_THRESHOLD_MS = 3000L;
+    private final Runnable watchHistoryRunnable = () -> socialController.markReelWatchedForHistory();
+
+    private void scheduleWatchHistoryMark() {
+        mainHandler.removeCallbacks(watchHistoryRunnable);
+        long threshold = WATCH_HISTORY_MAX_THRESHOLD_MS;
+        if (reel != null && reel.duration > 0) {
+            threshold = Math.min(WATCH_HISTORY_MAX_THRESHOLD_MS, reel.duration / 2L);
+        }
+        mainHandler.postDelayed(watchHistoryRunnable, Math.max(500L, threshold));
     }
 
     // ── ReelMoreBottomSheet.OnItemClickListener ───────────────────────────

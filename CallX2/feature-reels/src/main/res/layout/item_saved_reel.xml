@@ -45,6 +45,22 @@
       <View android:id="@+id/view_dim_overlay"
           android:layout_width="match_parent" android:layout_height="match_parent"
           android:background="#44000000" android:visibility="gone"/>
+      <!-- Instagram-style "Just watched" indicator: shown when the CURRENT
+           viewer has this reelId in their own watch history (regardless of
+           whose profile is open) — see ReelGridAdapter#setWatchedReelIds()
+           and UserReelsActivity#loadWatchedReelIds(). Scrim dims the thumb
+           slightly so the white label stays readable over any image. -->
+      <View android:id="@+id/view_watched_scrim"
+          android:layout_width="match_parent" android:layout_height="match_parent"
+          android:background="#4D000000" android:visibility="gone"/>
+      <TextView android:id="@+id/tv_just_watched"
+          android:layout_width="wrap_content" android:layout_height="wrap_content"
+          android:layout_gravity="center"
+          android:text="Just watched"
+          android:textColor="#FFFFFF" android:textSize="12sp"
+          android:fontFamily="sans-serif-medium"
+          android:shadowColor="#CC000000" android:shadowDx="0" android:shadowDy="1" android:shadowRadius="3"
+          android:visibility="gone"/>
       <View android:id="@+id/view_select_overlay"
           android:layout_width="match_parent" android:layout_height="match_parent"
           android:background="#556C5CE7" android:visibility="gone"/>

@@ -26,12 +26,17 @@
         android:layout_gravity="bottom"
         android:background="@drawable/gradient_reel_bottom"/>
 
-    <!-- TOP-LEFT: Pinned badge -->
+    <!-- TOP-LEFT: Pinned badge + (optional) Just-watched badge, stacked -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|start"
         android:layout_margin="12dp"
+        android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:background="@drawable/bg_reel_count"
@@ -55,6 +60,28 @@
             android:textColor="#FFFFFF"
             android:textSize="11sp"
             android:fontFamily="sans-serif-medium"/>
+    </LinearLayout>
+
+        <!-- GAP FIX: pinned reel previously had no "Just watched" indicator
+             at all — see ReelGridAdapter#bindPinned(). Same membership check
+             as the grid cells (current viewer's own watch history), just a
+             compact badge here instead of a full scrim since this card
+             already shows caption/stats. -->
+        <TextView
+            android:id="@+id/tv_pinned_just_watched"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="Just watched"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
+            android:fontFamily="sans-serif-medium"
+            android:background="@drawable/bg_reel_count"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:visibility="gone"/>
     </LinearLayout>
 
     <!-- TOP-RIGHT: Duration badge + carousel stack indicator -->
