@@ -120,7 +120,7 @@ import com.callx.app.utils.ChatThemeManager;
  *     OnBubbleClickListener.onSwipeToReply(), same trigger point as a
  *     long-press → "Reply" menu action, just via a gesture instead.
  *   • a reel-share card (bindReelShare) — mirrors layout_msg_reel_share.xml
- *     exactly: a bubbleless 165×348dp (9:19) Instagram-style card (no chat-bubble
+ *     exactly: a bubbleless 165×293dp (9:16) Instagram-style card (no chat-bubble
  *     background at all — the only mode this view has that skips
  *     bubbleDrawable entirely), with an avatar+username header over a top
  *     gradient, a centered play glyph, a caption + "⬡ Reels" label over a
@@ -456,7 +456,7 @@ public class MessageBubbleCanvasView extends View {
     static final int MEDIA_GATE_SCRIM_COLOR = 0x2E000000;
 
     // ── Reel-share card — mirrors layout_msg_reel_share.xml exactly: a
-    // bubbleless 165×348dp (9:19) Instagram-style reel card (NOT the normal chat
+    // bubbleless 165×293dp (9:16) Instagram-style reel card (NOT the normal chat
     // bubble shape — no bubbleDrawable is drawn for this mode at all, just
     // the card itself), with a header (avatar+username) over a top
     // gradient, a centered play glyph, and a caption + "⬡ Reels" label
@@ -468,12 +468,16 @@ public class MessageBubbleCanvasView extends View {
     // the caption is a separate overlay inside the bottom gradient. ──
     // Card size: width stays the previous 165dp (same thumbnail-crop width
     // as before, keeps the header/pill paddings below untouched), height is
-    // now derived from a 9:19 aspect ratio instead of the old fixed 237dp —
-    // i.e. a taller, more "full vertical video" card. 165 * 19/9 ≈ 348.3dp.
+    // derived from an exact 9:16 aspect ratio (was 9:19, which read as too
+    // tall/elongated). 165 * 16/9 ≈ 293.3dp.
     static final float REEL_CARD_ASPECT_W        = 9f;
-    static final float REEL_CARD_ASPECT_H        = 19f;
-    static final float REEL_CARD_WIDTH_DP        = 165f;
-    static final float REEL_CARD_HEIGHT_DP       = REEL_CARD_WIDTH_DP * (REEL_CARD_ASPECT_H / REEL_CARD_ASPECT_W);
+    static final float REEL_CARD_ASPECT_H        = 16f;
+    // public: ReelSharePeekBridge (com.callx.app.conversation, a different
+    // package from this class's .canvas package) reads these directly so
+    // the chat's auto-peek mini player is always pixel-identical in size to
+    // this card — see ReelSharePeekBridge's CARD_WIDTH_DP/CARD_HEIGHT_DP.
+    public static final float REEL_CARD_WIDTH_DP  = 165f;
+    public static final float REEL_CARD_HEIGHT_DP = REEL_CARD_WIDTH_DP * (REEL_CARD_ASPECT_H / REEL_CARD_ASPECT_W);
     // MODERNIZE: was 12f — fairly tight/subtle rounding that read as dated
     // next to the app's other cards (link-preview, seen-bubble thumb, media
     // bubbles all sit closer to 16-20dp). Bumped to 20dp for a softer,
@@ -2792,7 +2796,7 @@ public class MessageBubbleCanvasView extends View {
     /** Swap in a decoded per-cell thumbnail once its Glide load finishes — no re-measure needed. */
     /**
      * Bind this view to a "reel_share"/"reel_link" message — mirrors
-     * layout_msg_reel_share.xml exactly: a bubbleless 165×348dp (9:19) card (no
+     * layout_msg_reel_share.xml exactly: a bubbleless 165×293dp (9:16) card (no
      * chat-bubble background at all, unlike every other mode this view
      * supports), with a header (avatar+username) over a top gradient, a
      * centered play glyph, and a caption + "⬡ Reels" label over a bottom

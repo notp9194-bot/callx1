@@ -9,9 +9,9 @@ and the auto "peek" mini video player opens:
    default 331×475dp card).
 2. It now opens **anchored directly above the reel-share bubble**, instead
    of dead-center of the screen.
-3. The blurred chat-screen backdrop behind the card is now **skipped** — the
-   chat screen stays clear/unblurred behind the mini player (just the normal
-   scrim dim, same as before).
+3. The blurred chat-screen backdrop **and** the dim scrim behind the card
+   are now both **skipped** — the chat screen stays fully clear behind the
+   mini player, not blurred and not darkened.
 
 Every other place the same peek popup is used — UserReelsActivity's reel
 grid (long-press) and SoundDetailFragment's mini player — is untouched:
@@ -27,6 +27,24 @@ through reflection instead. That bridge is the *only* caller that now passes
 the new size/position overrides — every other caller (in `feature-reels`
 itself) keeps calling the plain, unmodified `show()` overloads.
 
+## Fix (this pass) — the card wasn't actually anchoring above the bubble
+
+The first version of this waited for a `ViewTreeObserver` layout callback,
+then nudged the (already dead-center) card via `translationX`/`translationY`
+deltas. In practice that callback could fire after the position had already
+settled with no further layout pass to catch, so the card silently stayed
+at its original centered spot — visually indistinguishable from "not
+working".
+
+Replaced with a deterministic approach: `applyChatAnchorPosition()` computes
+the card's exact on-screen top/left from values that are already known
+up-front — `sourceRect` (the bubble's on-screen rect) plus the card
+width/video height in px (the same override values used for the 40%-smaller
+sizing) — and writes them straight into `peekContent`'s
+`FrameLayout.LayoutParams` (`gravity = Gravity.NO_GRAVITY`,
+explicit `leftMargin`/`topMargin`) before the popup is ever measured or
+laid out. No layout-pass race, no drift from repeated translation nudges.
+
 ## Files touched
 
 - `feature-reels/.../ReelPeekPreviewController.java`
@@ -34,14 +52,14 @@ itself) keeps calling the plain, unmodified `show()` overloads.
     boolean anchorAboveSource)` overload. `anchorAboveSource` defaults to
     `false` on every existing overload, so no other caller's behavior
     changes.
-  - When `anchorAboveSource` is true, the popup's content view (normally
-    laid out dead-center via the shared XML's `layout_gravity="center"`) is
-    nudged up above `sourceRect` (the long-pressed/dwelled source view's
-    on-screen rect, already captured for the existing dock-close animation)
-    via `translationX`/`translationY`, computed once the card's real
-    (possibly size-overridden) dimensions are known after its first layout
-    pass. Horizontally centered on the source, clamped to stay fully
-    on-screen near the top/edges of the visible chat list.
+  - When `anchorAboveSource` is true, `applyChatAnchorPosition()` replaces
+    the popup content view's shared centered `FrameLayout.LayoutParams`
+    (normally `layout_gravity="center"` from the XML) with an explicit
+    top/left position directly above `sourceRect` (the dwelled-on bubble's
+    on-screen rect, already captured for the existing dock-close
+    animation), horizontally centered on it — computed up-front from known
+    values, applied before layout, clamped to stay fully on-screen near the
+    top/edges of the visible chat list.
   - The pre-existing per-call size override mechanism
     (`overrideCardWidthPx`/`overrideVideoHeightPx`, already used by the Home
     feed's suggested-reels long-press) is reused as-is — no changes there.
@@ -51,10 +69,12 @@ itself) keeps calling the plain, unmodified `show()` overloads.
   - `captureAndBlurBackdrop(blurBg, popupWindow)` — the call that screenshots
     and blurs whatever's behind the popup into `iv_peek_blur_bg` — is now
     skipped when `anchorAboveSourceForThisShow` is true. `iv_peek_blur_bg`
-    simply stays at its XML-default `alpha="0"` and is never populated, so
-    the chat screen behind the card stays fully clear/unblurred. The
-    `SCRIM_MAX_ALPHA` (0.55) dim view on top is untouched — that's the
-    normal peek darkening, not the blur, and still applies.
+    simply stays at its XML-default `alpha="0"` and is never populated.
+  - The `SCRIM_MAX_ALPHA` (0.55) dim-fade-in on `view_peek_scrim` is now
+    also skipped for the same flag — it stays at its XML-default
+    `alpha="0"` too, so the chat screen behind the card renders fully
+    clear (no blur, no dim). It's still there and still tap-to-dismiss,
+    just invisible.
 
 - `feature-chat/.../ReelSharePeekBridge.java`
   - Computes `cardWidthPx`/`videoHeightPx` as 60% of the shared 331/475dp
@@ -74,5 +94,3 @@ itself) keeps calling the plain, unmodified `show()` overloads.
 - SoundDetailFragment's mini player — same, untouched.
 - The 3s auto-trigger timing itself (`MessageBubbleCanvasView.
   scheduleReelPeekPreview()` — unchanged).
-- The scrim dim (`SCRIM_MAX_ALPHA` = 0.55 black overlay) — still applies on
-  chat too; only the blurred-screenshot layer underneath it was removed.

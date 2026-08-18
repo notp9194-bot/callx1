@@ -40,18 +40,23 @@ final class ReelSharePeekBridge {
             "com.callx.app.profile.ReelPeekPreviewController";
 
     // ── Chat-only size/position tweak ────────────────────────────────────
-    // The shared popup_reel_peek.xml default card is 331x475dp (used as-is
-    // by UserReelsActivity's grid and SoundDetailFragment). For the chat
-    // screen's auto-peek (3s dwell on a reel-share bubble) the card is 40%
-    // smaller — i.e. scaled to 60% of that default — and, instead of the
-    // shared centered position, is anchored directly above the reel-share
-    // bubble via the controller's anchorAboveSource flag. Both are passed
-    // through the 7-arg show() overload below; every other screen keeps
-    // calling (or falling back to) the plain 4-arg show(), so this only
-    // ever affects the chat screen.
-    private static final float SIZE_SCALE = 0.6f; // 1f - 0.4f (40% smaller)
-    private static final int   DEFAULT_CARD_WIDTH_DP  = 331;
-    private static final int   DEFAULT_VIDEO_HEIGHT_DP = 475;
+    // The shared popup_reel_peek.xml default card (331x475dp, used as-is by
+    // UserReelsActivity's grid and SoundDetailFragment) is NOT used as the
+    // base here anymore. For the chat screen's auto-peek (3s dwell on a
+    // reel-share bubble) the mini player is sized to exactly match the
+    // reel-share card itself — same width/height, same 9:16 aspect — by
+    // reusing MessageBubbleCanvasView's own card-size constants directly,
+    // instead of independently scaling the shared popup default. This
+    // guarantees the two stay pixel-identical even if the card size ever
+    // changes again. The popup is, instead of the shared centered position,
+    // anchored directly above the reel-share bubble via the controller's
+    // anchorAboveSource flag. Both are passed through the 7-arg show()
+    // overload below; every other screen keeps calling (or falling back to)
+    // the plain 4-arg show(), so this only ever affects the chat screen.
+    private static final float CARD_WIDTH_DP  =
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView.REEL_CARD_WIDTH_DP;
+    private static final float CARD_HEIGHT_DP =
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView.REEL_CARD_HEIGHT_DP;
 
     private static final Map<Activity, Object> CONTROLLERS =
             Collections.synchronizedMap(new WeakHashMap<>());
@@ -118,15 +123,16 @@ final class ReelSharePeekBridge {
                         return null;
                     });
 
-            // 40%-smaller card, anchored above the reel-share bubble instead
-            // of screen-center — see SIZE_SCALE doc above. Falls back to the
-            // plain centered/default-size 4-arg show() if the 7-arg overload
-            // isn't present (e.g. an older feature-reels build on the
-            // classpath), so the peek still works either way.
+            // Card sized to exactly match the reel-share bubble (see
+            // CARD_WIDTH_DP/CARD_HEIGHT_DP doc above), anchored above it
+            // instead of screen-center. Falls back to the plain
+            // centered/default-size 4-arg show() if the 7-arg overload isn't
+            // present (e.g. an older feature-reels build on the classpath),
+            // so the peek still works either way.
             try {
                 float density = sourceView.getContext().getResources().getDisplayMetrics().density;
-                int cardWidthPx  = Math.round(DEFAULT_CARD_WIDTH_DP  * SIZE_SCALE * density);
-                int videoHeightPx = Math.round(DEFAULT_VIDEO_HEIGHT_DP * SIZE_SCALE * density);
+                int cardWidthPx  = Math.round(CARD_WIDTH_DP  * density);
+                int videoHeightPx = Math.round(CARD_HEIGHT_DP * density);
 
                 Method show7 = controllerType.getMethod(
                         "show", ReelModel.class, List.class, callbackType, View.class,

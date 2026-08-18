@@ -13,8 +13,8 @@ import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewTreeObserver;
 import android.view.animation.DecelerateInterpolator;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
@@ -379,18 +379,27 @@ public class ReelPeekPreviewController {
             peekContent.setTranslationY(0f);
             if (anchorAboveSourceForThisShow && sourceRect != null) {
                 // Chat-only path (see anchorAboveSourceForThisShow doc):
-                // wait one layout pass so the (possibly size-overridden)
-                // card's real width/height is known, nudge it above
-                // sourceRect, THEN reveal — otherwise the un-positioned
-                // centered card would flash for a frame first.
-                positionAboveSourceViewThenReveal(peekContent);
-            } else {
-                startPeekRevealAnimation(peekContent);
+                // position is computed and applied via explicit
+                // LayoutParams BEFORE this view is ever measured/laid out
+                // (using the already-known, possibly size-overridden,
+                // card width/video height in px) — no need to wait on a
+                // layout pass or nudge via translation afterward.
+                applyChatAnchorPosition(peekContent);
             }
+            startPeekRevealAnimation(peekContent);
         }
         // Only dims to SCRIM_MAX_ALPHA (not fully opaque) so the blurred
         // backdrop underneath stays visible, iOS/Instagram peek-style.
-        if (scrim != null) scrim.animate().alpha(SCRIM_MAX_ALPHA).setDuration(180).start();
+        //
+        // Chat-only: anchorAboveSourceForThisShow skips this dim entirely
+        // too (not just the blur, see captureAndBlurBackdrop skip above) —
+        // scrim stays at its XML-default alpha="0" so the chat screen
+        // behind the mini player renders fully clear, not just unblurred.
+        // It's still there and still tap-to-dismiss (see the click
+        // listener set on it above), just invisible.
+        if (scrim != null && !anchorAboveSourceForThisShow) {
+            scrim.animate().alpha(SCRIM_MAX_ALPHA).setDuration(180).start();
+        }
 
         startPlayerForCurrentReel(reel, playerView, loading, muteBadge, ivMuteIcon, false);
     }
@@ -416,11 +425,11 @@ public class ReelPeekPreviewController {
         if (cardOptions != null) cardOptions.setVisibility(View.GONE);
 
         // Fast-switch while anchored (chat: a second reel-share bubble
-        // dwelled to 3s while the first peek was still open) — the card is
-        // already laid out/visible, so just re-apply the offset for the new
-        // sourceRect immediately instead of waiting on a layout listener.
+        // dwelled to 3s while the first peek was still open) — recompute
+        // fresh (not additive) explicit LayoutParams for the new
+        // sourceRect immediately.
         if (anchorAboveSourceForThisShow && sourceRect != null && peekContentView != null) {
-            applyAboveSourceOffset(peekContentView);
+            applyChatAnchorPosition(peekContentView);
         }
 
         startPlayerForCurrentReel(reel, playerView, loading, muteBadge, ivMuteIcon, true);
@@ -438,56 +447,56 @@ public class ReelPeekPreviewController {
     }
 
     /**
-     * Chat-only: defers the reveal animation until peekContent's first
-     * layout pass completes (so its real, possibly size-overridden,
-     * width/height are known), nudges it from the shared centered spot up
-     * to directly above sourceRect via applyAboveSourceOffset(), then plays
-     * the normal reveal animation from that new position.
+     * Chat-only: replaces peekContent's shared centered
+     * FrameLayout.LayoutParams (layout_gravity="center" from the XML) with
+     * an explicit top/left position — directly above sourceRect,
+     * horizontally centered on it — computed entirely from already-known
+     * values (sourceRect + the card width/video height in px, either the
+     * chat override or the XML default) so it's correct on the very first
+     * frame, with no layout-pass race and no drift from repeated
+     * additive nudges.
+     *
+     * Height is the sum of: card_peek (== the video frame height, since
+     * neither has any content padding in the XML) + the 8dp margin above
+     * card_peek_actions + card_peek_actions' own height. ReelSharePeekBridge
+     * (the only caller that sets anchorAboveSource) always passes null
+     * options, so card_peek_actions only ever shows the "Watch Reel" row
+     * (46dp) plus its hairline divider (0.6dp) — the "Options" row and
+     * card_peek_options stay View.GONE and contribute 0dp, exactly as
+     * bindStaticContent() leaves them for a null/empty options list.
      */
-    private void positionAboveSourceViewThenReveal(View peekContent) {
-        peekContent.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
-            @Override
-            public void onGlobalLayout() {
-                View vto = peekContent;
-                if (vto.getViewTreeObserver().isAlive()) {
-                    vto.getViewTreeObserver().removeOnGlobalLayoutListener(this);
-                }
-                applyAboveSourceOffset(peekContent);
-                startPeekRevealAnimation(peekContent);
-            }
-        });
-    }
-
-    /**
-     * Shifts peekContent (currently laid out centered by the shared XML)
-     * up above sourceRect via translationX/Y, horizontally centered on
-     * sourceRect, clamped so the card always stays fully on-screen even if
-     * the reel-share bubble is near the very top/edge of the visible chat
-     * list.
-     */
-    private void applyAboveSourceOffset(View peekContent) {
-        if (peekContent == null || sourceRect == null) return;
-        int width = peekContent.getWidth(), height = peekContent.getHeight();
-        if (width == 0 || height == 0) return;
-
-        int[] loc = new int[2];
-        peekContent.getLocationOnScreen(loc);
-        int curLeft = loc[0], curTop = loc[1];
+    private void applyChatAnchorPosition(View peekContent) {
+        if (peekContent == null || sourceRect == null || activity == null) return;
+        ViewGroup.LayoutParams rawLp = peekContent.getLayoutParams();
+        if (!(rawLp instanceof FrameLayout.LayoutParams)) return;
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) rawLp;
 
         float density = activity.getResources().getDisplayMetrics().density;
-        int gapPx = Math.round(12 * density);
-        int edgePaddingPx = Math.round(12 * density);
+        int cardWidthPx = overrideCardWidthPx != null ? overrideCardWidthPx
+                : Math.round(331 * density);
+        int videoHeightPx = overrideVideoHeightPx != null ? overrideVideoHeightPx
+                : Math.round(475 * density);
+        int actionsCardHeightPx = Math.round(46.6f * density); // btnPlay row + hairline divider
+        int marginBetweenCardsPx = Math.round(8 * density);
+        int totalHeightPx = videoHeightPx + marginBetweenCardsPx + actionsCardHeightPx;
+
+        int gapPx = Math.round(12 * density);          // gap between card bottom and source top
+        int edgePaddingPx = Math.round(12 * density);   // never render flush against a screen edge
         int screenWidth = activity.getResources().getDisplayMetrics().widthPixels;
 
-        int desiredTop = sourceRect.top - gapPx - height;
+        int desiredTop = sourceRect.top - gapPx - totalHeightPx;
         if (desiredTop < edgePaddingPx) desiredTop = edgePaddingPx; // never off the top edge
 
-        int desiredLeft = sourceRect.centerX() - width / 2;
+        int desiredLeft = sourceRect.centerX() - cardWidthPx / 2;
         if (desiredLeft < edgePaddingPx) desiredLeft = edgePaddingPx;
-        if (desiredLeft + width > screenWidth - edgePaddingPx) desiredLeft = screenWidth - edgePaddingPx - width;
+        if (desiredLeft + cardWidthPx > screenWidth - edgePaddingPx) {
+            desiredLeft = screenWidth - edgePaddingPx - cardWidthPx;
+        }
 
-        peekContent.setTranslationX(peekContent.getTranslationX() + (desiredLeft - curLeft));
-        peekContent.setTranslationY(peekContent.getTranslationY() + (desiredTop - curTop));
+        lp.gravity = Gravity.NO_GRAVITY;
+        lp.leftMargin = desiredLeft;
+        lp.topMargin = desiredTop;
+        peekContent.setLayoutParams(lp);
     }
 
     /** Text/counts/options card — shared between the first build and every fast switch. */

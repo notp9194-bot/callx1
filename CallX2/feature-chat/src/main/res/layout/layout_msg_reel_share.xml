@@ -3,7 +3,7 @@
     layout_msg_reel_share.xml — Compact bubbleless reel card (Instagram/WhatsApp style).
 
     • No bubble background — ll_bubble bg is set to null at runtime for reel_share type.
-    • 165dp wide × 348dp tall — 9:19 aspect ratio (matches MessageBubbleCanvasView's
+    • 165dp wide × 293dp tall — 9:16 aspect ratio (matches MessageBubbleCanvasView's
       REEL_CARD_WIDTH_DP/REEL_CARD_HEIGHT_DP for the canvas-rendered path — this XML
       is only used as the non-canvas-eligible fallback, kept in sync so both paths
       render the same card size).
@@ -22,7 +22,7 @@
 
     <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="348dp">
+        android:layout_height="293dp">
 
         <!-- Thumbnail -->
         <ImageView
