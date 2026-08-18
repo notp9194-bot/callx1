@@ -1700,14 +1700,14 @@ public class HomeFragment extends Fragment {
             chip.setOrientation(LinearLayout.VERTICAL);
             chip.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
             LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(
-                    dpToPx(78), LinearLayout.LayoutParams.WRAP_CONTENT);
-            chipLp.setMarginEnd(dpToPx(10));
+                    dpToPx(136), LinearLayout.LayoutParams.WRAP_CONTENT);
+            chipLp.setMarginEnd(dpToPx(12));
             chip.setLayoutParams(chipLp);
-            chip.setPadding(dpToPx(4), dpToPx(8), dpToPx(4), dpToPx(8));
+            chip.setPadding(dpToPx(6), dpToPx(10), dpToPx(6), dpToPx(10));
             chip.setBackgroundResource(R.drawable.bg_speed_chip);
 
             CircleImageView av = new CircleImageView(requireContext());
-            av.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(52), dpToPx(52)));
+            av.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(90), dpToPx(90)));
             av.setImageResource(R.drawable.ic_person);
             if (photo != null && !photo.isEmpty()) {
                 Glide.with(requireContext()).load(photo)
@@ -1718,14 +1718,14 @@ public class HomeFragment extends Fragment {
 
             TextView tvName = new TextView(requireContext());
             tvName.setText(name);
-            tvName.setTextSize(11f);
+            tvName.setTextSize(13f);
             tvName.setTextColor(0xFFFFFFFF);
             tvName.setMaxLines(1);
             tvName.setEllipsize(android.text.TextUtils.TruncateAt.END);
             tvName.setGravity(android.view.Gravity.CENTER);
             LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            nameLp.topMargin = dpToPx(4);
+            nameLp.topMargin = dpToPx(6);
             tvName.setLayoutParams(nameLp);
             chip.addView(tvName);
 
@@ -1847,8 +1847,8 @@ public class HomeFragment extends Fragment {
         row.setOrientation(LinearLayout.HORIZONTAL);
         scroller.addView(row);
 
-        int cardW = dpToPx(112);
-        int cardH = dpToPx(198); // ~9:16 thumbnail card, matches IG's suggested-reels tile
+        int cardW = dpToPx(160);
+        int cardH = dpToPx(284); // ~9:16 thumbnail card, bigger tile so only ~2 tiles + a peek of the 3rd fit per screen (matches reference screenshot)
 
         for (int idx = 0; idx < candidates.size(); idx++) {
             ReelModel r = candidates.get(idx);
@@ -1856,7 +1856,7 @@ public class HomeFragment extends Fragment {
 
             FrameLayout tile = new FrameLayout(requireContext());
             LinearLayout.LayoutParams tileLp = new LinearLayout.LayoutParams(cardW, cardH);
-            tileLp.setMarginEnd(dpToPx(6));
+            tileLp.setMarginEnd(dpToPx(8));
             tile.setLayoutParams(tileLp);
             tile.setBackgroundResource(R.drawable.bg_speed_chip);
             tile.setClipToOutline(true);
@@ -1878,12 +1878,12 @@ public class HomeFragment extends Fragment {
             TextView tvViews = new TextView(requireContext());
             tvViews.setText("▶ " + formatCount(r.viewsCount));
             tvViews.setTextColor(0xFFFFFFFF);
-            tvViews.setTextSize(11f);
+            tvViews.setTextSize(12f);
             tvViews.setShadowLayer(4f, 0f, 0f, 0xCC000000);
             FrameLayout.LayoutParams viewsLp = new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
             viewsLp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.START;
-            viewsLp.setMargins(dpToPx(6), 0, 0, dpToPx(6));
+            viewsLp.setMargins(dpToPx(8), 0, 0, dpToPx(8));
             tvViews.setLayoutParams(viewsLp);
             tile.addView(tvViews);
 

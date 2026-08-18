@@ -4,7 +4,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0D0D0D">
+    android:background="@color/background_light">
 
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/swipe_refresh_home"
@@ -39,7 +39,7 @@
                         android:layout_width="42dp"
                         android:layout_height="42dp"
                         android:src="@drawable/ic_add_reels"
-                        android:tint="#FFFFFF"
+                        android:tint="@color/text_primary"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="New Post"/>
 
@@ -50,8 +50,8 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="CallX  ▾"
-                        android:textColor="#FFFFFF"
-                        android:textSize="22sp"
+                        android:textColor="@color/text_primary"
+                        android:textSize="28sp"
                         android:fontFamily="cursive"
                         android:gravity="center"
                         android:clickable="true"
@@ -64,7 +64,7 @@
                         android:layout_width="42dp"
                         android:layout_height="42dp"
                         android:src="@drawable/ic_heart"
-                        android:tint="#FFFFFF"
+                        android:tint="@color/text_primary"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="Notifications"/>
                 </LinearLayout>
@@ -94,36 +94,36 @@
                             <!-- Add Story (My story) — always first -->
                             <LinearLayout
                                 android:id="@+id/btn_add_story"
-                                android:layout_width="72dp"
+                                android:layout_width="96dp"
                                 android:layout_height="wrap_content"
                                 android:orientation="vertical"
                                 android:gravity="center"
-                                android:padding="4dp"
+                                android:padding="6dp"
                                 android:clickable="true"
                                 android:focusable="true">
 
                                 <FrameLayout
-                                    android:layout_width="60dp"
-                                    android:layout_height="60dp">
+                                    android:layout_width="88dp"
+                                    android:layout_height="88dp">
 
                                     <de.hdodenhof.circleimageview.CircleImageView
                                         android:id="@+id/iv_my_story_avatar"
-                                        android:layout_width="56dp"
-                                        android:layout_height="56dp"
+                                        android:layout_width="78dp"
+                                        android:layout_height="78dp"
                                         android:layout_gravity="center"
                                         android:src="@drawable/ic_person"
                                         app:civ_border_width="1dp"
-                                        app:civ_border_color="#333333"/>
+                                        app:civ_border_color="@color/divider"/>
 
                                     <!-- "+" overlay -->
                                     <ImageView
-                                        android:layout_width="22dp"
-                                        android:layout_height="22dp"
+                                        android:layout_width="26dp"
+                                        android:layout_height="26dp"
                                         android:layout_gravity="bottom|end"
                                         android:src="@drawable/ic_status_add"
                                         android:background="@color/brand_primary"
                                         android:padding="3dp"
-                                        android:tint="#FFFFFF"/>
+                                        android:tint="@color/text_primary"/>
                                 </FrameLayout>
 
                                 <TextView
@@ -131,8 +131,8 @@
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="4dp"
                                     android:text="Your story"
-                                    android:textColor="#FFFFFF"
-                                    android:textSize="10sp"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="11sp"
                                     android:gravity="center"/>
                             </LinearLayout>
 
@@ -145,7 +145,7 @@
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="1dp"
-                    android:background="#1A1A1A"/>
+                    android:background="@color/divider"/>
 
                 <!-- ── Feed Toggle ── (hidden — replaced by Instagram header with dropdown) -->
                 <FrameLayout
@@ -166,7 +166,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="match_parent"
                             android:text="Following"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/text_primary"
                             android:textSize="14sp"
                             android:fontFamily="sans-serif-medium"
                             android:paddingEnd="20dp"
@@ -178,7 +178,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="match_parent"
                             android:text="For You"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/text_secondary"
                             android:textSize="14sp"
                             android:paddingEnd="20dp"
                             android:gravity="center_vertical"
@@ -194,7 +194,7 @@
                             android:layout_width="36dp"
                             android:layout_height="36dp"
                             android:src="@drawable/ic_search"
-                            android:tint="#FFFFFF"
+                            android:tint="@color/text_primary"
                             android:background="?attr/selectableItemBackgroundBorderless"
                             android:layout_marginEnd="4dp"
                             android:contentDescription="Search"/>
@@ -204,7 +204,7 @@
                             android:layout_width="36dp"
                             android:layout_height="36dp"
                             android:src="@drawable/ic_add_reels"
-                            android:tint="#FFFFFF"
+                            android:tint="@color/text_primary"
                             android:background="?attr/selectableItemBackgroundBorderless"
                             android:contentDescription="Upload Post"/>
                     </LinearLayout>
@@ -244,7 +244,7 @@
                     android:gravity="center"
                     android:padding="24dp"
                     android:text="Follow creators to see their posts here.\nSwitch to &quot;For You&quot; to explore all reels."
-                    android:textColor="#666666"
+                    android:textColor="@color/text_secondary"
                     android:textSize="13sp"
                     android:visibility="gone"/>
 
@@ -264,7 +264,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="🔥 Trending Reels"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/text_primary"
                         android:textSize="15sp"
                         android:fontFamily="sans-serif-medium"/>
 
@@ -319,7 +319,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="✨ Suggested Creators"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/text_primary"
                         android:textSize="15sp"
                         android:fontFamily="sans-serif-medium"/>
 
@@ -375,7 +375,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="👥 Friends Activity"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/text_primary"
                         android:textSize="15sp"
                         android:fontFamily="sans-serif-medium"/>
 
@@ -424,7 +424,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="⏱ Continue Watching"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/text_primary"
                         android:textSize="15sp"
                         android:fontFamily="sans-serif-medium"/>
 
@@ -433,7 +433,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Clear"
-                        android:textColor="#666666"
+                        android:textColor="@color/text_secondary"
                         android:textSize="12sp"
                         android:clickable="true"
                         android:focusable="true"/>
