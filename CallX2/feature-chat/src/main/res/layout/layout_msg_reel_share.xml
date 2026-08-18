@@ -4,7 +4,8 @@
 
     • No bubble background — ll_bubble bg is set to null at runtime for reel_share type.
     • 165dp wide × 293dp tall — 9:16 vertical aspect ratio for proper mobile reel format.
-    • Mini video player preview (199dp × 285dp, 40% smaller than peek player) displayed above the card.
+    • Mini video player card (165×294dp, 40% smaller than peek player) displayed above the reel thumbnail card.
+    • NO blur background, NO popup — inline player embedded directly in message.
     • Rounded corners (12dp) via bg_media_card + clipToOutline.
     • Timestamp + tick overlays from the parent ll_msg_footer (bottom|end in FrameLayout).
 -->
@@ -17,7 +18,8 @@
     android:clickable="true"
     android:focusable="true">
 
-    <!-- Mini video player preview — 40% smaller than peek player (199×285dp vs 331×475dp) -->
+    <!-- Mini video player card — 40% smaller than peek player (165×294dp vs 331×475dp) -->
+    <!-- Hidden by default, shown when reel is tapped (no blur background, inline in message) -->
     <androidx.cardview.widget.CardView
         android:id="@+id/card_mini_player"
         android:layout_width="165dp"
@@ -33,31 +35,26 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent">
 
-            <!-- Mini video player surface -->
-            <androidx.media3.ui.PlayerView
-                android:id="@+id/mini_player_view"
+            <!-- ExoPlayer/Media3 PlayerView — use generic FrameLayout as placeholder -->
+            <!-- Actual PlayerView will be inflated dynamically in code -->
+            <FrameLayout
+                android:id="@+id/mini_player_container"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:clickable="true"
-                android:focusable="true"
-                app:use_controller="false"
-                app:resize_mode="zoom"
-                app:surface_type="texture_view"
-                app:keep_content_on_player_reset="true"
-                app:show_buffering="never"
-                android:background="#000000"/>
+                android:background="#000000">
+                
+                <!-- Loading indicator -->
+                <ProgressBar
+                    android:id="@+id/mini_player_loading"
+                    style="?android:attr/progressBarStyleSmall"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_gravity="center"
+                    android:indeterminateTint="#FFFFFF"
+                    android:visibility="gone"/>
+            </FrameLayout>
 
-            <!-- Mini loading spinner -->
-            <ProgressBar
-                android:id="@+id/mini_player_loading"
-                style="?android:attr/progressBarStyleSmall"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:layout_gravity="center"
-                android:indeterminateTint="#FFFFFF"
-                android:visibility="gone"/>
-
-            <!-- Mini mute badge (top-left) -->
+            <!-- Mute status badge (top-left corner) -->
             <ImageView
                 android:id="@+id/mini_mute_icon"
                 android:layout_width="16dp"
@@ -71,7 +68,7 @@
         </FrameLayout>
     </androidx.cardview.widget.CardView>
 
-    <!-- Main reel share card with 9:16 aspect ratio -->
+    <!-- Main reel share thumbnail card with 9:16 aspect ratio -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="293dp"
