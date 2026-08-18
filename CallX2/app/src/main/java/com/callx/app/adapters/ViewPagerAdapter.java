@@ -8,6 +8,7 @@ import com.callx.app.chatlist.ChatsFragment;
 import com.callx.app.group.GroupsFragment;
 import com.callx.app.feed.ReelsFragment;
 import com.callx.app.feed.StatusFragment;
+import com.callx.app.search.SearchFragment;
 
 public class ViewPagerAdapter extends FragmentStateAdapter {
     public ViewPagerAdapter(FragmentActivity fa) { super(fa); }
@@ -15,11 +16,12 @@ public class ViewPagerAdapter extends FragmentStateAdapter {
     public Fragment createFragment(int position) {
         switch (position) {
             case 1: return new ReelsFragment();
-            case 2: return new StatusFragment();
-            case 3: return new GroupsFragment();
-            case 4: return new CallsFragment();
+            case 2: return new SearchFragment();
+            case 3: return new StatusFragment();
+            case 4: return new GroupsFragment();
+            case 5: return new CallsFragment();
             default: return new ChatsFragment();
         }
     }
-    @Override public int getItemCount() { return 5; }
+    @Override public int getItemCount() { return 6; }
 }

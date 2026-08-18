@@ -33,6 +33,7 @@ import com.google.firebase.messaging.FirebaseMessaging;
 import com.callx.app.notifications.ReelNotificationsActivity;
 import com.callx.app.workers.StoryNotificationWorker;
 import com.callx.app.feed.ReelsFragment;
+import com.callx.app.search.SearchFragment;
 import com.callx.app.utils.AppUpdateManager;
 import android.animation.ObjectAnimator;
 import com.callx.app.upload.ReelUploadActivity;
@@ -154,9 +155,10 @@ public class MainActivity extends AppCompatActivity
     private final java.util.Deque<Integer> tabHistoryStack = new java.util.ArrayDeque<>();
     private static final int TAB_CHATS  = 0;
     private static final int TAB_REELS  = 1;
-    private static final int TAB_STATUS = 2;
-    private static final int TAB_GROUPS = 3;
-    private static final int TAB_CALLS  = 4;
+    private static final int TAB_SEARCH = 2;
+    private static final int TAB_STATUS = 3;
+    private static final int TAB_GROUPS = 4;
+    private static final int TAB_CALLS  = 5;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -274,6 +276,7 @@ public class MainActivity extends AppCompatActivity
                 int[] ids = {
                     R.id.nav_chats,
                     R.id.nav_reels,
+                    R.id.nav_search,
                     R.id.nav_status,
                     R.id.nav_groups,
                     R.id.nav_calls
@@ -299,6 +302,14 @@ public class MainActivity extends AppCompatActivity
                 // ── Reel playback: pause when leaving, resume when entering ──
                 // Track previous tab so we know whether user is going TO or FROM Reels
                 notifyReelsTabVisibility(position == TAB_REELS, position);
+                if (prevTabPosition == TAB_SEARCH && position != TAB_SEARCH) {
+                    androidx.fragment.app.Fragment searchFragment =
+                            getSupportFragmentManager().findFragmentByTag(
+                                    "f" + binding.viewPager.getAdapter().getItemId(TAB_SEARCH));
+                    if (searchFragment instanceof SearchFragment) {
+                        ((SearchFragment) searchFragment).dismissPeekPreview();
+                    }
+                }
                 prevTabPosition = position;
             }
         });
@@ -307,6 +318,9 @@ public class MainActivity extends AppCompatActivity
             int id = item.getItemId();
             // false = instant switch (no scroll animation) — WhatsApp/Instagram jaisa snap
             if      (id == R.id.nav_chats)  { binding.viewPager.setCurrentItem(TAB_CHATS, false); }
+            else if (id == R.id.nav_search) {
+                binding.viewPager.setCurrentItem(TAB_SEARCH, false);
+            }
             else if (id == R.id.nav_status) {
                 binding.viewPager.setCurrentItem(TAB_STATUS, false);
                 clearBadge(R.id.nav_status);
@@ -335,6 +349,7 @@ public class MainActivity extends AppCompatActivity
         binding.fabAction.setOnClickListener(v -> {
             int pos = binding.viewPager.getCurrentItem();
             if      (pos == TAB_CHATS)  startActivity(new Intent(this, SearchActivity.class));
+            else if (pos == TAB_SEARCH) return;
             else if (pos == TAB_STATUS) startActivity(new Intent(this, NewStatusActivity.class));
             else if (pos == TAB_GROUPS) startActivity(new Intent(this, NewGroupActivity.class));
             else if (pos == TAB_REELS)  startActivity(new Intent(this, ReelUploadActivity.class));
@@ -365,6 +380,7 @@ public class MainActivity extends AppCompatActivity
         switch (tab) {
             case "chats":        binding.viewPager.setCurrentItem(TAB_CHATS,  false); break;
             case "reels":        binding.viewPager.setCurrentItem(TAB_REELS,  false); break;
+            case "search":       binding.viewPager.setCurrentItem(TAB_SEARCH, false); break;
             case "status":       binding.viewPager.setCurrentItem(TAB_STATUS, false); break;
             case "groups":       binding.viewPager.setCurrentItem(TAB_GROUPS, false); break;
             case "calls":        binding.viewPager.setCurrentItem(TAB_CALLS,  false); break;
@@ -791,8 +807,11 @@ public class MainActivity extends AppCompatActivity
     }
 
     private void updateFab(int position) {
+        binding.fabAction.setVisibility(position == TAB_SEARCH
+                ? android.view.View.GONE : android.view.View.VISIBLE);
         switch (position) {
             case TAB_CHATS:  binding.fabAction.setImageResource(R.drawable.ic_status_add); break;
+            case TAB_SEARCH: break;
             case TAB_STATUS: binding.fabAction.setImageResource(R.drawable.ic_camera);     break;
             case TAB_GROUPS: binding.fabAction.setImageResource(R.drawable.ic_group);      break;
             case TAB_REELS:  binding.fabAction.setImageResource(R.drawable.ic_add_reels);  break;
@@ -1130,7 +1149,8 @@ public class MainActivity extends AppCompatActivity
           android.view.View navContainer = binding.getRoot().findViewById(R.id.nav_container);
           if (navContainer != null) navContainer.setVisibility(vis);
           else binding.bottomNav.setVisibility(vis);
-          binding.fabAction.setVisibility(vis);
+          binding.fabAction.setVisibility(visible && binding.viewPager.getCurrentItem() != TAB_SEARCH
+                  ? android.view.View.VISIBLE : android.view.View.GONE);
 
           // 3. ViewPager2: adjust top + bottom margins instantly (no behavior delay)
           //    topMargin = AppBar height (56dp) when normal, 0 when Reels full-screen
