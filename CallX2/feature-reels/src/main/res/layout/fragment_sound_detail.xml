@@ -421,8 +421,11 @@
                     android:clipToPadding="false"/>
             </LinearLayout>
 
-            <!-- Mini-player -->
-            <FrameLayout android:id="@+id/layout_mini_player"
+            <!-- Mini-player — SwipeAwareFrameLayout so swipe-up/down-to-close
+                 (MediaSwipeReplyCloseHelper, same as MediaViewerActivity) can
+                 hook every touch event first, same as an Activity's
+                 dispatchTouchEvent or a PopupWindow's setTouchInterceptor. -->
+            <com.callx.app.utils.SwipeAwareFrameLayout android:id="@+id/layout_mini_player"
                 android:layout_width="match_parent" android:layout_height="64dp"
                 android:background="@color/sound_detail_card_light"
                 android:visibility="gone" android:elevation="8dp"
@@ -450,7 +453,7 @@
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="Close mini player"/>
                 </LinearLayout>
-            </FrameLayout>
+            </com.callx.app.utils.SwipeAwareFrameLayout>
 
             <!-- Bottom nav padding -->
             <View android:layout_width="match_parent" android:layout_height="80dp"/>

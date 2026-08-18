@@ -28,6 +28,7 @@ import androidx.media3.ui.PlayerView;
 import com.callx.app.models.ReelModel;
 import com.callx.app.player.AdaptiveStreamingManager;
 import com.callx.app.reels.R;
+import com.callx.app.utils.MediaSwipeReplyCloseHelper;
 
 import java.util.List;
 import java.util.Locale;
@@ -92,11 +93,22 @@ public class ReelPeekPreviewController {
     // translate+scale+alpha, which is the part that actually reads as
     // "docking back into the grid".
     private static final long DOCK_ANIM_BASE_MS = 300L;
+    private static final long DOCK_ANIM_MIN_MS  = 170L;
     private static final android.view.animation.Interpolator DOCK_EASE =
             new android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f);
 
     /** Screen rect of the grid cell that was long-pressed to open the currently-showing peek (null if not supplied — falls back to instant dismiss). */
     private Rect sourceRect;
+
+    // ── Swipe-up/down-to-close (Telegram/MediaViewerActivity gesture) ────
+    // Same MediaSwipeReplyCloseHelper the full-screen media viewer uses —
+    // live drag shrinks+translates the card and reveals the screen behind
+    // it (scrim fade) in lockstep with the drag, not just on release.
+    // Wired via PopupWindow#setTouchInterceptor since a popup has no
+    // Activity#dispatchTouchEvent of its own to hook into — that's the
+    // popup-window equivalent of the same "see every touch event first"
+    // requirement MediaViewerActivity satisfies at the Activity level.
+    private MediaSwipeReplyCloseHelper swipeHelper;
 
     /** One row in the compact options card (card_peek_options). */
     public static class PeekOption {
@@ -149,14 +161,6 @@ public class ReelPeekPreviewController {
 
     public boolean isShowing() { return showing; }
 
-    /**
-     * @param reel     reel to preview — no-op if null or lacking a video URL to preview.
-     * @param options  management options shown in the compact card below the
-     *                 actions sheet when "Options" is tapped (e.g. Insights/
-     *                 Pin/Share/Delete for the reel owner). Pass null or an
-     *                 empty list to hide the "Options" row entirely — used
-     *                 for reels the current user doesn't manage.
-     */
     /**
      * @param reel     reel to preview — no-op if null or lacking a video URL to preview.
      * @param options  management options shown in the compact card below the
@@ -224,6 +228,18 @@ public class ReelPeekPreviewController {
         popupWindow.setOutsideTouchable(false);
         popupWindow.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         popupWindow.setAnimationStyle(0);
+
+        // Swipe-up/down-to-close — see swipeHelper field doc. peekContent is
+        // the drag view (shrinks/translates/fades), scrim is what reveals
+        // the grid behind it as the drag progresses.
+        swipeHelper = new MediaSwipeReplyCloseHelper(activity, peekContent, scrim, null, null,
+                new MediaSwipeReplyCloseHelper.Callback() {
+                    @Override public void onSwipeUpReply() { /* retired — see class doc */ }
+                    @Override public void onSwipeDownClose(float velocityY) {
+                        dismissAnimated(velocityY);
+                    }
+                });
+        popupWindow.setTouchInterceptor((pv, event) -> swipeHelper != null && swipeHelper.onTouch(event));
 
         // Grab + blur a screenshot of whatever's on screen RIGHT NOW (the
         // grid, still un-obscured — the popup hasn't been shown yet) so
@@ -696,6 +712,7 @@ public class ReelPeekPreviewController {
         peekContentView = null;
         scrimView = null;
         sourceRect = null;
+        swipeHelper = null;
         releasePendingPlayer();
         if (player != null) {
             try { player.release(); } catch (Throwable ignored) {}
@@ -709,16 +726,30 @@ public class ReelPeekPreviewController {
         }
     }
 
+    /** Scrim tap / back press — no drag velocity to seed from. */
+    public void dismissAnimated() {
+        dismissAnimated(0f);
+    }
+
     /**
-     * User-initiated close (scrim tap / back press) — shrinks+translates
-     * the peek card back into {@link #sourceRect} (the long-pressed grid
-     * cell) before actually tearing the popup down, mirroring
-     * MediaViewerActivity's animateCloseToSource "chipakna" dock animation.
+     * User-initiated close (scrim tap / back press / swipe-to-close) —
+     * shrinks+translates the peek card back into {@link #sourceRect} (the
+     * long-pressed grid cell) before actually tearing the popup down,
+     * mirroring MediaViewerActivity's animateCloseToSource "chipakna" dock
+     * animation. Starts from whatever transform the view is CURRENTLY at —
+     * if this follows a live swipe-to-close drag, that's already
+     * mid-shrink/translate (see swipeHelper), so the dock animation
+     * continues seamlessly from there instead of jumping.
+     *
+     * @param velocityY signed px/sec from the swipe gesture that triggered
+     *                  this close (0 for scrim-tap/back-press), shortens
+     *                  the animation on a fast fling — same as
+     *                  MediaViewerActivity#velocityAdjustedDuration.
      * Falls back to the plain instant {@link #dismiss()} when there's no
      * source rect to dock into (e.g. show() was called without a
      * sourceView) or the content isn't in a state to animate.
      */
-    public void dismissAnimated() {
+    public void dismissAnimated(float velocityY) {
         final View v = peekContentView;
         if (sourceRect == null || v == null || v.getWidth() == 0 || v.getHeight() == 0
                 || activity == null || activity.isFinishing() || activity.isDestroyed()) {
@@ -752,7 +783,7 @@ public class ReelPeekPreviewController {
         float startScrimAlpha = scrim != null ? scrim.getAlpha() : 0f;
 
         android.animation.ValueAnimator anim = android.animation.ValueAnimator.ofFloat(0f, 1f);
-        anim.setDuration(DOCK_ANIM_BASE_MS);
+        anim.setDuration(velocityAdjustedDuration(velocityY));
         anim.setInterpolator(DOCK_EASE);
         anim.addUpdateListener(a -> {
             float t = (float) a.getAnimatedValue();
@@ -773,6 +804,14 @@ public class ReelPeekPreviewController {
     }
 
     private static float lerp(float a, float b, float t) { return a + (b - a) * t; }
+
+    /** Mirrors MediaViewerActivity#velocityAdjustedDuration — a hard fling shortens the dock duration toward DOCK_ANIM_MIN_MS instead of always running the full base duration. */
+    private long velocityAdjustedDuration(float velocityY) {
+        float density = activity.getResources().getDisplayMetrics().density;
+        float speedDpPerSec = Math.abs(velocityY) / density;
+        float speedFactor = Math.min(1f, speedDpPerSec / 2500f);
+        return Math.round(DOCK_ANIM_BASE_MS - speedFactor * (DOCK_ANIM_BASE_MS - DOCK_ANIM_MIN_MS));
+    }
 
     private String formatCount(int n) {
         if (n >= 1_000_000) return String.format(Locale.getDefault(), "%.1fM", n / 1_000_000f);

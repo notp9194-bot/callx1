@@ -47,7 +47,9 @@ import com.callx.app.player.SingleReelPlayerActivity;
 import com.callx.app.profile.ReelPeekPreviewController;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.MediaSwipeReplyCloseHelper;
 import com.callx.app.utils.ReelFirebaseUtils;
+import com.callx.app.utils.SwipeAwareFrameLayout;
 import com.facebook.shimmer.ShimmerFrameLayout;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.ChildEventListener;
@@ -151,10 +153,16 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private View         dividerCreator;
     private ImageView    ivCreatorAvatar;
     private TextView     tvCreatorName;
-    private View         layoutMiniPlayer;
+    private SwipeAwareFrameLayout layoutMiniPlayer;
     private ImageView    ivMiniCover;
     private TextView     tvMiniTitle;
     private ImageButton  btnMiniPlayPause, btnMiniClose;
+    // Swipe-up/down-to-close on the mini player — same MediaSwipeReplyCloseHelper
+    // MediaViewerActivity/ReelPeekPreviewController use, no gesture code duplicated.
+    // layoutMiniPlayer is a SwipeAwareFrameLayout (see class doc) so it can
+    // forward touch events to this helper before btnMiniPlayPause/btnMiniClose
+    // get a chance to consume them.
+    private MediaSwipeReplyCloseHelper miniPlayerSwipeHelper;
     private View         layoutFloatingActions;
     private TextView     btnFloatingUseAudio, btnFloatingSave;
     private NestedScrollView scrollSoundDetail;
@@ -335,6 +343,8 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         releasePlayer();
         detachLiveListener();
         if (peekController != null) peekController.dismiss();
+        if (layoutMiniPlayer != null) layoutMiniPlayer.setSwipeHelper(null);
+        miniPlayerSwipeHelper = null;
         super.onDestroyView();
     }
 
@@ -401,6 +411,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         tvMiniTitle       = v.findViewById(R.id.tv_mini_title);
         btnMiniPlayPause  = v.findViewById(R.id.btn_mini_play_pause);
         btnMiniClose      = v.findViewById(R.id.btn_mini_close);
+        setupMiniPlayerSwipeClose();
         layoutFloatingActions = v.findViewById(R.id.layout_floating_sound_actions);
         btnFloatingUseAudio   = v.findViewById(R.id.btn_floating_use_audio);
         btnFloatingSave       = v.findViewById(R.id.btn_floating_save);
@@ -807,13 +818,16 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         });
         rvReels.setAdapter(reelThumbAdapter);
 
-        // ── NestedScrollView listener — floating actions visibility only ───
-        // Pagination is handled entirely by the RecyclerView scroll listener
-        // below (debounced, like UserReelsActivity) so the NestedScrollView
-        // listener no longer fires loadMoreReelsForSound() mid-fling.
+        // ── NestedScrollView listener — floating actions + mini-player
+        // visibility. Pagination is handled entirely by the RecyclerView
+        // scroll listener below (debounced, like UserReelsActivity) so this
+        // listener never fires loadMoreReelsForSound() mid-fling.
         if (scrollSoundDetail != null) {
             scrollSoundDetail.setOnScrollChangeListener((NestedScrollView.OnScrollChangeListener)
-                (sv, scrollX, scrollY, oldX, oldY) -> updateFloatingActionsVisibility());
+                (sv, scrollX, scrollY, oldX, oldY) -> {
+                    updateFloatingActionsVisibility();
+                    updateMiniPlayerVisibility();
+                });
         }
 
         // ── Debounced RecyclerView scroll pagination (UserReelsActivity) ──
@@ -1410,14 +1424,96 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     }
 
     private void hideMiniPlayer() {
-        if (layoutMiniPlayer == null) return;
+        if (layoutMiniPlayer == null || !miniPlayerActive) return;
         miniPlayerActive = false;
         layoutMiniPlayer.setVisibility(View.GONE);
+        // Reset any leftover swipe-drag transform (translation/scale/alpha/
+        // corner-radius) so the bar comes back in its normal resting state
+        // next time showMiniPlayer() makes it VISIBLE again — this view is
+        // reused across plays, unlike MediaViewerActivity which just finishes.
+        layoutMiniPlayer.setTranslationY(0f);
+        layoutMiniPlayer.setScaleX(1f);
+        layoutMiniPlayer.setScaleY(1f);
+        layoutMiniPlayer.setAlpha(1f);
+        if (miniPlayerSwipeHelper != null) miniPlayerSwipeHelper.setLiveCornerRadius(0f, 1f);
+    }
+
+    /**
+     * Swipe-up/down-to-close on the mini player — same MediaSwipeReplyCloseHelper
+     * MediaViewerActivity and ReelPeekPreviewController reuse (no new gesture
+     * code duplicated). layoutMiniPlayer is a SwipeAwareFrameLayout, which
+     * forwards every touch event to swipeHelper.onTouch() first — the same
+     * "see the event before any child view" requirement Activity#dispatchTouchEvent
+     * satisfies for MediaViewerActivity and PopupWindow#setTouchInterceptor
+     * satisfies for ReelPeekPreviewController.
+     *
+     * No backgroundView/scrim is passed — this bar sits inline in the
+     * fragment layout, not over a dimmed full-screen surface, so only the
+     * card itself needs to progressively shrink/translate/fade during drag;
+     * the helper's built-in spring-back handles an under-threshold release
+     * automatically. On threshold-cross/fling, closeMiniPlayerAnimated()
+     * continues the same drag motion out (velocity-adjusted, so a hard
+     * fling exits quicker) instead of an instant cut, then pauses playback
+     * and hides the bar — mirroring btnMiniClose's action.
+     */
+    private void setupMiniPlayerSwipeClose() {
+        if (layoutMiniPlayer == null || !isAdded()) return;
+        miniPlayerSwipeHelper = new MediaSwipeReplyCloseHelper(requireContext(), layoutMiniPlayer, null, null, null,
+                new MediaSwipeReplyCloseHelper.Callback() {
+                    @Override public void onSwipeUpReply() { /* retired — see MediaSwipeReplyCloseHelper class doc */ }
+                    @Override public void onSwipeDownClose(float velocityY) {
+                        closeMiniPlayerAnimated(velocityY);
+                    }
+                });
+        layoutMiniPlayer.setSwipeHelper(miniPlayerSwipeHelper);
+    }
+
+    /** Continues the live-drag motion the rest of the way off-screen, then pauses + hides — velocity-adjusted so a hard fling exits faster than a just-past-threshold drag. */
+    private void closeMiniPlayerAnimated(float velocityY) {
+        final View bar = layoutMiniPlayer;
+        if (bar == null) { pausePlayback(); hideMiniPlayer(); return; }
+
+        float density = requireContext().getResources().getDisplayMetrics().density;
+        float speedDpPerSec = Math.abs(velocityY) / density;
+        float speedFactor = Math.min(1f, speedDpPerSec / 2500f);
+        long duration = Math.round(220L - speedFactor * (220L - 110L)); // 220ms base → 110ms on a hard fling
+
+        float exitDirection = bar.getTranslationY() < 0 ? -1f : 1f;
+        float exitTy = exitDirection * (bar.getHeight() > 0 ? bar.getHeight() : 64f * density);
+
+        bar.animate().cancel();
+        bar.animate()
+                .translationY(exitTy)
+                .alpha(0f)
+                .setDuration(duration)
+                .withEndAction(() -> { pausePlayback(); hideMiniPlayer(); })
+                .start();
     }
 
     private void updateMiniPlayButton() {
         if (btnMiniPlayPause != null)
             btnMiniPlayPause.setImageResource(isPlaying ? R.drawable.ic_pause : R.drawable.ic_play);
+        updateMiniPlayerVisibility();
+    }
+
+    /**
+     * FIX: mini-player bar wasn't tied to scrolling away from the main play
+     * control at all before — it only ever appeared from the "related
+     * sounds" list tap. Now, same pattern as updateFloatingActionsVisibility()
+     * (screen-position compare against scrollSoundDetail's top), it shows
+     * automatically once audio is playing AND the main btnPlayPause has
+     * scrolled off the top of the screen, and hides again once you scroll
+     * back to it or playback stops — called on every scroll tick and every
+     * play/pause/resume state change (via updateMiniPlayButton()).
+     */
+    private void updateMiniPlayerVisibility() {
+        if (layoutMiniPlayer == null || btnPlayPause == null || scrollSoundDetail == null || isGone()) return;
+        if (!isPlaying) { hideMiniPlayer(); return; }
+        int[] pl = new int[2], sl = new int[2];
+        btnPlayPause.getLocationOnScreen(pl);
+        scrollSoundDetail.getLocationOnScreen(sl);
+        boolean scrolledPastControl = (pl[1] + btnPlayPause.getHeight()) < sl[1];
+        if (scrolledPastControl) showMiniPlayer(); else hideMiniPlayer();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
