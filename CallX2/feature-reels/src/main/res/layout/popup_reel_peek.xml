@@ -73,7 +73,25 @@
                     android:focusable="true"
                     app:use_controller="false"
                     app:resize_mode="zoom"
+                    app:surface_type="texture_view"
+                    app:keep_content_on_player_reset="true"
+                    app:show_buffering="never"
                     android:background="#000000"/>
+                <!--
+                    surface_type="texture_view": card_peek's cardCornerRadius
+                    clip ONLY affects normal View drawing. The default
+                    surface_type (SurfaceView) punches its own hardware
+                    compositor layer straight through the window, bypassing
+                    the CardView's rounded-corner clip entirely — that's what
+                    was showing as sharp/semi-transparent square corners
+                    poking out on all four sides of this rounded card.
+                    TextureView renders as a normal View (goes through the
+                    same draw/clip pass as everything else), so it respects
+                    the parent CardView's rounded clipping like any other
+                    child. keep_content_on_player_reset avoids a black flash
+                    on fast-switch player swaps; show_buffering="never" keeps
+                    PlayerView's own spinner off since peek_loading below
+                    already covers that. -->
 
                 <ProgressBar
                     android:id="@+id/peek_loading"

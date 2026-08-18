@@ -27,6 +27,7 @@ import androidx.media3.ui.PlayerView;
 
 import com.callx.app.models.ReelModel;
 import com.callx.app.player.AdaptiveStreamingManager;
+import com.callx.app.player.ExoPlayerPool;
 import com.callx.app.reels.R;
 import com.callx.app.utils.MediaSwipeReplyCloseHelper;
 
@@ -487,21 +488,32 @@ public class ReelPeekPreviewController {
         String previewUrl = pickLowDataUrl(reel);
 
         if (!isSwitch) {
-            // First open of this popup — nothing else is playing yet, so
-            // just build and attach directly, same as before.
-            player = AdaptiveStreamingManager.get(activity)
-                    .buildPlayer(previewUrl, AdaptiveStreamingManager.QualityCap.Q360P, null);
+            // ULTRA PERF (pooled reuse): acquire from the SAME ExoPlayerPool
+            // the main reels feed prewarms into, instead of building a
+            // brand-new ExoPlayer (fresh renderers/codec setup + internal
+            // playback thread — the actually-expensive part) on every single
+            // peek open. Pool hands back an already-constructed idle
+            // instance when one's free, and transparently falls back to a
+            // throwaway bare player if the pool's momentarily exhausted
+            // (e.g. feed also mid-scroll) — see ExoPlayerPool#acquire.
+            ExoPlayerPool pool = ExoPlayerPool.get(activity);
+            player = pool.acquire();
+            Player.Listener abrListener = AdaptiveStreamingManager.get(activity)
+                    .attachToPlayer(player, previewUrl, AdaptiveStreamingManager.QualityCap.Q360P, null);
+            pool.trackListener(player, abrListener);
             player.setVolume(muted ? 0f : 1f);
             player.setRepeatMode(Player.REPEAT_MODE_ONE);
             playerView.setPlayer(player);
             final ProgressBar loadingRef = loading;
-            player.addListener(new Player.Listener() {
+            Player.Listener bufferListener = new Player.Listener() {
                 @Override public void onPlaybackStateChanged(int state) {
                     if (loadingRef != null) {
                         loadingRef.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
                     }
                 }
-            });
+            };
+            player.addListener(bufferListener);
+            pool.trackListener(player, bufferListener);
             player.prepare();
             player.setPlayWhenReady(true);
             playerView.setOnClickListener(v -> toggleMute(muteBadge, ivMuteIcon));
@@ -509,27 +521,34 @@ public class ReelPeekPreviewController {
         }
 
         // Fast switch: preload in the background, keep the old one playing
-        // until the new one is ready.
+        // until the new one is ready. Also pooled — same ULTRA PERF reasoning
+        // as above, and it matters MORE here: fast re-long-pressing across
+        // several grid cells used to build a fresh ExoPlayer per cell.
         releasePendingPlayer();
         final String token = (reel.reelId != null) ? reel.reelId : String.valueOf(System.identityHashCode(reel));
         pendingToken = token;
         if (loading != null) loading.setVisibility(View.VISIBLE);
 
-        final ExoPlayer newPlayer = AdaptiveStreamingManager.get(activity)
-                .buildPlayer(previewUrl, AdaptiveStreamingManager.QualityCap.Q360P, null);
+        final ExoPlayerPool pool = ExoPlayerPool.get(activity);
+        final ExoPlayer newPlayer = pool.acquire();
+        Player.Listener abrListener = AdaptiveStreamingManager.get(activity)
+                .attachToPlayer(newPlayer, previewUrl, AdaptiveStreamingManager.QualityCap.Q360P, null);
+        pool.trackListener(newPlayer, abrListener);
         newPlayer.setVolume(muted ? 0f : 1f);
         newPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
         pendingPlayer = newPlayer;
 
         final ProgressBar loadingRef = loading;
         final PlayerView playerViewRef = playerView;
-        newPlayer.addListener(new Player.Listener() {
+        Player.Listener readyListener = new Player.Listener() {
             @Override public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_READY && pendingPlayer == newPlayer && token.equals(pendingToken)) {
                     // Still the most-recently-requested reel — swap it in
-                    // and let go of whatever was showing before.
+                    // and return whatever was showing before to the pool
+                    // (not a hard release), so it's warm for the next peek
+                    // instead of paying full construction cost again.
                     if (player != null) {
-                        try { player.release(); } catch (Throwable ignored) {}
+                        pool.release(player);
                     }
                     player = newPlayer;
                     pendingPlayer = null;
@@ -537,7 +556,9 @@ public class ReelPeekPreviewController {
                     if (loadingRef != null) loadingRef.setVisibility(View.GONE);
                 }
             }
-        });
+        };
+        newPlayer.addListener(readyListener);
+        pool.trackListener(newPlayer, readyListener);
         newPlayer.prepare();
         newPlayer.setPlayWhenReady(true);
         playerView.setOnClickListener(v -> toggleMute(muteBadge, ivMuteIcon));
@@ -663,7 +684,11 @@ public class ReelPeekPreviewController {
 
     private void releasePendingPlayer() {
         if (pendingPlayer != null) {
-            try { pendingPlayer.release(); } catch (Throwable ignored) {}
+            // Pooled release, not a hard release — see ULTRA PERF note in
+            // startPlayerForCurrentReel: this instance goes back into
+            // ExoPlayerPool for the next peek/prewarm to reuse instead of
+            // being torn down and rebuilt from scratch.
+            try { ExoPlayerPool.get(activity).release(pendingPlayer); } catch (Throwable ignored) {}
             pendingPlayer = null;
         }
     }
@@ -779,7 +804,10 @@ public class ReelPeekPreviewController {
         swipeHelper = null;
         releasePendingPlayer();
         if (player != null) {
-            try { player.release(); } catch (Throwable ignored) {}
+            // Pooled release (see ULTRA PERF note above) — dismissing a
+            // peek is the common case (every close), so this is what
+            // actually keeps the pool warm for the next open.
+            try { ExoPlayerPool.get(activity).release(player); } catch (Throwable ignored) {}
             player = null;
         }
         if (popupWindow != null) {
