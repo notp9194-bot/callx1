@@ -105,6 +105,9 @@ public class ReelsFragment extends Fragment {
     /** Home tab overlay container — HomeFragment lives here */
     private FrameLayout          homeContainer;
 
+    /** Search tab overlay container — SearchFragment lives here */
+    private FrameLayout          searchContainer;
+
     /**
      * FIX #2: Prevents programmatic setSelectedItemId calls from triggering
      * scroll-to-top in the reel_nav_feed listener.
@@ -202,6 +205,7 @@ public class ReelsFragment extends Fragment {
         reelBottomNav  = v.findViewById(R.id.reel_bottom_nav);
         btnSearch      = v.findViewById(R.id.btn_reel_search);
         homeContainer  = v.findViewById(R.id.home_container);
+        searchContainer = v.findViewById(R.id.search_container);
 
         // ── Edge-to-edge window insets ────────────────────────────────────
         // top_bar: statusBarHeight padding so buttons sit BELOW the status bar.
@@ -388,6 +392,7 @@ public class ReelsFragment extends Fragment {
             } else if (id == R.id.reel_nav_feed) {
                 // FIX #2: Skip scroll-to-top if this selection was triggered programmatically
                 //         (e.g. returning from Create/Creator/Notifications activities).
+                hideSearchTab();
                 hideHomeTab();
                 if (!suppressNavScrollToTop && vpReels != null && vpReels.getCurrentItem() != 0) {
                     vpReels.setCurrentItem(0, true);
@@ -407,6 +412,11 @@ public class ReelsFragment extends Fragment {
                 suppressNavScrollToTop = true;
                 startActivity(new Intent(getContext(), ReelNotificationsActivity.class));
                 reelBottomNav.setSelectedItemId(R.id.reel_nav_feed);
+                return true;
+
+            } else if (id == R.id.reel_nav_search) {
+                // Show the Search tab overlay (SearchFragment)
+                showSearchTab();
                 return true;
 
             } else if (id == R.id.reel_nav_creator) {
@@ -661,6 +671,57 @@ public class ReelsFragment extends Fragment {
             getChildFragmentManager().findFragmentByTag("home_fragment");
         if (home instanceof HomeFragment) ((HomeFragment) home).onTabBecameHidden();
         if (vpReels != null) controlPlayback(vpReels.getCurrentItem());
+    }
+
+    /**
+     * Shows the SearchFragment in the search_container overlay.
+     * Pauses reel playback while search tab is visible.
+     */
+    private void showSearchTab() {
+        if (searchContainer == null) return;
+        searchContainer.setVisibility(View.VISIBLE);
+
+        // Prewarm SearchFragment if not already loaded
+        prewarmSearchTab();
+
+        // Notify SearchFragment that it became visible
+        androidx.fragment.app.Fragment search =
+            getChildFragmentManager().findFragmentByTag("search_fragment");
+        if (search instanceof com.callx.app.search.SearchFragment) {
+            ((com.callx.app.search.SearchFragment) search).onTabBecameVisible();
+        }
+
+        pauseAllReels();
+    }
+
+    /**
+     * Hides the SearchFragment overlay and resumes reel playback.
+     * Called when user taps the Reels tab.
+     */
+    private void hideSearchTab() {
+        if (searchContainer != null) searchContainer.setVisibility(View.GONE);
+        androidx.fragment.app.Fragment search =
+            getChildFragmentManager().findFragmentByTag("search_fragment");
+        if (search instanceof com.callx.app.search.SearchFragment) {
+            ((com.callx.app.search.SearchFragment) search).onTabBecameHidden();
+        }
+        if (vpReels != null) controlPlayback(vpReels.getCurrentItem());
+    }
+
+    /**
+     * Preload SearchFragment in the background (similar to prewarmHomeTab).
+     * This avoids jank when user first taps the Search tab.
+     */
+    private void prewarmSearchTab() {
+        androidx.fragment.app.Fragment existing =
+            getChildFragmentManager().findFragmentByTag("search_fragment");
+        if (existing != null) return; // Already loaded
+
+        getChildFragmentManager()
+            .beginTransaction()
+            .add(R.id.search_container, new com.callx.app.search.SearchFragment(), "search_fragment")
+            .hide(new com.callx.app.search.SearchFragment())  // Hidden initially
+            .commit();
     }
 
     /**

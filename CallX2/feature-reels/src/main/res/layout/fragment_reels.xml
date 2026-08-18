@@ -178,6 +178,15 @@
         android:background="#0D0D0D"
         android:visibility="gone"/>
 
+    <!-- Search tab container -->
+    <FrameLayout
+        android:id="@+id/search_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="top"
+        android:background="#FFFFFF"
+        android:visibility="gone"/>
+
     <!-- ── Reels Bottom Navigation — modern glass-panel, icon-only, pill
          active-indicator (see bg_reel_bottom_nav.xml / shape_reel_nav.xml).
          android:layout_height="wrap_content" so paddingBottom (= navBarHeight

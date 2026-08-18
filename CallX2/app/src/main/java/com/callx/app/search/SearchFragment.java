@@ -677,4 +677,41 @@ public class SearchFragment extends Fragment {
         rvSuggestions = null;
         rvSearchReels = null;
     }
-}
+
+    /**
+     * Called when the SearchFragment tab becomes visible in Reels module.
+     * Can be used to resume any paused operations or refresh data.
+     */
+    public void onTabBecameVisible() {
+        // Show keyboard for better UX
+        if (etSearch != null) {
+            etSearch.requestFocus();
+            InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.showSoftInput(etSearch, InputMethodManager.SHOW_IMPLICIT);
+            }
+        }
+    }
+
+    /**
+     * Called when the SearchFragment tab becomes hidden in Reels module.
+     * Can be used to pause operations or dismiss the peek preview.
+     */
+    public void onTabBecameHidden() {
+        // Hide keyboard
+        dismissPeekPreview();
+        if (etSearch != null) {
+            InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.hideSoftInputFromWindow(etSearch.getWindowToken(), 0);
+            }
+        }
+    }
+
+    /**
+     * Dismiss the peek preview if it's open.
+     */
+    public void dismissPeekPreview() {
+        // Implementation depends on whether peek preview is used
+        // If using ReelPeekPreviewController, dismiss it here
+    }

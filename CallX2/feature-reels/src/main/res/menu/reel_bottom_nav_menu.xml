@@ -13,11 +13,11 @@
         android:title="Create"
         android:icon="@drawable/ic_reel_create"/>
     <item
+        android:id="@+id/reel_nav_search"
+        android:title="Search"
+        android:icon="@drawable/ic_search"/>
+    <item
         android:id="@+id/reel_nav_notifications"
         android:title="Activity"
         android:icon="@drawable/ic_notifications"/>
-    <item
-        android:id="@+id/reel_nav_creator"
-        android:title="Creator"
-        android:icon="@drawable/ic_reel_creator"/>
 </menu>
