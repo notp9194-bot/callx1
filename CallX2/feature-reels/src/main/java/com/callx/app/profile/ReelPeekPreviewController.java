@@ -150,6 +150,7 @@ public class ReelPeekPreviewController {
     // re-findViewById() the popup content on every close.
     private View         peekContentView;
     private View         scrimView;
+    private View         blurBgView; // the blurred-screenshot backdrop — dissolved (not just the scrim) on swipe/dock close so what's revealed behind the card is the real live screen, not a still-opaque blur
 
     private ReelModel        currentReel;
     private List<PeekOption> currentOptions;
@@ -266,6 +267,7 @@ public class ReelPeekPreviewController {
         android.widget.ImageView ivMuteIcon = content.findViewById(R.id.iv_peek_mute_icon);
         peekContentView = peekContent;
         scrimView = scrim;
+        blurBgView = blurBg;
 
         bindStaticContent(content, reel, options, callback);
 
@@ -294,6 +296,11 @@ public class ReelPeekPreviewController {
                         dismissAnimated(velocityY);
                     }
                 });
+        // Same real-screen reveal MediaViewerActivity's swipe-close already
+        // has: the blurred backdrop dissolves along with the scrim as the
+        // user drags, instead of staying opaque the whole time — see
+        // MediaSwipeReplyCloseHelper#setExtraFadeViews doc.
+        swipeHelper.setExtraFadeViews(blurBg);
         popupWindow.setTouchInterceptor((pv, event) -> swipeHelper != null && swipeHelper.onTouch(event));
 
         // Grab + blur a screenshot of whatever's on screen RIGHT NOW (the
@@ -767,6 +774,7 @@ public class ReelPeekPreviewController {
         currentCallback = null;
         peekContentView = null;
         scrimView = null;
+        blurBgView = null;
         sourceRect = null;
         swipeHelper = null;
         releasePendingPlayer();
@@ -837,6 +845,8 @@ public class ReelPeekPreviewController {
 
         final View scrim = scrimView;
         float startScrimAlpha = scrim != null ? scrim.getAlpha() : 0f;
+        final View blurBg = blurBgView;
+        float startBlurAlpha = blurBg != null ? blurBg.getAlpha() : 0f;
 
         android.animation.ValueAnimator anim = android.animation.ValueAnimator.ofFloat(0f, 1f);
         anim.setDuration(velocityAdjustedDuration(velocityY));
@@ -849,6 +859,12 @@ public class ReelPeekPreviewController {
             v.setScaleY(lerp(startScaleY, endScaleY, t));
             v.setAlpha(lerp(startAlpha, 0f, t));
             if (scrim != null) scrim.setAlpha(lerp(startScrimAlpha, 0f, t));
+            // Same real-screen reveal as the live drag (see setExtraFadeViews
+            // wiring above) — dissolve the blurred backdrop along with the
+            // scrim during this dock-back animation too, so a scrim-tap or
+            // back-press close reveals the real screen just as smoothly as
+            // an actual swipe does, not just the swipe path.
+            if (blurBg != null) blurBg.setAlpha(lerp(startBlurAlpha, 0f, t));
         });
         anim.addListener(new android.animation.AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(android.animation.Animator animation) {

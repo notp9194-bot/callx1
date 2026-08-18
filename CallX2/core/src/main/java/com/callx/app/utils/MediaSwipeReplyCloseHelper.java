@@ -105,6 +105,14 @@ public class MediaSwipeReplyCloseHelper {
     private final float density;
 
     private View[] chromeViews = new View[0];
+    // ── Extra views that should fade out in sync with the swipe-close drag,
+    // separate from `backgroundView`'s solid-color scrim fade. Added so a
+    // caller with its own static backdrop (e.g. ReelPeekPreviewController's
+    // blurred screenshot behind the scrim) can have that backdrop dissolve
+    // away too — otherwise the scrim fades but a still-opaque backdrop image
+    // stays visible underneath the whole time, and the "real" screen behind
+    // it never actually gets revealed as the user drags.
+    private View[] extraFadeViews = new View[0];
 
     private float startX, startY;
     private boolean dragging = false;
@@ -146,6 +154,19 @@ public class MediaSwipeReplyCloseHelper {
     /** Optional — top bar / toolbar / page-counter jaisi views jo drag ke saath live fade ho. */
     public void setChromeViews(View... views) {
         this.chromeViews = (views != null) ? views : new View[0];
+    }
+
+    /**
+     * Optional — views that should dissolve (fade alpha 1→0) in sync with
+     * the drag, same eased curve as the scrim's dim fade. Use this for a
+     * static backdrop image sitting behind the scrim (e.g. a blurred
+     * screenshot) that would otherwise stay fully opaque throughout the
+     * drag/close and hide whatever's actually behind it (the real, live
+     * screen). Restored back to alpha=1 on spring-back / instant reset,
+     * same as chromeViews.
+     */
+    public void setExtraFadeViews(View... views) {
+        this.extraFadeViews = (views != null) ? views : new View[0];
     }
 
     /**
@@ -427,6 +448,18 @@ public class MediaSwipeReplyCloseHelper {
             int alpha = (int) (255 * (1f - easedT));
             backgroundView.setBackgroundColor(Color.argb(alpha, 0, 0, 0));
         }
+
+        // Static backdrop (e.g. a blurred screenshot) dissolves away on the
+        // SAME eased curve as the scrim — so by the time the drag reaches
+        // the dismiss threshold, what's showing behind the shrinking card
+        // is the actual live screen, not a still-opaque blurred image.
+        if (extraFadeViews.length > 0) {
+            float easedT = (float) Math.pow(t, 0.72);
+            float fadeAlpha = 1f - easedT;
+            for (View v : extraFadeViews) {
+                if (v != null) v.setAlpha(fadeAlpha);
+            }
+        }
     }
 
     /** Threshold tak nahi pahuncha — natural bouncy spring se sab kuch wapas center/full-scale/square. */
@@ -476,6 +509,13 @@ public class MediaSwipeReplyCloseHelper {
                 int alpha = (int) (255 * (1f - easedT));
                 backgroundView.setBackgroundColor(Color.argb(alpha, 0, 0, 0));
             }
+            if (extraFadeViews.length > 0) {
+                float easedT = (float) Math.pow(t, 0.72);
+                float fadeAlpha = 1f - easedT;
+                for (View v : extraFadeViews) {
+                    if (v != null) v.setAlpha(fadeAlpha);
+                }
+            }
         });
         snapBackSpring.addEndListener((animation, canceled, value, velocity) -> {
             if (!canceled) resetVisualsInstant();
@@ -496,6 +536,9 @@ public class MediaSwipeReplyCloseHelper {
             if (v != null) v.setAlpha(1f);
         }
         if (backgroundView != null) backgroundView.setBackgroundColor(Color.BLACK);
+        for (View v : extraFadeViews) {
+            if (v != null) v.setAlpha(1f);
+        }
         // Gesture fully settled — release the GPU layer, see enableHardwareLayerForGesture() doc.
         disableHardwareLayerForGesture();
     }
