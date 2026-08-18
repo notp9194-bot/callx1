@@ -1896,6 +1896,9 @@ public class MessageBubbleCanvasView extends View {
     // before its next real bind.
     @Override
     protected void onDetachedFromWindow() {
+        cancelReelPeekPreview();
+        reelPeekTriggered = false;
+        setPressed(false);
         super.onDetachedFromWindow();
         if (cachedMediaRenderNode != null) cachedMediaRenderNode.discardDisplayList();
         if (fullBubbleRenderNode != null) fullBubbleRenderNode.discardDisplayList();
@@ -5730,14 +5733,6 @@ public class MessageBubbleCanvasView extends View {
             if (clickListener != null) clickListener.onReelPeekPreview(this);
         };
         reelPeekHandler.postDelayed(reelPeekRunnable, 3000L);
-    }
-
-    @Override
-    protected void onDetachedFromWindow() {
-        cancelReelPeekPreview();
-        reelPeekTriggered = false;
-        setPressed(false);
-        super.onDetachedFromWindow();
     }
 
     @Override
