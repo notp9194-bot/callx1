@@ -1715,8 +1715,6 @@ public class MessageBubbleCanvasView extends View {
     private final Handler reelPeekHandler = new Handler(Looper.getMainLooper());
     private Runnable reelPeekRunnable;
     private boolean reelPeekTriggered;
-    private float reelPeekDownX;
-    private float reelPeekDownY;
     final GestureDetector gestureDetector;
 
     // ── Per-feature draw() renderers (feature-based file split) — bind/
@@ -1894,6 +1892,16 @@ public class MessageBubbleCanvasView extends View {
     // recording. staticPictureDirty/fullBubbleDirty are also forced true
     // so a stale cache is never replayed if the view somehow draws again
     // before its next real bind.
+    // Reel-share card just landed on screen (RecyclerView attached this
+    // holder) — start the 3s idle timer here too, since for an already-bound
+    // holder that scrolls back into view this fires without a matching
+    // bindReelShare() call.
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        if (isReelShare) scheduleReelPeekPreview();
+    }
+
     @Override
     protected void onDetachedFromWindow() {
         cancelReelPeekPreview();
@@ -2838,6 +2846,12 @@ public class MessageBubbleCanvasView extends View {
             reelCaptionLayout = null; // recomputed in onMeasure
         }
         invalidate();
+
+        // Card is bound as a reel share — if it's already attached (holder
+        // reused mid-scroll rather than freshly attached), arm the 3s
+        // auto-preview timer now; onAttachedToWindow() covers the
+        // freshly-attached case for this same holder.
+        if (isAttachedToWindow()) scheduleReelPeekPreview();
     }
 
     /** Swap in a decoded reel-thumbnail Bitmap once Glide finishes — no re-measure needed, same fixed card size. */
@@ -5723,12 +5737,18 @@ public class MessageBubbleCanvasView extends View {
         }
     }
 
+    // Auto-triggered the moment a reel-share card lands on screen and stays
+    // there — no press/hold needed. Scheduled from onAttachedToWindow() and
+    // from bindReelShare() (whichever happens second for a given holder).
+    // If the RecyclerView keeps scrolling, the card gets detached again
+    // before the 3s mark and onDetachedFromWindow() cancels this, so a card
+    // only ever fires once it's actually settled on screen for a full 3s.
     private void scheduleReelPeekPreview() {
         cancelReelPeekPreview();
         reelPeekTriggered = false;
         reelPeekRunnable = () -> {
             reelPeekRunnable = null;
-            if (!isReelShare || !isPressed()) return;
+            if (!isReelShare) return;
             reelPeekTriggered = true;
             if (clickListener != null) clickListener.onReelPeekPreview(this);
         };
@@ -5737,34 +5757,6 @@ public class MessageBubbleCanvasView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        if (isReelShare) {
-            int action = event.getActionMasked();
-            if (action == MotionEvent.ACTION_DOWN
-                    && reelCardRect.contains(event.getX(), event.getY())) {
-                reelPeekDownX = event.getX();
-                reelPeekDownY = event.getY();
-                setPressed(true);
-                scheduleReelPeekPreview();
-            } else if (action == MotionEvent.ACTION_MOVE && reelPeekRunnable != null) {
-                float dx = event.getX() - reelPeekDownX;
-                float dy = event.getY() - reelPeekDownY;
-                float slop = getContext().getResources().getDisplayMetrics().density * 8f;
-                if ((dx * dx) + (dy * dy) > slop * slop) {
-                    cancelReelPeekPreview();
-                    setPressed(false);
-                }
-            } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-                boolean previewWasTriggered = reelPeekTriggered;
-                cancelReelPeekPreview();
-                setPressed(false);
-                if (previewWasTriggered) {
-                    cancelPendingLongPress(event);
-                    reelPeekTriggered = false;
-                    return true;
-                }
-                reelPeekTriggered = false;
-            }
-        }
         if (showForwardBtn && event.getActionMasked() == MotionEvent.ACTION_UP
                 && forwardBtnRect.contains(event.getX(), event.getY())) {
             cancelPendingLongPress(event);
