@@ -19,6 +19,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.*;
 import android.widget.*;
+import android.widget.SeekBar;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.widget.NestedScrollView;
@@ -139,7 +140,6 @@ public class HomeFragment extends Fragment {
     private int                currentPlayingIndex = -1;
     private boolean            isMuted = false;
     private final Handler      scrollHandler = new Handler(Looper.getMainLooper());
-    private Runnable           scrollRunnable;
 
     // ── v177: preload feature (same as Reels tab) ──────────────────────────
     // Preloads upcoming videos/thumbnails a couple cards ahead of whichever
@@ -167,6 +167,19 @@ public class HomeFragment extends Fragment {
         /** Guards revealThumbnailAfterFirstFrame() against double-firing —
          *  reset to false every time this card becomes the active one. */
         boolean    firstFrameRevealed;
+        // ── Advanced playback controls (see the scrub/hold/resume block) ──
+        SeekBar    seekBar;
+        TextView   tvPosition;
+        TextView   speedChip;
+        View       playOverlay;
+        /** True while the user's finger is on this card's scrub bar — the
+         *  progress ticker must not fight the drag by writing its own value. */
+        boolean    isScrubbing;
+        /** Set when the card becomes active; cleared once the saved watch
+         *  position has actually been applied (needs a known duration). */
+        boolean    resumePending;
+        /** True while a press-and-hold 2x fast-forward is in effect. */
+        boolean    speedBoosted;
     }
 
     /** Same value ReelPlayerController (Reels tab) uses — short enough that
@@ -175,6 +188,23 @@ public class HomeFragment extends Fragment {
     private static final long HOME_THUMB_CROSSFADE_MS = 80L;
 
     private boolean isFollowingMode = true;
+
+    // ══════════════════════════════════════════════════════════════════════
+    // ── Advanced inline playback: scrub bar, hold-to-2x, resume, tracking ──
+    // ══════════════════════════════════════════════════════════════════════
+    /** How often the active card's scrub bar / watch progress is refreshed. */
+    private static final long PROGRESS_TICK_MS = 250L;
+    /** Playback rate applied while the user presses and holds a feed video. */
+    private static final float HOLD_SPEED = 2f;
+    /** Views / watch history / watch progress writer — see HomeFeedWatchTracker. */
+    private HomeFeedWatchTracker watchTracker;
+    /** users/{uid}/feedSettings/autoplay (Always / Wi-Fi Only / Off). */
+    private final HomeFeedAutoplayPolicy autoplayPolicy = new HomeFeedAutoplayPolicy();
+    private Runnable progressTicker  = null;
+    private boolean  isTickerRunning = false;
+    /** True when the active card is paused because the user tapped it (or
+     *  autoplay is disabled) — keeps onResume/tab-switch from overriding it. */
+    private boolean  userPausedActiveCard = false;
 
     // Tracks which ownerUids have at least one unseen status item for this viewer
     private final Set<String> unseenOwnerUids = new HashSet<>();
@@ -241,8 +271,40 @@ public class HomeFragment extends Fragment {
      *  instead of stuttery. Reverted to LAYER_TYPE_NONE once idle, since a
      *  hardware layer left on permanently costs GPU memory for no benefit. */
     private boolean   isFeedScrolling          = false;
-    private Runnable  scrollSettleRunnable      = null;
+    /** Whether the hardware-layer promotion actually got applied this scroll. */
+    private boolean   isHwLayerOn              = false;
     private View      feedScrollContentRoot     = null;
+    /** Idle-time pre-inflater for feed cards — see HomeFeedCardPool. */
+    private HomeFeedCardPool cardPool = null;
+
+    // ── Scroll-listener hot path ────────────────────────────────────────
+    // onScrollChange fires on EVERY scrolled pixel — several hundred times a
+    // fling — so nothing in it may allocate. These runnables and the
+    // dp thresholds below used to be rebuilt per event; they are now created
+    // once and merely re-posted.
+    private final Runnable scrollSettleRunnable = new Runnable() {
+        @Override public void run() {
+            endFeedScrollLayer();
+            if (feedWindowManager != null) feedWindowManager.onScrollSettled();
+        }
+    };
+    private final Runnable playVisibleRunnable = this::playMostVisibleCard;
+    private int paginateThresholdPx = 0;
+    private int prefetchThresholdPx = 0;
+    /** Reused by playMostVisibleCard() so a scroll never allocates an int[]. */
+    private final int[] visibilityLoc = new int[2];
+    /** Max side a hardware layer can be rasterized into on virtually all
+     *  GPUs; a taller layer is silently refused, so promoting a very long
+     *  feed's content root costs a re-render for nothing. */
+    private static final int MAX_HW_LAYER_PX = 4096;
+    /** Decode size for the 36dp card avatar (36dp ≈ 144px at xxhdpi). */
+    private static final int AVATAR_DECODE_PX = 144;
+    /** Card thumbnail decode size — 9:16, matching the card frame. Shared by
+     *  the card load and the prefetch so both hit the same Glide cache key. */
+    private static final int THUMB_DECODE_W = 540;
+    private static final int THUMB_DECODE_H = 960;
+    /** De-dupes prefetchUpcomingFeedMedia() across a fling's scroll events. */
+    private int lastPrefetchFromIndex = -1;
 
     // Story data model for proper sorting
     private static class StoryEntry {
@@ -277,6 +339,19 @@ public class HomeFragment extends Fragment {
         thumbPreloader      = new com.callx.app.cache.ReelThumbnailPreloader(requireContext());
         predictivePreloader = new com.callx.app.cache.ReelPredictivePreloader(requireContext());
         feedWindowManager   = new HomeFeedWindowManager(scrollView, Glide.with(this));
+        feedWindowManager.setFeedContainer(containerFeed);
+        // Warm a couple of feed cards while the main thread is idle so the
+        // first flings don't pay inflate cost on the frame they need it.
+        cardPool = HomeFeedCardPool.createOrNull(
+                inflater, R.layout.item_home_feed_post, containerFeed);
+        // ── Watch tracking + autoplay preference ───────────────────────────
+        // Both are read once here: the watch-progress map powers resume
+        // positions for every card without a per-card Firebase read, and the
+        // autoplay mode decides whether a card that scrolls into view starts
+        // by itself or waits behind a tap-to-play overlay.
+        watchTracker = new HomeFeedWatchTracker(safeMyUid());
+        watchTracker.preloadWatchProgress(null);
+        autoplayPolicy.load(safeMyUid(), null);
         setupListeners();
         loadAllSections();
         return v;
@@ -309,7 +384,17 @@ public class HomeFragment extends Fragment {
                         requireActivity().runOnUiThread(
                             () -> card.endOverlay.setVisibility(View.VISIBLE));
                     }
+                    // Finished inline → same bookkeeping the full-screen player
+                    // does: history keeps the timestamp, progress resets to 0.
+                    if (watchTracker != null) watchTracker.onPlaybackCompleted(card.reelId);
+                    if (card.seekBar != null && isAdded()) {
+                        requireActivity().runOnUiThread(
+                            () -> card.seekBar.setProgress(card.seekBar.getMax()));
+                    }
                 }
+                // A promoted standby player only learns its duration here, so
+                // this is the first safe point to apply a saved resume seek.
+                if (state == Player.STATE_READY) applyPendingResumeSeek();
             }
             @Override
             public void onRenderedFirstFrame() {
@@ -474,11 +559,12 @@ public class HomeFragment extends Fragment {
 
         // ── Scroll-triggered auto-play ──────────────────────────────────────
         if (scrollView != null) {
+            paginateThresholdPx = dpToPx(600);
+            prefetchThresholdPx = dpToPx(1400);
             scrollView.setOnScrollChangeListener(
                 (NestedScrollView.OnScrollChangeListener) (sv, sx, sy, osx, osy) -> {
-                    if (scrollRunnable != null) scrollHandler.removeCallbacks(scrollRunnable);
-                    scrollRunnable = this::playMostVisibleCard;
-                    scrollHandler.postDelayed(scrollRunnable, 120);
+                    scrollHandler.removeCallbacks(playVisibleRunnable);
+                    scrollHandler.postDelayed(playVisibleRunnable, 120);
 
                     // ★ Buttery scroll: promote the whole scrolling content
                     // to a hardware layer the instant motion starts, so the
@@ -494,21 +580,22 @@ public class HomeFragment extends Fragment {
                     // off-screen card bitmaps re-windowed, on the same settle
                     // timer as the hardware-layer drop below.
                     if (feedWindowManager != null) feedWindowManager.onScrollStarted();
-                    if (scrollSettleRunnable != null) scrollHandler.removeCallbacks(scrollSettleRunnable);
-                    scrollSettleRunnable = () -> {
-                        endFeedScrollLayer();
-                        if (feedWindowManager != null) feedWindowManager.onScrollSettled();
-                    };
+                    scrollHandler.removeCallbacks(scrollSettleRunnable);
                     scrollHandler.postDelayed(scrollSettleRunnable, 180);
 
                     // ★ Instagram-style infinite scroll: once the user is
                     // within ~600dp of the bottom of the scrollable content,
                     // silently fetch the next page from Firebase and append
                     // it — the feed never hits a hard "end", same as IG.
-                    View content = sv.getChildAt(0);
+                    // Scrolling up can never bring the bottom closer, so the
+                    // pagination/prefetch math is skipped entirely for half
+                    // of all scroll events.
+                    if (sy <= osy) return;
+                    View content = feedScrollContentRoot != null
+                            ? feedScrollContentRoot : sv.getChildAt(0);
                     if (content != null) {
                         int remaining = content.getBottom() - (sv.getHeight() + sv.getScrollY());
-                        if (remaining < dpToPx(600) && !isLoadingMoreFeed && feedHasMore) {
+                        if (remaining < paginateThresholdPx && !isLoadingMoreFeed && feedHasMore) {
                             loadMoreFeedPosts();
                         }
                         // Prefetch thumbnails/video for the *next* page a bit
@@ -516,7 +603,7 @@ public class HomeFragment extends Fragment {
                         // time those cards actually scroll into view their
                         // media is already warm in cache — removes the
                         // "pop-in" jank new content otherwise causes.
-                        if (remaining < dpToPx(1400) && remaining >= dpToPx(600)) {
+                        if (remaining < prefetchThresholdPx && remaining >= paginateThresholdPx) {
                             prefetchUpcomingFeedMedia();
                         }
                     }
@@ -533,12 +620,22 @@ public class HomeFragment extends Fragment {
     private void beginFeedScrollLayer() {
         if (isFeedScrolling || feedScrollContentRoot == null) return;
         isFeedScrolling = true;
+        // A hardware layer is only a win while the content still fits in one
+        // GPU texture. Once the feed has grown past MAX_HW_LAYER_PX — which
+        // happens after just a few cards — the promotion is refused and all
+        // that is left is the cost of re-rendering the subtree on every
+        // layer-type flip, i.e. exactly the stutter it was meant to remove.
+        // (isFeedScrolling itself is still tracked either way: the staged
+        // card renderer and the settle timer both key off it.)
+        if (feedScrollContentRoot.getHeight() > MAX_HW_LAYER_PX) return;
+        isHwLayerOn = true;
         feedScrollContentRoot.setLayerType(View.LAYER_TYPE_HARDWARE, null);
     }
 
     private void endFeedScrollLayer() {
-        if (!isFeedScrolling || feedScrollContentRoot == null) return;
         isFeedScrolling = false;
+        if (!isHwLayerOn || feedScrollContentRoot == null) return;
+        isHwLayerOn = false;
         feedScrollContentRoot.setLayerType(View.LAYER_TYPE_NONE, null);
     }
 
@@ -551,6 +648,13 @@ public class HomeFragment extends Fragment {
         if (!isAdded() || getContext() == null || currentFeedPosts == null) return;
         int fromIndex = renderedReelIds.size();
         if (fromIndex >= currentFeedPosts.size()) return;
+        // Called straight from onScrollChange, i.e. once per scrolled pixel
+        // while the viewport sits in the prefetch band — without this guard a
+        // single fling re-dispatched the same Glide preloads and the same
+        // byte-range video preload hundreds of times, and all that redundant
+        // work lands on the frames the fling needs.
+        if (fromIndex == lastPrefetchFromIndex) return;
+        lastPrefetchFromIndex = fromIndex;
         // Warms Glide's cache for thumbnails of the next few not-yet-rendered
         // posts so they're already decoded by the time their cards scroll in.
         int upTo = Math.min(currentFeedPosts.size(), fromIndex + 4);
@@ -559,8 +663,11 @@ public class HomeFragment extends Fragment {
             if (r == null) continue;
             String thumb = r.effectiveThumbUrl();
             if (!thumb.isEmpty()) {
+                // MUST match the card's own override() — Glide keys its cache
+                // on the requested size, so a differently-sized preload warms
+                // an entry the card never reads and decodes the bitmap twice.
                 Glide.with(requireContext()).load(thumb).apply(FEED_IMAGE_OPTS)
-                        .override(720, 720).preload();
+                        .override(THUMB_DECODE_W, THUMB_DECODE_H).preload();
             }
         }
         // Reuses the same byte-range video preloader the Reels swipe feed
@@ -583,13 +690,18 @@ public class HomeFragment extends Fragment {
         int bestPx  = 0;
         for (int i = 0; i < feedCards.size(); i++) {
             View root = feedCards.get(i).rootView;
-            if (root == null || root.getHeight() == 0) continue;
-            int[] loc = new int[2];
-            root.getLocationOnScreen(loc);
-            int cardTop = loc[1];
+            // A detached (virtualized) card's coordinates are stale, and an
+            // unmeasured one has none — both are by definition far off-screen.
+            if (root == null || root.getHeight() == 0 || root.getParent() == null) continue;
+            root.getLocationOnScreen(visibilityLoc);
+            int cardTop = visibilityLoc[1];
             int cardBot = cardTop + root.getHeight();
             int vis     = Math.max(0, Math.min(cardBot, screenH) - Math.max(cardTop, 0));
             if (vis > bestPx) { bestPx = vis; bestIdx = i; }
+            // Cards are laid out top-to-bottom, so once one starts below the
+            // viewport every later card does too — stop walking the list
+            // instead of measuring every card in a long feed on each scroll.
+            else if (cardTop > screenH && bestIdx >= 0) break;
         }
         if (bestIdx >= 0 && bestIdx != currentPlayingIndex) attachPlayerToCard(bestIdx);
     }
@@ -628,9 +740,15 @@ public class HomeFragment extends Fragment {
         // Detach old
         if (currentPlayingIndex >= 0 && currentPlayingIndex < feedCards.size()) {
             HomeFeedCard old = feedCards.get(currentPlayingIndex);
+            // Persist how far the outgoing reel got BEFORE its player is torn
+            // away, otherwise a scroll-away loses the resume position.
+            flushActiveWatchProgress();
+            endSpeedBoost(currentPlayingIndex);
+            resetCardPlaybackChrome(old);
             if (old.playerView != null) old.playerView.setPlayer(null);
             if (old.endOverlay  != null) old.endOverlay.setVisibility(View.GONE);
         }
+        if (watchTracker != null) watchTracker.onCardInactive();
         currentPlayingIndex = index;
         HomeFeedCard card = feedCards.get(index);
         attachStartTimeMs = System.currentTimeMillis(); // TTFF measurement start
@@ -672,9 +790,31 @@ public class HomeFragment extends Fragment {
         }
 
         if (card.playerView != null) card.playerView.setPlayer(feedPlayer);
+        // Never let the virtualizer pull the playing card out of the tree.
+        if (feedWindowManager != null) feedWindowManager.setProtectedView(card.rootView);
         feedPlayer.setVolume(isMuted ? 0f : 1f);
-        feedPlayer.setPlayWhenReady(true);
-        feedPlayer.play();
+        feedPlayer.setPlaybackSpeed(1f);
+
+        // ── Autoplay gate ────────────────────────────────────────────────
+        // Preparation/pre-buffering above still happens regardless of the
+        // setting — only the decision to actually start is gated, so a
+        // tap-to-play under "Off" is still instant.
+        card.resumePending = true;
+        boolean autoplay = autoplayPolicy.shouldAutoplay(getContext());
+        if (autoplay) {
+            userPausedActiveCard = false;
+            feedPlayer.setPlayWhenReady(true);
+            feedPlayer.play();
+            if (watchTracker != null) watchTracker.onCardActive(card.reelId);
+            showCardPlayOverlay(card, false);
+            startProgressTicker();
+        } else {
+            userPausedActiveCard = true;
+            feedPlayer.setPlayWhenReady(false);
+            feedPlayer.pause();
+            showCardPlayOverlay(card, true);
+        }
+        applyPendingResumeSeek();
 
         // Reset the reveal guard — the actual fade now happens in
         // configureFeedPlayerInstance()'s onRenderedFirstFrame, once a real
@@ -713,6 +853,229 @@ public class HomeFragment extends Fragment {
         // Pre-buffer both neighbours so either scroll direction gets an instant swap.
         prepareStandbyNext(index);
         prepareStandbyPrev(index);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // ── Inline playback controls: scrub bar, tap play/pause, hold-2x ──────
+    // ══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Wires a card's scrub bar to the shared feed player.
+     *
+     * The bar is expressed in permille (max 1000) rather than millis because
+     * the same bar outlives several media items as the shared player hops
+     * between cards — a fixed scale avoids having to re-max it every attach.
+     * The thumb is invisible at rest and fades in only while dragging, which
+     * is exactly what the full-screen player does (see thumb_reel_seek.xml).
+     */
+    private void setupCardScrubBar(HomeFeedCard card, int index) {
+        final SeekBar bar = card.seekBar;
+        if (bar == null) return;
+        setSeekThumbVisible(bar, false);
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                if (!fromUser || index != currentPlayingIndex || feedPlayer == null) return;
+                long dur = feedPlayer.getDuration();
+                if (dur <= 0) return;
+                showScrubTime(card, (long) (dur * (progress / (float) sb.getMax())), dur);
+            }
+            @Override
+            public void onStartTrackingTouch(SeekBar sb) {
+                // Scrubbing a card that isn't the playing one makes it the
+                // playing one first, so the drag lands on the right media.
+                if (index != currentPlayingIndex) attachPlayerToCard(index);
+                card.isScrubbing = true;
+                setSeekThumbVisible(sb, true);
+                if (card.tvPosition != null) card.tvPosition.setVisibility(View.VISIBLE);
+            }
+            @Override
+            public void onStopTrackingTouch(SeekBar sb) {
+                card.isScrubbing = false;
+                setSeekThumbVisible(sb, false);
+                if (card.tvPosition != null) card.tvPosition.setVisibility(View.GONE);
+                if (index != currentPlayingIndex || feedPlayer == null) return;
+                long dur = feedPlayer.getDuration();
+                if (dur <= 0) return;
+                // A manual seek supersedes any not-yet-applied resume point.
+                card.resumePending = false;
+                if (card.endOverlay != null) card.endOverlay.setVisibility(View.GONE);
+                feedPlayer.seekTo((long) (dur * (sb.getProgress() / (float) sb.getMax())));
+                if (!userPausedActiveCard) feedPlayer.play();
+            }
+        });
+    }
+
+    /** Tap-to-play / tap-to-pause for a feed card. */
+    private void toggleCardPlayback(int index) {
+        if (feedPlayer == null || index < 0 || index >= feedCards.size()) return;
+        if (index != currentPlayingIndex) {
+            // Tapping a non-active card promotes it; attach honours the
+            // autoplay setting, so under "Off" force it to start anyway —
+            // an explicit tap IS the user asking for playback.
+            attachPlayerToCard(index);
+            if (currentPlayingIndex == index && userPausedActiveCard) resumeActiveCard(index);
+            return;
+        }
+        HomeFeedCard card = feedCards.get(index);
+        if (feedPlayer.isPlaying()) {
+            userPausedActiveCard = true;
+            feedPlayer.pause();
+            flushActiveWatchProgress();
+            stopProgressTicker();
+            if (watchTracker != null) watchTracker.onCardInactive();
+            showCardPlayOverlay(card, true);
+        } else {
+            resumeActiveCard(index);
+        }
+    }
+
+    /** Starts (or restarts) the active card, hiding the tap-to-play overlay. */
+    private void resumeActiveCard(int index) {
+        if (feedPlayer == null || index < 0 || index >= feedCards.size()) return;
+        HomeFeedCard card = feedCards.get(index);
+        userPausedActiveCard = false;
+        if (card.endOverlay != null) card.endOverlay.setVisibility(View.GONE);
+        feedPlayer.setPlayWhenReady(true);
+        feedPlayer.play();
+        if (watchTracker != null) watchTracker.onCardActive(card.reelId);
+        showCardPlayOverlay(card, false);
+        startProgressTicker();
+    }
+
+    /** Press-and-hold → 2x playback with a "2x ▶▶" chip, like the player. */
+    private void beginSpeedBoost(int index) {
+        if (feedPlayer == null || index != currentPlayingIndex) return;
+        if (index < 0 || index >= feedCards.size()) return;
+        HomeFeedCard card = feedCards.get(index);
+        if (card.speedBoosted || !feedPlayer.isPlaying()) return;
+        card.speedBoosted = true;
+        feedPlayer.setPlaybackSpeed(HOLD_SPEED);
+        if (card.speedChip != null) card.speedChip.setVisibility(View.VISIBLE);
+        if (card.rootView != null) card.rootView.performHapticFeedback(
+                android.view.HapticFeedbackConstants.LONG_PRESS);
+    }
+
+    /** Finger lifted → back to 1x. Safe to call when no boost is active. */
+    private void endSpeedBoost(int index) {
+        if (index < 0 || index >= feedCards.size()) return;
+        HomeFeedCard card = feedCards.get(index);
+        if (!card.speedBoosted) return;
+        card.speedBoosted = false;
+        if (feedPlayer != null && index == currentPlayingIndex) feedPlayer.setPlaybackSpeed(1f);
+        if (card.speedChip != null) card.speedChip.setVisibility(View.GONE);
+    }
+
+    /**
+     * Applies the saved watch position for the active card once its duration
+     * is actually known. Called both right after attach (warm/promoted player
+     * — duration already available) and from STATE_READY (cold start).
+     */
+    private void applyPendingResumeSeek() {
+        if (feedPlayer == null || watchTracker == null) return;
+        if (currentPlayingIndex < 0 || currentPlayingIndex >= feedCards.size()) return;
+        HomeFeedCard card = feedCards.get(currentPlayingIndex);
+        if (!card.resumePending) return;
+        long dur = feedPlayer.getDuration();
+        if (dur <= 0) return;                 // retry on the next STATE_READY
+        card.resumePending = false;
+        long resumeMs = watchTracker.consumeResumePositionMs(card.reelId, dur);
+        if (resumeMs > 0) feedPlayer.seekTo(resumeMs);
+    }
+
+    /** Drives the active card's scrub bar and the throttled progress writes. */
+    private void startProgressTicker() {
+        if (isTickerRunning) return;
+        isTickerRunning = true;
+        if (progressTicker == null) {
+            progressTicker = new Runnable() {
+                @Override public void run() {
+                    if (!isTickerRunning) return;
+                    updateActiveCardProgress();
+                    scrollHandler.postDelayed(this, PROGRESS_TICK_MS);
+                }
+            };
+        }
+        scrollHandler.post(progressTicker);
+    }
+
+    private void stopProgressTicker() {
+        isTickerRunning = false;
+        if (progressTicker != null) scrollHandler.removeCallbacks(progressTicker);
+    }
+
+    private void updateActiveCardProgress() {
+        if (!isAdded() || feedPlayer == null) return;
+        if (currentPlayingIndex < 0 || currentPlayingIndex >= feedCards.size()) return;
+        HomeFeedCard card = feedCards.get(currentPlayingIndex);
+        long dur = feedPlayer.getDuration();
+        long pos = feedPlayer.getCurrentPosition();
+        if (dur <= 0) return;
+        applyPendingResumeSeek();
+        if (card.seekBar != null && !card.isScrubbing) {
+            card.seekBar.setProgress(
+                (int) Math.max(0, Math.min(card.seekBar.getMax(),
+                    pos * card.seekBar.getMax() / dur)));
+        }
+        if (card.tvPosition != null && card.tvPosition.getVisibility() == View.VISIBLE
+                && !card.isScrubbing) {
+            card.tvPosition.setText(formatClock(pos) + " / " + formatClock(dur));
+        }
+        if (watchTracker != null && feedPlayer.isPlaying()) {
+            watchTracker.onPlaybackProgress(card.reelId, pos, dur);
+        }
+    }
+
+    /** Writes the active reel's current position immediately (no throttle). */
+    private void flushActiveWatchProgress() {
+        if (watchTracker == null || feedPlayer == null) return;
+        if (currentPlayingIndex < 0 || currentPlayingIndex >= feedCards.size()) return;
+        HomeFeedCard card = feedCards.get(currentPlayingIndex);
+        long dur = feedPlayer.getDuration();
+        if (dur <= 0) return;
+        watchTracker.flushProgress(card.reelId, feedPlayer.getCurrentPosition(), dur);
+    }
+
+    private void showCardPlayOverlay(HomeFeedCard card, boolean show) {
+        if (card == null || card.playOverlay == null) return;
+        card.playOverlay.setVisibility(show ? View.VISIBLE : View.GONE);
+    }
+
+    /** Returns a card's chrome to its idle look when it stops being active. */
+    private void resetCardPlaybackChrome(HomeFeedCard card) {
+        if (card == null) return;
+        card.isScrubbing   = false;
+        card.resumePending = false;
+        if (card.seekBar != null) {
+            card.seekBar.setProgress(0);
+            setSeekThumbVisible(card.seekBar, false);
+        }
+        if (card.tvPosition != null) card.tvPosition.setVisibility(View.GONE);
+        if (card.speedChip  != null) card.speedChip.setVisibility(View.GONE);
+        showCardPlayOverlay(card, false);
+    }
+
+    private void showScrubTime(HomeFeedCard card, long posMs, long durMs) {
+        if (card.tvPosition == null) return;
+        card.tvPosition.setVisibility(View.VISIBLE);
+        card.tvPosition.setText(formatClock(posMs) + " / " + formatClock(durMs));
+    }
+
+    /**
+     * The thumb drawable is shared across every inflated card, so it must be
+     * mutated before its alpha is touched — otherwise showing one card's
+     * handle would show all of them.
+     */
+    private void setSeekThumbVisible(SeekBar bar, boolean visible) {
+        android.graphics.drawable.Drawable thumb = bar.getThumb();
+        if (thumb == null) return;
+        thumb.mutate().setAlpha(visible ? 255 : 0);
+    }
+
+    private static String formatClock(long ms) {
+        if (ms < 0) ms = 0;
+        long totalSec = ms / 1000;
+        return (totalSec / 60) + ":" + String.format(Locale.US, "%02d", totalSec % 60);
     }
 
     /**
@@ -822,9 +1185,18 @@ public class HomeFragment extends Fragment {
         // feed video's audio behind the still-visible Reels player.
         boolean actuallyVisible = getView() != null && getView().isShown();
         if (feedPlayer != null && actuallyVisible) {
-            if (currentPlayingIndex >= 0) feedPlayer.play();
-            else if (!feedCards.isEmpty()) scrollHandler.postDelayed(this::playMostVisibleCard, 300);
+            // A card the user deliberately paused (or that never started
+            // because autoplay is Off / off-Wi-Fi) must stay paused across a
+            // resume — resuming it here would defeat the setting.
+            if (currentPlayingIndex >= 0) {
+                if (!userPausedActiveCard) { feedPlayer.play(); startProgressTicker(); }
+            } else if (!feedCards.isEmpty()) {
+                scrollHandler.postDelayed(this::playMostVisibleCard, 300);
+            }
         }
+        // The autoplay preference can be changed in Reel Feed Settings while
+        // this fragment is only stopped, so re-read it on every resume.
+        autoplayPolicy.load(safeMyUid(), null);
         // Also listen live while Home is on-screen: the moment ANY screen
         // marks a story seen, statusSeen/{myUid} changes in Firebase and
         // StatusCacheManager's real-time listener fires this observer —
@@ -846,6 +1218,10 @@ public class HomeFragment extends Fragment {
 
     @Override public void onPause() {
         super.onPause();
+        endSpeedBoost(currentPlayingIndex);
+        flushActiveWatchProgress();
+        stopProgressTicker();
+        if (watchTracker != null) watchTracker.onCardInactive();
         if (feedPlayer != null) feedPlayer.pause();
         // stop() drops a standby player back to STATE_IDLE (needs a fresh
         // prepare() before it's playable again), so the tracked index/url
@@ -873,8 +1249,11 @@ public class HomeFragment extends Fragment {
      */
     public void onTabBecameVisible() {
         if (feedPlayer != null) {
-            if (currentPlayingIndex >= 0) feedPlayer.play();
-            else if (!feedCards.isEmpty()) scrollHandler.postDelayed(this::playMostVisibleCard, 300);
+            if (currentPlayingIndex >= 0) {
+                if (!userPausedActiveCard) { feedPlayer.play(); startProgressTicker(); }
+            } else if (!feedCards.isEmpty()) {
+                scrollHandler.postDelayed(this::playMostVisibleCard, 300);
+            }
         }
         // ★ INSTAGRAM-LEVEL FIX: previously the top story row was only ever
         // built once (onCreateView) or on pull-to-refresh — so viewing a
@@ -898,14 +1277,25 @@ public class HomeFragment extends Fragment {
      * behind the Reels player once the user has swiped away from it.
      */
     public void onTabBecameHidden() {
+        endSpeedBoost(currentPlayingIndex);
+        flushActiveWatchProgress();
+        stopProgressTicker();
+        if (watchTracker != null) watchTracker.onCardInactive();
         if (feedPlayer != null) feedPlayer.pause();
     }
 
     @Override public void onDestroyView() {
         super.onDestroyView();
         stopRealtimeNewPostsListener();
-        if (scrollRunnable != null) scrollHandler.removeCallbacks(scrollRunnable);
-        if (scrollSettleRunnable != null) scrollHandler.removeCallbacks(scrollSettleRunnable);
+        scrollHandler.removeCallbacks(playVisibleRunnable);
+        scrollHandler.removeCallbacks(scrollSettleRunnable);
+        cancelStagedFeedRender();
+        if (cardPool != null) { cardPool.release(); cardPool = null; }
+        flushActiveWatchProgress();
+        stopProgressTicker();
+        progressTicker = null;
+        if (watchTracker != null) { watchTracker.release(); watchTracker = null; }
+        userPausedActiveCard = false;
         feedScrollContentRoot = null;
         if (feedPlayer != null) { feedPlayer.release(); feedPlayer = null; }
         if (standbyNextPlayer != null) { standbyNextPlayer.release(); standbyNextPlayer = null; }
@@ -968,6 +1358,7 @@ public class HomeFragment extends Fragment {
         isFollowingMode = following;
         updateFeedToggleUI();
         resetFeedPaginationState();
+        cancelStagedFeedRender();
         if (containerFeed != null) containerFeed.removeAllViews();
         if (feedWindowManager != null) feedWindowManager.reset();
         showFeedLoading(true);
@@ -984,6 +1375,7 @@ public class HomeFragment extends Fragment {
         oldestFeedTimestamp = null;
         newestFeedTimestamp = null;
         renderedReelIds.clear();
+        lastPrefetchFromIndex = -1;
         postsSincePeopleYouMayLike = 0;
         postsSinceSuggestedReels = 0;
         newPostsPending = 0;
@@ -1019,6 +1411,7 @@ public class HomeFragment extends Fragment {
     }
 
     private void clearAllSections() {
+        cancelStagedFeedRender();
         if (containerFeed != null)             containerFeed.removeAllViews();
         if (feedWindowManager != null)         feedWindowManager.reset();
         if (containerTrending != null)         clearContainerKeepLoader(containerTrending);
@@ -1437,6 +1830,13 @@ public class HomeFragment extends Fragment {
         cachedFollowedUids = followedUids;
         requireActivity().runOnUiThread(() -> {
             if (containerFeed == null || !isAdded()) return;
+            // The cards backing the ticker/tracker are about to be destroyed:
+            // save where the current reel got to, then stand both down before
+            // currentPlayingIndex is invalidated.
+            flushActiveWatchProgress();
+            stopProgressTicker();
+            if (watchTracker != null) watchTracker.onCardInactive();
+            userPausedActiveCard = false;
             containerFeed.removeAllViews();
             feedCards.clear();
             if (feedWindowManager != null) feedWindowManager.reset();
@@ -1460,23 +1860,99 @@ public class HomeFragment extends Fragment {
             for (int i = 0; i < immediate; i++) {
                 renderOneFeedItem(posts.get(i), likedIds, savedIds, myUid, followedUids);
             }
-            for (int i = immediate; i < count; i++) {
-                final int idx = i;
-                containerFeed.postDelayed(() -> {
-                    if (!isAdded() || containerFeed == null) return;
-                    renderOneFeedItem(posts.get(idx), likedIds, savedIds, myUid, followedUids);
-                }, (long) (idx - immediate + 1) * 16L);
-            }
+            // The rest are drained one per frame by a self-chaining renderer
+            // that YIELDS WHILE THE USER IS SCROLLING. The old version posted
+            // every remaining card up-front on a fixed 16ms ladder, so those
+            // inflations landed in the middle of the user's first fling — the
+            // one moment the frame budget is already fully spent.
+            startStagedFeedRender(posts, immediate, likedIds, savedIds, myUid, followedUids);
             // Auto-play first visible card after layout
             containerFeed.post(() -> {
-                if (scrollRunnable != null) scrollHandler.removeCallbacks(scrollRunnable);
-                scrollHandler.postDelayed(this::playMostVisibleCard, 400);
+                scrollHandler.removeCallbacks(playVisibleRunnable);
+                scrollHandler.postDelayed(playVisibleRunnable, 400);
             });
             // Start listening for brand-new posts published while the user
             // is sitting on Home — real background updates, not just
             // pull-to-refresh, same as Instagram's live feed.
             startRealtimeNewPostsListener();
         });
+    }
+
+    // ── Staged (scroll-yielding) card rendering ───────────────────────────
+
+    private final List<ReelModel> stagedPosts = new ArrayList<>();
+    private int             stagedIndex   = 0;
+    private Set<String>     stagedLiked   = null;
+    private Set<String>     stagedSaved   = null;
+    private String          stagedMyUid   = null;
+    private Set<String>     stagedFollows = null;
+    private Runnable        stagedRunnable = null;
+
+    /** Frame-paced drain; backs off to this while the feed is in motion. */
+    private static final long STAGED_STEP_MS  = 16L;
+    private static final long STAGED_YIELD_MS = 64L;
+    /** Upper bound on how long yielding may starve the queue (~0.5s), so a
+     *  long continuous fling can never outrun the cards being appended. */
+    private static final int  STAGED_MAX_YIELDS = 8;
+    private int stagedYields = 0;
+
+    /**
+     * Renders the remaining cards of a page one per frame, and does nothing
+     * at all on frames where the feed is actively scrolling — inflation is
+     * the single most expensive thing this screen does, so it must never
+     * share a frame with a fling.
+     */
+    private void startStagedFeedRender(List<ReelModel> posts, int fromIndex,
+                                       Set<String> likedIds, Set<String> savedIds,
+                                       String myUid, Set<String> followedUids) {
+        cancelStagedFeedRender();
+        stagedPosts.addAll(posts);
+        stagedIndex   = fromIndex;
+        stagedLiked   = likedIds;
+        stagedSaved   = savedIds;
+        stagedMyUid   = myUid;
+        stagedFollows = followedUids;
+        stagedRunnable = new Runnable() {
+            @Override public void run() {
+                if (!isAdded() || containerFeed == null) return;
+                if (stagedIndex >= stagedPosts.size()) { cancelStagedFeedRender(); return; }
+                if (isFeedScrolling && stagedYields < STAGED_MAX_YIELDS) {
+                    stagedYields++;
+                    scrollHandler.postDelayed(this, STAGED_YIELD_MS);
+                    return;
+                }
+                stagedYields = 0;
+                renderOneFeedItem(stagedPosts.get(stagedIndex++),
+                        stagedLiked, stagedSaved, stagedMyUid, stagedFollows);
+                scrollHandler.postDelayed(this, STAGED_STEP_MS);
+            }
+        };
+        scrollHandler.postDelayed(stagedRunnable, STAGED_STEP_MS);
+    }
+
+    /**
+     * Adds a freshly paginated page to the in-flight drain instead of
+     * starting a second one (which would cancel the first and silently drop
+     * whatever cards it had left).
+     */
+    private void enqueueStagedFeedRender(List<ReelModel> posts, Set<String> likedIds,
+                                         Set<String> savedIds, String myUid,
+                                         Set<String> followedUids) {
+        if (posts == null || posts.isEmpty()) return;
+        if (stagedRunnable != null) { stagedPosts.addAll(posts); return; }
+        startStagedFeedRender(posts, 0, likedIds, savedIds, myUid, followedUids);
+    }
+
+    private void cancelStagedFeedRender() {
+        if (stagedRunnable != null) scrollHandler.removeCallbacks(stagedRunnable);
+        stagedRunnable = null;
+        stagedPosts.clear();
+        stagedLiked    = null;
+        stagedSaved    = null;
+        stagedFollows  = null;
+        stagedMyUid    = null;
+        stagedIndex    = 0;
+        stagedYields   = 0;
     }
 
     /**
@@ -1523,13 +1999,8 @@ public class HomeFragment extends Fragment {
         List<ReelModel> merged = new ArrayList<>(currentFeedPosts);
         merged.addAll(newPosts);
         currentFeedPosts = merged;
-        for (int i = 0; i < newPosts.size(); i++) {
-            final ReelModel r = newPosts.get(i);
-            containerFeed.postDelayed(() -> {
-                if (!isAdded() || containerFeed == null) return;
-                renderOneFeedItem(r, cachedLikedIds, cachedSavedIds, cachedMyUidForFeed, cachedFollowedUids);
-            }, (long) i * 16L);
-        }
+        enqueueStagedFeedRender(newPosts, cachedLikedIds, cachedSavedIds,
+                cachedMyUidForFeed, cachedFollowedUids);
         isLoadingMoreFeed = false;
         showFeedFooterLoading(false);
     }
@@ -2002,6 +2473,7 @@ public class HomeFragment extends Fragment {
             pill.setOnClickListener(v -> {
                 if (scrollView != null) scrollView.smoothScrollTo(0, 0);
                 resetFeedPaginationState();
+                cancelStagedFeedRender();
                 if (containerFeed != null) containerFeed.removeAllViews();
                 showFeedLoading(true);
                 loadFeed();
@@ -2026,8 +2498,10 @@ public class HomeFragment extends Fragment {
     private void addFeedPostCard(ReelModel reel, Set<String> likedIds,
                                   Set<String> savedIds, String myUid, Set<String> followedUids) {
         if (!isAdded() || getContext() == null || containerFeed == null) return;
-        View card = LayoutInflater.from(requireContext())
-            .inflate(R.layout.item_home_feed_post, containerFeed, false);
+        View card = cardPool != null
+            ? cardPool.obtain()
+            : LayoutInflater.from(requireContext())
+                .inflate(R.layout.item_home_feed_post, containerFeed, false);
 
         CircleImageView avatar    = card.findViewById(R.id.iv_post_avatar);
         // FIX v39: seamless gradient ring (see StoryRingGradientDrawable doc for why
@@ -2058,6 +2532,10 @@ public class HomeFragment extends Fragment {
         View        watchMore     = card.findViewById(R.id.btn_watch_more_card);
         TextView    watchAgain    = card.findViewById(R.id.btn_watch_again_card);
         ImageButton btnMute       = card.findViewById(R.id.btn_post_mute);
+        SeekBar     sbProgress    = card.findViewById(R.id.sb_post_progress);
+        TextView    tvPosition    = card.findViewById(R.id.tv_post_position);
+        TextView    tvSpeedChip   = card.findViewById(R.id.tv_post_speed_chip);
+        View        playOverlay   = card.findViewById(R.id.btn_post_play_overlay);
 
         // ── 9:16 aspect ratio for video frame ──────────────────────────────
         if (frameVideo != null) {
@@ -2079,7 +2557,22 @@ public class HomeFragment extends Fragment {
                               ? reel.videoUrl
                               : (reel.video480 != null ? reel.video480 : "");
         feedCard.reelId     = reel.reelId;
+        feedCard.seekBar     = sbProgress;
+        feedCard.tvPosition  = tvPosition;
+        feedCard.speedChip   = tvSpeedChip;
+        feedCard.playOverlay = playOverlay;
         feedCards.add(feedCard);
+
+        // Photo-only posts have no timeline to scrub and never autoplay, so
+        // the video-only chrome stays hidden for them.
+        boolean hasVideo = !feedCard.videoUrl.isEmpty();
+        if (!hasVideo) {
+            if (sbProgress  != null) sbProgress.setVisibility(View.GONE);
+            if (tvPosition  != null) tvPosition.setVisibility(View.GONE);
+            if (playOverlay != null) playOverlay.setVisibility(View.GONE);
+        } else {
+            setupCardScrubBar(feedCard, cardIndex);
+        }
 
         // ── End-of-reel overlay buttons ──────────────────────────────────────
         if (watchMore != null) {
@@ -2095,9 +2588,10 @@ public class HomeFragment extends Fragment {
                 // Hide overlay, reset thumb visibility, seek to 0, replay
                 if (endOverlay != null) endOverlay.setVisibility(View.GONE);
                 if (ivThumb != null) { ivThumb.setAlpha(0f); ivThumb.setVisibility(View.INVISIBLE); }
+                if (sbProgress != null) sbProgress.setProgress(0);
                 feedPlayer.seekTo(0);
-                feedPlayer.play();
                 currentPlayingIndex = cardIndex;
+                resumeActiveCard(cardIndex);
             });
         }
 
@@ -2378,7 +2872,10 @@ public class HomeFragment extends Fragment {
                 frameVideo.addView(dots);
             }
         } else {
-            // ── Double-tap to like on video frame ──
+            // ── Video frame gestures: double-tap like, tap play/pause, hold 2x ──
+            // All three live in ONE touch listener because a View has only one
+            // OnTouchListener — a separate listener for the new gestures would
+            // silently replace double-tap-to-like.
             if (frameVideo != null) {
                 GestureDetector dtGesture = new GestureDetector(requireContext(),
                     new GestureDetector.SimpleOnGestureListener() {
@@ -2401,8 +2898,33 @@ public class HomeFragment extends Fragment {
                             showHeartAnimation(frameVideo);
                             return true;
                         }
+                        /** Single tap (not part of a double-tap) toggles play/pause
+                         *  — and is the only way to start a card when the user's
+                         *  autoplay setting is "Off" / off-Wi-Fi. */
+                        @Override public boolean onSingleTapConfirmed(MotionEvent e) {
+                            toggleCardPlayback(cardIndex);
+                            return true;
+                        }
+                        /** Press-and-hold = temporary 2x fast-forward. */
+                        @Override public void onLongPress(MotionEvent e) {
+                            beginSpeedBoost(cardIndex);
+                        }
                     });
-                frameVideo.setOnTouchListener((v, ev) -> dtGesture.onTouchEvent(ev));
+                dtGesture.setIsLongpressEnabled(true);
+                frameVideo.setOnTouchListener((v, ev) -> {
+                    boolean handled = dtGesture.onTouchEvent(ev);
+                    int action = ev.getActionMasked();
+                    if (action == MotionEvent.ACTION_UP
+                            || action == MotionEvent.ACTION_CANCEL) {
+                        // Releasing the finger always ends a boost, even when the
+                        // detector itself consumed neither the up nor the cancel.
+                        endSpeedBoost(cardIndex);
+                    }
+                    return handled || action == MotionEvent.ACTION_DOWN;
+                });
+            }
+            if (playOverlay != null) {
+                playOverlay.setOnClickListener(x -> toggleCardPlayback(cardIndex));
             }
         }
 
@@ -2414,15 +2936,22 @@ public class HomeFragment extends Fragment {
         }
 
         if (reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
+            // THUMB_DECODE_* matches the card's 9:16 frame instead of decoding a
+            // square 720x720 and throwing away a third of it — ~44% less
+            // bitmap memory per card, which is what bounds GC pressure while
+            // flinging through a long feed.
             Glide.with(requireContext()).load(reel.thumbUrl)
                 .apply(FEED_IMAGE_OPTS)
-                .override(720, 720)
+                .override(THUMB_DECODE_W, THUMB_DECODE_H)
                 .centerCrop().placeholder(R.drawable.ic_reels).into(ivThumb);
         }
         if (reel.ownerPhoto != null && !reel.ownerPhoto.isEmpty()) {
+            // The avatar is 36dp; without an override Glide decoded the
+            // full-resolution profile photo for it.
             Glide.with(requireContext()).load(reel.ownerPhoto)
                 .apply(RequestOptions.circleCropTransform())
                 .apply(FEED_IMAGE_OPTS)
+                .override(AVATAR_DECODE_PX, AVATAR_DECODE_PX)
                 .placeholder(R.drawable.ic_person).into(avatar);
         }
 

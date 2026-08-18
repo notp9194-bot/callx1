@@ -15,8 +15,11 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="@color/background_light"
-    android:layout_marginBottom="2dp">
+    android:layout_marginBottom="2dp"><!-- PERF: no background here on purpose.
+        fragment_home's root is already @color/background_light, so painting
+        the same colour again per card is a full extra overdraw pass over the
+        entire feed area on every frame. The video block below draws its own
+        opaque black, and the text/action rows sit on the fragment colour. -->
 
     <!-- ══════════ VIDEO BLOCK ══════════ -->
     <!-- Always solid black, in both light & dark mode — the video itself
@@ -168,12 +171,83 @@
             android:layout_width="34dp"
             android:layout_height="34dp"
             android:layout_gravity="bottom|end"
-            android:layout_margin="10dp"
+            android:layout_marginEnd="10dp"
+            android:layout_marginBottom="34dp"
             android:src="@drawable/ic_volume_off"
             android:tint="#FFFFFF"
             android:background="#55000000"
             android:padding="6dp"
             android:contentDescription="Mute"/>
+
+        <!-- ── Center play button — shown when autoplay is off (feed
+             settings) or the user tapped to pause. Tap = play. ── -->
+        <ImageView
+            android:id="@+id/btn_post_play_overlay"
+            android:layout_width="66dp"
+            android:layout_height="66dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_play"
+            android:tint="#FFFFFF"
+            android:alpha="0.9"
+            android:padding="14dp"
+            android:background="#66000000"
+            android:clickable="true"
+            android:focusable="true"
+            android:visibility="gone"
+            android:contentDescription="Play"/>
+
+        <!-- ── "2x" chip — visible only while the user holds the video
+             down (press-and-hold fast-forward, like Instagram/YouTube) ── -->
+        <TextView
+            android:id="@+id/tv_post_speed_chip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="72dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:background="@drawable/bg_speed_chip"
+            android:text="2x  ▶▶"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:fontFamily="sans-serif-medium"
+            android:visibility="gone"/>
+
+        <!-- ── Elapsed / total time — shown while scrubbing the bar ── -->
+        <TextView
+            android:id="@+id/tv_post_position"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:layout_marginStart="12dp"
+            android:layout_marginBottom="26dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:background="@drawable/bg_speed_chip"
+            android:text="0:00 / 0:00"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
+            android:visibility="gone"/>
+
+        <!-- ── Scrubbable progress bar — pinned to the bottom edge of the
+             video, same slim track drawable the full-screen player uses ── -->
+        <SeekBar
+            android:id="@+id/sb_post_progress"
+            android:layout_width="match_parent"
+            android:layout_height="28dp"
+            android:layout_gravity="bottom"
+            android:max="1000"
+            android:progress="0"
+            android:progressDrawable="@drawable/progress_reel_seekbar"
+            android:thumb="@drawable/thumb_reel_seek"
+            android:splitTrack="false"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp"
+            android:contentDescription="Seek"/>
 
         <!-- ── End-of-reel overlay — GONE until video ends ── -->
         <LinearLayout
