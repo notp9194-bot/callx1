@@ -935,6 +935,12 @@ public class HomeFragment extends Fragment {
         // Following option
         popup.getMenu().add(0, 1, 0, "Following")
             .setIcon(android.R.drawable.ic_menu_my_calendar);
+        // For You option — was missing entirely; this is the only path that
+        // ever sets isFollowingMode = false, so without it the ranked
+        // For-You feed (and the inline "Suggested for you"/"Suggested reels"
+        // rows, which only insert in For-You mode) was unreachable from the UI.
+        popup.getMenu().add(0, 3, 0, "For You")
+            .setIcon(android.R.drawable.ic_menu_recent_history);
         // Favorites option
         popup.getMenu().add(0, 2, 0, "Favorites")
             .setIcon(android.R.drawable.btn_star_big_off);
@@ -944,6 +950,10 @@ public class HomeFragment extends Fragment {
                 // Following feed
                 if (tvFeedTitle != null) tvFeedTitle.setText("Following  ▾");
                 switchFeedMode(true);
+            } else if (item.getItemId() == 3) {
+                // For You feed — ranked, with inline suggested rows mixed in
+                if (tvFeedTitle != null) tvFeedTitle.setText("For You  ▾");
+                switchFeedMode(false);
             } else if (item.getItemId() == 2) {
                 // Favorites feed (same as Following for now, filtered differently later)
                 if (tvFeedTitle != null) tvFeedTitle.setText("Favorites  ▾");

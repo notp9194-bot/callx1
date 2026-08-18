@@ -51,8 +51,7 @@
             android:paddingStart="12dp"
             android:paddingEnd="8dp"
             android:paddingTop="14dp"
-            android:paddingBottom="20dp"
-            android:background="@drawable/gradient_top_to_trans">
+            android:paddingBottom="20dp">
 
             <!-- Avatar + optional gradient ring -->
             <FrameLayout
