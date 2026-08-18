@@ -155,6 +155,16 @@ public class ReelPeekPreviewController {
     private List<PeekOption> currentOptions;
     private Callback         currentCallback;
 
+    // ── Optional per-call size override ─────────────────────────────────
+    // Every existing caller (UserReelsActivity's grid, SoundDetailFragment's
+    // mini player) keeps the original fixed 331x475dp card — that XML
+    // default is untouched. A caller that needs a bigger card (e.g. the
+    // Home feed's "Suggested reels" row long-press, sized to match a
+    // full-width preview) can pass explicit pixel dimensions via the
+    // 6-arg show() overload below instead. Null means "use the XML default".
+    private Integer overrideCardWidthPx  = null;
+    private Integer overrideVideoHeightPx = null;
+
     public ReelPeekPreviewController(Activity activity) {
         this.activity = activity;
     }
@@ -174,9 +184,28 @@ public class ReelPeekPreviewController {
      *                    plain instant dismiss (no docking target to animate to).
      */
     public void show(ReelModel reel, List<PeekOption> options, Callback callback, View sourceView) {
+        show(reel, options, callback, sourceView, null, null);
+    }
+
+    /**
+     * Same as {@link #show(ReelModel, List, Callback, View)} but lets the
+     * caller override the mini player card's size in pixels instead of
+     * using the shared XML default (331x475dp). Pass null for either arg
+     * to keep that dimension at its default.
+     *
+     * @param cardWidthPx   overrides card_peek's (and the two sheet cards
+     *                      below it, so they stay aligned) width, in px.
+     * @param videoHeightPx overrides just the video frame's height, in px —
+     *                      the card's overall height is wrap_content, so this
+     *                      is effectively the mini player's visible height.
+     */
+    public void show(ReelModel reel, List<PeekOption> options, Callback callback, View sourceView,
+                      Integer cardWidthPx, Integer videoHeightPx) {
         if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         if (reel == null) return;
 
+        overrideCardWidthPx   = cardWidthPx;
+        overrideVideoHeightPx = videoHeightPx;
         sourceRect = captureScreenRect(sourceView);
 
         if (showing && popupWindow != null && currentContent != null) {
@@ -186,6 +215,31 @@ public class ReelPeekPreviewController {
             return;
         }
         buildAndShow(reel, options, callback);
+    }
+
+    /** Applies overrideCardWidthPx/overrideVideoHeightPx (if set) to the
+     *  freshly-inflated popup content. No-op — leaves the XML defaults in
+     *  place — when both overrides are null, so every existing caller
+     *  (which never sets them) is unaffected. */
+    private void applySizeOverride(View content) {
+        if (content == null) return;
+        if (overrideCardWidthPx != null) {
+            View cardPeek        = content.findViewById(R.id.card_peek);
+            View cardPeekActions = content.findViewById(R.id.card_peek_actions);
+            View cardPeekOptionsV = content.findViewById(R.id.card_peek_options);
+            for (View v : new View[]{cardPeek, cardPeekActions, cardPeekOptionsV}) {
+                if (v == null) continue;
+                ViewGroup.LayoutParams lp = v.getLayoutParams();
+                if (lp != null) { lp.width = overrideCardWidthPx; v.setLayoutParams(lp); }
+            }
+        }
+        if (overrideVideoHeightPx != null) {
+            View videoFrame = content.findViewById(R.id.frame_peek_video);
+            if (videoFrame != null) {
+                ViewGroup.LayoutParams lp = videoFrame.getLayoutParams();
+                if (lp != null) { lp.height = overrideVideoHeightPx; videoFrame.setLayoutParams(lp); }
+            }
+        }
     }
 
     private Rect captureScreenRect(View v) {
@@ -200,6 +254,7 @@ public class ReelPeekPreviewController {
     private void buildAndShow(ReelModel reel, List<PeekOption> options, Callback callback) {
         View content = LayoutInflater.from(activity).inflate(R.layout.popup_reel_peek, null, false);
         currentContent = content;
+        applySizeOverride(content);
 
         View scrim              = content.findViewById(R.id.view_peek_scrim);
         ImageView blurBg        = content.findViewById(R.id.iv_peek_blur_bg);
@@ -290,6 +345,7 @@ public class ReelPeekPreviewController {
     private void switchTo(ReelModel reel, List<PeekOption> options, Callback callback) {
         View content = currentContent;
         if (content == null) { buildAndShow(reel, options, callback); return; }
+        applySizeOverride(content);
 
         PlayerView playerView   = content.findViewById(R.id.peek_player_view);
         ProgressBar loading     = content.findViewById(R.id.peek_loading);

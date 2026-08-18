@@ -45,6 +45,7 @@ import com.callx.app.explore.ReelExploreActivity;
 import com.callx.app.social.ReelShareSheetFragment;
 import com.callx.app.upload.ReelUploadActivity;
 import com.callx.app.player.SingleReelPlayerActivity;
+import com.callx.app.profile.ReelPeekPreviewController;
 import com.callx.app.explore.HashtagReelsActivity;
 import com.callx.app.notifications.ReelNotificationsActivity;
 import com.callx.app.explore.ReelSearchActivity;
@@ -189,6 +190,10 @@ public class HomeFragment extends Fragment {
      *  row is mixed into the feed — Instagram doesn't show trending/suggested
      *  as separate boxes, it blends them straight into the scroll. */
     private static final int SUGGESTED_EVERY_N_POSTS = 6;
+    /** How often an inline "Suggested reels" thumbnail row is mixed into the
+     *  feed — same interleaving idea as the creators row above, offset so
+     *  the two don't always land on the same post (feels organic, like IG). */
+    private static final int SUGGESTED_REELS_EVERY_N_POSTS = 4;
 
     private boolean          isLoadingMoreFeed   = false;
     private boolean          feedHasMore         = true;
@@ -211,6 +216,12 @@ public class HomeFragment extends Fragment {
     private int               newPostsPending     = 0;
     private int               postsSincePeopleYouMayLike = 0;
     private List<String[]>   suggestedCreatorPool = null; // uid,name,photo,sub — fetched once/session
+    private int               postsSinceSuggestedReels   = 0;
+    private List<ReelModel>   suggestedReelsPool   = null; // fetched once/session, reused for every insertion
+    // Same shared mini-video-player long-press "peek" that UserReelsActivity's
+    // grid and SoundDetailFragment already use — reused as-is here, just with
+    // a bigger card size (see buildInlineSuggestedReelsRow's long-press wiring).
+    private ReelPeekPreviewController suggestedReelsPeekController = null;
     private Query             newPostsQuery       = null;
     private ChildEventListener newPostsListener   = null;
 
@@ -908,6 +919,10 @@ public class HomeFragment extends Fragment {
         feedCards.clear();
         currentFeedPosts = new ArrayList<>();
         currentPlayingIndex = -1;
+        if (suggestedReelsPeekController != null) {
+            suggestedReelsPeekController.dismiss();
+            suggestedReelsPeekController = null;
+        }
     }
 
     /**
@@ -960,6 +975,7 @@ public class HomeFragment extends Fragment {
         newestFeedTimestamp = null;
         renderedReelIds.clear();
         postsSincePeopleYouMayLike = 0;
+        postsSinceSuggestedReels = 0;
         newPostsPending = 0;
         feedLoadMoreFooter = null;
         hideNewPostsBanner();
@@ -1416,6 +1432,7 @@ public class HomeFragment extends Fragment {
             if (feedWindowManager != null) feedWindowManager.reset();
             renderedReelIds.clear();
             postsSincePeopleYouMayLike = 0;
+            postsSinceSuggestedReels = 0;
             currentFeedPosts = posts;
             currentPlayingIndex = -1;
             // No more artificial 10-item cap — this page is already bounded
@@ -1469,6 +1486,11 @@ public class HomeFragment extends Fragment {
         if (postsSincePeopleYouMayLike >= SUGGESTED_EVERY_N_POSTS) {
             postsSincePeopleYouMayLike = 0;
             insertInlineSuggestedCreatorsRow();
+        }
+        postsSinceSuggestedReels++;
+        if (postsSinceSuggestedReels >= SUGGESTED_REELS_EVERY_N_POSTS) {
+            postsSinceSuggestedReels = 0;
+            insertInlineSuggestedReelsRow();
         }
     }
 
@@ -1709,6 +1731,196 @@ public class HomeFragment extends Fragment {
 
         section.addView(scroller);
         containerFeed.addView(section);
+    }
+
+    // ── Inline "Suggested reels" — Instagram-style thumbnail row ──────────
+
+    /**
+     * Inserts a horizontal row of suggested-reel thumbnail cards directly
+     * into the feed scroll (see screenshot ref: a "Suggested reels" header
+     * + a row of tall video-thumbnail cards, mixed between regular posts).
+     * Fetches the candidate pool once per session (same pattern as
+     * {@link #insertInlineSuggestedCreatorsRow()}) and reuses it for every
+     * insertion so we don't re-hit Firebase on every 4th post.
+     */
+    private void insertInlineSuggestedReelsRow() {
+        if (!isAdded() || getContext() == null || containerFeed == null) return;
+        if (suggestedReelsPool != null) {
+            buildInlineSuggestedReelsRow(suggestedReelsPool);
+            return;
+        }
+        FirebaseUtils.getReelsRef()
+            .orderByChild("viewsCount")
+            .limitToLast(20)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (!isAdded() || getContext() == null) return;
+                    List<ReelModel> reels = new ArrayList<>();
+                    for (DataSnapshot s : snap.getChildren()) {
+                        ReelModel r = s.getValue(ReelModel.class);
+                        if (r == null) continue;
+                        if (r.reelId == null) r.reelId = s.getKey();
+                        reels.add(r);
+                    }
+                    Collections.reverse(reels); // most-viewed first
+                    suggestedReelsPool = reels;
+                    requireActivity().runOnUiThread(() -> buildInlineSuggestedReelsRow(reels));
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) { /* skip this insertion */ }
+            });
+    }
+
+    private void buildInlineSuggestedReelsRow(List<ReelModel> pool) {
+        if (!isAdded() || getContext() == null || containerFeed == null || pool.isEmpty()) return;
+        String myUid = safeMyUid();
+        List<ReelModel> candidates = new ArrayList<>();
+        for (ReelModel r : pool) {
+            if (r.reelId == null || renderedReelIds.contains(r.reelId)) continue; // don't dupe posts already shown
+            if (myUid != null && myUid.equals(r.uid)) continue; // Instagram doesn't suggest your own reels
+            candidates.add(r);
+            if (candidates.size() >= 8) break;
+        }
+        if (candidates.isEmpty()) return;
+
+        final ArrayList<String> reelIds = new ArrayList<>();
+        for (ReelModel r : candidates) reelIds.add(r.reelId);
+
+        LinearLayout section = new LinearLayout(requireContext());
+        section.setOrientation(LinearLayout.VERTICAL);
+        int dp16 = dpToPx(16);
+        section.setPadding(dp16, dpToPx(12), dp16, dpToPx(4));
+
+        LinearLayout headerRow = new LinearLayout(requireContext());
+        headerRow.setOrientation(LinearLayout.HORIZONTAL);
+        headerRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        headerRow.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        TextView header = new TextView(requireContext());
+        header.setText("Suggested reels");
+        header.setTextColor(0xFFFFFFFF);
+        header.setTextSize(13f);
+        header.setTypeface(null, android.graphics.Typeface.BOLD);
+        LinearLayout.LayoutParams headerLp = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        header.setLayoutParams(headerLp);
+        headerRow.addView(header);
+
+        ImageView btnMore = new ImageView(requireContext());
+        btnMore.setImageResource(R.drawable.ic_more_vert);
+        btnMore.setColorFilter(0xFFFFFFFF);
+        LinearLayout.LayoutParams moreLp = new LinearLayout.LayoutParams(dpToPx(20), dpToPx(20));
+        btnMore.setLayoutParams(moreLp);
+        btnMore.setOnClickListener(v -> {
+            if (!isAdded() || getContext() == null) return;
+            android.widget.PopupMenu menu = new android.widget.PopupMenu(requireContext(), btnMore);
+            menu.getMenu().add("Not interested");
+            menu.setOnMenuItemClickListener(item -> {
+                if (containerFeed != null && section.getParent() == containerFeed) {
+                    containerFeed.removeView(section);
+                }
+                return true;
+            });
+            menu.show();
+        });
+        headerRow.addView(btnMore);
+        section.addView(headerRow);
+
+        HorizontalScrollView scroller = new HorizontalScrollView(requireContext());
+        scroller.setHorizontalScrollBarEnabled(false);
+        LinearLayout.LayoutParams scrollerLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        scrollerLp.topMargin = dpToPx(8);
+        scroller.setLayoutParams(scrollerLp);
+
+        LinearLayout row = new LinearLayout(requireContext());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        scroller.addView(row);
+
+        int cardW = dpToPx(112);
+        int cardH = dpToPx(198); // ~9:16 thumbnail card, matches IG's suggested-reels tile
+
+        for (int idx = 0; idx < candidates.size(); idx++) {
+            ReelModel r = candidates.get(idx);
+            final int startPos = idx;
+
+            FrameLayout tile = new FrameLayout(requireContext());
+            LinearLayout.LayoutParams tileLp = new LinearLayout.LayoutParams(cardW, cardH);
+            tileLp.setMarginEnd(dpToPx(6));
+            tile.setLayoutParams(tileLp);
+            tile.setBackgroundResource(R.drawable.bg_speed_chip);
+            tile.setClipToOutline(true);
+
+            ImageView thumb = new ImageView(requireContext());
+            thumb.setLayoutParams(new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            String thumbUrl = r.effectiveThumbUrl();
+            if (thumbUrl != null && !thumbUrl.isEmpty()) {
+                Glide.with(requireContext()).load(thumbUrl)
+                    .apply(new RequestOptions().format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565))
+                    .into(thumb);
+            }
+            tile.addView(thumb);
+
+            // Views count pill, bottom-left, with a small play glyph — same
+            // read-at-a-glance treatment Instagram uses on its reel tiles.
+            TextView tvViews = new TextView(requireContext());
+            tvViews.setText("▶ " + formatCount(r.viewsCount));
+            tvViews.setTextColor(0xFFFFFFFF);
+            tvViews.setTextSize(11f);
+            tvViews.setShadowLayer(4f, 0f, 0f, 0xCC000000);
+            FrameLayout.LayoutParams viewsLp = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+            viewsLp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.START;
+            viewsLp.setMargins(dpToPx(6), 0, 0, dpToPx(6));
+            tvViews.setLayoutParams(viewsLp);
+            tile.addView(tvViews);
+
+            tile.setOnClickListener(v -> {
+                if (!isAdded() || getContext() == null) return;
+                Intent i = new Intent(getContext(), SingleReelPlayerActivity.class);
+                i.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, reelIds);
+                i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, startPos);
+                startActivity(i);
+            });
+            tile.setOnLongClickListener(v -> {
+                showSuggestedReelPeek(r, tile);
+                return true;
+            });
+
+            row.addView(tile);
+        }
+
+        section.addView(scroller);
+        containerFeed.addView(section);
+    }
+
+    /**
+     * Long-press on a "Suggested reels" tile — reuses the exact same
+     * ReelPeekPreviewController mini video player UserReelsActivity's grid
+     * and SoundDetailFragment already use (see class doc there), just sized
+     * bigger: a near-full-width card instead of the shared 331x475dp
+     * default, matching the reference screenshot's larger preview.
+     */
+    private void showSuggestedReelPeek(ReelModel reel, View sourceView) {
+        if (!isAdded() || getContext() == null) return;
+        if (suggestedReelsPeekController == null) {
+            suggestedReelsPeekController = new ReelPeekPreviewController(requireActivity());
+        }
+        int screenW   = getResources().getDisplayMetrics().widthPixels;
+        int cardWidth = screenW - dpToPx(24); // near-full-width, small side margins
+        int videoH    = (int) (cardWidth * 16f / 9f); // same 9:16 ratio as the reel feed card
+        suggestedReelsPeekController.show(reel, null,
+                () -> {
+                    Intent i = new Intent(getContext(), SingleReelPlayerActivity.class);
+                    ArrayList<String> singleId = new ArrayList<>();
+                    singleId.add(reel.reelId);
+                    i.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, singleId);
+                    i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, 0);
+                    startActivity(i);
+                },
+                sourceView, cardWidth, videoH);
     }
 
     // ── Real-time background updates ────────────────────────────────────
