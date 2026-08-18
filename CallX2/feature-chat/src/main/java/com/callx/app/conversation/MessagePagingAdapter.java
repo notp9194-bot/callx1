@@ -975,6 +975,15 @@ public class MessagePagingAdapter
     private ActionListener actionListener;
     private MediaPlayer player;
     private int playingPos = -1;
+    // PERF: mirrors player.isPlaying() without the MediaPlayer binder/JNI
+    // round-trip. player.isPlaying() used to be called from bindMessage()
+    // (fires on every RecyclerView bind, i.e. every scroll frame that
+    // recycles a voice bubble into view) AND from the 250ms seek-progress
+    // Runnable — both are hot paths where an IPC call into the media
+    // server on every tick/bind is pure waste. This flag is set at every
+    // point that actually changes play state (start/pause/stop/complete/
+    // error) and is what those hot paths read instead.
+    private volatile boolean isPlayerPlaying = false;
     // FIX [P3-1]: Track the ViewHolder that is currently playing so we can
     // reset its UI (icon + seekbar) when a different message starts playing.
     private VH playingVH = null;
@@ -1001,6 +1010,7 @@ public class MessagePagingAdapter
                 seekHandler.removeCallbacks(seekUpdater);
                 resetAudioUi(playingVH);
             }
+            isPlayerPlaying = false;
             player = null;
             playingVH = null;
             playingPos = -1;
@@ -6029,8 +6039,9 @@ public class MessagePagingAdapter
     // Audio playback toggle
     // ──────────────────────────────────────────────────────────────
     private void toggleAudio(@NonNull VH h, String url, int position) {
-        if (playingPos == position && player != null && player.isPlaying()) {
+        if (playingPos == position && player != null && isPlayerPlaying) {
             player.pause();
+            isPlayerPlaying = false;
             setPlayPauseIcon(h, false);
             notifyPlaybackChanged(getItem(position), false);
             GlobalVoicePlaybackManager.getInstance().notifyToggled(midOf(getItem(position)), false);
@@ -6046,6 +6057,7 @@ public class MessagePagingAdapter
             try { player.stop(); player.release(); } catch (Exception ignored) {}
             player = null;
         }
+        isPlayerPlaying = false;
         playingPos = position;
         setPlayPauseIcon(h, true);
 
@@ -6190,6 +6202,7 @@ public class MessagePagingAdapter
                 currentPlaybackSpeed = 1.0f;
                 if (h.btnAudioSpeed != null) h.btnAudioSpeed.setText("1×");
                 mp.start();
+                isPlayerPlaying = true;
                 // Apply initial speed (API 23+) — usually 1x, but applied
                 // to match any speed set before prepare completed.
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
@@ -6212,7 +6225,7 @@ public class MessagePagingAdapter
                     seekHandler.removeCallbacks(seekUpdater);
                     seekUpdater = new Runnable() {
                         @Override public void run() {
-                            if (player != null && player.isPlaying()) {
+                            if (player != null && isPlayerPlaying) {
                                 int cur = player.getCurrentPosition();
                                 String elapsed = String.format(java.util.Locale.getDefault(),
                                         "%d:%02d", (cur / 1000) / 60, (cur / 1000) % 60);
@@ -6239,6 +6252,7 @@ public class MessagePagingAdapter
                 }
             });
             player.setOnCompletionListener(mp -> {
+                isPlayerPlaying = false;
                 notifyPlaybackChanged(getItem(position), false);
                 GlobalVoicePlaybackManager.getInstance().notifyStopped(__voiceMid);
                 playingPos = -1;
@@ -6249,6 +6263,7 @@ public class MessagePagingAdapter
             });
             player.setOnErrorListener((mp, what, extra) -> {
                 android.util.Log.e("AudioPlay", "Error: " + what + " extra: " + extra + " path: " + path);
+                isPlayerPlaying = false;
                 notifyPlaybackChanged(getItem(position), false);
                 GlobalVoicePlaybackManager.getInstance().notifyStopped(__voiceMid);
                 playingPos = -1;
@@ -6257,6 +6272,7 @@ public class MessagePagingAdapter
             });
         } catch (Exception e) {
             android.util.Log.e("AudioPlay", "playAudioFromPath error: " + e.getMessage() + " path: " + path);
+            isPlayerPlaying = false;
             if (player != null) { try { player.release(); } catch (Exception ignored) {} player = null; }
         }
     }
@@ -6294,7 +6310,7 @@ public class MessagePagingAdapter
         // Icon reflects whether THIS message's voice note is the one
         // currently playing (matches how the standalone audio bubble icon
         // is kept in sync across rebinds).
-        boolean isThisPlaying = playingPos == position && player != null && player.isPlaying();
+        boolean isThisPlaying = playingPos == position && player != null && isPlayerPlaying;
         if (h.ivVoicePlayOnImage != null) {
             h.ivVoicePlayOnImage.setImageResource(isThisPlaying ? R.drawable.ic_pause : R.drawable.ic_play);
         }

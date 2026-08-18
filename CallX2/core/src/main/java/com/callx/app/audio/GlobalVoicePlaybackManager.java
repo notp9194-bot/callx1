@@ -51,6 +51,7 @@ public final class GlobalVoicePlaybackManager {
 
     private final List<Listener> listeners = new CopyOnWriteArrayList<>();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Looper mainLooper = Looper.getMainLooper();
 
     private MediaPlayer activePlayer;
     private String messageId;
@@ -59,6 +60,22 @@ public final class GlobalVoicePlaybackManager {
     private String displayName;
     private String avatarUrl;
     private boolean outgoing;
+
+    // PERF: mirrors activePlayer.isPlaying() so hot paths (mini player
+    // re-renders on every onResume/tab-switch, plus any future per-frame
+    // callers) never cross into a MediaPlayer binder/JNI call just to read
+    // play state. Kept in lockstep by every call site that changes
+    // playback state below — isPlaying() itself never touches activePlayer.
+    private volatile boolean cachedPlaying;
+
+    /** Dispatches to every listener on the main thread, regardless of which thread the state change originated on (defensive — MediaPlayer callbacks are normally already on the main Looper, but this removes the assumption). */
+    private void dispatchOnMain(Runnable r) {
+        if (Looper.myLooper() == mainLooper) {
+            r.run();
+        } else {
+            mainHandler.post(r);
+        }
+    }
 
     public void addListener(Listener l) {
         if (l != null && !listeners.contains(l)) listeners.add(l);
@@ -79,11 +96,8 @@ public final class GlobalVoicePlaybackManager {
     }
 
     public boolean isPlaying() {
-        try {
-            return activePlayer != null && activePlayer.isPlaying();
-        } catch (Exception e) {
-            return false;
-        }
+        // PERF: cached flag, not a MediaPlayer call — see cachedPlaying javadoc.
+        return activePlayer != null && cachedPlaying;
     }
 
     public boolean isPlayingMessage(String mid) {
@@ -111,15 +125,21 @@ public final class GlobalVoicePlaybackManager {
         this.displayName = displayName;
         this.avatarUrl = avatarUrl;
         this.outgoing = outgoing;
-        for (Listener l : listeners) {
-            l.onPlaybackStarted(messageId, chatId, partnerUid, displayName, avatarUrl, outgoing);
-        }
+        this.cachedPlaying = true;
+        dispatchOnMain(() -> {
+            for (Listener l : listeners) {
+                l.onPlaybackStarted(messageId, chatId, partnerUid, displayName, avatarUrl, outgoing);
+            }
+        });
     }
 
     /** The active message was paused or resumed in place (same MediaPlayer, same message). */
     public void notifyToggled(String messageId, boolean playing) {
         if (!isActiveMessage(messageId)) return;
-        for (Listener l : listeners) l.onPlaybackToggled(messageId, playing);
+        this.cachedPlaying = playing;
+        dispatchOnMain(() -> {
+            for (Listener l : listeners) l.onPlaybackToggled(messageId, playing);
+        });
     }
 
     /** The active message finished, errored, or was replaced — clears state, nothing playing now. */
@@ -132,7 +152,10 @@ public final class GlobalVoicePlaybackManager {
         this.partnerUid = null;
         this.displayName = null;
         this.avatarUrl = null;
-        for (Listener l : listeners) l.onPlaybackStopped(mid);
+        this.cachedPlaying = false;
+        dispatchOnMain(() -> {
+            for (Listener l : listeners) l.onPlaybackStopped(mid);
+        });
     }
 
     /**
@@ -152,6 +175,9 @@ public final class GlobalVoicePlaybackManager {
     public void togglePlayPause() {
         if (activePlayer == null || messageId == null) return;
         try {
+            // Single deliberate JNI call per user tap — not a hot path, so
+            // querying the real MediaPlayer here (rather than cachedPlaying)
+            // is correct and cheap; it's re-synced right after either way.
             if (activePlayer.isPlaying()) {
                 activePlayer.pause();
                 notifyToggled(messageId, false);
@@ -175,8 +201,11 @@ public final class GlobalVoicePlaybackManager {
         this.partnerUid = null;
         this.displayName = null;
         this.avatarUrl = null;
+        this.cachedPlaying = false;
         if (mid != null) {
-            for (Listener l : listeners) l.onPlaybackStopped(mid);
+            dispatchOnMain(() -> {
+                for (Listener l : listeners) l.onPlaybackStopped(mid);
+            });
         }
     }
 }

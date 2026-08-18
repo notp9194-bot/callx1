@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Handler;
 import android.os.Looper;
@@ -79,6 +80,24 @@ public class ReelPeekPreviewController {
     private static final int   BLUR_DOWNSCALE  = 4;
     private static final int   BLUR_RADIUS     = 14;
 
+    // ── Telegram-style dock-to-source close animation ────────────────────
+    // Same technique as MediaViewerActivity's animateCloseToSource: instead
+    // of PopupWindow's instant teardown, the peek card shrinks/translates
+    // back into the exact on-screen rect of the grid cell it was
+    // long-pressed from, then the popup actually dismisses. Reused here
+    // (not duplicated pixel-for-pixel) as its own small animator since this
+    // is a PopupWindow content view, not an Activity window — MediaViewerActivity's
+    // version also drives live corner-radius via MediaSwipeReplyCloseHelper,
+    // which the peek card has no equivalent of, so this sticks to
+    // translate+scale+alpha, which is the part that actually reads as
+    // "docking back into the grid".
+    private static final long DOCK_ANIM_BASE_MS = 300L;
+    private static final android.view.animation.Interpolator DOCK_EASE =
+            new android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f);
+
+    /** Screen rect of the grid cell that was long-pressed to open the currently-showing peek (null if not supplied — falls back to instant dismiss). */
+    private Rect sourceRect;
+
     /** One row in the compact options card (card_peek_options). */
     public static class PeekOption {
         public final String label;
@@ -114,6 +133,11 @@ public class ReelPeekPreviewController {
     private boolean      optionsExpanded = false;
     private boolean      muted = lastMuted;
     private View         cardPeekOptions;
+    // Cached refs to currentContent's animatable pieces — set once in
+    // buildAndShow(), read by dismissAnimated() so it doesn't need to
+    // re-findViewById() the popup content on every close.
+    private View         peekContentView;
+    private View         scrimView;
 
     private ReelModel        currentReel;
     private List<PeekOption> currentOptions;
@@ -133,9 +157,23 @@ public class ReelPeekPreviewController {
      *                 empty list to hide the "Options" row entirely — used
      *                 for reels the current user doesn't manage.
      */
-    public void show(ReelModel reel, List<PeekOption> options, Callback callback) {
+    /**
+     * @param reel     reel to preview — no-op if null or lacking a video URL to preview.
+     * @param options  management options shown in the compact card below the
+     *                 actions sheet when "Options" is tapped (e.g. Insights/
+     *                 Pin/Share/Delete for the reel owner). Pass null or an
+     *                 empty list to hide the "Options" row entirely — used
+     *                 for reels the current user doesn't manage.
+     * @param sourceView the long-pressed grid cell — its on-screen rect is
+     *                    where the peek card docks back into on close (scrim
+     *                    tap / back press). Pass null to fall back to the
+     *                    plain instant dismiss (no docking target to animate to).
+     */
+    public void show(ReelModel reel, List<PeekOption> options, Callback callback, View sourceView) {
         if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         if (reel == null) return;
+
+        sourceRect = captureScreenRect(sourceView);
 
         if (showing && popupWindow != null && currentContent != null) {
             // A peek is already open — fast long-press onto another grid
@@ -144,6 +182,13 @@ public class ReelPeekPreviewController {
             return;
         }
         buildAndShow(reel, options, callback);
+    }
+
+    private Rect captureScreenRect(View v) {
+        if (v == null || v.getWidth() == 0 || v.getHeight() == 0) return null;
+        int[] loc = new int[2];
+        v.getLocationOnScreen(loc);
+        return new Rect(loc[0], loc[1], loc[0] + v.getWidth(), loc[1] + v.getHeight());
     }
 
     // ── First open of the popup ─────────────────────────────────────────
@@ -160,6 +205,8 @@ public class ReelPeekPreviewController {
         TextView btnPlay        = content.findViewById(R.id.btn_peek_play);
         View muteBadge          = content.findViewById(R.id.layout_peek_mute_badge);
         android.widget.ImageView ivMuteIcon = content.findViewById(R.id.iv_peek_mute_icon);
+        peekContentView = peekContent;
+        scrimView = scrim;
 
         bindStaticContent(content, reel, options, callback);
 
@@ -169,7 +216,7 @@ public class ReelPeekPreviewController {
                 if (currentCallback != null) currentCallback.onWatchFull();
             });
         }
-        if (scrim != null) scrim.setOnClickListener(v -> dismiss());
+        if (scrim != null) scrim.setOnClickListener(v -> dismissAnimated());
 
         popupWindow = new PopupWindow(content,
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, true);
@@ -194,7 +241,7 @@ public class ReelPeekPreviewController {
                 if (optionsExpanded && cardPeekOptions != null) {
                     toggleOptionsCard((CardView) cardPeekOptions);
                 } else {
-                    dismiss();
+                    dismissAnimated();
                 }
                 return true;
             }
@@ -646,6 +693,9 @@ public class ReelPeekPreviewController {
         currentReel = null;
         currentOptions = null;
         currentCallback = null;
+        peekContentView = null;
+        scrimView = null;
+        sourceRect = null;
         releasePendingPlayer();
         if (player != null) {
             try { player.release(); } catch (Throwable ignored) {}
@@ -658,6 +708,71 @@ public class ReelPeekPreviewController {
             popupWindow = null;
         }
     }
+
+    /**
+     * User-initiated close (scrim tap / back press) — shrinks+translates
+     * the peek card back into {@link #sourceRect} (the long-pressed grid
+     * cell) before actually tearing the popup down, mirroring
+     * MediaViewerActivity's animateCloseToSource "chipakna" dock animation.
+     * Falls back to the plain instant {@link #dismiss()} when there's no
+     * source rect to dock into (e.g. show() was called without a
+     * sourceView) or the content isn't in a state to animate.
+     */
+    public void dismissAnimated() {
+        final View v = peekContentView;
+        if (sourceRect == null || v == null || v.getWidth() == 0 || v.getHeight() == 0
+                || activity == null || activity.isFinishing() || activity.isDestroyed()) {
+            dismiss();
+            return;
+        }
+
+        v.animate().cancel();
+        if (v.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+            v.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        }
+
+        int[] loc = new int[2];
+        v.getLocationOnScreen(loc);
+        float startScaleX = v.getScaleX();
+        float startScaleY = v.getScaleY();
+        float curCenterX = loc[0] + (v.getWidth() * startScaleX) / 2f;
+        float curCenterY = loc[1] + (v.getHeight() * startScaleY) / 2f;
+        float targetCenterX = sourceRect.left + sourceRect.width() / 2f;
+        float targetCenterY = sourceRect.top + sourceRect.height() / 2f;
+
+        float startTx = v.getTranslationX();
+        float startTy = v.getTranslationY();
+        float endTx = startTx + (targetCenterX - curCenterX);
+        float endTy = startTy + (targetCenterY - curCenterY);
+        float endScaleX = v.getWidth()  > 0 ? sourceRect.width()  / (float) v.getWidth()  : 1f;
+        float endScaleY = v.getHeight() > 0 ? sourceRect.height() / (float) v.getHeight() : 1f;
+        float startAlpha = v.getAlpha();
+
+        final View scrim = scrimView;
+        float startScrimAlpha = scrim != null ? scrim.getAlpha() : 0f;
+
+        android.animation.ValueAnimator anim = android.animation.ValueAnimator.ofFloat(0f, 1f);
+        anim.setDuration(DOCK_ANIM_BASE_MS);
+        anim.setInterpolator(DOCK_EASE);
+        anim.addUpdateListener(a -> {
+            float t = (float) a.getAnimatedValue();
+            v.setTranslationX(lerp(startTx, endTx, t));
+            v.setTranslationY(lerp(startTy, endTy, t));
+            v.setScaleX(lerp(startScaleX, endScaleX, t));
+            v.setScaleY(lerp(startScaleY, endScaleY, t));
+            v.setAlpha(lerp(startAlpha, 0f, t));
+            if (scrim != null) scrim.setAlpha(lerp(startScrimAlpha, 0f, t));
+        });
+        anim.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator animation) {
+                v.setLayerType(View.LAYER_TYPE_NONE, null);
+                dismiss();
+            }
+        });
+        anim.start();
+    }
+
+    private static float lerp(float a, float b, float t) { return a + (b - a) * t; }
 
     private String formatCount(int n) {
         if (n >= 1_000_000) return String.format(Locale.getDefault(), "%.1fM", n / 1_000_000f);

@@ -3281,7 +3281,11 @@ public class UserReelsActivity extends AppCompatActivity
                     confirmDeleteSingleReel(finalReel)));
         }
 
-        peekController.show(reel, options, () -> openPlayerAt(adapterPos));
+        View sourceCell = null;
+        RecyclerView.ViewHolder svh = rvReels.findViewHolderForAdapterPosition(adapterPos);
+        if (svh != null) sourceCell = svh.itemView;
+
+        peekController.show(reel, options, () -> openPlayerAt(adapterPos), sourceCell);
     }
 
     // ── Analytics sheet (Feature 15) ──────────────────────────────────────

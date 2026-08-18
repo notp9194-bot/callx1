@@ -100,6 +100,19 @@ public class MainActivity extends AppCompatActivity
             runOnUiThread(() -> updateVoiceMiniPlayer());
         }
     };
+    // PERF: resolved once in setupVoiceMiniPlayer() instead of re-running
+    // findViewById() down the view tree on every updateVoiceMiniPlayer()
+    // call (which fires on every toggle/start/stop AND every onResume).
+    private View miniPlayerBanner;
+    private ImageButton miniPlayerBtnPlay;
+    private TextView miniPlayerTvName;
+    private CircleImageView miniPlayerIvAvatar;
+    // PERF: last avatar URL actually loaded into the mini player — skips
+    // re-issuing a Glide request when a toggle/resume refresh has nothing
+    // new to show (Glide's own memory cache makes a repeat load cheap, but
+    // skipping the call entirely avoids even that lookup on a path that
+    // can run several times a second while scrubbing play/pause).
+    private String miniPlayerLoadedAvatarUrl;
 
 
       // ── X Module ────────────────────────────────────────────────────────────────
@@ -420,10 +433,18 @@ public class MainActivity extends AppCompatActivity
     private void setupVoiceMiniPlayer() {
         View banner = binding.getRoot().findViewById(R.id.banner_voice_mini_player);
         if (banner == null) return;
+        // PERF: resolve every child view once here; updateVoiceMiniPlayer()
+        // (the hot path — runs on every play/pause/start/stop and every
+        // onResume) then just reads these fields instead of walking the
+        // view tree again.
+        miniPlayerBanner = banner;
+        miniPlayerBtnPlay = banner.findViewById(R.id.btn_mini_player_play);
+        miniPlayerTvName = banner.findViewById(R.id.tv_mini_player_name);
+        miniPlayerIvAvatar = banner.findViewById(R.id.iv_mini_player_avatar);
 
         GlobalVoicePlaybackManager.getInstance().addListener(voiceMiniPlayerListener);
 
-        banner.findViewById(R.id.btn_mini_player_play).setOnClickListener(v ->
+        miniPlayerBtnPlay.setOnClickListener(v ->
                 GlobalVoicePlaybackManager.getInstance().togglePlayPause());
 
         banner.findViewById(R.id.btn_mini_player_close).setOnClickListener(v ->
@@ -448,31 +469,38 @@ public class MainActivity extends AppCompatActivity
     }
 
     private void updateVoiceMiniPlayer() {
-        View banner = binding.getRoot().findViewById(R.id.banner_voice_mini_player);
-        if (banner == null) return;
+        if (miniPlayerBanner == null) return;
 
         GlobalVoicePlaybackManager mgr = GlobalVoicePlaybackManager.getInstance();
         if (!mgr.hasActiveMessage()) {
-            banner.setVisibility(View.GONE);
+            if (miniPlayerBanner.getVisibility() != View.GONE) {
+                miniPlayerBanner.setVisibility(View.GONE);
+            }
+            miniPlayerLoadedAvatarUrl = null;
             return;
         }
 
-        banner.setVisibility(View.VISIBLE);
+        if (miniPlayerBanner.getVisibility() != View.VISIBLE) {
+            miniPlayerBanner.setVisibility(View.VISIBLE);
+        }
 
-        ImageButton btnPlay = banner.findViewById(R.id.btn_mini_player_play);
-        btnPlay.setImageResource(mgr.isPlaying() ? R.drawable.ic_pause : R.drawable.ic_play);
+        miniPlayerBtnPlay.setImageResource(mgr.isPlaying() ? R.drawable.ic_pause : R.drawable.ic_play);
 
-        TextView tvName = banner.findViewById(R.id.tv_mini_player_name);
         String name = mgr.getDisplayName();
-        tvName.setText(name != null && !name.isEmpty() ? name : "Voice message");
+        miniPlayerTvName.setText(name != null && !name.isEmpty() ? name : "Voice message");
 
-        CircleImageView ivAvatar = banner.findViewById(R.id.iv_mini_player_avatar);
+        // PERF: only touch Glide when the avatar actually changed — a
+        // play/pause toggle re-renders this method without a new avatar,
+        // so re-issuing the same load request every time is wasted work.
         String avatarUrl = mgr.getAvatarUrl();
-        if (avatarUrl != null && !avatarUrl.isEmpty()) {
-            Glide.with(this).load(avatarUrl).placeholder(R.drawable.ic_person)
-                    .into(ivAvatar);
-        } else {
-            ivAvatar.setImageResource(R.drawable.ic_person);
+        if (!java.util.Objects.equals(avatarUrl, miniPlayerLoadedAvatarUrl)) {
+            miniPlayerLoadedAvatarUrl = avatarUrl;
+            if (avatarUrl != null && !avatarUrl.isEmpty()) {
+                Glide.with(this).load(avatarUrl).placeholder(R.drawable.ic_person)
+                        .into(miniPlayerIvAvatar);
+            } else {
+                miniPlayerIvAvatar.setImageResource(R.drawable.ic_person);
+            }
         }
     }
 

@@ -786,8 +786,15 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
 
             String myUid = FirebaseUtils.getCurrentUid();
             boolean ownerContext = myUid != null && myUid.equals(item.uid);
+
+            View sourceCell = null;
+            RecyclerView.ViewHolder svh =
+                    rvReels != null ? rvReels.findViewHolderForAdapterPosition(position) : null;
+            if (svh != null) sourceCell = svh.itemView;
+            final View finalSourceCell = sourceCell;
+
             if (!ownerContext) {
-                peekController.show(previewReel, null, onWatchFull);
+                peekController.show(previewReel, null, onWatchFull, finalSourceCell);
                 return;
             }
 
@@ -795,7 +802,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                 if (isGone()) return;
                 List<ReelPeekPreviewController.PeekOption> options =
                         buildOwnerPeekOptions(item, previewReel, myUid, position);
-                peekController.show(previewReel, options, onWatchFull);
+                peekController.show(previewReel, options, onWatchFull, finalSourceCell);
             });
         });
         rvReels.setAdapter(reelThumbAdapter);
