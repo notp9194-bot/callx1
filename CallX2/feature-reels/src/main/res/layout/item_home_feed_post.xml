@@ -5,22 +5,29 @@
   ■ Header (avatar + username + suggested + audio) overlaid on video — top gradient
   ■ Mute button overlaid — bottom-right of video
   ■ End-of-reel overlay — "Watch more reels" pill + "Watch again" text — GONE by default
-  ■ Action bar (❤ | 💬 | 🔄 | ▷ | 🔖) below video with counts
-  ■ Timestamp + caption below action bar
+  ■ Action bar (❤ | 💬 | 🔄 | ▷ | 🔖) below video with counts — theme-aware
+    (background_light / text_primary / text_secondary) so it switches
+    properly between light and dark mode instead of staying hardcoded black.
+  ■ Timestamp + caption below action bar — also theme-aware
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="#000000"
+    android:background="@color/background_light"
     android:layout_marginBottom="2dp">
 
     <!-- ══════════ VIDEO BLOCK ══════════ -->
+    <!-- Always solid black, in both light & dark mode — the video itself
+         should never switch to a light background (Instagram behaves the
+         same way). Only the content BELOW the video (action bar, counts,
+         timestamp, caption) follows the app theme. -->
     <FrameLayout
         android:id="@+id/frame_video"
         android:layout_width="match_parent"
-        android:layout_height="600dp">
+        android:layout_height="600dp"
+        android:background="#000000">
         <!-- height overridden in Java: screenWidth × 16/9 for exact 9:16 -->
 
         <!-- ExoPlayer surface — MediaItem set in HomeFragment -->
@@ -243,7 +250,7 @@
             android:layout_width="36dp"
             android:layout_height="36dp"
             android:src="@drawable/ic_heart"
-            android:tint="#FFFFFF"
+            android:tint="@color/text_primary"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Like"/>
 
@@ -252,7 +259,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="0"
-            android:textColor="#CCCCCC"
+            android:textColor="@color/text_secondary"
             android:textSize="12sp"
             android:layout_marginEnd="6dp"/>
 
@@ -262,7 +269,7 @@
             android:layout_width="36dp"
             android:layout_height="36dp"
             android:src="@drawable/ic_comment_reel"
-            android:tint="#FFFFFF"
+            android:tint="@color/text_primary"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Comment"/>
 
@@ -271,7 +278,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="0"
-            android:textColor="#CCCCCC"
+            android:textColor="@color/text_secondary"
             android:textSize="12sp"
             android:layout_marginEnd="6dp"/>
 
@@ -281,7 +288,7 @@
             android:layout_width="36dp"
             android:layout_height="36dp"
             android:src="@drawable/ic_repost"
-            android:tint="#FFFFFF"
+            android:tint="@color/text_primary"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Repost"/>
 
@@ -290,7 +297,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="0"
-            android:textColor="#CCCCCC"
+            android:textColor="@color/text_secondary"
             android:textSize="12sp"
             android:layout_marginEnd="6dp"/>
 
@@ -300,7 +307,7 @@
             android:layout_width="36dp"
             android:layout_height="36dp"
             android:src="@drawable/ic_share_reel"
-            android:tint="#FFFFFF"
+            android:tint="@color/text_primary"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Send"/>
 
@@ -310,7 +317,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="0"
-            android:textColor="#CCCCCC"
+            android:textColor="@color/text_secondary"
             android:textSize="12sp"/>
 
         <!-- 🔖 Save -->
@@ -319,7 +326,7 @@
             android:layout_width="36dp"
             android:layout_height="36dp"
             android:src="@drawable/ic_bookmark"
-            android:tint="#FFFFFF"
+            android:tint="@color/text_primary"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Save"/>
     </LinearLayout>
@@ -333,7 +340,7 @@
         android:paddingEnd="12dp"
         android:paddingBottom="4dp"
         android:text="1 day ago"
-        android:textColor="#777777"
+        android:textColor="@color/text_secondary"
         android:textSize="11sp"/>
 
     <!-- Caption -->
@@ -345,7 +352,7 @@
         android:paddingEnd="12dp"
         android:paddingBottom="2dp"
         android:text=""
-        android:textColor="#DDDDDD"
+        android:textColor="@color/text_primary"
         android:textSize="13sp"
         android:maxLines="2"
         android:ellipsize="end"/>
@@ -359,7 +366,7 @@
         android:paddingEnd="12dp"
         android:paddingBottom="14dp"
         android:text="more"
-        android:textColor="#AAAAAA"
+        android:textColor="@color/text_secondary"
         android:textSize="13sp"
         android:fontFamily="sans-serif-medium"
         android:visibility="gone"

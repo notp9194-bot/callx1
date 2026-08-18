@@ -9,6 +9,8 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.Layout;
 import android.text.StaticLayout;
 import android.text.TextPaint;
@@ -1710,6 +1712,11 @@ public class MessageBubbleCanvasView extends View {
     final android.graphics.Matrix linkThumbShaderMatrix = new android.graphics.Matrix();
 
     OnBubbleClickListener clickListener;
+    private final Handler reelPeekHandler = new Handler(Looper.getMainLooper());
+    private Runnable reelPeekRunnable;
+    private boolean reelPeekTriggered;
+    private float reelPeekDownX;
+    private float reelPeekDownY;
     final GestureDetector gestureDetector;
 
     // ── Per-feature draw() renderers (feature-based file split) — bind/
@@ -2186,7 +2193,10 @@ public class MessageBubbleCanvasView extends View {
                 return true;
             }
             @Override public void onLongPress(MotionEvent e) {
-                if (clickListener != null) clickListener.onBubbleLongClick();
+                // Reel cards use their own 3-second hold gesture so the
+                // existing generic message action sheet does not appear
+                // before the mini-player preview.
+                if (!isReelShare && clickListener != null) clickListener.onBubbleLongClick();
             }
         });
         // Belt-and-suspenders: mark the view as (long-)clickable so its
@@ -2778,6 +2788,8 @@ public class MessageBubbleCanvasView extends View {
     public void bindReelShare(@Nullable Bitmap thumb, @Nullable Bitmap avatar,
                                @Nullable String username, @Nullable String caption,
                                String timeText, boolean isSent, boolean isRead, boolean isDelivered) {
+        cancelReelPeekPreview();
+        reelPeekTriggered = false;
         this.isMedia = false;
         this.isMediaGroup = false;
         this.isReelShare = true;
@@ -5701,8 +5713,63 @@ public class MessageBubbleCanvasView extends View {
         cancel.recycle();
     }
 
+    private void cancelReelPeekPreview() {
+        if (reelPeekRunnable != null) {
+            reelPeekHandler.removeCallbacks(reelPeekRunnable);
+            reelPeekRunnable = null;
+        }
+    }
+
+    private void scheduleReelPeekPreview() {
+        cancelReelPeekPreview();
+        reelPeekTriggered = false;
+        reelPeekRunnable = () -> {
+            reelPeekRunnable = null;
+            if (!isReelShare || !isPressed()) return;
+            reelPeekTriggered = true;
+            if (clickListener != null) clickListener.onReelPeekPreview(this);
+        };
+        reelPeekHandler.postDelayed(reelPeekRunnable, 3000L);
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        cancelReelPeekPreview();
+        reelPeekTriggered = false;
+        setPressed(false);
+        super.onDetachedFromWindow();
+    }
+
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        if (isReelShare) {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN
+                    && reelCardRect.contains(event.getX(), event.getY())) {
+                reelPeekDownX = event.getX();
+                reelPeekDownY = event.getY();
+                setPressed(true);
+                scheduleReelPeekPreview();
+            } else if (action == MotionEvent.ACTION_MOVE && reelPeekRunnable != null) {
+                float dx = event.getX() - reelPeekDownX;
+                float dy = event.getY() - reelPeekDownY;
+                float slop = getContext().getResources().getDisplayMetrics().density * 8f;
+                if ((dx * dx) + (dy * dy) > slop * slop) {
+                    cancelReelPeekPreview();
+                    setPressed(false);
+                }
+            } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                boolean previewWasTriggered = reelPeekTriggered;
+                cancelReelPeekPreview();
+                setPressed(false);
+                if (previewWasTriggered) {
+                    cancelPendingLongPress(event);
+                    reelPeekTriggered = false;
+                    return true;
+                }
+                reelPeekTriggered = false;
+            }
+        }
         if (showForwardBtn && event.getActionMasked() == MotionEvent.ACTION_UP
                 && forwardBtnRect.contains(event.getX(), event.getY())) {
             cancelPendingLongPress(event);

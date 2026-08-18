@@ -50,6 +50,9 @@ public interface OnBubbleClickListener {
      *  ignore it for VIEW_ONCE_WAITING/VIEW_ONCE_EXPIRED (mirrors the legacy path's null click
      *  listener on those two states) and open the view-once viewer only for VIEW_ONCE_RECEIVED. */
     default void onViewOnceClick() {}
+    /** Held a shared reel card for the chat peek delay — caller should show
+     *  the existing Reels mini-player without navigating away from chat. */
+    default void onReelPeekPreview(android.view.View sourceView) {}
     /** Tapped a "watched your reel" / "seen your status" system bubble (bindSeenBubble only) —
      *  caller should open the reel or the status viewer, same as the legacy tap listeners on
      *  ll_bubble/fl_reel_seen_thumb / fl_status_seen_thumb (whole card and thumbnail both open it). */

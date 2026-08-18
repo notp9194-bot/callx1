@@ -3368,7 +3368,15 @@ public class HomeFragment extends Fragment {
      *  reel card and ReelPlayerFragment/ReelSocialController. */
     private void setLikeButtonTint(ImageButton btnLike, boolean liked) {
         if (btnLike == null) return;
-        btnLike.setImageTintList(ColorStateList.valueOf(
-            liked ? Color.parseColor("#FF416C") : Color.WHITE));
+        // FIX (light mode): the "not liked" state used to be hardcoded
+        // Color.WHITE, so the heart icon stayed white (invisible-ish) even
+        // when the action bar switched to a light background. Now it uses
+        // the theme-aware text_primary color, same as the other action-bar
+        // icons, so it flips to dark in light mode and stays white in dark
+        // mode automatically.
+        int tint = liked
+            ? Color.parseColor("#FF416C")
+            : btnLike.getContext().getResources().getColor(R.color.text_primary, null);
+        btnLike.setImageTintList(ColorStateList.valueOf(tint));
     }
 }

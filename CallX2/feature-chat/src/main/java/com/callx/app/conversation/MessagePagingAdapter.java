@@ -3996,7 +3996,25 @@ public class MessagePagingAdapter
 
             @Override
             public void onImageClick() {
-                if (isImage) {
+                if (isReelShare) {
+                    // Shared reel cards open the full reel on a normal tap.
+                    // A 3-second hold is handled separately by
+                    // onReelPeekPreview() below.
+                    String reelId = m.reelId != null ? m.reelId : "";
+                    String reelUrl = m.reelShareUrl != null ? m.reelShareUrl : "";
+                    if (reelId.isEmpty() && reelUrl.isEmpty()) return;
+                    String deepLink = !reelId.isEmpty()
+                            ? com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/reel/" + reelId
+                            : reelUrl;
+                    try {
+                        android.content.Intent ri = new android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse(deepLink));
+                        ri.setPackage(ctx.getPackageName());
+                        ri.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                        ctx.startActivity(ri);
+                    } catch (Exception ignored) {}
+                } else if (isImage) {
                     // Still uploading / failed local-first bubble — no
                     // remote URL to open yet; the gate tap (onMediaDownloadClick)
                     // handles the failed-retry case instead.
@@ -4087,24 +4105,13 @@ public class MessagePagingAdapter
                             });
                         });
                     }
-                } else if (isReelShare) {
-                    // Mirrors the legacy ll_reel_share.setOnClickListener —
-                    // deep-link into the reel by ID, falling back to the
-                    // raw share URL if no reelId was stored on the message.
-                    String reelId = m.reelId != null ? m.reelId : "";
-                    String reelUrl = m.reelShareUrl != null ? m.reelShareUrl : "";
-                    String deepLink = !reelId.isEmpty()
-                            ? com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/reel/" + reelId
-                            : reelUrl;
-                    if (!deepLink.isEmpty()) {
-                        try {
-                            android.content.Intent ri = new android.content.Intent(
-                                    android.content.Intent.ACTION_VIEW, android.net.Uri.parse(deepLink));
-                            ri.setPackage(ctx.getPackageName());
-                            ri.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                            ctx.startActivity(ri);
-                        } catch (Exception ignored) {}
-                    }
+                }
+            }
+
+            @Override
+            public void onReelPeekPreview(android.view.View sourceView) {
+                if (isReelShare) {
+                    ReelSharePeekBridge.show(ctx, m, sourceView);
                 }
             }
 
