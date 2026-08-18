@@ -39,6 +39,7 @@ import com.callx.app.upload.ReelUploadActivity;
 import com.callx.app.profile.UserReelsActivity;
   import android.view.View;
   import android.widget.TextView;
+  import android.widget.ImageButton;
   import com.bumptech.glide.Glide;
   import de.hdodenhof.circleimageview.CircleImageView;
   import com.callx.app.feed.XActivity;
@@ -66,6 +67,8 @@ import com.callx.app.social.ReelDisplayModeBottomSheet;
 import com.callx.app.utils.ReelDisplayModePrefs;
 import androidx.annotation.OptIn;
 import androidx.media3.common.util.UnstableApi;
+import com.callx.app.audio.GlobalVoicePlaybackManager;
+import com.callx.app.conversation.ChatActivity;
 
 public class MainActivity extends AppCompatActivity
         implements com.callx.app.feed.ReelDisplayModeListener,
@@ -82,6 +85,21 @@ public class MainActivity extends AppCompatActivity
     private ReelChatDockedPlayer dockedPlayer;
     /** Tracks the ViewPager2 page position BEFORE the current switch. */
     private int prevTabPosition = TAB_CHATS;
+
+    // ── Voice-note mini player (WhatsApp-style persistent playback) ──────
+    private final GlobalVoicePlaybackManager.Listener voiceMiniPlayerListener =
+            new GlobalVoicePlaybackManager.Listener() {
+        @Override public void onPlaybackStarted(String messageId, String chatId, String partnerUid,
+                                                  String displayName, String avatarUrl, boolean outgoing) {
+            runOnUiThread(() -> updateVoiceMiniPlayer());
+        }
+        @Override public void onPlaybackToggled(String messageId, boolean playing) {
+            runOnUiThread(() -> updateVoiceMiniPlayer());
+        }
+        @Override public void onPlaybackStopped(String messageId) {
+            runOnUiThread(() -> updateVoiceMiniPlayer());
+        }
+    };
 
 
       // ── X Module ────────────────────────────────────────────────────────────────
@@ -209,6 +227,8 @@ public class MainActivity extends AppCompatActivity
             startActivity(new Intent(this, AllNotificationsActivity.class));
             overridePendingTransition(0, 0); // Tab switch — instant 0ms
         });
+
+        setupVoiceMiniPlayer();
 
         // v244: avatar removed from toolbar — Settings (AccountMenuActivity)
         // now opens from the 3-dot overflow menu instead (see onOptionsItemSelected).
@@ -385,6 +405,75 @@ public class MainActivity extends AppCompatActivity
         updateHeaderVisibilityForTab(currentTab);
         // Feature 1: Return to Call Banner
         updateReturnToCallBanner();
+        // Voice-note mini player — re-sync in case a clip started/stopped
+        // while this Activity wasn't the one on screen (e.g. was paused
+        // behind ChatActivity when playback state last changed).
+        updateVoiceMiniPlayer();
+    }
+
+    // ── Voice-note mini player ────────────────────────────────────────────
+    // WhatsApp-style green strip — shown above the toolbar whenever
+    // GlobalVoicePlaybackManager has an active voice note (playing OR
+    // paused-but-still-active), which happens once the user leaves the
+    // ChatActivity screen it was started from. See MessagePagingAdapter's
+    // onDetachedFromRecyclerView for the hand-off that keeps it alive.
+    private void setupVoiceMiniPlayer() {
+        View banner = binding.getRoot().findViewById(R.id.banner_voice_mini_player);
+        if (banner == null) return;
+
+        GlobalVoicePlaybackManager.getInstance().addListener(voiceMiniPlayerListener);
+
+        banner.findViewById(R.id.btn_mini_player_play).setOnClickListener(v ->
+                GlobalVoicePlaybackManager.getInstance().togglePlayPause());
+
+        banner.findViewById(R.id.btn_mini_player_close).setOnClickListener(v ->
+                GlobalVoicePlaybackManager.getInstance().stopAndClear());
+
+        // Tap anywhere else on the strip → reopen the chat this clip came
+        // from, same as tapping the return-to-call banner reopens CallActivity.
+        banner.setOnClickListener(v -> {
+            String partnerUid = GlobalVoicePlaybackManager.getInstance().getCurrentPartnerUid();
+            if (partnerUid == null || partnerUid.isEmpty()) return;
+            Intent i = new Intent(this, ChatActivity.class);
+            i.putExtra("partnerUid", partnerUid);
+            if (!GlobalVoicePlaybackManager.getInstance().isOutgoing()) {
+                String name = GlobalVoicePlaybackManager.getInstance().getDisplayName();
+                String avatar = GlobalVoicePlaybackManager.getInstance().getAvatarUrl();
+                if (name != null) i.putExtra("partnerName", name);
+                if (avatar != null) i.putExtra("partnerPhoto", avatar);
+            }
+            startActivity(i);
+            overridePendingTransition(0, 0);
+        });
+    }
+
+    private void updateVoiceMiniPlayer() {
+        View banner = binding.getRoot().findViewById(R.id.banner_voice_mini_player);
+        if (banner == null) return;
+
+        GlobalVoicePlaybackManager mgr = GlobalVoicePlaybackManager.getInstance();
+        if (!mgr.hasActiveMessage()) {
+            banner.setVisibility(View.GONE);
+            return;
+        }
+
+        banner.setVisibility(View.VISIBLE);
+
+        ImageButton btnPlay = banner.findViewById(R.id.btn_mini_player_play);
+        btnPlay.setImageResource(mgr.isPlaying() ? R.drawable.ic_pause : R.drawable.ic_play);
+
+        TextView tvName = banner.findViewById(R.id.tv_mini_player_name);
+        String name = mgr.getDisplayName();
+        tvName.setText(name != null && !name.isEmpty() ? name : "Voice message");
+
+        CircleImageView ivAvatar = banner.findViewById(R.id.iv_mini_player_avatar);
+        String avatarUrl = mgr.getAvatarUrl();
+        if (avatarUrl != null && !avatarUrl.isEmpty()) {
+            Glide.with(this).load(avatarUrl).placeholder(R.drawable.ic_person)
+                    .into(ivAvatar);
+        } else {
+            ivAvatar.setImageResource(R.drawable.ic_person);
+        }
     }
 
     // ── Feature 1: Return to Call Banner ─────────────────────────────────
@@ -557,6 +646,7 @@ public class MainActivity extends AppCompatActivity
         // touched by a stray lock()/unlock() call from a Reels fragment
         // still finishing off its own lifecycle.
         com.callx.app.utils.ReelTabSwipeLock.setController(null);
+        GlobalVoicePlaybackManager.getInstance().removeListener(voiceMiniPlayerListener);
         // Clean up any active docked reel player to release the ExoPlayer surface
         if (dockedPlayer != null) {
             dockedPlayer.dismiss(false);

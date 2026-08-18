@@ -19,6 +19,7 @@ import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.chat.R;
 
 import com.callx.app.models.Message;
+import com.callx.app.audio.GlobalVoicePlaybackManager;
 import com.callx.app.utils.FileUtils;
 import com.callx.app.utils.MediaCache;
 import com.callx.app.utils.MediaAutoDownloadPolicy;
@@ -977,6 +978,34 @@ public class MessagePagingAdapter
     // FIX [P3-1]: Track the ViewHolder that is currently playing so we can
     // reset its UI (icon + seekbar) when a different message starts playing.
     private VH playingVH = null;
+
+    private static String midOf(@Nullable Message m) {
+        if (m == null) return null;
+        return m.messageId != null ? m.messageId : m.id;
+    }
+
+    /**
+     * Mirrors GlobalVoicePlaybackManager's stop back onto this adapter when
+     * playback was stopped from OUTSIDE this chat screen (mini player ✕ in
+     * MainActivity, or the clip finishing while backgrounded) yet this
+     * adapter is somehow still attached — resets the bubble UI without
+     * touching the MediaPlayer again (it's already released by the manager).
+     */
+    private final GlobalVoicePlaybackManager.Listener globalPlaybackListener =
+            new GlobalVoicePlaybackManager.Listener() {
+        @Override public void onPlaybackStarted(String messageId, String chatId, String partnerUid,
+                                                  String displayName, String avatarUrl, boolean outgoing) { }
+        @Override public void onPlaybackToggled(String messageId, boolean playing) { }
+        @Override public void onPlaybackStopped(String messageId) {
+            if (playingVH != null && messageId != null && messageId.equals(midOf(getItem(playingPos)))) {
+                seekHandler.removeCallbacks(seekUpdater);
+                resetAudioUi(playingVH);
+            }
+            player = null;
+            playingVH = null;
+            playingPos = -1;
+        }
+    };
     // Feature 4: Voice speed. Resets to 1.0f each time a new audio starts.
     private float currentPlaybackSpeed = 1.0f;
 
@@ -1154,6 +1183,13 @@ public class MessagePagingAdapter
      *  publish playback presence (see class-level field doc above). */
     public void setChatId(String chatId) { this.chatId = chatId; }
 
+    /** The OTHER party's uid in this 1:1 chat — set once by ChatActivity right
+     *  after construction. Needed because a voice-note Message's senderId is
+     *  the current user's own uid for outgoing clips, so it can't be used to
+     *  identify "who to reopen" from GlobalVoicePlaybackManager's mini player. */
+    private String partnerUid;
+    public void setPartnerUid(String partnerUid) { this.partnerUid = partnerUid; }
+
     /**
      * Finds a Message in the currently loaded paging snapshot by id.
      * Used by ChatActivity/GroupChatActivity to resolve the message that
@@ -1319,6 +1355,7 @@ public class MessagePagingAdapter
         super.onAttachedToRecyclerView(recyclerView);
         glideRequestManager = com.bumptech.glide.Glide.with(recyclerView.getContext());
         attachedRecyclerView = recyclerView;
+        GlobalVoicePlaybackManager.getInstance().addListener(globalPlaybackListener);
     }
 
     @Override
@@ -1326,6 +1363,24 @@ public class MessagePagingAdapter
         super.onDetachedFromRecyclerView(recyclerView);
         glideRequestManager = null;
         attachedRecyclerView = null;
+        GlobalVoicePlaybackManager.getInstance().removeListener(globalPlaybackListener);
+
+        // WhatsApp-style persistent mini player: if a voice note is still
+        // mid-playback when this chat screen goes away, do NOT stop/release
+        // it — just drop OUR reference. GlobalVoicePlaybackManager already
+        // holds its own strong reference to this exact MediaPlayer (set in
+        // playAudioFromPath's notifyStarted call), so the audio keeps
+        // playing and stays controllable from MainActivity's mini player.
+        if (player != null && playingVH != null) {
+            GlobalVoicePlaybackManager.getInstance().onChatScreenLeftWhilePlaying();
+        } else if (player != null) {
+            // Paused / idle player left behind — nothing to hand off, safe to release.
+            try { player.release(); } catch (Exception ignored) {}
+        }
+        player = null;
+        playingVH = null;
+        playingPos = -1;
+        seekHandler.removeCallbacks(seekUpdater);
     }
 
     /**
@@ -5978,6 +6033,7 @@ public class MessagePagingAdapter
             player.pause();
             setPlayPauseIcon(h, false);
             notifyPlaybackChanged(getItem(position), false);
+            GlobalVoicePlaybackManager.getInstance().notifyToggled(midOf(getItem(position)), false);
             return;
         }
         if (playingPos != -1 && playingPos != position) {
@@ -6094,6 +6150,23 @@ public class MessagePagingAdapter
             if (player != null) { try { player.release(); } catch (Exception ignored) {} }
             player = new MediaPlayer();
             playingVH = h;
+
+            // Snapshot of who/what this clip belongs to — handed to
+            // GlobalVoicePlaybackManager below so the mini player can show
+            // "You" (outgoing) or the sender's name+avatar (incoming) even
+            // after this chat screen is gone.
+            final Message __voiceMsg = getItem(position);
+            final String __voiceMid = midOf(__voiceMsg);
+            final boolean __outgoing = __voiceMsg != null && currentUid != null
+                    && currentUid.equals(__voiceMsg.senderId);
+            final String __voiceName = __outgoing
+                    ? "You"
+                    : (__voiceMsg != null && __voiceMsg.senderName != null && !__voiceMsg.senderName.isEmpty()
+                        ? __voiceMsg.senderName : "Voice message");
+            final String __voiceAvatar = __outgoing ? null : (__voiceMsg != null ? __voiceMsg.senderPhoto : null);
+            // Always the OTHER party's uid (see partnerUid field javadoc) — NOT
+            // __voiceMsg.senderId, which is our own uid for outgoing clips.
+            final String __voicePartnerUid = this.partnerUid;
             
             // Agar local file hai to FileDescriptor se set karo (cache files ke liye)
             // Agar URL hai to directly
@@ -6128,6 +6201,11 @@ public class MessagePagingAdapter
                 }
                 setPlayPauseIcon(h, true);
                 notifyPlaybackChanged(getItem(position), true);
+                // WhatsApp-style persistent mini player: register this MediaPlayer +
+                // metadata as the app-wide "currently playing voice note" so it
+                // survives leaving this chat screen (see onDetachedFromRecyclerView).
+                GlobalVoicePlaybackManager.getInstance().notifyStarted(
+                        mp, __voiceMid, chatId, __voicePartnerUid, __voiceName, __voiceAvatar, __outgoing);
                 // FIX: SeekBar live progress update — runs every 250ms while playing
                 if (h.seekAudio != null || h.canvasView != null) {
                     final int durationMs = mp.getDuration();
@@ -6162,6 +6240,7 @@ public class MessagePagingAdapter
             });
             player.setOnCompletionListener(mp -> {
                 notifyPlaybackChanged(getItem(position), false);
+                GlobalVoicePlaybackManager.getInstance().notifyStopped(__voiceMid);
                 playingPos = -1;
                 seekHandler.removeCallbacks(seekUpdater);
                 resetAudioUi(h);
@@ -6171,6 +6250,7 @@ public class MessagePagingAdapter
             player.setOnErrorListener((mp, what, extra) -> {
                 android.util.Log.e("AudioPlay", "Error: " + what + " extra: " + extra + " path: " + path);
                 notifyPlaybackChanged(getItem(position), false);
+                GlobalVoicePlaybackManager.getInstance().notifyStopped(__voiceMid);
                 playingPos = -1;
                 setPlayPauseIcon(h, false);
                 return true;

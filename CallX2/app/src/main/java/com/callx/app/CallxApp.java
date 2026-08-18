@@ -67,6 +67,13 @@ public class CallxApp extends Application {
     public void onCreate() {
         super.onCreate();
 
+        // "Just watched" reels-grid overlay is scoped to the CURRENT app
+        // session (see AppSessionTracker + UserReelsActivity#loadWatchedReelIds
+        // in feature-reels) — touching it here, first thing, forces its
+        // session-start timestamp to be captured at actual process start
+        // instead of lazily whenever the Reels tab first happens to load.
+        com.callx.app.utils.AppSessionTracker.getSessionStartMs();
+
         // ── CRASH CAPTURE: on-device crash trace (no adb/logcat needed) ────
         // Registered first so it wraps every subsequent line in onCreate too.
         // On any uncaught exception anywhere in the app: saves the full

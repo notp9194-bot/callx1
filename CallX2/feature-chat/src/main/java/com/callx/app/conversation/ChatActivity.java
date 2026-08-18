@@ -2059,6 +2059,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private void setupPagingRecyclerView() {
         pagingAdapter = new MessagePagingAdapter(currentUid, false);
         pagingAdapter.setChatId(chatId);
+        pagingAdapter.setPartnerUid(partnerUid);
 
         // Feature 13: View Once — wire adapter listener to controller + viewer launch
         // (Moved here from early onCreate block — pagingAdapter must exist first.)

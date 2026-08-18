@@ -13,6 +13,85 @@
         android:background="?attr/colorSurface"
         app:elevation="4dp">
 
+        <!-- ══ Voice-note mini player ═════════════════════════════════════
+             WhatsApp-style green strip that appears above the toolbar the
+             moment a voice note is still playing (or paused-but-active)
+             after the user has left the chat screen it was played from.
+             Driven entirely by GlobalVoicePlaybackManager — see
+             MainActivity#updateVoiceMiniPlayer(). Gone by default. -->
+        <LinearLayout
+            android:id="@+id/banner_voice_mini_player"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="#FF1FA855"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:visibility="gone"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground">
+
+            <ImageButton
+                android:id="@+id/btn_mini_player_play"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:padding="9dp"
+                android:src="@drawable/ic_play"
+                android:tint="#FFFFFF"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Play/Pause"/>
+
+            <FrameLayout
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="4dp">
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_mini_player_avatar"
+                    android:layout_width="34dp"
+                    android:layout_height="34dp"
+                    android:src="@drawable/ic_person"
+                    android:padding="6dp"
+                    android:background="#33FFFFFF"
+                    app:civ_border_width="0dp"/>
+
+                <ImageView
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:layout_gravity="bottom|end"
+                    android:src="@drawable/ic_mic"
+                    android:tint="#FF1FA855"
+                    android:background="@drawable/bg_circle_white"
+                    android:padding="2dp"/>
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/tv_mini_player_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="10dp"
+                android:text="You"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:singleLine="true"
+                android:ellipsize="end"/>
+
+            <ImageButton
+                android:id="@+id/btn_mini_player_close"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:padding="8dp"
+                android:src="@drawable/ic_close"
+                android:tint="#FFFFFF"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Stop"/>
+
+        </LinearLayout>
+
         <androidx.appcompat.widget.Toolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"

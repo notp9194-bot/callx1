@@ -4371,20 +4371,24 @@ public class UserReelsActivity extends AppCompatActivity
      *     another device/session since, merges it into Room, and only then
      *     re-applies to the adapter if it actually added anything new.
      */
-    // GAP FIX: "Just watched" is a recency indicator, not a permanent mark —
-    // matches Instagram's own behaviour (a reel watched weeks ago shouldn't
-    // still show the badge). Applied both to the local Room read and as the
-    // Firebase sync's floor, and old rows are actually deleted (not just
-    // capped by count) so the cache stays small for a heavy reels user too.
-    private static final long RECENT_WATCH_WINDOW_MS = 7L * 24 * 60 * 60 * 1000; // 7 days
+    // GAP FIX v2: 7-day window was still way too wide — a real user watching
+    // a decent number of reels ended up with most of a profile's grid
+    // tagged "Just watched", which isn't what the feature is for. Instagram
+    // scopes this to the CURRENT session, so this now uses
+    // AppSessionTracker's process-start timestamp (see :core) as the floor
+    // instead of a fixed calendar window — a reel watched in a previous app
+    // open never shows the badge again, no matter how recently.
+    private long recentWatchWindowStart() {
+        return com.callx.app.utils.AppSessionTracker.getSessionStartMs();
+    }
 
     private void loadWatchedReelIds() {
         final String myUid = safeMyUid();
         if (myUid == null) return;
-        final long windowStart = System.currentTimeMillis() - RECENT_WATCH_WINDOW_MS;
+        final long windowStart = recentWatchWindowStart();
         dbExecutor.execute(() -> {
             AppDatabase db = AppDatabase.getInstance(getApplicationContext());
-            // Expire anything past the recency window before reading, so a
+            // Expire anything from before this session before reading, so a
             // stale badge never has the chance to flash even once.
             db.reelWatchHistoryCacheDao().pruneOlderThan(windowStart);
             List<String> cachedIds = db.reelWatchHistoryCacheDao().getRecentReelIds(windowStart);
@@ -4397,7 +4401,16 @@ public class UserReelsActivity extends AppCompatActivity
                 if (adapter != null && !watchedSet.isEmpty()) adapter.setWatchedReelIds(watchedSet);
             });
 
-            long cursor = latestCached != null ? latestCached + 1 : 0L;
+            // Floor at windowStart (session start), never below it — the
+            // pruneOlderThan() call just above wipes anything from before
+            // this session, so latestCached is often null right after a
+            // fresh app open, and a plain "cursor = 0" fallback would mean
+            // re-fetching this viewer's ENTIRE watch history from Firebase
+            // on the very first Reels-grid open of every session. Flooring
+            // at windowStart keeps the query bounded to "this session only"
+            // while still being incremental (skips already-synced ids)
+            // across repeated grid opens within the same session.
+            long cursor = latestCached != null ? Math.max(latestCached + 1, windowStart) : windowStart;
             Query syncQuery = FirebaseUtils.getReelWatchHistoryRef(myUid).orderByValue().startAt(cursor);
             syncQuery.addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
