@@ -3,77 +3,26 @@
     layout_msg_reel_share.xml — Compact bubbleless reel card (Instagram/WhatsApp style).
 
     • No bubble background — ll_bubble bg is set to null at runtime for reel_share type.
-    • 165dp wide × 293dp tall — 9:16 vertical aspect ratio for proper mobile reel format.
-    • Mini video player card (165×294dp, 40% smaller than peek player) displayed above the reel thumbnail card.
-    • NO blur background, NO popup — inline player embedded directly in message.
+    • 165dp wide × 348dp tall — 9:19 aspect ratio (matches MessageBubbleCanvasView's
+      REEL_CARD_WIDTH_DP/REEL_CARD_HEIGHT_DP for the canvas-rendered path — this XML
+      is only used as the non-canvas-eligible fallback, kept in sync so both paths
+      render the same card size).
     • Rounded corners (12dp) via bg_media_card + clipToOutline.
     • Timestamp + tick overlays from the parent ll_msg_footer (bottom|end in FrameLayout).
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/ll_reel_share"
     android:layout_width="165dp"
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:clickable="true"
-    android:focusable="true">
+    android:focusable="true"
+    android:background="@drawable/bg_media_card"
+    android:clipToOutline="true">
 
-    <!-- Mini video player card — 40% smaller than peek player (165×294dp vs 331×475dp) -->
-    <!-- Hidden by default, shown when reel is tapped (no blur background, inline in message) -->
-    <androidx.cardview.widget.CardView
-        android:id="@+id/card_mini_player"
-        android:layout_width="165dp"
-        android:layout_height="294dp"
-        android:layout_marginBottom="8dp"
-        app:cardCornerRadius="12dp"
-        app:cardElevation="8dp"
-        app:cardBackgroundColor="#000000"
-        app:cardPreventCornerOverlap="true"
-        android:visibility="gone">
-
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="match_parent">
-
-            <!-- ExoPlayer/Media3 PlayerView — use generic FrameLayout as placeholder -->
-            <!-- Actual PlayerView will be inflated dynamically in code -->
-            <FrameLayout
-                android:id="@+id/mini_player_container"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="#000000">
-                
-                <!-- Loading indicator -->
-                <ProgressBar
-                    android:id="@+id/mini_player_loading"
-                    style="?android:attr/progressBarStyleSmall"
-                    android:layout_width="20dp"
-                    android:layout_height="20dp"
-                    android:layout_gravity="center"
-                    android:indeterminateTint="#FFFFFF"
-                    android:visibility="gone"/>
-            </FrameLayout>
-
-            <!-- Mute status badge (top-left corner) -->
-            <ImageView
-                android:id="@+id/mini_mute_icon"
-                android:layout_width="16dp"
-                android:layout_height="16dp"
-                android:layout_gravity="top|start"
-                android:layout_margin="6dp"
-                android:src="@drawable/ic_volume_off"
-                android:tint="#FFFFFF"
-                android:visibility="gone"
-                android:contentDescription="Muted"/>
-        </FrameLayout>
-    </androidx.cardview.widget.CardView>
-
-    <!-- Main reel share thumbnail card with 9:16 aspect ratio -->
     <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="293dp"
-        android:background="@drawable/bg_media_card"
-        android:clipToOutline="true">
+        android:layout_height="348dp">
 
         <!-- Thumbnail -->
         <ImageView

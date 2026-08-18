@@ -8,7 +8,7 @@ import android.text.TextUtils;
 
 /**
  * Draws the reel-share card — mirrors layout_msg_reel_share.xml: rounded
- * 165×237dp thumbnail (or #1A1A1A placeholder), top gradient + avatar/
+ * 165×348dp (9:19) thumbnail (or #1A1A1A placeholder), top gradient + avatar/
  * username header, centered play glyph, bottom gradient + caption + "⬡
  * Reels" label, and the timestamp/tick pill in the bottom-end corner
  * (always shown, same as ll_msg_footer there).

@@ -4111,8 +4111,7 @@ public class MessagePagingAdapter
             @Override
             public void onReelPeekPreview(android.view.View sourceView) {
                 if (isReelShare) {
-                    // CHAT-ONLY: Load inline mini player (no blur background, no popup)
-                    ReelSharePeekBridge.bindInlineMiniPlayer(ctx, m, sourceView);
+                    ReelSharePeekBridge.show(ctx, m, sourceView);
                 }
             }
 

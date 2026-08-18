@@ -13,6 +13,7 @@ import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -167,6 +168,17 @@ public class ReelPeekPreviewController {
     private Integer overrideCardWidthPx  = null;
     private Integer overrideVideoHeightPx = null;
 
+    // ── Optional per-call position override ─────────────────────────────
+    // Every existing caller keeps the shared centered popup position (XML
+    // layout_gravity="center" on layout_peek_content, untouched). Only a
+    // caller that also passes anchorAboveSource=true in the 7-arg show()
+    // overload below gets the card nudged up to sit directly above
+    // sourceView's on-screen rect instead — used by ReelSharePeekBridge
+    // (feature-chat) so the chat screen's reel-share peek opens above the
+    // share card rather than dead-center of the screen. Reset on every
+    // show() call so it never leaks from one caller/screen to another.
+    private boolean anchorAboveSourceForThisShow = false;
+
     public ReelPeekPreviewController(Activity activity) {
         this.activity = activity;
     }
@@ -203,16 +215,36 @@ public class ReelPeekPreviewController {
      */
     public void show(ReelModel reel, List<PeekOption> options, Callback callback, View sourceView,
                       Integer cardWidthPx, Integer videoHeightPx) {
+        show(reel, options, callback, sourceView, cardWidthPx, videoHeightPx, false);
+    }
+
+    /**
+     * Same as {@link #show(ReelModel, List, Callback, View, Integer, Integer)}
+     * but additionally lets the caller anchor the card directly above
+     * sourceView's on-screen rect instead of the shared dead-center
+     * position, once its (possibly overridden) size is known after the
+     * first layout pass. Every existing caller keeps calling one of the
+     * shorter overloads (which pass false here), so their centered popup
+     * is completely unaffected.
+     *
+     * @param anchorAboveSource true to dock the popped-out card just above
+     *                          sourceView instead of screen-center.
+     */
+    public void show(ReelModel reel, List<PeekOption> options, Callback callback, View sourceView,
+                      Integer cardWidthPx, Integer videoHeightPx, boolean anchorAboveSource) {
         if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         if (reel == null) return;
 
         overrideCardWidthPx   = cardWidthPx;
         overrideVideoHeightPx = videoHeightPx;
+        anchorAboveSourceForThisShow = anchorAboveSource;
         sourceRect = captureScreenRect(sourceView);
 
         if (showing && popupWindow != null && currentContent != null) {
             // A peek is already open — fast long-press onto another grid
-            // cell lands here instead of dismiss()+rebuild.
+            // cell (or, for chat, a second reel-share bubble dwelling to
+            // 3s while the first peek is still up) lands here instead of
+            // dismiss()+rebuild.
             switchTo(reel, options, callback);
             return;
         }
@@ -309,7 +341,15 @@ public class ReelPeekPreviewController {
         // iv_peek_blur_bg has an Instagram-style blurred backdrop instead of
         // a flat dim. Must happen before showAtLocation() below, or we'd be
         // capturing the popup itself.
-        captureAndBlurBackdrop(blurBg, popupWindow);
+        //
+        // Chat-only: anchorAboveSourceForThisShow skips this entirely, so
+        // blurBg is simply never populated and stays at its XML-default
+        // alpha="0" — the chat screen behind the mini player stays clear
+        // (just the normal SCRIM_MAX_ALPHA dim below it), instead of the
+        // blurred-screenshot backdrop every other caller still gets.
+        if (!anchorAboveSourceForThisShow) {
+            captureAndBlurBackdrop(blurBg, popupWindow);
+        }
 
         content.setFocusableInTouchMode(true);
         content.setOnKeyListener((v, keyCode, event) -> {
@@ -335,11 +375,18 @@ public class ReelPeekPreviewController {
         // Reveal: scale up from thumbnail-ish size + fade in, mirroring an
         // Instagram/iOS peek "pop out" of the pressed cell.
         if (peekContent != null) {
-            peekContent.setScaleX(0.55f);
-            peekContent.setScaleY(0.55f);
-            peekContent.setAlpha(0f);
-            peekContent.animate().scaleX(1f).scaleY(1f).alpha(1f)
-                    .setDuration(180).setInterpolator(new DecelerateInterpolator()).start();
+            peekContent.setTranslationX(0f);
+            peekContent.setTranslationY(0f);
+            if (anchorAboveSourceForThisShow && sourceRect != null) {
+                // Chat-only path (see anchorAboveSourceForThisShow doc):
+                // wait one layout pass so the (possibly size-overridden)
+                // card's real width/height is known, nudge it above
+                // sourceRect, THEN reveal — otherwise the un-positioned
+                // centered card would flash for a frame first.
+                positionAboveSourceViewThenReveal(peekContent);
+            } else {
+                startPeekRevealAnimation(peekContent);
+            }
         }
         // Only dims to SCRIM_MAX_ALPHA (not fully opaque) so the blurred
         // backdrop underneath stays visible, iOS/Instagram peek-style.
@@ -368,7 +415,79 @@ public class ReelPeekPreviewController {
         View cardOptions = content.findViewById(R.id.card_peek_options);
         if (cardOptions != null) cardOptions.setVisibility(View.GONE);
 
+        // Fast-switch while anchored (chat: a second reel-share bubble
+        // dwelled to 3s while the first peek was still open) — the card is
+        // already laid out/visible, so just re-apply the offset for the new
+        // sourceRect immediately instead of waiting on a layout listener.
+        if (anchorAboveSourceForThisShow && sourceRect != null && peekContentView != null) {
+            applyAboveSourceOffset(peekContentView);
+        }
+
         startPlayerForCurrentReel(reel, playerView, loading, muteBadge, ivMuteIcon, true);
+    }
+
+    /** Shared reveal animation: scale up from thumbnail-ish size + fade in,
+     *  mirroring an Instagram/iOS peek "pop out" of the pressed cell. Used
+     *  as-is (centered) by every existing caller. */
+    private void startPeekRevealAnimation(View peekContent) {
+        peekContent.setScaleX(0.55f);
+        peekContent.setScaleY(0.55f);
+        peekContent.setAlpha(0f);
+        peekContent.animate().scaleX(1f).scaleY(1f).alpha(1f)
+                .setDuration(180).setInterpolator(new DecelerateInterpolator()).start();
+    }
+
+    /**
+     * Chat-only: defers the reveal animation until peekContent's first
+     * layout pass completes (so its real, possibly size-overridden,
+     * width/height are known), nudges it from the shared centered spot up
+     * to directly above sourceRect via applyAboveSourceOffset(), then plays
+     * the normal reveal animation from that new position.
+     */
+    private void positionAboveSourceViewThenReveal(View peekContent) {
+        peekContent.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                View vto = peekContent;
+                if (vto.getViewTreeObserver().isAlive()) {
+                    vto.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                }
+                applyAboveSourceOffset(peekContent);
+                startPeekRevealAnimation(peekContent);
+            }
+        });
+    }
+
+    /**
+     * Shifts peekContent (currently laid out centered by the shared XML)
+     * up above sourceRect via translationX/Y, horizontally centered on
+     * sourceRect, clamped so the card always stays fully on-screen even if
+     * the reel-share bubble is near the very top/edge of the visible chat
+     * list.
+     */
+    private void applyAboveSourceOffset(View peekContent) {
+        if (peekContent == null || sourceRect == null) return;
+        int width = peekContent.getWidth(), height = peekContent.getHeight();
+        if (width == 0 || height == 0) return;
+
+        int[] loc = new int[2];
+        peekContent.getLocationOnScreen(loc);
+        int curLeft = loc[0], curTop = loc[1];
+
+        float density = activity.getResources().getDisplayMetrics().density;
+        int gapPx = Math.round(12 * density);
+        int edgePaddingPx = Math.round(12 * density);
+        int screenWidth = activity.getResources().getDisplayMetrics().widthPixels;
+
+        int desiredTop = sourceRect.top - gapPx - height;
+        if (desiredTop < edgePaddingPx) desiredTop = edgePaddingPx; // never off the top edge
+
+        int desiredLeft = sourceRect.centerX() - width / 2;
+        if (desiredLeft < edgePaddingPx) desiredLeft = edgePaddingPx;
+        if (desiredLeft + width > screenWidth - edgePaddingPx) desiredLeft = screenWidth - edgePaddingPx - width;
+
+        peekContent.setTranslationX(peekContent.getTranslationX() + (desiredLeft - curLeft));
+        peekContent.setTranslationY(peekContent.getTranslationY() + (desiredTop - curTop));
     }
 
     /** Text/counts/options card — shared between the first build and every fast switch. */

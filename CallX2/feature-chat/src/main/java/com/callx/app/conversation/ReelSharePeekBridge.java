@@ -39,6 +39,20 @@ final class ReelSharePeekBridge {
     private static final String CONTROLLER_CLASS =
             "com.callx.app.profile.ReelPeekPreviewController";
 
+    // ── Chat-only size/position tweak ────────────────────────────────────
+    // The shared popup_reel_peek.xml default card is 331x475dp (used as-is
+    // by UserReelsActivity's grid and SoundDetailFragment). For the chat
+    // screen's auto-peek (3s dwell on a reel-share bubble) the card is 40%
+    // smaller — i.e. scaled to 60% of that default — and, instead of the
+    // shared centered position, is anchored directly above the reel-share
+    // bubble via the controller's anchorAboveSource flag. Both are passed
+    // through the 7-arg show() overload below; every other screen keeps
+    // calling (or falling back to) the plain 4-arg show(), so this only
+    // ever affects the chat screen.
+    private static final float SIZE_SCALE = 0.6f; // 1f - 0.4f (40% smaller)
+    private static final int   DEFAULT_CARD_WIDTH_DP  = 331;
+    private static final int   DEFAULT_VIDEO_HEIGHT_DP = 475;
+
     private static final Map<Activity, Object> CONTROLLERS =
             Collections.synchronizedMap(new WeakHashMap<>());
 
@@ -82,163 +96,6 @@ final class ReelSharePeekBridge {
                 });
     }
 
-    /**
-     * CHAT-ONLY: Bind inline mini player (no blur background, no popup).
-     * Loads video directly into the mini player card embedded in the message.
-     */
-    static void bindInlineMiniPlayer(@Nullable Context context, @Nullable Message message,
-                                     @Nullable View sourceView) {
-        if (message == null || sourceView == null) return;
-
-        Activity activity = findActivity(context != null ? context : sourceView.getContext());
-        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
-
-        String reelId = trim(message.reelId);
-        if (reelId.isEmpty()) return;
-
-        // Fetch reel data to get video URL and metadata
-        FirebaseUtils.getReelsRef().child(reelId)
-                .addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override
-                    public void onDataChange(DataSnapshot snapshot) {
-                        ReelModel reel = snapshot.getValue(ReelModel.class);
-                        if (reel == null) reel = new ReelModel();
-
-                        // Fallback to chat payload for missing fields
-                        if (trim(reel.reelId).isEmpty()) reel.reelId = reelId;
-                        if (trim(reel.caption).isEmpty()) reel.caption = message.reelShareCaption;
-                        if (trim(reel.ownerName).isEmpty()) reel.ownerName = message.reelShareUsername;
-                        if (trim(reel.ownerPhoto).isEmpty()) reel.ownerPhoto = message.reelShareOwnerPhoto;
-                        if (trim(reel.effectiveThumbUrl()).isEmpty()) reel.thumbUrl = message.reelShareThumb;
-
-                        final ReelModel resolvedReel = reel;
-                        activity.runOnUiThread(() -> bindMiniPlayerInline(
-                                activity, resolvedReel, message, sourceView));
-                    }
-
-                    @Override
-                    public void onCancelled(DatabaseError error) {
-                        // Silently fail — card remains visible with thumbnail
-                    }
-                });
-    }
-
-    /**
-     * Bind the inline mini player to the message card (no popup, no blur scrim).
-     * Creates PlayerView dynamically to avoid data binding issues with media3.
-     */
-    private static void bindMiniPlayerInline(Activity activity, ReelModel reel,
-                                            Message message, View sourceView) {
-        try {
-            // Navigate to the message container to find mini player views
-            android.view.ViewParent parent = sourceView.getParent();
-            if (!(parent instanceof android.view.ViewGroup)) return;
-
-            android.view.ViewGroup messageContainer = (android.view.ViewGroup) parent;
-
-            // Find the mini player card within the message
-            android.view.View miniPlayerCard = findViewByIdInHierarchy(
-                    messageContainer, "card_mini_player");
-            if (miniPlayerCard == null) return;
-
-            // Make the mini player card visible
-            miniPlayerCard.setVisibility(android.view.View.VISIBLE);
-
-            // Find the container where we'll add the PlayerView
-            android.view.ViewGroup miniPlayerContainer = (android.view.ViewGroup) findViewByIdInHierarchy(
-                    (android.view.ViewGroup) miniPlayerCard, "mini_player_container");
-            if (miniPlayerContainer == null) return;
-
-            // Load video into player (no popup, no blur)
-            String videoUrl = trim(reel.videoUrl);
-            if (!videoUrl.isEmpty()) {
-                loadVideoIntoPlayerContainer(activity, miniPlayerContainer, videoUrl, reel);
-            }
-
-            // Show mute icon
-            android.view.View muteIcon = findViewByIdInHierarchy(
-                    (android.view.ViewGroup) miniPlayerCard, "mini_mute_icon");
-            if (muteIcon != null) {
-                muteIcon.setVisibility(android.view.View.VISIBLE);
-            }
-
-        } catch (Throwable ignored) {
-            // Silently fail if views not found
-        }
-    }
-
-    /**
-     * Create and load PlayerView into the container dynamically.
-     * Avoids data binding issues with media3 dependency.
-     */
-    private static void loadVideoIntoPlayerContainer(Activity activity,
-                                                     android.view.ViewGroup container,
-                                                     String videoUrl, ReelModel reel) {
-        try {
-            // Create PlayerView programmatically
-            androidx.media3.ui.PlayerView playerView = new androidx.media3.ui.PlayerView(activity);
-            playerView.setLayoutParams(new android.view.ViewGroup.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT));
-            playerView.setUseController(false);
-            playerView.setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
-            playerView.setShutterBackgroundColor(android.graphics.Color.BLACK);
-
-            // Add to container
-            container.removeAllViews();
-            container.addView(playerView);
-
-            // Create or reuse ExoPlayer instance
-            if (playerView.getPlayer() == null) {
-                androidx.media3.exoplayer.ExoPlayer player = 
-                    new androidx.media3.exoplayer.ExoPlayer.Builder(activity).build();
-                playerView.setPlayer(player);
-            }
-
-            androidx.media3.exoplayer.ExoPlayer player = (androidx.media3.exoplayer.ExoPlayer) playerView.getPlayer();
-            if (player == null) return;
-
-            // Load and play video
-            androidx.media3.common.MediaItem mediaItem = androidx.media3.common.MediaItem.fromUri(videoUrl);
-            player.setMediaItem(mediaItem);
-            player.prepare();
-            player.setPlayWhenReady(true); // Auto-play
-
-        } catch (Throwable ignored) {
-            // Player setup failed; card remains visible
-        }
-    }
-
-    /**
-     * Find a view by resource ID name within a ViewGroup hierarchy.
-     */
-    private static android.view.View findViewByIdInHierarchy(
-            android.view.ViewGroup parent, String viewIdName) {
-        try {
-            int resId = parent.getResources().getIdentifier(
-                    viewIdName, "id", parent.getContext().getPackageName());
-            if (resId != 0) {
-                android.view.View found = parent.findViewById(resId);
-                if (found != null) return found;
-            }
-
-            // Recurse through children if not found
-            for (int i = 0; i < parent.getChildCount(); i++) {
-                android.view.View child = parent.getChildAt(i);
-                if (child instanceof android.view.ViewGroup) {
-                    android.view.View found = findViewByIdInHierarchy(
-                            (android.view.ViewGroup) child, viewIdName);
-                    if (found != null) return found;
-                }
-            }
-        } catch (Throwable ignored) {}
-        return null;
-    }
-
-    /**
-     * Load reel video into Media3 PlayerView.
-     */
-
     private static void invokeController(Activity activity, ReelModel reel,
                                          Message message, View sourceView) {
         try {
@@ -261,9 +118,26 @@ final class ReelSharePeekBridge {
                         return null;
                     });
 
-            Method show = controllerType.getMethod(
-                    "show", ReelModel.class, List.class, callbackType, View.class);
-            show.invoke(controller, reel, null, callback, sourceView);
+            // 40%-smaller card, anchored above the reel-share bubble instead
+            // of screen-center — see SIZE_SCALE doc above. Falls back to the
+            // plain centered/default-size 4-arg show() if the 7-arg overload
+            // isn't present (e.g. an older feature-reels build on the
+            // classpath), so the peek still works either way.
+            try {
+                float density = sourceView.getContext().getResources().getDisplayMetrics().density;
+                int cardWidthPx  = Math.round(DEFAULT_CARD_WIDTH_DP  * SIZE_SCALE * density);
+                int videoHeightPx = Math.round(DEFAULT_VIDEO_HEIGHT_DP * SIZE_SCALE * density);
+
+                Method show7 = controllerType.getMethod(
+                        "show", ReelModel.class, List.class, callbackType, View.class,
+                        Integer.class, Integer.class, boolean.class);
+                show7.invoke(controller, reel, null, callback, sourceView,
+                        cardWidthPx, videoHeightPx, true);
+            } catch (NoSuchMethodException noOverload) {
+                Method show = controllerType.getMethod(
+                        "show", ReelModel.class, List.class, callbackType, View.class);
+                show.invoke(controller, reel, null, callback, sourceView);
+            }
         } catch (Throwable ignored) {
             // The normal card tap is still functional if an older APK has no
             // peek controller on its classpath.
