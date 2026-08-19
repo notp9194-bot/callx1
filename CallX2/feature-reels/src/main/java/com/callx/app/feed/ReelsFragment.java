@@ -233,10 +233,23 @@ public class ReelsFragment extends Fragment {
         // tappableElement() reports that same reserved bottom strip (the gesture
         // handle / swipe-to-reveal zone) even while the bar itself is hidden, so
         // taking the max of the two always reserves enough room to clear it.
+        //
+        // ✅ FIX #2: Normal (non-immersive) display mode — where the phone's
+        // nav bar stays permanently VISIBLE — showed the same "tab hidden
+        // behind the phone's nav bar" symptom, because switching Normal ⇄
+        // Immersive from the Display Mode sheet doesn't recreate this view;
+        // it needs a fresh WindowInsets dispatch to recompute (now forced via
+        // ViewCompat.requestApplyInsets in MainActivity#setReelsSystemBarsVisible).
+        // systemBars() is added as a third candidate below — on some OEM skins
+        // navigationBars()/tappableElement() briefly read 0 right after that
+        // mode switch even though the bar is visible, so systemBars() (which
+        // always reflects the currently-visible bar) guarantees enough room is
+        // still reserved either way.
         ViewCompat.setOnApplyWindowInsetsListener(reelBottomNav, (view, insets) -> {
-            int navBarHeight     = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
+            int navBarHeight      = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
             int tappableBarHeight = insets.getInsets(WindowInsetsCompat.Type.tappableElement()).bottom;
-            int safeBottomInset  = Math.max(navBarHeight, tappableBarHeight);
+            int systemBarHeight   = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom;
+            int safeBottomInset   = Math.max(navBarHeight, Math.max(tappableBarHeight, systemBarHeight));
             view.setPadding(
                 view.getPaddingLeft(), view.getPaddingTop(),
                 view.getPaddingRight(), safeBottomInset);

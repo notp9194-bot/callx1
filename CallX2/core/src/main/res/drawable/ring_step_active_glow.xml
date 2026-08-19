@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Vibrant-green glow ring drawn around whichever step dot is currently active.
+     Moved into :core so every step-wizard screen can share it — Reel Upload
+     (step_ring_N in activity_reel_upload.xml), Reel Editor (activity_reel_editor.xml),
+     Reel Photo Editor (activity_reel_photo_editor.xml), and Add Status
+     (activity_new_status.xml). Sized slightly bigger than each screen's step dot
+     and continuously rotated in code (see each Activity's updateActiveStepRing()) —
+     the sweep gradient fades from transparent to solid green around the ring
+     instead of being a flat stroke, so the rotation actually reads as a spinning
+     glow instead of a static circle. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="ring"
+    android:innerRadiusRatio="3.6"
+    android:thicknessRatio="9"
+    android:useLevel="false">
+    <gradient
+        android:type="sweep"
+        android:startColor="#0000F260"
+        android:centerColor="#8000F260"
+        android:endColor="#FF00F260"/>
+</shape>

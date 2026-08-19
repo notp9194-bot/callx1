@@ -236,6 +236,11 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     // old thin horizontal pb_photo_editor_step ProgressBar.
     private TextView[]          photoEditorStepDots;
     private View[]              photoEditorStepLines;
+    // Spinning glow ring shown around whichever dot is the current step —
+    // one ImageView per dot, see :core's ring_step_active_glow.xml (shared
+    // with Reel Upload / Reel Editor / Add Status).
+    private android.widget.ImageView[] photoEditorStepRings;
+    private android.animation.ObjectAnimator activePhotoEditorStepRingAnimator;
     private View                btnPhotoEditorStepBack, btnPhotoEditorStepNext;
     private int                 photoEditorCurrentStep = 0;
     private static final String[] PHOTO_EDITOR_STEP_TITLES = {
@@ -1047,6 +1052,11 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
                 findViewById(R.id.step_line_1), findViewById(R.id.step_line_2),
                 findViewById(R.id.step_line_3), findViewById(R.id.step_line_4)
         };
+        photoEditorStepRings = new android.widget.ImageView[] {
+                findViewById(R.id.step_ring_1), findViewById(R.id.step_ring_2),
+                findViewById(R.id.step_ring_3), findViewById(R.id.step_ring_4),
+                findViewById(R.id.step_ring_5)
+        };
         btnPhotoEditorStepBack = findViewById(R.id.btn_photo_editor_step_back);
         btnPhotoEditorStepNext = findViewById(R.id.btn_photo_editor_step_next);
 
@@ -1104,6 +1114,7 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
                     active ? com.callx.app.core.R.color.white
                            : com.callx.app.core.R.color.trim_text_secondary));
         }
+        updateActivePhotoEditorStepRing();
         if (photoEditorStepLines == null) return;
         for (int i = 0; i < photoEditorStepLines.length; i++) {
             if (photoEditorStepLines[i] == null) continue;
@@ -1111,6 +1122,35 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
                     photoEditorCurrentStep >= i + 1
                             ? com.callx.app.core.R.color.trim_gradient_start
                             : com.callx.app.core.R.color.trim_divider));
+        }
+    }
+
+    /**
+     * Shows the vibrant-green spinning glow ring around whichever dot is the
+     * CURRENT step only, and keeps it spinning while that step is active —
+     * same behaviour as ReelUploadActivity#updateActiveStepRing().
+     */
+    private void updateActivePhotoEditorStepRing() {
+        if (photoEditorStepRings == null) return;
+        if (activePhotoEditorStepRingAnimator != null) {
+            activePhotoEditorStepRingAnimator.cancel();
+            activePhotoEditorStepRingAnimator = null;
+        }
+        for (int i = 0; i < photoEditorStepRings.length; i++) {
+            android.widget.ImageView ring = photoEditorStepRings[i];
+            if (ring == null) continue;
+            if (i == photoEditorCurrentStep) {
+                ring.setVisibility(View.VISIBLE);
+                ring.setRotation(0f);
+                activePhotoEditorStepRingAnimator = android.animation.ObjectAnimator.ofFloat(
+                        ring, View.ROTATION, 0f, 360f);
+                activePhotoEditorStepRingAnimator.setDuration(1500);
+                activePhotoEditorStepRingAnimator.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+                activePhotoEditorStepRingAnimator.setInterpolator(new android.view.animation.LinearInterpolator());
+                activePhotoEditorStepRingAnimator.start();
+            } else {
+                ring.setVisibility(View.GONE);
+            }
         }
     }
 

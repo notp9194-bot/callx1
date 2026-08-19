@@ -1248,6 +1248,21 @@ public class MainActivity extends AppCompatActivity
             getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
             getWindow().setNavigationBarColor(android.graphics.Color.TRANSPARENT);
         }
+        // ✅ FIX: reel_bottom_nav (inside ReelsFragment) was rendering BEHIND
+        // the phone's own navigation bar after switching Normal ⇄ Immersive
+        // from the Display Mode sheet (no tab-switch happens here, so the
+        // already-inflated fragment view never got a fresh WindowInsets
+        // dispatch). Toggling setDecorFitsSystemWindows()/show()/hide() above
+        // changes the WINDOW's inset state, but does NOT by itself re-dispatch
+        // insets down to already-laid-out child views — reel_bottom_nav's own
+        // OnApplyWindowInsetsListener (in ReelsFragment) kept using its stale
+        // padding from before the mode switch, so it sat exactly where the
+        // now-visible/repositioned system nav bar draws on top of it.
+        // Explicitly requesting insets on the root forces that listener to
+        // recompute with the new state so the tab always ends up ABOVE the
+        // phone's nav bar. Purely a layout/insets fix — does not touch
+        // reel_bottom_nav's separate scroll show/hide (translationY) logic.
+        androidx.core.view.ViewCompat.requestApplyInsets(binding.getRoot());
     }
 
     /**

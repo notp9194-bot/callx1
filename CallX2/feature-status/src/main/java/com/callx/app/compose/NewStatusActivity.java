@@ -409,6 +409,8 @@ public class NewStatusActivity extends AppCompatActivity {
         });
     }
 
+    private android.animation.ObjectAnimator activeStatusStepRingAnimator;
+
     private void updateWizardProgress() {
         TextView[] dots = {binding.stepDot1, binding.stepDot2, binding.stepDot3};
         for (int i = 0; i < dots.length; i++) {
@@ -423,6 +425,38 @@ public class NewStatusActivity extends AppCompatActivity {
                 wizardStep >= 1 ? R.color.trim_gradient_start : R.color.trim_divider));
         binding.stepLine2.setBackgroundColor(ContextCompat.getColor(this,
                 wizardStep >= 2 ? R.color.trim_gradient_start : R.color.trim_divider));
+        updateActiveStatusStepRing();
+    }
+
+    /**
+     * Shows the vibrant-green spinning glow ring around whichever dot is the
+     * CURRENT status step only, and keeps it spinning while that step is
+     * active — same ring drawable/behaviour as ReelUploadActivity's
+     * updateActiveStepRing(), now shared from :core.
+     */
+    private void updateActiveStatusStepRing() {
+        android.widget.ImageView[] rings =
+                {binding.stepRing1, binding.stepRing2, binding.stepRing3};
+        if (activeStatusStepRingAnimator != null) {
+            activeStatusStepRingAnimator.cancel();
+            activeStatusStepRingAnimator = null;
+        }
+        for (int i = 0; i < rings.length; i++) {
+            android.widget.ImageView ring = rings[i];
+            if (ring == null) continue;
+            if (i == wizardStep) {
+                ring.setVisibility(View.VISIBLE);
+                ring.setRotation(0f);
+                activeStatusStepRingAnimator = android.animation.ObjectAnimator.ofFloat(
+                        ring, View.ROTATION, 0f, 360f);
+                activeStatusStepRingAnimator.setDuration(1500);
+                activeStatusStepRingAnimator.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+                activeStatusStepRingAnimator.setInterpolator(new android.view.animation.LinearInterpolator());
+                activeStatusStepRingAnimator.start();
+            } else {
+                ring.setVisibility(View.GONE);
+            }
+        }
     }
 
     /**
