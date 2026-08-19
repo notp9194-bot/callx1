@@ -270,7 +270,7 @@ public class ReelUiController {
                                     .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
                                 .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
                                     @Override
-                                    public void onResourceReady(androidx.annotation.NonNull android.graphics.Bitmap resource, com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
+                                    public void onResourceReady(@androidx.annotation.NonNull android.graphics.Bitmap resource, @androidx.annotation.NonNull com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
                                         collabStack.setAvatarBitmap(index, resource);
                                     }
                                     @Override
