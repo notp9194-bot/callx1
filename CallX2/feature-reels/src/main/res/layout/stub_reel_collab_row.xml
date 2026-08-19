@@ -12,36 +12,13 @@
     android:gravity="center_vertical"
     android:background="?attr/selectableItemBackgroundBorderless"
     android:paddingVertical="2dp">
-    <FrameLayout
+    <!-- Instagram-style overlapping avatar stack with a real crescent
+         cutout notch (not just a flat circle-on-top overlap) — see
+         CollabAvatarStackView for the notch-cutting logic. -->
+    <com.callx.app.views.CollabAvatarStackView
+        android:id="@+id/collab_avatar_stack"
         android:layout_width="wrap_content"
-        android:layout_height="24dp">
-        <de.hdodenhof.circleimageview.CircleImageView
-            android:id="@+id/iv_collab_stack_1"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="0dp"
-            app:civ_border_width="1.5dp"
-            app:civ_border_color="#000000"
-            android:src="@drawable/ic_person"/>
-        <de.hdodenhof.circleimageview.CircleImageView
-            android:id="@+id/iv_collab_stack_2"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="12dp"
-            app:civ_border_width="1.5dp"
-            app:civ_border_color="#000000"
-            android:visibility="gone"
-            android:src="@drawable/ic_person"/>
-        <de.hdodenhof.circleimageview.CircleImageView
-            android:id="@+id/iv_collab_stack_3"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="24dp"
-            app:civ_border_width="1.5dp"
-            app:civ_border_color="#000000"
-            android:visibility="gone"
-            android:src="@drawable/ic_person"/>
-    </FrameLayout>
+        android:layout_height="28dp"/>
     <TextView
         android:id="@+id/tv_collab_author_name"
         android:layout_width="wrap_content"

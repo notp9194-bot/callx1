@@ -156,6 +156,24 @@ public class ReelUiController {
 
     // ── Static data population ────────────────────────────────────────────
 
+    /**
+     * Re-points tv_caption's ConstraintLayout top constraint to sit below
+     * {@code anchorViewId} (either ll_owner_row or the inflated
+     * ll_collab_second_author). Needed because tv_caption's XML default
+     * constrains to the ViewStub's own id, which stops resolving to
+     * anything the moment the stub inflates for the first time — see the
+     * call sites above for the full explanation.
+     */
+    private void retargetCaptionTopConstraint(int anchorViewId) {
+        if (tvCaption == null) return;
+        androidx.constraintlayout.widget.ConstraintLayout.LayoutParams lp =
+            (androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) tvCaption.getLayoutParams();
+        if (lp == null) return;
+        lp.topToBottom = anchorViewId;
+        lp.topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET;
+        tvCaption.setLayoutParams(lp);
+    }
+
     public void populateStaticData() {
         if ("close_friends".equals(delegate.getReel().audienceType)) {
             View avatarContainer = fragmentView.findViewById(R.id.avatar_container);
@@ -198,10 +216,19 @@ public class ReelUiController {
                 // avatar/name now render as the first item of the collab stack
                 // below, matching Instagram's single-line collab credit.
                 if (llOwnerRow != null) llOwnerRow.setVisibility(View.GONE);
+                // 🐛 FIX: tv_caption's XML default constrains to the
+                // ViewStub's own id (stub_collab_row). A ViewStub can only
+                // inflate once — after that, "stub_collab_row" no longer
+                // exists in the hierarchy (it's been replaced by
+                // ll_collab_second_author), so on every reel shown *after*
+                // the first collab reel in this recycled fragment, that
+                // constraint silently resolved to nothing and tv_caption
+                // snapped back to the top, colliding with ll_owner_row on
+                // normal (non-collab) reels too. Re-target explicitly on
+                // every bind instead of trusting the stub id.
+                retargetCaptionTopConstraint(R.id.ll_collab_second_author);
 
-                de.hdodenhof.circleimageview.CircleImageView stack1 = fragmentView.findViewById(R.id.iv_collab_stack_1);
-                de.hdodenhof.circleimageview.CircleImageView stack2 = fragmentView.findViewById(R.id.iv_collab_stack_2);
-                de.hdodenhof.circleimageview.CircleImageView stack3 = fragmentView.findViewById(R.id.iv_collab_stack_3);
+                com.callx.app.views.CollabAvatarStackView collabStack = fragmentView.findViewById(R.id.collab_avatar_stack);
                 TextView tvCollabName = fragmentView.findViewById(R.id.tv_collab_author_name);
                 TextView tvCollabFollowBtn = fragmentView.findViewById(R.id.tv_collab_follow_btn);
 
@@ -220,31 +247,38 @@ public class ReelUiController {
                     totalCount = 1;
                 }
 
-                de.hdodenhof.circleimageview.CircleImageView[] stackViews = {stack1, stack2, stack3};
-                for (int i = 0; i < stackViews.length; i++) {
-                    if (stackViews[i] == null) continue;
-                    if (i < avatarUrls.size() && i < 3) {
-                        stackViews[i].setVisibility(View.VISIBLE);
+                if (collabStack != null) {
+                    int stackCount = Math.min(avatarUrls.size(), 3);
+                    collabStack.clearAvatars();
+                    collabStack.setAvatarCount(stackCount);
+                    for (int i = 0; i < stackCount; i++) {
                         String url = avatarUrls.get(i);
+                        final int index = i;
                         if (url != null && !url.isEmpty() && delegate.isAdded()) {
-                            // PERF: same pattern as ivOwnerAvatar — resized
-                            // URL + pinned decode size + RGB_565 (opaque, no
-                            // alpha needed) for these 24dp stack avatars.
+                            // PERF: same pattern as before — resized URL +
+                            // pinned decode size — but loaded as a raw Bitmap
+                            // (asBitmap, no circleCrop) since the notch-cutout
+                            // view does its own circular clipping/masking.
                             android.content.Context stackCtx = delegate.requireContext();
                             int stackSizePx = AvatarUrlBuilder.dpToPx(stackCtx, 24) * 2;
                             Glide.with(stackCtx)
+                                .asBitmap()
                                 .load(AvatarUrlBuilder.build(stackCtx, url, 24))
-                                .apply(new RequestOptions().circleCrop()
+                                .apply(new RequestOptions()
                                     .override(stackSizePx, stackSizePx)
-                                    .format(DecodeFormat.PREFER_RGB_565)
-                                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE) // PERF: cache resized collab avatar on disk
-                                    .placeholder(R.drawable.ic_person))
-                                .into(stackViews[i]);
-                        } else {
-                            stackViews[i].setImageResource(R.drawable.ic_person);
+                                    .format(DecodeFormat.PREFER_ARGB_8888) // needs alpha for the circular clip
+                                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
+                                .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+                                    @Override
+                                    public void onResourceReady(androidx.annotation.NonNull android.graphics.Bitmap resource, com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
+                                        collabStack.setAvatarBitmap(index, resource);
+                                    }
+                                    @Override
+                                    public void onLoadCleared(android.graphics.drawable.Drawable placeholder) {
+                                        // no-op: view keeps its placeholder ring until reused
+                                    }
+                                });
                         }
-                    } else {
-                        stackViews[i].setVisibility(View.GONE);
                     }
                 }
 
@@ -278,6 +312,10 @@ public class ReelUiController {
                 llCollabAuthors.setVisibility(View.GONE);
                 llCollabAuthors.setOnClickListener(null);
                 if (llOwnerRow != null) llOwnerRow.setVisibility(View.VISIBLE);
+                // Same fix as above, mirrored: normal reel → caption goes
+                // back under the owner row, not the (now permanently
+                // inflated but GONE) collab row / stale stub id.
+                retargetCaptionTopConstraint(R.id.ll_owner_row);
             }
         }
         // PERF advance — "precompute next reel's UI state": reuse the

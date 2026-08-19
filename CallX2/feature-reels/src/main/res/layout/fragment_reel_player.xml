@@ -344,7 +344,7 @@
             android:textSize="12sp"
             android:gravity="center"
             android:layout_marginTop="4dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="20dp"
             android:clickable="true"
             android:focusable="true"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -377,7 +377,7 @@
             android:textSize="12sp"
             android:gravity="center"
             android:layout_marginTop="4dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="20dp"
             android:clickable="true"
             android:focusable="true"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -410,7 +410,7 @@
             android:textSize="12sp"
             android:gravity="center"
             android:layout_marginTop="4dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="20dp"
             android:clickable="true"
             android:focusable="true"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -443,7 +443,7 @@
             android:textSize="12sp"
             android:gravity="center"
             android:layout_marginTop="4dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="20dp"
             app:layout_constraintTop_toBottomOf="@id/btn_save"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"/>
@@ -469,7 +469,7 @@
             android:textSize="12sp"
             android:gravity="center"
             android:layout_marginTop="4dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="20dp"
             app:layout_constraintTop_toBottomOf="@id/btn_repost"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"/>
@@ -483,7 +483,7 @@
             android:layout_width="42dp"
             android:layout_height="30dp"
             android:layout_marginTop="0dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="20dp"
             android:src="@drawable/ic_reel_more_lines"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -640,20 +640,17 @@
                 android:background="@drawable/bg_reel_follow_btn"
                 android:visibility="visible"/>
         </LinearLayout>
-          <!-- Collab Joint-Author row (shown only when isCollabPost=true) —
-               ViewStub-backed: not inflated for the majority of (non-collab)
-               reels. -->
-          <ViewStub
-              android:id="@+id/stub_collab_row"
-              android:inflatedId="@+id/ll_collab_second_author"
-              android:layout="@layout/stub_reel_collab_row"
-              android:layout_width="wrap_content"
-              android:layout_height="wrap_content"
-              android:layout_marginTop="6dp"
-              app:layout_constraintTop_toBottomOf="@id/ll_owner_row"
-              app:layout_constraintStart_toStartOf="parent"/>
-
         <!-- Caption -->
+        <!-- DECLARED BEFORE stub_collab_row (below) on purpose: in a
+             ConstraintLayout, later-declared children draw on top of
+             earlier ones regardless of constraints. This is a defensive
+             z-order safety net — the actual overlap fix is the dynamic
+             constraint retarget in ReelUiController.retargetCaptionTopConstraint(),
+             which repoints this view's top constraint to whichever of
+             ll_owner_row / ll_collab_second_author is currently visible.
+             That's the real fix; this ordering just guarantees the collab
+             row is never visually hidden behind the caption even if the
+             constraint retarget were ever skipped on some edge case. -->
         <TextView
             android:id="@+id/tv_caption"
         android:saveEnabled="false"
@@ -670,9 +667,22 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:paddingTop="2dp"
             android:paddingBottom="2dp"
-            app:layout_constraintTop_toBottomOf="@id/stub_collab_row"
+            app:layout_constraintTop_toBottomOf="@id/ll_owner_row"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"/>
+
+          <!-- Collab Joint-Author row (shown only when isCollabPost=true) —
+               ViewStub-backed: not inflated for the majority of (non-collab)
+               reels. -->
+          <ViewStub
+              android:id="@+id/stub_collab_row"
+              android:inflatedId="@+id/ll_collab_second_author"
+              android:layout="@layout/stub_reel_collab_row"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:layout_marginTop="6dp"
+              app:layout_constraintTop_toBottomOf="@id/ll_owner_row"
+              app:layout_constraintStart_toStartOf="parent"/>
 
         <!-- Hashtag chips -->
         <HorizontalScrollView

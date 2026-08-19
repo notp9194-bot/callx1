@@ -277,10 +277,14 @@ public class VideoTrimFilmstripView extends View {
         canvas.drawRect(playX - glowHalfW, -3 * density, playX + glowHalfW, h + 3 * density, playheadGlow);
         canvas.drawRect(playX - 1.5f * density, -3 * density, playX + 1.5f * density, h + 3 * density, playheadPaint);
 
-        // Left / right premium handles — drawn outside the clip so their glow
-        // and shadow aren't cropped by the rounded filmstrip edges.
-        drawHandle(canvas, leftX - handleWidthPx, leftX, h, true, activeTouch == TOUCH_LEFT);
-        drawHandle(canvas, rightX, rightX + handleWidthPx, h, false, activeTouch == TOUCH_RIGHT);
+        // Left / right premium handles — drawn INSIDE the selection box (overlapping
+        // its edge, CapCut/Instagram-style) instead of outside leftX/rightX. The clip
+        // was already restored above, so their glow/shadow still isn't cropped by the
+        // rounded filmstrip edges — but keeping them inside the box means they never
+        // get pushed past the view's own bounds (which was making them invisible when
+        // the selection touched the left/right edge, e.g. leftX=0 or rightX=width).
+        drawHandle(canvas, leftX, leftX + handleWidthPx, h, true, activeTouch == TOUCH_LEFT);
+        drawHandle(canvas, rightX - handleWidthPx, rightX, h, false, activeTouch == TOUCH_RIGHT);
     }
 
     private final android.graphics.Matrix gradientMatrix = new android.graphics.Matrix();
