@@ -1131,6 +1131,13 @@ public class ReelEditorActivity extends AppCompatActivity {
      * only, instead of the whole source video, so the preview always matches exactly
      * what the trim handles show and what gets uploaded.
      */
+    /**
+     * Polls player position every ~33ms (~30fps) so the filmstrip's blue playhead line
+     * tracks playback smoothly — ✅ FIX: was 150ms (≈6-7fps), which made the line visibly
+     * jump/stutter instead of gliding — and loops preview playback within
+     * [trimStartMs, trimEndMs] only, instead of the whole source video, so the preview
+     * always matches exactly what the trim handles show and what gets uploaded.
+     */
     private final Runnable playheadUpdater = new Runnable() {
         @Override public void run() {
             if (player != null) {
@@ -1142,7 +1149,7 @@ public class ReelEditorActivity extends AppCompatActivity {
                     player.seekTo(trimStartMs);
                 }
             }
-            handler.postDelayed(this, 150);
+            handler.postDelayed(this, 33);
         }
     };
 
@@ -1202,7 +1209,14 @@ public class ReelEditorActivity extends AppCompatActivity {
     }
 
     private void updateEditorStepUi() {
-        if (tvEditorStepTitle != null) tvEditorStepTitle.setText(EDITOR_STEP_TITLES[editorCurrentStep]);
+        // Pill now shows only "Step X of Y" — step name (Trim / Text Overlay
+        // / etc.) intentionally dropped from EDITOR_STEP_TITLES[...] here to
+        // keep the chip short; the array itself is left untouched since its
+        // .length is still used for step-count bounds checks above.
+        if (tvEditorStepTitle != null) {
+            tvEditorStepTitle.setText(getString(R.string.editor_step_pill_format,
+                    editorCurrentStep + 1, EDITOR_STEP_TITLES.length));
+        }
         updateEditorStepDots();
         if (btnEditorStepBack != null) {
             btnEditorStepBack.setVisibility(editorCurrentStep == 0 ? View.INVISIBLE : View.VISIBLE);

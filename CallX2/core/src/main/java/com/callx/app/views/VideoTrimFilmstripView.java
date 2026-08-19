@@ -271,20 +271,35 @@ public class VideoTrimFilmstripView extends View {
 
         canvas.restoreToCount(save);
 
-        // Playhead line (drawn slightly beyond the clipped strip, like CapCut)
-        float playX = xForMs(Math.max(trimStartMs, Math.min(trimEndMs, playheadMs)));
+        // ✅ FIX: Left / right premium handles — drawn INSIDE the selection box
+        // (overlapping its edge, CapCut/Instagram-style) instead of outside
+        // leftX/rightX. The clip was already restored above, so their
+        // glow/shadow still isn't cropped by the rounded filmstrip edges —
+        // but keeping them inside the box means they never get pushed past
+        // the view's own bounds (which was making them invisible when the
+        // selection touched the left/right edge, e.g. leftX=0 or rightX=width).
+        // Drawn BEFORE the playhead now (see below) so the line always
+        // renders on top and stays visible instead of hiding under a handle.
+        drawHandle(canvas, leftX, leftX + handleWidthPx, h, true, activeTouch == TOUCH_LEFT);
+        drawHandle(canvas, rightX - handleWidthPx, rightX, h, false, activeTouch == TOUCH_RIGHT);
+
+        // Playhead line — ✅ FIX: clamped to the inner gap between the two handles
+        // (not just trimStartMs/trimEndMs) and drawn AFTER the handles, so it
+        // always stays visible between the handles and the box instead of
+        // sliding underneath a handle and disappearing near the trim edges.
+        float innerLeft  = leftX + handleWidthPx;
+        float innerRight = rightX - handleWidthPx;
+        float playX;
+        if (innerRight <= innerLeft) {
+            // Selection too narrow for a gap — center the line in what's left.
+            playX = (leftX + rightX) / 2f;
+        } else {
+            playX = xForMs(Math.max(trimStartMs, Math.min(trimEndMs, playheadMs)));
+            playX = Math.max(innerLeft, Math.min(innerRight, playX));
+        }
         float glowHalfW = 3.5f * density;
         canvas.drawRect(playX - glowHalfW, -3 * density, playX + glowHalfW, h + 3 * density, playheadGlow);
         canvas.drawRect(playX - 1.5f * density, -3 * density, playX + 1.5f * density, h + 3 * density, playheadPaint);
-
-        // Left / right premium handles — drawn INSIDE the selection box (overlapping
-        // its edge, CapCut/Instagram-style) instead of outside leftX/rightX. The clip
-        // was already restored above, so their glow/shadow still isn't cropped by the
-        // rounded filmstrip edges — but keeping them inside the box means they never
-        // get pushed past the view's own bounds (which was making them invisible when
-        // the selection touched the left/right edge, e.g. leftX=0 or rightX=width).
-        drawHandle(canvas, leftX, leftX + handleWidthPx, h, true, activeTouch == TOUCH_LEFT);
-        drawHandle(canvas, rightX - handleWidthPx, rightX, h, false, activeTouch == TOUCH_RIGHT);
     }
 
     private final android.graphics.Matrix gradientMatrix = new android.graphics.Matrix();

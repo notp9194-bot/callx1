@@ -44,31 +44,32 @@
                 android:orientation="vertical"
                 android:layout_marginBottom="14dp">
 
-                <LinearLayout
-                    android:layout_width="match_parent"
+                <!-- ✅ Step title upgraded to the shared premium gradient pill
+                     (@drawable/bg_step_indicator_pill + R.string.editor_step_pill_format),
+                     reused from the Reel Editor / Reel Upload wizards instead of the old
+                     plain "CREATE YOUR STATUS" eyebrow + "1 of 3" counter text pair.
+                     tv_step_eyebrow id kept (now holds "Step X of Y") so existing
+                     findViewById/binding references don't break; tv_step_counter removed
+                     since the pill already carries the count. -->
+                <TextView
+                    android:id="@+id/tv_step_eyebrow"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:id="@+id/tv_step_eyebrow"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="CREATE YOUR STATUS"
-                        android:textColor="@color/trim_gradient_end"
-                        android:textSize="15sp"
-                        android:letterSpacing="0.12"
-                        android:fontFamily="sans-serif-medium"/>
-
-                    <TextView
-                        android:id="@+id/tv_step_counter"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="1 of 3"
-                        android:textColor="@color/trim_text_secondary"
-                        android:textSize="16sp"/>
-                </LinearLayout>
+                    android:layout_gravity="center_horizontal"
+                    android:text="Step 1 of 3"
+                    android:textColor="@color/white"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.02"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center"
+                    android:background="@drawable/bg_step_indicator_pill"
+                    android:paddingStart="18dp"
+                    android:paddingEnd="18dp"
+                    android:paddingTop="8dp"
+                    android:paddingBottom="8dp"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
 
                 <LinearLayout
                     android:id="@+id/status_stepper"

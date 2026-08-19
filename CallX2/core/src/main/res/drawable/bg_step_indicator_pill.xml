@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ── Premium gradient "Step X of Y" strip/pill ───────────────────────────
+     Reusable across screens (Reel Editor, Reel Upload, Add Status wizards,
+     etc.) — same brand pink→purple diagonal gradient as
+     bg_trim_gradient_button, just fully rounded like a pill/strip so it
+     reads as a modern status chip instead of a plain label. Apply directly
+     as android:background on any step-title TextView. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Soft outer glow / depth layer -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#332E1A4A"/>
+            <corners android:radius="20dp"/>
+        </shape>
+    </item>
+
+    <!-- Core gradient fill -->
+    <item
+        android:top="2dp"
+        android:bottom="2dp"
+        android:left="2dp"
+        android:right="2dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="linear"
+                android:angle="45"
+                android:startColor="@color/trim_gradient_start"
+                android:endColor="@color/trim_gradient_end"/>
+            <corners android:radius="18dp"/>
+        </shape>
+    </item>
+
+    <!-- Hairline top highlight for a glossy premium edge -->
+    <item
+        android:top="2dp"
+        android:left="2dp"
+        android:right="2dp"
+        android:bottom="2dp">
+        <shape android:shape="rectangle">
+            <stroke
+                android:width="1dp"
+                android:color="#33FFFFFF"/>
+            <corners android:radius="18dp"/>
+            <solid android:color="@android:color/transparent"/>
+        </shape>
+    </item>
+
+</layer-list>

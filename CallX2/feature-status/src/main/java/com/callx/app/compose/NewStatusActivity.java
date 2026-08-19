@@ -381,6 +381,16 @@ public class NewStatusActivity extends AppCompatActivity {
                 // Upload is the entry action on Create; the selected media
                 // itself is reviewed on the following Edit step.
                 visible = wizardStep == 0;
+            } else if (child.getId() == R.id.status_step_preview_card) {
+                // ✅ BUG FIX: this persistent preview card was showing on
+                // EVERY step, including Edit (wizardStep == 1) — which has
+                // its own full media_preview_frame (image/video + stickers +
+                // discard button). That meant two previews of the same photo
+                // stacked on screen right after upload. Hide the persistent
+                // card only on the Edit step, where media_preview_frame is
+                // already the single preview; keep it on Create (text-only
+                // preview before media is picked) and Publish (final review).
+                visible = wizardStep != 1;
             }
 
             // The link card keeps its own async visibility state, but belongs
@@ -389,10 +399,13 @@ public class NewStatusActivity extends AppCompatActivity {
             child.setVisibility(visible ? View.VISIBLE : View.GONE);
         }
 
-        String[] eyebrow = {"CREATE YOUR STATUS", "MAKE IT YOURS", "READY TO SHARE"};
+        // ✅ tv_step_eyebrow now hosts the shared premium "Step X of Y" pill
+        // (@drawable/bg_step_indicator_pill, same R.string.editor_step_pill_format
+        // used by Reel Editor / Reel Upload) instead of the old
+        // "CREATE YOUR STATUS" label + separate "1 of 3" counter TextView.
         String[] next = {"Continue", "Review", "Post now"};
-        binding.tvStepEyebrow.setText(eyebrow[wizardStep]);
-        binding.tvStepCounter.setText((wizardStep + 1) + " of 3");
+        binding.tvStepEyebrow.setText(getString(R.string.editor_step_pill_format,
+                wizardStep + 1, 3));
         binding.btnStepNext.setText(next[wizardStep]);
         binding.btnStepBack.setText(wizardStep == 0 ? "Cancel" : "Back");
 

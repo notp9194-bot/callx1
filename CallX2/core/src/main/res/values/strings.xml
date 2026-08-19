@@ -199,4 +199,9 @@
     <!-- Audience -->
     <string name="reel_audience_everyone">Everyone</string>
     <string name="reel_audience_contacts">Contacts Only</string>
+
+    <!-- Shared "Step X of Y" pill text — used with @drawable/bg_step_indicator_pill
+         so any step-wizard screen (Reel Editor, Reel Upload, Add Status, etc.)
+         can reuse the same short format without a step-name suffix. -->
+    <string name="editor_step_pill_format">Step %1$d of %2$d</string>
 </resources>

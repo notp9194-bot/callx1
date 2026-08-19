@@ -905,7 +905,13 @@ public class ReelUploadActivity extends AppCompatActivity {
     }
 
     private void updateStepUi() {
-        if (tvStepTitle != null) tvStepTitle.setText(STEP_TITLES[currentStep]);
+        // Pill shows only "Step X of Y" (name suffix dropped, matching Reel
+        // Editor's shared premium pill); STEP_TITLES[] left as-is since
+        // .length is still used for step-count bounds checks elsewhere.
+        if (tvStepTitle != null) {
+            tvStepTitle.setText(getString(R.string.editor_step_pill_format,
+                    currentStep + 1, STEP_TITLES.length));
+        }
         updateStepDots();
         if (btnStepBack != null) {
             btnStepBack.setVisibility(currentStep == 0 ? View.INVISIBLE : View.VISIBLE);

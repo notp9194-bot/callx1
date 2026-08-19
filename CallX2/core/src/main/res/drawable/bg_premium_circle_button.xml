@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ── Premium gradient circular button (play/pause etc.) ──────────────────
+     Reusable across screens — same brand pink→purple gradient +
+     glow/glossy-edge treatment as bg_step_indicator_pill, just an oval
+     instead of a rounded rect. Apply as android:background on any
+     ImageButton/ImageView that needs a premium circular CTA (video preview
+     play/pause, floating action circles, etc.). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Soft outer glow / depth layer -->
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="#4D2E1A4A"/>
+        </shape>
+    </item>
+
+    <!-- Core gradient fill -->
+    <item
+        android:top="3dp"
+        android:bottom="3dp"
+        android:left="3dp"
+        android:right="3dp">
+        <shape android:shape="oval">
+            <gradient
+                android:type="linear"
+                android:angle="45"
+                android:startColor="@color/trim_gradient_start"
+                android:endColor="@color/trim_gradient_end"/>
+        </shape>
+    </item>
+
+    <!-- Hairline glossy edge highlight -->
+    <item
+        android:top="3dp"
+        android:bottom="3dp"
+        android:left="3dp"
+        android:right="3dp">
+        <shape android:shape="oval">
+            <stroke
+                android:width="1dp"
+                android:color="#40FFFFFF"/>
+            <solid android:color="@android:color/transparent"/>
+        </shape>
+    </item>
+
+</layer-list>

@@ -1080,8 +1080,12 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     }
 
     private void updatePhotoEditorStepUi() {
+        // Pill shows only "Step X of Y" (name suffix dropped, matching Reel
+        // Editor / Reel Upload's shared premium pill); PHOTO_EDITOR_STEP_TITLES[]
+        // left as-is since .length is still used for step-count bounds checks.
         if (tvPhotoEditorStepTitle != null) {
-            tvPhotoEditorStepTitle.setText(PHOTO_EDITOR_STEP_TITLES[photoEditorCurrentStep]);
+            tvPhotoEditorStepTitle.setText(getString(R.string.editor_step_pill_format,
+                    photoEditorCurrentStep + 1, PHOTO_EDITOR_STEP_TITLES.length));
         }
         updatePhotoEditorStepDots();
         if (btnPhotoEditorStepBack != null) {
