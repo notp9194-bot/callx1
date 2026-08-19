@@ -10,7 +10,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#111111">
+    android:background="@color/trim_screen_bg">
 
     <!-- ── Top bar ────────────────────────────────────────────────── -->
     <LinearLayout
@@ -18,7 +18,7 @@
         android:layout_height="52dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:background="#1A1A1A"
+        android:background="@color/trim_card_bg"
         android:paddingStart="4dp"
         android:paddingEnd="8dp">
 
@@ -28,7 +28,7 @@
             android:layout_height="44dp"
             android:text="✕"
             android:textSize="18sp"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/trim_text_primary"
             android:gravity="center"
             android:clickable="true"
             android:focusable="true"
@@ -40,7 +40,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="Photo 1 of 1"
-            android:textColor="#CCFFFFFF"
+            android:textColor="@color/trim_text_secondary"
             android:textSize="15sp"
             android:gravity="center"
             android:fontFamily="sans-serif-medium"/>
@@ -51,7 +51,7 @@
             android:layout_height="44dp"
             android:text="⛶"
             android:textSize="18sp"
-            android:textColor="#AAFFFFFF"
+            android:textColor="@color/trim_text_secondary"
             android:gravity="center"
             android:clickable="true"
             android:focusable="true"
@@ -64,7 +64,7 @@
             android:layout_height="44dp"
             android:text="⟳"
             android:textSize="20sp"
-            android:textColor="#AAFFFFFF"
+            android:textColor="@color/trim_text_secondary"
             android:gravity="center"
             android:clickable="true"
             android:focusable="true"
@@ -174,7 +174,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Apply filter &amp; effect to all photos"
-            android:textColor="#AAFFFFFF"
+            android:textColor="@color/trim_text_secondary"
             android:textSize="12sp"
             android:buttonTint="#A855F7"/>
     </LinearLayout>
@@ -235,7 +235,7 @@
                 android:layout_marginStart="8dp"
                 android:text="Filter"
                 android:textAllCaps="true"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/trim_text_primary"
                 android:textSize="@dimen/step_name_text_size"
                 android:textStyle="bold"
                 android:letterSpacing="0.02"
@@ -474,10 +474,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:hint="Caption for this photo…"
-            android:textColorHint="#66FFFFFF"
-            android:textColor="#FFFFFF"
+            android:textColorHint="@color/trim_text_muted"
+            android:textColor="@color/trim_text_primary"
             android:textSize="13sp"
-            android:background="#33FFFFFF"
+            android:background="@drawable/bg_comment_input"
             android:padding="10dp"
             android:maxLines="3"/>
 
@@ -492,20 +492,20 @@
                 android:layout_width="40dp" android:layout_height="36dp"
                 android:textOn="B" android:textOff="B"
                 android:textStyle="bold" android:textSize="14sp"
-                android:textColor="#FFFFFF" android:background="#44FFFFFF"/>
+                android:textColor="@color/trim_text_primary" android:background="@drawable/bg_reel_editor_tool_chip"/>
 
             <ToggleButton android:id="@+id/toggle_italic"
                 android:layout_width="40dp" android:layout_height="36dp"
                 android:textOn="I" android:textOff="I"
                 android:textStyle="italic" android:textSize="14sp"
-                android:textColor="#FFFFFF" android:background="#44FFFFFF"
+                android:textColor="@color/trim_text_primary" android:background="@drawable/bg_reel_editor_tool_chip"
                 android:layout_marginStart="6dp"/>
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Size"
-                android:textColor="#AAFFFFFF"
+                android:textColor="@color/trim_text_secondary"
                 android:textSize="11sp"
                 android:layout_marginStart="12dp"
                 android:layout_marginEnd="8dp"/>
@@ -550,12 +550,12 @@
             android:layout_width="match_parent"
             android:layout_height="46dp"
             android:text="✨  Add Sticker  (Music · Poll · Quiz · Countdown · more)"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/trim_text_primary"
             android:textSize="13sp"
             android:gravity="center"
             android:clickable="true"
             android:focusable="true"
-            android:background="#2C2C2C"/>
+            android:background="@color/trim_chip_bg"/>
 
         <!-- Quick emoji overlays -->
         <HorizontalScrollView
@@ -587,13 +587,13 @@
         <LinearLayout android:layout_width="match_parent" android:layout_height="32dp"
             android:orientation="horizontal" android:gravity="center_vertical">
             <TextView android:layout_width="80dp" android:layout_height="wrap_content"
-                android:text="Brightness" android:textColor="#AAFFFFFF" android:textSize="11sp"/>
+                android:text="Brightness" android:textColor="@color/trim_text_secondary" android:textSize="11sp"/>
             <SeekBar android:id="@+id/sb_brightness"
                 android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
                 android:progressTint="#FFD700" android:thumbTint="#FFD700"/>
             <TextView android:id="@+id/tv_brightness_val"
                 android:layout_width="36dp" android:layout_height="wrap_content"
-                android:text="+0.0" android:textColor="#AAFFFFFF" android:textSize="11sp"
+                android:text="+0.0" android:textColor="@color/trim_text_secondary" android:textSize="11sp"
                 android:gravity="end"/>
         </LinearLayout>
 
@@ -602,13 +602,13 @@
             android:orientation="horizontal" android:gravity="center_vertical"
             android:layout_marginTop="4dp">
             <TextView android:layout_width="80dp" android:layout_height="wrap_content"
-                android:text="Contrast" android:textColor="#AAFFFFFF" android:textSize="11sp"/>
+                android:text="Contrast" android:textColor="@color/trim_text_secondary" android:textSize="11sp"/>
             <SeekBar android:id="@+id/sb_contrast"
                 android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
                 android:progressTint="#00E5FF" android:thumbTint="#00E5FF"/>
             <TextView android:id="@+id/tv_contrast_val"
                 android:layout_width="36dp" android:layout_height="wrap_content"
-                android:text="1.0x" android:textColor="#AAFFFFFF" android:textSize="11sp"
+                android:text="1.0x" android:textColor="@color/trim_text_secondary" android:textSize="11sp"
                 android:gravity="end"/>
         </LinearLayout>
 
@@ -617,20 +617,20 @@
             android:orientation="horizontal" android:gravity="center_vertical"
             android:layout_marginTop="4dp">
             <TextView android:layout_width="80dp" android:layout_height="wrap_content"
-                android:text="Saturation" android:textColor="#AAFFFFFF" android:textSize="11sp"/>
+                android:text="Saturation" android:textColor="@color/trim_text_secondary" android:textSize="11sp"/>
             <SeekBar android:id="@+id/sb_saturation"
                 android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
                 android:progressTint="#FF416C" android:thumbTint="#FF416C"/>
             <TextView android:id="@+id/tv_saturation_val"
                 android:layout_width="36dp" android:layout_height="wrap_content"
-                android:text="1.0x" android:textColor="#AAFFFFFF" android:textSize="11sp"
+                android:text="1.0x" android:textColor="@color/trim_text_secondary" android:textSize="11sp"
                 android:gravity="end"/>
         </LinearLayout>
 
         <!-- Ken Burns direction -->
         <TextView
             android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Ken Burns Direction" android:textColor="#AAFFFFFF"
+            android:text="Ken Burns Direction" android:textColor="@color/trim_text_secondary"
             android:textSize="11sp" android:layout_marginTop="10dp"/>
         <LinearLayout
             android:id="@+id/ll_kb_direction"
@@ -644,13 +644,13 @@
             android:orientation="horizontal" android:gravity="center_vertical"
             android:layout_marginTop="10dp">
             <TextView android:layout_width="80dp" android:layout_height="wrap_content"
-                android:text="Duration" android:textColor="#AAFFFFFF" android:textSize="11sp"/>
+                android:text="Duration" android:textColor="@color/trim_text_secondary" android:textSize="11sp"/>
             <SeekBar android:id="@+id/sb_duration"
                 android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
                 android:progressTint="#00FF88" android:thumbTint="#00FF88"/>
             <TextView android:id="@+id/tv_duration_label"
                 android:layout_width="52dp" android:layout_height="wrap_content"
-                android:text="3.0s" android:textColor="#AAFFFFFF" android:textSize="11sp"
+                android:text="3.0s" android:textColor="@color/trim_text_secondary" android:textSize="11sp"
                 android:gravity="end"/>
         </LinearLayout>
     </LinearLayout>
@@ -674,8 +674,8 @@
             android:layout_weight="1"
             android:layout_marginEnd="8dp"
             android:text="Back"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#33FFFFFF"
+            android:textColor="@color/trim_text_primary"
+            android:backgroundTint="@color/trim_chip_bg"
             android:visibility="invisible"/>
 
         <Button

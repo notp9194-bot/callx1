@@ -436,12 +436,17 @@ public class ReelUploadActivity extends AppCompatActivity {
         int dp16 = (int)(16 * dp);
 
         // ── Outer card ──────────────────────────────────────────────────────
+        // ✅ FIX (light/dark mode): was hardcoded dark navy (0xFF1A1A2E) in
+        // both themes — tokenized to trim_subcard_bg/trim_chip_stroke, same
+        // day/night colors used by the rest of this screen's card panel.
         layoutAudioCard = new android.widget.LinearLayout(this);
         layoutAudioCard.setOrientation(android.widget.LinearLayout.VERTICAL);
         android.graphics.drawable.GradientDrawable cardBg = new android.graphics.drawable.GradientDrawable();
-        cardBg.setColor(0xFF1A1A2E);          // dark navy card background
+        cardBg.setColor(androidx.core.content.ContextCompat.getColor(this,
+                com.callx.app.core.R.color.trim_subcard_bg));
         cardBg.setCornerRadius(14 * dp);
-        cardBg.setStroke((int)(1 * dp), 0xFF2E2E4E);
+        cardBg.setStroke((int)(1 * dp), androidx.core.content.ContextCompat.getColor(this,
+                com.callx.app.core.R.color.trim_chip_stroke));
         layoutAudioCard.setBackground(cardBg);
         layoutAudioCard.setPadding(dp14, dp12, dp14, dp12);
         android.widget.LinearLayout.LayoutParams cardLp =
@@ -454,7 +459,8 @@ public class ReelUploadActivity extends AppCompatActivity {
         // ── Section header ──────────────────────────────────────────────────
         android.widget.TextView tvHeader = new android.widget.TextView(this);
         tvHeader.setText("🎵  Music");
-        tvHeader.setTextColor(0xFFFFFFFF);
+        tvHeader.setTextColor(androidx.core.content.ContextCompat.getColor(this,
+                com.callx.app.core.R.color.trim_text_primary));
         tvHeader.setTextSize(13f);
         tvHeader.setTypeface(null, android.graphics.Typeface.BOLD);
         tvHeader.setPadding(0, 0, 0, dp8);
@@ -507,7 +513,8 @@ public class ReelUploadActivity extends AppCompatActivity {
         trackTextCol.setLayoutParams(colLp);
 
         tvAudioTrackName = new android.widget.TextView(this);
-        tvAudioTrackName.setTextColor(0xFFFFFFFF);
+        tvAudioTrackName.setTextColor(androidx.core.content.ContextCompat.getColor(this,
+                com.callx.app.core.R.color.trim_text_primary));
         tvAudioTrackName.setTextSize(14f);
         tvAudioTrackName.setTypeface(null, android.graphics.Typeface.BOLD);
         tvAudioTrackName.setMaxLines(1);
@@ -515,7 +522,8 @@ public class ReelUploadActivity extends AppCompatActivity {
         trackTextCol.addView(tvAudioTrackName);
 
         tvAudioArtist = new android.widget.TextView(this);
-        tvAudioArtist.setTextColor(0xFFAAAAAA);
+        tvAudioArtist.setTextColor(androidx.core.content.ContextCompat.getColor(this,
+                com.callx.app.core.R.color.trim_text_secondary));
         tvAudioArtist.setTextSize(12f);
         tvAudioArtist.setMaxLines(1);
         tvAudioArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -532,7 +540,8 @@ public class ReelUploadActivity extends AppCompatActivity {
 
         // Divider
         android.view.View divider = new android.view.View(this);
-        divider.setBackgroundColor(0xFF2E2E4E);
+        divider.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this,
+                com.callx.app.core.R.color.trim_divider));
         android.widget.LinearLayout.LayoutParams divLp =
             new android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (int)(1 * dp));
@@ -1066,7 +1075,11 @@ public class ReelUploadActivity extends AppCompatActivity {
         int SELECTED_BG   = 0xFF5B5BF6; // brand_primary
         int UNSELECTED_BG = 0x1A5B5BF6; // 10% brand_primary
         int SELECTED_TEXT = android.graphics.Color.WHITE;
-        int UNSELECTED_TEXT = 0xFF0F172A;
+        // ✅ FIX (light/dark mode): was hardcoded 0xFF0F172A (light-mode
+        // text_primary only) — invisible against the 10%-brand-tint wash
+        // once that wash sits on a dark surface in night mode.
+        int UNSELECTED_TEXT = androidx.core.content.ContextCompat.getColor(this,
+                com.callx.app.core.R.color.trim_text_primary);
 
         for (int i = 0; i < group.getChildCount(); i++) {
             android.view.View child = group.getChildAt(i);
@@ -1331,7 +1344,8 @@ public class ReelUploadActivity extends AppCompatActivity {
         }
         if (btnMediaTypePhotos != null) {
             btnMediaTypePhotos.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-            btnMediaTypePhotos.setTextColor(0xFF888888);
+            btnMediaTypePhotos.setTextColor(androidx.core.content.ContextCompat.getColor(this,
+                    com.callx.app.core.R.color.trim_text_secondary));
         }
     }
 
@@ -1352,7 +1366,8 @@ public class ReelUploadActivity extends AppCompatActivity {
         }
         if (btnMediaTypeVideo != null) {
             btnMediaTypeVideo.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-            btnMediaTypeVideo.setTextColor(0xFF888888);
+            btnMediaTypeVideo.setTextColor(androidx.core.content.ContextCompat.getColor(this,
+                    com.callx.app.core.R.color.trim_text_secondary));
         }
     }
 

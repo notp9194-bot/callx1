@@ -524,7 +524,9 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
             View chip = llFilterChips.getChildAt(i);
             if (chip instanceof TextView) {
                 boolean selected = FILTERS[i].equals(selectedFilter);
-                chip.setBackgroundColor(selected ? 0xFFA855F7 : 0x44FFFFFF);
+                chip.setBackgroundColor(selected ? 0xFFA855F7
+                        : androidx.core.content.ContextCompat.getColor(this,
+                                com.callx.app.core.R.color.trim_chip_bg));
             }
         }
     }
@@ -558,7 +560,9 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
             View chip = llEffectChips.getChildAt(i);
             if (chip instanceof TextView) {
                 boolean selected = EFFECTS[i].equals(selectedEffect);
-                chip.setBackgroundColor(selected ? 0xFFFF416C : 0x44FFFFFF);
+                chip.setBackgroundColor(selected ? 0xFFFF416C
+                        : androidx.core.content.ContextCompat.getColor(this,
+                                com.callx.app.core.R.color.trim_chip_bg));
             }
         }
     }
@@ -883,10 +887,13 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
             TextView btn = new TextView(this);
             btn.setText(KB_LABELS[i]);
             btn.setTextSize(14f);
-            btn.setTextColor(Color.WHITE);
+            btn.setTextColor(androidx.core.content.ContextCompat.getColor(this,
+                    com.callx.app.core.R.color.trim_text_primary));
             btn.setGravity(Gravity.CENTER);
             btn.setPadding(16, 8, 16, 8);
-            btn.setBackgroundColor(dir.equals(kbDirection) ? 0xFF00E5FF : 0x44FFFFFF);
+            btn.setBackgroundColor(dir.equals(kbDirection) ? 0xFF00E5FF
+                    : androidx.core.content.ContextCompat.getColor(this,
+                            com.callx.app.core.R.color.trim_chip_bg));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
             lp.setMarginEnd(4);
             btn.setLayoutParams(lp);
@@ -901,7 +908,9 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     private void refreshKbButtonSelection(ViewGroup container) {
         for (int i = 0; i < container.getChildCount(); i++) {
             View v = container.getChildAt(i);
-            v.setBackgroundColor(KB_DIRS[i].equals(kbDirection) ? 0xFF00E5FF : 0x44FFFFFF);
+            v.setBackgroundColor(KB_DIRS[i].equals(kbDirection) ? 0xFF00E5FF
+                    : androidx.core.content.ContextCompat.getColor(this,
+                            com.callx.app.core.R.color.trim_chip_bg));
         }
     }
 
@@ -1300,14 +1309,22 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    // ✅ FIX (light/dark mode): Filter/Effect chips were hardcoded
+    // Color.WHITE text + 0x44FFFFFF unselected background — tuned only for
+    // this screen's old forced-black look, invisible on a light card.
+    // Tokenized to the same trim_* day/night colors used by the rest of the
+    // card panel (see activity_reel_photo_editor.xml for the XML-side pass).
     private TextView makeChip(String label, boolean selected) {
         TextView tv = new TextView(this);
         tv.setText(label);
-        tv.setTextColor(Color.WHITE);
+        tv.setTextColor(androidx.core.content.ContextCompat.getColor(this,
+                com.callx.app.core.R.color.trim_text_primary));
         tv.setTextSize(12f);
         tv.setPadding(24, 10, 24, 10);
         tv.setGravity(Gravity.CENTER);
-        tv.setBackgroundColor(selected ? 0xFFA855F7 : 0x44FFFFFF);
+        tv.setBackgroundColor(selected ? 0xFFA855F7
+                : androidx.core.content.ContextCompat.getColor(this,
+                        com.callx.app.core.R.color.trim_chip_bg));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         lp.setMarginEnd((int)(4 * getResources().getDisplayMetrics().density));
