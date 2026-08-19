@@ -438,9 +438,16 @@
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|keyboardHidden"/>
 
+        <!-- ✅ FIX: was Theme.CallX.Fullscreen (hardcoded black status/nav bar +
+             window background in BOTH light and dark mode). Switched to
+             Theme.CallX.NoActionBar — same day/night theme already used by
+             the sibling ReelPhotoEditorActivity — so this screen now follows
+             the system light/dark setting like the rest of the app. The
+             screen has its own in-layout top bar (back/title/Done), so it
+             never relied on true immersive fullscreen. -->
         <activity android:name=".activities.ReelEditorActivity"
             android:exported="false"
-            android:theme="@style/Theme.CallX.Fullscreen"
+            android:theme="@style/Theme.CallX.NoActionBar"
             android:windowSoftInputMode="adjustResize"/>
 
         <activity android:name=".activities.MusicPickerActivity"

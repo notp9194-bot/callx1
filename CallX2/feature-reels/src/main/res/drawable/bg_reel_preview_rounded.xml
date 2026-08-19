@@ -1,10 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- ✅ UPDATED: rounded-corner container for the reel editor video preview.
      Increased radius to 24dp (premium Material Design 3 standard) + subtle border for elegance.
-     Matches premium design language of modern apps. -->
+     Matches premium design language of modern apps.
+     Fill stays solid black in both light and dark mode by design — this is
+     the video canvas itself, same convention as every other video/camera
+     surface in the app. Only the hairline border needs a light-mode variant
+     (see drawable-night/ for the dark-mode #1AFFFFFF version) since a white
+     border was tuned for sitting against a black screen background, which
+     is no longer always true now this screen supports day/night. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <solid android:color="#000000"/>
     <corners android:radius="24dp"/>
-    <stroke android:width="1dp" android:color="#1AFFFFFF"/>
+    <stroke android:width="1dp" android:color="#14000000"/>
 </shape>

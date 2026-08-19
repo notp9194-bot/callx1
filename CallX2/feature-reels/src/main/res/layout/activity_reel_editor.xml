@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#000000">
+    android:background="@color/trim_screen_bg">
 
     <!-- Top bar -->
     <LinearLayout
@@ -21,7 +21,7 @@
             android:layout_height="44dp"
             android:src="@drawable/ic_arrow_back"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="@color/white"
+            android:tint="@color/trim_text_primary"
             android:contentDescription="Back"/>
 
         <TextView
@@ -29,7 +29,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="Edit Reel"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/trim_text_primary"
             android:textSize="18sp"
             android:fontFamily="sans-serif-medium"
             android:gravity="center"/>
@@ -204,7 +204,7 @@
                 android:layout_marginStart="8dp"
                 android:text="Trim"
                 android:textAllCaps="true"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/trim_text_primary"
                 android:textSize="@dimen/step_name_text_size"
                 android:textStyle="bold"
                 android:letterSpacing="0.02"
@@ -391,7 +391,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="TRIM"
-            android:textColor="#AAFFFFFF"
+            android:textColor="@color/trim_text_secondary"
             android:textSize="11sp"
             android:fontFamily="sans-serif-medium"
             android:letterSpacing="0.1"
@@ -409,7 +409,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="0:00"
-                android:textColor="#CCFFFFFF"
+                android:textColor="@color/trim_text_secondary"
                 android:textSize="12sp"/>
 
             <TextView
@@ -418,7 +418,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="0:30"
-                android:textColor="#CCFFFFFF"
+                android:textColor="@color/trim_text_secondary"
                 android:textSize="12sp"
                 android:gravity="center"/>
 
@@ -428,7 +428,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="0:30"
-                android:textColor="#CCFFFFFF"
+                android:textColor="@color/trim_text_secondary"
                 android:textSize="12sp"
                 android:gravity="end"/>
         </LinearLayout>
@@ -454,14 +454,14 @@
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:background="#33FFFFFF"
+            android:background="@color/trim_divider"
             android:layout_marginVertical="12dp"/>
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="TEXT OVERLAY"
-            android:textColor="#AAFFFFFF"
+            android:textColor="@color/trim_text_secondary"
             android:textSize="11sp"
             android:fontFamily="sans-serif-medium"
             android:letterSpacing="0.1"
@@ -479,8 +479,8 @@
                 android:layout_height="44dp"
                 android:layout_weight="1"
                 android:hint="Add text to video..."
-                android:textColorHint="#66FFFFFF"
-                android:textColor="#FFFFFF"
+                android:textColorHint="@color/trim_text_muted"
+                android:textColor="@color/trim_text_primary"
                 android:background="@drawable/bg_comment_input"
                 android:paddingStart="12dp"
                 android:paddingEnd="12dp"
@@ -510,7 +510,7 @@
             android:padding="16dp">
 
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="EDITING TOOLS · Look" android:textColor="#AAFFFFFF" android:textSize="11sp"
+                android:text="EDITING TOOLS · Look" android:textColor="@color/trim_text_secondary" android:textSize="11sp"
                 android:fontFamily="sans-serif-medium" android:letterSpacing="0.1"
                 android:layout_marginBottom="12dp"/>
 
@@ -521,27 +521,27 @@
                     android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
                     <ImageButton android:id="@+id/btn_tool_filters" android:layout_width="44dp" android:layout_height="44dp"
                         android:src="@drawable/ic_filter"
-            android:tint="#A855F7" android:background="@drawable/bg_speed_chip" android:contentDescription="Filters"/>
+            android:tint="#A855F7" android:background="@drawable/bg_reel_editor_tool_chip" android:contentDescription="Filters"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Filters" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                        android:text="Filters" android:textColor="@color/trim_text_secondary" android:textSize="10sp" android:layout_marginTop="4dp"/>
                 </LinearLayout>
 
                 <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
                     <ImageButton android:id="@+id/btn_tool_stickers" android:layout_width="44dp" android:layout_height="44dp"
                         android:src="@drawable/ic_sparkle"
-            android:tint="#FFD700" android:background="@drawable/bg_speed_chip" android:contentDescription="Stickers"/>
+            android:tint="#FFD700" android:background="@drawable/bg_reel_editor_tool_chip" android:contentDescription="Stickers"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Stickers" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                        android:text="Stickers" android:textColor="@color/trim_text_secondary" android:textSize="10sp" android:layout_marginTop="4dp"/>
                 </LinearLayout>
 
                 <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
                     <ImageButton android:id="@+id/btn_tool_subtitles" android:layout_width="44dp" android:layout_height="44dp"
-                        android:src="@drawable/ic_caption" android:background="@drawable/bg_speed_chip"
-                        android:tint="@color/white" android:contentDescription="Subtitles"/>
+                        android:src="@drawable/ic_caption" android:background="@drawable/bg_reel_editor_tool_chip"
+                        android:tint="@color/trim_text_primary" android:contentDescription="Subtitles"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Subtitles" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                        android:text="Subtitles" android:textColor="@color/trim_text_secondary" android:textSize="10sp" android:layout_marginTop="4dp"/>
                 </LinearLayout>
 
             </LinearLayout>
@@ -557,7 +557,7 @@
             android:padding="16dp">
 
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="EDITING TOOLS · Motion &amp; Sound" android:textColor="#AAFFFFFF" android:textSize="11sp"
+                android:text="EDITING TOOLS · Motion &amp; Sound" android:textColor="@color/trim_text_secondary" android:textSize="11sp"
                 android:fontFamily="sans-serif-medium" android:letterSpacing="0.1"
                 android:layout_marginBottom="12dp"/>
 
@@ -568,27 +568,27 @@
                     android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
                     <ImageButton android:id="@+id/btn_tool_transitions" android:layout_width="44dp" android:layout_height="44dp"
                         android:src="@drawable/ic_swap"
-            android:tint="#A855F7" android:background="@drawable/bg_speed_chip" android:contentDescription="Transitions"/>
+            android:tint="#A855F7" android:background="@drawable/bg_reel_editor_tool_chip" android:contentDescription="Transitions"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Transitions" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                        android:text="Transitions" android:textColor="@color/trim_text_secondary" android:textSize="10sp" android:layout_marginTop="4dp"/>
                 </LinearLayout>
 
                 <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
                     <ImageButton android:id="@+id/btn_tool_voice" android:layout_width="44dp" android:layout_height="44dp"
-                        android:src="@drawable/ic_mic" android:background="@drawable/bg_speed_chip"
-                        android:tint="@color/white" android:contentDescription="Voice FX"/>
+                        android:src="@drawable/ic_mic" android:background="@drawable/bg_reel_editor_tool_chip"
+                        android:tint="@color/trim_text_primary" android:contentDescription="Voice FX"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Voice FX" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                        android:text="Voice FX" android:textColor="@color/trim_text_secondary" android:textSize="10sp" android:layout_marginTop="4dp"/>
                 </LinearLayout>
 
                 <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center" android:layout_marginEnd="8dp">
                     <ImageButton android:id="@+id/btn_tool_audio_mixer" android:layout_width="44dp" android:layout_height="44dp"
                         android:src="@drawable/ic_music"
-            android:tint="#00E5FF" android:background="@drawable/bg_speed_chip" android:contentDescription="Audio Mixer"/>
+            android:tint="#00E5FF" android:background="@drawable/bg_reel_editor_tool_chip" android:contentDescription="Audio Mixer"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Audio Mix" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                        android:text="Audio Mix" android:textColor="@color/trim_text_secondary" android:textSize="10sp" android:layout_marginTop="4dp"/>
                 </LinearLayout>
 
             </LinearLayout>
@@ -604,7 +604,7 @@
             android:padding="16dp">
 
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="EDITING TOOLS · Finishing" android:textColor="#AAFFFFFF" android:textSize="11sp"
+                android:text="EDITING TOOLS · Finishing" android:textColor="@color/trim_text_secondary" android:textSize="11sp"
                 android:fontFamily="sans-serif-medium" android:letterSpacing="0.1"
                 android:layout_marginBottom="12dp"/>
 
@@ -614,19 +614,19 @@
                 <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center">
                     <ImageButton android:id="@+id/btn_tool_thumbnail" android:layout_width="44dp" android:layout_height="44dp"
-                        android:src="@drawable/ic_gallery" android:background="@drawable/bg_speed_chip"
-                        android:tint="@color/white" android:contentDescription="Thumbnail"/>
+                        android:src="@drawable/ic_gallery" android:background="@drawable/bg_reel_editor_tool_chip"
+                        android:tint="@color/trim_text_primary" android:contentDescription="Thumbnail"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Thumbnail" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                        android:text="Thumbnail" android:textColor="@color/trim_text_secondary" android:textSize="10sp" android:layout_marginTop="4dp"/>
                 </LinearLayout>
 
                 <LinearLayout android:layout_width="64dp" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center" android:layout_marginStart="8dp">
                     <ImageButton android:id="@+id/btn_tool_music" android:layout_width="44dp" android:layout_height="44dp"
-                        android:src="@drawable/ic_music" android:background="@drawable/bg_speed_chip"
+                        android:src="@drawable/ic_music" android:background="@drawable/bg_reel_editor_tool_chip"
                         android:tint="#FF3B5C" android:contentDescription="Music"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Music" android:textColor="#CCFFFFFF" android:textSize="10sp" android:layout_marginTop="4dp"/>
+                        android:text="Music" android:textColor="@color/trim_text_secondary" android:textSize="10sp" android:layout_marginTop="4dp"/>
                 </LinearLayout>
 
             </LinearLayout>
@@ -653,8 +653,8 @@
             android:layout_weight="1"
             android:layout_marginEnd="8dp"
             android:text="Back"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#33FFFFFF"
+            android:textColor="@color/trim_text_primary"
+            android:backgroundTint="@color/trim_chip_bg"
             android:visibility="invisible"/>
 
         <Button

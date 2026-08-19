@@ -41,9 +41,11 @@
             android:theme="@style/Theme.CallX.Fullscreen"
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|keyboardHidden"/>
+        <!-- ✅ FIX: day/night theme instead of the hardcoded-black Fullscreen
+             theme — see app/src/main/AndroidManifest.xml for the full note. -->
         <activity android:name="com.callx.app.editor.ReelEditorActivity"
             android:exported="false"
-            android:theme="@style/Theme.CallX.Fullscreen"
+            android:theme="@style/Theme.CallX.NoActionBar"
             android:windowSoftInputMode="adjustResize"/>
         <activity android:name="com.callx.app.social.DuetReelActivity"
             android:exported="false"
