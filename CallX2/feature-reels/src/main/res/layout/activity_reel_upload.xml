@@ -44,7 +44,7 @@
             android:layout_height="wrap_content"
             android:text="Step 1 of 4 · Media"
             android:textColor="@color/text_primary"
-            android:textSize="15sp"
+            android:textSize="17sp"
             android:fontFamily="sans-serif-medium"
             android:layout_marginBottom="10dp"/>
 

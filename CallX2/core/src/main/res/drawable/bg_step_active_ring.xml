@@ -6,8 +6,8 @@
      circle it wraps. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="ring"
-    android:innerRadiusRatio="3.1"
-    android:thicknessRatio="6"
+    android:innerRadiusRatio="2.9"
+    android:thicknessRatio="10"
     android:useLevel="false">
     <gradient
         android:type="sweep"

@@ -485,7 +485,7 @@ public class NewStatusActivity extends AppCompatActivity {
             bg.setColor(selectedBgColor);
             bg.setCornerRadius(dp(18));
             binding.statusStepPreviewFrame.setBackground(bg);
-            binding.tvStepPreviewText.setGravity(android.view.Gravity.CENTER);
+            binding.tvStepPreviewText.setGravity(textAlignGravity());
             binding.tvStepPreviewText.setTextColor(selectedTextColor);
         } else {
             binding.statusStepPreviewFrame.setBackgroundResource(
@@ -500,6 +500,15 @@ public class NewStatusActivity extends AppCompatActivity {
 
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private int textAlignGravity() {
+        if (selectedTextAlign == null) return android.view.Gravity.CENTER;
+        switch (selectedTextAlign) {
+            case "left":  return android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL;
+            case "right": return android.view.Gravity.END   | android.view.Gravity.CENTER_VERTICAL;
+            default:      return android.view.Gravity.CENTER;
+        }
     }
 
     // ── Sticker overlay frame setup ───────────────────────────────────────
@@ -1205,13 +1214,6 @@ public class NewStatusActivity extends AppCompatActivity {
     }
     private void setTextAlign(String align) {
         selectedTextAlign = align;
-        int gravity;
-        switch (align) {
-            case "left":  gravity = android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL; break;
-            case "right": gravity = android.view.Gravity.END   | android.view.Gravity.CENTER_VERTICAL; break;
-            default:      gravity = android.view.Gravity.CENTER;
-        }
-        binding.tvTextPreview.setGravity(gravity);
         refreshStepPreview();
     }
     // ── Bg color picker ───────────────────────────────────────────────────
@@ -1333,11 +1335,10 @@ public class NewStatusActivity extends AppCompatActivity {
     }
     // ── Preview card ──────────────────────────────────────────────────────
     private void updateTextStatusPreview() {
+        // status_step_preview_card (bound via refreshStepPreview) is now the
+        // single preview for every wizard step — the old duplicate inline
+        // card has been removed from the layout entirely.
         refreshStepPreview();
-        // The persistent reel-style preview is the single source of truth for
-        // every wizard step; keep the legacy inline card hidden to avoid
-        // showing two different previews for the same status.
-        binding.textPreviewCard.setVisibility(View.GONE);
         if (pickedImage != null || pickedVideo != null) return;
         String text = binding.etText.getText().toString().trim();
         if (text.isEmpty()) return;

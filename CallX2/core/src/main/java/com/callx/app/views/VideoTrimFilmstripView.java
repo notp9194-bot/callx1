@@ -3,10 +3,11 @@ package com.callx.app.views;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
-import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Handler;
@@ -25,11 +26,16 @@ import java.util.concurrent.Executors;
 /**
  * VideoTrimFilmstripView — CapCut/Instagram-style video trim UI.
  *
+ * Lives in :core so any feature module (reels editor, chat video trim, status,
+ * etc.) can reuse the same trim widget instead of shipping its own copy.
+ *
  * Renders a horizontal filmstrip of video-frame thumbnails inside a rounded
  * track, dims the portion outside the selected range, and shows two
- * draggable white "pill" handles (with a grip glyph) bracketing the
- * selection plus a thin white top/bottom bar connecting them. A blue
- * playhead line tracks current playback position inside the selection.
+ * draggable "premium" pill handles — brand pink→purple gradient fill, a
+ * soft outer glow (brighter while actively dragged), a glossy top highlight,
+ * and a crisp white grip glyph — bracketing the selection, plus a thin
+ * gradient top/bottom bar connecting them. A blue playhead line tracks
+ * current playback position inside the selection.
  *
  * Usage:
  *   trimView.setDuration(totalDurationMs);
@@ -51,15 +57,26 @@ public class VideoTrimFilmstripView extends View {
     private static final int TOUCH_LEFT  = 1;
     private static final int TOUCH_RIGHT = 2;
 
+    // Brand trim accent — matches core's trim_gradient_start / trim_gradient_end
+    // (pink → purple) used across the rest of the trim UI (buttons, chips, etc.)
+    // so the handles read as part of the same premium trim experience.
+    private static final int GRADIENT_START = 0xFFFF3B5C;
+    private static final int GRADIENT_END   = 0xFFA855F7;
+
     private final Paint dimPaint       = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint handlePaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint handleGlowPaint= new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint shinePaint     = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint gripPaint      = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint barPaint       = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint playheadPaint  = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint playheadGlow   = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint thumbBgPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF clipRect       = new RectF();
+    private final RectF handleRect     = new RectF();
+    private final RectF shineRect      = new RectF();
     private final Path  clipPath       = new Path();
+    private final Path  handlePath     = new Path();
 
     private final List<Bitmap> thumbnails = new ArrayList<>();
 
@@ -69,8 +86,9 @@ public class VideoTrimFilmstripView extends View {
     private long playheadMs   = 0;
 
     private final float density  = getResources().getDisplayMetrics().density;
-    private final float handleWidthPx = 20 * density;
+    private final float handleWidthPx = 22 * density;
     private final float cornerRadiusPx = 8 * density;
+    private final float handleCornerRadiusPx = 10 * density;
     private final float barHeightPx = 4 * density;
     private final float minTrimMs = 1000;
 
@@ -94,14 +112,29 @@ public class VideoTrimFilmstripView extends View {
         dimPaint.setColor(0xB3000000); // ~70% black
         dimPaint.setStyle(Paint.Style.FILL);
 
-        handlePaint.setColor(Color.WHITE);
+        // Premium gradient handle fill (brand pink → purple), reused for both
+        // handles via a local matrix translate at draw time.
         handlePaint.setStyle(Paint.Style.FILL);
+        handlePaint.setShader(new LinearGradient(
+                0, 0, 0, 1, // vertical, sized/positioned per-draw via local matrix
+                GRADIENT_START, GRADIENT_END, Shader.TileMode.CLAMP));
 
-        gripPaint.setColor(0xFF9E9E9E);
+        // Soft colored glow behind each handle so it reads clearly against any
+        // thumbnail — brightens further while the handle is actively dragged.
+        handleGlowPaint.setStyle(Paint.Style.FILL);
+        handleGlowPaint.setColor(GRADIENT_END);
+        handleGlowPaint.setAlpha(110);
+
+        // Glossy top highlight for a tactile, "premium" pill look.
+        shinePaint.setStyle(Paint.Style.FILL);
+        shinePaint.setColor(0x66FFFFFF);
+
+        gripPaint.setColor(0xFFFFFFFF);
         gripPaint.setStyle(Paint.Style.FILL);
 
-        barPaint.setColor(Color.WHITE);
         barPaint.setStyle(Paint.Style.FILL);
+        barPaint.setShader(new LinearGradient(
+                0, 0, 1, 0, GRADIENT_START, GRADIENT_END, Shader.TileMode.CLAMP));
 
         playheadPaint.setColor(0xFF2F88FF);
         playheadPaint.setStyle(Paint.Style.FILL);
@@ -113,6 +146,10 @@ public class VideoTrimFilmstripView extends View {
         thumbBgPaint.setStyle(Paint.Style.FILL);
 
         setClickable(true);
+
+        // setShadowLayer() needs a software layer to render reliably across
+        // API levels/hardware-accelerated canvases.
+        setLayerType(LAYER_TYPE_SOFTWARE, null);
     }
 
     // ── Public API ──────────────────────────────────────────────────────
@@ -226,7 +263,9 @@ public class VideoTrimFilmstripView extends View {
         if (leftX > 0) canvas.drawRect(0, 0, leftX, h, dimPaint);
         if (rightX < w) canvas.drawRect(rightX, 0, w, h, dimPaint);
 
-        // Top / bottom connecting bars across the selection
+        // Top / bottom connecting bars across the selection — brand gradient
+        // instead of plain white, so the selected range itself reads as premium.
+        barPaint.getShader().setLocalMatrix(scaleTranslateMatrixX(leftX, rightX));
         canvas.drawRect(leftX, 0, rightX, barHeightPx, barPaint);
         canvas.drawRect(leftX, h - barHeightPx, rightX, h, barPaint);
 
@@ -238,34 +277,67 @@ public class VideoTrimFilmstripView extends View {
         canvas.drawRect(playX - glowHalfW, -3 * density, playX + glowHalfW, h + 3 * density, playheadGlow);
         canvas.drawRect(playX - 1.5f * density, -3 * density, playX + 1.5f * density, h + 3 * density, playheadPaint);
 
-        // Left handle
-        drawHandle(canvas, leftX - handleWidthPx, leftX, h, true);
-        // Right handle
-        drawHandle(canvas, rightX, rightX + handleWidthPx, h, false);
+        // Left / right premium handles — drawn outside the clip so their glow
+        // and shadow aren't cropped by the rounded filmstrip edges.
+        drawHandle(canvas, leftX - handleWidthPx, leftX, h, true, activeTouch == TOUCH_LEFT);
+        drawHandle(canvas, rightX, rightX + handleWidthPx, h, false, activeTouch == TOUCH_RIGHT);
     }
 
-    private void drawHandle(Canvas canvas, float left, float right, int h, boolean isLeft) {
-        RectF rect = new RectF(left, 0, right, h);
-        Path path = new Path();
-        float[] radii = isLeft
-                ? new float[]{cornerRadiusPx, cornerRadiusPx, 0, 0, 0, 0, cornerRadiusPx, cornerRadiusPx}
-                : new float[]{0, 0, cornerRadiusPx, cornerRadiusPx, cornerRadiusPx, cornerRadiusPx, 0, 0};
-        path.addRoundRect(rect, radii, Path.Direction.CW);
-        canvas.drawPath(path, handlePaint);
+    private final android.graphics.Matrix gradientMatrix = new android.graphics.Matrix();
 
-        // Grip glyph: three short vertical dashes centered in the handle
+    private android.graphics.Matrix scaleTranslateMatrixX(float leftX, float rightX) {
+        float span = Math.max(1f, rightX - leftX);
+        gradientMatrix.reset();
+        gradientMatrix.setScale(span, 1f);
+        gradientMatrix.postTranslate(leftX, 0);
+        return gradientMatrix;
+    }
+
+    private void drawHandle(Canvas canvas, float left, float right, int h, boolean isLeft, boolean pressed) {
+        handleRect.set(left, 0, right, h);
+        float[] radii = isLeft
+                ? new float[]{handleCornerRadiusPx, handleCornerRadiusPx, 0, 0, 0, 0, handleCornerRadiusPx, handleCornerRadiusPx}
+                : new float[]{0, 0, handleCornerRadiusPx, handleCornerRadiusPx, handleCornerRadiusPx, handleCornerRadiusPx, 0, 0};
+
+        // Soft outer glow — clearly signals "draggable" and brightens on touch
+        // for tactile feedback, like a premium editor's active-handle state.
+        handleGlowPaint.setAlpha(pressed ? 190 : 110);
+        handlePaint.setShadowLayer(pressed ? 14 * density : 8 * density, 0, 0,
+                pressed ? 0xFFA855F7 : 0x99A855F7);
+
+        handlePath.reset();
+        handlePath.addRoundRect(handleRect, radii, Path.Direction.CW);
+
+        // Position the gradient shader over this handle's bounds.
+        gradientMatrix.reset();
+        gradientMatrix.setScale(1f, Math.max(1f, h));
+        handlePaint.getShader().setLocalMatrix(gradientMatrix);
+
+        // Wider glow footprint behind the pill.
+        canvas.drawRoundRect(handleRect.left - 2 * density, handleRect.top,
+                handleRect.right + 2 * density, handleRect.bottom,
+                handleCornerRadiusPx + 2 * density, handleCornerRadiusPx + 2 * density, handleGlowPaint);
+
+        canvas.drawPath(handlePath, handlePaint);
+
+        // Glossy top highlight for a rounded, tactile pill look.
+        shineRect.set(handleRect.left + 2 * density, handleRect.top + 1.5f * density,
+                handleRect.right - 2 * density, handleRect.top + h * 0.32f);
+        canvas.drawRoundRect(shineRect, handleCornerRadiusPx * 0.6f, handleCornerRadiusPx * 0.6f, shinePaint);
+
+        // Grip glyph: two bold rounded dashes centered in the handle, crisp
+        // white against the gradient for maximum visibility.
         float cx = (left + right) / 2f;
         float cy = h / 2f;
-        float dashLen = 10 * density;
-        float dashGap = 4 * density;
-        float strokeW = 2 * density;
-        Paint p = gripPaint;
+        float dashLen = 12 * density;
+        float dashGap = 4.5f * density;
+        float strokeW = 2.5f * density;
         float startY = cy - dashLen / 2f;
         float endY   = cy + dashLen / 2f;
-        for (int i = -1; i <= 1; i++) {
-            float x = cx + i * dashGap;
+        for (int i = -1; i <= 1; i += 2) {
+            float x = cx + i * (dashGap / 2f);
             canvas.drawRoundRect(x - strokeW / 2f, startY, x + strokeW / 2f, endY,
-                    strokeW / 2f, strokeW / 2f, p);
+                    strokeW / 2f, strokeW / 2f, gripPaint);
         }
     }
 
@@ -318,11 +390,13 @@ public class VideoTrimFilmstripView extends View {
                     activeTouch = TOUCH_LEFT;
                     touchDownDx = x - leftX;
                     getParent().requestDisallowInterceptTouchEvent(true);
+                    invalidate();
                     return true;
                 } else if (Math.abs(x - rightX) <= hitSlop && x >= leftX) {
                     activeTouch = TOUCH_RIGHT;
                     touchDownDx = x - rightX;
                     getParent().requestDisallowInterceptTouchEvent(true);
+                    invalidate();
                     return true;
                 }
                 activeTouch = TOUCH_NONE;
@@ -353,6 +427,7 @@ public class VideoTrimFilmstripView extends View {
                 }
                 activeTouch = TOUCH_NONE;
                 getParent().requestDisallowInterceptTouchEvent(false);
+                invalidate();
                 return true;
 
             default:
