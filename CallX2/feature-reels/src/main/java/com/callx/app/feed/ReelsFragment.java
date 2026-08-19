@@ -248,8 +248,27 @@ public class ReelsFragment extends Fragment {
         ViewCompat.setOnApplyWindowInsetsListener(reelBottomNav, (view, insets) -> {
             int navBarHeight      = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
             int tappableBarHeight = insets.getInsets(WindowInsetsCompat.Type.tappableElement()).bottom;
-            int systemBarHeight   = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom;
-            int safeBottomInset   = Math.max(navBarHeight, Math.max(tappableBarHeight, systemBarHeight));
+            // 🐛 BUG (was here): taking Math.max() against systemBars().bottom too.
+            // systemBars() is the union of statusBars()+navigationBars()+captionBar(),
+            // and on some devices/OEM skins — right after the Normal⇄Immersive
+            // setDecorFitsSystemWindows()/show()/hide() toggle in
+            // MainActivity#setReelsSystemBarsVisible() — it briefly reports a
+            // bloated bottom value (sometimes the two bars' heights combined)
+            // instead of just the nav-bar strip. Math.max() then picked that
+            // bad number, paddingBottom on this wrap_content view blew up, and
+            // the whole panel grew tall enough to push its own icons out of
+            // the laid-out/visible area (empty-looking, and dark enough to
+            // bleed into the owner-row above it).
+            // ✅ FIX: never source the bottom padding from systemBars(). Trust
+            // navigationBars() first (the real nav-bar/gesture-bar strip);
+            // only fall back to tappableElement() when navigationBars() reads
+            // exactly 0 (the immersive-hidden case FIX #1 above was written
+            // for). Then clamp to a sane maximum regardless of source, so no
+            // single bad reading — from this or any future OEM quirk — can
+            // ever inflate the view beyond a normal nav-bar's worth of space.
+            int rawBottomInset = navBarHeight > 0 ? navBarHeight : tappableBarHeight;
+            int maxSaneInset   = (int) (48 * view.getResources().getDisplayMetrics().density);
+            int safeBottomInset = Math.min(rawBottomInset, maxSaneInset);
             view.setPadding(
                 view.getPaddingLeft(), view.getPaddingTop(),
                 view.getPaddingRight(), safeBottomInset);

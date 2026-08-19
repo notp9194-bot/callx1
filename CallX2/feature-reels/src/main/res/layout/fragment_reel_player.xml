@@ -1146,7 +1146,4 @@
         android:layout_height="match_parent"
         android:visibility="gone"/>
 
-    <!-- Video progress bar removed by request — no bottom seek bar on the
-         reel player anymore. -->
-
 </FrameLayout>

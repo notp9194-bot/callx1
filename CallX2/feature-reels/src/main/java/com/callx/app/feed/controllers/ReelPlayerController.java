@@ -1772,6 +1772,8 @@ public class ReelPlayerController {
             }).start();
     }
 
+    // ── Seek bar (Instagram-style drag-to-scrub) ────────────────────────────────
+
     // ── Progress tracking ─────────────────────────────────────────────────────
 
     public void startProgressTracking() {
@@ -1785,6 +1787,7 @@ public class ReelPlayerController {
                 // PERF (v9): true while ReelChatDockedPlayer has stolen this
                 // reel's video surface (see its ROOT FIX — it nulls
                 // playerView's player before the mini view claims it).
+                // Still used below to slow the polling cadence while docked.
                 boolean surfaceIsDocked = playerView == null || playerView.getPlayer() != player;
 
                 long dur = player.getDuration();
