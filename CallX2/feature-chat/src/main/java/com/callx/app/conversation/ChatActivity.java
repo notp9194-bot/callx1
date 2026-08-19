@@ -2676,12 +2676,33 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 pagingData -> {
                     PagingData<Message> mapped =
                             PagingDataTransforms.map(pagingData, ioExecutor, ChatActivity::entityToModel);
+                    // BUG FIX (WhatsApp/Telegram-style date separators): "seen your
+                    // status" / "watched your reel" rows (type="status_seen" /
+                    // "reel_seen") are real, persisted, real-timestamped Message
+                    // rows — they sync to BOTH sides of a 1:1 chat's shared
+                    // Firebase node — but MessagePagingAdapter.getItemViewType()
+                    // only ever renders them on the OWNER's side; the OTHER side
+                    // resolves them to TYPE_HIDDEN, a literal 0x0 View. Since this
+                    // filter used to run AFTER insertSeparators (i.e. not at all —
+                    // insertSeparators saw the raw, unfiltered stream), those
+                    // invisible rows still counted as real "after" items with
+                    // today's (or whatever day they were created on) timestamp —
+                    // so opening the chat on any day the OTHER person had viewed
+                    // your status/reel produced a genuine date chip with nothing
+                    // visibly under it, exactly like the chat screen "only date ki
+                    // ban rahi hai" bug report. Filtering these out of the stream
+                    // BEFORE insertSeparators (not just at bind time) means the
+                    // day-boundary decision only ever looks at messages that will
+                    // actually render something — matching how WhatsApp/Telegram
+                    // only ever show a date divider above a message you can see.
+                    PagingData<Message> visible =
+                            PagingDataTransforms.filter(mapped, ioExecutor, this::isVisibleForDateSeparator);
                     // Insert date separators as synthetic Message rows (type="date_separator").
                     // insertSeparators() is called with (before, after):
                     //   • before=null  → after is first item → always insert a date chip above it.
                     //   • after=null   → before is last item  → no chip needed at the end.
                     //   • both non-null → insert chip only when they belong to different days.
-                    return PagingDataTransforms.insertSeparators(mapped, ioExecutor,
+                    return PagingDataTransforms.insertSeparators(visible, ioExecutor,
                             (before, after) -> {
                                 if (after == null) return null; // end of list — no separator needed
                                 boolean differentDay = before == null  // first item
@@ -3233,8 +3254,58 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ─────────────────────────────────────────────────────────────────────
 
     // ── Date separator helpers — used by insertSeparators() in the paging pipeline ──
+    // FIX (WhatsApp-level date separators): this used to be a raw
+    // `(ts1/86_400_000L) == (ts2/86_400_000L)` UTC-epoch-day comparison —
+    // NOT the device's local calendar day. In IST (UTC+5:30) that meant a
+    // late-night message and an early-morning one on the SAME local day
+    // could straddle a UTC-day boundary and get bucketed as "different
+    // days", inserting a spurious extra date chip even though nothing had
+    // actually changed by the user's own calendar — i.e. dates appearing
+    // to "get noted" more than WhatsApp would ever show them. Now mirrors
+    // the already-correct isSameDay() in MessagePagingAdapter: a same-
+    // millisecond-day fast path (always correct when it hits), falling
+    // back to a real local-timezone Calendar comparison only when that
+    // fast path says "different" — so the actual decision is always made
+    // in local calendar-day terms, consistent with formatPagingDateLabel()
+    // below (which already used local Calendar for the "Today"/"Yesterday"
+    // label text, just not for the bucketing decision).
     private static boolean isSamePagingDay(long ts1, long ts2) {
-        return (ts1 / 86_400_000L) == (ts2 / 86_400_000L);
+        if (ts1 / 86_400_000L == ts2 / 86_400_000L) return true; // fast path — same UTC-day bucket is always same local day too
+        java.util.Calendar c1 = java.util.Calendar.getInstance();
+        java.util.Calendar c2 = java.util.Calendar.getInstance();
+        c1.setTimeInMillis(ts1);
+        c2.setTimeInMillis(ts2);
+        return c1.get(java.util.Calendar.YEAR) == c2.get(java.util.Calendar.YEAR)
+                && c1.get(java.util.Calendar.DAY_OF_YEAR) == c2.get(java.util.Calendar.DAY_OF_YEAR);
+    }
+
+    /**
+     * BUG FIX (spurious date chips with nothing under them — see
+     * attachPagerWithKey()'s doc above the filter call for the full root
+     * cause): true only for messages that will actually render SOMETHING
+     * on THIS user's screen. Mirrors MessagePagingAdapter#getItemViewType's
+     * TYPE_HIDDEN resolution exactly — status_seen/reel_seen rows are
+     * synced to both sides of the chat but only ever bind a visible bubble
+     * on the status/reel OWNER's side; the other side must never let one
+     * of these rows anchor a date separator, since nothing will be drawn
+     * there to justify it.
+     *
+     * Kept as a single shared source of truth (used by both the live
+     * Paging3 pipeline and the synchronous warm-cache seed path below) so
+     * the two can never drift out of sync with the adapter's own
+     * visibility rule again.
+     */
+    private boolean isVisibleForDateSeparator(Message m) {
+        if (m == null) return false;
+        if ("status_seen".equals(m.type)) {
+            String statusOwnerUid = (m.statusOwnerUid != null && !m.statusOwnerUid.isEmpty())
+                    ? m.statusOwnerUid : m.senderId;
+            return currentUid != null && currentUid.equals(statusOwnerUid);
+        }
+        if ("reel_seen".equals(m.type)) {
+            return currentUid != null && currentUid.equals(m.reelOwnerUid);
+        }
+        return true;
     }
 
     /**
@@ -3255,10 +3326,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * identical, so DiffUtil finds no changes at all when real data lands —
      * no insert, no shift, no pop.
      */
-    private static java.util.List<Message> withDateSeparators(java.util.List<Message> ascMessages) {
+    private java.util.List<Message> withDateSeparators(java.util.List<Message> ascMessages) {
         java.util.List<Message> out = new java.util.ArrayList<>(ascMessages.size() + 4);
         Message prev = null;
         for (Message m : ascMessages) {
+            // BUG FIX: skip status_seen/reel_seen rows this user can't see —
+            // see isVisibleForDateSeparator()'s doc. Without this, the same
+            // "date chip with nothing under it" bug reproduced on the warm-
+            // cache seed path too, since it ran this exact before/after
+            // comparison independently of the live Paging3 pipeline.
+            if (!isVisibleForDateSeparator(m)) {
+                out.add(m); // still shown as TYPE_HIDDEN (0x0) — just excluded from the day-boundary decision
+                continue;
+            }
             boolean differentDay = prev == null
                     || prev.timestamp == null
                     || m.timestamp == null

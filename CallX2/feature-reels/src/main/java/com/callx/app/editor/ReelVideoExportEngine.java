@@ -167,11 +167,12 @@ public class ReelVideoExportEngine {
      */
     public static void export(Context context,
                                String inputPath,
+                               boolean isFilePath,
                                @Nullable String filterName,
                                float brightness, float contrast, float saturation,
                                @Nullable List<OverlayItem> overlays,
                                ExportCallback callback) {
-        export(context, inputPath, filterName, brightness, contrast, saturation,
+        export(context, inputPath, isFilePath, filterName, brightness, contrast, saturation,
             overlays, 0L, 0L, callback);
     }
 
@@ -179,9 +180,17 @@ public class ReelVideoExportEngine {
      * Overload that also bakes a trim range into the export so the uploaded file
      * always matches the range the user picked on the trim filmstrip. Pass
      * {@code trimEndMs <= trimStartMs} (e.g. 0, 0) to skip clipping entirely.
+     *
+     * ✅ FIX: {@code inputPath} used to always be treated as a filesystem path
+     * (Uri.fromFile(new File(inputPath))), which throws/produces a broken URI for a
+     * gallery-picked video (a content:// URI string). That silently prevented this
+     * whole export — and therefore the trim range — from ever running for gallery
+     * picks. {@code isFilePath} now tells us which form inputPath is in, matching the
+     * same flag already passed around the rest of the editor/upload flow.
      */
     public static void export(Context context,
                                String inputPath,
+                               boolean isFilePath,
                                @Nullable String filterName,
                                float brightness, float contrast, float saturation,
                                @Nullable List<OverlayItem> overlays,
@@ -191,16 +200,16 @@ public class ReelVideoExportEngine {
         Handler mainHandler = new Handler(Looper.getMainLooper());
 
         try {
-            File input = new File(inputPath);
+            Uri inputUri = isFilePath ? Uri.fromFile(new File(inputPath)) : Uri.parse(inputPath);
             File outDir = new File(context.getCacheDir(), "reel_export");
             if (!outDir.exists()) outDir.mkdirs();
             File output = new File(outDir, "reel_export_" + System.currentTimeMillis() + ".mp4");
 
             List<Effect> videoEffects = new ArrayList<>();
             addFilterEffects(videoEffects, filterName, brightness, contrast, saturation);
-            addOverlayEffect(context, videoEffects, input.getAbsolutePath(), overlays);
+            addOverlayEffect(context, videoEffects, inputUri, overlays);
 
-            MediaItem.Builder itemBuilder = new MediaItem.Builder().setUri(Uri.fromFile(input));
+            MediaItem.Builder itemBuilder = new MediaItem.Builder().setUri(inputUri);
             // ✅ Bake the selected trim range into the exported file so the preview
             // loop range and the actually-uploaded video always match.
             if (trimEndMs > trimStartMs) {
@@ -322,10 +331,10 @@ public class ReelVideoExportEngine {
 
     /** Draws all text/sticker overlays onto a single transparent bitmap and overlays it on every frame. */
     private static void addOverlayEffect(Context context, List<Effect> effects,
-                                          String inputPath, @Nullable List<OverlayItem> overlays) {
+                                          Uri inputUri, @Nullable List<OverlayItem> overlays) {
         if (overlays == null || overlays.isEmpty()) return;
 
-        int[] size = readVideoSize(inputPath);
+        int[] size = readVideoSize(context, inputUri);
         int width = size[0] > 0 ? size[0] : 720;
         int height = size[1] > 0 ? size[1] : 1280;
 
@@ -368,10 +377,13 @@ public class ReelVideoExportEngine {
         effects.add(new OverlayEffect(ImmutableList.of(overlay)));
     }
 
-    private static int[] readVideoSize(String path) {
+    private static int[] readVideoSize(Context context, Uri uri) {
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
         try {
-            retriever.setDataSource(path);
+            // ✅ FIX: setDataSource(String) only works for real filesystem paths — a
+            // content:// URI (gallery pick) needs the context+uri overload, otherwise
+            // this silently fails and overlay sizing falls back to a hardcoded guess.
+            retriever.setDataSource(context, uri);
             int w = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
             int h = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
             String rotationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);

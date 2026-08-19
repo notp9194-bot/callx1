@@ -1557,11 +1557,14 @@ public class ReelEditorActivity extends AppCompatActivity {
         boolean hasTrim = totalDurationMs > 0 && trimEndMs > trimStartMs
             && (trimStartMs > 0 || trimEndMs < totalDurationMs);
 
-        // ✅ NEW: If a filter, text/sticker overlay, or a trim range is active and we
-        // have a local file, burn them into the actual video pixels (Media3 Transformer)
-        // before uploading — this is also what makes the uploaded video length match
-        // exactly what the trim preview showed.
-        if (isFilePath && (hasFilter || hasOverlays || hasTrim) && videoUriStr != null && !videoUriStr.isEmpty()) {
+        // ✅ FIX: this used to also require isFilePath==true, so a video picked from the
+        // gallery (content:// URI, isFilePath=false — e.g. ReelUploadActivity's
+        // "select video → editor" flow) never went through the bake step at all: the
+        // trim handles moved in the preview, but the full original content:// video was
+        // handed to ReelUploadActivity untouched (its trim extras are never read there).
+        // ReelVideoExportEngine now accepts either a file path or a content URI, so the
+        // gate only needs to check that a video is actually loaded.
+        if ((hasFilter || hasOverlays || hasTrim) && videoUriStr != null && !videoUriStr.isEmpty()) {
             runHardBakeExport(hasTrim);
             return;
         }
@@ -1584,7 +1587,7 @@ public class ReelEditorActivity extends AppCompatActivity {
         long exportTrimStart = hasTrim ? trimStartMs : 0L;
         long exportTrimEnd   = hasTrim ? trimEndMs   : 0L;
 
-        ReelVideoExportEngine.export(this, videoUriStr, filterName,
+        ReelVideoExportEngine.export(this, videoUriStr, isFilePath, filterName,
             filterBrightness, filterContrast, filterSaturation, overlays,
             exportTrimStart, exportTrimEnd,
             new ReelVideoExportEngine.ExportCallback() {
