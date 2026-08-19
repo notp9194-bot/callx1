@@ -996,6 +996,7 @@ public class ReelUiController {
         View rightActions = root.findViewById(R.id.right_actions);
         View bottomInfo   = root.findViewById(R.id.bottom_info);
         View topControls  = root.findViewById(R.id.top_controls);
+        View progressVid  = root.findViewById(R.id.progress_video);
         View repostAttr   = root.findViewById(R.id.ll_repost_attribution);
         View repostChip   = root.findViewById(R.id.ll_repost_count_chip);
         View seriesChip   = root.findViewById(R.id.ll_series_chip);
@@ -1004,6 +1005,7 @@ public class ReelUiController {
         if (rightActions != null) rightActions.setVisibility(vis);
         if (bottomInfo   != null) bottomInfo.setVisibility(vis);
         if (topControls  != null) topControls.setVisibility(vis);
+        if (progressVid  != null) progressVid.setVisibility(vis);
         if (repostAttr != null && repostAttr.getVisibility() != View.GONE) repostAttr.setVisibility(vis);
         if (repostChip != null && repostChip.getVisibility() != View.GONE) repostChip.setVisibility(vis);
         if (seriesChip != null && seriesChip.getVisibility() != View.GONE) seriesChip.setVisibility(vis);

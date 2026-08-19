@@ -57,7 +57,7 @@
                         android:layout_weight="1"
                         android:text="CREATE YOUR STATUS"
                         android:textColor="@color/trim_gradient_end"
-                        android:textSize="19sp"
+                        android:textSize="13sp"
                         android:letterSpacing="0.12"
                         android:fontFamily="sans-serif-medium"/>
 
@@ -67,7 +67,7 @@
                         android:layout_height="wrap_content"
                         android:text="1 of 3"
                         android:textColor="@color/trim_text_secondary"
-                        android:textSize="12sp"/>
+                        android:textSize="14sp"/>
                 </LinearLayout>
 
                 <LinearLayout
@@ -78,28 +78,15 @@
                     android:gravity="center_vertical"
                     android:layout_marginTop="10dp">
 
-                    <FrameLayout
-                        android:layout_width="42dp"
-                        android:layout_height="42dp"
-                        android:gravity="center">
-                        <ImageView
-                            android:id="@+id/step_ring_1"
-                            android:layout_width="42dp"
-                            android:layout_height="42dp"
-                            android:layout_gravity="center"
-                            android:src="@drawable/ring_step_active_glow"
-                            android:visibility="gone"/>
-                        <TextView
-                            android:id="@+id/step_dot_1"
-                            android:layout_width="30dp"
-                            android:layout_height="30dp"
-                            android:layout_gravity="center"
-                            android:gravity="center"
-                            android:text="1"
-                            android:textColor="@color/white"
-                            android:textStyle="bold"
-                            android:background="@drawable/bg_trim_gradient_button"/>
-                    </FrameLayout>
+                    <TextView
+                        android:id="@+id/step_dot_1"
+                        android:layout_width="30dp"
+                        android:layout_height="30dp"
+                        android:gravity="center"
+                        android:text="1"
+                        android:textColor="@color/white"
+                        android:textStyle="bold"
+                        android:background="@drawable/bg_trim_gradient_button"/>
                     <View
                         android:id="@+id/step_line_1"
                         android:layout_width="0dp"
@@ -107,28 +94,15 @@
                         android:layout_weight="1"
                         android:layout_marginHorizontal="6dp"
                         android:background="@color/trim_divider"/>
-                    <FrameLayout
-                        android:layout_width="42dp"
-                        android:layout_height="42dp"
-                        android:gravity="center">
-                        <ImageView
-                            android:id="@+id/step_ring_2"
-                            android:layout_width="42dp"
-                            android:layout_height="42dp"
-                            android:layout_gravity="center"
-                            android:src="@drawable/ring_step_active_glow"
-                            android:visibility="gone"/>
-                        <TextView
-                            android:id="@+id/step_dot_2"
-                            android:layout_width="30dp"
-                            android:layout_height="30dp"
-                            android:layout_gravity="center"
-                            android:gravity="center"
-                            android:text="2"
-                            android:textColor="@color/trim_text_secondary"
-                            android:textStyle="bold"
-                            android:background="@drawable/bg_trim_circle_btn"/>
-                    </FrameLayout>
+                    <TextView
+                        android:id="@+id/step_dot_2"
+                        android:layout_width="30dp"
+                        android:layout_height="30dp"
+                        android:gravity="center"
+                        android:text="2"
+                        android:textColor="@color/trim_text_secondary"
+                        android:textStyle="bold"
+                        android:background="@drawable/bg_trim_circle_btn"/>
                     <View
                         android:id="@+id/step_line_2"
                         android:layout_width="0dp"
@@ -136,28 +110,15 @@
                         android:layout_weight="1"
                         android:layout_marginHorizontal="6dp"
                         android:background="@color/trim_divider"/>
-                    <FrameLayout
-                        android:layout_width="42dp"
-                        android:layout_height="42dp"
-                        android:gravity="center">
-                        <ImageView
-                            android:id="@+id/step_ring_3"
-                            android:layout_width="42dp"
-                            android:layout_height="42dp"
-                            android:layout_gravity="center"
-                            android:src="@drawable/ring_step_active_glow"
-                            android:visibility="gone"/>
-                        <TextView
-                            android:id="@+id/step_dot_3"
-                            android:layout_width="30dp"
-                            android:layout_height="30dp"
-                            android:layout_gravity="center"
-                            android:gravity="center"
-                            android:text="3"
-                            android:textColor="@color/trim_text_secondary"
-                            android:textStyle="bold"
-                            android:background="@drawable/bg_trim_circle_btn"/>
-                    </FrameLayout>
+                    <TextView
+                        android:id="@+id/step_dot_3"
+                        android:layout_width="30dp"
+                        android:layout_height="30dp"
+                        android:gravity="center"
+                        android:text="3"
+                        android:textColor="@color/trim_text_secondary"
+                        android:textStyle="bold"
+                        android:background="@drawable/bg_trim_circle_btn"/>
                 </LinearLayout>
 
                 <LinearLayout

@@ -412,22 +412,7 @@
         <activity android:name=".activities.ReelSearchActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
-        <!-- FIX (crash): this used to say android:name=".activities.SingleReelPlayerActivity",
-             which resolves (against this manifest's own com.callx.app namespace) to
-             com.callx.app.activities.SingleReelPlayerActivity — a class that has never
-             existed; the real activity lives in feature-reels as
-             com.callx.app.player.SingleReelPlayerActivity (see that module's own
-             AndroidManifest.xml, which declares it fully-qualified). Because the two
-             android:name values didn't match, Gradle's manifest merger treated this as a
-             SECOND, separate <activity> instead of merging the tools:replace overrides
-             (exported/theme) into the real one — so the merged APK ended up with two
-             activities both listening for the com.callx.app.ACTION_OPEN_REEL
-             intent-filter (the one MessagePagingAdapter fires when a reel-share bubble
-             is tapped in chat, via Constants.ACTION_OPEN_REEL), one of them pointing at
-             a class that was never compiled. That's the ClassNotFoundException. Using
-             the real fully-qualified name here makes this correctly override the
-             feature-reels declaration instead of duplicating it. -->
-        <activity android:name="com.callx.app.player.SingleReelPlayerActivity"
+        <activity android:name=".activities.SingleReelPlayerActivity"
             android:exported="true"
             android:theme="@style/Theme.CallX.Fullscreen"
             tools:replace="android:exported,android:theme">

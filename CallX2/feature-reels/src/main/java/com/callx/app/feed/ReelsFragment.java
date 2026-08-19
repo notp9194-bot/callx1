@@ -219,59 +219,11 @@ public class ReelsFragment extends Fragment {
 
         // reel_bottom_nav: navigationBarHeight padding keeps nav items above
         // the gesture bar / 3-button nav on edge-to-edge screens.
-        //
-        // ✅ FIX: Reels tab runs in immersive mode by default (see MainActivity#
-        // setImmersiveMode / applyReelsTabChrome) — the phone's own nav bar is
-        // HIDDEN and only reappears as a transient, system-drawn overlay when the
-        // user swipes up from the bottom edge (BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE).
-        // While hidden, WindowInsetsCompat.Type.navigationBars() reports a bottom
-        // inset of 0 (nothing reserved), so reel_bottom_nav was getting ZERO bottom
-        // padding and sitting flush against the true screen edge. When the user then
-        // swiped the system nav bar into view, it's drawn by the OS ON TOP of the
-        // app (no app-side elevation/z-order can go above a system bar overlay), so
-        // it visually covered our bottom nav sitting right underneath it.
-        // tappableElement() reports that same reserved bottom strip (the gesture
-        // handle / swipe-to-reveal zone) even while the bar itself is hidden, so
-        // taking the max of the two always reserves enough room to clear it.
-        //
-        // ✅ FIX #2: Normal (non-immersive) display mode — where the phone's
-        // nav bar stays permanently VISIBLE — showed the same "tab hidden
-        // behind the phone's nav bar" symptom, because switching Normal ⇄
-        // Immersive from the Display Mode sheet doesn't recreate this view;
-        // it needs a fresh WindowInsets dispatch to recompute (now forced via
-        // ViewCompat.requestApplyInsets in MainActivity#setReelsSystemBarsVisible).
-        // systemBars() is added as a third candidate below — on some OEM skins
-        // navigationBars()/tappableElement() briefly read 0 right after that
-        // mode switch even though the bar is visible, so systemBars() (which
-        // always reflects the currently-visible bar) guarantees enough room is
-        // still reserved either way.
         ViewCompat.setOnApplyWindowInsetsListener(reelBottomNav, (view, insets) -> {
-            int navBarHeight      = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
-            int tappableBarHeight = insets.getInsets(WindowInsetsCompat.Type.tappableElement()).bottom;
-            // 🐛 BUG (was here): taking Math.max() against systemBars().bottom too.
-            // systemBars() is the union of statusBars()+navigationBars()+captionBar(),
-            // and on some devices/OEM skins — right after the Normal⇄Immersive
-            // setDecorFitsSystemWindows()/show()/hide() toggle in
-            // MainActivity#setReelsSystemBarsVisible() — it briefly reports a
-            // bloated bottom value (sometimes the two bars' heights combined)
-            // instead of just the nav-bar strip. Math.max() then picked that
-            // bad number, paddingBottom on this wrap_content view blew up, and
-            // the whole panel grew tall enough to push its own icons out of
-            // the laid-out/visible area (empty-looking, and dark enough to
-            // bleed into the owner-row above it).
-            // ✅ FIX: never source the bottom padding from systemBars(). Trust
-            // navigationBars() first (the real nav-bar/gesture-bar strip);
-            // only fall back to tappableElement() when navigationBars() reads
-            // exactly 0 (the immersive-hidden case FIX #1 above was written
-            // for). Then clamp to a sane maximum regardless of source, so no
-            // single bad reading — from this or any future OEM quirk — can
-            // ever inflate the view beyond a normal nav-bar's worth of space.
-            int rawBottomInset = navBarHeight > 0 ? navBarHeight : tappableBarHeight;
-            int maxSaneInset   = (int) (48 * view.getResources().getDisplayMetrics().density);
-            int safeBottomInset = Math.min(rawBottomInset, maxSaneInset);
+            int navBarHeight = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
             view.setPadding(
                 view.getPaddingLeft(), view.getPaddingTop(),
-                view.getPaddingRight(), safeBottomInset);
+                view.getPaddingRight(), navBarHeight);
             return insets;
         });
 
@@ -1422,11 +1374,6 @@ public class ReelsFragment extends Fragment {
         } else {
             // Show bottom nav
             reelBottomNav.setVisibility(View.VISIBLE);
-            // ✅ FIX: re-request insets here — a GONE view can be skipped by the
-            // insets dispatch tree, so without this its bottom padding (which
-            // keeps it clear of the phone's nav bar / gesture strip) could still
-            // be stale from before it was hidden.
-            ViewCompat.requestApplyInsets(reelBottomNav);
             reelBottomNav.animate().translationY(0f).alpha(1f).setDuration(220).start();
             // Show top bar
             if (topBar != null) {

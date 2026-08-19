@@ -302,10 +302,6 @@ public class ReelUploadActivity extends AppCompatActivity {
     // below) — replaces the old thin horizontal progress_step ProgressBar.
     private TextView[]                 stepDots;
     private View[]                     stepLines;
-    // Spinning glow ring shown around whichever dot is the current step —
-    // one ImageView per dot, see ring_step_active_glow.xml.
-    private android.widget.ImageView[] stepRings;
-    private android.animation.ObjectAnimator activeStepRingAnimator;
     private com.google.android.material.button.MaterialButton btnStepBack;
     private Button                     btnStepNext;
     private int                        currentStep = 0;
@@ -327,7 +323,6 @@ public class ReelUploadActivity extends AppCompatActivity {
         toolbar.setNavigationOnClickListener(v -> finish());
 
         bindViews();
-        wireQualityChipListener();
         setupChipDefaults();
         setupStepWizard();
 
@@ -809,10 +804,6 @@ public class ReelUploadActivity extends AppCompatActivity {
                 findViewById(R.id.step_dot_1), findViewById(R.id.step_dot_2),
                 findViewById(R.id.step_dot_3), findViewById(R.id.step_dot_4)
         };
-        stepRings = new android.widget.ImageView[] {
-                findViewById(R.id.step_ring_1), findViewById(R.id.step_ring_2),
-                findViewById(R.id.step_ring_3), findViewById(R.id.step_ring_4)
-        };
         stepLines = new View[] {
                 findViewById(R.id.step_line_1), findViewById(R.id.step_line_2),
                 findViewById(R.id.step_line_3)
@@ -913,36 +904,6 @@ public class ReelUploadActivity extends AppCompatActivity {
                     currentStep >= i + 1
                             ? com.callx.app.core.R.color.trim_gradient_start
                             : com.callx.app.core.R.color.trim_divider));
-        }
-        updateActiveStepRing();
-    }
-
-    /**
-     * Shows the vibrant-green spinning glow ring around whichever dot is the
-     * CURRENT step only (not "reached" like the dot fill, just the one the user
-     * is on right now), and keeps it spinning for as long as that step is active.
-     */
-    private void updateActiveStepRing() {
-        if (stepRings == null) return;
-        if (activeStepRingAnimator != null) {
-            activeStepRingAnimator.cancel();
-            activeStepRingAnimator = null;
-        }
-        for (int i = 0; i < stepRings.length; i++) {
-            android.widget.ImageView ring = stepRings[i];
-            if (ring == null) continue;
-            if (i == currentStep) {
-                ring.setVisibility(View.VISIBLE);
-                ring.setRotation(0f);
-                activeStepRingAnimator = android.animation.ObjectAnimator.ofFloat(
-                        ring, View.ROTATION, 0f, 360f);
-                activeStepRingAnimator.setDuration(1500);
-                activeStepRingAnimator.setRepeatCount(android.animation.ValueAnimator.INFINITE);
-                activeStepRingAnimator.setInterpolator(new android.view.animation.LinearInterpolator());
-                activeStepRingAnimator.start();
-            } else {
-                ring.setVisibility(View.GONE);
-            }
         }
     }
 
@@ -3058,28 +3019,6 @@ public class ReelUploadActivity extends AppCompatActivity {
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    /**
-     * ✅ FIX: the quality chips (Low/Standard/HD/Full HD) sat on Step 1 but were
-     * purely decorative — compressVideo() ran the instant a video arrived (using
-     * whichever chip is checked="true" in the layout, i.e. Standard/540p by
-     * default) and getSelectedQuality() was never consulted again, so the user's
-     * choice never actually asked or changed anything. Now, picking a different
-     * chip re-compresses the currently selected video at that quality, so quality
-     * is genuinely a user choice instead of a silent 540p default.
-     */
-    private void wireQualityChipListener() {
-        if (chipQuality == null) return;
-        chipQuality.setOnCheckedChangeListener((group, checkedId) -> {
-            if (checkedId == View.NO_ID) return;
-            if (isPhotoMode || selectedUri == null) return;
-            if (compressionInProgress) return;
-            layoutVideoInfo.setVisibility(View.GONE);
-            if (tvCompressionSavings != null) tvCompressionSavings.setVisibility(View.GONE);
-            compressedResult = null;
-            compressVideo(selectedUri);
-        });
-    }
-
     private VideoQualityPreferences.Quality getSelectedQuality() {
         int id = chipQuality.getCheckedChipId();
         if (id == R.id.chip_low)    return VideoQualityPreferences.Quality.LOW;
@@ -3170,10 +3109,6 @@ public class ReelUploadActivity extends AppCompatActivity {
     protected void onDestroy() {
         if (uploadMentionController != null) uploadMentionController.onDestroy();
         releasePreviewPlayer();
-        if (activeStepRingAnimator != null) {
-            activeStepRingAnimator.cancel();
-            activeStepRingAnimator = null;
-        }
         super.onDestroy();
     }
 }

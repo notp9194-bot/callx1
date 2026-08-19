@@ -306,15 +306,8 @@ public class ReelPeekPreviewController {
 
         if (btnPlay != null) {
             btnPlay.setOnClickListener(v -> {
-                // Capture before dismiss() — dismiss() nulls out
-                // currentCallback as part of its teardown, so calling it
-                // first (as this used to) meant the null-check right after
-                // always failed and "Watch Reel" silently did nothing on
-                // every screen that uses this controller (chat peek, Reels
-                // grid, Home suggested-reels, SoundDetailFragment).
-                Callback watchCallback = currentCallback;
                 dismiss();
-                if (watchCallback != null) watchCallback.onWatchFull();
+                if (currentCallback != null) currentCallback.onWatchFull();
             });
         }
         if (scrim != null) scrim.setOnClickListener(v -> dismissAnimated());

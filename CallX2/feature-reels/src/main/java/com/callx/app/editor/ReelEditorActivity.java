@@ -134,11 +134,6 @@ public class ReelEditorActivity extends AppCompatActivity {
     // pb_editor_step ProgressBar.
     private TextView[]                 editorStepDots;
     private View[]                     editorStepLines;
-    // Spinning glow ring shown around whichever dot is the current step —
-    // one ImageView per dot, see :core's ring_step_active_glow.xml (shared
-    // with Reel Upload / Reel Photo Editor / Add Status).
-    private android.widget.ImageView[] editorStepRings;
-    private android.animation.ObjectAnimator activeEditorStepRingAnimator;
     private View                       btnEditorStepBack, btnEditorStepNext;
     private int                        editorCurrentStep = 0;
     private static final String[] EDITOR_STEP_TITLES = {
@@ -1171,11 +1166,6 @@ public class ReelEditorActivity extends AppCompatActivity {
                 findViewById(R.id.step_line_1), findViewById(R.id.step_line_2),
                 findViewById(R.id.step_line_3), findViewById(R.id.step_line_4)
         };
-        editorStepRings = new android.widget.ImageView[] {
-                findViewById(R.id.step_ring_1), findViewById(R.id.step_ring_2),
-                findViewById(R.id.step_ring_3), findViewById(R.id.step_ring_4),
-                findViewById(R.id.step_ring_5)
-        };
         btnEditorStepBack = findViewById(R.id.btn_editor_step_back);
         btnEditorStepNext = findViewById(R.id.btn_editor_step_next);
 
@@ -1236,36 +1226,6 @@ public class ReelEditorActivity extends AppCompatActivity {
                     editorCurrentStep >= i + 1
                             ? com.callx.app.core.R.color.trim_gradient_start
                             : com.callx.app.core.R.color.trim_divider));
-        }
-        updateActiveEditorStepRing();
-    }
-
-    /**
-     * Shows the vibrant-green spinning glow ring around whichever dot is the
-     * CURRENT editing-tools step only, and keeps it spinning while that step
-     * is active — same behaviour as ReelUploadActivity#updateActiveStepRing().
-     */
-    private void updateActiveEditorStepRing() {
-        if (editorStepRings == null) return;
-        if (activeEditorStepRingAnimator != null) {
-            activeEditorStepRingAnimator.cancel();
-            activeEditorStepRingAnimator = null;
-        }
-        for (int i = 0; i < editorStepRings.length; i++) {
-            android.widget.ImageView ring = editorStepRings[i];
-            if (ring == null) continue;
-            if (i == editorCurrentStep) {
-                ring.setVisibility(View.VISIBLE);
-                ring.setRotation(0f);
-                activeEditorStepRingAnimator = android.animation.ObjectAnimator.ofFloat(
-                        ring, View.ROTATION, 0f, 360f);
-                activeEditorStepRingAnimator.setDuration(1500);
-                activeEditorStepRingAnimator.setRepeatCount(android.animation.ValueAnimator.INFINITE);
-                activeEditorStepRingAnimator.setInterpolator(new android.view.animation.LinearInterpolator());
-                activeEditorStepRingAnimator.start();
-            } else {
-                ring.setVisibility(View.GONE);
-            }
         }
     }
 
@@ -1597,14 +1557,11 @@ public class ReelEditorActivity extends AppCompatActivity {
         boolean hasTrim = totalDurationMs > 0 && trimEndMs > trimStartMs
             && (trimStartMs > 0 || trimEndMs < totalDurationMs);
 
-        // ✅ FIX: this used to also require isFilePath==true, so a video picked from the
-        // gallery (content:// URI, isFilePath=false — e.g. ReelUploadActivity's
-        // "select video → editor" flow) never went through the bake step at all: the
-        // trim handles moved in the preview, but the full original content:// video was
-        // handed to ReelUploadActivity untouched (its trim extras are never read there).
-        // ReelVideoExportEngine now accepts either a file path or a content URI, so the
-        // gate only needs to check that a video is actually loaded.
-        if ((hasFilter || hasOverlays || hasTrim) && videoUriStr != null && !videoUriStr.isEmpty()) {
+        // ✅ NEW: If a filter, text/sticker overlay, or a trim range is active and we
+        // have a local file, burn them into the actual video pixels (Media3 Transformer)
+        // before uploading — this is also what makes the uploaded video length match
+        // exactly what the trim preview showed.
+        if (isFilePath && (hasFilter || hasOverlays || hasTrim) && videoUriStr != null && !videoUriStr.isEmpty()) {
             runHardBakeExport(hasTrim);
             return;
         }
@@ -1627,7 +1584,7 @@ public class ReelEditorActivity extends AppCompatActivity {
         long exportTrimStart = hasTrim ? trimStartMs : 0L;
         long exportTrimEnd   = hasTrim ? trimEndMs   : 0L;
 
-        ReelVideoExportEngine.export(this, videoUriStr, isFilePath, filterName,
+        ReelVideoExportEngine.export(this, videoUriStr, filterName,
             filterBrightness, filterContrast, filterSaturation, overlays,
             exportTrimStart, exportTrimEnd,
             new ReelVideoExportEngine.ExportCallback() {

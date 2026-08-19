@@ -238,23 +238,10 @@ public class VideoTrimFilmstripView extends View {
         canvas.drawRect(playX - glowHalfW, -3 * density, playX + glowHalfW, h + 3 * density, playheadGlow);
         canvas.drawRect(playX - 1.5f * density, -3 * density, playX + 1.5f * density, h + 3 * density, playheadPaint);
 
-        // ✅ FIX: handles used to be drawn entirely OUTSIDE the selection
-        // ([leftX-handleWidthPx, leftX] / [rightX, rightX+handleWidthPx]). At the
-        // default full-video selection (leftX=0, rightX=w) that put both handles
-        // 100% outside this View's own 0..w canvas bounds — which Android clips
-        // away — so they didn't render until the user dragged them inward. Now
-        // each handle is centered ON its boundary (half inside the selection,
-        // half in the dimmed zone) and clamped so it always stays fully within
-        // [0, w], regardless of where the trim range currently sits.
-        float leftHandleLeft   = Math.max(0, leftX - handleWidthPx / 2f);
-        float leftHandleRight  = leftHandleLeft + handleWidthPx;
-        float rightHandleRight = Math.min(w, rightX + handleWidthPx / 2f);
-        float rightHandleLeft  = rightHandleRight - handleWidthPx;
-
         // Left handle
-        drawHandle(canvas, leftHandleLeft, leftHandleRight, h, true);
+        drawHandle(canvas, leftX - handleWidthPx, leftX, h, true);
         // Right handle
-        drawHandle(canvas, rightHandleLeft, rightHandleRight, h, false);
+        drawHandle(canvas, rightX, rightX + handleWidthPx, h, false);
     }
 
     private void drawHandle(Canvas canvas, float left, float right, int h, boolean isLeft) {
