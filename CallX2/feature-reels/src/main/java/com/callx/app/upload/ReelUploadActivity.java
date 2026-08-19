@@ -92,6 +92,13 @@ public class ReelUploadActivity extends AppCompatActivity {
     public static final String EXTRA_IS_FILE_PATH = "upload_is_file_path";
     public static final String EXTRA_TRIM_START   = "upload_trim_start";
     public static final String EXTRA_TRIM_END     = "upload_trim_end";
+    // ✅ FIX: set by ReelEditorActivity only when it already burned the trim range
+    // into the video file itself (its own hard-bake export). When this is false but
+    // a real trim range is present, this screen bakes the trim itself before
+    // compressing — previously EXTRA_TRIM_START/END were sent but never read here,
+    // so any trim from a gallery-picked (non-file-path) video was silently dropped
+    // and the full untrimmed clip got uploaded.
+    public static final String EXTRA_TRIM_ALREADY_BAKED = "upload_trim_already_baked";
     public static final String EXTRA_TEXT_OVERLAY = "upload_text_overlay";
     public static final String EXTRA_MUSIC_NAME   = "upload_music_name";
     // Sound pre-selected from SoundDetailActivity
@@ -227,6 +234,15 @@ public class ReelUploadActivity extends AppCompatActivity {
     private VideoCompressor.Result compressedResult;
     private boolean                compressionInProgress = false;
 
+    // ✅ FIX: trim range forwarded from ReelEditorActivity, applied here if the
+    // editor didn't already bake it into the file (see EXTRA_TRIM_ALREADY_BAKED).
+    private long    pendingTrimStartMs      = 0L;
+    private long    pendingTrimEndMs        = 0L;
+    private boolean pendingTrimAlreadyBaked = false;
+    private boolean trimBakeInProgress      = false;
+    /** Tracks whether selectedUri currently points at a local file path (vs a content:// URI), so the quality-chip listener can re-run the same pipeline. */
+    private boolean lastVideoIsFilePath     = true;
+
     // Audio mix settings received from ReelEditorActivity (via ReelAudioMixerActivity)
     private float  mixOrigVol       = 1.0f;
     private float  mixMusicVol      = 0.8f;
@@ -302,6 +318,8 @@ public class ReelUploadActivity extends AppCompatActivity {
     // below) — replaces the old thin horizontal progress_step ProgressBar.
     private TextView[]                 stepDots;
     private View[]                     stepLines;
+    private ImageView[]                stepRings;
+    private android.animation.ObjectAnimator activeStepRingSpin;
     private com.google.android.material.button.MaterialButton btnStepBack;
     private Button                     btnStepNext;
     private int                        currentStep = 0;
@@ -768,6 +786,22 @@ public class ReelUploadActivity extends AppCompatActivity {
         tvCollabSummary      = findViewById(R.id.tv_collab_summary);
         btnPrivacySettings   = findViewById(R.id.btn_privacy_settings);
         btnSchedule          = findViewById(R.id.btn_schedule);
+
+        // ✅ FIX: previously picking a different quality chip after compression had
+        // already started (or finished) with the default Standard tier did nothing —
+        // getSelectedQuality() was only ever read once, at the moment compressVideo()
+        // was first called. Now changing the chip re-runs compression with the newly
+        // chosen quality, so the person actually gets to choose before posting.
+        chipQuality.setOnCheckedStateChangeListener((group, checkedIds) -> {
+            if (selectedUri == null) return;
+            if (compressionInProgress || trimBakeInProgress) {
+                Toast.makeText(this, "Video is still being processed…", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            compressedResult = null;
+            tvCompressionSavings.setVisibility(View.GONE);
+            startCompressionPipeline(selectedUri, lastVideoIsFilePath);
+        });
         btnSaveDraft         = findViewById(R.id.btn_save_draft);
         btnProductTag        = findViewById(R.id.btn_product_tag);
         tvTagSummary            = findViewById(R.id.tv_tag_summary);
@@ -804,6 +838,12 @@ public class ReelUploadActivity extends AppCompatActivity {
                 findViewById(R.id.step_dot_1), findViewById(R.id.step_dot_2),
                 findViewById(R.id.step_dot_3), findViewById(R.id.step_dot_4)
         };
+        // ✅ NEW: vibrant-green spinning ring shown behind whichever step dot
+        // is currently in use (see updateStepDots()).
+        stepRings = new ImageView[] {
+                findViewById(R.id.step_ring_1), findViewById(R.id.step_ring_2),
+                findViewById(R.id.step_ring_3), findViewById(R.id.step_ring_4)
+        };
         stepLines = new View[] {
                 findViewById(R.id.step_line_1), findViewById(R.id.step_line_2),
                 findViewById(R.id.step_line_3)
@@ -838,8 +878,8 @@ public class ReelUploadActivity extends AppCompatActivity {
             Toast.makeText(this, "Please select a video first", Toast.LENGTH_SHORT).show();
             return false;
         }
-        if (compressionInProgress) {
-            Toast.makeText(this, "Video is still being compressed…", Toast.LENGTH_SHORT).show();
+        if (compressionInProgress || trimBakeInProgress) {
+            Toast.makeText(this, "Video is still being processed…", Toast.LENGTH_SHORT).show();
             return false;
         }
         return true;
@@ -904,6 +944,35 @@ public class ReelUploadActivity extends AppCompatActivity {
                     currentStep >= i + 1
                             ? com.callx.app.core.R.color.trim_gradient_start
                             : com.callx.app.core.R.color.trim_divider));
+        }
+        updateActiveStepRing();
+    }
+
+    /**
+     * ✅ NEW: spins a vibrant-green ring behind whichever step dot is the one
+     * currently in use (currentStep) — not the "passed" ones, just the live
+     * one — so it's obvious at a glance which step the person is on.
+     */
+    private void updateActiveStepRing() {
+        if (stepRings == null) return;
+        if (activeStepRingSpin != null) {
+            activeStepRingSpin.cancel();
+            activeStepRingSpin = null;
+        }
+        for (int i = 0; i < stepRings.length; i++) {
+            if (stepRings[i] == null) continue;
+            if (i == currentStep) {
+                stepRings[i].setVisibility(View.VISIBLE);
+                stepRings[i].setRotation(0f);
+                activeStepRingSpin = android.animation.ObjectAnimator.ofFloat(
+                        stepRings[i], View.ROTATION, 0f, 360f);
+                activeStepRingSpin.setDuration(1400);
+                activeStepRingSpin.setRepeatCount(android.animation.ObjectAnimator.INFINITE);
+                activeStepRingSpin.setInterpolator(new android.view.animation.LinearInterpolator());
+                activeStepRingSpin.start();
+            } else {
+                stepRings[i].setVisibility(View.GONE);
+            }
         }
     }
 
@@ -1124,10 +1193,18 @@ public class ReelUploadActivity extends AppCompatActivity {
             ? android.net.Uri.fromFile(new java.io.File(videoUriStr))
             : Uri.parse(videoUriStr);
         selectedUri           = uri;
+        lastVideoIsFilePath   = isFilePath;
         compressedResult      = null;
         compressionInProgress = false;
+
+        // ✅ FIX: read the trim range instead of leaving it unused — see
+        // EXTRA_TRIM_ALREADY_BAKED for why this matters.
+        pendingTrimStartMs      = i.getLongExtra(EXTRA_TRIM_START, 0L);
+        pendingTrimEndMs        = i.getLongExtra(EXTRA_TRIM_END, 0L);
+        pendingTrimAlreadyBaked = i.getBooleanExtra(EXTRA_TRIM_ALREADY_BAKED, false);
+
         showVideoPreview(uri);
-        compressVideo(uri);
+        startCompressionPipeline(uri, isFilePath);
 
         // Pre-fill text overlay as initial caption if provided
         String textOverlay = i.getStringExtra(EXTRA_TEXT_OVERLAY);
@@ -1962,6 +2039,91 @@ public class ReelUploadActivity extends AppCompatActivity {
     }
 
     // ── Compression ───────────────────────────────────────────────────────
+
+    /**
+     * ✅ FIX: entry point that now actually honors the trim range forwarded from
+     * ReelEditorActivity. Previously this screen went straight to compressVideo(uri)
+     * regardless of EXTRA_TRIM_START/END, so a trim only ever survived when the
+     * editor itself had already re-encoded it in — a gallery-picked (non file-path)
+     * video, or any case where the editor's own bake step didn't run, silently
+     * uploaded the full untrimmed clip. Now, if a real trim range is pending and
+     * wasn't already baked upstream, it's baked here first.
+     */
+    private void startCompressionPipeline(Uri uri, boolean isFilePath) {
+        boolean hasPendingTrim = pendingTrimEndMs > pendingTrimStartMs && !pendingTrimAlreadyBaked;
+        if (!hasPendingTrim) {
+            compressVideo(uri);
+            return;
+        }
+        bakeTrimThenCompress(uri, isFilePath);
+    }
+
+    private void bakeTrimThenCompress(Uri uri, boolean isFilePath) {
+        if (isFinishing() || isDestroyed()) return;
+
+        trimBakeInProgress = true;
+        layoutCompression.setVisibility(View.VISIBLE);
+        progressCompress.setProgress(0);
+        tvCompressStatus.setText("Trimming…");
+        btnPostReel.setEnabled(false);
+
+        WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
+
+        // ReelVideoExportEngine.export needs a local file path — copy content:// URIs
+        // to a temp file first (VideoCompressor already does this for compression).
+        new Thread(() -> {
+            String localPath;
+            try {
+                localPath = isFilePath
+                    ? uri.getPath()
+                    : VideoCompressor.copyUriToFile(this, uri).getAbsolutePath();
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    ReelUploadActivity a = ref.get();
+                    if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                    a.trimBakeInProgress = false;
+                    Toast.makeText(a, "Couldn't trim video, uploading full clip.", Toast.LENGTH_LONG).show();
+                    a.compressVideo(uri);
+                });
+                return;
+            }
+
+            runOnUiThread(() -> {
+                ReelUploadActivity a = ref.get();
+                if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                com.callx.app.editor.ReelVideoExportEngine.export(a, localPath,
+                    null, 0f, 1f, 1f, java.util.Collections.emptyList(),
+                    pendingTrimStartMs, pendingTrimEndMs,
+                    new com.callx.app.editor.ReelVideoExportEngine.ExportCallback() {
+                        @Override public void onProgress(int percent) {
+                            ReelUploadActivity aa = ref.get();
+                            if (aa == null || aa.isFinishing() || aa.isDestroyed()) return;
+                            if (percent >= 0) {
+                                aa.progressCompress.setProgress(percent);
+                                aa.tvCompressStatus.setText("Trimming… " + percent + "%");
+                            }
+                        }
+                        @Override public void onSuccess(String outputPath) {
+                            ReelUploadActivity aa = ref.get();
+                            if (aa == null || aa.isFinishing() || aa.isDestroyed()) return;
+                            aa.trimBakeInProgress = false;
+                            aa.pendingTrimAlreadyBaked = true;
+                            Uri trimmedUri = Uri.fromFile(new java.io.File(outputPath));
+                            aa.selectedUri = trimmedUri;
+                            aa.lastVideoIsFilePath = true;
+                            aa.compressVideo(trimmedUri);
+                        }
+                        @Override public void onError(Exception e) {
+                            ReelUploadActivity aa = ref.get();
+                            if (aa == null || aa.isFinishing() || aa.isDestroyed()) return;
+                            aa.trimBakeInProgress = false;
+                            Toast.makeText(aa, "Couldn't trim video, uploading full clip.", Toast.LENGTH_LONG).show();
+                            aa.compressVideo(uri);
+                        }
+                    });
+            });
+        }).start();
+    }
 
     private void compressVideo(Uri uri) {
         if (isFinishing() || isDestroyed()) return;
@@ -3109,6 +3271,7 @@ public class ReelUploadActivity extends AppCompatActivity {
     protected void onDestroy() {
         if (uploadMentionController != null) uploadMentionController.onDestroy();
         releasePreviewPlayer();
+        if (activeStepRingSpin != null) activeStepRingSpin.cancel();
         super.onDestroy();
     }
 }

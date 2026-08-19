@@ -285,7 +285,10 @@ public class VideoCompressor {
 
     // ── content:// → File copy ─────────────────────────────────────────────
 
-    static File copyUriToFile(Context ctx, Uri uri) throws IOException {
+    // ✅ Made public so callers outside :core (e.g. ReelUploadActivity's trim-bake
+    // pipeline) can materialize a content:// URI to a local file before handing it
+    // to Media3 Transformer, which requires a real file path.
+    public static File copyUriToFile(Context ctx, Uri uri) throws IOException {
         File dir = new File(ctx.getCacheDir(), "vid_in");
         dir.mkdirs();
         File tmp = new File(dir, "in_" + UUID.randomUUID() + ".mp4");

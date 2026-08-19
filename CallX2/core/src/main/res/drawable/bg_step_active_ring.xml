@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spinning "in use" ring for a wizard step dot. A sweep gradient (rather
+     than a flat-color ring) is used deliberately — a uniform ring wouldn't
+     show any motion when rotated. innerRadiusRatio/thicknessRatio give a
+     slim ring that sits just outside the 28dp step-dot circle it wraps. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="ring"
+    android:innerRadiusRatio="3.6"
+    android:thicknessRatio="9"
+    android:useLevel="false">
+    <gradient
+        android:type="sweep"
+        android:startColor="#0000E676"
+        android:centerColor="#8000E676"
+        android:endColor="#FF00E676"/>
+</shape>

@@ -161,6 +161,10 @@ public class ReelEditorActivity extends AppCompatActivity {
     private long      totalDurationMs = 0;
     private long      trimStartMs     = 0;
     private long      trimEndMs       = 0;
+    /** ✅ FIX: set true once runHardBakeExport() has burned a real trim range into
+     *  videoUriStr, so ReelUploadActivity knows not to re-bake the (now reset) 0..duration
+     *  range it receives — see ReelUploadActivity.EXTRA_TRIM_ALREADY_BAKED. */
+    private boolean   trimBakedIntoFile = false;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     // ── Duet metadata ────────────────────────────────────────────────────
@@ -1602,6 +1606,7 @@ public class ReelEditorActivity extends AppCompatActivity {
                         totalDurationMs = trimEndMs - trimStartMs;
                         trimStartMs = 0;
                         trimEndMs   = totalDurationMs;
+                        trimBakedIntoFile = true;
                     }
                     Toast.makeText(ReelEditorActivity.this,
                         hasTrim ? "Trim & edits applied ✓" : "Filter & overlays applied ✓",
@@ -1639,6 +1644,7 @@ public class ReelEditorActivity extends AppCompatActivity {
         intent.putExtra(ReelUploadActivity.EXTRA_IS_FILE_PATH, isFilePath);
         intent.putExtra(ReelUploadActivity.EXTRA_TRIM_START,   trimStartMs);
         intent.putExtra(ReelUploadActivity.EXTRA_TRIM_END,     trimEndMs);
+        intent.putExtra(ReelUploadActivity.EXTRA_TRIM_ALREADY_BAKED, trimBakedIntoFile);
         intent.putExtra(ReelUploadActivity.EXTRA_TEXT_OVERLAY, textOverlay);
 
         if (!preSelectedSoundId.isEmpty())

@@ -105,6 +105,12 @@
     <color name="trim_text_primary">@color/text_primary</color>
     <color name="trim_text_secondary">@color/text_secondary</color>
     <color name="trim_text_muted">@color/text_muted</color>
+
+    <!-- Vibrant green spinning-ring accent for the currently-active step dot
+         in wizard steppers (Reel Upload, etc). Deliberately separate from
+         trim_gradient_start/end (pink→purple) and from brand_primary — this
+         ring is purely an "in-use right now" indicator. -->
+    <color name="step_active_ring_green">#00E676</color>
     <color name="trim_photo_placeholder">#ECECF1</color>
     <color name="trim_waveform_dim">#D6D6DE</color>
     <color name="trim_chip_bg">@color/surface_card</color>
