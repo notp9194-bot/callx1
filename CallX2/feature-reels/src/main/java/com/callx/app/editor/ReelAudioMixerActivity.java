@@ -326,6 +326,12 @@ public class ReelAudioMixerActivity extends AppCompatActivity {
             photoPreview.setVisibility(View.GONE);
             exoPlayer = new ExoPlayer.Builder(this).build();
             playerView.setPlayer(exoPlayer);
+            // ✅ FIX: preview card (200dp tall, full width) is much wider than a
+            // portrait reel video's aspect ratio. Default PlayerView resize mode
+            // (RESIZE_MODE_FIT) letterboxes the video, leaving large black strips
+            // on left/right where no video is visible. RESIZE_MODE_ZOOM crops and
+            // fills the whole preview box instead, so video is visible edge-to-edge.
+            playerView.setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
             Uri uri = isFilePath
                 ? Uri.fromFile(new File(videoUri))
                 : Uri.parse(videoUri);

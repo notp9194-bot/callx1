@@ -1233,12 +1233,18 @@ public class ReelEditorActivity extends AppCompatActivity {
                            : com.callx.app.core.R.color.trim_text_secondary));
         }
         if (editorStepLines == null) return;
+        // ✅ FIX: completed segments now use bg_step_line_gradient (the same
+        // brand gradient as the active step dot) instead of a flat solid
+        // color, so consecutive completed lines read as one continuous
+        // gradient strip joining the step dots, instead of separate flat bars.
         for (int i = 0; i < editorStepLines.length; i++) {
             if (editorStepLines[i] == null) continue;
-            editorStepLines[i].setBackgroundColor(androidx.core.content.ContextCompat.getColor(this,
-                    editorCurrentStep >= i + 1
-                            ? com.callx.app.core.R.color.trim_gradient_start
-                            : com.callx.app.core.R.color.trim_divider));
+            if (editorCurrentStep >= i + 1) {
+                editorStepLines[i].setBackgroundResource(R.drawable.bg_step_line_gradient);
+            } else {
+                editorStepLines[i].setBackgroundColor(androidx.core.content.ContextCompat.getColor(this,
+                        com.callx.app.core.R.color.trim_divider));
+            }
         }
         updateActiveEditorStepRing();
     }

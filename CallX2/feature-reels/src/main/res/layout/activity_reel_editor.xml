@@ -38,21 +38,28 @@
             android:id="@+id/btn_editor_next"
             android:layout_width="wrap_content"
             android:layout_height="36dp"
-            android:text="Next"
+            android:text="Done"
             android:textColor="#FFFFFF"
             android:textSize="14sp"
             android:fontFamily="sans-serif-medium"
             android:gravity="center"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:background="@drawable/bg_reel_follow_btn"/>
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:background="@drawable/bg_trim_gradient_button_ripple"/>
     </LinearLayout>
 
     <!-- Video Preview (9:16 aspect) -->
+    <!-- ✅ FIX: rounded corners on the preview card (matches bg_trim_photo_rounded
+         card language used elsewhere in the editing flow) — margin added so the
+         rounding is actually visible against the black screen background, and
+         clipToOutline crops the PlayerView content to the rounded shape. -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_weight="1"
+        android:layout_margin="10dp"
+        android:background="@drawable/bg_reel_preview_rounded"
+        android:clipToOutline="true">
 
         <androidx.media3.ui.PlayerView
             android:id="@+id/editor_player_view"
@@ -172,7 +179,7 @@
             <View
                 android:id="@+id/step_line_1"
                 android:layout_width="0dp"
-                android:layout_height="2dp"
+                android:layout_height="4dp"
                 android:layout_weight="1"
                 android:layout_marginHorizontal="4dp"
                 android:background="@color/trim_divider"/>
@@ -203,7 +210,7 @@
             <View
                 android:id="@+id/step_line_2"
                 android:layout_width="0dp"
-                android:layout_height="2dp"
+                android:layout_height="4dp"
                 android:layout_weight="1"
                 android:layout_marginHorizontal="4dp"
                 android:background="@color/trim_divider"/>
@@ -234,7 +241,7 @@
             <View
                 android:id="@+id/step_line_3"
                 android:layout_width="0dp"
-                android:layout_height="2dp"
+                android:layout_height="4dp"
                 android:layout_weight="1"
                 android:layout_marginHorizontal="4dp"
                 android:background="@color/trim_divider"/>
@@ -265,7 +272,7 @@
             <View
                 android:id="@+id/step_line_4"
                 android:layout_width="0dp"
-                android:layout_height="2dp"
+                android:layout_height="4dp"
                 android:layout_weight="1"
                 android:layout_marginHorizontal="4dp"
                 android:background="@color/trim_divider"/>
@@ -588,6 +595,9 @@
             android:layout_weight="1"
             android:text="Next"
             android:textColor="#FFFFFF"
+            android:drawableEnd="@drawable/ic_arrow_forward"
+            android:drawableTint="#FFFFFF"
+            android:drawablePadding="6dp"
             android:backgroundTint="@color/brand_primary"/>
     </LinearLayout>
 
