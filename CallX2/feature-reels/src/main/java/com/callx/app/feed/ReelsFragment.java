@@ -219,11 +219,27 @@ public class ReelsFragment extends Fragment {
 
         // reel_bottom_nav: navigationBarHeight padding keeps nav items above
         // the gesture bar / 3-button nav on edge-to-edge screens.
+        //
+        // ✅ FIX: Reels tab runs in immersive mode by default (see MainActivity#
+        // setImmersiveMode / applyReelsTabChrome) — the phone's own nav bar is
+        // HIDDEN and only reappears as a transient, system-drawn overlay when the
+        // user swipes up from the bottom edge (BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE).
+        // While hidden, WindowInsetsCompat.Type.navigationBars() reports a bottom
+        // inset of 0 (nothing reserved), so reel_bottom_nav was getting ZERO bottom
+        // padding and sitting flush against the true screen edge. When the user then
+        // swiped the system nav bar into view, it's drawn by the OS ON TOP of the
+        // app (no app-side elevation/z-order can go above a system bar overlay), so
+        // it visually covered our bottom nav sitting right underneath it.
+        // tappableElement() reports that same reserved bottom strip (the gesture
+        // handle / swipe-to-reveal zone) even while the bar itself is hidden, so
+        // taking the max of the two always reserves enough room to clear it.
         ViewCompat.setOnApplyWindowInsetsListener(reelBottomNav, (view, insets) -> {
-            int navBarHeight = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
+            int navBarHeight     = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
+            int tappableBarHeight = insets.getInsets(WindowInsetsCompat.Type.tappableElement()).bottom;
+            int safeBottomInset  = Math.max(navBarHeight, tappableBarHeight);
             view.setPadding(
                 view.getPaddingLeft(), view.getPaddingTop(),
-                view.getPaddingRight(), navBarHeight);
+                view.getPaddingRight(), safeBottomInset);
             return insets;
         });
 
@@ -1374,6 +1390,11 @@ public class ReelsFragment extends Fragment {
         } else {
             // Show bottom nav
             reelBottomNav.setVisibility(View.VISIBLE);
+            // ✅ FIX: re-request insets here — a GONE view can be skipped by the
+            // insets dispatch tree, so without this its bottom padding (which
+            // keeps it clear of the phone's nav bar / gesture strip) could still
+            // be stale from before it was hidden.
+            ViewCompat.requestApplyInsets(reelBottomNav);
             reelBottomNav.animate().translationY(0f).alpha(1f).setDuration(220).start();
             // Show top bar
             if (topBar != null) {
