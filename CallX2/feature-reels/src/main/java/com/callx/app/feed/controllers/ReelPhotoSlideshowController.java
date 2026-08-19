@@ -107,9 +107,6 @@ public class ReelPhotoSlideshowController {
             ? delegate.getFragment().getView().findViewById(R.id.player_view) : null;
         if (playerView != null) playerView.setVisibility(View.GONE);
         vpPhotos.setVisibility(View.VISIBLE);
-        View progressVideo = delegate.getFragment().getView() != null
-            ? delegate.getFragment().getView().findViewById(R.id.progress_video) : null;
-        if (progressVideo != null) progressVideo.setVisibility(View.GONE);
 
         // Hide mute button for ALL photo reels (music or no music) — top-left
         // mute toggle isn't needed here, keeps the top row clean for photo mode.

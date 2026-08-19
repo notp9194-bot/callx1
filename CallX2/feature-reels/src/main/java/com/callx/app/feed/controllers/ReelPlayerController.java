@@ -16,7 +16,6 @@ import android.view.ViewOutlineProvider;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
-import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -80,7 +79,6 @@ public class ReelPlayerController {
     private PlayerView  playerView;
     private ImageView   ivThumb;
     private ImageView   ivPlayPauseIndicator;
-    private SeekBar      progressVideo;
     private ProgressBar progressBuffering;
     private ImageButton btnMute;
     private TextView    btnSpeed;
@@ -110,20 +108,6 @@ public class ReelPlayerController {
      *  nav/top bar visibility bridge when this is true — see that listener
      *  for the full explanation of the bug this guards against. */
     private boolean    isUserPaused = false;
-    /** True while the user has a finger down on the bottom seek bar,
-     *  actively dragging. Guards the periodic progressRunnable from
-     *  fighting the drag by overwriting the SeekBar's position out from
-     *  under the user's thumb every ~300ms, and gates whether onProgressChanged
-     *  should treat a change as a real scrub vs the runnable's own
-     *  programmatic setProgress() call (fromUser is already false for that
-     *  case, but this is the source of truth for pause/resume timing too). */
-    private boolean    isScrubbing = false;
-    /** Captured play/pause intent (playWhenReady) at the moment scrubbing
-     *  started, so onStopTrackingTouch() can restore it — Instagram pauses
-     *  visually while you drag, then resumes only if it was actually
-     *  playing before you grabbed the bar (a reel you'd deliberately
-     *  paused stays paused after you let go of a scrub). */
-    private boolean    wasPlayingBeforeScrub = false;
     private int        speedIndex = 1;
     /** True after Media3 has delivered an actual decoded frame to the surface. */
     private boolean    firstFrameRendered = false;
@@ -220,7 +204,6 @@ public class ReelPlayerController {
         playerView           = root.findViewById(R.id.player_view);
         ivThumb              = root.findViewById(R.id.iv_thumb);
         ivPlayPauseIndicator = root.findViewById(R.id.iv_play_pause_indicator);
-        progressVideo        = root.findViewById(R.id.progress_video);
         progressBuffering    = root.findViewById(R.id.progress_buffering);
         btnMute              = root.findViewById(R.id.btn_mute);
         // btn_speed view was removed from fragment_reel_player.xml (Speed action
@@ -290,8 +273,6 @@ public class ReelPlayerController {
         // delegate.isDocked() so the old "don't toggle while docked" behavior
         // (see isDocked() javadoc below) is preserved in one place.
         playerView.setClickable(false);
-
-        setupSeekBar();
     }
 
     /**
@@ -1791,70 +1772,6 @@ public class ReelPlayerController {
             }).start();
     }
 
-    // ── Seek bar (Instagram-style drag-to-scrub) ────────────────────────────────
-
-    /**
-     * Wires the bottom progress bar for live drag-to-seek, Instagram-style:
-     *  - Thumb is invisible at rest, fades in only while actively dragging.
-     *  - Dragging live-seeks the player (not just a preview — matches
-     *    Instagram, which scrubs the actual frame as you drag).
-     *  - Playback visually pauses for the duration of the drag and resumes
-     *    on release, but ONLY if it was actually playing when the drag
-     *    started — scrubbing a reel you'd deliberately paused leaves it
-     *    paused, it doesn't sneakily resume playback.
-     *  - isUserPaused is deliberately left alone here — a scrub is not a
-     *    "user paused the reel" action, it shouldn't pop the bottom nav /
-     *    top bar back into view (see onIsPlayingChanged's isUserPaused
-     *    gate) the way an actual tap-to-pause does.
-     */
-    private void setupSeekBar() {
-        if (progressVideo == null) return;
-
-        // Thumb starts invisible — this is a scrub handle, not a
-        // permanently-visible playhead. Faded in only while dragging.
-        if (progressVideo.getThumb() != null) progressVideo.getThumb().setAlpha(0);
-
-        progressVideo.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onStartTrackingTouch(SeekBar seekBar) {
-                if (player == null) return;
-                isScrubbing = true;
-                wasPlayingBeforeScrub = player.getPlayWhenReady();
-                player.pause();
-                stopProgressTracking(); // the poll runnable is what we're guarding against above; stop it outright during a drag too, restarted on release
-                if (seekBar.getThumb() != null) {
-                    seekBar.getThumb().mutate().setAlpha(255);
-                    seekBar.invalidate();
-                }
-            }
-
-            @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                // fromUser is false for the runnable's own programmatic
-                // setProgress() calls (guarded out above anyway) — only
-                // react to actual finger-driven changes.
-                if (!fromUser || player == null) return;
-                long dur = player.getDuration();
-                if (dur <= 0) return;
-                long target = (long) progress * dur / 1000L;
-                player.seekTo(target);
-            }
-
-            @Override
-            public void onStopTrackingTouch(SeekBar seekBar) {
-                isScrubbing = false;
-                if (seekBar.getThumb() != null) {
-                    seekBar.getThumb().mutate().setAlpha(0);
-                    seekBar.invalidate();
-                }
-                if (player != null && wasPlayingBeforeScrub) {
-                    player.play();
-                }
-                startProgressTracking();
-            }
-        });
-    }
-
     // ── Progress tracking ─────────────────────────────────────────────────────
 
     public void startProgressTracking() {
@@ -1867,28 +1784,12 @@ public class ReelPlayerController {
 
                 // PERF (v9): true while ReelChatDockedPlayer has stolen this
                 // reel's video surface (see its ROOT FIX — it nulls
-                // playerView's player before the mini view claims it). The
-                // docked mini layout has no SeekBar at all, so touching
-                // progressVideo here would just be an invalidate/traversal
-                // on a view that's invisible (or on an entirely different,
-                // currently backgrounded window) — silently stealing frame
-                // budget from whatever the user is actually scrolling
-                // (Reels feed or a chat's message list) right now.
+                // playerView's player before the mini view claims it).
                 boolean surfaceIsDocked = playerView == null || playerView.getPlayer() != player;
 
                 long dur = player.getDuration();
                 if (dur > 0) {
                     long pos = player.getCurrentPosition();
-
-                    // Update progress bar (0–1000 granularity) — visible-surface only.
-                    // Skip entirely while the user is actively dragging the bar —
-                    // otherwise this runnable's own setProgress() call fights the
-                    // drag, snapping the thumb back to the real playback position
-                    // every ~300ms out from under the user's finger.
-                    if (!surfaceIsDocked && !isScrubbing) {
-                        int barProgress = (int)(pos * 1000 / dur);
-                        if (progressVideo != null) progressVideo.setProgress(barProgress);
-                    }
 
                     // Firebase watch-progress milestones (every 10%) — kept
                     // regardless of docked state, this is analytics, not UI.

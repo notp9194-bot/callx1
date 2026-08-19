@@ -1146,39 +1146,7 @@
         android:layout_height="match_parent"
         android:visibility="gone"/>
 
-    <!-- Video progress bar — pinned to the very bottom of the screen (0dp
-         margin) and moved to be the LAST child in this FrameLayout, so it
-         always draws on top of everything else (bottom_info's username/
-         follow row, right_actions' button rail, the reaction overlay, etc.)
-         instead of getting drawn UNDER them and covered up — that was the
-         actual bug: for reels with a short/empty caption, bottom_info's
-         content collapsed down to just the username row, which (like
-         right_actions) had ~0 bottom padding reserved, so it rendered
-         flush with the screen edge and this SeekBar (also flush, and
-         declared earlier in the file — so painted first / underneath)
-         ended up hidden behind it. Fixed on both ends: bottom_info and
-         right_actions above now reserve 24dp of bottom padding so their
-         content never reaches the very edge, AND this bar is last in
-         paint order as a second guarantee.
-         Instagram-style drag-to-seek: a SeekBar instead of a plain
-         ProgressBar. The 28dp view height is just the touch/drag target;
-         progress_reel_seekbar.xml paints the actual ~5dp line flush with
-         the very bottom edge of that target, in solid white so it reads
-         clearly against any video content. Only the thumb starts invisible
-         (alpha 0, set in code) and fades in while actively scrubbing — see
-         ReelPlayerController's seek bar wiring. -->
-    <SeekBar
-        android:id="@+id/progress_video"
-        android:layout_width="match_parent"
-        android:layout_height="28dp"
-        android:layout_gravity="bottom"
-        android:max="1000"
-        android:progress="0"
-        android:paddingStart="0dp"
-        android:paddingEnd="0dp"
-        android:splitTrack="false"
-        android:progressDrawable="@drawable/progress_reel_seekbar"
-        android:thumb="@drawable/thumb_reel_seek"
-        android:layout_marginBottom="0dp"/>
+    <!-- Video progress bar removed by request — no bottom seek bar on the
+         reel player anymore. -->
 
 </FrameLayout>
