@@ -49,14 +49,28 @@
     </LinearLayout>
 
     <!-- Video Preview (9:16 aspect) -->
-    <!-- ✅ FIX: rounded corners on the preview card (matches bg_trim_photo_rounded
-         card language used elsewhere in the editing flow) — margin added so the
-         rounding is actually visible against the black screen background, and
-         clipToOutline crops the PlayerView content to the rounded shape. -->
+    <!-- ✅ FIX: rounded corners now hug the ACTUAL video rect instead of the whole
+         placeholder box. Previously the outer FrameLayout always filled the full
+         weighted area, so a video whose aspect ratio didn't match that area (e.g.
+         a non-9:16 clip) showed rounded corners on empty black letterbox space
+         while the video itself stayed square inside. Fix: an outer, unrounded
+         FrameLayout now just centers the content; the rounded/clipped inner
+         FrameLayout (video_preview_container) is resized in Java at runtime —
+         once the real video width/height is known from the player — to exactly
+         match the video's own aspect ratio, so the rounded corners sit directly
+         on the video's edges in whatever ratio the video actually is. -->
     <FrameLayout
+        android:id="@+id/video_preview_outer"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
+        android:gravity="center">
+
+    <FrameLayout
+        android:id="@+id/video_preview_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center"
         android:layout_margin="10dp"
         android:background="@drawable/bg_reel_preview_rounded"
         android:clipToOutline="true">
@@ -118,6 +132,7 @@
             android:paddingBottom="6dp"
             android:background="#88000000"
             android:visibility="gone"/>
+    </FrameLayout>
     </FrameLayout>
 
 

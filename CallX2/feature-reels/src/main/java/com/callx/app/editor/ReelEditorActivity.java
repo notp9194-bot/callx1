@@ -112,6 +112,11 @@ public class ReelEditorActivity extends AppCompatActivity {
 
     // ── XML views ─────────────────────────────────────────────────────────
     private PlayerView    playerView;
+    // ✅ FIX: rounded-corner box now sized to the real video aspect ratio.
+    // videoPreviewOuter just centers content in the available weighted space;
+    // videoPreviewContainer is the rounded/clipped box, resized in Java once
+    // the video's actual width/height is known (see onVideoSizeChanged below).
+    private View videoPreviewOuter, videoPreviewContainer;
     private ImageButton   btnPlayPause, btnBack;
     private com.callx.app.views.VideoTrimFilmstripView trimFilmstripView;
     private TextView      tvTrimStart, tvTrimEnd, tvDuration;
@@ -380,6 +385,8 @@ public class ReelEditorActivity extends AppCompatActivity {
 
     private void bindViews() {
         playerView         = findViewById(R.id.editor_player_view);
+        videoPreviewOuter     = findViewById(R.id.video_preview_outer);
+        videoPreviewContainer = findViewById(R.id.video_preview_container);
         btnPlayPause       = findViewById(R.id.btn_editor_play_pause);
         btnBack            = findViewById(R.id.btn_editor_back);
         trimFilmstripView  = findViewById(R.id.trim_filmstrip_view);
@@ -1130,9 +1137,67 @@ public class ReelEditorActivity extends AppCompatActivity {
                 }
             }
             @Override public void onIsPlayingChanged(boolean p) { updatePlayPauseIcon(); }
+
+            // ✅ FIX: fires as soon as the real video track dimensions are known
+            // (works for any source aspect ratio, not just 9:16). Resizes the
+            // rounded container to exactly match the video's own aspect ratio
+            // instead of leaving it filling the whole placeholder box.
+            @Override public void onVideoSizeChanged(androidx.media3.common.VideoSize videoSize) {
+                if (videoSize.width <= 0 || videoSize.height <= 0) return;
+                float pxRatio = videoSize.pixelWidthHeightRatio > 0
+                        ? videoSize.pixelWidthHeightRatio : 1f;
+                applyVideoAspectToPreviewContainer(
+                        videoSize.width * pxRatio, videoSize.height);
+            }
         });
 
         startPlayheadUpdater();
+    }
+
+    /**
+     * Resizes {@link #videoPreviewContainer} (the rounded/clipped box) so its
+     * bounds exactly match the video's aspect ratio — width x height in the
+     * same units, e.g. pixels reported by ExoPlayer's VideoSize — while fitting
+     * within the space available inside {@link #videoPreviewOuter}. This makes
+     * the rounded corners sit directly on the video's own edges, in whatever
+     * ratio the video actually is, instead of rounding a fixed placeholder box
+     * that may be larger than the video (leaving square corners visible where
+     * the video used to letterbox inside it).
+     */
+    private void applyVideoAspectToPreviewContainer(float videoW, float videoH) {
+        if (videoPreviewOuter == null || videoPreviewContainer == null) return;
+        if (videoW <= 0 || videoH <= 0) return;
+        final float videoAspect = videoW / videoH; // width / height
+
+        videoPreviewOuter.post(() -> {
+            int outerW = videoPreviewOuter.getWidth();
+            int outerH = videoPreviewOuter.getHeight();
+            if (outerW <= 0 || outerH <= 0) return;
+
+            int marginPx = (int) (10 * getResources().getDisplayMetrics().density);
+            int availW = Math.max(1, outerW - marginPx * 2);
+            int availH = Math.max(1, outerH - marginPx * 2);
+            float availAspect = (float) availW / availH;
+
+            int targetW, targetH;
+            if (videoAspect > availAspect) {
+                // Video is relatively wider than the available box → width-constrained.
+                targetW = availW;
+                targetH = Math.round(availW / videoAspect);
+            } else {
+                // Video is relatively taller → height-constrained.
+                targetH = availH;
+                targetW = Math.round(availH * videoAspect);
+            }
+
+            FrameLayout.LayoutParams lp =
+                    (FrameLayout.LayoutParams) videoPreviewContainer.getLayoutParams();
+            if (lp.width == targetW && lp.height == targetH) return; // no-op, avoid relayout churn
+            lp.width = targetW;
+            lp.height = targetH;
+            lp.gravity = Gravity.CENTER;
+            videoPreviewContainer.setLayoutParams(lp);
+        });
     }
 
     /**
