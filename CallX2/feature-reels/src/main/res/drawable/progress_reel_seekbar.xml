@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Instagram-style thin seek track for the Reels bottom progress bar.
+  The SeekBar view itself is taller (28dp, see fragment_reel_player.xml)
+  purely to give the thumb a generous touch/drag target — this drawable
+  insets top/bottom so only a slim ~3dp line is actually painted.
+
+  UI FIX: the line is now (a) pinned flush to the very bottom edge of the
+  28dp touch target instead of vertically centered in it, and (b) painted
+  in solid white so it reads clearly against any video content — the
+  watched portion (@android:id/progress) is now full-opacity white
+  instead of the old pink (#FF416C) accent, matching the "just show a
+  clean white line" request; the unwatched track stays white too but
+  dimmer (40% alpha) so the watched portion still stands out against it.
+  Only the *thumb* fades in/out on drag (see ReelPlayerController); the
+  track line itself is meant to always be visible so users can find and
+  grab it without first having to guess where it is.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@android:id/background"
+        android:top="23dp"
+        android:bottom="0dp">
+        <shape android:shape="rectangle">
+            <solid android:color="#66FFFFFF" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+
+    <item
+        android:id="@android:id/progress"
+        android:top="23dp"
+        android:bottom="0dp">
+        <clip>
+            <shape android:shape="rectangle">
+                <solid android:color="#FFFFFFFF" />
+                <corners android:radius="2dp" />
+            </shape>
+        </clip>
+    </item>
+
+</layer-list>
