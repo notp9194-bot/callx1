@@ -59,18 +59,20 @@ public class CollabAvatarStackView extends View {
     public CollabAvatarStackView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
         float density = context.getResources().getDisplayMetrics().density;
-        avatarSizePx = Math.round(24 * density);
+        avatarSizePx = Math.round(32 * density);
         // ~58% overlap between consecutive avatars — matches the tighter
         // overlap Instagram uses (our old plain stack used 50%/12dp).
-        overlapStepPx = Math.round(14 * density);
-        verticalStepPx = Math.round(3 * density);
-        borderWidthPx = Math.round(1.5f * density);
+        overlapStepPx = Math.round(19 * density);
+        verticalStepPx = Math.round(4 * density);
+        // Border ring removed (was a black outline) — cutout notch now sizes
+        // exactly to the avatar circle itself so there's no black ring.
+        borderWidthPx = 0;
 
         clearPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
 
         borderPaint.setStyle(Paint.Style.STROKE);
         borderPaint.setStrokeWidth(borderWidthPx);
-        borderPaint.setColor(Color.BLACK);
+        borderPaint.setColor(Color.TRANSPARENT);
 
         placeholderPaint.setStyle(Paint.Style.FILL);
         placeholderPaint.setColor(0xFF3A3A3A);
@@ -152,10 +154,6 @@ public class CollabAvatarStackView extends View {
                 compositeCanvas.drawCircle(cx, cy, radius, placeholderPaint);
             }
             compositeCanvas.restore();
-
-            // Border ring fills the gap between the avatar's edge and the
-            // notch edge, so it reads as one clean cutout rather than a gap.
-            compositeCanvas.drawCircle(cx, cy, radius + borderWidthPx / 2f, borderPaint);
         }
 
         canvas.drawBitmap(compositeBitmap, 0, 0, null);

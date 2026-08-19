@@ -260,10 +260,10 @@ public class ReelUiController {
                             // (asBitmap, no circleCrop) since the notch-cutout
                             // view does its own circular clipping/masking.
                             android.content.Context stackCtx = delegate.requireContext();
-                            int stackSizePx = AvatarUrlBuilder.dpToPx(stackCtx, 24) * 2;
+                            int stackSizePx = AvatarUrlBuilder.dpToPx(stackCtx, 32) * 2;
                             Glide.with(stackCtx)
                                 .asBitmap()
-                                .load(AvatarUrlBuilder.build(stackCtx, url, 24))
+                                .load(AvatarUrlBuilder.build(stackCtx, url, 32))
                                 .apply(new RequestOptions()
                                     .override(stackSizePx, stackSizePx)
                                     .format(DecodeFormat.PREFER_ARGB_8888) // needs alpha for the circular clip
