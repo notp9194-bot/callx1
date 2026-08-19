@@ -137,13 +137,23 @@
             android:clickable="false"/>
     </FrameLayout>
 
+    <!-- ── Card panel (reused from ReelAudioMixerActivity / ReelEditorActivity's
+         bg_trim_card — rounded-top-corner bottom panel, shared via :core) —
+         wraps the apply-to-all row + step indicator + tab bar + tool panels +
+         step-nav bar so the whole editing-tools area below the preview reads
+         as one card, same visual language as Audio Mixer / Reel Editor. ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/bg_trim_card">
+
     <!-- ── Apply to all checkbox ──────────────────────────────────── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="36dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:background="#1A1A1A"
         android:paddingStart="16dp">
 
         <CheckBox
@@ -168,7 +178,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="#1A1A1A"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
         android:paddingTop="8dp"
@@ -347,7 +356,6 @@
         android:layout_width="match_parent"
         android:layout_height="48dp"
         android:orientation="horizontal"
-        android:background="#1A1A1A"
         android:gravity="center_vertical">
 
         <TextView android:id="@+id/tab_filters"
@@ -369,7 +377,6 @@
         android:id="@+id/panel_filters"
         android:layout_width="match_parent"
         android:layout_height="60dp"
-        android:background="#222222"
         android:scrollbars="none"
         android:paddingStart="8dp"
         android:paddingEnd="8dp"
@@ -388,7 +395,6 @@
         android:id="@+id/panel_effects"
         android:layout_width="match_parent"
         android:layout_height="60dp"
-        android:background="#222222"
         android:scrollbars="none"
         android:visibility="gone"
         android:paddingStart="8dp"
@@ -408,7 +414,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="#222222"
         android:padding="12dp"
         android:visibility="gone">
 
@@ -485,7 +490,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="#222222"
         android:visibility="gone">
 
         <!-- Opens StatusStickerPickerSheet (Music · Poll · Quiz · Countdown · Mention · Hashtag · Link) -->
@@ -524,7 +528,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="#222222"
         android:padding="12dp"
         android:visibility="gone">
 
@@ -607,7 +610,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:background="#1A1A1A"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
         android:paddingTop="8dp"
@@ -632,6 +634,8 @@
             android:text="Next"
             android:textColor="#FFFFFF"
             android:backgroundTint="#A855F7"/>
+    </LinearLayout>
+
     </LinearLayout>
 
 </LinearLayout>

@@ -101,6 +101,17 @@
     </FrameLayout>
 
 
+    <!-- ── Card panel (reused from ReelAudioMixerActivity's bg_trim_card —
+         rounded-top-corner bottom panel, now shared via :core) — wraps the
+         step indicator + editing-tools ViewFlipper + step-nav bar so the
+         whole editing-tools area below the preview reads as one card,
+         same visual language as the Audio Mixer screen. ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/bg_trim_card">
+
     <!-- ── Editing-tools step indicator ──────────────────────────────────
          Reused from the Add Status / Reel Upload screens' dot-stepper UI
          (same bg_trim_gradient_button / bg_trim_circle_btn drawables from
@@ -112,7 +123,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="#1A1A1A"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
         android:paddingTop="10dp"
@@ -290,8 +300,7 @@
     <ViewFlipper
         android:id="@+id/editor_step_flipper"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="#1A1A1A">
+        android:layout_height="wrap_content">
 
         <!-- ═══════ STEP 1 · TRIM ═══════ -->
         <LinearLayout
@@ -556,7 +565,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:background="#1A1A1A"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
         android:paddingTop="4dp"
@@ -581,6 +589,8 @@
             android:text="Next"
             android:textColor="#FFFFFF"
             android:backgroundTint="@color/brand_primary"/>
+    </LinearLayout>
+
     </LinearLayout>
 
 </LinearLayout>
