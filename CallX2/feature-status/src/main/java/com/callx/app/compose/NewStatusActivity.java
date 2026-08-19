@@ -144,6 +144,10 @@ public class NewStatusActivity extends AppCompatActivity {
 
     /** Reel-style three-step status composer state. */
     private int wizardStep = 0;
+    /** Short step name shown in tv_step_name, next to the "Step X of Y" pill
+     *  (all-caps via android:textAllCaps, so plain-case names are given here)
+     *  — same pattern as Reel Editor / Reel Upload / Reel Photo Editor. */
+    private static final String[] STEP_NAMES = {"Create", "Edit", "Publish"};
     private android.animation.ObjectAnimator activeStepRingSpin;
 
     @Override
@@ -406,6 +410,9 @@ public class NewStatusActivity extends AppCompatActivity {
         String[] next = {"Continue", "Review", "Post now"};
         binding.tvStepEyebrow.setText(getString(R.string.editor_step_pill_format,
                 wizardStep + 1, 3));
+        if (binding.tvStepName != null && wizardStep < STEP_NAMES.length) {
+            binding.tvStepName.setText(STEP_NAMES[wizardStep]);
+        }
         binding.btnStepNext.setText(next[wizardStep]);
         binding.btnStepBack.setText(wizardStep == 0 ? "Cancel" : "Back");
 

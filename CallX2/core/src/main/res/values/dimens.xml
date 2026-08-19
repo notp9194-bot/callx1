@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shared sizing for the "Step X of Y" gradient pill (@drawable/bg_step_indicator_pill).
+     Used by every step-wizard screen (Reel Editor, Reel Photo Editor, Reel Upload,
+     Add Status) so the pill's size stays in sync everywhere — change it here once
+     and all screens pick it up. -->
+<resources>
+    <dimen name="step_pill_padding_h">14dp</dimen>
+    <dimen name="step_pill_padding_v">6dp</dimen>
+    <dimen name="step_pill_text_size">11sp</dimen>
+
+    <!-- Step-name label shown beside the pill (no background, bigger than the pill text). -->
+    <dimen name="step_name_text_size">15sp</dimen>
+</resources>

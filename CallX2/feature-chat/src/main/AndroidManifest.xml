@@ -75,12 +75,8 @@
             android:screenOrientation="portrait"
             android:label="Trim Video"/>
 
-        <!-- Dedicated image crop screen: drag-handle crop + aspect-ratio presets -->
-        <activity android:name="com.callx.app.conversation.controllers.ChatImageCropActivity"
-            android:exported="false"
-            android:theme="@style/Theme.AppCompat.NoActionBar"
-            android:screenOrientation="portrait"
-            android:label="Crop Image"/>
+        <!-- Image crop screen now lives in :core as MediaCropActivity so it can
+             be reused by other feature modules — see core/AndroidManifest.xml -->
 
         <!-- Full sticker/emoji/text/GIF picker: tabbed, searchable, font picker -->
         <activity android:name="com.callx.app.conversation.controllers.ChatStickerPickerActivity"

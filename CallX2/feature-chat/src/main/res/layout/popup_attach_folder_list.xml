@@ -17,7 +17,7 @@
     BUG FIX: cardBackgroundColor was "?attr/colorSurface" — resolving that
     attr requires the inflating Context's theme to actually define it
     (only Theme.CallX does; several activities in this module, e.g.
-    MediaEditActivity/ChatVideoTrimActivity/ChatImageCropActivity/
+    MediaEditActivity/ChatVideoTrimActivity/MediaCropActivity(core)/
     ChatStickerPickerActivity, are manifest-themed as plain
     Theme.AppCompat.NoActionBar, which has no colorSurface at all). If this
     popup is ever inflated against one of those Contexts, MaterialCardView's

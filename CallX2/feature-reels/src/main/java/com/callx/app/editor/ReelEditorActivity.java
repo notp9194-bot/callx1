@@ -129,6 +129,7 @@ public class ReelEditorActivity extends AppCompatActivity {
     //    on to the Upload screen after all editing is done. ────────────────
     private android.widget.ViewFlipper editorStepFlipper;
     private TextView                   tvEditorStepTitle;
+    private TextView                   tvEditorStepName;
     // Dot-stepper (reused from Add Status / Reel Upload's stepper UI — see
     // updateEditorStepDots() below) — replaces the old thin horizontal
     // pb_editor_step ProgressBar.
@@ -144,6 +145,15 @@ public class ReelEditorActivity extends AppCompatActivity {
             "Step 3 of 5 · Tools · Look",
             "Step 4 of 5 · Tools · Motion & Sound",
             "Step 5 of 5 · Tools · Finishing"
+    };
+    /** Short step name shown in tv_editor_step_name, next to the "Step X of Y" pill
+     *  (all-caps via android:textAllCaps, so plain-case names are given here). */
+    private static final String[] EDITOR_STEP_NAMES = {
+            "Trim",
+            "Text Overlay",
+            "Look",
+            "Motion & Sound",
+            "Finishing"
     };
 
     // ── Dynamic overlay views (added programmatically to the video FrameLayout) ──
@@ -1170,6 +1180,7 @@ public class ReelEditorActivity extends AppCompatActivity {
     private void setupEditorStepWizard() {
         editorStepFlipper = findViewById(R.id.editor_step_flipper);
         tvEditorStepTitle = findViewById(R.id.tv_editor_step_title);
+        tvEditorStepName = findViewById(R.id.tv_editor_step_name);
         editorStepDots  = new TextView[] {
                 findViewById(R.id.step_dot_1), findViewById(R.id.step_dot_2),
                 findViewById(R.id.step_dot_3), findViewById(R.id.step_dot_4),
@@ -1209,13 +1220,17 @@ public class ReelEditorActivity extends AppCompatActivity {
     }
 
     private void updateEditorStepUi() {
-        // Pill now shows only "Step X of Y" — step name (Trim / Text Overlay
-        // / etc.) intentionally dropped from EDITOR_STEP_TITLES[...] here to
-        // keep the chip short; the array itself is left untouched since its
-        // .length is still used for step-count bounds checks above.
+        // Pill (tv_editor_step_title) shows just "Step X of Y"; the step name
+        // (Trim / Text Overlay / etc.) is shown separately in tv_editor_step_name,
+        // uppercase, next to the pill — EDITOR_STEP_TITLES[...] itself is left
+        // untouched since its .length is still used for step-count bounds checks
+        // above; EDITOR_STEP_NAMES holds the plain-case names for the label.
         if (tvEditorStepTitle != null) {
             tvEditorStepTitle.setText(getString(R.string.editor_step_pill_format,
                     editorCurrentStep + 1, EDITOR_STEP_TITLES.length));
+        }
+        if (tvEditorStepName != null && editorCurrentStep < EDITOR_STEP_NAMES.length) {
+            tvEditorStepName.setText(EDITOR_STEP_NAMES[editorCurrentStep]);
         }
         updateEditorStepDots();
         if (btnEditorStepBack != null) {

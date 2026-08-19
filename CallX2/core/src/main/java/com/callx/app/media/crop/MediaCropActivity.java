@@ -1,4 +1,4 @@
-package com.callx.app.conversation.controllers;
+package com.callx.app.media.crop;
 
 import android.app.Activity;
 import android.content.Intent;
@@ -18,7 +18,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
 
-import com.callx.app.chat.R;
+import com.callx.app.core.R;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -27,7 +27,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * ChatImageCropActivity — WhatsApp-grade interactive image crop screen.
+ * MediaCropActivity — WhatsApp-grade interactive image crop screen.
+ *
+ * Lives in :core so ANY feature module (chat, status, reels, calls avatar,
+ * etc.) can launch it via className-based Intent without creating a
+ * circular module dependency — the same pattern used for ReelCameraActivity.
  *
  * UX model (mirrors WhatsApp exactly):
  *  • Image is panned/pinch-zoomed with one or two fingers.
@@ -39,11 +43,20 @@ import java.util.concurrent.Executors;
  *  • Rule-of-thirds grid appears while a crop handle is being dragged.
  *
  * Returns a full-resolution cropped JPEG URI via FileProvider on RESULT_OK.
+ *
+ * Usage from any feature module:
+ * <pre>
+ *   Intent i = new Intent();
+ *   i.setClassName(getPackageName(), "com.callx.app.media.crop.MediaCropActivity");
+ *   i.putExtra(MediaCropActivity.EXTRA_IMAGE_URI, sourceUri.toString());
+ *   launcher.launch(i);
+ *   // onResult: data.getStringExtra(MediaCropActivity.RESULT_CROPPED_URI)
+ * </pre>
  */
-public class ChatImageCropActivity extends AppCompatActivity {
+public class MediaCropActivity extends AppCompatActivity {
 
-    public static final String EXTRA_IMAGE_URI    = "chat_crop_uri";
-    public static final String RESULT_CROPPED_URI = "chat_crop_result_uri";
+    public static final String EXTRA_IMAGE_URI    = "media_crop_uri";
+    public static final String RESULT_CROPPED_URI = "media_crop_result_uri";
 
     // ── Aspect ratio presets ──────────────────────────────────────────────
     private static final float[] RATIOS = { 0f, 1f, 4f/3f, 3f/4f, 16f/9f, 9f/16f };
@@ -68,7 +81,7 @@ public class ChatImageCropActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_chat_crop);
+        setContentView(R.layout.activity_media_crop);
 
         String uriStr = getIntent().getStringExtra(EXTRA_IMAGE_URI);
         if (uriStr == null) { finish(); return; }
@@ -83,12 +96,12 @@ public class ChatImageCropActivity extends AppCompatActivity {
     // ── View binding ──────────────────────────────────────────────────────
 
     private void bindViews() {
-        cropView     = findViewById(R.id.chat_crop_view);
-        btnDone      = findViewById(R.id.chat_crop_btn_done);
-        btnCancel    = findViewById(R.id.chat_crop_btn_cancel);
-        aspectRow    = findViewById(R.id.chat_crop_aspect_row);
-        btnRotate    = findViewById(R.id.chat_crop_btn_rotate);
-        tvAspectHint = findViewById(R.id.chat_crop_aspect_label);
+        cropView     = findViewById(R.id.media_crop_view);
+        btnDone      = findViewById(R.id.media_crop_btn_done);
+        btnCancel    = findViewById(R.id.media_crop_btn_cancel);
+        aspectRow    = findViewById(R.id.media_crop_aspect_row);
+        btnRotate    = findViewById(R.id.media_crop_btn_rotate);
+        tvAspectHint = findViewById(R.id.media_crop_aspect_label);
     }
 
     // ── Buttons ───────────────────────────────────────────────────────────
@@ -206,7 +219,7 @@ public class ChatImageCropActivity extends AppCompatActivity {
                 Bitmap cropped = cropView.getCroppedBitmap();
                 if (cropped == null) throw new Exception("Crop region invalid");
 
-                File dir = new File(getCacheDir(), "chat_crop");
+                File dir = new File(getCacheDir(), "media_crop");
                 if (!dir.exists()) dir.mkdirs();
                 File out = new File(dir, "crop_" + UUID.randomUUID() + ".jpg");
                 try (FileOutputStream fos = new FileOutputStream(out)) {

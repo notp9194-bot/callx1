@@ -148,31 +148,56 @@
         android:paddingTop="10dp"
         android:paddingBottom="10dp">
 
-        <!-- ✅ NEW: "Step X of Y" strip upgraded from a plain label into the
-             shared premium gradient pill (@drawable/bg_step_indicator_pill,
-             now in :core so Reel Upload / Add Status wizards can reuse the
-             same chip). wrap_content + center so it reads as a status chip
-             rather than a full-width bar. -->
-        <TextView
-            android:id="@+id/tv_editor_step_title"
+        <!-- ✅ "Step X of Y" strip: shared premium gradient pill
+             (@drawable/bg_step_indicator_pill, in :core) + an uppercase step-name
+             label (tv_editor_step_name) shown after the pill, no background of its
+             own, sized bigger than the (now smaller) pill text so it reads as the
+             headline and the pill reads as a small status chip. Pill padding/text
+             size come from @dimen/step_pill_* in :core, so resizing the pill here
+             applies to Reel Upload / Add Status / Photo Editor too. -->
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
-            android:text="Step 1 of 5"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp"
-            android:textStyle="bold"
-            android:letterSpacing="0.02"
-            android:fontFamily="sans-serif-medium"
-            android:gravity="center"
-            android:background="@drawable/bg_step_indicator_pill"
-            android:paddingStart="18dp"
-            android:paddingEnd="18dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:layout_marginBottom="12dp"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:id="@+id/tv_editor_step_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Step 1 of 5"
+                android:textColor="#FFFFFF"
+                android:textSize="@dimen/step_pill_text_size"
+                android:textStyle="bold"
+                android:letterSpacing="0.02"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:background="@drawable/bg_step_indicator_pill"
+                android:paddingStart="@dimen/step_pill_padding_h"
+                android:paddingEnd="@dimen/step_pill_padding_h"
+                android:paddingTop="@dimen/step_pill_padding_v"
+                android:paddingBottom="@dimen/step_pill_padding_v"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+
+            <TextView
+                android:id="@+id/tv_editor_step_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Trim"
+                android:textAllCaps="true"
+                android:textColor="#FFFFFF"
+                android:textSize="@dimen/step_name_text_size"
+                android:textStyle="bold"
+                android:letterSpacing="0.02"
+                android:fontFamily="sans-serif-medium"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+
+        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/editor_stepper"

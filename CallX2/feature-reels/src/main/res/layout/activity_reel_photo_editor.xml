@@ -46,6 +46,19 @@
             android:fontFamily="sans-serif-medium"/>
 
         <TextView
+            android:id="@+id/btn_editor_crop"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:text="⛶"
+            android:textSize="18sp"
+            android:textColor="#AAFFFFFF"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true"
+            android:layout_marginEnd="2dp"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+
+        <TextView
             android:id="@+id/btn_editor_rotate"
             android:layout_width="44dp"
             android:layout_height="44dp"
@@ -183,29 +196,54 @@
         android:paddingTop="8dp"
         android:paddingBottom="8dp">
 
-        <!-- ✅ Reused from Reel Editor / Reel Upload's premium gradient step
-             pill (@drawable/bg_step_indicator_pill, in :core) — same
-             "Step X of Y" short chip, no step-name suffix. -->
-        <TextView
-            android:id="@+id/tv_photo_editor_step_title"
+        <!-- ✅ "Step X of Y" strip: shared premium gradient pill
+             (@drawable/bg_step_indicator_pill, in :core) + an uppercase step-name
+             label (tv_photo_editor_step_name) shown after the pill, no background
+             of its own, sized bigger than the pill text — same pattern as Reel
+             Editor. Pill padding/text size come from @dimen/step_pill_* in :core. -->
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
-            android:text="Step 1 of 5"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp"
-            android:textStyle="bold"
-            android:letterSpacing="0.02"
-            android:fontFamily="sans-serif-medium"
-            android:gravity="center"
-            android:background="@drawable/bg_step_indicator_pill"
-            android:paddingStart="18dp"
-            android:paddingEnd="18dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:layout_marginBottom="12dp"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:id="@+id/tv_photo_editor_step_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Step 1 of 5"
+                android:textColor="#FFFFFF"
+                android:textSize="@dimen/step_pill_text_size"
+                android:textStyle="bold"
+                android:letterSpacing="0.02"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:background="@drawable/bg_step_indicator_pill"
+                android:paddingStart="@dimen/step_pill_padding_h"
+                android:paddingEnd="@dimen/step_pill_padding_h"
+                android:paddingTop="@dimen/step_pill_padding_v"
+                android:paddingBottom="@dimen/step_pill_padding_v"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+
+            <TextView
+                android:id="@+id/tv_photo_editor_step_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Filter"
+                android:textAllCaps="true"
+                android:textColor="#FFFFFF"
+                android:textSize="@dimen/step_name_text_size"
+                android:textStyle="bold"
+                android:letterSpacing="0.02"
+                android:fontFamily="sans-serif-medium"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+
+        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/photo_editor_stepper"

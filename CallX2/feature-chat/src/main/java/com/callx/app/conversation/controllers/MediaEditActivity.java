@@ -39,6 +39,8 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.FileProvider;
 
+import com.callx.app.media.crop.MediaCropActivity;
+
 import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
 import com.callx.app.media.VideoOverlayBaker;
@@ -59,7 +61,7 @@ import java.util.concurrent.Executors;
  * Images:
  *  ✅ Rotate (90° incremental)
  *  ✅ Flip/mirror — horizontal (tap) and vertical (long-press), independent of rotation
- *  ✅ Crop (dedicated {@link ChatImageCropActivity} with aspect-ratio presets + drag handles)
+ *  ✅ Crop (dedicated {@link MediaCropActivity} in :core, with aspect-ratio presets + drag handles)
  *  ✅ Filters — swipe-up carousel (None/Pop/B&W/Cool/Chrome/Film/Warm/Vivid/Fade)
  *  ✅ Sticker picker — full emoji/text/GIF/trending via {@link ChatStickerPickerActivity}
  *  ✅ Text overlay — full font/color/size/bold/italic/align via sticker picker text tab
@@ -268,7 +270,7 @@ public class MediaEditActivity extends AppCompatActivity {
         cropLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(), result -> {
             if (result.getResultCode() == RESULT_OK && result.getData() != null) {
-                String uriStr = result.getData().getStringExtra(ChatImageCropActivity.RESULT_CROPPED_URI);
+                String uriStr = result.getData().getStringExtra(MediaCropActivity.RESULT_CROPPED_URI);
                 if (uriStr != null) {
                     EditState st = current();
                     st.uri     = Uri.parse(uriStr);
@@ -451,15 +453,15 @@ public class MediaEditActivity extends AppCompatActivity {
             });
         }
 
-        // Crop — images only, launches ChatImageCropActivity
+        // Crop — images only, launches core's MediaCropActivity
         if (btnEditCrop != null) btnEditCrop.setOnClickListener(v -> {
             EditState st = current();
             if (st.isVideo) {
                 Toast.makeText(this, "Use Trim for videos", Toast.LENGTH_SHORT).show();
                 return;
             }
-            Intent i = new Intent(this, ChatImageCropActivity.class);
-            i.putExtra(ChatImageCropActivity.EXTRA_IMAGE_URI, st.effectiveUri().toString());
+            Intent i = new Intent(this, MediaCropActivity.class);
+            i.putExtra(MediaCropActivity.EXTRA_IMAGE_URI, st.effectiveUri().toString());
             cropLauncher.launch(i);
         });
 

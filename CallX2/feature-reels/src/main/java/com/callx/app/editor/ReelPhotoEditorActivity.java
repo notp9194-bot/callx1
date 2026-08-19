@@ -28,10 +28,14 @@ import android.view.ViewGroup;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.*;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
+
+import com.callx.app.media.crop.MediaCropActivity;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
@@ -87,7 +91,14 @@ import java.util.List;
  * Extras OUT (on RESULT_OK):
  *   EXTRA_FILTER, EXTRA_EFFECT, EXTRA_CAPTION, EXTRA_CAPTION_STYLE,
  *   EXTRA_STICKERS, EXTRA_KB_DIRECTION, EXTRA_DURATION_MS,
- *   EXTRA_ROTATION, EXTRA_APPLY_ALL
+ *   EXTRA_ROTATION, EXTRA_APPLY_ALL, EXTRA_PHOTO_URI (updated when cropped)
+ *
+ * Crop tool (✂️ / ⛶ button, top bar):
+ *   Reuses :core's shared MediaCropActivity (same one feature-chat uses) via
+ *   a simple className-based Intent — no feature-reels ↔ feature-chat coupling.
+ *   On crop RESULT_OK the working photoUri is replaced with the cropped file
+ *   and the preview reloads; the new uri is sent back in EXTRA_PHOTO_URI so
+ *   ReelUploadActivity can swap it into selectedPhotoUris.
  */
 public class ReelPhotoEditorActivity extends AppCompatActivity {
 
@@ -231,6 +242,7 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     //    in order, and tapping a tab directly still works and keeps the
     //    step indicator in sync. ────────────────────────────────────────
     private TextView            tvPhotoEditorStepTitle;
+    private TextView            tvPhotoEditorStepName;
     // Dot-stepper (reused from Add Status / Reel Upload / Reel Editor's
     // stepper UI — see updatePhotoEditorStepDots() below) — replaces the
     // old thin horizontal pb_photo_editor_step ProgressBar.
@@ -246,6 +258,15 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
             "Step 3 of 5 · Caption",
             "Step 4 of 5 · Sticker",
             "Step 5 of 5 · Adjust"
+    };
+    /** Short step name shown in tv_photo_editor_step_name, next to the "Step X of Y"
+     *  pill (all-caps via android:textAllCaps, so plain-case names are given here). */
+    private static final String[] PHOTO_EDITOR_STEP_NAMES = {
+            "Filter",
+            "Effect",
+            "Caption",
+            "Sticker",
+            "Adjust"
     };
     private View panelFilters, panelEffects, panelCaption, panelStickers, panelAdjust;
 
@@ -277,7 +298,8 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     private TextView tvDurationLabel;
 
     // Bottom bar
-    private TextView btnRotate, btnBack, btnDone;
+    private TextView btnRotate, btnCrop, btnBack, btnDone;
+    private ActivityResultLauncher<Intent> cropLauncher;
     private CheckBox cbApplyAll;
 
     // ── State ─────────────────────────────────────────────────────────────────
@@ -346,6 +368,7 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         presetSoundUrl    = nvl(getIntent().getStringExtra(EXTRA_PRESET_SOUND_URL),    "");
         presetSoundCover  = nvl(getIntent().getStringExtra(EXTRA_PRESET_SOUND_COVER),  "");
 
+        registerCropLauncher();
         bindViews();
         setupPhotoEditorStepWizard();
         loadPreviewImage();
@@ -368,6 +391,32 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
             }
         }
         updatePhotoLabel();
+    }
+
+    // ── Crop launcher ────────────────────────────────────────────────────────
+    // Reuses core's shared MediaCropActivity — same WhatsApp-grade crop screen
+    // feature-chat uses — via className Intent so :feature-reels never needs a
+    // compile dependency on :feature-chat.
+
+    private void registerCropLauncher() {
+        cropLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(), result -> {
+            if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                String uriStr = result.getData().getStringExtra(MediaCropActivity.RESULT_CROPPED_URI);
+                if (uriStr != null) {
+                    photoUri = uriStr;
+                    loadPreviewImage();
+                }
+            }
+        });
+    }
+
+    private void openCropScreen() {
+        if (photoUri == null || photoUri.isEmpty()) return;
+        Intent i = new Intent();
+        i.setClassName(getPackageName(), "com.callx.app.media.crop.MediaCropActivity");
+        i.putExtra(MediaCropActivity.EXTRA_IMAGE_URI, photoUri);
+        cropLauncher.launch(i);
     }
 
     // ── View binding ──────────────────────────────────────────────────────────
@@ -416,6 +465,7 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         tvDurationLabel  = findViewById(R.id.tv_duration_label);
 
         btnRotate = findViewById(R.id.btn_editor_rotate);
+        btnCrop   = findViewById(R.id.btn_editor_crop);
         btnBack   = findViewById(R.id.btn_editor_back);
         btnDone   = findViewById(R.id.btn_editor_done);
         cbApplyAll = findViewById(R.id.cb_apply_all);
@@ -1040,6 +1090,7 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
      */
     private void setupPhotoEditorStepWizard() {
         tvPhotoEditorStepTitle = findViewById(R.id.tv_photo_editor_step_title);
+        tvPhotoEditorStepName = findViewById(R.id.tv_photo_editor_step_name);
         photoEditorStepDots  = new TextView[] {
                 findViewById(R.id.step_dot_1), findViewById(R.id.step_dot_2),
                 findViewById(R.id.step_dot_3), findViewById(R.id.step_dot_4),
@@ -1080,12 +1131,18 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     }
 
     private void updatePhotoEditorStepUi() {
-        // Pill shows only "Step X of Y" (name suffix dropped, matching Reel
-        // Editor / Reel Upload's shared premium pill); PHOTO_EDITOR_STEP_TITLES[]
-        // left as-is since .length is still used for step-count bounds checks.
+        // Pill (tv_photo_editor_step_title) shows just "Step X of Y"; the step name
+        // (Filter / Effect / etc.) is shown separately in tv_photo_editor_step_name,
+        // uppercase, next to the pill — same pattern as Reel Editor.
+        // PHOTO_EDITOR_STEP_TITLES[] left as-is since .length is still used for
+        // step-count bounds checks; PHOTO_EDITOR_STEP_NAMES holds the plain-case
+        // names for the label.
         if (tvPhotoEditorStepTitle != null) {
             tvPhotoEditorStepTitle.setText(getString(R.string.editor_step_pill_format,
                     photoEditorCurrentStep + 1, PHOTO_EDITOR_STEP_TITLES.length));
+        }
+        if (tvPhotoEditorStepName != null && photoEditorCurrentStep < PHOTO_EDITOR_STEP_NAMES.length) {
+            tvPhotoEditorStepName.setText(PHOTO_EDITOR_STEP_NAMES[photoEditorCurrentStep]);
         }
         updatePhotoEditorStepDots();
         if (btnPhotoEditorStepBack != null) {
@@ -1200,6 +1257,8 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
             if (ivPreview != null) ivPreview.animate().rotation(rotation).setDuration(200).start();
         });
 
+        if (btnCrop != null) btnCrop.setOnClickListener(v -> openCropScreen());
+
         if (btnBack != null) btnBack.setOnClickListener(v -> {
             setResult(RESULT_CANCELED);
             finish();
@@ -1210,6 +1269,7 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
             buildCaptionStyleJson();
             applyAll = cbApplyAll != null && cbApplyAll.isChecked();
             Intent result = new Intent();
+            result.putExtra(EXTRA_PHOTO_URI,     photoUri);
             result.putExtra(EXTRA_FILTER,        selectedFilter);
             result.putExtra(EXTRA_EFFECT,        selectedEffect);
             result.putExtra(EXTRA_CAPTION,       captionText);

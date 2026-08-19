@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  WhatsApp-grade crop screen.
+  WhatsApp-grade crop screen — shared across all feature modules via :core.
 
   Layout stack (back → front):
    1. CropOverlayView — fills remaining space, renders image + dim overlay
@@ -31,7 +31,7 @@
 
         <!-- Cancel -->
         <TextView
-            android:id="@+id/chat_crop_btn_cancel"
+            android:id="@+id/media_crop_btn_cancel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Cancel"
@@ -58,7 +58,7 @@
 
         <!-- Rotate 90° button -->
         <ImageButton
-            android:id="@+id/chat_crop_btn_rotate"
+            android:id="@+id/media_crop_btn_rotate"
             style="?android:attr/borderlessButtonStyle"
             android:layout_width="42dp"
             android:layout_height="42dp"
@@ -71,7 +71,7 @@
 
         <!-- Done -->
         <TextView
-            android:id="@+id/chat_crop_btn_done"
+            android:id="@+id/media_crop_btn_done"
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:text="Done"
@@ -87,8 +87,8 @@
     </LinearLayout>
 
     <!-- ── Crop canvas — fills all remaining space ────────────────── -->
-    <com.callx.app.conversation.controllers.CropOverlayView
-        android:id="@+id/chat_crop_view"
+    <com.callx.app.media.crop.CropOverlayView
+        android:id="@+id/media_crop_view"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"/>
@@ -104,7 +104,7 @@
 
         <!-- Current aspect ratio label -->
         <TextView
-            android:id="@+id/chat_crop_aspect_label"
+            android:id="@+id/media_crop_aspect_label"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
@@ -121,7 +121,7 @@
             android:fillViewport="false">
 
             <LinearLayout
-                android:id="@+id/chat_crop_aspect_row"
+                android:id="@+id/media_crop_aspect_row"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"

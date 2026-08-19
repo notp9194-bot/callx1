@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <!-- Shared image crop screen — reusable by any feature module
+             (chat media editor, status camera, reels cover, avatar edit, etc.)
+             via className-based Intent. Lives in :core to avoid a circular
+             dependency between feature modules. -->
+        <activity android:name="com.callx.app.media.crop.MediaCropActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:screenOrientation="portrait"
+            android:label="Crop Image"/>
+
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"

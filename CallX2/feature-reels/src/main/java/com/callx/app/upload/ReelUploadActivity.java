@@ -314,6 +314,10 @@ public class ReelUploadActivity extends AppCompatActivity {
     private android.widget.ViewFlipper stepFlipper;
     private androidx.core.widget.NestedScrollView stepScrollContainer;
     private TextView                   tvStepTitle;
+    // ✅ Short step name shown in tv_step_name, next to the "Step X of Y" pill
+    //    (all-caps via android:textAllCaps, so plain-case names are given here)
+    //    — same pattern as Reel Editor / Reel Photo Editor.
+    private TextView                   tvStepName;
     // Dot-stepper (reused from Add Status's stepper UI — see updateStepDots()
     // below) — replaces the old thin horizontal progress_step ProgressBar.
     private TextView[]                 stepDots;
@@ -328,6 +332,13 @@ public class ReelUploadActivity extends AppCompatActivity {
             "Step 2 of 4 · Caption & Sound",
             "Step 3 of 4 · Audience & Permissions",
             "Step 4 of 4 · Details & Post"
+    };
+    /** Short step name shown in tv_step_name, next to the "Step X of Y" pill. */
+    private static final String[] STEP_NAMES = {
+            "Media",
+            "Caption & Sound",
+            "Audience & Permissions",
+            "Details & Post"
     };
 
     @Override
@@ -834,6 +845,7 @@ public class ReelUploadActivity extends AppCompatActivity {
         stepFlipper  = findViewById(R.id.step_flipper);
         stepScrollContainer = findViewById(R.id.step_scroll_container);
         tvStepTitle  = findViewById(R.id.tv_step_title);
+        tvStepName   = findViewById(R.id.tv_step_name);
         stepDots  = new TextView[] {
                 findViewById(R.id.step_dot_1), findViewById(R.id.step_dot_2),
                 findViewById(R.id.step_dot_3), findViewById(R.id.step_dot_4)
@@ -905,12 +917,18 @@ public class ReelUploadActivity extends AppCompatActivity {
     }
 
     private void updateStepUi() {
-        // Pill shows only "Step X of Y" (name suffix dropped, matching Reel
-        // Editor's shared premium pill); STEP_TITLES[] left as-is since
-        // .length is still used for step-count bounds checks elsewhere.
+        // Pill (tv_step_title) shows just "Step X of Y"; the step name
+        // (Media / Caption & Sound / etc.) is shown separately in tv_step_name,
+        // uppercase, next to the pill — same pattern as Reel Editor / Reel Photo
+        // Editor. STEP_TITLES[] left as-is since .length is still used for
+        // step-count bounds checks elsewhere; STEP_NAMES holds the plain-case
+        // names for the label.
         if (tvStepTitle != null) {
             tvStepTitle.setText(getString(R.string.editor_step_pill_format,
                     currentStep + 1, STEP_TITLES.length));
+        }
+        if (tvStepName != null && currentStep < STEP_NAMES.length) {
+            tvStepName.setText(STEP_NAMES[currentStep]);
         }
         updateStepDots();
         if (btnStepBack != null) {
@@ -1636,6 +1654,15 @@ public class ReelUploadActivity extends AppCompatActivity {
             if (pos < 0 || pos >= selectedPhotoUris.size()) return;
 
             // Read back all edited metadata from ReelPhotoEditorActivity
+            // Crop tool (reused from :core's MediaCropActivity) may have replaced
+            // the working photo with a new cropped file — swap it into the list.
+            String editedUriStr = data.getStringExtra(com.callx.app.editor.ReelPhotoEditorActivity.EXTRA_PHOTO_URI);
+            if (editedUriStr != null && !editedUriStr.isEmpty()) {
+                Uri editedUri = Uri.parse(editedUriStr);
+                if (!editedUri.equals(selectedPhotoUris.get(pos))) {
+                    selectedPhotoUris.set(pos, editedUri);
+                }
+            }
             setPhotoMeta(pos, "filter",       data.getStringExtra(com.callx.app.editor.ReelPhotoEditorActivity.EXTRA_FILTER));
             setPhotoMeta(pos, "effect",       data.getStringExtra(com.callx.app.editor.ReelPhotoEditorActivity.EXTRA_EFFECT));
             setPhotoMeta(pos, "caption",      data.getStringExtra(com.callx.app.editor.ReelPhotoEditorActivity.EXTRA_CAPTION));
