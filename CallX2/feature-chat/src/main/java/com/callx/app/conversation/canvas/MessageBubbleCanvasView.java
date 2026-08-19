@@ -20,6 +20,7 @@ import android.view.MotionEvent;
 import android.view.View;
 
 import androidx.annotation.Nullable;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.chat.util.MarkdownFormatter;
 import com.callx.app.utils.ChatThemeManager;
@@ -1725,6 +1726,22 @@ public class MessageBubbleCanvasView extends View {
     private final Handler reelPeekHandler = new Handler(Looper.getMainLooper());
     private Runnable reelPeekRunnable;
     private boolean reelPeekTriggered;
+
+    // ULTRA PERF — reel-peek scroll gate. Mirrors MessagePagingAdapter's own
+    // "TELEGRAM-STYLE SCROLL OPTIMIZATION" recyclerViewScrollState field:
+    // synced from the exact same ChatActivity scroll-state callback (see
+    // setGlobalScrollState()) rather than a second listener, so it's always
+    // in sync with the value the adapter is already using to defer other
+    // expensive binds during fling. Static/shared across every bubble in the
+    // list — a scroll state is a property of the RecyclerView, not of any
+    // one card — read by fireReelPeekWhenIdle() below.
+    private static volatile int sGlobalScrollState = RecyclerView.SCROLL_STATE_IDLE;
+
+    /** Called once per scroll-state change from MessagePagingAdapter#setRecyclerViewScrollState. */
+    public static void setGlobalScrollState(int state) {
+        sGlobalScrollState = state;
+    }
+
     final GestureDetector gestureDetector;
 
     // ── Per-feature draw() renderers (feature-based file split) — bind/
@@ -5753,16 +5770,42 @@ public class MessageBubbleCanvasView extends View {
     // If the RecyclerView keeps scrolling, the card gets detached again
     // before the 3s mark and onDetachedFromWindow() cancels this, so a card
     // only ever fires once it's actually settled on screen for a full 3s.
+    //
+    // ULTRA PERF: this postDelayed itself is essentially free — one queued
+    // Handler message, no work runs until it fires — so it's left armed
+    // through a fling rather than cancelled/rescheduled on every attach,
+    // which would just be Handler churn for a fast-scrolled-past card. The
+    // part that actually costs something (Firebase read, PopupWindow
+    // inflate, screenshot-blur capture, ExoPlayer pool checkout — see
+    // ReelSharePeekBridge / ReelPeekPreviewController) is gated separately,
+    // in fireReelPeekWhenIdle() below, so none of it can land on the same
+    // frame as a fling.
     private void scheduleReelPeekPreview() {
         cancelReelPeekPreview();
         reelPeekTriggered = false;
-        reelPeekRunnable = () -> {
-            reelPeekRunnable = null;
-            if (!isReelShare) return;
-            reelPeekTriggered = true;
-            if (clickListener != null) clickListener.onReelPeekPreview(this);
-        };
+        reelPeekRunnable = this::fireReelPeekWhenIdle;
         reelPeekHandler.postDelayed(reelPeekRunnable, 3000L);
+    }
+
+    // Fires at the end of the 3s dwell. If the chat list is mid-drag/fling
+    // (sGlobalScrollState != IDLE), the heavy peek payload is deferred with
+    // a cheap 250ms re-poll instead of firing immediately — NOT a reset of
+    // the original 3s dwell, just a wait for the list to settle. Guards
+    // !isReelShare too, in case a fast recycle rebound this exact holder to
+    // a non-reel message in between the post and the fire (cancelReelPeekPreview()
+    // on rebind already removes this callback in the normal case, but a
+    // stale in-flight re-poll from the branch above only rechecks isReelShare
+    // here, so this is the belt-and-suspenders backstop).
+    private void fireReelPeekWhenIdle() {
+        if (!isReelShare) { reelPeekRunnable = null; return; }
+        if (sGlobalScrollState != RecyclerView.SCROLL_STATE_IDLE) {
+            reelPeekRunnable = this::fireReelPeekWhenIdle;
+            reelPeekHandler.postDelayed(reelPeekRunnable, 250L);
+            return;
+        }
+        reelPeekRunnable = null;
+        reelPeekTriggered = true;
+        if (clickListener != null) clickListener.onReelPeekPreview(this);
     }
 
     @Override

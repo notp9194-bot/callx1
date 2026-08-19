@@ -319,7 +319,7 @@
         android:layout_width="68dp"
         android:layout_height="wrap_content"
         android:layout_gravity="end|bottom"
-        android:paddingBottom="8dp"
+        android:paddingBottom="24dp"
         android:paddingEnd="8dp"
         android:paddingStart="4dp">
 
@@ -344,7 +344,7 @@
             android:textSize="12sp"
             android:gravity="center"
             android:layout_marginTop="4dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="24dp"
             android:clickable="true"
             android:focusable="true"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -377,7 +377,7 @@
             android:textSize="12sp"
             android:gravity="center"
             android:layout_marginTop="4dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="24dp"
             android:clickable="true"
             android:focusable="true"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -410,7 +410,7 @@
             android:textSize="12sp"
             android:gravity="center"
             android:layout_marginTop="4dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="24dp"
             android:clickable="true"
             android:focusable="true"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -443,7 +443,7 @@
             android:textSize="12sp"
             android:gravity="center"
             android:layout_marginTop="4dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="24dp"
             app:layout_constraintTop_toBottomOf="@id/btn_save"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"/>
@@ -469,21 +469,22 @@
             android:textSize="12sp"
             android:gravity="center"
             android:layout_marginTop="4dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="24dp"
             app:layout_constraintTop_toBottomOf="@id/btn_repost"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"/>
 
         <!-- Screenshot-style menu action: long line above, shorter line below.
-             16dp gap to repost count above (matches the classic gap used
-             between every icon group in this rail) and 16dp gap to the
-             audio tile below it. -->
+             24dp gap to repost count above (matches the widened gap now used
+             between every icon group in this rail — see right_actions'
+             other marginBottom values, bumped from 16dp per user request for
+             more breathing room) and 24dp gap to the audio tile below it. -->
         <ImageButton
             android:id="@+id/btn_more"
             android:layout_width="42dp"
             android:layout_height="30dp"
             android:layout_marginTop="0dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="24dp"
             android:src="@drawable/ic_reel_more_lines"
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -528,7 +529,7 @@
         android:layout_gravity="bottom|start"
         android:paddingStart="12dp"
         android:paddingEnd="72dp"
-        android:paddingBottom="0dp">
+        android:paddingBottom="24dp">
 
         <!-- Owner avatar + name + follow button — hidden for collab posts,
              merged into ll_collab_second_author below instead (Instagram-style
@@ -952,29 +953,6 @@
 
     </FrameLayout>
 
-    <!-- Video progress bar — pinned to very bottom of video (0dp margin).
-         Instagram-style drag-to-seek: a SeekBar instead of a plain
-         ProgressBar. The 28dp view height is just the touch/drag target;
-         progress_reel_seekbar.xml paints the actual ~3dp line flush with
-         the very bottom edge of that target, and always visible (not
-         faded) so the user can see where it is without dragging first.
-         Only the thumb starts invisible (alpha 0, set in code) and fades
-         in while actively scrubbing — see ReelPlayerController's seek bar
-         wiring. -->
-    <SeekBar
-        android:id="@+id/progress_video"
-        android:layout_width="match_parent"
-        android:layout_height="28dp"
-        android:layout_gravity="bottom"
-        android:max="1000"
-        android:progress="0"
-        android:paddingStart="0dp"
-        android:paddingEnd="0dp"
-        android:splitTrack="false"
-        android:progressDrawable="@drawable/progress_reel_seekbar"
-        android:thumb="@drawable/thumb_reel_seek"
-        android:layout_marginBottom="0dp"/>
-
     <!-- Buffering indicator -->
     <ProgressBar
         android:id="@+id/progress_buffering"
@@ -1168,5 +1146,39 @@
         android:layout_height="match_parent"
         android:visibility="gone"/>
 
-  
+    <!-- Video progress bar — pinned to the very bottom of the screen (0dp
+         margin) and moved to be the LAST child in this FrameLayout, so it
+         always draws on top of everything else (bottom_info's username/
+         follow row, right_actions' button rail, the reaction overlay, etc.)
+         instead of getting drawn UNDER them and covered up — that was the
+         actual bug: for reels with a short/empty caption, bottom_info's
+         content collapsed down to just the username row, which (like
+         right_actions) had ~0 bottom padding reserved, so it rendered
+         flush with the screen edge and this SeekBar (also flush, and
+         declared earlier in the file — so painted first / underneath)
+         ended up hidden behind it. Fixed on both ends: bottom_info and
+         right_actions above now reserve 24dp of bottom padding so their
+         content never reaches the very edge, AND this bar is last in
+         paint order as a second guarantee.
+         Instagram-style drag-to-seek: a SeekBar instead of a plain
+         ProgressBar. The 28dp view height is just the touch/drag target;
+         progress_reel_seekbar.xml paints the actual ~5dp line flush with
+         the very bottom edge of that target, in solid white so it reads
+         clearly against any video content. Only the thumb starts invisible
+         (alpha 0, set in code) and fades in while actively scrubbing — see
+         ReelPlayerController's seek bar wiring. -->
+    <SeekBar
+        android:id="@+id/progress_video"
+        android:layout_width="match_parent"
+        android:layout_height="28dp"
+        android:layout_gravity="bottom"
+        android:max="1000"
+        android:progress="0"
+        android:paddingStart="0dp"
+        android:paddingEnd="0dp"
+        android:splitTrack="false"
+        android:progressDrawable="@drawable/progress_reel_seekbar"
+        android:thumb="@drawable/thumb_reel_seek"
+        android:layout_marginBottom="0dp"/>
+
 </FrameLayout>

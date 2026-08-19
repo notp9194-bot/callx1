@@ -63,6 +63,12 @@ public class MessagePagingAdapter
     // Set by ChatActivity's OnScrollListener — used here to optimize bind time
     public void setRecyclerViewScrollState(int state) {
         this.recyclerViewScrollState = state;
+        // ULTRA PERF: forwards the same signal to the reel-peek scroll gate
+        // (MessageBubbleCanvasView#sGlobalScrollState) so its 3s auto-preview
+        // never fires its Firebase read/popup/player payload mid-fling —
+        // see MessageBubbleCanvasView#fireReelPeekWhenIdle(). One extra call,
+        // no new listener.
+        com.callx.app.conversation.canvas.MessageBubbleCanvasView.setGlobalScrollState(state);
     }
 
     // ── TELEGRAM-STYLE "SEND" ANIMATION — single-spring, multi-property ──

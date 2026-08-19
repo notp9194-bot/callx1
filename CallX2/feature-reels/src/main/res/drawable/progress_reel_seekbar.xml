@@ -7,9 +7,11 @@
 
   UI FIX: the line is now (a) pinned flush to the very bottom edge of the
   28dp touch target instead of vertically centered in it, and (b) painted
-  at a clearly visible opacity at all times — previously the background
-  track was only 27% alpha (#44...), which read as "invisible" against
-  busy/bright video content even though it was technically always drawn.
+  in solid white so it reads clearly against any video content — the
+  watched portion (@android:id/progress) is now full-opacity white
+  instead of the old pink (#FF416C) accent, matching the "just show a
+  clean white line" request; the unwatched track stays white too but
+  dimmer (40% alpha) so the watched portion still stands out against it.
   Only the *thumb* fades in/out on drag (see ReelPlayerController); the
   track line itself is meant to always be visible so users can find and
   grab it without first having to guess where it is.
@@ -32,7 +34,7 @@
         android:bottom="0dp">
         <clip>
             <shape android:shape="rectangle">
-                <solid android:color="#FF416C" />
+                <solid android:color="#FFFFFFFF" />
                 <corners android:radius="2dp" />
             </shape>
         </clip>
