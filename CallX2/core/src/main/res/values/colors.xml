@@ -106,11 +106,17 @@
     <color name="trim_text_secondary">@color/text_secondary</color>
     <color name="trim_text_muted">@color/text_muted</color>
 
-    <!-- Vibrant green spinning-ring accent for the currently-active step dot
-         in wizard steppers (Reel Upload, etc). Deliberately separate from
-         trim_gradient_start/end (pink→purple) and from brand_primary — this
-         ring is purely an "in-use right now" indicator. -->
+    <!-- Vibrant spinning-ring accents for the currently-active step dot in
+         wizard steppers. Each of the 4 wizard screens gets its own color so
+         they read distinctly at a glance — Reel Upload=green, Add Status=blue,
+         Reel Editor=orange, Reel Photo Editor=pink. Deliberately separate
+         from trim_gradient_start/end (pink→purple) and from brand_primary —
+         these rings are purely an "in-use right now" indicator, drawn via
+         bg_step_active_ring / _blue / _orange / _pink. -->
     <color name="step_active_ring_green">#00E676</color>
+    <color name="step_active_ring_blue">#2979FF</color>
+    <color name="step_active_ring_orange">#FF6D00</color>
+    <color name="step_active_ring_pink">#D500F9</color>
     <color name="trim_photo_placeholder">#ECECF1</color>
     <color name="trim_waveform_dim">#D6D6DE</color>
     <color name="trim_chip_bg">@color/surface_card</color>

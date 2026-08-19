@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spinning "in use" ring for a wizard step dot — Reel Editor variant
+     (vibrant orange). Same shape/thickness as bg_step_active_ring (green,
+     Reel Upload) — only the sweep-gradient color differs. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="ring"
+    android:innerRadiusRatio="3.1"
+    android:thicknessRatio="6"
+    android:useLevel="false">
+    <gradient
+        android:type="sweep"
+        android:startColor="#00FF6D00"
+        android:centerColor="#80FF6D00"
+        android:endColor="#FFFF6D00"/>
+</shape>

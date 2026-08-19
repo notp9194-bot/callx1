@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spinning "in use" ring for a wizard step dot — Add Status variant (blue).
+     Same shape/thickness as bg_step_active_ring (green, Reel Upload) — only
+     the sweep-gradient color differs, so each wizard screen reads as its
+     own screen at a glance. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="ring"
+    android:innerRadiusRatio="3.1"
+    android:thicknessRatio="6"
+    android:useLevel="false">
+    <gradient
+        android:type="sweep"
+        android:startColor="#002979FF"
+        android:centerColor="#802979FF"
+        android:endColor="#FF2979FF"/>
+</shape>

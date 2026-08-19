@@ -236,6 +236,8 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     // old thin horizontal pb_photo_editor_step ProgressBar.
     private TextView[]          photoEditorStepDots;
     private View[]              photoEditorStepLines;
+    private ImageView[]         photoEditorStepRings;
+    private ObjectAnimator      photoEditorActiveStepRingSpin;
     private View                btnPhotoEditorStepBack, btnPhotoEditorStepNext;
     private int                 photoEditorCurrentStep = 0;
     private static final String[] PHOTO_EDITOR_STEP_TITLES = {
@@ -1047,6 +1049,13 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
                 findViewById(R.id.step_line_1), findViewById(R.id.step_line_2),
                 findViewById(R.id.step_line_3), findViewById(R.id.step_line_4)
         };
+        // ✅ NEW: vibrant-green spinning ring behind whichever step dot is
+        // currently in use — shared pattern from :core, see updateActiveStepRing().
+        photoEditorStepRings = new ImageView[] {
+                findViewById(R.id.step_ring_1), findViewById(R.id.step_ring_2),
+                findViewById(R.id.step_ring_3), findViewById(R.id.step_ring_4),
+                findViewById(R.id.step_ring_5)
+        };
         btnPhotoEditorStepBack = findViewById(R.id.btn_photo_editor_step_back);
         btnPhotoEditorStepNext = findViewById(R.id.btn_photo_editor_step_next);
 
@@ -1111,6 +1120,35 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
                     photoEditorCurrentStep >= i + 1
                             ? com.callx.app.core.R.color.trim_gradient_start
                             : com.callx.app.core.R.color.trim_divider));
+        }
+        updatePhotoEditorActiveStepRing();
+    }
+
+    /**
+     * ✅ NEW: spins a vibrant-green ring behind the step dot currently in
+     * use (photoEditorCurrentStep) — mirrors ReelUploadActivity's
+     * updateActiveStepRing().
+     */
+    private void updatePhotoEditorActiveStepRing() {
+        if (photoEditorStepRings == null) return;
+        if (photoEditorActiveStepRingSpin != null) {
+            photoEditorActiveStepRingSpin.cancel();
+            photoEditorActiveStepRingSpin = null;
+        }
+        for (int i = 0; i < photoEditorStepRings.length; i++) {
+            if (photoEditorStepRings[i] == null) continue;
+            if (i == photoEditorCurrentStep) {
+                photoEditorStepRings[i].setVisibility(View.VISIBLE);
+                photoEditorStepRings[i].setRotation(0f);
+                photoEditorActiveStepRingSpin = ObjectAnimator.ofFloat(
+                        photoEditorStepRings[i], View.ROTATION, 0f, 360f);
+                photoEditorActiveStepRingSpin.setDuration(1400);
+                photoEditorActiveStepRingSpin.setRepeatCount(ObjectAnimator.INFINITE);
+                photoEditorActiveStepRingSpin.setInterpolator(new android.view.animation.LinearInterpolator());
+                photoEditorActiveStepRingSpin.start();
+            } else {
+                photoEditorStepRings[i].setVisibility(View.GONE);
+            }
         }
     }
 
@@ -1219,6 +1257,12 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
 
     private static String colorToHex(int color) {
         return String.format("#%08X", color);
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (photoEditorActiveStepRingSpin != null) photoEditorActiveStepRingSpin.cancel();
+        super.onDestroy();
     }
 
     @Nullable

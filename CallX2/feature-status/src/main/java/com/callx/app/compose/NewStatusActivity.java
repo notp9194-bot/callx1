@@ -144,6 +144,7 @@ public class NewStatusActivity extends AppCompatActivity {
 
     /** Reel-style three-step status composer state. */
     private int wizardStep = 0;
+    private android.animation.ObjectAnimator activeStepRingSpin;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -423,6 +424,35 @@ public class NewStatusActivity extends AppCompatActivity {
                 wizardStep >= 1 ? R.color.trim_gradient_start : R.color.trim_divider));
         binding.stepLine2.setBackgroundColor(ContextCompat.getColor(this,
                 wizardStep >= 2 ? R.color.trim_gradient_start : R.color.trim_divider));
+        updateActiveStepRing();
+    }
+
+    /**
+     * ✅ NEW: spins a vibrant-green ring behind the step dot currently in
+     * use (wizardStep) — shared :core drawable/color, same pattern used on
+     * Reel Upload / Reel Editor / Reel Photo Editor.
+     */
+    private void updateActiveStepRing() {
+        ImageView[] rings = {binding.stepRing1, binding.stepRing2, binding.stepRing3};
+        if (activeStepRingSpin != null) {
+            activeStepRingSpin.cancel();
+            activeStepRingSpin = null;
+        }
+        for (int i = 0; i < rings.length; i++) {
+            if (rings[i] == null) continue;
+            if (i == wizardStep) {
+                rings[i].setVisibility(View.VISIBLE);
+                rings[i].setRotation(0f);
+                activeStepRingSpin = android.animation.ObjectAnimator.ofFloat(
+                        rings[i], View.ROTATION, 0f, 360f);
+                activeStepRingSpin.setDuration(1400);
+                activeStepRingSpin.setRepeatCount(android.animation.ObjectAnimator.INFINITE);
+                activeStepRingSpin.setInterpolator(new android.view.animation.LinearInterpolator());
+                activeStepRingSpin.start();
+            } else {
+                rings[i].setVisibility(View.GONE);
+            }
+        }
     }
 
     /**
@@ -1839,4 +1869,10 @@ public class NewStatusActivity extends AppCompatActivity {
         try { return FirebaseUtils.getCurrentUid(); } catch (Exception e) { return null; }
     }
     private void toast(String msg) { Toast.makeText(this, msg, Toast.LENGTH_SHORT).show(); }
+
+    @Override
+    protected void onDestroy() {
+        if (activeStepRingSpin != null) activeStepRingSpin.cancel();
+        super.onDestroy();
+    }
 }

@@ -134,6 +134,8 @@ public class ReelEditorActivity extends AppCompatActivity {
     // pb_editor_step ProgressBar.
     private TextView[]                 editorStepDots;
     private View[]                     editorStepLines;
+    private ImageView[]                editorStepRings;
+    private ObjectAnimator             editorActiveStepRingSpin;
     private View                       btnEditorStepBack, btnEditorStepNext;
     private int                        editorCurrentStep = 0;
     private static final String[] EDITOR_STEP_TITLES = {
@@ -1170,6 +1172,13 @@ public class ReelEditorActivity extends AppCompatActivity {
                 findViewById(R.id.step_line_1), findViewById(R.id.step_line_2),
                 findViewById(R.id.step_line_3), findViewById(R.id.step_line_4)
         };
+        // ✅ NEW: vibrant-green spinning ring behind whichever step dot is
+        // currently in use — shared :core drawable/color, see updateActiveEditorStepRing().
+        editorStepRings = new ImageView[] {
+                findViewById(R.id.step_ring_1), findViewById(R.id.step_ring_2),
+                findViewById(R.id.step_ring_3), findViewById(R.id.step_ring_4),
+                findViewById(R.id.step_ring_5)
+        };
         btnEditorStepBack = findViewById(R.id.btn_editor_step_back);
         btnEditorStepNext = findViewById(R.id.btn_editor_step_next);
 
@@ -1230,6 +1239,34 @@ public class ReelEditorActivity extends AppCompatActivity {
                     editorCurrentStep >= i + 1
                             ? com.callx.app.core.R.color.trim_gradient_start
                             : com.callx.app.core.R.color.trim_divider));
+        }
+        updateActiveEditorStepRing();
+    }
+
+    /**
+     * ✅ NEW: spins a vibrant-green ring behind the step dot currently in
+     * use (editorCurrentStep) — mirrors ReelUploadActivity's updateActiveStepRing().
+     */
+    private void updateActiveEditorStepRing() {
+        if (editorStepRings == null) return;
+        if (editorActiveStepRingSpin != null) {
+            editorActiveStepRingSpin.cancel();
+            editorActiveStepRingSpin = null;
+        }
+        for (int i = 0; i < editorStepRings.length; i++) {
+            if (editorStepRings[i] == null) continue;
+            if (i == editorCurrentStep) {
+                editorStepRings[i].setVisibility(View.VISIBLE);
+                editorStepRings[i].setRotation(0f);
+                editorActiveStepRingSpin = ObjectAnimator.ofFloat(
+                        editorStepRings[i], View.ROTATION, 0f, 360f);
+                editorActiveStepRingSpin.setDuration(1400);
+                editorActiveStepRingSpin.setRepeatCount(ObjectAnimator.INFINITE);
+                editorActiveStepRingSpin.setInterpolator(new android.view.animation.LinearInterpolator());
+                editorActiveStepRingSpin.start();
+            } else {
+                editorStepRings[i].setVisibility(View.GONE);
+            }
         }
     }
 
@@ -1792,6 +1829,7 @@ public class ReelEditorActivity extends AppCompatActivity {
             player = null;
         }
         handler.removeCallbacksAndMessages(null);
+        if (editorActiveStepRingSpin != null) editorActiveStepRingSpin.cancel();
         super.onDestroy();
     }
 }
