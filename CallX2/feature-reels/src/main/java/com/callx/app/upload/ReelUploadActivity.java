@@ -2988,7 +2988,8 @@ public class ReelUploadActivity extends AppCompatActivity {
                                         @Override
                                         public void onSuccess(String audioUrl, String previewAudioUrl,
                                                                String matchedSoundId, boolean matched,
-                                                               String matchedOwnerUid, double offsetSec) {
+                                                               String matchedOwnerUid, double offsetSec,
+                                                               double speedFactor, org.json.JSONObject copyrightMatch) {
                                             // Save originalAudioUrl to Firebase
                                             FirebaseUtils.getReelsRef()
                                                 .child(finalReelId)
@@ -2998,7 +2999,8 @@ public class ReelUploadActivity extends AppCompatActivity {
                                                 "originalAudioUrl saved: " + audioUrl
                                                 + " previewAudioUrl: " + previewAudioUrl
                                                 + " matched: " + matched + " soundId: " + matchedSoundId
-                                                + " offsetSec: " + offsetSec);
+                                                + " offsetSec: " + offsetSec + " speedFactor: " + speedFactor
+                                                + " copyrightMatch: " + copyrightMatch);
 
                                             // ✅ Instagram-style: same audio was already posted by
                                             // someone (or by us) as a raw upload, even though we
@@ -3023,6 +3025,37 @@ public class ReelUploadActivity extends AppCompatActivity {
                                                     .child(finalReelId)
                                                     .child("audioMatchOffsetSec")
                                                     .setValue(offsetSec);
+                                            }
+
+                                            // ✅ NEW (v3): this reel's audio was speed/pitch-changed
+                                            // relative to the matched original (e.g. sped up 1.5x in
+                                            // the editor) — the server only reports this when it had
+                                            // to fall back to the speed-hypothesis pass to find the
+                                            // match at all. Stash it the same way as offsetSec, so a
+                                            // future "played at Nx speed" badge has something to read.
+                                            // Non-fatal, best-effort.
+                                            if (matched && Math.abs(speedFactor - 1.0) > 0.01) {
+                                                FirebaseUtils.getReelsRef()
+                                                    .child(finalReelId)
+                                                    .child("audioMatchSpeedFactor")
+                                                    .setValue(speedFactor);
+                                            }
+
+                                            // ✅ NEW (v6): licensed-catalog match — this is a
+                                            // DETECTION hook, not enforcement: it just records what
+                                            // the server found so a moderation/UI layer can act on it
+                                            // later (mute the track, block the post, show a "licensed
+                                            // audio" credit banner — whatever "policy" says). Wiring
+                                            // an actual block/mute UX is a deliberate follow-up, not
+                                            // done here — this only ships once a real licensed catalog
+                                            // is loaded via /admin/licensed-catalog/add anyway.
+                                            if (copyrightMatch != null) {
+                                                FirebaseUtils.getReelsRef()
+                                                    .child(finalReelId)
+                                                    .child("copyrightMatch")
+                                                    .setValue(copyrightMatch.toString());
+                                                Log.w("ReelUpload", "Licensed-catalog match: "
+                                                    + copyrightMatch);
                                             }
                                         }
                                         @Override

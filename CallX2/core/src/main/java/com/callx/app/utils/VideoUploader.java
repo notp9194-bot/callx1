@@ -620,6 +620,43 @@ public class VideoUploader {
                                 double offsetSec) {
             onSuccess(audioUrl, previewAudioUrl, soundId, matched, ownerUid);
         }
+        /**
+         * ✅ NEW (v3): same as the 6-arg onSuccess, plus speedFactor — how
+         * much faster (>1.0) or slower (<1.0) this upload's audio plays
+         * relative to the MATCHED original (server-side "undo a linked
+         * speed/pitch change" fallback; see /audio/match "v3" on the
+         * server). 1.0 when matched==false, or when the match didn't need
+         * a speed adjustment. Only meaningful when matched==true.
+         *
+         * Default just forwards to the 6-arg callback, so existing overrides
+         * keep compiling/working unchanged.
+         */
+        default void onSuccess(String audioUrl, String previewAudioUrl,
+                                String soundId, boolean matched, String ownerUid,
+                                double offsetSec, double speedFactor) {
+            onSuccess(audioUrl, previewAudioUrl, soundId, matched, ownerUid, offsetSec);
+        }
+        /**
+         * ✅ NEW (v6): same as the 7-arg onSuccess, plus copyrightMatch — the
+         * server's licensed-catalog verdict for THIS upload's audio (see
+         * /audio/match "v6" / matchLicensedCatalog on the server), or null
+         * when nothing in the licensed catalog matched. When non-null it has
+         * the shape: {matched:true, track_id, title, artist, rights_holder,
+         * policy ("mute"|"block"|"allow_credit"), offset_sec, speed_factor}.
+         * Independent of the soundId/matched/ownerUid params above — a reel
+         * can simultaneously "match" a user's earlier original sound AND a
+         * licensed track, if that user's earlier upload was itself an
+         * unlicensed use of copyrighted audio.
+         *
+         * Default just forwards to the 7-arg callback, so existing overrides
+         * keep compiling/working unchanged.
+         */
+        default void onSuccess(String audioUrl, String previewAudioUrl,
+                                String soundId, boolean matched, String ownerUid,
+                                double offsetSec, double speedFactor,
+                                JSONObject copyrightMatch) {
+            onSuccess(audioUrl, previewAudioUrl, soundId, matched, ownerUid, offsetSec, speedFactor);
+        }
         void onError(Exception e);
     }
 
@@ -689,19 +726,23 @@ public class VideoUploader {
                 // runs after the reel is live (see ReelUploadActivity caller),
                 // and any failure here just falls back to "new original audio",
                 // same as before this feature existed.
-                String  fallbackSoundId = "orig_" + reelId;
-                String  matchedSoundId  = fallbackSoundId;
-                boolean matched         = false;
-                String  matchedOwnerUid = "";
+                String  fallbackSoundId  = "orig_" + reelId;
+                String  matchedSoundId   = fallbackSoundId;
+                boolean matched          = false;
+                String  matchedOwnerUid  = "";
                 double  matchedOffsetSec = 0;
+                double  matchedSpeedFactor = 1.0;
+                JSONObject matchedCopyrightMatch = null;
                 try {
                     JSONObject matchResult =
                         matchAudioFingerprint(finalAudio, ownerUid, reelId, fallbackSoundId);
                     if (matchResult != null) {
-                        matched         = matchResult.optBoolean("matched", false);
-                        matchedSoundId  = matchResult.optString("sound_id", fallbackSoundId);
-                        matchedOwnerUid = matchResult.optString("owner_uid", "");
-                        matchedOffsetSec = matchResult.optDouble("offset_sec", 0);
+                        matched            = matchResult.optBoolean("matched", false);
+                        matchedSoundId     = matchResult.optString("sound_id", fallbackSoundId);
+                        matchedOwnerUid    = matchResult.optString("owner_uid", "");
+                        matchedOffsetSec   = matchResult.optDouble("offset_sec", 0);
+                        matchedSpeedFactor = matchResult.optDouble("speed_factor", 1.0);
+                        matchedCopyrightMatch = matchResult.optJSONObject("copyright_match");
                         if (matchedSoundId == null || matchedSoundId.isEmpty()) {
                             matchedSoundId = fallbackSoundId;
                         }
@@ -712,11 +753,13 @@ public class VideoUploader {
                     // behaviour as before this feature existed.
                 }
 
-                final String  fSoundId    = matchedSoundId;
-                final boolean fMatched    = matched;
-                final String  fOwnerUid   = matchedOwnerUid;
-                final double  fOffsetSec  = matchedOffsetSec;
-                MAIN.post(() -> callback.onSuccess(fUrl, fPreviewUrl, fSoundId, fMatched, fOwnerUid, fOffsetSec));
+                final String     fSoundId         = matchedSoundId;
+                final boolean    fMatched         = matched;
+                final String     fOwnerUid        = matchedOwnerUid;
+                final double     fOffsetSec       = matchedOffsetSec;
+                final double     fSpeedFactor     = matchedSpeedFactor;
+                final JSONObject fCopyrightMatch  = matchedCopyrightMatch;
+                MAIN.post(() -> callback.onSuccess(fUrl, fPreviewUrl, fSoundId, fMatched, fOwnerUid, fOffsetSec, fSpeedFactor, fCopyrightMatch));
 
             } catch (Exception e) {
                 Log.e(TAG, "uploadOriginalAudio error", e);
@@ -867,10 +910,13 @@ public class VideoUploader {
      * @param reelId      this reel's id
      * @param newSoundId  the id the server should register this audio under
      *                    if it turns out to be genuinely new ("orig_{reelId}")
-     * @return {matched, sound_id, owner_uid, offset_sec} JSON, or null if the
-     *         server/queue didn't respond in time — caller treats null as
-     *         "no match". offset_sec (server "v2") is where inside the
-     *         matched original this upload's audio starts — 0 if unmatched.
+     * @return {matched, sound_id, owner_uid, offset_sec, speed_factor} JSON,
+     *         or null if the server/queue didn't respond in time — caller
+     *         treats null as "no match". offset_sec (server "v2") is where
+     *         inside the matched original this upload's audio starts — 0 if
+     *         unmatched. speed_factor (server "v3") is how much faster/
+     *         slower this upload's audio plays vs the matched original —
+     *         1.0 if unmatched or matched without needing a speed adjustment.
      */
     private static JSONObject matchAudioFingerprint(java.io.File audioFile, String ownerUid,
                                                       String reelId, String newSoundId)
@@ -951,6 +997,24 @@ public class VideoUploader {
                             j.put("owner_uid", snap.child("owner_uid").getValue(String.class));
                             Double offsetSec = snap.child("offset_sec").getValue(Double.class);
                             j.put("offset_sec", offsetSec != null ? offsetSec : 0);
+                            Double speedFactor = snap.child("speed_factor").getValue(Double.class);
+                            j.put("speed_factor", speedFactor != null ? speedFactor : 1.0);
+
+                            // ✅ NEW (v6): licensed-catalog verdict, if any —
+                            // stored server-side as a nested object under
+                            // copyright_match/ (see matchLicensedCatalog on
+                            // the server); absent/null when nothing matched.
+                            com.google.firebase.database.DataSnapshot cmSnap = snap.child("copyright_match");
+                            if (cmSnap.exists()) {
+                                JSONObject cm = new JSONObject();
+                                cm.put("matched", true);
+                                cm.put("track_id", cmSnap.child("track_id").getValue(String.class));
+                                cm.put("title", cmSnap.child("title").getValue(String.class));
+                                cm.put("artist", cmSnap.child("artist").getValue(String.class));
+                                cm.put("rights_holder", cmSnap.child("rights_holder").getValue(String.class));
+                                cm.put("policy", cmSnap.child("policy").getValue(String.class));
+                                j.put("copyright_match", cm);
+                            }
                             resultHolder[0] = j;
                         } catch (Exception ignored) { /* resultHolder stays null → treated as no-match */ }
                     } else {
