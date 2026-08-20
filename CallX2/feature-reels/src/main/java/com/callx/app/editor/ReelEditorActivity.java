@@ -447,6 +447,16 @@ public class ReelEditorActivity extends AppCompatActivity {
         btnToolThumbnail   = findViewById(R.id.btn_tool_thumbnail);
         // ✅ NEW: music chip button (add btn_tool_music ImageButton to the toolbar XML)
         btnToolMusic       = findViewById(R.id.btn_tool_music);
+
+        // ✅ FIX: Transitions are a between-clips effect — they have no target
+        // to apply to on Status's single-video flow (nothing downstream ever
+        // reads transition_name for a lone clip either), so the tool silently
+        // did nothing while still looking tappable/"applied". Hide it here
+        // instead of leaving a dead control for targetStatus sessions.
+        if (targetStatus && btnToolTransitions != null) {
+            View transitionsColumn = (View) btnToolTransitions.getParent();
+            if (transitionsColumn != null) transitionsColumn.setVisibility(View.GONE);
+        }
     }
 
     // ── Inject dynamic overlay views into the video FrameLayout ──────────
@@ -968,6 +978,39 @@ public class ReelEditorActivity extends AppCompatActivity {
         return card;
     }
 
+    /**
+     * ✅ FIX: Subtitles picked in this editor were captured into subtitlesJson/
+     * subtitlesEnabled and shown as a live preview bar, but neither this
+     * editor's status exit (finishForStatusResult) nor its normal Reel exit
+     * (ReelUploadActivity) ever actually burns caption text into the video —
+     * so the "Subtitles" tool button did nothing to the final posted media in
+     * either flow. There's no per-frame/time-ranged text renderer in
+     * ReelVideoExportEngine to burn a fully time-synced track, but it DOES
+     * already support baking a single static text overlay (same mechanism
+     * used for stickers/text). So for Status specifically — which shows one
+     * continuous clip rather than a scrubbable timeline — burn the first
+     * caption line in as a bottom-anchored overlay, appended into the same
+     * stickerJson array that's about to be hard-baked below. Matches the
+     * "first caption" precedent already used for the live preview bar.
+     */
+    private void mergeSubtitleCaptionIntoOverlay() {
+        if (!subtitlesEnabled || subtitlesJson == null || subtitlesJson.length() < 5) return;
+        String firstText = jsonStr(subtitlesJson, "text", "");
+        if (firstText.isEmpty()) return;
+
+        String escaped = firstText.replace("\\", "\\\\").replace("\"", "\\\"");
+        String captionOverlay = "{\"type\":\"text\",\"value\":\"" + escaped
+            + "|#FFFFFF\",\"x\":0.5,\"y\":0.85}";
+
+        if (stickerJson == null || stickerJson.isEmpty() || stickerJson.equals("[]")) {
+            stickerJson = "[" + captionOverlay + "]";
+        } else if (stickerJson.trim().startsWith("[")) {
+            String trimmed = stickerJson.trim();
+            stickerJson = trimmed.substring(0, trimmed.length() - 1)
+                + (trimmed.length() > 2 ? "," : "") + captionOverlay + "]";
+        }
+    }
+
     /** Simple JSON string field extractor (no library needed). */
     private String jsonStr(String json, String key, String defaultVal) {
         try {
@@ -1459,6 +1502,176 @@ public class ReelEditorActivity extends AppCompatActivity {
         finish();
     }
 
+    /**
+     * Mirrors ReelUploadActivity.runAudioMixThenUpload()'s AudioMixHelper call
+     * (same MixConfig fields, same mix step) for the chat "Advance Editing"
+     * exit path, which never passes through ReelUploadActivity itself. Mixes
+     * the picked sound/voiceover into the video's actual audio track, then
+     * continues on to MediaEditActivity with the mixed file.
+     */
+    private void runAudioMixThenGoToMediaEdit() {
+        android.app.ProgressDialog dialog = new android.app.ProgressDialog(this);
+        dialog.setMessage("Mixing audio…");
+        dialog.setCancelable(false);
+        dialog.setIndeterminate(false);
+        dialog.setMax(100);
+        dialog.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
+        dialog.show();
+
+        // AudioMixHelper's PCM extractor needs a real file path — MediaExtractor
+        // can't open a content:// URI directly. When no filter/overlay/trim was
+        // applied above, videoUriStr is still the original picked content://
+        // URI (isFilePath=false), so copy it to a local cache file first — same
+        // fix VideoTrimActivity already applies for the same reason.
+        new Thread(() -> {
+            String localPath;
+            try {
+                localPath = isFilePath ? videoUriStr : copyUriToCacheFile(Uri.parse(videoUriStr));
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    dialog.dismiss();
+                    Toast.makeText(ReelEditorActivity.this,
+                        "Couldn't prepare video for audio mix, sending without sound.", Toast.LENGTH_SHORT).show();
+                    goBackOrToMediaEdit();
+                });
+                return;
+            }
+            String finalLocalPath = localPath;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+
+                AudioMixHelper.MixConfig cfg = new AudioMixHelper.MixConfig();
+                cfg.musicUrl       = preSelectedSoundUrl;
+                cfg.voiceoverPath  = mixVoiceoverPath != null ? mixVoiceoverPath : "";
+                cfg.micVol         = mixOrigVol;
+                cfg.musicVol       = mixMusicVol;
+                cfg.voiceoverVol   = mixVoiceoverVol;
+                cfg.musicStartMs   = musicStartMs;
+                cfg.musicEndMs     = musicEndMs;
+                cfg.fadeInMs       = mixFadeInMs;
+                cfg.fadeOutMs      = mixFadeOutMs;
+                cfg.pitchSemitones = mixPitchSemitones;
+                cfg.normalize      = mixNormalize;
+
+                AudioMixHelper.mixAndExportWithConfig(ReelEditorActivity.this, finalLocalPath, cfg,
+                    new AudioMixHelper.MixCallback() {
+                        @Override public void onProgress(int percent) {
+                            if (isFinishing() || isDestroyed()) return;
+                            dialog.setProgress(percent);
+                        }
+                        @Override public void onSuccess(String mixedPath) {
+                            if (isFinishing() || isDestroyed()) return;
+                            dialog.dismiss();
+                            videoUriStr = mixedPath;
+                            isFilePath  = true;
+                            goBackOrToMediaEdit();
+                        }
+                        @Override public void onError(Exception e) {
+                            if (isFinishing() || isDestroyed()) return;
+                            dialog.dismiss();
+                            Toast.makeText(ReelEditorActivity.this,
+                                "Audio mix failed, continuing with original audio.", Toast.LENGTH_SHORT).show();
+                            goBackOrToMediaEdit();
+                        }
+                    });
+            });
+        }).start();
+    }
+
+    /**
+     * ✅ FIX: Status counterpart of runAudioMixThenGoToMediaEdit() — same
+     * AudioMixHelper mix step, but finishes back to NewStatusActivity via
+     * finishForStatusResult() instead of continuing to MediaEditActivity.
+     * Also folds the Voice Effects tool's pitch slider (a 0.5x–2.0x ratio,
+     * separate from the Audio Mixer's own semitone slider) into the same
+     * pitch-shift pass so both tools' pitch choices are honoured together.
+     */
+    private void runAudioMixThenFinishForStatus(String textOverlay) {
+        android.app.ProgressDialog dialog = new android.app.ProgressDialog(this);
+        dialog.setMessage("Mixing audio…");
+        dialog.setCancelable(false);
+        dialog.setIndeterminate(false);
+        dialog.setMax(100);
+        dialog.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
+        dialog.show();
+
+        new Thread(() -> {
+            String localPath;
+            try {
+                localPath = isFilePath ? videoUriStr : copyUriToCacheFile(Uri.parse(videoUriStr));
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    dialog.dismiss();
+                    Toast.makeText(ReelEditorActivity.this,
+                        "Couldn't prepare video for audio mix, posting without sound changes.",
+                        Toast.LENGTH_SHORT).show();
+                    finishForStatusResult(textOverlay);
+                });
+                return;
+            }
+            String finalLocalPath = localPath;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+
+                // Voice Effects' pitch is a 0.5–2.0x ratio; convert to semitones
+                // and combine with the Audio Mixer's own semitone slider.
+                float voicePitchSemitones = (!voiceEffectName.isEmpty() && voicePitch > 0f)
+                    ? (float) (12.0 * (Math.log(voicePitch) / Math.log(2.0))) : 0f;
+
+                AudioMixHelper.MixConfig cfg = new AudioMixHelper.MixConfig();
+                cfg.musicUrl       = preSelectedSoundUrl;
+                cfg.voiceoverPath  = mixVoiceoverPath != null ? mixVoiceoverPath : "";
+                cfg.micVol         = mixOrigVol;
+                cfg.musicVol       = mixMusicVol;
+                cfg.voiceoverVol   = mixVoiceoverVol;
+                cfg.musicStartMs   = musicStartMs;
+                cfg.musicEndMs     = musicEndMs;
+                cfg.fadeInMs       = mixFadeInMs;
+                cfg.fadeOutMs      = mixFadeOutMs;
+                cfg.pitchSemitones = mixPitchSemitones + voicePitchSemitones;
+                cfg.normalize      = mixNormalize;
+
+                AudioMixHelper.mixAndExportWithConfig(ReelEditorActivity.this, finalLocalPath, cfg,
+                    new AudioMixHelper.MixCallback() {
+                        @Override public void onProgress(int percent) {
+                            if (isFinishing() || isDestroyed()) return;
+                            dialog.setProgress(percent);
+                        }
+                        @Override public void onSuccess(String mixedPath) {
+                            if (isFinishing() || isDestroyed()) return;
+                            dialog.dismiss();
+                            videoUriStr = mixedPath;
+                            isFilePath  = true;
+                            audioAlreadyReplaced = true;
+                            finishForStatusResult(textOverlay);
+                        }
+                        @Override public void onError(Exception e) {
+                            if (isFinishing() || isDestroyed()) return;
+                            dialog.dismiss();
+                            Toast.makeText(ReelEditorActivity.this,
+                                "Audio mix failed, posting with original audio.", Toast.LENGTH_SHORT).show();
+                            finishForStatusResult(textOverlay);
+                        }
+                    });
+            });
+        }).start();
+    }
+
+    /** Copies a content:// (or any resolvable) URI to a local cache file — see runAudioMixThenGoToMediaEdit(). */
+    private String copyUriToCacheFile(Uri src) throws java.io.IOException {
+        File out = new File(getCacheDir(), "chat_mix_src_" + System.currentTimeMillis() + ".mp4");
+        try (java.io.InputStream is = getContentResolver().openInputStream(src);
+             java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+            if (is == null) throw new java.io.IOException("Cannot open source URI");
+            byte[] buf = new byte[65536];
+            int n;
+            while ((n = is.read(buf)) > 0) fos.write(buf, 0, n);
+        }
+        return out.getAbsolutePath();
+    }
+
     private void setupListeners() {
         btnBack.setOnClickListener(v -> goBackOrToMediaEdit());
 
@@ -1768,6 +1981,14 @@ public class ReelEditorActivity extends AppCompatActivity {
     // ── Proceed to upload ─────────────────────────────────────────────────
 
     private void proceedToUpload() {
+        // ✅ FIX: Status has no separate subtitle-burn step (unlike this same
+        // editor's other exit paths, which never had one either — see
+        // mergeSubtitleCaptionIntoOverlay()'s javadoc). Merge the first caption
+        // line into stickerJson BEFORE the hasOverlays check below so it rides
+        // along on the existing text-overlay hard-bake instead of being
+        // silently dropped when this screen was opened from Status.
+        if (targetStatus) mergeSubtitleCaptionIntoOverlay();
+
         boolean hasFilter   = !filterName.isEmpty() && !filterName.equals("Normal");
         boolean hasOverlays = !stickerJson.isEmpty();
         // ✅ FIX: previously only filter/overlays triggered a re-encode, so a user
@@ -1852,6 +2073,20 @@ public class ReelEditorActivity extends AppCompatActivity {
         // to Status itself. Both exits from this screen now land in the same
         // place; only MediaEditActivity's own Save/Post ever returns to Status.
         if (allowMediaEditFallback) {
+            boolean hasMusicTrack = !preSelectedSoundUrl.isEmpty();
+            boolean hasVoiceover  = mixVoiceoverPath != null && !mixVoiceoverPath.isEmpty();
+            // Chat's Advance Editing flow has no ReelUploadActivity step after
+            // this screen (unlike Status/Reels, which run this exact mix via
+            // ReelUploadActivity.runAudioMixThenUpload right before posting) —
+            // so a picked sound/voiceover would otherwise silently never reach
+            // the video that actually gets sent in chat. Run the same
+            // AudioMixHelper mix ourselves before handing off to
+            // MediaEditActivity. See runAudioMixThenGoToMediaEdit().
+            if (!audioAlreadyReplaced && (hasMusicTrack || hasVoiceover)
+                    && videoUriStr != null && !videoUriStr.isEmpty()) {
+                runAudioMixThenGoToMediaEdit();
+                return;
+            }
             goBackOrToMediaEdit();
             return;
         }
@@ -1863,6 +2098,24 @@ public class ReelEditorActivity extends AppCompatActivity {
         // (speed, filters, effects, stickers, text, sound pick) are carried
         // across in the result extras below.
         if (targetStatus) {
+            // ✅ FIX: Audio Mixer (music/voiceover/fade/normalize/pitch) and
+            // Voice Effects (pitch) previously only got baked into the real
+            // audio track on the Reels/chat exit paths (ReelUploadActivity's
+            // runAudioMixThenUpload / this screen's own
+            // runAudioMixThenGoToMediaEdit for chat) — the Status exit never
+            // ran the mix at all, so picking a track/voiceover/pitch here did
+            // nothing to the video actually posted as a Status. Run the same
+            // AudioMixHelper step used for chat before finishing.
+            boolean hasMusicTrack   = !preSelectedSoundUrl.isEmpty();
+            boolean hasVoiceover    = mixVoiceoverPath != null && !mixVoiceoverPath.isEmpty();
+            boolean hasMixTweaks    = Math.abs(mixPitchSemitones) > 0.01f || mixNormalize
+                || mixFadeInMs > 0 || mixFadeOutMs > 0;
+            boolean hasVoiceEffect  = !voiceEffectName.isEmpty() && Math.abs(voicePitch - 1.0f) > 0.01f;
+            if (!audioAlreadyReplaced && (hasMusicTrack || hasVoiceover || hasMixTweaks || hasVoiceEffect)
+                    && videoUriStr != null && !videoUriStr.isEmpty()) {
+                runAudioMixThenFinishForStatus(textOverlay);
+                return;
+            }
             finishForStatusResult(textOverlay);
             return;
         }
@@ -1985,7 +2238,13 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (!filterName.isEmpty())   result.putExtra("filter_name",   filterName);
         if (!stickerJson.isEmpty())  result.putExtra("sticker_json",  stickerJson);
         if (cameraSpeed != 1.0f)     result.putExtra("camera_speed",  cameraSpeed);
-        if (!thumbnailPath.isEmpty())result.putExtra("thumbnail_path", thumbnailPath);
+        // ✅ FIX: thumbnail_frame_ms was never forwarded, so NewStatusActivity
+        // had no way to tell a real picked frame apart from a leftover 0
+        // default — see NewStatusActivity#handleReelCameraResult.
+        if (!thumbnailPath.isEmpty()) {
+            result.putExtra("thumbnail_path",     thumbnailPath);
+            result.putExtra("thumbnail_frame_ms", thumbnailFrameMs);
+        }
 
         setResult(RESULT_OK, result);
         finish();

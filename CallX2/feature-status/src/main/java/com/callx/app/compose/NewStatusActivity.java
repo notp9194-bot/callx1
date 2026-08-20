@@ -130,6 +130,16 @@ public class NewStatusActivity extends AppCompatActivity {
     // ReelEditorActivity is in flight; handleReelCameraResult consumes and
     // clears it once used as a fallback for the editor's own text overlay.
     private String pendingSingleVideoEditCaption;
+    /**
+     * ✅ FIX: ReelEditorActivity's Thumbnail tool let the person pick a custom
+     * cover frame (RESULT_THUMB_PATH → a real PNG already saved to disk), but
+     * this screen always regenerated its own first-frame thumbnail on upload
+     * regardless — the pick was accepted in the editor UI and then silently
+     * thrown away. Carries the picked file from handleReelCameraResult()
+     * through to uploadAndSave(); cleared in showVideoPreview()/discardMedia()
+     * so a later unrelated video pick can't accidentally reuse a stale one.
+     */
+    private java.io.File pendingCustomThumbnailFile;
     // v216: Layout picker result launcher — receives selected URIs + layout style.
     private ActivityResultLauncher<Intent>  layoutPickerLauncher;
     // v237: Receives the result of editing the flattened layout collage in
@@ -1260,6 +1270,15 @@ public class NewStatusActivity extends AppCompatActivity {
         if ((caption == null || caption.isEmpty()) && presetCaption != null) caption = presetCaption;
         showSinglePickedPreview(videoUri, true, caption);
         attachMusicStickerIfAny(data);
+
+        // ✅ FIX: pick up the custom cover frame from the Thumbnail tool (see
+        // pendingCustomThumbnailFile javadoc) — must run AFTER
+        // showSinglePickedPreview/showVideoPreview above, which clears it.
+        String customThumbPath = data.getStringExtra("thumbnail_path");
+        if (customThumbPath != null && !customThumbPath.isEmpty()) {
+            java.io.File f = new java.io.File(customThumbPath);
+            if (f.exists()) pendingCustomThumbnailFile = f;
+        }
     }
 
     /**
@@ -1642,6 +1661,10 @@ public class NewStatusActivity extends AppCompatActivity {
         refreshStepPreview();
     }
     private void showVideoPreview(Uri uri) {
+        // ✅ FIX: default-clear any earlier custom thumbnail pick — only
+        // handleReelCameraResult() re-arms it, right after this call, when
+        // the Reel Edit screen actually returned one for THIS video.
+        pendingCustomThumbnailFile = null;
         binding.ivPreview.setVisibility(View.VISIBLE);
         binding.ivVideoHint.setVisibility(View.VISIBLE);
         binding.btnDiscardMedia.setVisibility(View.VISIBLE);
@@ -1653,6 +1676,7 @@ public class NewStatusActivity extends AppCompatActivity {
     }
     private void discardMedia() {
         pickedImage = null; pickedVideo = null; cameraImageUri = null;
+        pendingCustomThumbnailFile = null;
         binding.ivPreview.setVisibility(View.GONE);
         binding.ivVideoHint.setVisibility(View.GONE);
         binding.btnDiscardMedia.setVisibility(View.GONE);
@@ -1728,29 +1752,51 @@ public class NewStatusActivity extends AppCompatActivity {
     }
     private void compressAndUploadVideo(Uri uri, String caption, String txt, String uid, String name, String photo) {
         runOnUiThread(() -> setHint("Compressing video… 0%"));
+        // ✅ FIX: snapshot the Reel Edit screen's custom cover pick now — the
+        // person picked it for THIS video, so it should win over whatever
+        // frame VideoCompressor auto-grabs below (see pendingCustomThumbnailFile).
+        java.io.File customThumb = pendingCustomThumbnailFile;
         VideoQualityPreferences.Quality quality = new VideoQualityPreferences(this).getGlobalQuality();
         VideoCompressor.compress(this, uri, quality, new VideoCompressor.Callback() {
             @Override public void onProgress(int pct) { runOnUiThread(() -> setHint("Compressing video… " + pct + "%")); }
             @Override public void onSuccess(VideoCompressor.Result r) {
                 runOnUiThread(() -> setHint("Uploading video…"));
-                uploadAndSave(Uri.fromFile(r.videoFile), "video", caption, txt, uid, name, photo, r.thumbFile);
+                if (customThumb != null && customThumb.exists()) {
+                    // Discard the auto-generated frame, use the person's pick instead.
+                    VideoCompressor.safeDelete(r.thumbFile);
+                    uploadAndSave(Uri.fromFile(r.videoFile), "video", caption, txt, uid, name, photo, customThumb, true);
+                } else {
+                    uploadAndSave(Uri.fromFile(r.videoFile), "video", caption, txt, uid, name, photo, r.thumbFile, false);
+                }
             }
             @Override public void onError(Exception e) {
                 runOnUiThread(() -> setHint("Uploading video…"));
-                uploadAndSave(uri, "video", caption, txt, uid, name, photo, null);
+                boolean useCustom = customThumb != null && customThumb.exists();
+                uploadAndSave(uri, "video", caption, txt, uid, name, photo,
+                    useCustom ? customThumb : null, useCustom);
             }
         });
     }
     private void uploadAndSave(Uri uri, String type, String caption, String txt,
                                 String uid, String name, String photo, java.io.File thumbFile) {
+        uploadAndSave(uri, type, caption, txt, uid, name, photo, thumbFile, false);
+    }
+    private void uploadAndSave(Uri uri, String type, String caption, String txt,
+                                String uid, String name, String photo, java.io.File thumbFile,
+                                boolean forceCustomThumb) {
         String rt = "video".equals(type) ? "video" : "image";
         CloudinaryUploader.upload(this, uri, "callx/status", rt, new CloudinaryUploader.UploadCallback() {
             @Override public void onSuccess(CloudinaryUploader.Result r) {
                 runOnUiThread(() -> {
                     setPosting(false);
-                    String thumbUrl = "video".equals(type) ? r.thumbnailUrl : null;
-                    // FIX: Clean up compressed files
-                    if (thumbFile != null) VideoCompressor.safeDelete(thumbFile);
+                    // ✅ FIX: Cloudinary's own r.thumbnailUrl is just its
+                    // auto-extracted video frame, which used to always win
+                    // over a custom pick from the Reel Edit screen's
+                    // Thumbnail tool. When forceCustomThumb is set, hold off
+                    // saving a thumbnailUrl until the person's own pick has
+                    // uploaded and can patch it in below instead.
+                    String thumbUrl = ("video".equals(type) && !forceCustomThumb) ? r.thumbnailUrl : null;
+                    if (!forceCustomThumb) VideoCompressor.safeDelete(thumbFile);
                     saveStatus(type, r.secureUrl, thumbUrl, txt, caption, uid, name, photo);
                     // FIX v25: If thumb was locally generated and Cloudinary didn't return one, upload separately
                     if ("video".equals(type) && thumbUrl == null && thumbFile != null && thumbFile.exists()) {

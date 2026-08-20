@@ -239,6 +239,10 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
 
     // ── Views ─────────────────────────────────────────────────────────────────
 
+    /** The whole preview stage (bg blur + photo + overlays + stickers + caption) —
+     *  used only as the coordinate frame for baking sticker/caption positions
+     *  into the final exported photo, see {@link #captureOverlaySnapshots()}. */
+    private ViewGroup    flPreviewStage;
     private ImageView   ivPreview;
     /** Blurred background fill behind the preview — Instagram-style letterbox. */
     private ImageView   ivBgBlur;
@@ -464,6 +468,27 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
      * (ReelEditorActivity) already returns.
      */
     private void goBackOrToMediaEdit() {
+        // ✅ FIX: this used to hand the ORIGINAL (or only-cropped) photoUri
+        // straight to MediaEditActivity, silently dropping every edit made on
+        // this screen — filter, effect, caption, stickers, brightness/
+        // contrast/saturation, rotation. That's why the chat "photo send"
+        // flow (which reuses this exact screen via allow_media_edit_fallback)
+        // looked like none of the Reel Photo Editor's features worked: they
+        // were applied to the on-screen preview only and thrown away on
+        // Back/Done. Now, when there's something to bake, we render those
+        // edits into a real new photo file first (renderBakedPhoto()) and
+        // forward THAT file's uri instead — same "only the uri travels
+        // onward" contract MediaEditActivity already expects.
+        if (allowMediaEditFallback && photoUri != null && !photoUri.isEmpty() && hasBakableEdits()) {
+            bakeEditsThenGoToMediaEdit();
+            return;
+        }
+        goBackOrToMediaEditRaw();
+    }
+
+    /** Original hand-off, now used once photoUri already reflects any baked edits
+     *  (or there was nothing to bake in the first place). */
+    private void goBackOrToMediaEditRaw() {
         if (allowMediaEditFallback && photoUri != null && !photoUri.isEmpty()) {
             Intent intent = new Intent();
             intent.setClassName(getPackageName(), "com.callx.app.conversation.controllers.MediaEditActivity");
@@ -484,6 +509,219 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         finish();
     }
 
+    /** True if anything was actually changed on this screen — skips a needless
+     *  re-encode (and its small quality/EXIF cost) when the user just cropped
+     *  or backed straight out without touching filters/effects/caption/stickers/adjust. */
+    private boolean hasBakableEdits() {
+        if (!"normal".equals(selectedFilter))                     return true;
+        if (!"none".equals(selectedEffect))                       return true;
+        if (rotation != 0f)                                       return true;
+        if (brightness != 0f || contrast != 1f || saturation != 1f) return true;
+        if (captionText != null && !captionText.trim().isEmpty()) return true;
+        if (flStickerLayer != null && flStickerLayer.getChildCount() > 0) return true;
+        return false;
+    }
+
+    /**
+     * Renders the current filter/effect/adjust/rotation/caption/stickers onto
+     * the full-resolution photo and swaps photoUri to the result before
+     * continuing to MediaEditActivity — see goBackOrToMediaEdit().
+     *
+     * View snapshots (caption + stickers) are captured on the UI thread first
+     * (View#draw requires it); the actual decode/compose/encode of the
+     * full-size photo runs on a background thread so Back/Done never jank or
+     * ANR on a large image.
+     */
+    private void bakeEditsThenGoToMediaEdit() {
+        final List<OverlaySnap> overlays = captureOverlaySnapshots();
+        final float stageW = flPreviewStage != null ? flPreviewStage.getWidth()  : 0;
+        final float stageH = flPreviewStage != null ? flPreviewStage.getHeight() : 0;
+        final String srcUri = photoUri;
+        final String filter = selectedFilter;
+        final String effect = selectedEffect;
+        final float rotDeg  = rotation;
+        final float br = brightness, ct = contrast, sat = saturation;
+
+        new Thread(() -> {
+            File out = null;
+            try {
+                out = renderBakedPhoto(srcUri, filter, effect, rotDeg, br, ct, sat, overlays, stageW, stageH);
+            } catch (Exception e) {
+                out = null; // fall back to the un-baked photo below rather than losing the send entirely
+            }
+            final Uri resultUri = out != null
+                    ? FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", out)
+                    : null;
+            new Handler(Looper.getMainLooper()).post(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (resultUri != null) photoUri = resultUri.toString();
+                goBackOrToMediaEditRaw();
+            });
+        }).start();
+    }
+
+    /** One captured overlay (a sticker or the caption), ready to be redrawn
+     *  onto the full-resolution canvas at its proportional position. */
+    private static class OverlaySnap {
+        Bitmap bitmap;
+        float centerXFrac, centerYFrac;
+        float scale;
+        float rotationDeg;
+    }
+
+    /** Rasterizes the caption view (if visible/non-empty) plus every sticker
+     *  currently on flStickerLayer, recording each one's centre position (as
+     *  a fraction of the preview stage) and its scale/rotation, so they can
+     *  be redrawn in the correct spot on the full-resolution export. Must run
+     *  on the UI thread — View#draw isn't safe off it. */
+    private List<OverlaySnap> captureOverlaySnapshots() {
+        List<OverlaySnap> list = new ArrayList<>();
+        float stageW = flPreviewStage != null ? flPreviewStage.getWidth()  : 0;
+        float stageH = flPreviewStage != null ? flPreviewStage.getHeight() : 0;
+        if (tvCaption != null && tvCaption.getVisibility() == View.VISIBLE
+                && captionText != null && !captionText.trim().isEmpty()) {
+            OverlaySnap cap = snapshotView(tvCaption, stageW, stageH);
+            if (cap != null) list.add(cap);
+        }
+        if (flStickerLayer != null) {
+            for (int i = 0; i < flStickerLayer.getChildCount(); i++) {
+                OverlaySnap s = snapshotView(flStickerLayer.getChildAt(i), stageW, stageH);
+                if (s != null) list.add(s);
+            }
+        }
+        return list;
+    }
+
+    @Nullable
+    private OverlaySnap snapshotView(View v, float stageW, float stageH) {
+        if (v == null || v.getVisibility() != View.VISIBLE
+                || v.getWidth() <= 0 || v.getHeight() <= 0) return null;
+        Bitmap bmp = Bitmap.createBitmap(v.getWidth(), v.getHeight(), Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(bmp);
+        v.draw(c);
+        OverlaySnap s = new OverlaySnap();
+        s.bitmap = bmp;
+        float cx = v.getX() + v.getWidth()  / 2f;
+        float cy = v.getY() + v.getHeight() / 2f;
+        s.centerXFrac = stageW > 0 ? cx / stageW : 0.5f;
+        s.centerYFrac = stageH > 0 ? cy / stageH : 0.5f;
+        s.scale = v.getScaleX();
+        s.rotationDeg = v.getRotation();
+        return s;
+    }
+
+    /**
+     * Background-thread render: decodes the full-resolution photo (Glide —
+     * same EXIF-safe decode path used for the live preview), applies rotation
+     * + the same combined colour matrix as applyAdjustPreview() (filter →
+     * saturation → brightness → contrast), the colour-filter tint and effect
+     * overlays (same colours as applyAdjustPreview()/applyEffectPreview()),
+     * then draws every captured sticker/caption snapshot at its recorded
+     * proportional position, and saves the result as a new JPEG.
+     */
+    private File renderBakedPhoto(String srcUri, String filter, String effect,
+                                  float rotDeg, float br, float ct, float sat,
+                                  List<OverlaySnap> overlays, float stageW, float stageH) throws Exception {
+        Bitmap base = Glide.with(getApplicationContext())
+                .asBitmap()
+                .load(Uri.parse(srcUri))
+                .skipMemoryCache(true)
+                .diskCacheStrategy(DiskCacheStrategy.NONE)
+                .submit()
+                .get();
+
+        int baseW = base.getWidth(), baseH = base.getHeight();
+        boolean swapDims = (Math.round(rotDeg) % 180) != 0;
+        int outW = swapDims ? baseH : baseW;
+        int outH = swapDims ? baseW : baseH;
+
+        Bitmap output = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(output);
+        canvas.drawColor(Color.BLACK);
+
+        // 1. Photo, rotated in place, with the same filter+saturation+brightness+contrast
+        //    matrix chain as applyAdjustPreview()'s live preview.
+        Paint photoPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        ColorMatrix cm = new ColorMatrix();
+        ColorMatrix filterCm = extractColorMatrix(filter);
+        if (filterCm != null) cm.postConcat(filterCm);
+        ColorMatrix satCm = new ColorMatrix();
+        satCm.setSaturation(sat);
+        cm.postConcat(satCm);
+        float b = br * 128f;
+        cm.postConcat(new ColorMatrix(new float[]{
+            1f,0f,0f,0f,b, 0f,1f,0f,0f,b, 0f,0f,1f,0f,b, 0f,0f,0f,1f,0f}));
+        float t = 128f * (1f - ct);
+        cm.postConcat(new ColorMatrix(new float[]{
+            ct,0f,0f,0f,t, 0f,ct,0f,0f,t, 0f,0f,ct,0f,t, 0f,0f,0f,1f,0f}));
+        photoPaint.setColorFilter(new ColorMatrixColorFilter(cm));
+
+        canvas.save();
+        canvas.translate(outW / 2f, outH / 2f);
+        canvas.rotate(rotDeg);
+        canvas.translate(-baseW / 2f, -baseH / 2f);
+        canvas.drawBitmap(base, 0, 0, photoPaint);
+        canvas.restore();
+        base.recycle();
+
+        // 2. Colour-filter tint overlay (matches vColorFilterOverlay).
+        Integer tint = buildTint(filter);
+        if (tint != null) canvas.drawColor(tint);
+
+        // 3. Visual effect overlay (matches applyEffectPreview()'s switch).
+        Integer effectColor = effectOverlayColor(effect);
+        if (effectColor != null) canvas.drawColor(effectColor);
+
+        // 4. Stickers + caption, redrawn at their recorded proportional position.
+        if (stageW > 0 && stageH > 0) {
+            float scaleX = outW / stageW;
+            float scaleY = outH / stageH;
+            float uniformScale = (scaleX + scaleY) / 2f;
+            for (OverlaySnap s : overlays) {
+                if (s == null || s.bitmap == null) continue;
+                float cx = s.centerXFrac * outW;
+                float cy = s.centerYFrac * outH;
+                float drawScale = s.scale * uniformScale;
+                canvas.save();
+                canvas.translate(cx, cy);
+                canvas.rotate(s.rotationDeg);
+                canvas.scale(drawScale, drawScale);
+                canvas.drawBitmap(s.bitmap, -s.bitmap.getWidth() / 2f, -s.bitmap.getHeight() / 2f, null);
+                canvas.restore();
+                s.bitmap.recycle();
+            }
+        }
+
+        File dir = new File(getCacheDir(), "photo_edit_bake");
+        if (!dir.exists()) dir.mkdirs();
+        File out = new File(dir, "bake_" + java.util.UUID.randomUUID() + ".jpg");
+        try (FileOutputStream fos = new FileOutputStream(out)) {
+            output.compress(Bitmap.CompressFormat.JPEG, 92, fos);
+        }
+        output.recycle();
+        return out;
+    }
+
+    /** Same colours as applyEffectPreview()'s switch, factored out so the
+     *  background-thread renderer doesn't have to touch vEffectOverlay. */
+    @Nullable
+    private static Integer effectOverlayColor(String effect) {
+        if (effect == null || "none".equals(effect)) return null;
+        switch (effect) {
+            case "vignette":        return 0x55000000;
+            case "grain":           return 0x1AFFFFFF;
+            case "glitch_overlay":  return 0x22FF0044;
+            case "neon_glow":       return 0x22FF00FF;
+            case "matte_overlay":   return 0x33FFFFFF;
+            case "chrome_leak":     return 0x22FFFACD;
+            case "bokeh":           return 0x15000000;
+            case "scanlines":       return 0x18000000;
+            case "dust":            return 0x14FFFFCC;
+            case "double_exposure": return 0x30FFFFFF;
+            default:                return null;
+        }
+    }
+
     /** Transparently forwards MediaEditActivity's result (whatever it is —
      *  edited-and-saved or cancelled) back to whoever launched THIS screen. */
     private void handleMediaEditFallbackResult(androidx.activity.result.ActivityResult result) {
@@ -494,6 +732,7 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     // ── View binding ──────────────────────────────────────────────────────────
 
     private void bindViews() {
+        flPreviewStage      = findViewById(R.id.fl_editor_preview_stage);
         ivPreview           = findViewById(R.id.iv_photo_editor_preview);
         ivBgBlur            = findViewById(R.id.iv_photo_editor_bg_blur);
         vEffectOverlay      = findViewById(R.id.v_editor_effect_overlay);
