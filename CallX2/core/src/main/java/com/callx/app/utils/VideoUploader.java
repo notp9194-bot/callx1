@@ -604,6 +604,22 @@ public class VideoUploader {
                                 String soundId, boolean matched, String ownerUid) {
             onSuccess(audioUrl, previewAudioUrl);
         }
+        /**
+         * ✅ NEW: same as the 5-arg onSuccess, plus offsetSec — where inside
+         * the MATCHED original track this upload's audio actually starts
+         * (server-side offset-consistent landmark alignment; see
+         * /audio/match "v2" on the server). 0 when matched==false, or when
+         * this upload's audio effectively starts at the original's start.
+         * Only meaningful when matched==true.
+         *
+         * Default just forwards to the 5-arg callback, so existing overrides
+         * keep compiling/working unchanged.
+         */
+        default void onSuccess(String audioUrl, String previewAudioUrl,
+                                String soundId, boolean matched, String ownerUid,
+                                double offsetSec) {
+            onSuccess(audioUrl, previewAudioUrl, soundId, matched, ownerUid);
+        }
         void onError(Exception e);
     }
 
@@ -677,6 +693,7 @@ public class VideoUploader {
                 String  matchedSoundId  = fallbackSoundId;
                 boolean matched         = false;
                 String  matchedOwnerUid = "";
+                double  matchedOffsetSec = 0;
                 try {
                     JSONObject matchResult =
                         matchAudioFingerprint(finalAudio, ownerUid, reelId, fallbackSoundId);
@@ -684,6 +701,7 @@ public class VideoUploader {
                         matched         = matchResult.optBoolean("matched", false);
                         matchedSoundId  = matchResult.optString("sound_id", fallbackSoundId);
                         matchedOwnerUid = matchResult.optString("owner_uid", "");
+                        matchedOffsetSec = matchResult.optDouble("offset_sec", 0);
                         if (matchedSoundId == null || matchedSoundId.isEmpty()) {
                             matchedSoundId = fallbackSoundId;
                         }
@@ -694,10 +712,11 @@ public class VideoUploader {
                     // behaviour as before this feature existed.
                 }
 
-                final String  fSoundId  = matchedSoundId;
-                final boolean fMatched  = matched;
-                final String  fOwnerUid = matchedOwnerUid;
-                MAIN.post(() -> callback.onSuccess(fUrl, fPreviewUrl, fSoundId, fMatched, fOwnerUid));
+                final String  fSoundId    = matchedSoundId;
+                final boolean fMatched    = matched;
+                final String  fOwnerUid   = matchedOwnerUid;
+                final double  fOffsetSec  = matchedOffsetSec;
+                MAIN.post(() -> callback.onSuccess(fUrl, fPreviewUrl, fSoundId, fMatched, fOwnerUid, fOffsetSec));
 
             } catch (Exception e) {
                 Log.e(TAG, "uploadOriginalAudio error", e);
@@ -830,9 +849,17 @@ public class VideoUploader {
      * sound page)?" See POST /audio/match on the server (pure server-side FFT
      * fingerprinting, no paid API).
      *
-     * Uses a short connect/read timeout of its own (separate from HTTP's
-     * defaults) since this is a best-effort background enrichment step, not
-     * something the reel post should ever be blocked on.
+     * ✅ ASYNC QUEUE: the server no longer computes the FFT inline — it
+     * queues the job and replies 202 immediately with a job_id (see server's
+     * runFingerprintJob/pumpFingerprintQueue). We then wait for the result
+     * via a normal Firebase RTDB listener on audio_match_jobs/{job_id},
+     * bounded by a timeout, instead of holding one HTTP connection open for
+     * however long a busy queue takes — same async listener pattern already
+     * used for the linked-devices pairing flow on the server.
+     *
+     * Still fully synchronous from THIS method's caller's point of view (it
+     * blocks the background thread it's already running on) — nothing about
+     * the calling code in uploadOriginalAudio() had to change.
      *
      * @param audioFile   local extracted audio (m4a) — the SAME file already
      *                    uploaded to Cloudinary a moment ago in this thread
@@ -840,15 +867,17 @@ public class VideoUploader {
      * @param reelId      this reel's id
      * @param newSoundId  the id the server should register this audio under
      *                    if it turns out to be genuinely new ("orig_{reelId}")
-     * @return {matched, sound_id, owner_uid} JSON, or null if the server
-     *         didn't respond usefully — caller treats null as "no match"
+     * @return {matched, sound_id, owner_uid, offset_sec} JSON, or null if the
+     *         server/queue didn't respond in time — caller treats null as
+     *         "no match". offset_sec (server "v2") is where inside the
+     *         matched original this upload's audio starts — 0 if unmatched.
      */
     private static JSONObject matchAudioFingerprint(java.io.File audioFile, String ownerUid,
                                                       String reelId, String newSoundId)
             throws Exception {
         OkHttpClient shortClient = HTTP.newBuilder()
             .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(20,    TimeUnit.SECONDS) // server-side FFT is fast; 20s covers a cold Render dyno
+            .readTimeout(15,    TimeUnit.SECONDS) // just submitting the job now — should be fast
             .writeTimeout(20,   TimeUnit.SECONDS)
             .build();
 
@@ -873,14 +902,82 @@ public class VideoUploader {
             .post(body)
             .build();
 
+        String jobId;
         try (Response res = shortClient.newCall(req).execute()) {
             String resBody = res.body() != null ? res.body().string() : "";
             if (!res.isSuccessful()) {
-                Log.w(TAG, "/audio/match failed (" + res.code() + "): " + resBody);
+                Log.w(TAG, "/audio/match submit failed (" + res.code() + "): " + resBody);
                 return null;
             }
-            return new JSONObject(resBody);
+            JSONObject submitJson = new JSONObject(resBody);
+            jobId = submitJson.optString("job_id", "");
+            if (jobId.isEmpty()) {
+                // Backward-compat: an older/non-queued deploy of the server
+                // may still return the final result directly — use it as-is.
+                return submitJson;
+            }
         }
+
+        return waitForAudioMatchJob(jobId);
+    }
+
+    /**
+     * Blocks (with a timeout) until audio_match_jobs/{jobId} in Firebase RTDB
+     * reaches status "done" or "error", then returns a {matched, sound_id,
+     * owner_uid} JSON — or null on timeout/error, same "no match, fall back"
+     * contract as before this became async.
+     */
+    private static JSONObject waitForAudioMatchJob(String jobId) throws InterruptedException {
+        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        final JSONObject[] resultHolder = new JSONObject[1];
+
+        com.google.firebase.database.DatabaseReference jobRef =
+            com.google.firebase.database.FirebaseDatabase.getInstance()
+                .getReference("audio_match_jobs").child(jobId);
+
+        com.google.firebase.database.ValueEventListener listener =
+            new com.google.firebase.database.ValueEventListener() {
+                @Override
+                public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                    String status = snap.child("status").getValue(String.class);
+                    if (status == null || status.equals("queued") || status.equals("processing")) {
+                        return; // still working — keep listening
+                    }
+                    if ("done".equals(status)) {
+                        try {
+                            JSONObject j = new JSONObject();
+                            j.put("matched",   Boolean.TRUE.equals(snap.child("matched").getValue(Boolean.class)));
+                            j.put("sound_id",  snap.child("sound_id").getValue(String.class));
+                            j.put("owner_uid", snap.child("owner_uid").getValue(String.class));
+                            Double offsetSec = snap.child("offset_sec").getValue(Double.class);
+                            j.put("offset_sec", offsetSec != null ? offsetSec : 0);
+                            resultHolder[0] = j;
+                        } catch (Exception ignored) { /* resultHolder stays null → treated as no-match */ }
+                    } else {
+                        Log.w(TAG, "audio_match_jobs/" + jobId + " status=" + status);
+                    }
+                    jobRef.removeEventListener(this);
+                    latch.countDown();
+                }
+
+                @Override
+                public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
+                    Log.w(TAG, "audio_match_jobs listener cancelled: " + e.getMessage());
+                    latch.countDown();
+                }
+            };
+
+        jobRef.addValueEventListener(listener);
+
+        // Bounded wait — a queue backlog or a cold Render dyno shouldn't hang
+        // the reel post pipeline forever. On timeout we just fall back to
+        // "new original audio", exactly like any other match failure.
+        boolean completed = latch.await(25, TimeUnit.SECONDS);
+        jobRef.removeEventListener(listener);
+        if (!completed) {
+            Log.w(TAG, "audio_match_jobs/" + jobId + " timed out waiting for result");
+        }
+        return resultHolder[0];
     }
 
     private VideoUploader() {}

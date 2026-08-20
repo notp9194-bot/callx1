@@ -2988,7 +2988,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                                         @Override
                                         public void onSuccess(String audioUrl, String previewAudioUrl,
                                                                String matchedSoundId, boolean matched,
-                                                               String matchedOwnerUid) {
+                                                               String matchedOwnerUid, double offsetSec) {
                                             // Save originalAudioUrl to Firebase
                                             FirebaseUtils.getReelsRef()
                                                 .child(finalReelId)
@@ -2997,7 +2997,8 @@ public class ReelUploadActivity extends AppCompatActivity {
                                             Log.d("ReelUpload",
                                                 "originalAudioUrl saved: " + audioUrl
                                                 + " previewAudioUrl: " + previewAudioUrl
-                                                + " matched: " + matched + " soundId: " + matchedSoundId);
+                                                + " matched: " + matched + " soundId: " + matchedSoundId
+                                                + " offsetSec: " + offsetSec);
 
                                             // ✅ Instagram-style: same audio was already posted by
                                             // someone (or by us) as a raw upload, even though we
@@ -3012,6 +3013,17 @@ public class ReelUploadActivity extends AppCompatActivity {
                                                 && !matchedSoundId.isEmpty()) ? matchedSoundId : "";
                                             registerOrLinkSound(b, finalReelId, myUid, myName,
                                                 thumbUrl, videoUrl, audioUrl, previewAudioUrl, soundIdToUse);
+
+                                            // ✅ NEW: this reel used a snippet/offset portion of the
+                                            // matched original (not necessarily its very start) —
+                                            // stash it so a future "jump to this part of the sound"
+                                            // UI has something to read. Non-fatal, best-effort.
+                                            if (matched && offsetSec > 0.05) {
+                                                FirebaseUtils.getReelsRef()
+                                                    .child(finalReelId)
+                                                    .child("audioMatchOffsetSec")
+                                                    .setValue(offsetSec);
+                                            }
                                         }
                                         @Override
                                         public void onError(Exception e) {
