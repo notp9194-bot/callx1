@@ -64,9 +64,12 @@ public class CollabAvatarStackView extends View {
         // overlap Instagram uses (our old plain stack used 50%/12dp).
         overlapStepPx = Math.round(19 * density);
         verticalStepPx = Math.round(4 * density);
-        // Border ring removed (was a black outline) — cutout notch now sizes
-        // exactly to the avatar circle itself so there's no black ring.
-        borderWidthPx = 0;
+        // ✅ FIX: borderWidthPx was 0 — avatars had zero gap and looked stuck
+        // together edge-to-edge ("chipak rahe the"). A small transparent gap
+        // (cutout notch slightly bigger than the avatar) fixes this without
+        // bringing back the old black ring, since the gap is punched via
+        // PorterDuff.CLEAR — it just reveals the video behind, not a color.
+        borderWidthPx = Math.round(2 * density);
 
         clearPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
 

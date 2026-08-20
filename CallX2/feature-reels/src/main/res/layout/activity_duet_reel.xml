@@ -215,7 +215,54 @@
             android:contentDescription="Reaction Bubble"
             android:alpha="0.4"
             android:layout_marginTop="4dp"/>
+
+        <ImageButton
+            android:id="@+id/btn_layout_green_screen"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_duet_series"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#00E676"
+            android:contentDescription="Green Screen"
+            android:alpha="0.4"
+            android:layout_marginTop="4dp"/>
     </LinearLayout>
+
+    <!-- ── v29: Auto-follow face + Beat Cut toggles (below layout selector) ── -->
+    <LinearLayout
+        android:id="@+id/layout_duet_smart_toggles"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:orientation="vertical"
+        android:layout_marginTop="280dp"
+        android:layout_marginEnd="8dp"
+        android:background="#55000000"
+        android:padding="6dp">
+
+        <ImageButton
+            android:id="@+id/btn_auto_follow_face"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_camera"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#FFD700"
+            android:contentDescription="Auto-follow Face"
+            android:alpha="0.4"
+            android:visibility="gone"/>
+
+        <ImageButton
+            android:id="@+id/btn_beat_cut"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_reels"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#FFD700"
+            android:contentDescription="Beat Cut"
+            android:alpha="0.4"
+            android:layout_marginTop="4dp"/>
+    </LinearLayout>
+
 
     <!-- ── Live Editing Tools Panel (right side, vertically centred) ──────── -->
     <!--
