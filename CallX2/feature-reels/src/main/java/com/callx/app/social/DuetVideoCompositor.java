@@ -156,74 +156,6 @@ public class DuetVideoCompositor {
                            origVolume, micGain, bubbleNdcX, bubbleNdcY);
       }
 
-      /**
-       * ✅ NEW (v6): Full-featured overload.
-       * layoutMode 4 = LAYOUT_GREEN_SCREEN (chroma-key camera composited over
-       * the full-screen original reel — camAspect cover-fit, spill suppressed).
-       *
-       * @param beatTimesMs         optional beat timestamps (ms) from BeatSyncAnalyzer.
-       *                            When non-null/non-empty, a short punch-zoom +
-       *                            white-flash "auto-cut" effect is baked into the
-       *                            output within ~150ms after every beat.
-       * @param bubbleTrackTimesMs  optional face-tracking timeline (ms, monotonic) —
-       *                            paired with bubbleTrackX/Y (NDC -1..1). When
-       *                            provided, the reaction bubble (mode 3) follows
-       *                            this interpolated path frame-by-frame instead of
-       *                            staying at the static bubbleNdcX/bubbleNdcY.
-       */
-      public boolean composite(String cameraPath, String originalUrl,
-                               String outputPath, int layoutMode,
-                               float origVolume, float micGain,
-                               float bubbleNdcX, float bubbleNdcY,
-                               long[] beatTimesMs,
-                               long[] bubbleTrackTimesMs, float[] bubbleTrackX, float[] bubbleTrackY,
-                               ProgressListener listener) {
-          this.progressListener   = listener;
-          this.lastReportedPct    = -1;
-          this.beatTimesMs        = beatTimesMs;
-          this.bubbleTrackTimesMs = bubbleTrackTimesMs;
-          this.bubbleTrackX       = bubbleTrackX;
-          this.bubbleTrackY       = bubbleTrackY;
-          this.beatCursor         = 0;
-          this.trackCursor        = 0;
-
-          Log.d(TAG, "start(v6) layout=" + layoutMode
-                  + " beats=" + (beatTimesMs != null ? beatTimesMs.length : 0)
-                  + " bubbleTrack=" + (bubbleTrackTimesMs != null ? bubbleTrackTimesMs.length : 0));
-
-          if (cameraPath == null || !new File(cameraPath).exists()) {
-              Log.e(TAG, "camera file missing"); return false;
-          }
-          if (originalUrl == null || originalUrl.isEmpty()) {
-              Log.e(TAG, "original URL empty"); return false;
-          }
-          try {
-              return pipeline(cameraPath, originalUrl, outputPath, layoutMode,
-                              origVolume, micGain, bubbleNdcX, bubbleNdcY);
-          } catch (Exception e) {
-              Log.e(TAG, "composite failed: " + e.getMessage(), e);
-              return false;
-          } finally {
-              releaseGL();
-              this.beatTimesMs = null;
-              this.bubbleTrackTimesMs = null;
-              this.bubbleTrackX = null;
-              this.bubbleTrackY = null;
-          }
-      }
-
-      // ── v6: beat-cut + face-track-follow state ────────────────────────────
-      private long[]  beatTimesMs;
-      private long[]  bubbleTrackTimesMs;
-      private float[] bubbleTrackX;
-      private float[] bubbleTrackY;
-      private int     beatCursor = 0;
-      private int     trackCursor = 0;
-
-      /** LAYOUT_GREEN_SCREEN — camera is chroma-keyed and composited full-frame
-       *  over the original reel. Pass this as layoutMode. */
-      public static final int LAYOUT_GREEN_SCREEN = 4;
-
   
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -415,19 +347,10 @@ public class DuetVideoCompositor {
                 GLES20.glClearColor(0f, 0f, 0f, 1f);
                 GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
 
-                // Pass bubble position for reaction-bubble mode — use the
-                // interpolated face-tracking path when available, else static.
-                float[] bubblePos = interpolateBubbleTrack(camPtsUs);
-                renderBubbleX = bubblePos != null ? bubblePos[0] : bubbleNdcX;
-                renderBubbleY = bubblePos != null ? bubblePos[1] : bubbleNdcY;
-
-                // Beat-synced auto-cut: punch-zoom + flash within ~150ms of a beat
-                float beatFactor   = computeBeatFactor(camPtsUs);
-                beatPunchScale      = 1f + 0.06f * beatFactor;
-                beatFlashAlpha      = 0.30f * beatFactor;
-
+                // Pass bubble position for reaction-bubble mode
+                renderBubbleX = bubbleNdcX;
+                renderBubbleY = bubbleNdcY;
                 renderFrame(layout);
-                if (beatFlashAlpha > 0.01f) drawFlashOverlay(beatFlashAlpha);
 
                 EGLExt.eglPresentationTimeANDROID(eglDisplay, eglSurface,
                         camPtsUs * 1000L);
@@ -507,10 +430,6 @@ public class DuetVideoCompositor {
     private float renderBubbleX = -0.55f;
     private float renderBubbleY = -0.72f;
 
-    // ── v6: beat-cut punch/flash, applied per-frame in renderFrame/drawRect* ──
-    private float beatPunchScale = 1f;
-    private float beatFlashAlpha = 0f;
-
     // Gap between the two panels, matched to the 10dp preview gap
     // (10dp @ ~3x density ≈ 30px on the 1080-wide/1920-tall output canvas).
     private static final float PANEL_GAP_PX    = 30f;
@@ -532,12 +451,7 @@ public class DuetVideoCompositor {
                 // Original reel fills full screen
                 drawRect(texOrig, matOrig, -1f, -1f, 1f, 1f);
                 // Camera face in a circular bubble (radius ~0.28 NDC = ~150px on 1080px wide)
-                // Face-tracking (when available) already drives renderBubbleX/Y above.
                 drawCircleBubble(texCam, matCam, renderBubbleX, renderBubbleY, 0.28f);
-                break;
-            case LAYOUT_GREEN_SCREEN: // 4 — chroma-key camera over full-screen original
-                drawRect(texOrig, matOrig, -1f, -1f, 1f, 1f);
-                drawGreenScreenFull(texCam, matCam, camAspect);
                 break;
             default: { // SIDE-BY-SIDE
                 float gapNdc = (PANEL_GAP_PX / 2f) / (OUT_W / 2f);
@@ -609,8 +523,8 @@ public class DuetVideoCompositor {
         if (glRoundedProgram < 0) return;
         GLES20.glUseProgram(glRoundedProgram);
 
-        float scaleX = (x1 - x0) * 0.5f * beatPunchScale;
-        float scaleY = (y1 - y0) * 0.5f * beatPunchScale;
+        float scaleX = (x1 - x0) * 0.5f;
+        float scaleY = (y1 - y0) * 0.5f;
         float transX = (x0 + x1) * 0.5f;
         float transY = (y0 + y1) * 0.5f;
 
@@ -657,8 +571,8 @@ public class DuetVideoCompositor {
                            float x0, float y0, float x1, float y1) {
         GLES20.glUseProgram(glProgram);
 
-        float scaleX = (x1 - x0) * 0.5f * beatPunchScale;
-        float scaleY = (y1 - y0) * 0.5f * beatPunchScale;
+        float scaleX = (x1 - x0) * 0.5f;
+        float scaleY = (y1 - y0) * 0.5f;
         float transX = (x0 + x1) * 0.5f;
         float transY = (y0 + y1) * 0.5f;
 
@@ -682,110 +596,6 @@ public class DuetVideoCompositor {
         GLES20.glVertexAttribPointer(aTexCoord, 2, GLES20.GL_FLOAT, false, 16, quadBuf);
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-    }
-
-    /**
-     * ✅ NEW (v6): Draws texId full-frame with a chroma-key (green-screen) alpha
-     * cut applied in the fragment shader, cover-fit cropped to srcAspect so the
-     * camera clip fills the 1080×1920 canvas without stretching.
-     */
-    private void drawGreenScreenFull(int texId, float[] texMatrix, float srcAspect) {
-        if (glGreenScreenProgram < 0) return;
-        GLES20.glUseProgram(glGreenScreenProgram);
-
-        float scaleX = 1f * beatPunchScale;
-        float scaleY = 1f * beatPunchScale;
-
-        float[] mvp = new float[16];
-        Matrix.setIdentityM(mvp, 0);
-        Matrix.scaleM(mvp, 0, scaleX, scaleY, 1f);
-
-        GLES20.glUniformMatrix4fv(gMVP,       1, false, mvp,       0);
-        GLES20.glUniformMatrix4fv(gTexMatrix, 1, false, texMatrix, 0);
-
-        float dstAspect = (float) OUT_W / OUT_H;
-        float cropScaleX = 1f, cropScaleY = 1f;
-        if (srcAspect > dstAspect) {
-            cropScaleX = dstAspect / srcAspect;
-        } else {
-            cropScaleY = srcAspect / dstAspect;
-        }
-        GLES20.glUniform2f(gCropScale,  cropScaleX, cropScaleY);
-        GLES20.glUniform2f(gCropOffset, (1f - cropScaleX) * 0.5f, (1f - cropScaleY) * 0.5f);
-
-        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texId);
-        GLES20.glUniform1i(gTexture, 0);
-
-        quadBuf.position(0);
-        GLES20.glEnableVertexAttribArray(gPosition);
-        GLES20.glVertexAttribPointer(gPosition, 2, GLES20.GL_FLOAT, false, 16, quadBuf);
-        quadBuf.position(2);
-        GLES20.glEnableVertexAttribArray(gTexCoord);
-        GLES20.glVertexAttribPointer(gTexCoord, 2, GLES20.GL_FLOAT, false, 16, quadBuf);
-
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-    }
-
-    /**
-     * ✅ NEW (v6): Full-screen flat white flash, used as the "cut" pop on beats.
-     */
-    private void drawFlashOverlay(float alpha) {
-        if (glFlashProgram < 0) return;
-        GLES20.glUseProgram(glFlashProgram);
-        GLES20.glUniform4f(fColor, 1f, 1f, 1f, Math.min(1f, alpha));
-
-        quadBuf.position(0);
-        GLES20.glEnableVertexAttribArray(fPosition);
-        GLES20.glVertexAttribPointer(fPosition, 2, GLES20.GL_FLOAT, false, 16, quadBuf);
-
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-    }
-
-    /**
-     * ✅ NEW (v6): Beat-cut envelope — returns 1.0 right at a beat, decaying
-     * linearly to 0.0 over BEAT_CUT_WINDOW_US. Uses a monotonic cursor since
-     * camPtsUs only increases across the pipeline loop.
-     */
-    private static final long BEAT_CUT_WINDOW_US = 150_000L;
-
-    private float computeBeatFactor(long camPtsUs) {
-        if (beatTimesMs == null || beatTimesMs.length == 0) return 0f;
-        while (beatCursor < beatTimesMs.length - 1
-                && beatTimesMs[beatCursor + 1] * 1000L <= camPtsUs) {
-            beatCursor++;
-        }
-        long beatUs = beatTimesMs[beatCursor] * 1000L;
-        long elapsed = camPtsUs - beatUs;
-        if (elapsed < 0 || elapsed > BEAT_CUT_WINDOW_US) return 0f;
-        return 1f - ((float) elapsed / BEAT_CUT_WINDOW_US);
-    }
-
-    /**
-     * ✅ NEW (v6): Linear interpolation over the face-tracking timeline for the
-     * given camera presentation time. Returns null if no track was supplied
-     * (falls back to the static bubble position).
-     */
-    private float[] interpolateBubbleTrack(long camPtsUs) {
-        if (bubbleTrackTimesMs == null || bubbleTrackTimesMs.length == 0) return null;
-        long tMs = camPtsUs / 1000L;
-
-        if (tMs <= bubbleTrackTimesMs[0]) {
-            return new float[]{bubbleTrackX[0], bubbleTrackY[0]};
-        }
-        int last = bubbleTrackTimesMs.length - 1;
-        if (tMs >= bubbleTrackTimesMs[last]) {
-            return new float[]{bubbleTrackX[last], bubbleTrackY[last]};
-        }
-        while (trackCursor < last && bubbleTrackTimesMs[trackCursor + 1] < tMs) {
-            trackCursor++;
-        }
-        int i0 = trackCursor, i1 = Math.min(trackCursor + 1, last);
-        long t0 = bubbleTrackTimesMs[i0], t1 = bubbleTrackTimesMs[i1];
-        float frac = (t1 > t0) ? (float) (tMs - t0) / (t1 - t0) : 0f;
-        float x = bubbleTrackX[i0] + (bubbleTrackX[i1] - bubbleTrackX[i0]) * frac;
-        float y = bubbleTrackY[i0] + (bubbleTrackY[i1] - bubbleTrackY[i0]) * frac;
-        return new float[]{x, y};
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -924,41 +734,6 @@ public class DuetVideoCompositor {
     private int rPosition, rTexCoord, rMVP, rTexMatrix, rTexture, rHalfSizePx, rRadiusPx;
     private int rCropScale, rCropOffset;
 
-    // ── v6: Green-screen (chroma-key) shader ──────────────────────────────────
-    // Keys out pixels close to pure green, with mild spill suppression on the
-    // edge so a bright-green ring doesn't linger around the subject.
-    private static final String GREEN_SCREEN_FS =
-        "#extension GL_OES_EGL_image_external : require\n" +
-        "precision mediump float;\n" +
-        "varying vec2 vTex;\n" +
-        "uniform samplerExternalOES uTexture;\n" +
-        "void main() {\n" +
-        "  vec4 c = texture2D(uTexture, vTex);\n" +
-        "  float chromaDist = length(c.rgb - vec3(0.0, 1.0, 0.0));\n" +
-        "  float alpha = smoothstep(0.25, 0.55, chromaDist);\n" +
-        "  vec3 rgb = c.rgb;\n" +
-        "  float greenExcess = max(rgb.g - max(rgb.r, rgb.b), 0.0);\n" +
-        "  rgb.g -= greenExcess * (1.0 - alpha) * 0.5;\n" +
-        "  if (alpha < 0.03) discard;\n" +
-        "  gl_FragColor = vec4(rgb, alpha);\n" +
-        "}\n";
-
-    private int glGreenScreenProgram = -1;
-    private int gPosition, gTexCoord, gMVP, gTexMatrix, gTexture, gCropScale, gCropOffset;
-
-    // ── v6: Flat-color flash overlay shader (beat-cut pop) ────────────────────
-    private static final String FLASH_VS =
-        "attribute vec4 aPosition;\n" +
-        "void main() { gl_Position = aPosition; }\n";
-
-    private static final String FLASH_FS =
-        "precision mediump float;\n" +
-        "uniform vec4 uColor;\n" +
-        "void main() { gl_FragColor = uColor; }\n";
-
-    private int glFlashProgram = -1;
-    private int fPosition, fColor;
-
     private void setupGL() {
         // Normal rect program
         glProgram = GLES20.glCreateProgram();
@@ -1003,30 +778,7 @@ public class DuetVideoCompositor {
         bRadius    = GLES20.glGetUniformLocation(glBubbleProgram, "uRadius");
         bAspect    = GLES20.glGetUniformLocation(glBubbleProgram, "uAspect");
 
-        // Green-screen program (crop-aware VS, chroma-key clip FS)
-        glGreenScreenProgram = GLES20.glCreateProgram();
-        GLES20.glAttachShader(glGreenScreenProgram, makeShader(GLES20.GL_VERTEX_SHADER,   CROP_VS));
-        GLES20.glAttachShader(glGreenScreenProgram, makeShader(GLES20.GL_FRAGMENT_SHADER, GREEN_SCREEN_FS));
-        GLES20.glLinkProgram(glGreenScreenProgram);
-
-        gPosition   = GLES20.glGetAttribLocation(glGreenScreenProgram,  "aPosition");
-        gTexCoord   = GLES20.glGetAttribLocation(glGreenScreenProgram,  "aTexCoord");
-        gMVP        = GLES20.glGetUniformLocation(glGreenScreenProgram, "uMVPMatrix");
-        gTexMatrix  = GLES20.glGetUniformLocation(glGreenScreenProgram, "uTexMatrix");
-        gTexture    = GLES20.glGetUniformLocation(glGreenScreenProgram, "uTexture");
-        gCropScale  = GLES20.glGetUniformLocation(glGreenScreenProgram, "uCropScale");
-        gCropOffset = GLES20.glGetUniformLocation(glGreenScreenProgram, "uCropOffset");
-
-        // Flash-overlay program (solid color, beat-cut pop)
-        glFlashProgram = GLES20.glCreateProgram();
-        GLES20.glAttachShader(glFlashProgram, makeShader(GLES20.GL_VERTEX_SHADER,   FLASH_VS));
-        GLES20.glAttachShader(glFlashProgram, makeShader(GLES20.GL_FRAGMENT_SHADER, FLASH_FS));
-        GLES20.glLinkProgram(glFlashProgram);
-
-        fPosition = GLES20.glGetAttribLocation(glFlashProgram,  "aPosition");
-        fColor    = GLES20.glGetUniformLocation(glFlashProgram, "uColor");
-
-        // Enable blending so bubble/green-screen/flash alpha edges work
+        // Enable blending so bubble alpha edge works
         GLES20.glEnable(GLES20.GL_BLEND);
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
 

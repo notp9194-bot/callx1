@@ -579,6 +579,31 @@ public class VideoUploader {
         default void onSuccess(String audioUrl, String previewAudioUrl) {
             onSuccess(audioUrl);
         }
+        /**
+         * ✅ NEW: audio-fingerprint match result (Instagram-style "someone
+         * else already posted this exact audio, even though I never picked
+         * it from a sound page" detection — see /audio/match on the server).
+         *
+         * @param audioUrl        full-quality original audio URL (Cloudinary)
+         * @param previewAudioUrl low-bitrate preview URL, may be ""
+         * @param soundId         the sounds/{soundId} this reel should link
+         *                        to — either an EXISTING sound (if matched)
+         *                        or the fresh "orig_{reelId}" id (if not)
+         * @param matched         true  → soundId belongs to another (or the
+         *                                same) creator's earlier reel; treat
+         *                                exactly like a picked existing sound
+         *                        false → this is a genuinely new original;
+         *                                caller should register it as such
+         * @param ownerUid        original creator's uid when matched != own
+         *                        upload; "" if unknown/not matched
+         *
+         * Default just forwards to the 2-arg callback with matched=false,
+         * so existing overrides keep compiling/working unchanged.
+         */
+        default void onSuccess(String audioUrl, String previewAudioUrl,
+                                String soundId, boolean matched, String ownerUid) {
+            onSuccess(audioUrl, previewAudioUrl);
+        }
         void onError(Exception e);
     }
 
@@ -591,9 +616,15 @@ public class VideoUploader {
      *
      * @param ctx       Context
      * @param videoFile Compressed/mixed video file (already exists locally)
+     * @param ownerUid  uploader's uid — needed to credit a NEW original audio
+     *                  to the right person, and to skip crediting a match
+     *                  back to yourself
+     * @param reelId    the reel this audio belongs to — used to derive the
+     *                  fallback "orig_{reelId}" sound id when no match is found
      * @param callback  AudioUploadCallback with Cloudinary URL on success
      */
     public static void uploadOriginalAudio(Context ctx, java.io.File videoFile,
+                                           String ownerUid, String reelId,
                                            AudioUploadCallback callback) {
         new Thread(() -> {
             java.io.File audioOut   = null;
@@ -634,7 +665,39 @@ public class VideoUploader {
 
                 final String fUrl        = audioUrl;
                 final String fPreviewUrl = previewUrl != null ? previewUrl : "";
-                MAIN.post(() -> callback.onSuccess(fUrl, fPreviewUrl));
+
+                // ── Step 2.5: audio-fingerprint match against the server ───
+                // Runs on THIS background thread (audioOut still exists here —
+                // it gets deleted in the finally block below, after this).
+                // Never blocks the reel post itself: this whole method already
+                // runs after the reel is live (see ReelUploadActivity caller),
+                // and any failure here just falls back to "new original audio",
+                // same as before this feature existed.
+                String  fallbackSoundId = "orig_" + reelId;
+                String  matchedSoundId  = fallbackSoundId;
+                boolean matched         = false;
+                String  matchedOwnerUid = "";
+                try {
+                    JSONObject matchResult =
+                        matchAudioFingerprint(finalAudio, ownerUid, reelId, fallbackSoundId);
+                    if (matchResult != null) {
+                        matched         = matchResult.optBoolean("matched", false);
+                        matchedSoundId  = matchResult.optString("sound_id", fallbackSoundId);
+                        matchedOwnerUid = matchResult.optString("owner_uid", "");
+                        if (matchedSoundId == null || matchedSoundId.isEmpty()) {
+                            matchedSoundId = fallbackSoundId;
+                        }
+                    }
+                } catch (Exception matchEx) {
+                    Log.w(TAG, "Audio fingerprint match skipped (non-fatal): " + matchEx.getMessage());
+                    // matched stays false, matchedSoundId stays fallbackSoundId — same
+                    // behaviour as before this feature existed.
+                }
+
+                final String  fSoundId  = matchedSoundId;
+                final boolean fMatched  = matched;
+                final String  fOwnerUid = matchedOwnerUid;
+                MAIN.post(() -> callback.onSuccess(fUrl, fPreviewUrl, fSoundId, fMatched, fOwnerUid));
 
             } catch (Exception e) {
                 Log.e(TAG, "uploadOriginalAudio error", e);
@@ -758,6 +821,65 @@ public class VideoUploader {
                 throw new IOException("No URL in Cloudinary audio response");
             Log.d(TAG, "Audio uploaded to Cloudinary: " + url);
             return url;
+        }
+    }
+
+    /**
+     * Audio-fingerprint match — asks the server "has anyone already posted a
+     * reel with this exact audio (raw upload, not explicitly picked from a
+     * sound page)?" See POST /audio/match on the server (pure server-side FFT
+     * fingerprinting, no paid API).
+     *
+     * Uses a short connect/read timeout of its own (separate from HTTP's
+     * defaults) since this is a best-effort background enrichment step, not
+     * something the reel post should ever be blocked on.
+     *
+     * @param audioFile   local extracted audio (m4a) — the SAME file already
+     *                    uploaded to Cloudinary a moment ago in this thread
+     * @param ownerUid    uploader's uid
+     * @param reelId      this reel's id
+     * @param newSoundId  the id the server should register this audio under
+     *                    if it turns out to be genuinely new ("orig_{reelId}")
+     * @return {matched, sound_id, owner_uid} JSON, or null if the server
+     *         didn't respond usefully — caller treats null as "no match"
+     */
+    private static JSONObject matchAudioFingerprint(java.io.File audioFile, String ownerUid,
+                                                      String reelId, String newSoundId)
+            throws Exception {
+        OkHttpClient shortClient = HTTP.newBuilder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(20,    TimeUnit.SECONDS) // server-side FFT is fast; 20s covers a cold Render dyno
+            .writeTimeout(20,   TimeUnit.SECONDS)
+            .build();
+
+        byte[] bytes;
+        try (java.io.FileInputStream fis = new java.io.FileInputStream(audioFile)) {
+            bytes = new byte[(int) audioFile.length()];
+            //noinspection ResultOfMethodCallIgnored
+            fis.read(bytes);
+        }
+
+        RequestBody body = new MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", audioFile.getName(),
+                RequestBody.create(bytes, MediaType.parse("audio/mp4")))
+            .addFormDataPart("uid",          ownerUid != null ? ownerUid : "")
+            .addFormDataPart("reel_id",      reelId != null ? reelId : "")
+            .addFormDataPart("new_sound_id", newSoundId != null ? newSoundId : "")
+            .build();
+
+        Request req = new Request.Builder()
+            .url(Constants.SERVER_URL + "/audio/match")
+            .post(body)
+            .build();
+
+        try (Response res = shortClient.newCall(req).execute()) {
+            String resBody = res.body() != null ? res.body().string() : "";
+            if (!res.isSuccessful()) {
+                Log.w(TAG, "/audio/match failed (" + res.code() + "): " + resBody);
+                return null;
+            }
+            return new JSONObject(resBody);
         }
     }
 

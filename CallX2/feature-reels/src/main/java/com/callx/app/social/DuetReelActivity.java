@@ -117,23 +117,13 @@ public class DuetReelActivity extends AppCompatActivity {
     private ImageButton        btnLayoutTopBottom;
     private ImageButton        btnLayoutPip;
     private ImageButton        btnLayoutReactionBubble;
-    private ImageButton        btnLayoutGreenScreen;
     private FrameLayout        bubbleOverlay;
-
-    // ── v29: Face-tracking auto-follow + beat-synced auto-cut ─────────────────
-    private ImageButton                   btnAutoFollowFace;
-    private ImageButton                   btnBeatCut;
-    private com.callx.app.social.FaceTrackingHelper faceTracker;
-    private boolean                       autoFollowFace  = false;
-    private boolean                       beatCutEnabled  = false;
-    private long[]                        lastAnalyzedBeatsMs;
 
     // Layout modes
     private static final int LAYOUT_SIDE_BY_SIDE    = 0;
     private static final int LAYOUT_TOP_BOTTOM      = 1;
     private static final int LAYOUT_REACT_PIP       = 2;
     private static final int LAYOUT_REACTION_BUBBLE = 3;
-    private static final int LAYOUT_GREEN_SCREEN    = 4;
 
     // Bubble NDC position
     private float   bubbleScreenX = 0f;
@@ -419,9 +409,6 @@ public class DuetReelActivity extends AppCompatActivity {
         btnLayoutPip            = findViewById(R.id.btn_layout_pip);
         btnLayoutReactionBubble = findViewById(R.id.btn_layout_reaction_bubble);
         bubbleOverlay           = findViewById(R.id.view_bubble_overlay);
-        btnLayoutGreenScreen    = findViewById(R.id.btn_layout_green_screen);
-        btnAutoFollowFace       = findViewById(R.id.btn_auto_follow_face);
-        btnBeatCut              = findViewById(R.id.btn_beat_cut);
 
         // v28 — new views from updated layout
         frameCameraContainer  = findViewById(R.id.frame_camera_container);
@@ -1340,76 +1327,7 @@ public class DuetReelActivity extends AppCompatActivity {
         btnLayoutPip.setOnClickListener(v -> setLayoutMode(LAYOUT_REACT_PIP));
         if (btnLayoutReactionBubble != null)
             btnLayoutReactionBubble.setOnClickListener(v -> setLayoutMode(LAYOUT_REACTION_BUBBLE));
-        if (btnLayoutGreenScreen != null)
-            btnLayoutGreenScreen.setOnClickListener(v -> setLayoutMode(LAYOUT_GREEN_SCREEN));
-
-        if (btnAutoFollowFace != null) {
-            btnAutoFollowFace.setOnClickListener(v -> toggleAutoFollowFace());
-            btnAutoFollowFace.setAlpha(0.4f);
-        }
-        if (btnBeatCut != null) {
-            btnBeatCut.setOnClickListener(v -> toggleBeatCut());
-            btnBeatCut.setAlpha(0.4f);
-        }
         setLayoutMode(LAYOUT_SIDE_BY_SIDE);
-    }
-
-    /**
-     * ✅ NEW (v29): "Auto-follow face" — when ON and layout is Reaction Bubble,
-     * ML Kit tracks the subject's face live and drives the bubble position
-     * instead of requiring a manual drag. The path is also recorded so the
-     * baked duet output follows the same movement, frame-by-frame.
-     */
-    private void toggleAutoFollowFace() {
-        if (layoutMode != LAYOUT_REACTION_BUBBLE) {
-            Toast.makeText(this, "Switch to Reaction Bubble layout first",
-                    Toast.LENGTH_SHORT).show();
-            return;
-        }
-        autoFollowFace = !autoFollowFace;
-        btnAutoFollowFace.setAlpha(autoFollowFace ? 1f : 0.4f);
-
-        if (autoFollowFace) {
-            if (faceTracker == null) {
-                faceTracker = new com.callx.app.social.FaceTrackingHelper(cameraExecutor);
-                faceTracker.setListener(ndc -> runOnUiThread(() -> moveBubbleToNdc(ndc[0], ndc[1])));
-            }
-            bindCameraUseCases(); // rebind with the analysis use case attached
-            Toast.makeText(this, "Auto-follow face: ON", Toast.LENGTH_SHORT).show();
-        } else {
-            bindCameraUseCases(); // rebind without analysis use case
-            Toast.makeText(this, "Auto-follow face: OFF", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    /**
-     * ✅ NEW (v29): "Beat cut" — when ON, the already-analyzed beat timeline
-     * (from BeatSyncAnalyzer, same one driving the preview overlay/haptics)
-     * is baked into the composited duet as short punch-zoom + flash pops.
-     */
-    private void toggleBeatCut() {
-        beatCutEnabled = !beatCutEnabled;
-        btnBeatCut.setAlpha(beatCutEnabled ? 1f : 0.4f);
-        Toast.makeText(this, beatCutEnabled ? "Beat Cut: ON" : "Beat Cut: OFF",
-                Toast.LENGTH_SHORT).show();
-    }
-
-    /** Moves the draggable bubble overlay + live camera preview to an NDC point. */
-    private void moveBubbleToNdc(float ndcX, float ndcY) {
-        if (bubbleOverlay == null) return;
-        ViewGroup parent = (ViewGroup) bubbleOverlay.getParent();
-        if (parent == null || parent.getWidth() == 0) return;
-        float screenX = ((ndcX + 1f) / 2f) * parent.getWidth()  - bubbleOverlay.getWidth()  / 2f;
-        float screenY = ((1f - ndcY) / 2f) * parent.getHeight() - bubbleOverlay.getHeight() / 2f;
-        bubbleOverlay.setX(screenX);
-        bubbleOverlay.setY(screenY);
-        if (previewViewCamera != null && previewViewCamera.getVisibility() == View.VISIBLE) {
-            previewViewCamera.setX(screenX);
-            previewViewCamera.setY(screenY);
-        }
-        bubbleScreenX = screenX + bubbleOverlay.getWidth()  / 2f;
-        bubbleScreenY = screenY + bubbleOverlay.getHeight() / 2f;
-        bubblePosSet  = true;
     }
 
     private void setLayoutMode(int mode) {
@@ -1427,21 +1345,10 @@ public class DuetReelActivity extends AppCompatActivity {
             btnLayoutPip.setAlpha(mode == LAYOUT_REACT_PIP               ? 1f : 0.4f);
         if (btnLayoutReactionBubble != null)
             btnLayoutReactionBubble.setAlpha(mode == LAYOUT_REACTION_BUBBLE ? 1f : 0.4f);
-        if (btnLayoutGreenScreen != null)
-            btnLayoutGreenScreen.setAlpha(mode == LAYOUT_GREEN_SCREEN ? 1f : 0.4f);
 
         if (bubbleOverlay != null)
             bubbleOverlay.setVisibility(
                     mode == LAYOUT_REACTION_BUBBLE ? View.VISIBLE : View.GONE);
-        if (btnAutoFollowFace != null)
-            btnAutoFollowFace.setVisibility(
-                    mode == LAYOUT_REACTION_BUBBLE ? View.VISIBLE : View.GONE);
-        // Leaving Reaction Bubble mode turns auto-follow back off cleanly.
-        if (mode != LAYOUT_REACTION_BUBBLE && autoFollowFace) {
-            autoFollowFace = false;
-            if (btnAutoFollowFace != null) btnAutoFollowFace.setAlpha(0.4f);
-            bindCameraUseCases();
-        }
 
         applyLayoutToViews(mode);
     }
@@ -1518,24 +1425,6 @@ public class DuetReelActivity extends AppCompatActivity {
                 previewViewCamera.setVisibility(View.VISIBLE);
                 setupBubbleDrag();
                 previewViewCamera.post(this::applyCameraCircleClip);
-                break;
-
-            case LAYOUT_GREEN_SCREEN:
-                // Camera fills the full frame in preview too — the chroma-key
-                // cut only happens in the baked compositor output, but a
-                // full-frame preview here previews the framing accurately.
-                if (lp1 instanceof LinearLayout.LayoutParams) {
-                    ((LinearLayout.LayoutParams) lp1).weight = 1;
-                    ((LinearLayout.LayoutParams) lp2).weight = 0;
-                }
-                lp2.width  = ViewGroup.LayoutParams.MATCH_PARENT;
-                lp2.height = ViewGroup.LayoutParams.MATCH_PARENT;
-                playerViewOriginal.setVisibility(View.VISIBLE);
-                previewViewCamera.setVisibility(View.VISIBLE);
-                removeCameraCircleClip();
-                Toast.makeText(this,
-                        "Green Screen: record in front of a plain green backdrop",
-                        Toast.LENGTH_LONG).show();
                 break;
         }
         playerViewOriginal.setLayoutParams(lp1);
@@ -1640,7 +1529,6 @@ public class DuetReelActivity extends AppCompatActivity {
                             exoPlayer.getDuration(),
                             new com.callx.app.views.BeatSyncAnalyzer.Callback() {
                                 @Override public void onBeatsReady(long[] beats) {
-                                    lastAnalyzedBeatsMs = beats; // ✅ v29: reused by Beat Cut compositing
                                     runOnUiThread(() -> {
                                         beatSyncOverlay.setBeats(beats, exoPlayer.getDuration());
                                         beatSyncOverlay.setOnBeatListener(beatTimeMs -> {
@@ -1696,14 +1584,7 @@ public class DuetReelActivity extends AppCompatActivity {
 
         cameraProvider.unbindAll();
         try {
-            // ✅ v29: attach the ML Kit face-analysis use case only when the
-            // user has turned "Auto-follow face" on in Reaction Bubble mode.
-            if (autoFollowFace && faceTracker != null) {
-                androidx.camera.core.ImageAnalysis analysis = faceTracker.buildAnalysisUseCase();
-                cameraProvider.bindToLifecycle(this, selector, preview, videoCapture, analysis);
-            } else {
-                cameraProvider.bindToLifecycle(this, selector, preview, videoCapture);
-            }
+            cameraProvider.bindToLifecycle(this, selector, preview, videoCapture);
             // Re-apply live filter after camera rebind (flip camera case)
             if (currentFilterIndex > 0) applyLiveFilter(currentFilterIndex);
         } catch (Exception e) {
@@ -1776,7 +1657,6 @@ public class DuetReelActivity extends AppCompatActivity {
                 if (event instanceof VideoRecordEvent.Start) {
                     isRecording = true;
                     isPaused    = false;
-                    if (autoFollowFace && faceTracker != null) faceTracker.setRecording(true);
                     runOnUiThread(() -> {
                         exoPlayer.setVolume(0f);
                         exoPlayer.addListener(new Player.Listener() {
@@ -1801,7 +1681,6 @@ public class DuetReelActivity extends AppCompatActivity {
                     VideoRecordEvent.Finalize fin = (VideoRecordEvent.Finalize) event;
                     isRecording = false;
                     isPaused    = false;
-                    if (faceTracker != null) faceTracker.setRecording(false);
                     runOnUiThread(() -> {
                         if (exoPlayer != null) exoPlayer.setVolume(originalVol);
                     });
@@ -1909,25 +1788,6 @@ public class DuetReelActivity extends AppCompatActivity {
         final float  capturedMicGain  = micGain;
         final String capturedCamPath  = cameraFilePath;
 
-        // ✅ v29: Beat Cut — only bake the effect in if the user turned it on
-        // AND we actually finished analyzing beats for this original clip.
-        final long[] capturedBeats = (beatCutEnabled && lastAnalyzedBeatsMs != null)
-                ? lastAnalyzedBeatsMs : null;
-
-        // ✅ v29: Face-track path — only used when auto-follow was on for this
-        // take and it actually captured at least one point during recording.
-        final long[]  capturedTrackT;
-        final float[] capturedTrackX;
-        final float[] capturedTrackY;
-        if (capturedLayout == LAYOUT_REACTION_BUBBLE
-                && autoFollowFace && faceTracker != null && faceTracker.hasTrack()) {
-            capturedTrackT = faceTracker.getTrackTimesMs();
-            capturedTrackX = faceTracker.getTrackX();
-            capturedTrackY = faceTracker.getTrackY();
-        } else {
-            capturedTrackT = null; capturedTrackX = null; capturedTrackY = null;
-        }
-
         new Thread(() -> {
             DuetVideoCompositor compositor = new DuetVideoCompositor();
 
@@ -1945,10 +1805,7 @@ public class DuetReelActivity extends AppCompatActivity {
             boolean ok = compositor.composite(
                 capturedCamPath, capturedOriginal, outputPath,
                 capturedLayout, capturedVol, capturedMicGain,
-                bubbleNdc[0], bubbleNdc[1],
-                capturedBeats,
-                capturedTrackT, capturedTrackX, capturedTrackY,
-                progressCb);
+                bubbleNdc[0], bubbleNdc[1], progressCb);
 
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
@@ -2093,7 +1950,6 @@ public class DuetReelActivity extends AppCompatActivity {
         if (activeRecording != null) activeRecording.stop();
         if (exoPlayer != null)       { exoPlayer.stop(); exoPlayer.release(); }
         if (cameraExecutor != null)  cameraExecutor.shutdown();
-        if (faceTracker != null)     faceTracker.release();
         if (beatSyncHandler != null && beatSyncTick != null) {
             beatSyncHandler.removeCallbacks(beatSyncTick);
         }

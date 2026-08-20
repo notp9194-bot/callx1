@@ -2975,7 +2975,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                             // upload it once, then register it as a brand-new reusable sound.
                             java.io.File videoFileForAudio = new java.io.File(videoPath);
                             if (videoFileForAudio.exists()) {
-                                VideoUploader.uploadOriginalAudio(b, videoFileForAudio,
+                                VideoUploader.uploadOriginalAudio(b, videoFileForAudio, myUid, finalReelId,
                                     new VideoUploader.AudioUploadCallback() {
                                         @Override
                                         public void onSuccess(String audioUrl) {
@@ -2983,6 +2983,12 @@ public class ReelUploadActivity extends AppCompatActivity {
                                         }
                                         @Override
                                         public void onSuccess(String audioUrl, String previewAudioUrl) {
+                                            onSuccess(audioUrl, previewAudioUrl, "", false, "");
+                                        }
+                                        @Override
+                                        public void onSuccess(String audioUrl, String previewAudioUrl,
+                                                               String matchedSoundId, boolean matched,
+                                                               String matchedOwnerUid) {
                                             // Save originalAudioUrl to Firebase
                                             FirebaseUtils.getReelsRef()
                                                 .child(finalReelId)
@@ -2990,14 +2996,22 @@ public class ReelUploadActivity extends AppCompatActivity {
                                                 .setValue(audioUrl);
                                             Log.d("ReelUpload",
                                                 "originalAudioUrl saved: " + audioUrl
-                                                + " previewAudioUrl: " + previewAudioUrl);
+                                                + " previewAudioUrl: " + previewAudioUrl
+                                                + " matched: " + matched + " soundId: " + matchedSoundId);
 
-                                            // ✅ Make this audio reusable/discoverable, Instagram-style:
-                                            // register it as a proper "sounds/{soundId}" entity so
-                                            // other users can find it, see waveform/reel-count, and
-                                            // use it on their own reels — not just play it back here.
+                                            // ✅ Instagram-style: same audio was already posted by
+                                            // someone (or by us) as a raw upload, even though we
+                                            // never explicitly picked it from a sound page — reuse
+                                            // that sound entity instead of minting a duplicate
+                                            // "orig_{reelId}" so credit + reel-count land on the
+                                            // ORIGINAL. Falls back to registering a brand-new
+                                            // original whenever the fingerprint match couldn't
+                                            // confirm one (no match found, or the match call itself
+                                            // failed — same behaviour as before this feature existed).
+                                            String soundIdToUse = (matched && matchedSoundId != null
+                                                && !matchedSoundId.isEmpty()) ? matchedSoundId : "";
                                             registerOrLinkSound(b, finalReelId, myUid, myName,
-                                                thumbUrl, videoUrl, audioUrl, previewAudioUrl, "");
+                                                thumbUrl, videoUrl, audioUrl, previewAudioUrl, soundIdToUse);
                                         }
                                         @Override
                                         public void onError(Exception e) {
