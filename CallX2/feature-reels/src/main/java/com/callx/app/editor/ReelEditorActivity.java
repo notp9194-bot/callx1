@@ -106,6 +106,12 @@ public class ReelEditorActivity extends AppCompatActivity {
      *  transparently forwards whatever MediaEditActivity itself returns. See
      *  goBackOrToMediaEdit()/handleMediaEditFallbackResult(). */
     public static final String EXTRA_ALLOW_MEDIA_EDIT_FALLBACK = "allow_media_edit_fallback";
+    /** NEW: mirrors EXTRA_TARGET_STATUS but for feature-chat's single-video
+     *  "Advance Editing" prompt (ChatMediaController#showSingleVideoAdvanceEditPrompt)
+     *  — only changes the title text ("Edit video"). allowMediaEditFallback
+     *  already handles the Back/Done → MediaEditActivity round trip; this flag
+     *  is purely cosmetic so the chat entry point doesn't read "Edit Reel". */
+    public static final String EXTRA_TARGET_CHAT               = "target_chat";
 
     private static final int REQ_FILTERS     = 401;
     private static final int REQ_STICKERS    = 402;
@@ -272,6 +278,11 @@ public class ReelEditorActivity extends AppCompatActivity {
     // NEW: true when this editor session was opened from Status's camera flow —
     // see EXTRA_TARGET_STATUS / proceedToUploadInternal().
     private boolean targetStatus = false;
+    // NEW: true when this editor session was opened from feature-chat's
+    // single-video "Advance Editing" prompt — see EXTRA_TARGET_CHAT. Only
+    // affects the title text; allowMediaEditFallback below still drives the
+    // Back/Done → MediaEditActivity round trip either way.
+    private boolean targetChat = false;
     // NEW: true when opened directly on an already-picked video from Status's
     // attach-sheet pencil/Edit action — see EXTRA_ALLOW_MEDIA_EDIT_FALLBACK.
     private boolean allowMediaEditFallback = false;
@@ -285,12 +296,15 @@ public class ReelEditorActivity extends AppCompatActivity {
         videoUriStr = getIntent().getStringExtra(EXTRA_VIDEO_URI);
         isFilePath  = getIntent().getBooleanExtra(EXTRA_IS_FILE_PATH, true);
         targetStatus = getIntent().getBooleanExtra(EXTRA_TARGET_STATUS, false);
+        targetChat   = getIntent().getBooleanExtra(EXTRA_TARGET_CHAT, false);
         allowMediaEditFallback = getIntent().getBooleanExtra(EXTRA_ALLOW_MEDIA_EDIT_FALLBACK, false);
 
         // Screen title reads "Edit Status" instead of "Edit Reel" when this
         // editor is being reused for Status (targetStatus) instead of Reels.
         TextView tvEditorTitle = findViewById(R.id.tv_editor_title);
-        if (tvEditorTitle != null) tvEditorTitle.setText(targetStatus ? "Edit Status" : "Edit Reel");
+        if (tvEditorTitle != null) {
+            tvEditorTitle.setText(targetStatus ? "Edit Status" : (targetChat ? "Edit video" : "Edit Reel"));
+        }
 
         // Forwards whatever MediaEditActivity itself returns straight back to
         // whoever launched THIS screen — see goBackOrToMediaEdit().

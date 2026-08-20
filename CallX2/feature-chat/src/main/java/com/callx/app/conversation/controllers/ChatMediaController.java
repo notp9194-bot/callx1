@@ -536,28 +536,191 @@ public class ChatMediaController {
                     }
                     @Override public void onMediaSend(List<RecentMediaLoader.Item> items, String caption, boolean isHD, boolean isViewOnce) {
                         if (items.isEmpty()) return;
-                        List<Uri> uris = new ArrayList<>();
-                        for (RecentMediaLoader.Item item : items) uris.add(item.uri);
-                        // Local-first bubble flow: each item gets its own bubble instantly
-                        // from the local file, then compress+upload runs in the background
-                        // with a per-bubble progress ring — same Pick→bubble→%→real URL
-                        // experience as single-image send. isHD threads through to
-                        // ImageCompressor for HD-tier caps.
-                        // View-once still routes through the grouped pipeline because
-                        // ChatViewOnceController's wipe logic is built around multi_media.
-                        if (isViewOnce) {
-                            pendingMultiSendViewOnce = true;
-                            uploadSequentially(uris, null,
-                                    caption == null || caption.isEmpty() ? null : caption, 0, isHD);
-                        } else {
-                            sendEachWithLocalBubble(uris, null,
-                                    caption == null || caption.isEmpty() ? null : caption, isHD);
+                        // Single photo (not video, not a multi-select batch): offer a
+                        // quick choice before it actually goes out — Advance Editing
+                        // (Reel Photo Edit screen → Media Editing screen) or Skip
+                        // (send exactly as picked, same as before this prompt existed).
+                        if (items.size() == 1 && !items.get(0).isVideo) {
+                            showSingleImageAdvanceEditPrompt(items.get(0), caption, isHD, isViewOnce);
+                            return;
                         }
+                        // Same idea, for a single picked VIDEO: offer Advance
+                        // Editing (the real Reel Edit screen — filters/
+                        // effects/speed/stickers/trim/sound) or Skip (send
+                        // exactly as picked) — see
+                        // showSingleVideoAdvanceEditPrompt.
+                        if (items.size() == 1 && items.get(0).isVideo) {
+                            showSingleVideoAdvanceEditPrompt(items.get(0), caption, isHD, isViewOnce);
+                            return;
+                        }
+                        sendMediaItems(items, caption, isHD, isViewOnce);
                     }
                     @Override public void onMediaEdit(List<RecentMediaLoader.Item> items, String caption, boolean isHD) {
+                        // Pencil/Edit on a single picked item now goes straight
+                        // into the same Advance Editing flow the Send-time
+                        // prompt's "Advance Editing" button uses — Reel Edit
+                        // screen for video, Reel Photo Edit screen for photo,
+                        // both then falling through to Media Editing screen —
+                        // no point re-asking Advance Editing vs Skip here,
+                        // since tapping the pencil already IS the "I want to
+                        // edit this" signal. Multi-select pencil taps keep
+                        // going to the chat-grade editor as before.
+                        if (items.size() == 1 && items.get(0).isVideo) {
+                            openAdvanceEditingForSingleVideo(items.get(0));
+                            return;
+                        }
+                        if (items.size() == 1 && !items.get(0).isVideo) {
+                            openAdvanceEditingForSinglePhoto(items.get(0));
+                            return;
+                        }
                         launchMediaEditor(items, caption, isHD);
                     }
                 });
+    }
+
+    /**
+     * Actually sends the given items — the same local-first bubble flow the
+     * attach sheet's Send button always used. Factored out of onMediaSend so
+     * both the direct multi-item/video path and the single-photo "Skip"
+     * choice (see showSingleImageAdvanceEditPrompt) share one code path.
+     */
+    private void sendMediaItems(List<RecentMediaLoader.Item> items, String caption, boolean isHD, boolean isViewOnce) {
+        if (items.isEmpty()) return;
+        List<Uri> uris = new ArrayList<>();
+        for (RecentMediaLoader.Item item : items) uris.add(item.uri);
+        // Local-first bubble flow: each item gets its own bubble instantly
+        // from the local file, then compress+upload runs in the background
+        // with a per-bubble progress ring — same Pick→bubble→%→real URL
+        // experience as single-image send. isHD threads through to
+        // ImageCompressor for HD-tier caps.
+        // View-once still routes through the grouped pipeline because
+        // ChatViewOnceController's wipe logic is built around multi_media.
+        if (isViewOnce) {
+            pendingMultiSendViewOnce = true;
+            uploadSequentially(uris, null,
+                    caption == null || caption.isEmpty() ? null : caption, 0, isHD);
+        } else {
+            sendEachWithLocalBubble(uris, null,
+                    caption == null || caption.isEmpty() ? null : caption, isHD);
+        }
+    }
+
+    /**
+     * Small prompt shown after tapping Send on a single picked photo (not
+     * video, not a multi-select batch) — offers Advance Editing (the real
+     * Reel Photo Edit screen → Media Editing screen, same round trip Add
+     * Status's Advance Editing button and pencil/Edit action use) or Skip
+     * (send exactly as picked — the plain pre-existing behavior).
+     */
+    private void showSingleImageAdvanceEditPrompt(RecentMediaLoader.Item item, String caption, boolean isHD, boolean isViewOnce) {
+        BottomSheetDialog sheet = new BottomSheetDialog(activity);
+        View v = LayoutInflater.from(activity).inflate(R.layout.bottom_sheet_photo_send_advance_edit, null);
+        sheet.setContentView(v);
+
+        View btnAdvance = v.findViewById(R.id.btn_photo_send_advance_editing);
+        View btnSkip = v.findViewById(R.id.btn_photo_send_skip);
+        if (btnAdvance != null) {
+            btnAdvance.setOnClickListener(x -> {
+                sheet.dismiss();
+                openAdvanceEditingForSinglePhoto(item);
+            });
+        }
+        if (btnSkip != null) {
+            btnSkip.setOnClickListener(x -> {
+                sheet.dismiss();
+                sendMediaItems(Collections.singletonList(item), caption, isHD, isViewOnce);
+            });
+        }
+        sheet.show();
+    }
+
+    /**
+     * Opens the real Reel Photo Edit screen (feature-reels'
+     * ReelPhotoEditorActivity — filters/effects/caption/stickers/adjust,
+     * titled "Edit Status" via target_status, same as Add Status's Advance
+     * Editing button) on the picked photo. allow_media_edit_fallback sends
+     * it on to MediaEditActivity ("media editing screen") afterwards (Back
+     * or Done), whose result is forwarded unchanged — so mediaEditLauncher's
+     * existing handler (the same one the pencil/Edit action already uses)
+     * picks it up and sends it exactly like any other edited photo.
+     */
+    private void openAdvanceEditingForSinglePhoto(RecentMediaLoader.Item item) {
+        Intent photoEditIntent = new Intent();
+        photoEditIntent.setClassName(activity.getPackageName(), "com.callx.app.editor.ReelPhotoEditorActivity");
+        photoEditIntent.putExtra("photo_editor_uri", item.uri.toString());
+        photoEditIntent.putExtra("photo_editor_index", 0);
+        photoEditIntent.putExtra("photo_editor_count", 1);
+        photoEditIntent.putExtra("target_status", true);
+        photoEditIntent.putExtra("allow_media_edit_fallback", true);
+        photoEditIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        if (photoEditIntent.resolveActivity(activity.getPackageManager()) == null) {
+            // Reels module not present on this build — fall back straight to
+            // the chat-grade editor, same fallback pattern the pencil/Edit
+            // action already uses.
+            launchMediaEditor(Collections.singletonList(item), null, false);
+            return;
+        }
+        mediaEditLauncher.launch(photoEditIntent);
+    }
+
+    /**
+     * Small prompt shown after tapping Send on a single picked video (not
+     * a multi-select batch) — offers Advance Editing (the real Reel Edit
+     * screen, feature-reels' ReelEditorActivity — filters/effects/speed/
+     * stickers/trim/sound, same editor Reels itself uses) or Skip (send
+     * exactly as picked — the plain pre-existing behavior). Mirrors
+     * showSingleImageAdvanceEditPrompt above, one per media type since each
+     * opens a different editor screen.
+     */
+    private void showSingleVideoAdvanceEditPrompt(RecentMediaLoader.Item item, String caption, boolean isHD, boolean isViewOnce) {
+        BottomSheetDialog sheet = new BottomSheetDialog(activity);
+        View v = LayoutInflater.from(activity).inflate(R.layout.bottom_sheet_video_send_advance_edit, null);
+        sheet.setContentView(v);
+
+        View btnAdvance = v.findViewById(R.id.btn_video_send_advance_editing);
+        View btnSkip = v.findViewById(R.id.btn_video_send_skip);
+        if (btnAdvance != null) {
+            btnAdvance.setOnClickListener(x -> {
+                sheet.dismiss();
+                openAdvanceEditingForSingleVideo(item);
+            });
+        }
+        if (btnSkip != null) {
+            btnSkip.setOnClickListener(x -> {
+                sheet.dismiss();
+                sendMediaItems(Collections.singletonList(item), caption, isHD, isViewOnce);
+            });
+        }
+        sheet.show();
+    }
+
+    /**
+     * Opens the real Reel Edit screen (feature-reels' ReelEditorActivity —
+     * filters/effects/speed/stickers/trim/sound) on the picked video,
+     * titled "Edit video" (target_chat=true). allow_media_edit_fallback
+     * sends it on to MediaEditActivity ("media editing screen") afterwards —
+     * on BOTH the back arrow and Done — whose result is forwarded
+     * unchanged, so mediaEditLauncher's existing handler (the same one the
+     * pencil/Edit action and the single-photo Advance Editing path above
+     * already use) picks it up and sends it exactly like any other edited
+     * video.
+     */
+    private void openAdvanceEditingForSingleVideo(RecentMediaLoader.Item item) {
+        Intent reelEditIntent = new Intent();
+        reelEditIntent.setClassName(activity.getPackageName(), "com.callx.app.editor.ReelEditorActivity");
+        reelEditIntent.putExtra("editor_video_uri", item.uri.toString());
+        reelEditIntent.putExtra("is_file_path", false);
+        reelEditIntent.putExtra("target_chat", true);
+        reelEditIntent.putExtra("allow_media_edit_fallback", true);
+        reelEditIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        if (reelEditIntent.resolveActivity(activity.getPackageManager()) == null) {
+            // Reels module not present on this build — fall back straight to
+            // the chat-grade editor, same fallback pattern the pencil/Edit
+            // action and single-photo path already use.
+            launchMediaEditor(Collections.singletonList(item), null, false);
+            return;
+        }
+        mediaEditLauncher.launch(reelEditIntent);
     }
 
     /** Builds the MediaEditActivity intent from the attach sheet's current selection and launches it. */
