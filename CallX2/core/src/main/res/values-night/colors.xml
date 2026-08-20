@@ -66,6 +66,10 @@
     <color name="trim_screen_bg">@color/surface_bg</color>
     <color name="trim_card_bg">@color/surface_input</color>
     <color name="trim_subcard_bg">@color/surface_card</color>
+    <!-- Matches Theme.CallX's dark-mode android:statusBarColor (@color/surface_bg,
+         #000000) so the editor header and the status bar above it read as one
+         continuous surface — see values/colors.xml for the light-mode value. -->
+    <color name="trim_header_bg">@color/surface_bg</color>
     <color name="trim_divider">@color/divider</color>
     <color name="trim_text_primary">@color/text_primary</color>
     <color name="trim_text_secondary">@color/text_secondary</color>

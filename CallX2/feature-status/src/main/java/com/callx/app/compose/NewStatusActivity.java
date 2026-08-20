@@ -123,6 +123,13 @@ public class NewStatusActivity extends AppCompatActivity {
     // Result of the full-screen editor opened from the attach-sheet's "Edit"
     // action — see showStatusAddSheet()'s onMediaEdit callback.
     private ActivityResultLauncher<Intent>  statusMediaEditLauncher;
+    // NEW: caption typed in the attach sheet before tapping "Edit" on a
+    // single picked video — reelCameraLauncher/handleReelCameraResult is
+    // shared with the plain camera flow (which has no preset caption), so
+    // this is only non-null while a pencil-edit-video round-trip through
+    // ReelEditorActivity is in flight; handleReelCameraResult consumes and
+    // clears it once used as a fallback for the editor's own text overlay.
+    private String pendingSingleVideoEditCaption;
     // v216: Layout picker result launcher — receives selected URIs + layout style.
     private ActivityResultLauncher<Intent>  layoutPickerLauncher;
     // v237: Receives the result of editing the flattened layout collage in
@@ -149,6 +156,17 @@ public class NewStatusActivity extends AppCompatActivity {
      *  — same pattern as Reel Editor / Reel Upload / Reel Photo Editor. */
     private static final String[] STEP_NAMES = {"Create", "Edit", "Publish"};
     private android.animation.ObjectAnimator activeStepRingSpin;
+    /**
+     * True only while a video picked on the Create step is being sent through
+     * the "Advance Editing" round trip (ReelEditorActivity → its own
+     * MediaEditActivity fallback). Set right before launching that intent and
+     * consumed the moment the result lands back on the preview — see
+     * btn_advance_editing's click listener and showSinglePickedPreview().
+     * Kept separate from pendingSingleVideoEditCaption (which the attach
+     * sheet's pencil-edit action also uses) so a normal pencil-edit round
+     * trip never accidentally jumps the wizard to the Edit step.
+     */
+    private boolean pendingAdvanceEditWizardJump = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -163,46 +181,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 this::handleReelCameraResult);
         statusMediaEditLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
-                result -> {
-                    if (result.getResultCode() != android.app.Activity.RESULT_OK || result.getData() == null) return;
-                    java.util.ArrayList<String> uriStrings = result.getData().getStringArrayListExtra(
-                            com.callx.app.conversation.controllers.MediaEditActivity.RESULT_URIS);
-                    if (uriStrings == null || uriStrings.isEmpty()) return;
-                    String caption = result.getData().getStringExtra(
-                            com.callx.app.conversation.controllers.MediaEditActivity.RESULT_CAPTION);
-                    String cap = caption == null || caption.isEmpty() ? null : caption;
-                    // v238 BUG FIX: editing a single photo/video from the attach
-                    // sheet used to auto-upload + post it immediately
-                    // (postStatusBatch) the moment MediaEditActivity returned —
-                    // with no preview, no chance to set privacy/expiry/stickers,
-                    // unlike every other single-media entry point on this screen
-                    // (gallery pick, camera, layout). A single edited item now
-                    // goes through that exact same pickedImage/pickedVideo +
-                    // showImagePreview()/showVideoPreview() pipeline instead, so
-                    // Post is still one manual tap on this screen — same as the
-                    // layout flow. Multi-item edits (2+) keep posting as a batch,
-                    // same as before.
-                    if (uriStrings.size() == 1) {
-                        Uri u = Uri.parse(uriStrings.get(0));
-                        String mime = getContentResolver().getType(u);
-                        boolean isVideo = mime != null && mime.startsWith("video");
-                        showSinglePickedPreview(u, isVideo, cap);
-                        return;
-                    }
-                    java.util.List<Uri> uris = new java.util.ArrayList<>();
-                    java.util.List<Boolean> videoFlags = new java.util.ArrayList<>();
-                    for (String s : uriStrings) {
-                        Uri u = Uri.parse(s);
-                        uris.add(u);
-                        String mime = getContentResolver().getType(u);
-                        videoFlags.add(mime != null && mime.startsWith("video"));
-                    }
-                    // Layout no longer routes through MediaEditActivity (see
-                    // layoutPickerLauncher below), so multi-item results here are
-                    // always the plain multi-select attach-sheet flow — post each
-                    // edited photo as its own status.
-                    postStatusBatch(uris, videoFlags, cap);
-                });
+                result -> handleMediaEditActivityResult(result.getResultCode(), result.getData()));
         setupBgColorPicker();
         setupFontStylePicker();
         setupPrivacyButton();
@@ -322,6 +301,9 @@ public class NewStatusActivity extends AppCompatActivity {
         binding.btnPost.setOnLongClickListener(v -> { showScheduleDialog(); return true; });
         androidx.appcompat.widget.TooltipCompat.setTooltipText(binding.btnPost, "Hold to schedule for later");
         binding.btnDiscardMedia.setOnClickListener(v -> discardMedia());
+        if (binding.btnAdvanceEditing != null) {
+            binding.btnAdvanceEditing.setOnClickListener(v -> openAdvanceEditingForPickedMedia());
+        }
         // GIF / Sticker button
         View btnGif = binding.getRoot().findViewWithTag("btn_gif");
         if (btnGif != null) btnGif.setOnClickListener(v -> showGifInputDialog());
@@ -481,6 +463,17 @@ public class NewStatusActivity extends AppCompatActivity {
      */
     private void refreshStepPreview() {
         if (binding == null) return;
+
+        // "Advance Editing" only makes sense on Create, and only once media
+        // (photo or video) is actually picked — hidden everywhere else,
+        // including text-only statuses. Re-checked here (not just in
+        // showWizardStep()) because picking or discarding media updates
+        // pickedImage/pickedVideo without itself changing wizardStep.
+        if (binding.btnAdvanceEditing != null) {
+            binding.btnAdvanceEditing.setVisibility(
+                    wizardStep == 0 && (pickedImage != null || pickedVideo != null)
+                            ? View.VISIBLE : View.GONE);
+        }
 
         String text = binding.etText.getText() == null
                 ? "" : binding.etText.getText().toString().trim();
@@ -872,6 +865,71 @@ public class NewStatusActivity extends AppCompatActivity {
                             String caption, boolean isHD) {
                         if (items.isEmpty()) return;
                         sheet.dismiss();
+
+                        // NEW: a single picked VIDEO's pencil/Edit action now opens
+                        // the real Reel Edit screen (feature-reels' ReelEditorActivity
+                        // — filters/effects/speed/stickers/trim/sound, the same full
+                        // editor Reels itself uses) instead of the limited chat-grade
+                        // MediaEditActivity (trim-only for video, no filters/effects).
+                        // Reused as-is, no duplicate editor code: launched by class
+                        // name (feature-status can't depend on feature-reels) with
+                        // EXTRA_TARGET_STATUS=true — the same flag/return-path
+                        // ReelCameraActivity → ReelEditorActivity already uses for
+                        // Status's own camera button, wired to reelCameraLauncher /
+                        // handleReelCameraResult() so it lands back on THIS screen's
+                        // preview (tapping the editor's back arrow or Done both just
+                        // return here, exactly like every other single-media entry
+                        // point on this screen).
+                        if (items.size() == 1 && items.get(0).isVideo) {
+                            Uri videoUri = items.get(0).uri;
+                            Intent reelEditIntent = new Intent();
+                            reelEditIntent.setClassName(getPackageName(), "com.callx.app.editor.ReelEditorActivity");
+                            reelEditIntent.putExtra("editor_video_uri", videoUri.toString());
+                            reelEditIntent.putExtra("is_file_path", false);
+                            reelEditIntent.putExtra("target_status", true);
+                            reelEditIntent.putExtra("allow_media_edit_fallback", true);
+                            reelEditIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                            if (reelEditIntent.resolveActivity(getPackageManager()) != null) {
+                                pendingSingleVideoEditCaption = (caption == null || caption.isEmpty()) ? null : caption;
+                                reelCameraLauncher.launch(reelEditIntent);
+                                return;
+                            }
+                            // Reels module not present on this build — fall through
+                            // to the chat-grade editor below, same fallback pattern
+                            // openReelCamera() uses.
+                        }
+
+                        // Same idea as the video branch above, for a single picked
+                        // PHOTO: pencil/Edit now opens the real Reel Photo Edit
+                        // screen (feature-reels' ReelPhotoEditorActivity —
+                        // filters/effects/caption/stickers/adjust, titled "Edit
+                        // Status" via target_status) instead of the chat-grade
+                        // MediaEditActivity directly. allow_media_edit_fallback
+                        // still sends it on to MediaEditActivity afterwards (Back
+                        // or Done), so the final result — and where it lands back
+                        // on this screen — is identical either way; only the
+                        // editor in front of it is richer now. Same
+                        // reelCameraLauncher/handleReelCameraResult this screen's
+                        // other entry points already share.
+                        if (items.size() == 1 && !items.get(0).isVideo) {
+                            Uri photoUri = items.get(0).uri;
+                            Intent photoEditIntent = new Intent();
+                            photoEditIntent.setClassName(getPackageName(), "com.callx.app.editor.ReelPhotoEditorActivity");
+                            photoEditIntent.putExtra("photo_editor_uri", photoUri.toString());
+                            photoEditIntent.putExtra("photo_editor_index", 0);
+                            photoEditIntent.putExtra("photo_editor_count", 1);
+                            photoEditIntent.putExtra("target_status", true);
+                            photoEditIntent.putExtra("allow_media_edit_fallback", true);
+                            photoEditIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                            if (photoEditIntent.resolveActivity(getPackageManager()) != null) {
+                                pendingSingleVideoEditCaption = (caption == null || caption.isEmpty()) ? null : caption;
+                                reelCameraLauncher.launch(photoEditIntent);
+                                return;
+                            }
+                            // Reels module not present on this build — fall through
+                            // to the chat-grade editor below.
+                        }
+
                         java.util.ArrayList<String> uriStrings = new java.util.ArrayList<>();
                         java.util.ArrayList<Integer> videoFlags = new java.util.ArrayList<>();
                         for (com.callx.app.conversation.controllers.RecentMediaLoader.Item item : items) {
@@ -919,6 +977,61 @@ public class NewStatusActivity extends AppCompatActivity {
                 com.callx.app.conversation.controllers.MediaEditActivity.EXTRA_IS_VIDEO, videoFlags);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         layoutMediaEditLauncher.launch(intent);
+    }
+
+    /**
+     * Shared MediaEditActivity result handler — used directly by
+     * statusMediaEditLauncher (attach sheet's plain Edit action), AND by
+     * handleReelCameraResult() when ReelEditorActivity forwards a result it
+     * received FROM MediaEditActivity (see ReelEditorActivity's
+     * allowMediaEditFallback / goBackOrToMediaEdit() — backing out of the
+     * Reel Edit screen for an already-picked video opens this same media
+     * editing screen, whose result is transparently passed through). Kept
+     * as one method so both paths land on the exact same preview pipeline
+     * instead of duplicating this logic.
+     */
+    private void handleMediaEditActivityResult(int resultCode, Intent data) {
+        if (resultCode != android.app.Activity.RESULT_OK || data == null) return;
+        java.util.ArrayList<String> uriStrings = data.getStringArrayListExtra(
+                com.callx.app.conversation.controllers.MediaEditActivity.RESULT_URIS);
+        if (uriStrings == null || uriStrings.isEmpty()) return;
+        String caption = data.getStringExtra(
+                com.callx.app.conversation.controllers.MediaEditActivity.RESULT_CAPTION);
+        String cap = caption == null || caption.isEmpty() ? null : caption;
+        // v238 BUG FIX: editing a single photo/video from the attach
+        // sheet used to auto-upload + post it immediately
+        // (postStatusBatch) the moment MediaEditActivity returned —
+        // with no preview, no chance to set privacy/expiry/stickers,
+        // unlike every other single-media entry point on this screen
+        // (gallery pick, camera, layout). A single edited item now
+        // goes through that exact same pickedImage/pickedVideo +
+        // showImagePreview()/showVideoPreview() pipeline instead, so
+        // Post is still one manual tap on this screen — same as the
+        // layout flow. Multi-item edits (2+) keep posting as a batch,
+        // same as before.
+        if (uriStrings.size() == 1) {
+            Uri u = Uri.parse(uriStrings.get(0));
+            String mime = getContentResolver().getType(u);
+            boolean isVideo = mime != null && mime.startsWith("video");
+            showSinglePickedPreview(u, isVideo, cap);
+            return;
+        }
+        java.util.List<Uri> uris = new java.util.ArrayList<>();
+        java.util.List<Boolean> videoFlags = new java.util.ArrayList<>();
+        for (String s : uriStrings) {
+            Uri u = Uri.parse(s);
+            uris.add(u);
+            String mime = getContentResolver().getType(u);
+            videoFlags.add(mime != null && mime.startsWith("video"));
+        }
+        // Layout no longer routes through MediaEditActivity (see
+        // layoutPickerLauncher below), so multi-item results here are
+        // always the plain multi-select attach-sheet flow — post each
+        // edited photo as its own status. Advance Editing only ever sends
+        // a single video in, but clear its flag defensively so a stray
+        // multi-item result can never leave it armed for a later edit.
+        pendingAdvanceEditWizardJump = false;
+        postStatusBatch(uris, videoFlags, cap);
     }
 
     /** v216: AI image prompt dialog — opens text input, result generates an AI image for status. */
@@ -1003,6 +1116,78 @@ public class NewStatusActivity extends AppCompatActivity {
      * ReelCameraActivity / ReelEditorActivity) instead of continuing on
      * into the Reels upload/post flow.
      */
+    /**
+     * "Advance Editing" — Create step, media already picked. Routes to
+     * whichever full-featured editor matches the picked media type, then —
+     * because allow_media_edit_fallback is set on both — on to
+     * MediaEditActivity ("media editing screen") either way, before landing
+     * back on Add Status at the Edit step (step 2). Both branches reuse
+     * reelCameraLauncher/handleReelCameraResult, the exact code the attach
+     * sheet's pencil/Edit action already relies on, so the round trip is
+     * identical to that path except for pendingAdvanceEditWizardJump, which
+     * is what makes the result land on step 2 instead of staying on Create.
+     */
+    private void openAdvanceEditingForPickedMedia() {
+        if (pickedVideo != null) {
+            openAdvanceEditingForPickedVideo();
+        } else if (pickedImage != null) {
+            openAdvanceEditingForPickedImage();
+        } else {
+            toast("Pehle photo ya video select karo");
+        }
+    }
+
+    /** Video branch — opens the real Reel Edit screen (feature-reels'
+     *  ReelEditorActivity), same as the attach sheet's pencil/Edit action. */
+    private void openAdvanceEditingForPickedVideo() {
+        Intent reelEditIntent = new Intent();
+        reelEditIntent.setClassName(getPackageName(), "com.callx.app.editor.ReelEditorActivity");
+        reelEditIntent.putExtra("editor_video_uri", pickedVideo.toString());
+        reelEditIntent.putExtra("is_file_path", false);
+        reelEditIntent.putExtra("target_status", true);
+        reelEditIntent.putExtra("allow_media_edit_fallback", true);
+        reelEditIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        if (reelEditIntent.resolveActivity(getPackageManager()) == null) {
+            toast("Advance editing is not available on this build");
+            return;
+        }
+        String existingCaption = binding.etCaption != null && binding.etCaption.getText() != null
+                ? binding.etCaption.getText().toString().trim() : null;
+        pendingSingleVideoEditCaption = (existingCaption == null || existingCaption.isEmpty())
+                ? null : existingCaption;
+        pendingAdvanceEditWizardJump = true;
+        reelCameraLauncher.launch(reelEditIntent);
+    }
+
+    /** Photo branch — opens the real Reel Photo Edit screen (feature-reels'
+     *  ReelPhotoEditorActivity: filters/effects/caption/stickers/adjust),
+     *  same "Edit Status"-titled screen the attach sheet's pencil/Edit
+     *  action would open for a single picked photo. */
+    private void openAdvanceEditingForPickedImage() {
+        Intent photoEditIntent = new Intent();
+        photoEditIntent.setClassName(getPackageName(), "com.callx.app.editor.ReelPhotoEditorActivity");
+        photoEditIntent.putExtra("photo_editor_uri", pickedImage.toString());
+        photoEditIntent.putExtra("photo_editor_index", 0);
+        photoEditIntent.putExtra("photo_editor_count", 1);
+        photoEditIntent.putExtra("target_status", true);
+        photoEditIntent.putExtra("allow_media_edit_fallback", true);
+        photoEditIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        if (photoEditIntent.resolveActivity(getPackageManager()) == null) {
+            toast("Advance editing is not available on this build");
+            return;
+        }
+        String existingCaption = binding.etCaption != null && binding.etCaption.getText() != null
+                ? binding.etCaption.getText().toString().trim() : null;
+        // Shared with the video branch — handleReelCameraResult()'s photo-mode
+        // path (is_photo=true) doesn't currently read a preset caption back
+        // in, but keeping this set costs nothing and matches the video branch
+        // if that ever changes.
+        pendingSingleVideoEditCaption = (existingCaption == null || existingCaption.isEmpty())
+                ? null : existingCaption;
+        pendingAdvanceEditWizardJump = true;
+        reelCameraLauncher.launch(photoEditIntent);
+    }
+
     private void openReelCamera() {
         try {
             Intent intent = new Intent();
@@ -1020,10 +1205,37 @@ public class NewStatusActivity extends AppCompatActivity {
         }
     }
 
-    /** Handles the result bubbled back from ReelCameraActivity → ReelEditorActivity. */
+    /**
+     * Handles the result bubbled back from ReelCameraActivity → ReelEditorActivity,
+     * AND from ReelEditorActivity opened directly on an already-picked video via
+     * the attach sheet's pencil/Edit action (see onMediaEdit() in showStatusAddSheet())
+     * — both return the same result shape via ReelEditorActivity.finishForStatusResult().
+     */
     private void handleReelCameraResult(androidx.activity.result.ActivityResult result) {
-        if (result.getResultCode() != RESULT_OK || result.getData() == null) return;
+        // Only relevant to the pencil-edit-video path; always cleared here so a
+        // later plain camera round-trip never picks up a stale caption.
+        String presetCaption = pendingSingleVideoEditCaption;
+        pendingSingleVideoEditCaption = null;
+        if (result.getResultCode() != RESULT_OK || result.getData() == null) {
+            // Cancelled out of the Reel Edit screen entirely (not the
+            // allow_media_edit_fallback hop) — don't leave the Advance
+            // Editing flag armed for some unrelated later result.
+            pendingAdvanceEditWizardJump = false;
+            return;
+        }
         Intent data = result.getData();
+
+        // NEW: backing out of the Reel Edit screen (opened directly on an
+        // already-picked video — see allow_media_edit_fallback above)
+        // forwards MediaEditActivity's own result through unchanged, rather
+        // than a normal "finished editing in Reel Edit" result. Recognise
+        // that shape (MediaEditActivity.RESULT_URIS) and hand it to the
+        // exact same handler the plain attach-sheet Edit action uses, so
+        // both paths land on the identical preview pipeline.
+        if (data.hasExtra(com.callx.app.conversation.controllers.MediaEditActivity.RESULT_URIS)) {
+            handleMediaEditActivityResult(result.getResultCode(), data);
+            return;
+        }
 
         // NEW: Photo mode — ReelCameraActivity bakes the filter/overlays itself
         // and returns the JPEG directly (no video editor in the loop).
@@ -1045,6 +1257,7 @@ public class NewStatusActivity extends AppCompatActivity {
                 : Uri.parse(videoUriStr);
 
         String caption = data.getStringExtra("text_overlay");
+        if ((caption == null || caption.isEmpty()) && presetCaption != null) caption = presetCaption;
         showSinglePickedPreview(videoUri, true, caption);
         attachMusicStickerIfAny(data);
     }
@@ -1404,6 +1617,13 @@ public class NewStatusActivity extends AppCompatActivity {
         }
         if (caption != null && !caption.isEmpty() && binding.etCaption != null) {
             binding.etCaption.setText(caption);
+        }
+        // Advance Editing round trip (Reel Edit → Media Editing) lands here
+        // like any other single-media result — jump straight to the Edit
+        // step (step 2) instead of leaving the person back on Create.
+        if (pendingAdvanceEditWizardJump) {
+            pendingAdvanceEditWizardJump = false;
+            showWizardStep(1);
         }
     }
     private void showImagePreview(Uri uri) {

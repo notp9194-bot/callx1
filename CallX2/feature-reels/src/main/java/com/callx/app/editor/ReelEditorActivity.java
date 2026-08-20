@@ -96,6 +96,16 @@ public class ReelEditorActivity extends AppCompatActivity {
      *  camera flow — routes the final "Next" tap back to Status (setResult) instead
      *  of on into ReelUploadActivity. Must match ReelCameraActivity.EXTRA_TARGET_STATUS. */
     public static final String EXTRA_TARGET_STATUS            = "target_status";
+    /** NEW: set only when this screen was opened directly on an already-picked
+     *  video via Status's attach-sheet pencil/Edit action (NOT the record-a-new-
+     *  video camera flow, which has no "back to a simpler editor" screen to fall
+     *  back to). When true, backing out of this screen (the X button or physical
+     *  back at wizard step 0) — as opposed to completing the edit with Done —
+     *  opens feature-chat's MediaEditActivity ("media editing screen") on the
+     *  same video instead of just cancelling straight back to Status, and
+     *  transparently forwards whatever MediaEditActivity itself returns. See
+     *  goBackOrToMediaEdit()/handleMediaEditFallbackResult(). */
+    public static final String EXTRA_ALLOW_MEDIA_EDIT_FALLBACK = "allow_media_edit_fallback";
 
     private static final int REQ_FILTERS     = 401;
     private static final int REQ_STICKERS    = 402;
@@ -262,6 +272,10 @@ public class ReelEditorActivity extends AppCompatActivity {
     // NEW: true when this editor session was opened from Status's camera flow —
     // see EXTRA_TARGET_STATUS / proceedToUploadInternal().
     private boolean targetStatus = false;
+    // NEW: true when opened directly on an already-picked video from Status's
+    // attach-sheet pencil/Edit action — see EXTRA_ALLOW_MEDIA_EDIT_FALLBACK.
+    private boolean allowMediaEditFallback = false;
+    private androidx.activity.result.ActivityResultLauncher<Intent> mediaEditFallbackLauncher;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -271,6 +285,18 @@ public class ReelEditorActivity extends AppCompatActivity {
         videoUriStr = getIntent().getStringExtra(EXTRA_VIDEO_URI);
         isFilePath  = getIntent().getBooleanExtra(EXTRA_IS_FILE_PATH, true);
         targetStatus = getIntent().getBooleanExtra(EXTRA_TARGET_STATUS, false);
+        allowMediaEditFallback = getIntent().getBooleanExtra(EXTRA_ALLOW_MEDIA_EDIT_FALLBACK, false);
+
+        // Screen title reads "Edit Status" instead of "Edit Reel" when this
+        // editor is being reused for Status (targetStatus) instead of Reels.
+        TextView tvEditorTitle = findViewById(R.id.tv_editor_title);
+        if (tvEditorTitle != null) tvEditorTitle.setText(targetStatus ? "Edit Status" : "Edit Reel");
+
+        // Forwards whatever MediaEditActivity itself returns straight back to
+        // whoever launched THIS screen — see goBackOrToMediaEdit().
+        mediaEditFallbackLauncher = registerForActivityResult(
+                new androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+                this::handleMediaEditFallbackResult);
 
         isDuet         = getIntent().getBooleanExtra(EXTRA_IS_DUET, false);
         duetOriginalId = nvl(getIntent().getStringExtra(EXTRA_DUET_ORIGINAL_ID));
@@ -1377,11 +1403,50 @@ public class ReelEditorActivity extends AppCompatActivity {
             goToEditorStep(editorCurrentStep - 1);
             return;
         }
-        super.onBackPressed();
+        goBackOrToMediaEdit();
+    }
+
+    /**
+     * Backing out of this screen without completing the edit (X button, or
+     * physical back once already at wizard step 0). Normally this just
+     * cancels back to whoever opened this screen. But when
+     * allowMediaEditFallback is set — i.e. this screen was opened directly
+     * on an already-picked video via Status's attach-sheet pencil/Edit
+     * action — it instead opens MediaEditActivity ("media editing screen")
+     * on that same video, and this screen forwards MediaEditActivity's own
+     * result straight through as its own (handleMediaEditFallbackResult()),
+     * so Status sees exactly the same result shape it would have if the
+     * pencil had opened MediaEditActivity in the first place.
+     */
+    private void goBackOrToMediaEdit() {
+        if (allowMediaEditFallback && videoUriStr != null && !videoUriStr.isEmpty()) {
+            Intent intent = new Intent();
+            intent.setClassName(getPackageName(), "com.callx.app.conversation.controllers.MediaEditActivity");
+            java.util.ArrayList<String> uriStrings = new java.util.ArrayList<>();
+            uriStrings.add(videoUriStr);
+            java.util.ArrayList<Integer> videoFlags = new java.util.ArrayList<>();
+            videoFlags.add(1); // always a video on this fallback path
+            intent.putStringArrayListExtra("media_edit_uris", uriStrings);
+            intent.putIntegerArrayListExtra("media_edit_is_video", videoFlags);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            if (intent.resolveActivity(getPackageManager()) != null) {
+                mediaEditFallbackLauncher.launch(intent);
+                return;
+            }
+            // feature-chat not present on this build — fall through to plain cancel.
+        }
+        finish();
+    }
+
+    /** Transparently forwards MediaEditActivity's result (whatever it is —
+     *  edited-and-saved or cancelled) back to whoever launched THIS screen. */
+    private void handleMediaEditFallbackResult(androidx.activity.result.ActivityResult result) {
+        setResult(result.getResultCode(), result.getData());
+        finish();
     }
 
     private void setupListeners() {
-        btnBack.setOnClickListener(v -> finish());
+        btnBack.setOnClickListener(v -> goBackOrToMediaEdit());
 
         btnPlayPause.setOnClickListener(v -> {
             if (player != null) {
@@ -1766,11 +1831,23 @@ public class ReelEditorActivity extends AppCompatActivity {
             && tvTextPreview.getVisibility() == View.VISIBLE)
             ? tvTextPreview.getText().toString() : "";
 
-        // NEW: Status flow — hand the finished (already filter/overlay-baked,
-        // if applicable) video straight back to NewStatusActivity via setResult
-        // instead of opening ReelUploadActivity. All the camera/editor features
-        // the person used (speed, filters, effects, stickers, text, sound pick)
-        // are carried across in the result extras below.
+        // NEW: when this screen was opened directly on an already-picked video
+        // via Status's pencil/Edit action (allowMediaEditFallback), Done takes
+        // the SAME route as backing out does — on to MediaEditActivity ("media
+        // editing screen") on this video — instead of finishing straight back
+        // to Status itself. Both exits from this screen now land in the same
+        // place; only MediaEditActivity's own Save/Post ever returns to Status.
+        if (allowMediaEditFallback) {
+            goBackOrToMediaEdit();
+            return;
+        }
+
+        // Status flow (record-new-video camera chain) — hand the finished
+        // (already filter/overlay-baked, if applicable) video straight back
+        // to NewStatusActivity via setResult instead of opening
+        // ReelUploadActivity. All the camera/editor features the person used
+        // (speed, filters, effects, stickers, text, sound pick) are carried
+        // across in the result extras below.
         if (targetStatus) {
             finishForStatusResult(textOverlay);
             return;

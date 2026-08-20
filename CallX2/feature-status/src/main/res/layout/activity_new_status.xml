@@ -891,6 +891,32 @@
                 android:textStyle="bold"
                 android:layout_marginBottom="12dp"/>
 
+            <!-- ── Advance Editing (Create step only, video selected) ──
+                 Skips straight to the full Reel Edit screen (filters/
+                 effects/speed/stickers/trim/sound) → Media Editing screen,
+                 then drops the user back into Add Status at the Edit step
+                 (step 2). Same pill height/UI as btn_step_next so it reads
+                 as an equally-primary action, but with the distinct
+                 advance-edit gradient (@drawable/bg_advance_edit_gradient_button_ripple)
+                 so it never looks like the Continue button. Hidden by
+                 default — NewStatusActivity shows it only on the Create
+                 step once a video is picked. -->
+            <TextView
+                android:id="@+id/btn_advance_editing"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginBottom="10dp"
+                android:gravity="center"
+                android:text="✨ Advance Editing"
+                android:textColor="@color/white"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif-medium"
+                android:background="@drawable/bg_advance_edit_gradient_button_ripple"
+                android:foreground="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:visibility="gone"/>
+
             <LinearLayout
                 android:id="@+id/status_wizard_nav"
                 android:layout_width="match_parent"

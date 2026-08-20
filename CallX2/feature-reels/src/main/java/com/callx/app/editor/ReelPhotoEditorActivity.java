@@ -117,6 +117,20 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     public static final String EXTRA_ROTATION       = "photo_editor_rotation";
     public static final String EXTRA_APPLY_ALL      = "photo_editor_apply_all";
 
+    /** Set true when this screen is reused for Add Status's "Advance Editing"
+     *  entry point (Create step, photo selected) instead of the Reel Upload
+     *  slideshow editor — swaps the "Photo X of Y" header label for
+     *  "Edit Status", same convention ReelEditorActivity uses for video. */
+    public static final String EXTRA_TARGET_STATUS = "target_status";
+    /** Set true alongside EXTRA_TARGET_STATUS when opened directly on an
+     *  already-picked status photo (Add Status's Advance Editing button).
+     *  Both Back and Done then hand the photo off to MediaEditActivity
+     *  ("media editing screen") instead of finishing this screen directly —
+     *  see goBackOrToMediaEdit() — so Add Status always sees the same
+     *  MediaEditActivity result shape the video (ReelEditorActivity) path
+     *  already returns, and lands on its Edit step either way. */
+    public static final String EXTRA_ALLOW_MEDIA_EDIT_FALLBACK = "allow_media_edit_fallback";
+
     // ── Pre-selected sound from the Reels camera screen ─────────────────────
     // When the user picks a track on the camera screen and then takes a photo,
     // ReelUploadActivity forwards these so the editing screen can auto-attach
@@ -340,6 +354,11 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     private String presetSoundUrl    = "";
     private String presetSoundCover  = "";
 
+    // ── Add Status "Advance Editing" support (photo path) ────────────────────
+    private boolean targetStatus = false;
+    private boolean allowMediaEditFallback = false;
+    private ActivityResultLauncher<Intent> mediaEditFallbackLauncher;
+
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     @Override
@@ -367,6 +386,10 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         presetSoundArtist = nvl(getIntent().getStringExtra(EXTRA_PRESET_SOUND_ARTIST), "");
         presetSoundUrl    = nvl(getIntent().getStringExtra(EXTRA_PRESET_SOUND_URL),    "");
         presetSoundCover  = nvl(getIntent().getStringExtra(EXTRA_PRESET_SOUND_COVER),  "");
+
+        targetStatus = getIntent().getBooleanExtra(EXTRA_TARGET_STATUS, false);
+        allowMediaEditFallback = getIntent().getBooleanExtra(EXTRA_ALLOW_MEDIA_EDIT_FALLBACK, false);
+        registerMediaEditFallbackLauncher();
 
         registerCropLauncher();
         bindViews();
@@ -417,6 +440,55 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         i.setClassName(getPackageName(), "com.callx.app.media.crop.MediaCropActivity");
         i.putExtra(MediaCropActivity.EXTRA_IMAGE_URI, photoUri);
         cropLauncher.launch(i);
+    }
+
+    // ── Add Status "Advance Editing" media-edit fallback ────────────────────
+    // Mirrors ReelEditorActivity's goBackOrToMediaEdit()/handleMediaEditFallbackResult()
+    // for the video path, so a picked photo gets the exact same "Reel [Photo]
+    // Edit screen → Media Editing screen → back to Add Status" round trip.
+
+    private void registerMediaEditFallbackLauncher() {
+        mediaEditFallbackLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                this::handleMediaEditFallbackResult);
+    }
+
+    /**
+     * Backing out of this screen (X / Done) when allowMediaEditFallback is
+     * set — i.e. opened directly on an already-picked status photo via Add
+     * Status's Advance Editing button — hands the photo off to
+     * MediaEditActivity ("media editing screen") instead of finishing this
+     * screen directly, and this screen forwards MediaEditActivity's own
+     * result straight through as its own (handleMediaEditFallbackResult()),
+     * so Add Status sees exactly the same result shape the video path
+     * (ReelEditorActivity) already returns.
+     */
+    private void goBackOrToMediaEdit() {
+        if (allowMediaEditFallback && photoUri != null && !photoUri.isEmpty()) {
+            Intent intent = new Intent();
+            intent.setClassName(getPackageName(), "com.callx.app.conversation.controllers.MediaEditActivity");
+            java.util.ArrayList<String> uriStrings = new java.util.ArrayList<>();
+            uriStrings.add(photoUri);
+            java.util.ArrayList<Integer> videoFlags = new java.util.ArrayList<>();
+            videoFlags.add(0); // always a photo on this fallback path
+            intent.putStringArrayListExtra("media_edit_uris", uriStrings);
+            intent.putIntegerArrayListExtra("media_edit_is_video", videoFlags);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            if (intent.resolveActivity(getPackageManager()) != null) {
+                mediaEditFallbackLauncher.launch(intent);
+                return;
+            }
+            // feature-chat not present on this build — fall through to plain cancel.
+        }
+        setResult(RESULT_CANCELED);
+        finish();
+    }
+
+    /** Transparently forwards MediaEditActivity's result (whatever it is —
+     *  edited-and-saved or cancelled) back to whoever launched THIS screen. */
+    private void handleMediaEditFallbackResult(androidx.activity.result.ActivityResult result) {
+        setResult(result.getResultCode(), result.getData());
+        finish();
     }
 
     // ── View binding ──────────────────────────────────────────────────────────
@@ -1232,6 +1304,10 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
             showPanel(panels[prev], tabs[prev]);
             return;
         }
+        if (allowMediaEditFallback) {
+            goBackOrToMediaEdit();
+            return;
+        }
         super.onBackPressed();
     }
 
@@ -1269,6 +1345,10 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         if (btnCrop != null) btnCrop.setOnClickListener(v -> openCropScreen());
 
         if (btnBack != null) btnBack.setOnClickListener(v -> {
+            if (allowMediaEditFallback) {
+                goBackOrToMediaEdit();
+                return;
+            }
             setResult(RESULT_CANCELED);
             finish();
         });
@@ -1277,6 +1357,15 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
             rebuildStickerJson();
             buildCaptionStyleJson();
             applyAll = cbApplyAll != null && cbApplyAll.isChecked();
+            // Advance Editing round trip: Done also goes on to MediaEditActivity
+            // (not straight back to Add Status) — same convention
+            // ReelEditorActivity's Done uses when allowMediaEditFallback is set,
+            // since only MediaEditActivity's own Save/Post should return to
+            // Add Status on this path.
+            if (allowMediaEditFallback) {
+                goBackOrToMediaEdit();
+                return;
+            }
             Intent result = new Intent();
             result.putExtra(EXTRA_PHOTO_URI,     photoUri);
             result.putExtra(EXTRA_FILTER,        selectedFilter);
@@ -1303,7 +1392,12 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
 
     private void updatePhotoLabel() {
         if (tvPhotoIndexLabel != null) {
-            tvPhotoIndexLabel.setText("Photo " + (photoIndex + 1) + " of " + photoCount);
+            // Screen title reads "Edit Status" instead of "Photo X of Y" when
+            // this editor is being reused for Add Status's Advance Editing
+            // entry point — same convention ReelEditorActivity uses for video.
+            tvPhotoIndexLabel.setText(targetStatus
+                    ? "Edit Status"
+                    : "Photo " + (photoIndex + 1) + " of " + photoCount);
         }
     }
 

@@ -101,6 +101,13 @@
     <color name="trim_screen_bg">@color/surface_bg</color>
     <color name="trim_card_bg">@color/surface_input</color>
     <color name="trim_subcard_bg">@color/surface_card</color>
+    <!-- Header/top-bar background for full-screen editor screens (e.g. Reel
+         Photo Editor). Deliberately mirrors Theme.CallX's android:statusBarColor
+         exactly (light = hardcoded #FFFFFF, dark = @color/surface_bg — see
+         values-night/colors.xml) so the header always reads as one seamless
+         surface with the status bar above it, instead of trim_card_bg's
+         slightly-different input-field tint. -->
+    <color name="trim_header_bg">#FFFFFF</color>
     <color name="trim_divider">@color/divider</color>
     <color name="trim_text_primary">@color/text_primary</color>
     <color name="trim_text_secondary">@color/text_secondary</color>
@@ -117,6 +124,13 @@
     <color name="step_active_ring_blue">#2979FF</color>
     <color name="step_active_ring_orange">#FF6D00</color>
     <color name="step_active_ring_pink">#D500F9</color>
+
+    <!-- Advance Editing CTA (Add Status → Create step). Deliberately a
+         separate blue→teal gradient from trim_gradient_start/end (pink→
+         purple, used by Continue/Post) so the two actions never look like
+         the same button — same pill shape/size, different gradient only. -->
+    <color name="advance_edit_gradient_start">#2979FF</color>
+    <color name="advance_edit_gradient_end">#00C2CB</color>
     <color name="trim_photo_placeholder">#ECECF1</color>
     <color name="trim_waveform_dim">#D6D6DE</color>
     <color name="trim_chip_bg">@color/surface_card</color>
