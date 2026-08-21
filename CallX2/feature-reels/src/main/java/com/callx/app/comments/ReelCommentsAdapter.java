@@ -295,11 +295,19 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         h.hasStory = hasStory; // read by the constructor-level click listener
 
         if (h.ivStoryRing != null && c.uid != null) {
-            // FIX v39: seamless gradient ring (story_ring_insta_gradient.xml had a
-            // visible seam — see StoryRingGradientDrawable doc).
-            if (hasUnseenStory || hasAnyStatus) {
+            // Instagram-style: gradient only while unseen; flat gray once
+            // the whole story is seen; hidden with no active status.
+            // BUG FIX: previously showed gradient whenever hasAnyStatus was
+            // true, even after the story was fully seen — ring never
+            // reflected the seen state coming back from the new story viewer.
+            if (hasUnseenStory) {
                 h.ivStoryRing.setBackground(com.callx.app.utils.StoryRingGradientDrawable
-                        .withStrokeDp(2.5f, ctx.getResources().getDisplayMetrics().density));
+                        .withStrokeDp(2f, ctx.getResources().getDisplayMetrics().density));
+                h.ivStoryRing.setImageDrawable(null);
+                h.ivStoryRing.setVisibility(android.view.View.VISIBLE);
+            } else if (hasAnyStatus) {
+                h.ivStoryRing.setBackground(null);
+                h.ivStoryRing.setImageResource(com.callx.app.core.R.drawable.circle_status_seen);
                 h.ivStoryRing.setVisibility(android.view.View.VISIBLE);
             } else {
                 h.ivStoryRing.setVisibility(android.view.View.GONE);

@@ -483,13 +483,11 @@ public class UserReelsActivity extends AppCompatActivity
         ivAvatar             = findViewById(R.id.iv_avatar);
         ivVerified           = findViewById(R.id.iv_verified);
         viewStoryRing        = findViewById(R.id.view_story_ring);
-        // FIX v39: seamless gradient ring — replaces bg_story_ring.xml's 3-stop
-        // XML sweep gradient which had a visible seam (see
-        // StoryRingGradientDrawable doc for details).
+        // Ring stays hidden until checkActiveStory() resolves whether this
+        // user has an active story and whether it's seen/unseen — avoids a
+        // one-frame gradient flash before the real seen-state is known.
         if (viewStoryRing != null) {
-            viewStoryRing.setBackground(
-                    com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3f,
-                            getResources().getDisplayMetrics().density));
+            viewStoryRing.setVisibility(View.GONE);
         }
         tvName               = findViewById(R.id.tv_name);
         tvDisplayName        = findViewById(R.id.tv_display_name);
@@ -1791,12 +1789,26 @@ public class UserReelsActivity extends AppCompatActivity
         storyRingHandler.postDelayed(storyRingRevealRunnable, 1000);
     }
 
-    /** Normal steady state: fixed seamless gradient ring, no animation at all. */
+    /**
+     * Normal steady state: gradient while the story is unseen, flat gray
+     * once fully seen (Instagram behavior) — checked against the same
+     * app-wide StatusCacheManager the Status tab and Reels feed read from,
+     * so a story viewed in the new StatusViewerActivity is reflected here
+     * immediately, no restart needed.
+     */
     private void showStoryRingStatic() {
         if (isFinishing() || isDestroyed() || viewStoryRing == null) return;
-        viewStoryRing.setBackground(
-                com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3f,
-                        getResources().getDisplayMetrics().density));
+        boolean unseen = com.callx.app.cache.StatusCacheManager
+                .getInstance(this).hasUnseen(targetUid);
+        if (unseen) {
+            viewStoryRing.setBackground(
+                    com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3f,
+                            getResources().getDisplayMetrics().density));
+        } else {
+            viewStoryRing.setBackground(
+                    androidx.core.content.ContextCompat.getDrawable(this,
+                            com.callx.app.core.R.drawable.circle_status_seen));
+        }
         viewStoryRing.setVisibility(View.VISIBLE);
     }
 

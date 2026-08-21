@@ -14,10 +14,13 @@ public final class StatusSeenTracker {
     private static final long DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000L;
     private StatusSeenTracker() {}
     // ── Seen tracking ─────────────────────────────────────────────────────
-    public static void markSeen(String ownerUid, String statusId) {
+    public static void markSeen(android.content.Context ctx, String ownerUid, String statusId) {
         if (ownerUid == null || statusId == null) return;
         String myUid = safeUid();
         if (myUid == null || myUid.equals(ownerUid)) return;
+        // Optimistic local mark — every ring drawn app-wide (reels, chat,
+        // comments, profile) picks this up on next bind, no Firebase wait.
+        if (ctx != null) StorySeenState.markSeen(ctx, ownerUid, System.currentTimeMillis());
         FirebaseUtils.getStatusRef()
             .child(ownerUid).child(statusId).child("seenBy").child(myUid)
             .setValue(ServerValue.TIMESTAMP);
@@ -25,11 +28,18 @@ public final class StatusSeenTracker {
             .child(myUid).child(ownerUid).child(statusId)
             .setValue(ServerValue.TIMESTAMP);
     }
-    public static void markSeenBatch(String ownerUid, Iterable<String> statusIds,
+    // Legacy overload kept for any callers that don't have a Context handy —
+    // still writes to Firebase, just can't optimistically warm the local cache.
+    public static void markSeen(String ownerUid, String statusId) {
+        markSeen(null, ownerUid, statusId);
+    }
+    public static void markSeenBatch(android.content.Context ctx, String ownerUid,
+                                     Iterable<String> statusIds,
                                      String ownerName, String statusThumbUrl) {
         if (ownerUid == null || statusIds == null) return;
         String myUid = safeUid();
         if (myUid == null || myUid.equals(ownerUid)) return;
+        if (ctx != null) StorySeenState.markSeen(ctx, ownerUid, System.currentTimeMillis());
         Map<String, Object> updates = new HashMap<>();
         for (String id : statusIds) {
             if (id != null) {
@@ -41,8 +51,14 @@ public final class StatusSeenTracker {
         String safeThumb     = statusThumbUrl != null ? statusThumbUrl : "";
         writeStatusSeenToChat(myUid, ownerUid, safeOwnerName, safeThumb);
     }
+    // Legacy overloads (no Context) — still functional, just skip the
+    // optimistic local-cache warm; ring will update on next Firebase-driven bind.
+    public static void markSeenBatch(String ownerUid, Iterable<String> statusIds,
+                                     String ownerName, String statusThumbUrl) {
+        markSeenBatch(null, ownerUid, statusIds, ownerName, statusThumbUrl);
+    }
     public static void markSeenBatch(String ownerUid, Iterable<String> statusIds) {
-        markSeenBatch(ownerUid, statusIds, "", "");
+        markSeenBatch(null, ownerUid, statusIds, "", "");
     }
     // ── View duration (analytics) ─────────────────────────────────────────
     public static void recordViewDuration(String ownerUid, String statusId, long durationMs) {

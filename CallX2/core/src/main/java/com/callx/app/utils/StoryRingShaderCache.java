@@ -30,22 +30,19 @@ public final class StoryRingShaderCache {
 
     private StoryRingShaderCache() {}
 
-    // Same palindromic Instagram gradient used everywhere (first == last color
-    // so the sweep closes the loop with zero seam).
+    // Real Instagram story-ring gradient stops (yellow → orange → pink →
+    // purple → blue), palindromed so the sweep closes the loop with zero
+    // seam (first color == last color).
     private static final int[] INSTA_GRADIENT_COLORS = {
-        0xFF833AB4, // purple
-        0xFFc13584, // magenta
-        0xFFe1306c, // hot pink
-        0xFFfd1d1d, // red-pink
-        0xFFf77737, // orange
-        0xFFfcaf45, // orange-yellow
-        0xFFffdc80, // light yellow
-        0xFFfcaf45, // back orange-yellow
-        0xFFf77737, // orange
-        0xFFfd1d1d, // red-pink
-        0xFFe1306c, // hot pink
-        0xFFc13584, // magenta
-        0xFF833AB4  // purple — loop closes here, no seam
+        0xFFfeda75, // yellow
+        0xFFfa7e1e, // orange
+        0xFFd62976, // pink
+        0xFF962fbf, // purple
+        0xFF4f5bd5, // blue
+        0xFF962fbf, // purple
+        0xFFd62976, // pink
+        0xFFfa7e1e, // orange
+        0xFFfeda75  // yellow — loop closes here, no seam
     };
 
     private static final int MAX_CACHED_SIZES = 8;

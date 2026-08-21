@@ -172,7 +172,7 @@ import com.callx.app.utils.AlertDialogStyler;
                   else if (first.mediaUrl != null && "image".equals(first.type))
                       thumbForBubble = first.mediaUrl;
               }
-              StatusSeenTracker.markSeenBatch(ownerUid, seenInSession,
+              StatusSeenTracker.markSeenBatch(this, ownerUid, seenInSession,
                       ownerName != null ? ownerName : "", thumbForBubble);
           }
           if (viewStartTime > 0 && idx < items.size()) {

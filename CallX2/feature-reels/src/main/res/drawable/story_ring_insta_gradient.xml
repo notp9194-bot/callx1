@@ -11,9 +11,9 @@
         <shape android:shape="oval">
             <gradient
                 android:type="sweep"
-                android:startColor="#833AB4"
-                android:centerColor="#FD1D1D"
-                android:endColor="#FCAF45"/>
+                android:startColor="#feda75"
+                android:centerColor="#d62976"
+                android:endColor="#4f5bd5"/>
         </shape>
     </item>
     <!-- Inner white ring (2.5dp all sides) — creates visible gap between gradient and avatar -->

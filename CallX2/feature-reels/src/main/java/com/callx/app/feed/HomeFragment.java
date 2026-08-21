@@ -2507,10 +2507,27 @@ public class HomeFragment extends Fragment {
         // FIX v39: seamless gradient ring (see StoryRingGradientDrawable doc for why
         // the old story_ring_insta_gradient.xml background had a visible seam).
         ImageView ivPostStoryRing = card.findViewById(R.id.iv_post_story_ring);
-        if (ivPostStoryRing != null) {
-            ivPostStoryRing.setBackground(
-                    com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(2.5f,
-                            getResources().getDisplayMetrics().density));
+        // Instagram-style: gradient only while unseen, flat gray once seen,
+        // hidden with no active status — same StatusCacheManager everything
+        // else in the app reads from. Mirrors ReelUiController.
+        if (ivPostStoryRing != null && reel.uid != null) {
+            com.callx.app.cache.StatusCacheManager scm =
+                    com.callx.app.cache.StatusCacheManager.getInstance(requireContext());
+            boolean hasUnseen = scm.hasUnseen(reel.uid);
+            boolean hasAny    = scm.hasStatus(reel.uid);
+            if (hasUnseen) {
+                ivPostStoryRing.setImageDrawable(null);
+                ivPostStoryRing.setBackground(
+                        com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(2f,
+                                getResources().getDisplayMetrics().density));
+                ivPostStoryRing.setVisibility(View.VISIBLE);
+            } else if (hasAny) {
+                ivPostStoryRing.setBackground(null);
+                ivPostStoryRing.setImageResource(com.callx.app.core.R.drawable.circle_status_seen);
+                ivPostStoryRing.setVisibility(View.VISIBLE);
+            } else {
+                ivPostStoryRing.setVisibility(View.GONE);
+            }
         }
         TextView tvOwner          = card.findViewById(R.id.tv_post_owner);
         TextView tvTime           = card.findViewById(R.id.tv_post_time);

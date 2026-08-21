@@ -22,6 +22,9 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.MultiTransformation;
+import com.bumptech.glide.load.resource.bitmap.CenterCrop;
+import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.callx.app.explore.HashtagReelsActivity;
 import com.callx.app.models.ReelModel;
 import com.callx.app.reels.R;
@@ -57,7 +60,12 @@ public class ReelUiController {
     private TextView        tvOwnerName;
     private TextView        tvCaption;
     private TextView        tvMusicName;
-    private TextView        tvBioSongName;
+    private com.callx.app.views.MusicTickerView tvBioSongName;
+    // Lazily bound the first time a collab reel inflates stub_collab_row
+    // (see populateStaticData()) — kept as a field, not a local, so
+    // startDiscAnimation()/stopDiscAnimation() can pause/resume it in sync
+    // with playback the same way they already do for tvBioSongName.
+    private com.callx.app.views.MusicTickerView tvCollabSongName;
     private ImageView       ivMusicDisc;
     private android.widget.ImageButton btnCreateAudio;
     private LinearLayout    layoutMusicTicker;
@@ -104,14 +112,8 @@ public class ReelUiController {
         this.fragmentView = root;
         ivOwnerAvatar      = root.findViewById(R.id.iv_owner_avatar);
         ivOwnerStoryRing   = root.findViewById(R.id.iv_owner_story_ring);
-        // FIX v39: seamless gradient ring — replaces story_ring_insta_gradient.xml's
-        // 3-stop XML sweep gradient which had a visible seam (see
-        // StoryRingGradientDrawable doc for details).
-        if (ivOwnerStoryRing != null) {
-            ivOwnerStoryRing.setBackground(
-                    com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(2.5f,
-                            root.getResources().getDisplayMetrics().density));
-        }
+        // Ring itself is now bound per-reel in bindReelData() below (needs
+        // reel.ownerUid to check seen state) — see StorySeenState.
         tvOwnerName        = root.findViewById(R.id.tv_owner_name);
         tvCaption          = root.findViewById(R.id.tv_caption);
         tvMusicName        = root.findViewById(R.id.tv_music_name);
@@ -199,6 +201,44 @@ public class ReelUiController {
 
         // Owner name + caption
         if (tvOwnerName != null) tvOwnerName.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
+
+        // Instagram-style: gradient only while an UNSEEN status exists;
+        // flat gray once fully seen; hidden if no active status at all.
+        // Uses the same app-wide StatusCacheManager the Status tab and
+        // ReelCommentsAdapter already read from — single source of truth.
+        if (ivOwnerStoryRing != null && reel.uid != null) {
+            com.callx.app.cache.StatusCacheManager scm =
+                    com.callx.app.cache.StatusCacheManager.getInstance(fragmentView.getContext());
+            boolean hasUnseen = scm.hasUnseen(reel.uid);
+            boolean hasAny    = scm.hasStatus(reel.uid);
+            if (hasUnseen) {
+                ivOwnerStoryRing.setImageDrawable(null);
+                // v43 PERF: reuse the gradient Drawable already attached to
+                // this exact ImageView instead of allocating a new
+                // StoryRingGradientDrawable (+ 2 Paints) on every bind. The
+                // underlying bitmap was already cached (v41/v42) but the
+                // Drawable wrapper itself was still fresh garbage each time.
+                // Safe to reuse: stroke width is a fixed constant (2dp), so
+                // every rebind of this view wants the identical instance.
+                Object existingRing = ivOwnerStoryRing.getTag(R.id.tag_story_ring_drawable);
+                android.graphics.drawable.Drawable ringDrawable;
+                if (existingRing instanceof com.callx.app.utils.StoryRingGradientDrawable) {
+                    ringDrawable = (android.graphics.drawable.Drawable) existingRing;
+                } else {
+                    ringDrawable = com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(2f,
+                            fragmentView.getResources().getDisplayMetrics().density);
+                    ivOwnerStoryRing.setTag(R.id.tag_story_ring_drawable, ringDrawable);
+                }
+                ivOwnerStoryRing.setBackground(ringDrawable);
+                ivOwnerStoryRing.setVisibility(View.VISIBLE);
+            } else if (hasAny) {
+                ivOwnerStoryRing.setBackground(null);
+                ivOwnerStoryRing.setImageResource(com.callx.app.core.R.drawable.circle_status_seen);
+                ivOwnerStoryRing.setVisibility(View.VISIBLE);
+            } else {
+                ivOwnerStoryRing.setVisibility(View.GONE);
+            }
+        }
 
         // ── Instagram-style bio song-name (icon + text directly below the
         // username) — same source string as the (hidden) bottom music
@@ -308,7 +348,7 @@ public class ReelUiController {
                     }
                 }
 
-                TextView tvCollabSongName = fragmentView.findViewById(R.id.tv_collab_song_name);
+                tvCollabSongName = fragmentView.findViewById(R.id.tv_collab_song_name);
                 if (tvCollabSongName != null) {
                     tvCollabSongName.setText(bioMusicDisplay);
                     View llCollabSongRow = fragmentView.findViewById(R.id.ll_collab_song_row);
@@ -327,8 +367,41 @@ public class ReelUiController {
                     // collaborator it silently dropped the "and 1 other" part.
                     String ownerName = reel.ownerName != null && !reel.ownerName.isEmpty()
                         ? reel.ownerName : "user";
-                    tvCollabName.setText("@" + ownerName + " and " + totalCount
-                        + (totalCount == 1 ? " other" : " others"));
+                    String namePart = "@" + ownerName;
+                    String othersPart = " and " + totalCount + (totalCount == 1 ? " other" : " others");
+                    String full = namePart + othersPart;
+
+                    // Instagram-style split tap targets on the same line:
+                    // "@ownerName" opens that person's profile (the reel
+                    // owner — collab captions always credit the owner here,
+                    // never the collaborator), "and N other(s)" opens the
+                    // full Collaborators sheet. Avatar stack does the same
+                    // as the "and N other(s)" tap — see below.
+                    android.text.SpannableString spannable = new android.text.SpannableString(full);
+                    spannable.setSpan(new android.text.style.ClickableSpan() {
+                        @Override public void onClick(@androidx.annotation.NonNull View widget) {
+                            if (delegate.isAdded()) delegate.openUserReels();
+                        }
+                        @Override public void updateDrawState(@androidx.annotation.NonNull android.text.TextPaint ds) {
+                            ds.setUnderlineText(false); // keep Instagram's plain (non-underlined) look
+                        }
+                    }, 0, namePart.length(), android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    spannable.setSpan(new android.text.style.ClickableSpan() {
+                        @Override public void onClick(@androidx.annotation.NonNull View widget) {
+                            if (!delegate.isAdded()) return;
+                            delegate.showBottomSheet(
+                                com.callx.app.social.CollaboratorsBottomSheet.newInstance(
+                                    reel.reelId, reel.uid, reel.ownerName, reel.ownerPhoto),
+                                com.callx.app.social.CollaboratorsBottomSheet.TAG);
+                        }
+                        @Override public void updateDrawState(@androidx.annotation.NonNull android.text.TextPaint ds) {
+                            ds.setUnderlineText(false);
+                        }
+                    }, namePart.length(), full.length(), android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+                    tvCollabName.setText(spannable);
+                    tvCollabName.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+                    tvCollabName.setHighlightColor(android.graphics.Color.TRANSPARENT); // no gray flash on tap
                 }
 
                 // Follow button now lives on the merged collab row instead of
@@ -336,13 +409,22 @@ public class ReelUiController {
                 // wired centrally in ReelSocialController (same as tv_follow_btn).
                 if (tvCollabFollowBtn != null) tvCollabFollowBtn.setVisibility(View.VISIBLE);
 
-                llCollabAuthors.setOnClickListener(v -> {
-                    if (!delegate.isAdded()) return;
-                    delegate.showBottomSheet(
-                        com.callx.app.social.CollaboratorsBottomSheet.newInstance(
-                            reel.reelId, reel.uid, reel.ownerName, reel.ownerPhoto),
-                        com.callx.app.social.CollaboratorsBottomSheet.TAG);
-                });
+                // Avatar stack tap → same as "and N other(s)": opens the full
+                // Collaborators sheet (Instagram behavior — tapping the
+                // overlapping avatars never jumps straight to one profile).
+                if (collabStack != null) {
+                    collabStack.setOnClickListener(v -> {
+                        if (!delegate.isAdded()) return;
+                        delegate.showBottomSheet(
+                            com.callx.app.social.CollaboratorsBottomSheet.newInstance(
+                                reel.reelId, reel.uid, reel.ownerName, reel.ownerPhoto),
+                            com.callx.app.social.CollaboratorsBottomSheet.TAG);
+                    });
+                }
+                // Row-level click removed — name/avatar now have their own
+                // precise tap targets above (Instagram never treats the
+                // whole line as one big tap target here).
+                llCollabAuthors.setOnClickListener(null);
             } else {
                 llCollabAuthors.setVisibility(View.GONE);
                 llCollabAuthors.setOnClickListener(null);
@@ -467,10 +549,16 @@ public class ReelUiController {
                 // 28dp tile actually shows (was loading full-res source).
                 android.content.Context audioCtx = delegate.requireContext();
                 int sizePx = AvatarUrlBuilder.dpToPx(audioCtx, 28) * 2; // 28dp view, 2x retina
+                // Corner radius must match bg_audio_create_tile.xml's 4dp so the
+                // photo's own rounded corners line up with the tile's rounded
+                // background instead of showing square corners peeking through.
+                int cornerRadiusPx = AvatarUrlBuilder.dpToPx(audioCtx, 4);
                 String resizedAudioUrl = AvatarUrlBuilder.build(audioCtx, audioImageUrl, 28);
                 Glide.with(audioCtx)
                     .load(resizedAudioUrl)
-                    .apply(new RequestOptions().centerCrop()
+                    .apply(new RequestOptions()
+                        .transform(new MultiTransformation<>(
+                                new CenterCrop(), new RoundedCorners(cornerRadiusPx)))
                         .override(sizePx, sizePx)
                         .format(DecodeFormat.PREFER_RGB_565) // opaque tile, no alpha needed — half the decode memory
                         // PERF: cache the final resized+cropped bitmap to disk (RESOURCE),
@@ -521,12 +609,22 @@ public class ReelUiController {
                 android.content.Context avatarCtx = delegate.requireContext();
                 int sizePx = AvatarUrlBuilder.dpToPx(avatarCtx, 34) * 2; // 34dp view, 2x retina
                 String resizedUrl = AvatarUrlBuilder.build(avatarCtx, photoUrl, 34);
+                // v44 PERF: dropped .circleCrop(). ivOwnerAvatar is a
+                // de.hdodenhof CircleImageView, which ALWAYS circular-clips
+                // whatever bitmap it's given via its own BitmapShader in
+                // onDraw() — circleCrop()-ing the source in Glide first was
+                // pure duplicate work (a second full bitmap alloc+draw per
+                // decode) AND it silently forced ARGB_8888 (circleCrop needs
+                // an alpha channel for the transparent corners), defeating
+                // the PREFER_RGB_565 hint right below — so every avatar was
+                // decoding at double the intended memory footprint for a
+                // shape that got clipped again anyway. Plain square decode
+                // now actually gets the RGB_565 halving it was asking for.
                 Glide.with(avatarCtx)
                     .load(resizedUrl)
                     .apply(new RequestOptions()
-                        .circleCrop()
                         .override(sizePx, sizePx)
-                        .format(DecodeFormat.PREFER_RGB_565) // opaque avatar, no alpha needed
+                        .format(DecodeFormat.PREFER_RGB_565) // opaque avatar, no alpha needed — now actually honored
                         .diskCacheStrategy(DiskCacheStrategy.RESOURCE) // PERF: cache resized variant on disk — re-scroll won't re-download
                         .placeholder(R.drawable.ic_person))
                     .into(ivOwnerAvatar);
@@ -534,16 +632,13 @@ public class ReelUiController {
                 ivOwnerAvatar.setImageResource(R.drawable.ic_person);
             }
         }
-        if (ivOwnerStoryRing != null) {
-            // Show story ring if owner has an active status
-            try {
-                boolean hasStatus = com.callx.app.cache.StatusCacheManager
-                        .getInstance(delegate.requireContext()).hasStatus(reel.uid);
-                ivOwnerStoryRing.setVisibility(hasStatus ? View.VISIBLE : View.GONE);
-            } catch (Exception ignored) {
-                ivOwnerStoryRing.setVisibility(View.GONE);
-            }
-        }
+        // v43 PERF: removed a duplicate story-ring block that used to sit
+        // here — it re-fetched StatusCacheManager.getInstance() and called
+        // hasStatus(reel.uid) a SECOND time (extra singleton lookup + map
+        // lookup) purely to re-set the same visibility the block above
+        // already sets correctly (with the correct gradient/seen-icon
+        // distinction this one didn't even make). Pure dead duplicate work
+        // on every single reel fragment creation — removed, not replaced.
 
         // Repost attribution
         if (tvRepostAttribution != null && reel.repostedFromName != null && !reel.repostedFromName.isEmpty()) {
@@ -991,6 +1086,15 @@ public class ReelUiController {
     // ── Music disc animation ──────────────────────────────────────────────
 
     public void startDiscAnimation() {
+        // PERF: keep the bio/collab music-name ticker's infinite scroll
+        // animator in lockstep with real playback — this is called exactly
+        // when a reel becomes the active/visible one (ReelPlayerFragment#
+        // applyVisibleState) or resumes from a long-press pause, so there's
+        // no reason for an off-screen or paused reel's ticker to keep
+        // animating + redrawing in the background.
+        if (tvBioSongName != null) tvBioSongName.resume();
+        if (tvCollabSongName != null) tvCollabSongName.resume();
+
         if (ivMusicDisc == null) return;
         if (discAnimator != null) { discAnimator.cancel(); discAnimator = null; }
         // PERF: this is an infinite rotation running for as long as the reel
@@ -1016,6 +1120,8 @@ public class ReelUiController {
     }
 
     public void stopDiscAnimation() {
+        if (tvBioSongName != null) tvBioSongName.pause();
+        if (tvCollabSongName != null) tvCollabSongName.pause();
         if (discAnimator != null) discAnimator.pause();
     }
 
@@ -1141,6 +1247,8 @@ public class ReelUiController {
         pendingSingleTap = null;
         pausedByLongPress = false;
         if (discAnimator != null) { discAnimator.cancel(); discAnimator = null; } // triggers onAnimationCancel -> revertDiscLayerType()
+        if (tvBioSongName != null) tvBioSongName.release();
+        if (tvCollabSongName != null) tvCollabSongName.release();
     }
 
 }
