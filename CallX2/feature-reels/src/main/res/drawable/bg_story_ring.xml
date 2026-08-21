@@ -1,16 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     bg_story_ring.xml — brand story ring gradient
-    Colour flow (from top, clockwise): Pink-Purple 0-15% (#8A2BE2 -> #FF1493)
-    -> Pink-Red 15-55% (#FF1493 -> #FF3B30) -> Orange 55-75%
-    (#FF6A00 -> #FFA500) -> Yellow 75-100% (#FFD600 -> #FFF200).
+    Smooth colour flow (from top, clockwise): Purple #8A2BE2 (0%) -> Pink
+    #FF1493 (15%) -> Red-Orange #FF5318 (55%) -> Orange-Yellow #FFBE00 (75%)
+    -> Yellow #FFF200 (100%). No hard edges.
     Used in activity_user_reels.xml for view_story_ring (90dp avatar ring).
     Plain XML sweep gradients only support 3 stops (start/center/end fixed
     at 0%/50%/100%), so this is the closest 3-stop approximation: startColor
-    is the Pink-Purple mix's start, centerColor sits in the (dominant,
-    40%-wide) Pink-Red band since the 50% midpoint falls inside it, endColor
-    is Yellow's end. For the pixel-exact 4-band gradient with hard edges at
-    55%/75%, see StoryRingShaderCache (used by StoryRingGradientDrawable),
+    is Purple, centerColor is the Red-Orange blend since the 50% midpoint
+    falls near it, endColor is Yellow. For the pixel-exact 5-stop smooth
+    gradient, see StoryRingShaderCache (used by StoryRingGradientDrawable),
     which is what actually renders wherever the code overrides this XML.
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
@@ -20,7 +19,7 @@
             <gradient
                 android:type="sweep"
                 android:startColor="#8A2BE2"
-                android:centerColor="#FF3B30"
+                android:centerColor="#FF5318"
                 android:endColor="#FFF200"/>
         </shape>
     </item>

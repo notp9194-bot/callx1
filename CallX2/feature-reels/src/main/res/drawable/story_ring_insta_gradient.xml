@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     story_ring_insta_gradient.xml
-    Brand story ring gradient — colour flow (from top, clockwise):
-    Pink-Purple 0-15% (#8A2BE2 -> #FF1493) -> Pink-Red 15-55%
-    (#FF1493 -> #FF3B30) -> Orange 55-75% (#FF6A00 -> #FFA500) ->
-    Yellow 75-100% (#FFD600 -> #FFF200).
+    Brand story ring gradient — smooth colour flow (from top, clockwise):
+    Purple #8A2BE2 (0%) -> Pink #FF1493 (15%) -> Red-Orange #FF5318 (55%)
+    -> Orange-Yellow #FFBE00 (75%) -> Yellow #FFF200 (100%). No hard edges —
+    each stop blends straight into the next all the way around the ring.
     Used as background/src for story rings across Reels (home stories, reel
     comments, reel player owner ring, feed post ring, share sheet).
     The avatar (slightly smaller) sits on top, visually creating a ring effect.
     Note: plain XML sweep gradients only support 3 stops (start/center/end
-    fixed at 0/50/100%) — centerColor is Pink-Red since that's the colour
-    covering the 50% mark (its band is the dominant 15-55%); this is the
-    closest 3-stop approximation of the spec. For pixel-exact 4-band
-    percentages with hard edges at 55%/75%, see StoryRingShaderCache.
+    fixed at 0/50/100%) — centerColor is Red-Orange since that's the colour
+    covering the 50% mark; this is the closest 3-stop approximation of the
+    full 5-stop spec. For the pixel-exact smooth version, see
+    StoryRingShaderCache.
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Outer gradient oval — full gradient circle -->
