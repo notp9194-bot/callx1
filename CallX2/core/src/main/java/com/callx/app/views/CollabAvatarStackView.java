@@ -64,7 +64,9 @@ public class CollabAvatarStackView extends View {
         // ~58% overlap between consecutive avatars — matches the tighter
         // overlap Instagram uses (our old plain stack used 50%/12dp).
         overlapStepPx = Math.round(19 * density);
-        verticalStepPx = Math.round(4 * density);
+        // Owner (back) sits noticeably higher, each front avatar noticeably
+        // lower — was 4dp (too subtle), bumped to 8dp per feedback.
+        verticalStepPx = Math.round(8 * density);
         // Border ring removed (was a black outline) — cutout notch now sizes
         // exactly to the avatar circle itself so there's no black ring.
         borderWidthPx = 0;
