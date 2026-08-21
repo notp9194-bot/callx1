@@ -158,6 +158,24 @@ public class StatusHighlightsActivity extends AppCompatActivity {
                 i.putExtra(StatusViewerActivity.EXTRA_OWNER_UID, ownerUid);
                 i.putExtra(StatusViewerActivity.EXTRA_OWNER_NAME, albumName);
                 i.putExtra(StatusViewerActivity.EXTRA_HIGHLIGHT_ALBUM_ID, albumId);
+                // Instagram-style: hand over every album in this grid, in
+                // the same order shown here, so finishing one album's
+                // stories auto-continues into the next tile instead of
+                // just closing the viewer.
+                ArrayList<String> queueIds = new ArrayList<>();
+                ArrayList<String> queueNames = new ArrayList<>();
+                for (String aid : keys) {
+                    List<StatusItem> list2 = albumMap.get(aid);
+                    if (list2 == null || list2.isEmpty()) continue;
+                    StatusItem cover2 = list2.get(0);
+                    String name2 = albumNameOverride.containsKey(aid)
+                            ? albumNameOverride.get(aid)
+                            : (cover2.highlightAlbumName != null ? cover2.highlightAlbumName : aid);
+                    queueIds.add(aid);
+                    queueNames.add(name2);
+                }
+                i.putStringArrayListExtra(StatusViewerActivity.EXTRA_QUEUE_ALBUM_IDS, queueIds);
+                i.putStringArrayListExtra(StatusViewerActivity.EXTRA_QUEUE_ALBUM_NAMES, queueNames);
                 startActivity(i);
             });
             if (isOwner) {

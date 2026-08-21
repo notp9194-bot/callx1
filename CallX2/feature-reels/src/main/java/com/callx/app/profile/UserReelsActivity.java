@@ -250,6 +250,13 @@ public class UserReelsActivity extends AppCompatActivity
     // ring — see HighlightsRowAdapter.HighlightAlbum#justAdded).
     private final java.util.Set<String> knownHighlightAlbumIds = new java.util.HashSet<>();
     private boolean highlightsLoadedOnce = false;
+    // Coalesces bursts of rebuild requests — loadHighlights()'s own initial
+    // bind, loadHighlightRingOverrides(), and applyHighlightSeenState()'s two
+    // passes (local cache + Firebase round-trip) can all fire within the
+    // same frame right after a profile opens. Without this, that's up to
+    // four separate DiffUtil computations + adapter updates back to back;
+    // this flattens them into a single pass. See scheduleHighlightsRebuild().
+    private volatile boolean highlightsRebuildQueued = false;
 
     // ── Avatar peek animation fields ──────────────────────────────────────
     private CircleImageView ivAnimChat, ivAnimX, ivAnimYoutube;
@@ -1924,6 +1931,22 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     /**
+     * Debounced/coalesced entry point for every rebuild trigger that isn't a
+     * direct user tap (loadHighlights' initial bind, ring-color overrides,
+     * seen-state sync). Also thread-safe: runOnUiThread() runs immediately
+     * if already on the UI thread, or posts otherwise, so callers never need
+     * to reason about which thread a Firebase callback landed on.
+     */
+    private void scheduleHighlightsRebuild() {
+        if (highlightsRebuildQueued) return;
+        highlightsRebuildQueued = true;
+        runOnUiThread(() -> {
+            highlightsRebuildQueued = false;
+            rebuildHighlightsAdapter();
+        });
+    }
+
+    /**
      * Load highlight albums from Firebase.
      * Path: statusHighlights/{targetUid}/{albumId}/<statusItems>
      * Builds one HighlightAlbum per albumId using the first child as the cover.
@@ -1989,6 +2012,11 @@ public class UserReelsActivity extends AppCompatActivity
                     rebuildHighlightsAdapter();
                 });
 
+                // Both run right after the base list binds — fire together so
+                // their (independent) Firebase reads overlap instead of
+                // chaining, and route their UI updates through the coalesced
+                // scheduleHighlightsRebuild() below instead of each forcing
+                // its own separate adapter pass.
                 loadHighlightRingOverrides();
                 applyHighlightSeenState();
             }
@@ -2033,7 +2061,7 @@ public class UserReelsActivity extends AppCompatActivity
                             changed = true;
                         }
                     }
-                    if (changed) runOnUiThread(() -> rebuildHighlightsAdapter());
+                    if (changed) scheduleHighlightsRebuild();
                 }
                 @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) { }
             });
@@ -2060,7 +2088,7 @@ public class UserReelsActivity extends AppCompatActivity
                 localChanged = true;
             }
         }
-        if (localChanged) rebuildHighlightsAdapter();
+        if (localChanged) scheduleHighlightsRebuild();
 
         com.callx.app.utils.StatusHighlightManager.getHighlightSeenRef(myUid, targetUid)
             .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
@@ -2073,7 +2101,7 @@ public class UserReelsActivity extends AppCompatActivity
                             changed = true;
                         }
                     }
-                    if (changed) runOnUiThread(() -> rebuildHighlightsAdapter());
+                    if (changed) scheduleHighlightsRebuild();
                 }
                 @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) { }
             });
@@ -2101,6 +2129,19 @@ public class UserReelsActivity extends AppCompatActivity
             i.putExtra("ownerUid",  targetUid);
             i.putExtra("ownerName", album.albumName);
             i.putExtra("highlightAlbumId", album.albumId);
+            // Instagram-style: hand over every other highlight ring on this
+            // profile, in the same left-to-right order they're shown, so
+            // finishing this album's stories auto-continues straight into
+            // the next ring instead of just closing the viewer.
+            ArrayList<String> queueIds = new ArrayList<>();
+            ArrayList<String> queueNames = new ArrayList<>();
+            for (HighlightsRowAdapter.HighlightAlbum a : highlightAlbums) {
+                if (a.isNew) continue;
+                queueIds.add(a.albumId);
+                queueNames.add(a.albumName);
+            }
+            i.putStringArrayListExtra("queueAlbumIds", queueIds);
+            i.putStringArrayListExtra("queueAlbumNames", queueNames);
             startActivity(i);
         } catch (ClassNotFoundException ex) {
             Toast.makeText(this, album.albumName, Toast.LENGTH_SHORT).show();

@@ -53,7 +53,7 @@ public final class StoryRingGradientDrawable extends Drawable {
         this.strokePx = strokeWidthPx;
         fallbackPaint.setStyle(Paint.Style.STROKE);
         fallbackPaint.setStrokeWidth(strokePx);
-        fallbackPaint.setColor(0xFF7D00FF); // fallback before bounds/bitmap are ready (purple — ring's start color)
+        fallbackPaint.setColor(0xFF8A2BE2); // fallback before bounds/bitmap are ready (purple — ring's start color)
     }
 
     /** Convenience factory: pass a dp value + the view's display density. */

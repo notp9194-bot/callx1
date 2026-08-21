@@ -55,6 +55,9 @@ public class StatusFragment extends BaseFragment {
     // Legacy live Firebase listeners kept for now (StatusListAdapter still needs them
     // for per-contact seen/mute/close-friends logic — will migrate in next sprint)
     private final Map<String, List<StatusItem>> statusMap  = new LinkedHashMap<>();
+    // Instagram-style continuous playback queue — see rebuildStatusAdapter().
+    private final ArrayList<String> queueOwnerUids  = new ArrayList<>();
+    private final ArrayList<String> queueOwnerNames = new ArrayList<>();
     private final Map<String, Set<String>>       seenMap   = new HashMap<>();
     private final List<StatusItem>               myStatuses = new ArrayList<>();
     private ValueEventListener statusListener;
@@ -151,6 +154,11 @@ public class StatusFragment extends BaseFragment {
                     com.callx.app.viewer.StatusViewerActivity.class);
                 i.putExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_OWNER_UID, ownerUid);
                 i.putExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_OWNER_NAME, ownerName);
+                // Instagram-style: hand over the whole tray order so the
+                // viewer auto-advances into the next contact once this
+                // one's stories finish, instead of just closing.
+                i.putStringArrayListExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_QUEUE_OWNER_UIDS, queueOwnerUids);
+                i.putStringArrayListExtra(com.callx.app.viewer.StatusViewerActivity.EXTRA_QUEUE_OWNER_NAMES, queueOwnerNames);
                 startActivity(i);
             },
             (ownerUid, ownerName, isMuted) -> showContactContextMenu(ownerUid, ownerName, isMuted)
@@ -551,6 +559,17 @@ public class StatusFragment extends BaseFragment {
             a.latestTimestamp == null ? 0 : a.latestTimestamp);
         unseen.sort(byTime); seen.sort(byTime); muted.sort(byTime); hidden.sort(byTime);
         lastHiddenEntries = hidden; // v236 — kept for the Hidden updates screen
+        // Instagram-style continuous playback: remember the same order the
+        // tray is actually rendered in (unseen first, then seen — muted/
+        // hidden are deliberately excluded, same as they're tucked away in
+        // their own separate sections instead of the main carousel) so that
+        // opening any one contact's status can auto-advance into the next
+        // contact in the tray once the current one finishes, instead of
+        // just closing.
+        queueOwnerUids.clear();
+        queueOwnerNames.clear();
+        for (StatusListAdapter.Entry en : unseen) { queueOwnerUids.add(en.ownerUid); queueOwnerNames.add(en.ownerName); }
+        for (StatusListAdapter.Entry en : seen)   { queueOwnerUids.add(en.ownerUid); queueOwnerNames.add(en.ownerName); }
         statusAdapter.update(unseen, seen, muted, hidden.size());
         if (mediaPreloader != null) {
             for (StatusListAdapter.Entry en : unseen) {

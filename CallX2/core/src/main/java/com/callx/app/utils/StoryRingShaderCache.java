@@ -30,22 +30,33 @@ public final class StoryRingShaderCache {
 
     private StoryRingShaderCache() {}
 
-    // Story ring gradient stops — Purple → Pink/Magenta → Orange → Yellow,
-    // matching the app's brand colour-flow spec (percentages measured from
-    // the top, clockwise): Purple 25% (0-25%), Pink/Magenta 20% (25-45%),
-    // Orange 20% (45-65%), Yellow 35% (65-100%). Palindromed (first color ==
-    // last color) so the sweep closes the loop with zero seam.
+    // Story ring gradient stops — updated brand spec (colour flow, from top,
+    // clockwise, percentages measured exactly as spec'd):
+    //   0%–15%   Pink–Purple mix   #8A2BE2 → #FF1493
+    //   15%–55%  Pink–Red          #FF1493 → #FF3B30
+    //   55%–75%  Orange            #FF6A00 → #FFA500
+    //   75%–100% Yellow            #FFD600 → #FFF200
+    // Each band blends smoothly between its own two hex stops; bands are
+    // joined with a duplicated position (55%, 75%) wherever the spec's end
+    // color of one band doesn't match the start color of the next, giving a
+    // hard edge exactly there instead of an unwanted blend across it. The
+    // loop does NOT close seamlessly (yellow #FFF200 at 100% is a different
+    // color from purple #8A2BE2 at 0%) — that visible seam at 12 o'clock is
+    // intentional, matching the reference spec's "Starting from Top" flow.
     private static final int[] INSTA_GRADIENT_COLORS = {
-        0xFF7D00FF, // purple   (0%)
-        0xFFFF2D7A, // pink/magenta (25%)
-        0xFFFF8A00, // orange   (45%)
-        0xFFFFD600, // yellow   (65%)
-        0xFF7D00FF  // purple — loop closes here at 100%, no seam
+        0xFF8A2BE2, // purple            (0%)
+        0xFFFF1493, // pink              (15% — end of Pink-Purple / start of Pink-Red)
+        0xFFFF3B30, // red               (55% — end of Pink-Red)
+        0xFFFF6A00, // orange            (55% — start of Orange, hard edge)
+        0xFFFFA500, // orange (lighter)  (75% — end of Orange)
+        0xFFFFD600, // yellow            (75% — start of Yellow, hard edge)
+        0xFFFFF200  // yellow (lighter)  (100%)
     };
 
     // Cumulative positions (0..1) matching the percentages above exactly.
+    // 0.55 and 0.75 each appear twice to create the hard band edges noted above.
     private static final float[] INSTA_GRADIENT_POSITIONS = {
-        0f, 0.25f, 0.45f, 0.65f, 1f
+        0f, 0.15f, 0.55f, 0.55f, 0.75f, 0.75f, 1f
     };
 
     private static final int MAX_CACHED_SIZES = 8;

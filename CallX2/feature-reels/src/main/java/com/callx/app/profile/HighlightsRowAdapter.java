@@ -25,7 +25,6 @@ import com.bumptech.glide.load.resource.bitmap.CircleCrop;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.reels.R;
 import com.callx.app.utils.CloudinaryUploader;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -139,6 +138,10 @@ public class HighlightsRowAdapter
     private final List<HighlightAlbum> items;
     private final boolean              isSelf;
     private final Listener             listener;
+    // Snapshot of what was actually last bound to screen for each albumId —
+    // see submitAlbums()/signatureOf() below for why this exists (BUGFIX:
+    // permanent ring color/gradient not appearing for other viewers).
+    private final java.util.Map<String, String> lastRenderedSignature = new java.util.HashMap<>();
     // Built once and reused for every bind/preload instead of calling
     // Glide.with(ctx) fresh per item — avoids repeated RequestManager
     // lookups while scrolling.
@@ -160,27 +163,55 @@ public class HighlightsRowAdapter
      * rows are left untouched — their Glide requests/bitmaps aren't redone.
      */
     public void submitAlbums(List<HighlightAlbum> newItems) {
-        List<HighlightAlbum> old = new ArrayList<>(items);
+        // BUGFIX (permanent ring color/gradient invisible to other viewers):
+        // `items` holds HighlightAlbum object references, not copies. Callers
+        // such as UserReelsActivity commonly fetch data in stages — build the
+        // album first, hand it to this adapter, then later (once
+        // statusHighlightMeta/{owner}/{albumId}/ringColor comes back from
+        // Firebase) set `album.ringColor = ...` directly on that SAME object
+        // and call submitAlbums() again. Because `old` used to be built as
+        // `new ArrayList<>(items)` — a *shallow* copy — `old.get(pos)` and
+        // `newItems.get(pos)` ended up being the literal same object in
+        // memory. Comparing a mutated object's fields against itself always
+        // reports "unchanged", so DiffUtil never dispatched a rebind and the
+        // ring visually stayed on whatever was rendered before the custom
+        // color/seen-state update arrived — even though the underlying data
+        // was fetched and merged correctly.
+        //
+        // Fix: never compare against the possibly-aliased "old" object.
+        // Compare against a signature of what was actually last bound to
+        // screen for that albumId (recorded in onBindViewHolder), so a real
+        // visual change is always detected regardless of how/when the
+        // caller mutates its model objects.
         DiffUtil.DiffResult result = DiffUtil.calculateDiff(new DiffUtil.Callback() {
-            @Override public int getOldListSize() { return old.size(); }
+            @Override public int getOldListSize() { return items.size(); }
             @Override public int getNewListSize() { return newItems.size(); }
             @Override public boolean areItemsTheSame(int oldPos, int newPos) {
-                return Objects.equals(old.get(oldPos).albumId, newItems.get(newPos).albumId);
+                return Objects.equals(items.get(oldPos).albumId, newItems.get(newPos).albumId);
             }
             @Override public boolean areContentsTheSame(int oldPos, int newPos) {
-                HighlightAlbum a = old.get(oldPos), b = newItems.get(newPos);
-                return Objects.equals(a.albumName, b.albumName)
-                        && Objects.equals(a.coverUrl, b.coverUrl)
-                        && Objects.equals(a.coverBgColor, b.coverBgColor)
-                        && Objects.equals(a.ringColor, b.ringColor)
-                        && Objects.equals(a.ringMode, b.ringMode)
-                        && a.seenByViewer == b.seenByViewer
-                        && a.itemCount == b.itemCount;
+                HighlightAlbum b = newItems.get(newPos);
+                String last = lastRenderedSignature.get(b.albumId);
+                return last != null && last.equals(signatureOf(b));
             }
         });
         items.clear();
         items.addAll(newItems);
         result.dispatchUpdatesTo(this);
+    }
+
+    /** Cheap value-snapshot of every field that affects bindAlbum()'s visual
+     *  output, used to detect real changes independent of object identity
+     *  (see submitAlbums()). Keep in sync with bindAlbum()/bindNewButton(). */
+    private static String signatureOf(HighlightAlbum a) {
+        return (a.albumName == null ? "" : a.albumName) + '\u0001'
+             + (a.coverUrl == null ? "" : a.coverUrl) + '\u0001'
+             + (a.coverBgColor == null ? "" : a.coverBgColor) + '\u0001'
+             + (a.ringColor == null ? "" : a.ringColor) + '\u0001'
+             + (a.ringMode == null ? "" : a.ringMode) + '\u0001'
+             + a.seenByViewer + '\u0001'
+             + a.justAdded + '\u0001'
+             + a.itemCount;
     }
 
     // ── RecyclerView ───────────────────────────────────────────────────
@@ -200,6 +231,9 @@ public class HighlightsRowAdapter
         } else {
             bindAlbum(h, album, position);
         }
+        // Record what's now actually on screen for this albumId — the
+        // reference point submitAlbums() diffs future updates against.
+        lastRenderedSignature.put(album.albumId, signatureOf(album));
     }
 
     @Override public int getItemCount() { return items.size(); }

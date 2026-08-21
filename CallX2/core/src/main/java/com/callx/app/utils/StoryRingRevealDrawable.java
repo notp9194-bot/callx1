@@ -47,7 +47,7 @@ public final class StoryRingRevealDrawable extends Drawable {
         ringPaint.setStyle(Paint.Style.STROKE);
         ringPaint.setStrokeWidth(strokePx);
         ringPaint.setStrokeCap(Paint.Cap.ROUND); // nice rounded starting point
-        ringPaint.setColor(0xFF7D00FF); // fallback before bounds/shader are ready (purple — ring start color)
+        ringPaint.setColor(0xFF8A2BE2); // fallback before bounds/shader are ready (purple — ring start color)
     }
 
     /** 0f = nothing drawn yet (just about to start), 360f = full closed ring. */

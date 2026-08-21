@@ -79,6 +79,24 @@ import com.callx.app.utils.AlertDialogStyler;
        *  feed, and never filters by expiresAt — highlight items are permanent,
        *  Instagram-style, even after the original story expired/was deleted. */
       public static final String EXTRA_HIGHLIGHT_ALBUM_ID = "highlightAlbumId";
+      /** v40 — Instagram-style continuous playback. Ordered queue of other
+       *  owners' UIDs/names to auto-advance through once the current owner's
+       *  stories finish — instead of just closing the viewer. Not used in
+       *  highlight mode (see EXTRA_QUEUE_ALBUM_IDS for that). */
+      public static final String EXTRA_QUEUE_OWNER_UIDS  = "queueOwnerUids";
+      public static final String EXTRA_QUEUE_OWNER_NAMES = "queueOwnerNames";
+      /** v40 — Same idea for Highlights: ordered queue of album IDs/names
+       *  (same owner) to auto-advance through once the current album's
+       *  items finish, e.g. tapping the 2nd highlight ring on a profile
+       *  continues straight into the 3rd, 4th, etc — exactly like Instagram
+       *  chaining highlight reels together instead of closing after one. */
+      public static final String EXTRA_QUEUE_ALBUM_IDS   = "queueAlbumIds";
+      public static final String EXTRA_QUEUE_ALBUM_NAMES = "queueAlbumNames";
+      private final List<String> queueOwnerUids  = new ArrayList<>();
+      private final List<String> queueOwnerNames = new ArrayList<>();
+      private final List<String> queueAlbumIds   = new ArrayList<>();
+      private final List<String> queueAlbumNames = new ArrayList<>();
+      private int queuePos = 0;
       private String highlightAlbumId;
       private boolean isHighlightMode;
       private String targetStatusId;
@@ -121,6 +139,25 @@ import com.callx.app.utils.AlertDialogStyler;
           highlightAlbumId = getIntent().getStringExtra(EXTRA_HIGHLIGHT_ALBUM_ID);
           isHighlightMode = highlightAlbumId != null && !highlightAlbumId.isEmpty();
           if (ownerUid == null) { finish(); return; }
+          // v40 — resolve the continuous-playback queue (if the caller sent
+          // one) and figure out where in it we're starting, so
+          // goToNextQueueEntryOrFinish()/goToPreviousQueueEntry() know what
+          // comes before/after the entry we're opening on.
+          List<String> qUids = getIntent().getStringArrayListExtra(EXTRA_QUEUE_OWNER_UIDS);
+          if (qUids != null) queueOwnerUids.addAll(qUids);
+          List<String> qNames = getIntent().getStringArrayListExtra(EXTRA_QUEUE_OWNER_NAMES);
+          if (qNames != null) queueOwnerNames.addAll(qNames);
+          List<String> qAlbumIds = getIntent().getStringArrayListExtra(EXTRA_QUEUE_ALBUM_IDS);
+          if (qAlbumIds != null) queueAlbumIds.addAll(qAlbumIds);
+          List<String> qAlbumNames = getIntent().getStringArrayListExtra(EXTRA_QUEUE_ALBUM_NAMES);
+          if (qAlbumNames != null) queueAlbumNames.addAll(qAlbumNames);
+          if (isHighlightMode && !queueAlbumIds.isEmpty()) {
+              int found = queueAlbumIds.indexOf(highlightAlbumId);
+              queuePos = Math.max(found, 0);
+          } else if (!isHighlightMode && !queueOwnerUids.isEmpty()) {
+              int found = queueOwnerUids.indexOf(ownerUid);
+              queuePos = Math.max(found, 0);
+          }
           try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { myUid = null; }
           setupSwipeDownGesture();
           setupTouchZones();
@@ -320,7 +357,7 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       // ── Show current item ─────────────────────────────────────────────────
       private void showCurrent() {
-          if (idx >= items.size()) { finish(); return; }
+          if (idx >= items.size()) { goToNextQueueEntryOrFinish(); return; }
           StatusItem s = items.get(idx);
           if (viewStartTime > 0 && idx > 0) {
               StatusItem prev = items.get(idx - 1);
@@ -1284,14 +1321,107 @@ import com.callx.app.utils.AlertDialogStyler;
                   .withEndAction(() -> binding.flStickerOverlay.removeView(scrim)).start();
       }
       // ── Navigation ────────────────────────────────────────────────────────
-      private void next()     { releasePlayer(); stopProgress(); idx++; showCurrent(); }
-      private void previous() { releasePlayer(); stopProgress(); idx = Math.max(0, idx - 1); showCurrent(); }
-      // ── Swipe down / swipe up ────────────────────────────────────────────
+      private void next() {
+          releasePlayer(); stopProgress();
+          idx++;
+          showCurrent();
+      }
+      private void previous() {
+          releasePlayer(); stopProgress();
+          if (idx == 0) {
+              // Instagram-style: tapping/swiping back on the very first
+              // segment jumps to the previous owner/highlight in the queue
+              // (if any) instead of just re-playing the same first segment.
+              goToPreviousQueueEntry();
+              return;
+          }
+          idx = idx - 1;
+          showCurrent();
+      }
+      // ── Queue navigation (Instagram-style continuous playback) ─────────────
+      private boolean hasNextInQueue() {
+          if (isHighlightMode) return !queueAlbumIds.isEmpty() && queuePos < queueAlbumIds.size() - 1;
+          return !queueOwnerUids.isEmpty() && queuePos < queueOwnerUids.size() - 1;
+      }
+      private boolean hasPreviousInQueue() {
+          if (isHighlightMode) return !queueAlbumIds.isEmpty() && queuePos > 0;
+          return !queueOwnerUids.isEmpty() && queuePos > 0;
+      }
+      /** Called whenever the current owner/album's last segment finishes
+       *  (auto-play timer) or the viewer taps/swipes past the end. Instagram
+       *  never just closes here while there's more queued up — playback
+       *  continues straight into the next person's (or next highlight's)
+       *  stories. Only closes once the whole queue is exhausted, which is
+       *  also the correct behavior when no queue was passed in at all
+       *  (single-owner / single-album viewing, e.g. deep links). */
+      private void goToNextQueueEntryOrFinish() {
+          if (!hasNextInQueue()) { finish(); return; }
+          switchQueueEntry(queuePos + 1);
+      }
+      /** Called when swiping/tapping back past the first segment. If there's
+       *  nothing before this entry in the queue, just restarts the current
+       *  first segment (there's nowhere else to go). */
+      private void goToPreviousQueueEntry() {
+          if (!hasPreviousInQueue()) { showCurrent(); return; }
+          switchQueueEntry(queuePos - 1);
+      }
+      /** Skips straight to the next/previous owner or highlight in the
+       *  queue, abandoning whatever's left of the current one — this is
+       *  the explicit horizontal-swipe gesture (see onFling below), as
+       *  opposed to the natural "ran out of segments" auto-advance. */
+      private void skipToAdjacentQueueEntry(boolean forward) {
+          if (forward) goToNextQueueEntryOrFinish();
+          else goToPreviousQueueEntry();
+      }
+      /** Tears down the current owner/album's on-screen state and loads the
+       *  queue entry at the given position, resetting playback to its first
+       *  segment. */
+      private void switchQueueEntry(int pos) {
+          releasePlayer(); stopProgress();
+          items.clear();
+          idx = 0;
+          viewStartTime = 0;
+          reactionBurstPlayedFor.clear();
+          hideAllContent();
+          queuePos = pos;
+          if (isHighlightMode) {
+              highlightAlbumId = queueAlbumIds.get(pos);
+              ownerName = pos < queueAlbumNames.size() ? queueAlbumNames.get(pos) : highlightAlbumId;
+              binding.tvOwner.setText(ownerName != null ? ownerName : "Highlight");
+              loadHighlightAlbum(ownerUid);
+          } else {
+              ownerUid  = queueOwnerUids.get(pos);
+              ownerName = pos < queueOwnerNames.size() ? queueOwnerNames.get(pos) : ownerUid;
+              binding.tvOwner.setText(ownerName != null ? ownerName : "Status");
+              if (StatusCloseFriendsManager.isCloseFriend(this, ownerUid))
+                  binding.tvOwner.setText("\u2B50 " + (ownerName != null ? ownerName : "Status"));
+              load(ownerUid);
+          }
+      }
+      // ── Swipe down / up / left / right ───────────────────────────────────
       private void setupSwipeDownGesture() {
           swipeDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
               @Override public boolean onFling(MotionEvent e1, @NonNull MotionEvent e2, float vx, float vy) {
                   if (e1 == null) return false;
+                  float dx = e2.getRawX() - e1.getRawX();
                   float dy = e2.getRawY() - e1.getRawY();
+                  // BUGFIX: previously this only ever checked dy/vy, with no
+                  // comparison against dx/vx. A fast horizontal swipe almost
+                  // always has *some* vertical drift, so it was easily big
+                  // enough to cross the old dy>120 threshold on its own and
+                  // get misread as "swipe down to close" — the story closed
+                  // instead of advancing. Now each direction only wins when
+                  // it's actually the dominant one.
+                  boolean horizontalDominant = Math.abs(dx) > Math.abs(dy);
+                  if (horizontalDominant) {
+                      // Swipe LEFT/RIGHT — Instagram-style: jump straight to
+                      // the next/previous person's (or next/previous
+                      // highlight's) stories, skipping whatever's left of
+                      // the current one.
+                      if (dx < -120 && Math.abs(vx) > 100) { skipToAdjacentQueueEntry(true); return true; }
+                      if (dx > 120 && Math.abs(vx) > 100) { skipToAdjacentQueueEntry(false); return true; }
+                      return false;
+                  }
                   if (dy > 120 && Math.abs(vy) > 100) { finishWithAnimation(); return true; }
                   // Swipe UP — WhatsApp/Instagram-style quick reaction picker
                   // (see screenshot ref): a large emoji grid appears above the

@@ -13,8 +13,9 @@ import com.callx.app.utils.StoryRingBitmapCache;
 /**
  * ChatListStoryRingView — v84 brand gradient ring.
  *
- * UNSEEN → brand gradient sweep (Purple 25% → Pink/Magenta 20% →
- *           Orange 20% → Yellow 35%, measured clockwise from the top).
+ * UNSEEN → brand gradient sweep (Pink-Purple 0-15% → Pink-Red 15-55% →
+ *           Orange 55-75% → Yellow 75-100%, measured clockwise from the
+ *           top — see StoryRingShaderCache for the exact hex stops).
  * SEEN   → muted grey stroke (#CBD5E1)
  * NONE   → nothing drawn
  *
@@ -50,7 +51,7 @@ public class ChatListStoryRingView extends View {
     private int state = STATE_NONE;
 
     private static final int COLOR_SEEN = 0xFFCBD5E1;
-    private static final int COLOR_UNSEEN_FALLBACK = 0xFF7D00FF; // purple (ring start color), used only if bitmap blit isn't safe
+    private static final int COLOR_UNSEEN_FALLBACK = 0xFF8A2BE2; // purple (ring start color), used only if bitmap blit isn't safe
 
     // Whether the cached ring bitmap needs to be re-fetched (on size/state change)
     private boolean ringDirty = true;
