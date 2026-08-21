@@ -398,7 +398,7 @@
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Share"
-            app:layout_constraintTop_toBottomOf="@id/tv_comments_count"
+            app:layout_constraintTop_toBottomOf="@id/tv_repost_count"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"/>
         <TextView
@@ -457,7 +457,7 @@
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Repost"
-            app:layout_constraintTop_toBottomOf="@id/tv_save_label"
+            app:layout_constraintTop_toBottomOf="@id/tv_comments_count"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"/>
         <TextView
@@ -474,9 +474,12 @@
             app:layout_constraintEnd_toEndOf="parent"/>
 
         <!-- Screenshot-style menu action: long line above, shorter line below.
-             16dp gap to repost count above (matches the classic gap used
-             between every icon group in this rail) and 16dp gap to the
-             audio tile below it. -->
+             v49: rail order changed to like-comment-repost-share-save-more-
+             audio (repost moved up, was like-comment-share-save-repost-more-
+             audio) — more-menu now follows the save label instead of the
+             repost count. 16dp gap to save label above (matches the classic
+             gap used between every icon group in this rail) and 16dp gap to
+             the audio tile below it. -->
         <ImageButton
             android:id="@+id/btn_more"
             android:layout_width="50dp"
@@ -488,7 +491,7 @@
             android:tint="#FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="More reel options"
-            app:layout_constraintTop_toBottomOf="@id/tv_repost_count"
+            app:layout_constraintTop_toBottomOf="@id/tv_save_label"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"/>
 
@@ -544,16 +547,23 @@
             android:gravity="center_vertical"
             android:layout_marginTop="6dp">
 
-            <!-- Owner avatar with story ring -->
+            <!-- Owner avatar with story ring — v47: avatar bumped up
+                 (33dp→36dp, closer to Instagram's bio-avatar proportions),
+                 ring stroke 2dp→1.8dp, and an explicit 1.8dp transparent
+                 gap now sits between the ring's inner edge and the avatar
+                 (previously an untracked ~2dp side-effect of the old sizes).
+                 Container grows 41dp→43.2dp to fit avatar(36) + 2×gap(1.8)
+                 + 2×stroke(1.8) exactly — see StoryRingGradientDrawable's
+                 stroke param below, must stay in sync with this math. -->
             <FrameLayout
-                android:layout_width="41dp"
-                android:layout_height="41dp"
+                android:layout_width="43.2dp"
+                android:layout_height="43.2dp"
                 android:layout_marginEnd="8dp">
 
                 <ImageView
                     android:id="@+id/iv_owner_story_ring"
-                    android:layout_width="41dp"
-                    android:layout_height="41dp"
+                    android:layout_width="43.2dp"
+                    android:layout_height="43.2dp"
                     android:layout_gravity="center"
                     android:background="@drawable/story_ring_insta_gradient"
                     android:clickable="true"
@@ -562,8 +572,8 @@
 
                 <de.hdodenhof.circleimageview.CircleImageView
                     android:id="@+id/iv_owner_avatar"
-                    android:layout_width="33dp"
-                    android:layout_height="33dp"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
                     android:layout_gravity="center"
                     android:src="@drawable/ic_person"
                     app:civ_border_width="1.5dp"

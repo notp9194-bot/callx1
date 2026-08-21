@@ -218,14 +218,18 @@ public class ReelUiController {
                 // StoryRingGradientDrawable (+ 2 Paints) on every bind. The
                 // underlying bitmap was already cached (v41/v42) but the
                 // Drawable wrapper itself was still fresh garbage each time.
-                // Safe to reuse: stroke width is a fixed constant (2dp), so
+                // Safe to reuse: stroke width is a fixed constant (1.8dp), so
                 // every rebind of this view wants the identical instance.
                 Object existingRing = ivOwnerStoryRing.getTag(R.id.tag_story_ring_drawable);
                 android.graphics.drawable.Drawable ringDrawable;
                 if (existingRing instanceof com.callx.app.utils.StoryRingGradientDrawable) {
                     ringDrawable = (android.graphics.drawable.Drawable) existingRing;
                 } else {
-                    ringDrawable = com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(2f,
+                    // v47: 2dp → 1.8dp stroke, matches the container/avatar
+                    // resize in fragment_reel_player.xml (43.2dp ring,
+                    // 36dp avatar, 1.8dp transparent gap between them —
+                    // see that layout's comment for the full math).
+                    ringDrawable = com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(1.8f,
                             fragmentView.getResources().getDisplayMetrics().density);
                     ivOwnerStoryRing.setTag(R.id.tag_story_ring_drawable, ringDrawable);
                 }
@@ -607,8 +611,8 @@ public class ReelUiController {
             String photoUrl = reel.ownerPhoto;
             if (photoUrl != null && !photoUrl.isEmpty()) {
                 android.content.Context avatarCtx = delegate.requireContext();
-                int sizePx = AvatarUrlBuilder.dpToPx(avatarCtx, 34) * 2; // 34dp view, 2x retina
-                String resizedUrl = AvatarUrlBuilder.build(avatarCtx, photoUrl, 34);
+                int sizePx = AvatarUrlBuilder.dpToPx(avatarCtx, 36) * 2; // v47: 36dp view (was 33dp), 2x retina
+                String resizedUrl = AvatarUrlBuilder.build(avatarCtx, photoUrl, 36);
                 // v44 PERF: dropped .circleCrop(). ivOwnerAvatar is a
                 // de.hdodenhof CircleImageView, which ALWAYS circular-clips
                 // whatever bitmap it's given via its own BitmapShader in
