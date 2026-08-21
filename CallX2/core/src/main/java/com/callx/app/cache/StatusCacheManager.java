@@ -40,6 +40,12 @@ public class StatusCacheManager {
     private static final String TAG = "StatusCacheManager";
     private static StatusCacheManager sInstance;
 
+    // v46: application Context, captured on first getInstance() call, so
+    // hasUnseen() can consult StorySeenState's local optimistic seen-marks
+    // without every call site (7 files across reels/chat/calls) having to
+    // change signature to pass one through.
+    private Context appContext;
+
     // ── In-memory cache ────────────────────────────────────────────────────
     /** ownerUid → active (non-expired, non-deleted) StatusItems */
     private final Map<String, List<StatusItem>> statusMap = new LinkedHashMap<>();
@@ -64,6 +70,9 @@ public class StatusCacheManager {
 
     public static synchronized StatusCacheManager getInstance(Context ctx) {
         if (sInstance == null) sInstance = new StatusCacheManager();
+        if (sInstance.appContext == null && ctx != null) {
+            sInstance.appContext = ctx.getApplicationContext();
+        }
         return sInstance;
     }
 
@@ -78,8 +87,19 @@ public class StatusCacheManager {
         List<StatusItem> items = statusMap.get(uid);
         if (items == null || items.isEmpty()) return false;
         Set<String> seen = seenMap.getOrDefault(uid, Collections.emptySet());
+        // v46: this uid's latest local optimistic "seen at" mark (0 if never
+        // marked locally) — StatusSeenTracker.markSeen() stamps this the
+        // instant the user views a story, well before Firebase's seenBy
+        // write round-trips back through our listener into `seen` above.
+        long locallySeenAt = com.callx.app.utils.StorySeenState.getSeenAt(appContext, uid);
         for (StatusItem item : items) {
-            if (!seen.contains(item.id)) return true;
+            if (seen.contains(item.id)) continue;
+            // Firebase hasn't confirmed this item as seen yet, but if our
+            // local mark covers this item's timestamp, treat it as seen —
+            // this is what actually makes the ring flip instantly instead
+            // of waiting on the network round-trip.
+            if (locallySeenAt > 0 && item.timestamp != null && item.timestamp <= locallySeenAt) continue;
+            return true;
         }
         return false;
     }
