@@ -1990,6 +1990,7 @@ public class UserReelsActivity extends AppCompatActivity
                 });
 
                 loadHighlightRingOverrides();
+                applyHighlightSeenState();
             }
 
             @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
@@ -2039,10 +2040,61 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     /**
+     * Instagram-style highlight seen tracking — flips the ring from
+     * gradient to flat gray for albums the current viewer has already
+     * opened. Never touches isSelf (owners always see their own ring in
+     * full color) and never overrides a custom ringColor (that ring is
+     * permanent — bindAlbum() checks ringColor before seenByViewer).
+     * Two passes: instant local cache first (no network wait), then a
+     * Firebase read to pick up albums seen from other devices/sessions.
+     */
+    private void applyHighlightSeenState() {
+        if (isSelf || targetUid == null) return;
+        String myUid = safeMyUid();
+        if (myUid == null) return;
+
+        boolean localChanged = false;
+        for (HighlightsRowAdapter.HighlightAlbum album : highlightAlbums) {
+            if (com.callx.app.utils.HighlightSeenState.isSeenLocally(this, targetUid, album.albumId)) {
+                album.seenByViewer = true;
+                localChanged = true;
+            }
+        }
+        if (localChanged) rebuildHighlightsAdapter();
+
+        com.callx.app.utils.StatusHighlightManager.getHighlightSeenRef(myUid, targetUid)
+            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                    if (!snap.exists()) return;
+                    boolean changed = false;
+                    for (HighlightsRowAdapter.HighlightAlbum album : highlightAlbums) {
+                        if (!album.seenByViewer && snap.hasChild(album.albumId)) {
+                            album.seenByViewer = true;
+                            changed = true;
+                        }
+                    }
+                    if (changed) runOnUiThread(() -> rebuildHighlightsAdapter());
+                }
+                @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) { }
+            });
+    }
+
+    /**
      * Open StatusViewerActivity for a specific highlight album.
      * Uses Class.forName to avoid hard cross-module dependency.
      */
     private void openHighlightAlbum(HighlightsRowAdapter.HighlightAlbum album) {
+        // Instagram-style: mark seen the moment the album is tapped (ring
+        // flips to gray right away, doesn't wait for the viewer to close) —
+        // only for someone else's highlights, never your own.
+        if (!isSelf && targetUid != null && !album.seenByViewer) {
+            String myUid = safeMyUid();
+            if (myUid != null) {
+                album.seenByViewer = true;
+                com.callx.app.utils.StatusHighlightManager.markHighlightSeen(this, myUid, targetUid, album.albumId);
+                rebuildHighlightsAdapter();
+            }
+        }
         try {
             Class<?> cls = Class.forName("com.callx.app.viewer.StatusViewerActivity");
             android.content.Intent i = new android.content.Intent(this, cls);
@@ -2089,19 +2141,49 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     /**
-     * Long-press context sheet for self user: rename album, delete album.
+     * Long-press context sheet for self user: rename album, ring color,
+     * delete album.
      */
     private void showHighlightManageSheet(HighlightsRowAdapter.HighlightAlbum album, int adapterPos) {
         if (isFinishing() || isDestroyed()) return;
 
         AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle(album.albumName)
-            .setItems(new String[]{"✏  Rename album", "🗑  Delete album"}, (d, which) -> {
-                if (which == 0) showHighlightRenameDialog(album, adapterPos);
-                else            confirmDeleteHighlight(album, adapterPos);
+            .setItems(new String[]{"✏  Rename album", "\uD83C\uDFA8  Ring color", "🗑  Delete album"}, (d, which) -> {
+                if      (which == 0) showHighlightRenameDialog(album, adapterPos);
+                else if (which == 1) showHighlightRingColorPicker(album, adapterPos);
+                else                 confirmDeleteHighlight(album, adapterPos);
             })
             .setNegativeButton("Cancel", null)
             .create());
+    }
+
+    /**
+     * Opens the shared rainbow ring-color sheet (same one used at highlight
+     * creation time in CreateHighlightActivity) pre-filled with this
+     * album's current custom ring, if any. Picking a color/mode persists it
+     * to statusHighlightMeta/{uid}/{albumId}/ringColor+ringMode — PERMANENT,
+     * shown regardless of seen state (bindAlbum() checks ringColor first).
+     * "Use default" clears the override and falls back to the normal
+     * gradient/seen-gray ring.
+     */
+    private void showHighlightRingColorPicker(HighlightsRowAdapter.HighlightAlbum album, int adapterPos) {
+        if (targetUid == null) return;
+        com.callx.app.highlights.HighlightRingColorPickerBottomSheet.show(
+                this, album.ringColor, album.ringMode,
+                album.ringColor != null && !album.ringColor.isEmpty(),
+                (colorHex, mode) -> {
+                    album.ringColor = colorHex;
+                    album.ringMode  = mode;
+                    if (colorHex != null) {
+                        com.callx.app.utils.StatusHighlightManager.setAlbumRingStyle(
+                                targetUid, album.albumId, colorHex, mode);
+                    } else {
+                        com.callx.app.utils.StatusHighlightManager.clearAlbumRingStyle(
+                                targetUid, album.albumId);
+                    }
+                    if (highlightsAdapter != null) highlightsAdapter.notifyItemChanged(adapterPos);
+                });
     }
 
     private void showHighlightRenameDialog(HighlightsRowAdapter.HighlightAlbum album, int adapterPos) {

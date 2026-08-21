@@ -223,6 +223,40 @@ public final class StatusHighlightManager {
         });
     }
 
+    // ── Seen tracking (Instagram-style gradient→gray ring) ──────────────────
+    //
+    // A highlight album is permanent, so seen-state is a flat "opened or
+    // not" flag per (viewer, album) pair rather than a timestamp comparison
+    // like regular 24h stories use. Firebase path:
+    //   highlightSeen/{viewerUid}/{ownerUid}/{albumId}
+    // Never applies to the owner viewing their own highlights — an owner's
+    // own ring always stays in its normal gradient/custom color, never
+    // grayed out, matching Instagram.
+
+    /** Marks {@code albumId} (owned by {@code ownerUid}) as seen by
+     *  {@code viewerUid}. No-op when the viewer is the owner. Also warms
+     *  {@link com.callx.app.utils.HighlightSeenState}'s local cache (if
+     *  {@code ctx} is non-null) so the ring flips to gray immediately,
+     *  without waiting on this Firebase write to round-trip. */
+    public static void markHighlightSeen(android.content.Context ctx, String viewerUid,
+                                         String ownerUid, String albumId) {
+        if (viewerUid == null || ownerUid == null || albumId == null) return;
+        if (viewerUid.equals(ownerUid)) return;
+        if (ctx != null) com.callx.app.utils.HighlightSeenState.markSeen(ctx, ownerUid, albumId);
+        FirebaseUtils.db().getReference("highlightSeen")
+            .child(viewerUid).child(ownerUid).child(albumId)
+            .setValue(ServerValue.TIMESTAMP);
+    }
+
+    /** Ref to every album {@code viewerUid} has already seen for {@code ownerUid} —
+     *  read once (addListenerForSingleValueEvent) and check snap.hasChild(albumId). */
+    public static DatabaseReference getHighlightSeenRef(String viewerUid, String ownerUid) {
+        return FirebaseUtils.db()
+            .getReference("highlightSeen")
+            .child(viewerUid)
+            .child(ownerUid);
+    }
+
     // ── Archive ───────────────────────────────────────────────────────────
     public static void archiveStatus(String ownerUid, StatusItem item) {
         if (ownerUid == null || item == null) return;

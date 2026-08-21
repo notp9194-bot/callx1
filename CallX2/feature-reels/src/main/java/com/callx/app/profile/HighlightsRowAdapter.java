@@ -69,6 +69,16 @@ public class HighlightsRowAdapter
          *  {@link #startNewRingPulse}) until the user taps it. */
         public boolean justAdded = false;
 
+        /** Transient — mirrors highlightSeen/{viewerUid}/{ownerUid}/{albumId}
+         *  in Firebase (see StatusHighlightManager.markHighlightSeen/
+         *  getHighlightSeenRef) plus {@link com.callx.app.utils.HighlightSeenState}'s
+         *  local cache. True once the current viewer has opened this album —
+         *  drives the Instagram-style gradient→flat-gray ring transition in
+         *  bindAlbum(). Only ever set for someone else's profile (an owner's
+         *  own highlights always show their normal ring); ignored entirely
+         *  when ringColor is set, since a custom ring is permanent. */
+        public boolean seenByViewer = false;
+
         /** Normal album */
         public HighlightAlbum(String albumId, String albumName,
                                String coverUrl, String coverBgColor, int itemCount) {
@@ -164,6 +174,7 @@ public class HighlightsRowAdapter
                         && Objects.equals(a.coverBgColor, b.coverBgColor)
                         && Objects.equals(a.ringColor, b.ringColor)
                         && Objects.equals(a.ringMode, b.ringMode)
+                        && a.seenByViewer == b.seenByViewer
                         && a.itemCount == b.itemCount;
             }
         });
@@ -329,9 +340,15 @@ public class HighlightsRowAdapter
         // slightly different than hardware-accelerated drawing.
         h.ringBg.setLayerType(View.LAYER_TYPE_NONE, null);
 
-        // Ring color — user's custom color (solid or dominant-gradient) if the
-        // album has one set (statusHighlightMeta/{uid}/{albumId}/ringColor+ringMode),
-        // otherwise the default app-wide seamless gradient ring.
+        // Ring — three-way priority:
+        //  1) User's custom color (solid or dominant-gradient), set via the
+        //     rainbow sheet at creation time or long-press "Ring color"
+        //     (statusHighlightMeta/{uid}/{albumId}/ringColor+ringMode) —
+        //     PERMANENT, always shown regardless of seen state.
+        //  2) No custom color + already opened by this viewer (Instagram
+        //     approach) — flat gray, same as a seen story/status ring.
+        //  3) No custom color + not yet opened — the default app-wide
+        //     seamless gradient ring.
         // FIX: bg_highlight_ring_active.xml used Android's XML sweep <gradient>,
         // which only supports 3 stops (start/center/end) and does NOT loop back
         // cleanly — it leaves a visible seam where endColor meets startColor.
@@ -345,6 +362,8 @@ public class HighlightsRowAdapter
                 h.ringBg.setBackground(
                         com.callx.app.utils.HighlightRingDrawable.withStrokeDp(
                                 customColor, album.ringMode, 4f, density));
+            } else if (album.seenByViewer) {
+                h.ringBg.setBackground(ctx.getDrawable(R.drawable.bg_highlight_ring_seen));
             } else {
                 h.ringBg.setBackground(
                         com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(4f, density));
