@@ -57,6 +57,7 @@ public class ReelUiController {
     private TextView        tvOwnerName;
     private TextView        tvCaption;
     private TextView        tvMusicName;
+    private TextView        tvBioSongName;
     private ImageView       ivMusicDisc;
     private android.widget.ImageButton btnCreateAudio;
     private LinearLayout    layoutMusicTicker;
@@ -114,6 +115,7 @@ public class ReelUiController {
         tvOwnerName        = root.findViewById(R.id.tv_owner_name);
         tvCaption          = root.findViewById(R.id.tv_caption);
         tvMusicName        = root.findViewById(R.id.tv_music_name);
+        tvBioSongName      = root.findViewById(R.id.tv_bio_song_name);
         ivMusicDisc        = root.findViewById(R.id.iv_music_disc);
         btnCreateAudio     = root.findViewById(R.id.btn_create_audio);
         layoutMusicTicker  = root.findViewById(R.id.layout_music_ticker);
@@ -164,6 +166,17 @@ public class ReelUiController {
      * anything the moment the stub inflates for the first time — see the
      * call sites above for the full explanation.
      */
+    /** Builds the "Song Name · Artist" (or "Original Audio") display string used by both the bio song row(s) and the bottom music ticker. */
+    private String buildMusicDisplay(ReelModel reel) {
+        String musicDisplay = reel.musicName != null && !reel.musicName.isEmpty()
+            ? reel.musicName : "Original Audio";
+        if (reel.musicArtist != null && !reel.musicArtist.isEmpty()
+                && !musicDisplay.contains(reel.musicArtist)) {
+            musicDisplay = musicDisplay + " · " + reel.musicArtist;
+        }
+        return musicDisplay;
+    }
+
     private void retargetCaptionTopConstraint(int anchorViewId) {
         if (tvCaption == null) return;
         androidx.constraintlayout.widget.ConstraintLayout.LayoutParams lp =
@@ -186,6 +199,19 @@ public class ReelUiController {
 
         // Owner name + caption
         if (tvOwnerName != null) tvOwnerName.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
+
+        // ── Instagram-style bio song-name (icon + text directly below the
+        // username) — same source string as the (hidden) bottom music
+        // ticker, computed once here and reused for both the normal owner
+        // row (tv_bio_song_name) and the collab row (tv_collab_song_name).
+        String bioMusicDisplay = buildMusicDisplay(reel);
+        if (tvBioSongName != null) {
+            tvBioSongName.setText(bioMusicDisplay);
+            View llBioSongRow = fragmentView.findViewById(R.id.ll_bio_song_row);
+            if (llBioSongRow != null) {
+                llBioSongRow.setOnClickListener(v -> delegate.openSoundDetail());
+            }
+        }
 
         // ── Collab Joint-Author display ──────────────────────────────────────
         // ✅ MULTI-COLLABORATOR: renders an overlapping avatar stack (up to 3)
@@ -279,6 +305,15 @@ public class ReelUiController {
                                     }
                                 });
                         }
+                    }
+                }
+
+                TextView tvCollabSongName = fragmentView.findViewById(R.id.tv_collab_song_name);
+                if (tvCollabSongName != null) {
+                    tvCollabSongName.setText(bioMusicDisplay);
+                    View llCollabSongRow = fragmentView.findViewById(R.id.ll_collab_song_row);
+                    if (llCollabSongRow != null) {
+                        llCollabSongRow.setOnClickListener(v -> delegate.openSoundDetail());
                     }
                 }
 
@@ -395,12 +430,7 @@ public class ReelUiController {
         }
 
         // Music ticker
-        String musicDisplay = reel.musicName != null && !reel.musicName.isEmpty()
-            ? reel.musicName : "Original Audio";
-        if (reel.musicArtist != null && !reel.musicArtist.isEmpty()
-                && !musicDisplay.contains(reel.musicArtist)) {
-            musicDisplay = musicDisplay + " · " + reel.musicArtist;
-        }
+        String musicDisplay = bioMusicDisplay;
         if (tvMusicName != null) {
             tvMusicName.setText(musicDisplay);
             tvMusicName.setSingleLine(true);

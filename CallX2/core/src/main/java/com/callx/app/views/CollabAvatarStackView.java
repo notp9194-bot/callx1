@@ -35,8 +35,9 @@ public class CollabAvatarStackView extends View {
 
     private final int avatarSizePx;
     private final int overlapStepPx;   // horizontal distance between consecutive avatar centers
-    private final int verticalStepPx;  // each subsequent (front) avatar is drawn this much higher
+    private final int verticalStepPx;  // each subsequent (front) avatar is drawn this much lower than the owner
     private final int borderWidthPx;
+    private final int gapPx;           // transparent gap punched around each front avatar
 
     private Bitmap compositeBitmap;
     private Canvas compositeCanvas;
@@ -67,6 +68,10 @@ public class CollabAvatarStackView extends View {
         // Border ring removed (was a black outline) — cutout notch now sizes
         // exactly to the avatar circle itself so there's no black ring.
         borderWidthPx = 0;
+        // 1.5dp transparent gap between overlapping avatars so the back
+        // avatar's cutout notch leaves a visible sliver of separation
+        // instead of the front avatar sitting flush against it.
+        gapPx = Math.round(1.5f * density);
 
         clearPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
 
@@ -129,12 +134,14 @@ public class CollabAvatarStackView extends View {
         }
 
         int radius = avatarSizePx / 2;
-        int holeRadius = radius + borderWidthPx; // avatar + its own border ring
-        int baseTop = h - avatarSizePx; // first (back) avatar sits at the bottom of the view
+        int holeRadius = radius + borderWidthPx + gapPx; // avatar + border ring + transparent gap
 
+        // Owner (i=0, back) sits slightly higher; each subsequent (front)
+        // avatar is drawn slightly lower, so the stack reads correctly
+        // instead of the front avatars climbing above the owner.
         for (int i = 0; i < avatarCount; i++) {
             float cx = radius + i * overlapStepPx;
-            float cy = baseTop + radius - i * verticalStepPx;
+            float cy = radius + i * verticalStepPx;
 
             if (i > 0) {
                 // Punch the crescent notch: clear a circle (avatar + border

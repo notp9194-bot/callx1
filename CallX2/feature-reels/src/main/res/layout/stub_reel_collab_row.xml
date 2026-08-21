@@ -19,27 +19,73 @@
         android:id="@+id/collab_avatar_stack"
         android:layout_width="wrap_content"
         android:layout_height="28dp"/>
-    <TextView
-        android:id="@+id/tv_collab_author_name"
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
-        android:textColor="#FFFFFF"
-        android:textSize="15sp"
-        android:textStyle="bold"
-        android:fontFamily="sans-serif-medium"/>
-    <TextView
-        android:id="@+id/tv_collab_follow_btn"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="10dp"
-        android:text="Follow"
-        android:textColor="#00E5FF"
-        android:textSize="13sp"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
-        android:paddingTop="2dp"
-        android:paddingBottom="2dp"
-        android:background="@drawable/bg_reel_follow_btn"
-        android:visibility="gone"/>
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tv_collab_author_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:fontFamily="sans-serif-medium"/>
+            <TextView
+                android:id="@+id/tv_collab_follow_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:text="Follow"
+                android:textColor="#00E5FF"
+                android:textSize="13sp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp"
+                android:background="@drawable/bg_reel_follow_btn"
+                android:visibility="gone"/>
+        </LinearLayout>
+
+        <!-- Instagram-style bio song-name row, same as the non-collab
+             ll_owner_row's ll_bio_song_row — see ReelUiController. -->
+        <LinearLayout
+            android:id="@+id/ll_collab_song_row"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+
+            <ImageView
+                android:layout_width="11dp"
+                android:layout_height="11dp"
+                android:src="@drawable/ic_music_note"
+                android:tint="#FFFFFF"
+                android:contentDescription="Song"/>
+
+            <TextView
+                android:id="@+id/tv_collab_song_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:maxWidth="180dp"
+                android:text="Original Audio"
+                android:textColor="#FFFFFF"
+                android:textSize="11sp"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+        </LinearLayout>
+    </LinearLayout>
 </LinearLayout>

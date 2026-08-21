@@ -120,6 +120,16 @@ public class ReelSocialController {
     // instance/equivalent to actually detach a listener registered on a query.
     private com.google.firebase.database.Query likersQuery;
 
+    // Mutual followers row (bio) — "Followed by X, Y and N others",
+    // same pattern as UserReelsActivity, resolved against the reel owner.
+    private LinearLayout    layoutReelMutualFollowers;
+    private TextView        tvReelMutualFollowers;
+    private CircleImageView ivReelMutual1, ivReelMutual2, ivReelMutual3;
+    private final List<String> reelMutualUidsList = new ArrayList<>();
+    // Bumped on every loadMutualFollowers() call so a slow chained callback
+    // from a previous (recycled) reel can't overwrite the current reel's row.
+    private int mutualFetchGeneration = 0;
+
     public ReelSocialController(ReelPlayerDelegate delegate) {
         this.delegate = delegate;
     }
@@ -153,6 +163,12 @@ public class ReelSocialController {
         flLiker2          = root.findViewById(R.id.fl_liker_2);
         flLiker3          = root.findViewById(R.id.fl_liker_3);
         reactionBurstOverlay = root.findViewById(R.id.reel_reaction_burst_overlay);
+
+        layoutReelMutualFollowers = root.findViewById(R.id.layout_reel_mutual_followers);
+        tvReelMutualFollowers     = root.findViewById(R.id.tv_reel_mutual_followers);
+        ivReelMutual1             = root.findViewById(R.id.iv_reel_mutual_1);
+        ivReelMutual2             = root.findViewById(R.id.iv_reel_mutual_2);
+        ivReelMutual3             = root.findViewById(R.id.iv_reel_mutual_3);
 
         attachDynamicLikerRowSpacing();
     }
@@ -709,6 +725,7 @@ public class ReelSocialController {
         FirebaseUtils.getReelsRef().child(reel.reelId).addValueEventListener(countListener);
 
         fetchLikerAvatars();
+        loadReelMutualFollowers();
     }
 
     public void removeFirebaseListeners() {
@@ -740,6 +757,9 @@ public class ReelSocialController {
         likersListener  = null;
         likersQuery     = null;
         fetchGeneration++; // invalidate any in-flight per-user avatar fetches from this session
+        mutualFetchGeneration++; // invalidate any in-flight mutual-followers fetches too
+        reelMutualUidsList.clear();
+        if (layoutReelMutualFollowers != null) layoutReelMutualFollowers.setVisibility(View.GONE);
     }
 
     // ── Liker avatar row ──────────────────────────────────────────────────
@@ -794,6 +814,188 @@ public class ReelSocialController {
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         likersQuery.addValueEventListener(likersListener);
+    }
+
+    // ── Mutual followers row (bio) ──────────────────────────────────────────
+    // Instagram-style "Followed by X, Y and N others" resolved against the
+    // REEL OWNER's uid (not the liker list) — ported from
+    // UserReelsActivity.loadMutualFollowers()/fetchMutualProfiles()/
+    // showMutualFollowers(), using the same reelFollowers + reelFollows
+    // union-network approach so results match the profile screen exactly.
+
+    public void loadReelMutualFollowers() {
+        if (layoutReelMutualFollowers == null) return;
+        String myUid = delegate.safeMyUid();
+        ReelModel reel = delegate.getReel();
+        if (myUid == null || myUid.isEmpty() || reel == null || reel.uid == null
+                || myUid.equals(reel.uid)) {
+            layoutReelMutualFollowers.setVisibility(View.GONE);
+            return;
+        }
+        final String targetUid = reel.uid;
+        final int generation = ++mutualFetchGeneration;
+
+        FirebaseUtils.getReelFollowersRef(myUid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot myFollowersSnap) {
+                    final java.util.Set<String> myNetwork = new java.util.HashSet<>();
+                    for (DataSnapshot s : myFollowersSnap.getChildren()) {
+                        if (s.getKey() != null) myNetwork.add(s.getKey());
+                    }
+                    FirebaseUtils.getReelFollowsRef(myUid)
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override public void onDataChange(@NonNull DataSnapshot myFollowsSnap) {
+                                for (DataSnapshot s : myFollowsSnap.getChildren()) {
+                                    if (s.getKey() != null) myNetwork.add(s.getKey());
+                                }
+                                FirebaseUtils.getReelFollowersRef(targetUid)
+                                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                                        @Override public void onDataChange(@NonNull DataSnapshot tSnap) {
+                                            if (generation != mutualFetchGeneration) return;
+                                            reelMutualUidsList.clear();
+                                            for (DataSnapshot s : tSnap.getChildren()) {
+                                                if (s.getKey() != null && myNetwork.contains(s.getKey())
+                                                        && !s.getKey().equals(myUid)) {
+                                                    reelMutualUidsList.add(s.getKey());
+                                                }
+                                            }
+                                            FirebaseUtils.getReelFollowsRef(targetUid)
+                                                .addListenerForSingleValueEvent(new ValueEventListener() {
+                                                    @Override public void onDataChange(@NonNull DataSnapshot tFollowsSnap) {
+                                                        if (generation != mutualFetchGeneration) return;
+                                                        for (DataSnapshot s : tFollowsSnap.getChildren()) {
+                                                            if (s.getKey() != null
+                                                                    && myNetwork.contains(s.getKey())
+                                                                    && !s.getKey().equals(myUid)
+                                                                    && !reelMutualUidsList.contains(s.getKey())) {
+                                                                reelMutualUidsList.add(s.getKey());
+                                                            }
+                                                        }
+                                                        fetchReelMutualProfiles(generation);
+                                                    }
+                                                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                                                        fetchReelMutualProfiles(generation);
+                                                    }
+                                                });
+                                        }
+                                        @Override public void onCancelled(@NonNull DatabaseError e) {
+                                            fetchReelMutualProfiles(generation);
+                                        }
+                                    });
+                            }
+                            @Override public void onCancelled(@NonNull DatabaseError e) {
+                                FirebaseUtils.getReelFollowersRef(targetUid)
+                                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                                        @Override public void onDataChange(@NonNull DataSnapshot tSnap) {
+                                            if (generation != mutualFetchGeneration) return;
+                                            reelMutualUidsList.clear();
+                                            for (DataSnapshot s : tSnap.getChildren())
+                                                if (s.getKey() != null && myNetwork.contains(s.getKey())
+                                                        && !s.getKey().equals(myUid))
+                                                    reelMutualUidsList.add(s.getKey());
+                                            fetchReelMutualProfiles(generation);
+                                        }
+                                        @Override public void onCancelled(@NonNull DatabaseError e2) {
+                                            fetchReelMutualProfiles(generation);
+                                        }
+                                    });
+                            }
+                        });
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+    }
+
+    /** Fetches name+photo for the first 3 mutual UIDs and calls showReelMutualFollowers(). */
+    private void fetchReelMutualProfiles(int generation) {
+        if (reelMutualUidsList.isEmpty()) {
+            showReelMutualFollowers(new ArrayList<>(), new ArrayList<>(), generation);
+            return;
+        }
+        int fetchCount = Math.min(3, reelMutualUidsList.size());
+        List<String> names  = new ArrayList<>();
+        List<String> photos = new ArrayList<>();
+        final int[] done = {0};
+        for (int i = 0; i < fetchCount; i++) {
+            String uid = reelMutualUidsList.get(i);
+            FirebaseUtils.getUserRef(uid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot us) {
+                        String n     = us.child("name").getValue(String.class);
+                        String thumb = us.child("thumbUrl").getValue(String.class);
+                        String photo = us.child("photoUrl").getValue(String.class);
+                        String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                        names.add(n != null ? n : "User");
+                        photos.add(p != null ? p : "");
+                        done[0]++;
+                        if (done[0] >= fetchCount) showReelMutualFollowers(names, photos, generation);
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                        names.add("User"); photos.add("");
+                        done[0]++;
+                        if (done[0] >= fetchCount) showReelMutualFollowers(names, photos, generation);
+                    }
+                });
+        }
+    }
+
+    private void showReelMutualFollowers(List<String> names, List<String> photos, int generation) {
+        if (generation != mutualFetchGeneration) return; // stale — a newer reel bind superseded this
+        if (layoutReelMutualFollowers == null || !delegate.isAdded()) return;
+        int count = reelMutualUidsList.size();
+        if (count <= 0) {
+            layoutReelMutualFollowers.setVisibility(View.GONE);
+            return;
+        }
+
+        CircleImageView[] ivs = {ivReelMutual1, ivReelMutual2, ivReelMutual3};
+        for (int i = 0; i < 3; i++) {
+            if (ivs[i] == null) continue;
+            if (i < photos.size() && !photos.get(i).isEmpty()) {
+                ivs[i].setVisibility(View.VISIBLE);
+                Glide.with(delegate.requireContext()).load(photos.get(i))
+                    .placeholder(R.drawable.ic_person)
+                    .error(R.drawable.ic_person)
+                    .circleCrop()
+                    .override(160, 160)
+                    .into(ivs[i]);
+            } else if (i < names.size()) {
+                ivs[i].setVisibility(View.VISIBLE);
+                ivs[i].setImageResource(R.drawable.ic_person);
+            } else {
+                ivs[i].setVisibility(View.GONE);
+            }
+        }
+
+        String text;
+        if (count == 1) {
+            text = "Followed by " + names.get(0);
+        } else if (count == 2) {
+            text = "Followed by " + names.get(0) + " and " + names.get(1);
+        } else {
+            int others = count - 2;
+            text = "Followed by " + names.get(0) + ", " + names.get(1)
+                + " and " + others + (others == 1 ? " other" : " others");
+        }
+
+        if (tvReelMutualFollowers != null) tvReelMutualFollowers.setText(text);
+        layoutReelMutualFollowers.setVisibility(View.VISIBLE);
+        layoutReelMutualFollowers.setOnClickListener(v -> openReelMutualFollowers());
+    }
+
+    private void openReelMutualFollowers() {
+        if (!delegate.isAdded()) return;
+        ReelModel reel = delegate.getReel();
+        if (reel == null || reel.uid == null) return;
+        Intent i = new Intent(delegate.requireContext(), com.callx.app.followers.FollowConnectionsActivity.class);
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_UID, reel.uid);
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_NAME, reel.ownerName != null ? reel.ownerName : "");
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_IS_SELF, false);
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_START_TAB, com.callx.app.followers.FollowConnectionsActivity.TAB_MUTUAL);
+        if (!reelMutualUidsList.isEmpty())
+            i.putStringArrayListExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_MUTUAL_UIDS,
+                    new ArrayList<>(reelMutualUidsList));
+        delegate.requireContext().startActivity(i);
     }
 
     /**

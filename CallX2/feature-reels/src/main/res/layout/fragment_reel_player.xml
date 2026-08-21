@@ -616,28 +616,76 @@
 
 </FrameLayout>
 
-            <TextView
-                android:id="@+id/tv_owner_name"
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@user"
-                android:textColor="#FFFFFF"
-                android:textSize="15sp"
-                android:fontFamily="sans-serif-medium"/>
-            <TextView
-                android:id="@+id/tv_follow_btn"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="10dp"
-                android:text="Follow"
-                android:textColor="#00E5FF"
-                android:textSize="13sp"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp"
-                android:paddingTop="2dp"
-                android:paddingBottom="2dp"
-                android:background="@drawable/bg_reel_follow_btn"
-                android:visibility="visible"/>
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:id="@+id/tv_owner_name"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@user"
+                        android:textColor="#FFFFFF"
+                        android:textSize="15sp"
+                        android:fontFamily="sans-serif-medium"/>
+                    <TextView
+                        android:id="@+id/tv_follow_btn"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:text="Follow"
+                        android:textColor="#00E5FF"
+                        android:textSize="13sp"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:paddingTop="2dp"
+                        android:paddingBottom="2dp"
+                        android:background="@drawable/bg_reel_follow_btn"
+                        android:visibility="visible"/>
+                </LinearLayout>
+
+                <!-- Instagram-style bio song-name row: small music note icon +
+                     song name directly below the username line. Populated in
+                     ReelUiController from the same musicDisplay string used
+                     by the (now-hidden) bottom music ticker. -->
+                <LinearLayout
+                    android:id="@+id/ll_bio_song_row"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackgroundBorderless">
+
+                    <ImageView
+                        android:layout_width="11dp"
+                        android:layout_height="11dp"
+                        android:src="@drawable/ic_music_note"
+                        android:tint="#FFFFFF"
+                        android:contentDescription="Song"/>
+
+                    <TextView
+                        android:id="@+id/tv_bio_song_name"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="4dp"
+                        android:maxWidth="180dp"
+                        android:text="Original Audio"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp"
+                        android:maxLines="1"
+                        android:ellipsize="end"/>
+                </LinearLayout>
+            </LinearLayout>
         </LinearLayout>
         <!-- Caption -->
         <!-- DECLARED BEFORE stub_collab_row (below) on purpose: in a
@@ -683,6 +731,76 @@
               app:layout_constraintTop_toBottomOf="@id/ll_owner_row"
               app:layout_constraintStart_toStartOf="parent"/>
 
+        <!-- Mutual followers row — Instagram-style "Followed by X, Y and N
+             others", same overlapping-avatar + text pattern as
+             UserReelsActivity's layout_mutual_followers, adapted for the
+             reel bio (dark video background instead of a surface card).
+             Populated by ReelSocialController.loadMutualFollowers() against
+             the reel OWNER's uid; hidden by default / when there are none. -->
+        <LinearLayout
+            android:id="@+id/layout_reel_mutual_followers"
+            android:layout_width="wrap_content"
+            android:layout_height="26dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="4dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:visibility="gone"
+            app:layout_constraintTop_toBottomOf="@id/tv_caption"
+            app:layout_constraintStart_toStartOf="parent">
+
+            <FrameLayout
+                android:id="@+id/frame_reel_mutual_avatars"
+                android:layout_width="50dp"
+                android:layout_height="22dp"
+                android:layout_marginEnd="6dp">
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_reel_mutual_3"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginStart="15dp"
+                    android:src="@drawable/ic_person"
+                    android:visibility="gone"
+                    app:civ_border_width="1.2dp"
+                    app:civ_border_color="#000000"/>
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_reel_mutual_2"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginStart="7dp"
+                    android:src="@drawable/ic_person"
+                    android:visibility="gone"
+                    app:civ_border_width="1.2dp"
+                    app:civ_border_color="#000000"/>
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_reel_mutual_1"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_gravity="center_vertical"
+                    android:src="@drawable/ic_person"
+                    android:visibility="gone"
+                    app:civ_border_width="1.2dp"
+                    app:civ_border_color="#000000"/>
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/tv_reel_mutual_followers"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxWidth="200dp"
+                android:textSize="11sp"
+                android:textColor="#CCFFFFFF"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+        </LinearLayout>
+
         <!-- Hashtag chips -->
         <HorizontalScrollView
             android:id="@+id/scroll_hashtags"
@@ -691,7 +809,7 @@
             android:scrollbars="none"
             android:layout_marginTop="4dp"
             android:visibility="gone"
-            app:layout_constraintTop_toBottomOf="@id/tv_caption"
+            app:layout_constraintTop_toBottomOf="@id/layout_reel_mutual_followers"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent">
             <LinearLayout
