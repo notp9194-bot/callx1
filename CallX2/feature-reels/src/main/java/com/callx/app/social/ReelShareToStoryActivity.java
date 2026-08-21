@@ -147,9 +147,26 @@ public class ReelShareToStoryActivity extends AppCompatActivity {
 
         Map<String, Object> m = new HashMap<>();
         m.put("id",          storyId);
-        m.put("type",        "reel_clip");
+        // BUG FIX: this used to be written under key "videoUrl", but
+        // StatusItem/StatusViewerActivity only ever read "mediaUrl" for
+        // video/reel_story/reel_clip types — so the video field was always
+        // null in the viewer, silently falling through to next() (item
+        // skipped) since thumbnailUrl was never set either. Renamed to
+        // match the field the viewer actually reads.
+        m.put("mediaUrl",    reelUrl != null ? reelUrl : "");
+        // BUG FIX: this screen is literally "Share to Story" (launched from
+        // ReelDuetController#openShareToStory()) but was tagging entries as
+        // type=="reel_clip" — the STATUS type, identical to what
+        // ReelShareSheetFragment#addToStatus() writes. That mismatch is
+        // exactly what let a reel shared as a "story" end up filed under
+        // Status instead: it never matched the reel_story filter used by
+        // the Reels-home story ring / StoryViewerActivity, and it wasn't
+        // excluded from the Status tab either. Now consistent with
+        // ReelShareSheetFragment#addToStory(), which already used the
+        // correct tag.
+        m.put("type",        "reel_story");
         m.put("reelId",      reelId != null ? reelId : "");
-        m.put("videoUrl",    reelUrl != null ? reelUrl : "");
+        m.put("videoUrl",    reelUrl != null ? reelUrl : ""); // kept for backward-compat callers reading this key
         m.put("caption",     caption);
         m.put("stickerText", stickerText);
         m.put("attribution", "@" + (ownerName != null ? ownerName : ""));

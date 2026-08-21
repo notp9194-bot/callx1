@@ -120,9 +120,13 @@ import com.callx.app.utils.AlertDialogStyler;
       private long           remainingMs  = 0;
       private boolean        isMuted      = false;
       private long           viewStartTime = 0;
-      private String myUid, ownerUid, ownerName;
+      protected String myUid, ownerUid, ownerName;
       private final List<ProgressBar> segmentBars = new ArrayList<>();
       private GestureDetector swipeDetector;
+      /** Exposed for subclasses (e.g. StoryViewerActivity) that need to tweak
+       *  a view after the base viewer has finished laying itself out — the
+       *  binding itself stays private everywhere else in this file. */
+      protected ActivityStatusViewerBinding binding() { return binding; }
       // ── Lifecycle ─────────────────────────────────────────────────────────
       @Override
       protected void onCreate(Bundle savedInstanceState) {
@@ -220,6 +224,21 @@ import com.callx.app.utils.AlertDialogStyler;
           }
           super.onDestroy();
       }
+      // ── Story/Status mode hooks (overridden by StoryViewerActivity) ───────
+      /** Lets a subclass restrict which status/{uid} children this viewer
+       *  instance shows — e.g. StoryViewerActivity only wants type=="reel_story"
+       *  entries, while the base (WhatsApp-style) viewer wants everything
+       *  EXCEPT those (see the override there for why both sides filter). */
+      protected boolean shouldIncludeItem(StatusItem s) {
+          // A reel shared via "Add to Story" is tagged type=="reel_story" and
+          // belongs to StoryViewerActivity only — never mix it into the
+          // WhatsApp-style Status viewer, even if this activity is opened
+          // directly (deep link, notification, etc.) rather than via the
+          // Status tab list (which already filters it out on its own).
+          return !"reel_story".equals(s.type);
+      }
+      /** Fallback header text when ownerName is missing. */
+      protected String viewerLabel() { return "Status"; }
       // ── Load ──────────────────────────────────────────────────────────────
       private void load(String uid) {
           if (isHighlightMode) { loadHighlightAlbum(uid); return; }
@@ -241,6 +260,7 @@ import com.callx.app.utils.AlertDialogStyler;
                           }
                           if (s == null || Boolean.TRUE.equals(s.deleted)) continue;
                           if (s.expiresAt != null && s.expiresAt < now) continue;
+                          if (!shouldIncludeItem(s)) continue;
                           Log.d(DBG, "load() added item id=" + s.id + " type=" + s.type
                                   + " resharedMediaType=" + s.resharedMediaType
                                   + " hasMediaUrl=" + (s.mediaUrl != null && !s.mediaUrl.isEmpty()));
