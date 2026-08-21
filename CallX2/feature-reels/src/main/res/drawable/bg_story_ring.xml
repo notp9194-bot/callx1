@@ -1,18 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    bg_story_ring.xml — Instagram-exact story ring gradient
-    Purple (#833AB4) → Red-Pink (#FD1D1D) → Orange-Yellow (#FCAF45)
+    bg_story_ring.xml — brand story ring gradient
+    Colour flow (from top, clockwise): Purple 25% -> Pink/Magenta 20% ->
+    Orange 20% -> Yellow 35%.
     Used in activity_user_reels.xml for view_story_ring (90dp avatar ring).
+    centerColor is Orange since that colour's band (45-65%) covers the fixed
+    50% midpoint of a 3-stop XML sweep gradient; Pink/Magenta shows up
+    naturally in the purple->orange blend across the 25-45% region.
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Outer gradient oval — Instagram sweep gradient -->
+    <!-- Outer gradient oval — brand sweep gradient -->
     <item>
         <shape android:shape="oval">
             <gradient
                 android:type="sweep"
-                android:startColor="#833AB4"
-                android:centerColor="#FD1D1D"
-                android:endColor="#FCAF45"/>
+                android:startColor="#7D00FF"
+                android:centerColor="#FF8A00"
+                android:endColor="#FFD600"/>
         </shape>
     </item>
     <!-- Inner white spacer (3dp) — creates visible gap between gradient and avatar -->

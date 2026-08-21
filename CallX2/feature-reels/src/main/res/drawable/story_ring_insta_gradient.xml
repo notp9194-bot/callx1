@@ -1,9 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     story_ring_insta_gradient.xml
-    Instagram-exact story ring gradient: purple → red-pink → orange/yellow
-    Used as background on iv_owner_story_ring in fragment_reel_player.xml
+    Brand story ring gradient — colour flow (from top, clockwise):
+    Purple 25% -> Pink/Magenta 20% -> Orange 20% -> Yellow 35%.
+    Used as background/src for story rings across Reels (home stories, reel
+    comments, reel player owner ring, feed post ring, share sheet).
     The avatar (slightly smaller) sits on top, visually creating a ring effect.
+    Note: plain XML sweep gradients only support 3 stops (start/center/end
+    fixed at 0/50/100%) — centerColor is Orange since that's the colour
+    covering the 50% mark (its band is 45-65%); Pink/Magenta shows up
+    naturally in the purple->orange blend across the 25-45% region. For
+    pixel-exact 4-stop percentages, see StoryRingShaderCache.
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Outer gradient oval — full gradient circle -->
@@ -11,9 +18,9 @@
         <shape android:shape="oval">
             <gradient
                 android:type="sweep"
-                android:startColor="#feda75"
-                android:centerColor="#d62976"
-                android:endColor="#4f5bd5"/>
+                android:startColor="#7D00FF"
+                android:centerColor="#FF8A00"
+                android:endColor="#FFD600"/>
         </shape>
     </item>
     <!-- Inner white ring (2.5dp all sides) — creates visible gap between gradient and avatar -->

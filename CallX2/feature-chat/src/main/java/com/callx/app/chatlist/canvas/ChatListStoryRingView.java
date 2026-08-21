@@ -11,10 +11,10 @@ import android.view.View;
 import com.callx.app.utils.StoryRingBitmapCache;
 
 /**
- * ChatListStoryRingView — v83 Instagram-exact gradient ring.
+ * ChatListStoryRingView — v84 brand gradient ring.
  *
- * UNSEEN → Instagram gradient sweep (purple → red-pink → orange/yellow)
- *           exactly matching Instagram's story ring appearance.
+ * UNSEEN → brand gradient sweep (Purple 25% → Pink/Magenta 20% →
+ *           Orange 20% → Yellow 35%, measured clockwise from the top).
  * SEEN   → muted grey stroke (#CBD5E1)
  * NONE   → nothing drawn
  *
@@ -50,7 +50,7 @@ public class ChatListStoryRingView extends View {
     private int state = STATE_NONE;
 
     private static final int COLOR_SEEN = 0xFFCBD5E1;
-    private static final int COLOR_UNSEEN_FALLBACK = 0xFFd62976; // pink midpoint, used only if bitmap blit isn't safe
+    private static final int COLOR_UNSEEN_FALLBACK = 0xFF7D00FF; // purple (ring start color), used only if bitmap blit isn't safe
 
     // Whether the cached ring bitmap needs to be re-fetched (on size/state change)
     private boolean ringDirty = true;

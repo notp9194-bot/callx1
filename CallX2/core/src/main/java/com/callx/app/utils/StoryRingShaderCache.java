@@ -30,19 +30,22 @@ public final class StoryRingShaderCache {
 
     private StoryRingShaderCache() {}
 
-    // Real Instagram story-ring gradient stops (yellow → orange → pink →
-    // purple → blue), palindromed so the sweep closes the loop with zero
-    // seam (first color == last color).
+    // Story ring gradient stops — Purple → Pink/Magenta → Orange → Yellow,
+    // matching the app's brand colour-flow spec (percentages measured from
+    // the top, clockwise): Purple 25% (0-25%), Pink/Magenta 20% (25-45%),
+    // Orange 20% (45-65%), Yellow 35% (65-100%). Palindromed (first color ==
+    // last color) so the sweep closes the loop with zero seam.
     private static final int[] INSTA_GRADIENT_COLORS = {
-        0xFFfeda75, // yellow
-        0xFFfa7e1e, // orange
-        0xFFd62976, // pink
-        0xFF962fbf, // purple
-        0xFF4f5bd5, // blue
-        0xFF962fbf, // purple
-        0xFFd62976, // pink
-        0xFFfa7e1e, // orange
-        0xFFfeda75  // yellow — loop closes here, no seam
+        0xFF7D00FF, // purple   (0%)
+        0xFFFF2D7A, // pink/magenta (25%)
+        0xFFFF8A00, // orange   (45%)
+        0xFFFFD600, // yellow   (65%)
+        0xFF7D00FF  // purple — loop closes here at 100%, no seam
+    };
+
+    // Cumulative positions (0..1) matching the percentages above exactly.
+    private static final float[] INSTA_GRADIENT_POSITIONS = {
+        0f, 0.25f, 0.45f, 0.65f, 1f
     };
 
     private static final int MAX_CACHED_SIZES = 8;
@@ -77,7 +80,7 @@ public final class StoryRingShaderCache {
 
         float cx = width / 2f;
         float cy = height / 2f;
-        SweepGradient sg = new SweepGradient(cx, cy, INSTA_GRADIENT_COLORS, null);
+        SweepGradient sg = new SweepGradient(cx, cy, INSTA_GRADIENT_COLORS, INSTA_GRADIENT_POSITIONS);
         Matrix matrix = new Matrix();
         matrix.postRotate(-90, cx, cy);
         sg.setLocalMatrix(matrix);
