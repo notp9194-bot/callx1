@@ -78,7 +78,9 @@ package com.callx.app.profile;
       // Public — the host screen passes this straight to Glide's
       // RecyclerViewPreloader as its maxPreload value (see
       // UserReelsActivity#setupGlidePreloader()), so both stay in sync.
-      public static final int PRELOAD_AHEAD        = 6;
+      // Bumped from 6 → 12 alongside the larger network page size (18) so
+      // Glide's warm-cache window covers a comparable slice of a page.
+      public static final int PRELOAD_AHEAD        = 12;
       // Small square decode size — enough to look like a soft blur once
       // stretched to the cell; bigger buys no visible detail for a BlurHash
       // source (it only has a handful of cosine components to begin with).

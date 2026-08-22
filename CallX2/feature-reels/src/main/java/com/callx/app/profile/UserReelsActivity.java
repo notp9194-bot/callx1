@@ -82,7 +82,11 @@ public class UserReelsActivity extends AppCompatActivity
     public static final String EXTRA_NAME  = "name";
     public static final String EXTRA_PHOTO = "photo";
 
-    private static final int PAGE_SIZE  = 6;
+    // Instagram-level page size: bigger pages mean the "end of loaded data"
+    // wall is hit far less often per scroll session, and the earlier
+    // prefetch trigger below (maybeLoadNextPage) fires well before the user
+    // ever reaches it.
+    private static final int PAGE_SIZE  = 18;
     private static final int TAB_REELS  = 0;
     private static final int TAB_LIKED  = 1;
     private static final int TAB_SAVED  = 2;
@@ -313,8 +317,42 @@ public class UserReelsActivity extends AppCompatActivity
 
     // State
     private String  targetUid, targetName, targetPhoto;
-    // Offline-first Room executor
-    private final ExecutorService dbExecutor = Executors.newSingleThreadExecutor();
+    // Offline-first Room executor — was a single-thread executor; several
+    // independent read/write tasks (loadReelGridFromRoom, cache writes,
+    // highlight loads) were queuing behind each other on one thread even
+    // though they touch unrelated data. A small fixed pool lets them run
+    // concurrently while still keeping resource usage bounded.
+    private final ExecutorService dbExecutor = Executors.newFixedThreadPool(2);
+
+    // Min gap between two silentRefreshReels() network calls from onResume().
+    private static final long SILENT_REFRESH_MIN_INTERVAL_MS = 15_000L;
+    private long lastSilentRefreshAtMs = 0L;
+
+    // Auto-retry a failed page load a couple of times with backoff instead of
+    // silently giving up (Instagram-style: a dropped packet or a brief
+    // reconnect shouldn't require the user to scroll up and down again to
+    // re-trigger pagination). Keyed by tab so each grid's own failure count
+    // is tracked independently.
+    private static final int MAX_PAGE_LOAD_RETRIES = 2;
+    private final Handler retryHandler = new Handler(Looper.getMainLooper());
+    private final Map<Integer, Integer> pageLoadRetryCount = new HashMap<>();
+
+    private void onPageLoadFailed(int tab, boolean refresh) {
+        finishLoading(refresh, tab);
+        if (refresh) return; // only auto-retry pagination fetches, not pull/tab refreshes
+        int attempts = pageLoadRetryCount.getOrDefault(tab, 0);
+        if (attempts >= MAX_PAGE_LOAD_RETRIES) return;
+        pageLoadRetryCount.put(tab, attempts + 1);
+        long backoffMs = 1000L * (attempts + 1); // 1s, then 2s
+        retryHandler.postDelayed(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            if (tab == activeTab) loadCurrentTab(false);
+        }, backoffMs);
+    }
+
+    private void onPageLoadSucceeded(int tab) {
+        pageLoadRetryCount.remove(tab);
+    }
     private boolean isFollowing      = false;
     private boolean isMultiSelect    = false;
     private boolean isSelf           = false;
@@ -859,10 +897,27 @@ public class UserReelsActivity extends AppCompatActivity
     // event, so it only truly runs once the finger/fling has settled down.
     // onScrollStateChanged(IDLE) short-circuits straight to the check the
     // moment scrolling actually stops, instead of waiting out the delay.
-    private static final long PAGINATION_DEBOUNCE_MS = 120L;
-    private final Handler paginationDebounceHandler = new Handler(Looper.getMainLooper());
-    private final Runnable paginationCheckRunnable = this::maybeLoadNextPage;
-
+    // PAGINATION — INSTAGRAM-LEVEL APPROACH
+    // ───────────────────────────────────────────────────────────────────────
+    // Old behavior: onScrolled() debounced the threshold check by 120ms and
+    // cancelled/rescheduled it on every subsequent scroll event. That means
+    // during a continuous fast fling the check NEVER ran until the fling
+    // fully settled to SCROLL_STATE_IDLE — by which point the user could
+    // already be at the very last loaded row, so the next-page fetch only
+    // *started* right as the grid ran out of items to show. That's the
+    // "scroll ruk jata hai" stall: the RecyclerView wasn't broken, the
+    // network fetch was simply starting too late.
+    //
+    // Fix (matches how Instagram's feed/grid actually behaves):
+    //  1. Check the threshold on every onScrolled() call directly — no
+    //     debounce. The check itself is just two int reads + a boolean, so
+    //     running it every frame during a fling is negligible; isLoadingMore
+    //     already guards against firing the same fetch twice.
+    //  2. Prefetch distance is now expressed in "how many items are left
+    //     unseen", defaulting to a full PAGE_SIZE — i.e. the next page starts
+    //     loading as soon as the user scrolls into the last page's worth of
+    //     items, not 3 rows before the literal end. With PAGE_SIZE now 18
+    //     that's a comfortable lead the network almost always beats.
     private void setupScrollPagination() {
           rvReels.addOnScrollListener(new RecyclerView.OnScrollListener() {
               @Override
@@ -873,41 +928,33 @@ public class UserReelsActivity extends AppCompatActivity
                   // scroll flags). Manually calling appBarLayout.setExpanded(..., true)
                   // here as well fights that ongoing touch-driven offset animation and
                   // is what was causing the scroll/flicker/junk pattern — removed.
-                  paginationDebounceHandler.removeCallbacks(paginationCheckRunnable);
-                  paginationDebounceHandler.postDelayed(paginationCheckRunnable, PAGINATION_DEBOUNCE_MS);
+                  if (dy > 0) maybeLoadNextPage();
               }
 
               @Override
               public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
                   if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                      // Fling/drag has actually stopped — check right away
-                      // instead of waiting out the debounce delay.
-                      paginationDebounceHandler.removeCallbacks(paginationCheckRunnable);
                       maybeLoadNextPage();
                   }
               }
           });
       }
 
-    /** Runs the actual pagination threshold check — called only once scrolling has settled (see setupScrollPagination). */
+    /** Runs the pagination threshold check — now called live during scroll (see setupScrollPagination). */
     private void maybeLoadNextPage() {
         if (isFinishing() || isDestroyed()) return;
         if (isLoadingMore) return;
         if (!getCurrentTabHasMore()) return;
+        if (gridLayoutManager == null || adapter == null) return;
         int total       = gridLayoutManager.getItemCount();
         int lastVisible = gridLayoutManager.findLastVisibleItemPosition();
-        // Instagram-level prefetch distance: fire a full row-set (spanCount * 3,
-        // i.e. ~3 rows) before the user actually hits the bottom, not right at
-        // it. By the time they've scrolled those last few rows into view the
-        // next page has almost always already landed, so the grid just keeps
-        // going with no visible pause/footer flash — that's the whole trick,
-        // not any particular network cleverness.
-        int prefetchDistance = gridLayoutManager.getSpanCount() * 3;
+        if (total <= 0 || lastVisible < 0) return;
+        // Trigger the fetch once the user has scrolled into the last
+        // page-worth of items, with a floor of a few rows for small pages.
+        int prefetchDistance = Math.max(PAGE_SIZE, gridLayoutManager.getSpanCount() * 4);
         if (lastVisible >= total - prefetchDistance) {
-            if (adapter != null) {
-                adapter.setLoadingFooterVisible(true);
-                footerPositionAtShow = adapter.getItemCount() - 1;
-            }
+            adapter.setLoadingFooterVisible(true);
+            footerPositionAtShow = adapter.getItemCount() - 1;
             loadCurrentTab(false);
         }
     }
@@ -2554,12 +2601,12 @@ public class UserReelsActivity extends AppCompatActivity
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (isFinishing() || isDestroyed()) return;
                 if (snap.getChildrenCount() < PAGE_SIZE) reelsHasMore = false;
-                if (snap.getChildrenCount() == 0) { finishLoading(refresh, TAB_REELS); return; }
+                if (snap.getChildrenCount() == 0) { onPageLoadSucceeded(TAB_REELS); finishLoading(refresh, TAB_REELS); return; }
                 List<String> ids = extractIds(snap);
                 if (!ids.isEmpty()) reelsLastKey = ids.get(ids.size() - 1);
                 fetchAndAppend(ids, reelsTabData, refresh, TAB_REELS);
             }
-            @Override public void onCancelled(@NonNull DatabaseError e) { finishLoading(refresh, TAB_REELS); }
+            @Override public void onCancelled(@NonNull DatabaseError e) { onPageLoadFailed(TAB_REELS, refresh); }
         });
     }
 
@@ -2572,12 +2619,12 @@ public class UserReelsActivity extends AppCompatActivity
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (isFinishing() || isDestroyed()) return;
                 if (snap.getChildrenCount() < PAGE_SIZE) likedHasMore = false;
-                if (snap.getChildrenCount() == 0) { finishLoading(refresh, TAB_LIKED); return; }
+                if (snap.getChildrenCount() == 0) { onPageLoadSucceeded(TAB_LIKED); finishLoading(refresh, TAB_LIKED); return; }
                 List<String> ids = extractIds(snap);
                 if (!ids.isEmpty()) likedLastKey = ids.get(ids.size() - 1);
                 fetchAndAppend(ids, likedTabData, refresh, TAB_LIKED);
             }
-            @Override public void onCancelled(@NonNull DatabaseError e) { finishLoading(refresh, TAB_LIKED); }
+            @Override public void onCancelled(@NonNull DatabaseError e) { onPageLoadFailed(TAB_LIKED, refresh); }
         });
     }
 
@@ -2590,12 +2637,12 @@ public class UserReelsActivity extends AppCompatActivity
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (isFinishing() || isDestroyed()) return;
                 if (snap.getChildrenCount() < PAGE_SIZE) savedHasMore = false;
-                if (snap.getChildrenCount() == 0) { finishLoading(refresh, TAB_SAVED); return; }
+                if (snap.getChildrenCount() == 0) { onPageLoadSucceeded(TAB_SAVED); finishLoading(refresh, TAB_SAVED); return; }
                 List<String> ids = extractIds(snap);
                 if (!ids.isEmpty()) savedLastKey = ids.get(ids.size() - 1);
                 fetchAndAppend(ids, savedTabData, refresh, TAB_SAVED);
             }
-            @Override public void onCancelled(@NonNull DatabaseError e) { finishLoading(refresh, TAB_SAVED); }
+            @Override public void onCancelled(@NonNull DatabaseError e) { onPageLoadFailed(TAB_SAVED, refresh); }
         });
     }
 
@@ -2679,12 +2726,12 @@ public class UserReelsActivity extends AppCompatActivity
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (isFinishing() || isDestroyed()) return;
                 if (snap.getChildrenCount() < PAGE_SIZE) repostsHasMore = false;
-                if (snap.getChildrenCount() == 0) { finishLoading(refresh, TAB_REPOST); return; }
+                if (snap.getChildrenCount() == 0) { onPageLoadSucceeded(TAB_REPOST); finishLoading(refresh, TAB_REPOST); return; }
                 List<String> ids = extractIds(snap);
                 if (!ids.isEmpty()) repostsLastKey = ids.get(ids.size() - 1);
                 fetchAndAppend(ids, repostsTabData, refresh, TAB_REPOST);
             }
-            @Override public void onCancelled(@NonNull DatabaseError e) { finishLoading(refresh, TAB_REPOST); }
+            @Override public void onCancelled(@NonNull DatabaseError e) { onPageLoadFailed(TAB_REPOST, refresh); }
         });
     }
 
@@ -2698,12 +2745,12 @@ public class UserReelsActivity extends AppCompatActivity
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (isFinishing() || isDestroyed()) return;
                 if (snap.getChildrenCount() < PAGE_SIZE) duetHasMore = false;
-                if (snap.getChildrenCount() == 0) { finishLoading(refresh, TAB_DUET); return; }
+                if (snap.getChildrenCount() == 0) { onPageLoadSucceeded(TAB_DUET); finishLoading(refresh, TAB_DUET); return; }
                 List<String> ids = extractIds(snap);
                 if (!ids.isEmpty()) duetLastKey = ids.get(ids.size() - 1);
                 fetchAndAppend(ids, duetTabData, refresh, TAB_DUET);
             }
-            @Override public void onCancelled(@NonNull DatabaseError e) { finishLoading(refresh, TAB_DUET); }
+            @Override public void onCancelled(@NonNull DatabaseError e) { onPageLoadFailed(TAB_DUET, refresh); }
         });
     }
 
@@ -2718,12 +2765,12 @@ public class UserReelsActivity extends AppCompatActivity
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (isFinishing() || isDestroyed()) return;
                 if (snap.getChildrenCount() < PAGE_SIZE) collabRepostHasMore = false;
-                if (snap.getChildrenCount() == 0) { finishLoading(refresh, TAB_COLLAB_REPOST); return; }
+                if (snap.getChildrenCount() == 0) { onPageLoadSucceeded(TAB_COLLAB_REPOST); finishLoading(refresh, TAB_COLLAB_REPOST); return; }
                 List<String> ids = extractIds(snap);
                 if (!ids.isEmpty()) collabRepostLastKey = ids.get(ids.size() - 1);
                 fetchAndAppend(ids, collabRepostTabData, refresh, TAB_COLLAB_REPOST);
             }
-            @Override public void onCancelled(@NonNull DatabaseError e) { finishLoading(refresh, TAB_COLLAB_REPOST); }
+            @Override public void onCancelled(@NonNull DatabaseError e) { onPageLoadFailed(TAB_COLLAB_REPOST, refresh); }
         });
     }
 
@@ -2755,6 +2802,7 @@ public class UserReelsActivity extends AppCompatActivity
 
     private void fetchAndAppend(List<String> ids, List<ReelModel> target,
                                 boolean refresh, int tab) {
+        onPageLoadSucceeded(tab); // a page came back fine — clear any pending retry backoff for this tab
         final int[] remaining = {ids.size()};
         final List<ReelModel> fetched = new ArrayList<>();
         // Remember where the new items will land so we can notify just that
@@ -5327,7 +5375,14 @@ public class UserReelsActivity extends AppCompatActivity
             lottieEmpty.resumeAnimation();
         }
         if (!isFirstResume && isSelf && activeTab == TAB_REELS) {
-            silentRefreshReels();
+            // Throttled: onResume can fire many times in quick succession
+            // (returning from a dialog, switching apps, back-press) and each
+            // call was hitting Firebase again even with nothing new to fetch.
+            long now = System.currentTimeMillis();
+            if (now - lastSilentRefreshAtMs >= SILENT_REFRESH_MIN_INTERVAL_MS) {
+                lastSilentRefreshAtMs = now;
+                silentRefreshReels();
+            }
         }
         if (!isFirstResume && isSelf) {
             // Picks up any album just created/added-to via CreateHighlightActivity.
@@ -5342,7 +5397,7 @@ public class UserReelsActivity extends AppCompatActivity
         dismissPreviewDialog();
         stopAvatarAnimation();
         cancelStoryRingReveal();
-        paginationDebounceHandler.removeCallbacks(paginationCheckRunnable);
+        retryHandler.removeCallbacksAndMessages(null);
         if (lottieEmpty != null) lottieEmpty.cancelAnimation();
         dbExecutor.shutdown();
         // Remove persistent Firebase listeners to avoid memory/network leaks

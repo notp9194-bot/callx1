@@ -1,22 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     Brand gradient story ring — shown when a contact has a reel_story type status.
-    DARK palette, colour flow (from top, clockwise): Dark Magenta 0-15%
-    (#99004D) -> Dark Red 15-50% (#8B0000) -> Dark Yellow 50-100%
-    (#B8860B). A plain XML sweep gradient natively supports exactly 3 stops
-    (start/center/end at 0%/50%/100%), which lines up perfectly with these
-    3 bands, so this IS the exact spec — no approximation needed. For the
-    seamless-closing version (100% blends back into 0% with zero seam), see
-    StoryRingShaderCache (used by StoryRingGradientDrawable / the chat-list
-    ring) which supports arbitrary colour stops.
+    Colour flow (from top, clockwise): Pink/Magenta 0-15% (#FF1493)
+    -> Pink-Red 15-55% (#FF3B5C) -> Orange 55-75%
+    (#FF8A00) -> Yellow 75-100% (#FFD600). Plain XML
+    sweep gradients only support 3 stops (start/center/end fixed at
+    0%/50%/100%), so centerColor is Pink-Red (the colour that actually sits
+    at the 50% mark, inside the dominant 15-55% band) — this is the closest
+    3-stop approximation. For pixel-exact 4-band percentages with hard edges
+    at 15%/55%/75%, see StoryRingShaderCache (used by StoryRingGradientDrawable /
+    the chat-list ring) which supports arbitrary colour stops.
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
     <gradient
         android:type="sweep"
-        android:startColor="#99004D"
-        android:centerColor="#8B0000"
-        android:endColor="#B8860B"
+        android:startColor="#FF1493"
+        android:centerColor="#FF3B5C"
+        android:endColor="#FFD600"
         android:centerX="0.5"
         android:centerY="0.5"/>
 </shape>

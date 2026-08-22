@@ -1,15 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    bg_story_ring.xml — brand story ring gradient, DARK palette
-    Colour flow (from top, clockwise): Dark Magenta 0-15% (#99004D)
-    -> Dark Red 15-50% (#8B0000) -> Dark Yellow 50-100% (#B8860B).
+    bg_story_ring.xml — brand story ring gradient
+    Colour flow (from top, clockwise): Pink/Magenta 0-15% (#FF1493)
+    -> Pink-Red 15-55% (#FF3B5C) -> Orange 55-75%
+    (#FF8A00) -> Yellow 75-100% (#FFD600).
     Used in activity_user_reels.xml for view_story_ring (90dp avatar ring).
-    A plain XML sweep gradient natively supports exactly 3 stops
-    (start/center/end at 0%/50%/100%), which lines up perfectly with these
-    3 bands, so this IS the exact spec — no approximation needed. For the
-    seamless-closing version (100% blends back into 0% with zero seam), see
-    StoryRingShaderCache (used by StoryRingGradientDrawable), which is what
-    actually renders wherever the code overrides this XML.
+    Plain XML sweep gradients only support 3 stops (start/center/end fixed
+    at 0%/50%/100%), so this is the closest 3-stop approximation: startColor
+    is Pink/Magenta's start, centerColor sits in the (dominant, 40%-wide)
+    Pink-Red band since the 50% midpoint falls inside it, endColor
+    is Yellow. For the pixel-exact 4-band gradient with hard edges at
+    15%/55%/75%, see StoryRingShaderCache (used by StoryRingGradientDrawable),
+    which is what actually renders wherever the code overrides this XML.
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Outer gradient oval — brand sweep gradient -->
@@ -17,9 +19,9 @@
         <shape android:shape="oval">
             <gradient
                 android:type="sweep"
-                android:startColor="#99004D"
-                android:centerColor="#8B0000"
-                android:endColor="#B8860B"/>
+                android:startColor="#FF1493"
+                android:centerColor="#FF3B5C"
+                android:endColor="#FFD600"/>
         </shape>
     </item>
     <!-- Inner white spacer (3dp) — creates visible gap between gradient and avatar -->

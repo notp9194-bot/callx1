@@ -1,18 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     story_ring_insta_gradient.xml
-    Brand story ring gradient — DARK palette, colour flow (from top,
-    clockwise): Dark Magenta 0-15% (#99004D) -> Dark Red 15-50% (#8B0000)
-    -> Dark Yellow 50-100% (#B8860B).
+    Brand story ring gradient — colour flow (from top, clockwise):
+    Pink/Magenta 0-15% (#FF1493) -> Pink-Red 15-55% (#FF3B5C) ->
+    Orange 55-75% (#FF8A00) -> Yellow 75-100% (#FFD600).
     Used as background/src for story rings across Reels (home stories, reel
     comments, reel player owner ring, feed post ring, share sheet).
     The avatar (slightly smaller) sits on top, visually creating a ring effect.
-    A plain XML sweep gradient natively supports exactly 3 stops
-    (start/center/end at 0/50/100%), which lines up perfectly with these 3
-    bands, so this IS the exact spec — no approximation needed. For the
-    seamless-closing version (100% blends back into 0% with zero seam), see
-    StoryRingShaderCache, which is what actually renders wherever the code
-    overrides this XML.
+    Note: plain XML sweep gradients only support 3 stops (start/center/end
+    fixed at 0/50/100%) — centerColor is Pink-Red since that's the colour
+    covering the 50% mark (its band is the dominant 15-55%); this is the
+    closest 3-stop approximation of the spec. For pixel-exact 4-band
+    percentages with hard edges at 15%/55%/75%, see StoryRingShaderCache.
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Outer gradient oval — full gradient circle -->
@@ -20,9 +19,9 @@
         <shape android:shape="oval">
             <gradient
                 android:type="sweep"
-                android:startColor="#99004D"
-                android:centerColor="#8B0000"
-                android:endColor="#B8860B"/>
+                android:startColor="#FF1493"
+                android:centerColor="#FF3B5C"
+                android:endColor="#FFD600"/>
         </shape>
     </item>
     <!-- Inner white ring (2.5dp all sides) — creates visible gap between gradient and avatar -->
