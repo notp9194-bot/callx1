@@ -30,30 +30,31 @@ public final class StoryRingShaderCache {
 
     private StoryRingShaderCache() {}
 
-    // Story ring gradient stops — brand spec v4 (colour flow, from top,
+    // Story ring gradient stops — brand spec v5 (colour flow, from top,
     // clockwise, percentages measured exactly as spec'd):
-    //   0%–15%   Pink / Magenta   #FF1493
-    //   15%–55%  Pink-Red         #FF3B5C
-    //   55%–75%  Orange           #FF8A00
-    //   75%–100% Yellow           #FFD600
-    // SEAMLESS, continuous blend — no hard edges between bands AND no seam
-    // where the sweep closes (100% meets 0%). Each named color sits at the
-    // percentage mark where the reference shows it; the last stop repeats
-    // the SAME color as the first stop (Pink/Magenta) so the ring closes
-    // into itself with a smooth blend through the tail of the Yellow band,
-    // instead of a hard jump from Yellow straight back to Pink/Magenta.
+    //   0%–10%   Pink / Magenta   #FF1493
+    //   10%–38%  Pink-Red         #FF3B5C
+    //   38%–50%  Orange           #FF8A00
+    //   50%–100% Yellow           #FFD600   (widened per request)
+    // The first three bands keep their original relative proportions
+    // (15:40:15) scaled down to fit the remaining 50% now that Yellow
+    // takes half the ring. SEAMLESS, continuous blend — no hard edges
+    // between bands AND no seam where the sweep closes (100% meets 0%);
+    // the last stop repeats the SAME color as the first stop (Pink/
+    // Magenta) so the ring closes into itself with a smooth blend through
+    // the tail of the Yellow band, instead of a hard jump.
     private static final int[] INSTA_GRADIENT_COLORS = {
         0xFFFF1493, // pink/magenta (0%)
-        0xFFFF3B5C, // pink-red     (15%)
-        0xFFFF8A00, // orange       (55%)
-        0xFFFFD600, // yellow       (75%)
+        0xFFFF3B5C, // pink-red     (10%)
+        0xFFFF8A00, // orange       (38%)
+        0xFFFFD600, // yellow       (50%)
         0xFFFF1493  // pink/magenta (100% — same as 0%, closes the loop seamlessly)
     };
 
     // Cumulative positions (0..1) matching the percentages above exactly —
     // no duplicated positions, so every transition blends smoothly.
     private static final float[] INSTA_GRADIENT_POSITIONS = {
-        0f, 0.15f, 0.55f, 0.75f, 1f
+        0f, 0.10f, 0.38f, 0.50f, 1f
     };
 
     private static final int MAX_CACHED_SIZES = 8;
