@@ -30,29 +30,24 @@ public final class StoryRingShaderCache {
 
     private StoryRingShaderCache() {}
 
-    // Story ring gradient stops — brand spec v3 (colour flow, from top,
+    // Story ring gradient stops — brand spec v4 (colour flow, from top,
     // clockwise, percentages measured exactly as spec'd):
     //   0%–15%   Pink / Magenta   #FF1493
     //   15%–55%  Pink-Red         #FF3B5C
     //   55%–75%  Orange           #FF8A00
     //   75%–100% Yellow           #FFD600
-    // SMOOTH, continuous blend — no hard edges / no separator lines between
-    // bands. Each named color sits at the percentage mark where the
-    // reference shows it, and the sweep interpolates gradually between
-    // consecutive marks (matching the reference ring image, which flows
-    // pink -> red -> orange -> yellow with no visible seams inside the
-    // ring). The final stop repeats Yellow at 100% so the 75%-100% band
-    // reads as a solid yellow arc rather than blending into anything past
-    // it. The loop does NOT close seamlessly back to Pink/Magenta (yellow
-    // #FFD600 at 100% differs from pink #FF1493 at 0%) — any seam that
-    // remains sits at 12 o'clock, matching the reference's "Starting from
-    // Top" flow.
+    // SEAMLESS, continuous blend — no hard edges between bands AND no seam
+    // where the sweep closes (100% meets 0%). Each named color sits at the
+    // percentage mark where the reference shows it; the last stop repeats
+    // the SAME color as the first stop (Pink/Magenta) so the ring closes
+    // into itself with a smooth blend through the tail of the Yellow band,
+    // instead of a hard jump from Yellow straight back to Pink/Magenta.
     private static final int[] INSTA_GRADIENT_COLORS = {
         0xFFFF1493, // pink/magenta (0%)
         0xFFFF3B5C, // pink-red     (15%)
         0xFFFF8A00, // orange       (55%)
         0xFFFFD600, // yellow       (75%)
-        0xFFFFD600  // yellow       (100% — holds flat through the yellow band)
+        0xFFFF1493  // pink/magenta (100% — same as 0%, closes the loop seamlessly)
     };
 
     // Cumulative positions (0..1) matching the percentages above exactly —
