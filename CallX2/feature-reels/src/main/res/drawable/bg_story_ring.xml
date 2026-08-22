@@ -2,7 +2,7 @@
 <!--
     bg_story_ring.xml — brand story ring gradient
     Colour flow (from top, clockwise): Pink/Magenta 0-15% (#FF1493)
-    -> Pink-Red 15-55% (#FF3B30) -> Orange 55-75%
+    -> Pink-Red 15-55% (#FF3B5C) -> Orange 55-75%
     (#FF8A00) -> Yellow 75-100% (#FFD600).
     Used in activity_user_reels.xml for view_story_ring (90dp avatar ring).
     Plain XML sweep gradients only support 3 stops (start/center/end fixed
@@ -20,7 +20,7 @@
             <gradient
                 android:type="sweep"
                 android:startColor="#FF1493"
-                android:centerColor="#FF3B30"
+                android:centerColor="#FF3B5C"
                 android:endColor="#FFD600"/>
         </shape>
     </item>

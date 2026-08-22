@@ -2,7 +2,7 @@
 <!--
     story_ring_insta_gradient.xml
     Brand story ring gradient — colour flow (from top, clockwise):
-    Pink/Magenta 0-15% (#FF1493) -> Pink-Red 15-55% (#FF3B30) ->
+    Pink/Magenta 0-15% (#FF1493) -> Pink-Red 15-55% (#FF3B5C) ->
     Orange 55-75% (#FF8A00) -> Yellow 75-100% (#FFD600).
     Used as background/src for story rings across Reels (home stories, reel
     comments, reel player owner ring, feed post ring, share sheet).
@@ -20,7 +20,7 @@
             <gradient
                 android:type="sweep"
                 android:startColor="#FF1493"
-                android:centerColor="#FF3B30"
+                android:centerColor="#FF3B5C"
                 android:endColor="#FFD600"/>
         </shape>
     </item>

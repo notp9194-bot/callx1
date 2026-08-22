@@ -30,35 +30,35 @@ public final class StoryRingShaderCache {
 
     private StoryRingShaderCache() {}
 
-    // Story ring gradient stops — brand spec v2 (colour flow, from top,
+    // Story ring gradient stops — brand spec v3 (colour flow, from top,
     // clockwise, percentages measured exactly as spec'd):
     //   0%–15%   Pink / Magenta   #FF1493
-    //   15%–55%  Pink-Red         #FF3B30
+    //   15%–55%  Pink-Red         #FF3B5C
     //   55%–75%  Orange           #FF8A00
     //   75%–100% Yellow           #FFD600
-    // Four flat, high-contrast bands — no purple, no per-band sub-blend.
-    // Each color is duplicated at its band's start/end position so the
-    // transition between bands is a hard edge (matches the reference
-    // "vibrant & high contrast" 4-block breakdown) rather than a blend.
-    // The loop does NOT close seamlessly (yellow #FFD600 at 100% is a
-    // different color from pink #FF1493 at 0%) — that visible seam at
-    // 12 o'clock is intentional, matching the reference spec's
-    // "Starting from Top" flow.
+    // SMOOTH, continuous blend — no hard edges / no separator lines between
+    // bands. Each named color sits at the percentage mark where the
+    // reference shows it, and the sweep interpolates gradually between
+    // consecutive marks (matching the reference ring image, which flows
+    // pink -> red -> orange -> yellow with no visible seams inside the
+    // ring). The final stop repeats Yellow at 100% so the 75%-100% band
+    // reads as a solid yellow arc rather than blending into anything past
+    // it. The loop does NOT close seamlessly back to Pink/Magenta (yellow
+    // #FFD600 at 100% differs from pink #FF1493 at 0%) — any seam that
+    // remains sits at 12 o'clock, matching the reference's "Starting from
+    // Top" flow.
     private static final int[] INSTA_GRADIENT_COLORS = {
         0xFFFF1493, // pink/magenta (0%)
-        0xFFFF1493, // pink/magenta (15% — hard edge)
-        0xFFFF3B30, // pink-red     (15% — hard edge)
-        0xFFFF3B30, // pink-red     (55% — hard edge)
-        0xFFFF8A00, // orange       (55% — hard edge)
-        0xFFFF8A00, // orange       (75% — hard edge)
-        0xFFFFD600, // yellow       (75% — hard edge)
-        0xFFFFD600  // yellow       (100%)
+        0xFFFF3B5C, // pink-red     (15%)
+        0xFFFF8A00, // orange       (55%)
+        0xFFFFD600, // yellow       (75%)
+        0xFFFFD600  // yellow       (100% — holds flat through the yellow band)
     };
 
-    // Cumulative positions (0..1) matching the percentages above exactly.
-    // 0.15, 0.55 and 0.75 each appear twice to create the hard band edges noted above.
+    // Cumulative positions (0..1) matching the percentages above exactly —
+    // no duplicated positions, so every transition blends smoothly.
     private static final float[] INSTA_GRADIENT_POSITIONS = {
-        0f, 0.15f, 0.15f, 0.55f, 0.55f, 0.75f, 0.75f, 1f
+        0f, 0.15f, 0.55f, 0.75f, 1f
     };
 
     private static final int MAX_CACHED_SIZES = 8;
