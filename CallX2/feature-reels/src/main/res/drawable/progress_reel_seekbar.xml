@@ -1,18 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Instagram-style thin seek track for the Reels bottom progress bar.
-  The SeekBar view itself is taller (28dp, see fragment_reel_player.xml)
-  purely to give the thumb a generous touch/drag target — this drawable
-  insets top/bottom so only a slim ~3dp line is actually painted.
+  Centered bottom "pill" seek track for Reels (see fragment_reel_player.xml
+  for the weighted 50%-width container this sits inside).
 
-  UI FIX: the line is now (a) pinned flush to the very bottom edge of the
-  28dp touch target instead of vertically centered in it, and (b) painted
-  at a clearly visible opacity at all times — previously the background
-  track was only 27% alpha (#44...), which read as "invisible" against
-  busy/bright video content even though it was technically always drawn.
-  Only the *thumb* fades in/out on drag (see ReelPlayerController); the
-  track line itself is meant to always be visible so users can find and
-  grab it without first having to guess where it is.
+  The SeekBar view itself is 28dp tall purely to give the thumb a generous
+  touch/drag target — this drawable insets top/bottom so only a slim ~5dp
+  capsule is actually painted, flush with the bottom of that touch target.
+  Corner radius is set to half the painted thickness (2.5dp for a 5dp bar)
+  so both ends are fully rounded — a true pill/capsule shape, not just
+  slightly-rounded rectangle corners.
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -22,7 +18,7 @@
         android:bottom="0dp">
         <shape android:shape="rectangle">
             <solid android:color="#66FFFFFF" />
-            <corners android:radius="2dp" />
+            <corners android:radius="2.5dp" />
         </shape>
     </item>
 
@@ -33,7 +29,7 @@
         <clip>
             <shape android:shape="rectangle">
                 <solid android:color="#FF416C" />
-                <corners android:radius="2dp" />
+                <corners android:radius="2.5dp" />
             </shape>
         </clip>
     </item>

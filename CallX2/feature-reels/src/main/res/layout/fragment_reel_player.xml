@@ -1082,28 +1082,71 @@
 
     </FrameLayout>
 
-    <!-- Video progress bar — pinned to very bottom of video (0dp margin).
+    <!-- Video progress bar — centered floating pill, bottom-center of the
+         video, overlapping the content rather than pushed flush to the
+         very edge (see layout_marginBottom below).
+
+         PERF: this used to be a weighted LinearLayout with two dummy
+         spacer Views either side of the SeekBar to get a centered 50%
+         width. That's 3 views and, worse, LinearLayout weights force a
+         second internal measure pass per child (documented perf cost —
+         see LinearLayout#measureChildBeforeLayout / measureWithWeight).
+         Since this container lives inside a RecyclerView-backed reels
+         feed, every bind/rebind of a page re-runs that measure+layout
+         work. Replaced with a single-view flat ConstraintLayout using a
+         percent-width constraint — one measure pass, no spacer views,
+         same 50%-of-width / centered result computed in the constraint
+         solver instead of via extra child views.
+
          Instagram-style drag-to-seek: a SeekBar instead of a plain
-         ProgressBar. The 28dp view height is just the touch/drag target;
-         progress_reel_seekbar.xml paints the actual ~3dp line flush with
-         the very bottom edge of that target, and always visible (not
-         faded) so the user can see where it is without dragging first.
-         Only the thumb starts invisible (alpha 0, set in code) and fades
-         in while actively scrubbing — see ReelPlayerController's seek bar
-         wiring. -->
-    <SeekBar
-        android:id="@+id/progress_video"
+         ProgressBar. The 28dp SeekBar height is just the touch/drag
+         target; progress_reel_seekbar.xml paints the actual
+         capsule-shaped pill flush with the bottom of that target, and
+         always visible (not faded) so the user can see where it is
+         without dragging first. Only the thumb starts invisible (alpha 0,
+         set in code) and fades in while actively scrubbing — see
+         ReelPlayerController's seek bar wiring (id progress_video is
+         unchanged, so no controller code needed to change).
+
+         saveEnabled="false" on both views: this fragment/view is
+         recycled per-page in the reels feed, so there's no reason to pay
+         for Android's view-hierarchy instance-state save/restore
+         (onSaveInstanceState/onRestoreInstanceState) on every recycle —
+         same convention already used on player_view above. -->
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/layout_progress_video_container"
         android:layout_width="match_parent"
         android:layout_height="28dp"
         android:layout_gravity="bottom"
-        android:max="1000"
-        android:progress="0"
-        android:paddingStart="0dp"
-        android:paddingEnd="0dp"
-        android:splitTrack="false"
-        android:progressDrawable="@drawable/progress_reel_seekbar"
-        android:thumb="@drawable/thumb_reel_seek"
-        android:layout_marginBottom="0dp"/>
+        android:layout_marginBottom="14dp"
+        android:saveEnabled="false"
+        android:clipChildren="false"
+        android:clipToPadding="false">
+
+        <!-- Pill track: 50% of width total, horizontally centered
+             (25% empty space either side) — per spec "bottom center se
+             left 50%, right 50% area tak". app:layout_constraintWidth_percent
+             is resolved by the constraint solver in a single pass, no
+             extra spacer views needed to achieve the centered 50% width. -->
+        <SeekBar
+            android:id="@+id/progress_video"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:saveEnabled="false"
+            android:max="1000"
+            android:progress="0"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp"
+            android:splitTrack="false"
+            android:progressDrawable="@drawable/progress_reel_seekbar"
+            android:thumb="@drawable/thumb_reel_seek"
+            app:layout_constraintWidth_percent="0.5"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"/>
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
 
     <!-- Buffering indicator -->
     <ProgressBar
