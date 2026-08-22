@@ -2534,6 +2534,23 @@ public class HomeFragment extends Fragment {
         TextView tvAudio          = card.findViewById(R.id.tv_post_audio);
         TextView tvSuggested      = card.findViewById(R.id.tv_post_suggested);
         TextView btnPostFollow    = card.findViewById(R.id.btn_post_follow);
+
+        // FIX: cardPool.obtain() can hand back a RECYCLED view that was
+        // previously bound to a different post — one where tv_post_suggested
+        // / tv_post_audio / btn_post_follow ended up VISIBLE, or tv_post_time
+        // ended up GONE. Below, each of these is only ever set to its "on"
+        // state when its condition is true — none of them get reset back to
+        // their XML-default "off" state when the condition is false on THIS
+        // bind. That stale leftover state is exactly why some cards' headers
+        // showed less info than others (e.g. a photo post reusing a view
+        // that was last a "Suggested for you" post could end up with BOTH
+        // tv_post_suggested and tv_post_time hidden — no label at all).
+        // Reset every one of them to the XML-default state first so each
+        // card's header is fully deterministic regardless of prior use.
+        if (tvSuggested   != null) tvSuggested.setVisibility(View.GONE);
+        if (tvAudio       != null) tvAudio.setVisibility(View.GONE);
+        if (btnPostFollow != null) btnPostFollow.setVisibility(View.GONE);
+        if (tvTime        != null) tvTime.setVisibility(View.VISIBLE);
         ImageView ivThumb         = card.findViewById(R.id.iv_post_thumb);
         TextView tvCaption        = card.findViewById(R.id.tv_post_caption);
         TextView tvLikes          = card.findViewById(R.id.tv_post_likes);
@@ -2609,8 +2626,17 @@ public class HomeFragment extends Fragment {
         if (watchMore != null) {
             watchMore.setOnClickListener(x -> {
                 if (!isAdded() || getContext() == null) return;
-                // Open the fullscreen reels explore feed
-                startActivity(new Intent(getContext(), ReelExploreActivity.class));
+                // Instagram-level: "Watch more reels" after a Home Feed reel
+                // finishes drops the user into the actual Reels tab feed,
+                // landing on this exact reel — not a generic explore screen.
+                Fragment parent = getParentFragment();
+                if (parent instanceof ReelsFragment) {
+                    ((ReelsFragment) parent).openReelInFeed(reel);
+                } else {
+                    // Defensive fallback if HomeFragment is ever hosted
+                    // somewhere other than inside ReelsFragment.
+                    startActivity(new Intent(getContext(), ReelExploreActivity.class));
+                }
             });
         }
         if (watchAgain != null) {

@@ -673,6 +673,43 @@ public class ReelsFragment extends Fragment {
         reelBottomNav.setSelectedItemId(R.id.reel_nav_feed);
     }
 
+    /**
+     * Instagram-level "Watch more reels" — called by HomeFragment's
+     * end-of-reel overlay button. Switches from the Home tab to the actual
+     * Reels tab feed (vpReels) and lands on THIS SAME reel, exactly like
+     * Instagram: tapping "watch more reels" after a Home Feed reel finishes
+     * drops you into the main Reels feed starting from that reel, not a
+     * generic explore/search screen and not an isolated single-reel player.
+     *
+     * If this reel isn't already loaded in the current feed list (For You
+     * or Following, whichever is active), it's inserted at the top so the
+     * jump is seamless — the user lands on it immediately and can keep
+     * swiping into the rest of the feed from there.
+     */
+    public void openReelInFeed(ReelModel reel) {
+        if (reel == null || reel.reelId == null || !isAdded()) return;
+        showReelFeed();
+
+        List<ReelModel> currentList = isFypMode ? allReels : followingReels;
+        int idx = -1;
+        for (int i = 0; i < currentList.size(); i++) {
+            if (reel.reelId.equals(currentList.get(i).reelId)) { idx = i; break; }
+        }
+        if (idx < 0) {
+            // Not loaded in this feed yet — insert at the top so the reel
+            // is there to land on, same as Instagram carrying the reel over.
+            currentList.add(0, reel);
+            if (adapter != null) adapter.setReels(currentList);
+            idx = 0;
+        }
+        final int targetIdx = idx;
+        if (vpReels != null) {
+            // post(): reel_nav_feed selection above may still be mid-layout
+            // (home overlay just hidden, vpReels just made visible again).
+            vpReels.post(() -> vpReels.setCurrentItem(targetIdx, false));
+        }
+    }
+
     @Override
     public void onDestroyView() {
         // CRASH FIX: Remove Firebase listeners BEFORE destroying view.
