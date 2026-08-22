@@ -149,6 +149,19 @@ public class HomeFragment extends Fragment {
     private com.callx.app.cache.ReelVideoPreloader       videoPreloader;
     private com.callx.app.cache.ReelThumbnailPreloader   thumbPreloader;
     private com.callx.app.cache.ReelPredictivePreloader  predictivePreloader;
+    /** Same singleton thermal/battery monitor the Reels swipe feed uses —
+     *  gates all three preloaders above so Home's infinite-scroll prefetch
+     *  doesn't keep feeding CPU/network work to a device that's overheating
+     *  or nearly out of battery. See ReelThermalManager for the level table. */
+    private com.callx.app.player.ReelThermalManager thermalManager;
+    private final Runnable thermalChangeListener = this::onThermalChanged;
+    /** Same singleton "precompute counts/caption ahead of the swipe" cache the
+     *  Reels tab uses — see ReelUiStatePrecomputer/ReelUiStateCache docs. */
+    private com.callx.app.cache.ReelUiStatePrecomputer uiStatePrecomputer;
+    /** Same singleton offline-download/cache-fallback manager the Reels tab's
+     *  "more" sheet uses (ReelPlayerController.saveReelOffline) — backs
+     *  Home's own "Save for offline" menu item below. */
+    private com.callx.app.player.ReelOfflineManager offlineManager;
     /** Manual view-virtualization for the feed's NestedScrollView — see class doc.
      *  Unloads off-screen card bitmaps and pauses Glide during fling so image
      *  decode work never competes with the scroll frame budget. */
@@ -332,12 +345,29 @@ public class HomeFragment extends Fragment {
         // THREAD_PRIORITY_DISPLAY playback thread the Reels swipe feed
         // already uses for fast, low-latency start — Home's feed was
         // previously left on generic defaults.
-        feedPlayer = com.callx.app.player.AdaptiveStreamingManager.get(requireContext()).buildBarePlayer();
+        // ── Shared ExoPlayerPool instead of a raw buildBarePlayer() ────────
+        // Same centralized, tested pool the Reels swipe feed uses — POOL_SIZE=3
+        // was sized for exactly "prev paused / current playing / next
+        // prewarmed", which is precisely Home's feedPlayer + standbyPrev +
+        // standbyNext trio, so no capacity change needed on the pool itself.
+        feedPlayer = com.callx.app.player.ExoPlayerPool.get(requireContext()).acquire();
         configureFeedPlayerInstance(feedPlayer);
+        // ── Instagram-level thermal manager (real-time monitoring) ────────
+        // Same singleton the Reels swipe feed uses — process-lifetime, so
+        // this just attaches Home's own change-listener to it. Initialised
+        // BEFORE the preloaders below so they can be gated from the first
+        // preload call, same ordering as ReelsFragment.
+        thermalManager = com.callx.app.player.ReelThermalManager.get(requireContext());
+        thermalManager.addChangeListener(thermalChangeListener);
+
         // ── v177: same preload feature Reels tab has ──────────────────────
         videoPreloader      = new com.callx.app.cache.ReelVideoPreloader(requireContext());
         thumbPreloader      = new com.callx.app.cache.ReelThumbnailPreloader(requireContext());
         predictivePreloader = new com.callx.app.cache.ReelPredictivePreloader(requireContext());
+        // Same UI-state precompute + offline manager the Reels tab wires up
+        // alongside its preloaders.
+        uiStatePrecomputer  = new com.callx.app.cache.ReelUiStatePrecomputer();
+        offlineManager      = com.callx.app.player.ReelOfflineManager.get(requireContext());
         feedWindowManager   = new HomeFeedWindowManager(scrollView, Glide.with(this));
         feedWindowManager.setFeedContainer(containerFeed);
         // Warm a couple of feed cards while the main thread is idle so the
@@ -374,7 +404,7 @@ public class HomeFragment extends Fragment {
      */
     private void configureFeedPlayerInstance(ExoPlayer player) {
         player.setRepeatMode(Player.REPEAT_MODE_OFF);
-        player.addListener(new Player.Listener() {
+        Player.Listener listener = new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_ENDED && currentPlayingIndex >= 0
@@ -419,7 +449,14 @@ public class HomeFragment extends Fragment {
                         .persistQoeSession(0, 0, 0, 0, ttffMs);
                 } catch (Exception ignored) {}
             }
-        });
+        };
+        player.addListener(listener);
+        // Track this listener against the SHARED ExoPlayerPool so that when
+        // this instance is handed back via ExoPlayerPool.release(), the pool
+        // strips it before the next acquirer (Home or Reels tab) gets this
+        // player — otherwise a reused pooled instance would keep firing this
+        // stale card's onRenderedFirstFrame/onPlaybackStateChanged forever.
+        com.callx.app.player.ExoPlayerPool.get(requireContext()).trackListener(player, listener);
     }
 
     /**
@@ -672,8 +709,40 @@ public class HomeFragment extends Fragment {
         }
         // Reuses the same byte-range video preloader the Reels swipe feed
         // uses, pointed at the upcoming slice of the ranked feed list.
-        if (videoPreloader != null) {
+        // Thermal-gated: skip on HOT so we don't keep opening byte-range
+        // downloads while the device is being throttled to cool down.
+        if (videoPreloader != null && currentThermalLevel() != com.callx.app.player.ReelThermalManager.Level.HOT) {
             videoPreloader.preloadFrom(currentFeedPosts, fromIndex);
+        }
+        // Same precompute as attachPlayerToCard(), pointed at the freshly
+        // appended page so its cards' counts/caption are already formatted
+        // by the time they scroll into view.
+        if (uiStatePrecomputer != null) uiStatePrecomputer.precomputeFrom(currentFeedPosts, fromIndex);
+    }
+
+    /** Current thermal level, defaulting to SAFE if the manager isn't up yet. */
+    private com.callx.app.player.ReelThermalManager.Level currentThermalLevel() {
+        return thermalManager != null
+            ? thermalManager.getLevel()
+            : com.callx.app.player.ReelThermalManager.Level.SAFE;
+    }
+
+    /**
+     * Called by ReelThermalManager when device thermal / battery state changes.
+     * Same handler as ReelsFragment: on HOT, cancel in-flight byte downloads
+     * immediately instead of waiting for the next scroll/attach to notice —
+     * videoPreloader/predictivePreloader already self-gate future calls via
+     * ReelThermalManager internally, but a download already in flight when
+     * the device crosses into HOT needs an explicit cancel.
+     */
+    private void onThermalChanged() {
+        if (thermalManager == null) return;
+        com.callx.app.player.ReelThermalManager.Level level = thermalManager.getLevel();
+        android.util.Log.d("HomeFragment", "Thermal changed → " + level);
+        if (level == com.callx.app.player.ReelThermalManager.Level.HOT) {
+            if (videoPreloader != null) videoPreloader.cancelAll();
+            if (predictivePreloader != null) predictivePreloader.cancelAll();
+            android.util.Log.d("HomeFragment", "Thermal HOT: all preloads cancelled");
         }
     }
 
@@ -757,10 +826,25 @@ public class HomeFragment extends Fragment {
         // time, same as Reels tab does on every onPageSelected. Uses the
         // SAME UnifiedVideoCacheManager.Module.REELS cache buildCachedMediaSource
         // reads from, so by the time the user scrolls here it's cache-hot.
+        // ── Thermal-gated, same thresholds as ReelsFragment.onPageSelected ──
+        // Byte preloading (video) is allowed up to LIGHT thermal; predictive
+        // preload — the most aggressive of the three — only on SAFE. Thumb
+        // preload is cheap local decode work so it isn't gated, matching
+        // Reels tab's own gating.
         if (!currentFeedPosts.isEmpty() && index < currentFeedPosts.size()) {
-            if (videoPreloader      != null) videoPreloader.preloadFrom(currentFeedPosts, index);
-            if (thumbPreloader      != null) thumbPreloader.preloadFrom(currentFeedPosts, index);
-            if (predictivePreloader != null) predictivePreloader.preloadSmartFrom(currentFeedPosts, index);
+            com.callx.app.player.ReelThermalManager.Level thermalLevel = currentThermalLevel();
+            boolean canPreload = thermalLevel != com.callx.app.player.ReelThermalManager.Level.HOT;
+            boolean canPredictivePreload = (thermalLevel == com.callx.app.player.ReelThermalManager.Level.SAFE
+                || thermalLevel == com.callx.app.player.ReelThermalManager.Level.LIGHT);
+            if (canPreload && videoPreloader != null) videoPreloader.preloadFrom(currentFeedPosts, index);
+            if (thumbPreloader != null) thumbPreloader.preloadFrom(currentFeedPosts, index);
+            if (canPredictivePreload && predictivePreloader != null) predictivePreloader.preloadSmartFrom(currentFeedPosts, index);
+            // Precompute the next few cards' formatted counts/caption off the
+            // main thread — same call ReelsFragment makes on every page
+            // select, so those cards' text is a plain field read by the time
+            // they're actually bound instead of a format() call on the frame
+            // the scroll needs.
+            if (uiStatePrecomputer != null) uiStatePrecomputer.precomputeFrom(currentFeedPosts, index);
         }
 
         if (card.videoUrl == null || card.videoUrl.isEmpty()) return;
@@ -1124,7 +1208,7 @@ public class HomeFragment extends Fragment {
         if (standbyNextIndex == nextIndex && next.videoUrl.equals(standbyNextUrl)) return; // already prepared
 
         if (standbyNextPlayer == null) {
-            standbyNextPlayer = com.callx.app.player.AdaptiveStreamingManager.get(requireContext()).buildBarePlayer();
+            standbyNextPlayer = com.callx.app.player.ExoPlayerPool.get(requireContext()).acquire();
             configureFeedPlayerInstance(standbyNextPlayer);
         }
         com.callx.app.player.AdaptiveStreamingManager mgr =
@@ -1154,7 +1238,7 @@ public class HomeFragment extends Fragment {
         if (standbyPrevIndex == prevIndex && prev.videoUrl.equals(standbyPrevUrl)) return; // already prepared
 
         if (standbyPrevPlayer == null) {
-            standbyPrevPlayer = com.callx.app.player.AdaptiveStreamingManager.get(requireContext()).buildBarePlayer();
+            standbyPrevPlayer = com.callx.app.player.ExoPlayerPool.get(requireContext()).acquire();
             configureFeedPlayerInstance(standbyPrevPlayer);
         }
         com.callx.app.player.AdaptiveStreamingManager mgr =
@@ -1297,15 +1381,44 @@ public class HomeFragment extends Fragment {
         if (watchTracker != null) { watchTracker.release(); watchTracker = null; }
         userPausedActiveCard = false;
         feedScrollContentRoot = null;
-        if (feedPlayer != null) { feedPlayer.release(); feedPlayer = null; }
-        if (standbyNextPlayer != null) { standbyNextPlayer.release(); standbyNextPlayer = null; }
-        if (standbyPrevPlayer != null) { standbyPrevPlayer.release(); standbyPrevPlayer = null; }
+        // Hand back to the SHARED pool (strips our tracked listener, resets
+        // playback state) instead of a hard player.release() — keeps the
+        // instance warm for whichever tab (Home or Reels) next needs one,
+        // same as ReelsFragment does on ordinary tab-away teardown. Falls
+        // back to a raw release() in the unlikely case context is already
+        // gone here, so a player is never silently leaked.
+        Context poolCtx = getContext();
+        com.callx.app.player.ExoPlayerPool pool = poolCtx != null
+            ? com.callx.app.player.ExoPlayerPool.get(poolCtx) : null;
+        if (feedPlayer != null) {
+            if (pool != null) pool.release(feedPlayer); else feedPlayer.release();
+            feedPlayer = null;
+        }
+        if (standbyNextPlayer != null) {
+            if (pool != null) pool.release(standbyNextPlayer); else standbyNextPlayer.release();
+            standbyNextPlayer = null;
+        }
+        if (standbyPrevPlayer != null) {
+            if (pool != null) pool.release(standbyPrevPlayer); else standbyPrevPlayer.release();
+            standbyPrevPlayer = null;
+        }
         standbyNextIndex = -1; standbyNextUrl = null;
         standbyPrevIndex = -1; standbyPrevUrl = null;
         attachStartTimeMs = 0L;
+        // Release our listener only — ReelThermalManager is a process-lifetime
+        // singleton shared with the Reels tab, so it must NOT be torn down here.
+        if (thermalManager != null) {
+            thermalManager.removeChangeListener(thermalChangeListener);
+            thermalManager = null;
+        }
         if (videoPreloader != null) { videoPreloader.shutdown(); videoPreloader = null; }
         thumbPreloader      = null;
         predictivePreloader = null;
+        if (uiStatePrecomputer != null) { uiStatePrecomputer.shutdown(); uiStatePrecomputer = null; }
+        // ReelOfflineManager is a process-lifetime singleton shared with the
+        // Reels tab (holds the retry scheduler + offline catalog) — just
+        // drop our reference, don't tear the manager itself down.
+        offlineManager = null;
         feedCards.clear();
         currentFeedPosts = new ArrayList<>();
         currentPlayingIndex = -1;
@@ -2751,8 +2864,20 @@ public class HomeFragment extends Fragment {
 
         if (tvTime != null) tvTime.setText(formatAgo(reel.timestamp));
 
+        // PERF advance — "precompute next reel's UI state": if this card's
+        // formatted counts/caption were already computed ahead of time (see
+        // ReelUiStatePrecomputer, driven above from attachPlayerToCard() /
+        // prefetchUpcomingFeedMedia()), reuse them directly instead of
+        // re-running formatCount()/safeCaption() on the bind frame — same
+        // cache ReelSocialController/ReelUiController read from on the
+        // Reels tab.
+        com.callx.app.cache.ReelUiStateCache.State precomputedUi =
+            com.callx.app.cache.ReelUiStateCache.get(reel.reelId);
+
         // ── Expandable caption with "...more" support ───────────────────────
-        String captionText = reel.caption != null ? reel.caption : "";
+        String captionText = precomputedUi != null
+            ? precomputedUi.captionText
+            : (reel.caption != null ? reel.caption : "");
         final int CAPTION_MAX_LINES = 2;
         boolean[] captionExpanded = {false};
         View btnReadMore = card.findViewById(R.id.tv_post_read_more);
@@ -2786,9 +2911,15 @@ public class HomeFragment extends Fragment {
             if (btnReadMore != null) btnReadMore.setVisibility(View.GONE);
         }
 
-        tvLikes.setText(formatCount(reel.likesCount));
-        tvComments.setText(formatCount(reel.commentsCount));
-        tvReposts.setText(formatCount(reel.repostCount));
+        if (precomputedUi != null) {
+            tvLikes.setText(precomputedUi.likesText);
+            tvComments.setText(precomputedUi.commentsText);
+            tvReposts.setText(precomputedUi.repostText);
+        } else {
+            tvLikes.setText(formatCount(reel.likesCount));
+            tvComments.setText(formatCount(reel.commentsCount));
+            tvReposts.setText(formatCount(reel.repostCount));
+        }
 
         // ── Liked state (declared early: needed by slideshow double-tap-to-like below) ──
         final String reelId   = reel.reelId;
@@ -3183,6 +3314,11 @@ public class HomeFragment extends Fragment {
                     popup.getMenu().add(0, 5, 0, "Block");
                 }
                 popup.getMenu().add(0, 6, 0, "Open original");
+                // Reuses the same ReelOfflineManager the Reels swipe feed's
+                // "more" sheet calls (ReelPlayerController.saveReelOffline) —
+                // same singleton cache, so a reel saved from either tab is
+                // available offline in both.
+                popup.getMenu().add(0, 7, 0, "Save for offline");
                 popup.setOnMenuItemClickListener(item -> {
                     switch (item.getItemId()) {
                         case 1: // Not interested — remove from feed optimistically
@@ -3254,6 +3390,9 @@ public class HomeFragment extends Fragment {
                         case 6: // Open original
                             openReelById(reelId, reel.ownerName);
                             return true;
+                        case 7: // Save for offline
+                            saveHomeReelOffline(reel);
+                            return true;
                     }
                     return false;
                 });
@@ -3270,6 +3409,23 @@ public class HomeFragment extends Fragment {
         }
 
         containerFeed.addView(card);
+    }
+
+    /**
+     * Save a Home feed reel for offline playback — same ReelOfflineManager
+     * singleton and download flow as ReelPlayerController.saveReelOffline()
+     * on the Reels tab, so a reel saved from either tab is available
+     * offline in both (shared cache, shared catalog).
+     */
+    private void saveHomeReelOffline(ReelModel reel) {
+        if (!isAdded() || getContext() == null || reel == null || reel.reelId == null) return;
+        if (offlineManager == null) offlineManager = com.callx.app.player.ReelOfflineManager.get(requireContext());
+        if (offlineManager.isAvailableOffline(reel.reelId)) {
+            Toast.makeText(requireContext(), "Already saved for offline viewing", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        offlineManager.downloadForOffline(reel);
+        Toast.makeText(requireContext(), "Saving reel for offline viewing…", Toast.LENGTH_SHORT).show();
     }
 
     /** Animate a floating heart on double-tap (Instagram-style) */
