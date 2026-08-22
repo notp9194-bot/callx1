@@ -1131,7 +1131,7 @@
         <SeekBar
             android:id="@+id/progress_video"
             android:layout_width="0dp"
-            android:layout_height="match_parent"
+            android:layout_height="0dp"
             android:saveEnabled="false"
             android:max="1000"
             android:progress="0"
@@ -1140,6 +1140,7 @@
             android:splitTrack="false"
             android:progressDrawable="@drawable/progress_reel_seekbar"
             android:thumb="@drawable/thumb_reel_seek"
+            app:layout_constraintWidth_default="percent"
             app:layout_constraintWidth_percent="0.5"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
