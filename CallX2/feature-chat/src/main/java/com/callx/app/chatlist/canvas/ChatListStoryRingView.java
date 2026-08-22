@@ -51,7 +51,7 @@ public class ChatListStoryRingView extends View {
     private int state = STATE_NONE;
 
     private static final int COLOR_SEEN = 0xFFCBD5E1;
-    private static final int COLOR_UNSEEN_FALLBACK = 0xFFFF1493; // pink/magenta (ring start color), used only if bitmap blit isn't safe
+    private static final int COLOR_UNSEEN_FALLBACK = 0xFF99004D; // dark magenta (ring start color), used only if bitmap blit isn't safe
 
     // Whether the cached ring bitmap needs to be re-fetched (on size/state change)
     private boolean ringDirty = true;
