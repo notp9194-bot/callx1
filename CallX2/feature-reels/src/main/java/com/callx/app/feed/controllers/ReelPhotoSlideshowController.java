@@ -18,6 +18,8 @@ import android.view.animation.AccelerateInterpolator;
 import com.callx.app.models.ReelModel;
 import com.callx.app.reels.R;
 import com.callx.app.feed.ReelPhotoSlideshowAdapter;
+import com.callx.app.feed.ReelsFragment;
+import androidx.fragment.app.Fragment;
 import java.util.ArrayList;
 
 /**
@@ -268,6 +270,16 @@ public class ReelPhotoSlideshowController {
                                 tvPhotoCounter.setText((currentPhotoIndex + 1) + " / " + photoUrls.size());
                             startPhotoSlideshow();
                         }
+                    } else {
+                        // ── Center tap = play/pause, same as video reels ────────
+                        // Video reels toggle play/pause on a center single-tap via
+                        // togglePlayPause(), which flips isPlaying and forwards that
+                        // to ReelsFragment.onReelPlaybackStateChanged() — that's what
+                        // hides/shows the bottom nav + top bar. Photo reels had no
+                        // equivalent center-tap action, so that bridge never fired
+                        // and the bottom nav stayed put during photo playback.
+                        // Mirror the same toggle + notify here.
+                        togglePhotoPlayPause();
                     }
                     return true;
                 }
@@ -352,6 +364,43 @@ public class ReelPhotoSlideshowController {
     }
 
     // ── Story progress segments ───────────────────────────────────────────
+
+    /**
+     * Center-tap play/pause for photo reels — mirrors video reels'
+     * togglePlayPause(). Pauses/resumes the slideshow auto-advance + story
+     * segment animation, shows the same ⏸ badge used by long-press, and
+     * forwards the state to ReelsFragment.onReelPlaybackStateChanged() so
+     * the bottom nav / top bar hide-on-play behavior works identically to
+     * video reels instead of only reacting to ExoPlayer's own callback.
+     */
+    private void togglePhotoPlayPause() {
+        photoSlideshowPaused = !photoSlideshowPaused;
+
+        if (photoSlideshowPaused) {
+            stopPhotoSlideshow();
+            if (storySegmentAnimator != null) storySegmentAnimator.pause();
+            if (tvPauseBadge != null) {
+                tvPauseBadge.setVisibility(View.VISIBLE);
+                tvPauseBadge.animate().alpha(1f).setDuration(150).start();
+            }
+        } else {
+            if (storySegmentAnimator != null) storySegmentAnimator.resume();
+            startPhotoSlideshow();
+            if (tvPauseBadge != null) {
+                tvPauseBadge.animate().alpha(0f).setDuration(200)
+                    .withEndAction(() -> tvPauseBadge.setVisibility(View.GONE)).start();
+            }
+        }
+
+        // Same visibility bridge ReelPlayerController uses for video —
+        // isPlaying == !photoSlideshowPaused.
+        if (delegate.isCurrentlyVisible() && !delegate.isDocked()) {
+            Fragment parent = delegate.getParentFragment();
+            if (parent instanceof ReelsFragment) {
+                ((ReelsFragment) parent).onReelPlaybackStateChanged(!photoSlideshowPaused);
+            }
+        }
+    }
 
     private void buildStoryProgress(int count) {
         if (llStoryProgress == null || !delegate.isAdded() || delegate.getContext() == null) return;

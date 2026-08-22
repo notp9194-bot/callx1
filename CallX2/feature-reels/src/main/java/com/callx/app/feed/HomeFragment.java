@@ -2554,10 +2554,24 @@ public class HomeFragment extends Fragment {
         TextView    tvSpeedChip   = card.findViewById(R.id.tv_post_speed_chip);
         View        playOverlay   = card.findViewById(R.id.btn_post_play_overlay);
 
-        // ── 9:16 aspect ratio for video frame ──────────────────────────────
+        // ── Instagram-level approach: Home Feed vs Reels tab ─────────────────
+        // Reels tab (fragment_reel_player.xml) is a dedicated fullscreen
+        // experience — full device height, full 9:16 video visible.
+        // Home Feed is a scrolling list where the reel shares screen space
+        // with the header, action bar, caption, and the next card peeking
+        // in below — so Instagram deliberately caps the video frame well
+        // below full device height (~75% of screen height) rather than
+        // giving it the whole 16:9. Width still fills the screen, so with
+        // resize_mode="zoom" (center-crop-and-fill) the video is cropped
+        // top/bottom to fit that shorter frame — same visual effect as the
+        // real Instagram app. This does NOT touch the Reels tab; that stays
+        // full 9:16 via fragment_reel_player.xml, untouched by this cap.
         if (frameVideo != null) {
-            int screenW = getResources().getDisplayMetrics().widthPixels;
-            int videoH  = (int)(screenW * 16f / 9f);
+            int screenW   = getResources().getDisplayMetrics().widthPixels;
+            int screenH   = getResources().getDisplayMetrics().heightPixels;
+            int full916H  = (int) (screenW * 16f / 9f);
+            int feedCapH  = (int) (screenH * 0.75f);
+            int videoH    = Math.min(full916H, feedCapH);
             android.view.ViewGroup.LayoutParams lp = frameVideo.getLayoutParams();
             lp.height = videoH;
             frameVideo.setLayoutParams(lp);
@@ -2885,8 +2899,21 @@ public class HomeFragment extends Fragment {
             });
 
             if (frameVideo != null) {
-                frameVideo.addView(photoPager);
-                frameVideo.addView(dots);
+                // FIX: addView() with no index appends to the END of
+                // frame_video's children — i.e. the TOP of the z-order in a
+                // FrameLayout. overlay_post_header (avatar, username, bio,
+                // follow button) is already a child of frame_video defined
+                // in the XML, so appending the photo pager + dots on top of
+                // it completely covered the header — that's why owner
+                // bio/details showed on video posts (where pv_feed_post /
+                // iv_post_thumb sit at the BOTTOM of frame_video, below the
+                // header) but not on photo posts. Insert at index 0/1
+                // instead so the photo pager + dots sit at the same
+                // bottom layer the video surface normally occupies, and
+                // every overlay defined after it in the XML (header, mute
+                // button, end-of-reel card, etc.) stays visible on top.
+                frameVideo.addView(photoPager, 0);
+                frameVideo.addView(dots, 1);
             }
         } else {
             // ── Video frame gestures: double-tap like, tap play/pause, hold 2x ──
