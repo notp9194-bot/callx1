@@ -252,16 +252,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Instagram-style Story viewer for reels shared via "Add to Story"
-             (type=="reel_story" entries in status/{uid}). Launched from
-             feature-reels' HomeFragment via Class.forName, same pattern as
-             StatusViewerActivity above — reuses all of that activity's
-             behaviour, just shows a different slice of the same data. -->
-        <activity
-            android:name="com.callx.app.viewer.StoryViewerActivity"
-            android:theme="@style/Theme.CallX"
-            android:exported="false"/>
-
         <!-- BUG FIX: StatusArchiveActivity existed in code (archive package)
              but was never declared here, so StatusFragment's explicit Intent
              to it threw ActivityNotFoundException when tapping the archive

@@ -1526,13 +1526,6 @@ public class HomeFragment extends Fragment {
                         for (DataSnapshot s : statusSnap.getChildren()) {
                             Long ts = s.child("timestamp").getValue(Long.class);
                             if (ts == null || ts <= cutoff) continue;
-                            // Reels-home story ring is Instagram-style: it only
-                            // represents reels shared via "Add to Story"
-                            // (type=="reel_story"). Plain statuses stay on the
-                            // WhatsApp-style Status tab and never show here —
-                            // this is what keeps the two flows/UIs from mixing.
-                            String type = s.child("type").getValue(String.class);
-                            if (!"reel_story".equals(type)) continue;
                             hasActive = true;
                             if (mySeenForOwner == null || !mySeenForOwner.contains(s.getKey())) {
                                 allSeen = false; // at least one unseen
@@ -1610,43 +1603,32 @@ public class HomeFragment extends Fragment {
                     .into(avatar);
             }
 
-            // ✅ Open StoryViewerActivity (cross-module via Class.forName) —
-            // Instagram-style story viewer, not the WhatsApp-style Status viewer.
-            storyView.setOnClickListener(v -> openStoryViewer(entry.uid, entry.name));
+            // ✅ Open StatusViewerActivity (cross-module via Class.forName)
+            storyView.setOnClickListener(v -> openStatusViewer(entry.uid, entry.name));
 
             containerStories.addView(storyView);
         });
     }
 
     /**
-     * Opens StoryViewerActivity via Class.forName so feature-reels doesn't need a
-     * compile dependency on feature-status. Falls back to StatusViewerActivity
-     * (then UserReelsActivity) if the status module classes aren't present in
-     * the APK (shouldn't happen in production — StoryViewerActivity ships in
-     * the same module/manifest as StatusViewerActivity).
+     * Opens StatusViewerActivity via Class.forName so feature-reels doesn't need a
+     * compile dependency on feature-status. Falls back to UserReelsActivity if the
+     * status module isn't present in the APK (shouldn't happen in production).
      */
-    private void openStoryViewer(String ownerUid, String ownerName) {
+    private void openStatusViewer(String ownerUid, String ownerName) {
         if (!isAdded() || getContext() == null) return;
         try {
-            Class<?> cls = Class.forName("com.callx.app.viewer.StoryViewerActivity");
+            Class<?> cls = Class.forName("com.callx.app.viewer.StatusViewerActivity");
             Intent i = new Intent(getContext(), cls);
             i.putExtra("ownerUid",  ownerUid);
             i.putExtra("ownerName", ownerName != null ? ownerName : "");
             startActivity(i);
         } catch (ClassNotFoundException e) {
-            try {
-                Class<?> cls = Class.forName("com.callx.app.viewer.StatusViewerActivity");
-                Intent i = new Intent(getContext(), cls);
-                i.putExtra("ownerUid",  ownerUid);
-                i.putExtra("ownerName", ownerName != null ? ownerName : "");
-                startActivity(i);
-            } catch (ClassNotFoundException e2) {
-                // Fallback: open the user's reel profile
-                Intent i = new Intent(getContext(), UserReelsActivity.class);
-                i.putExtra(UserReelsActivity.EXTRA_UID,  ownerUid);
-                i.putExtra(UserReelsActivity.EXTRA_NAME, ownerName);
-                startActivity(i);
-            }
+            // Fallback: open the user's reel profile
+            Intent i = new Intent(getContext(), UserReelsActivity.class);
+            i.putExtra(UserReelsActivity.EXTRA_UID,  ownerUid);
+            i.putExtra(UserReelsActivity.EXTRA_NAME, ownerName);
+            startActivity(i);
         }
     }
 

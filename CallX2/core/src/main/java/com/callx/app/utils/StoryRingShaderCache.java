@@ -30,40 +30,35 @@ public final class StoryRingShaderCache {
 
     private StoryRingShaderCache() {}
 
-    // Story ring gradient stops — colour flow (from top, clockwise):
-    //   0%    Purple   #8A2BE2
-    //   15%   Pink     #FF1493
-    //   55%   Red-Orange blend #FF5318 (midpoint of the old Red/Orange bands)
-    //   75%   Orange-Yellow blend #FFBE00 (midpoint of the old Orange/Yellow bands)
-    //   100%  Yellow   #FFF200
-    //
-    // PREVIOUS BUG ("4 jagah pe patti color separate ho rahi hai"): each
-    // "band" used to carry its own start/end color pair, and wherever one
-    // band's end color didn't match the next band's start color (55%, 75%)
-    // the two colors were placed at (almost) the same position to force a
-    // hard cut. That's what produced the visible seam lines cutting the
-    // ring into segments — and because Skia's SweepGradient divides by the
-    // interval width between stops, a truly zero-width interval there could
-    // even paint a solid black line.
-    //
-    // FIX: every position below now has exactly ONE color, so the shader
-    // just linearly blends from one hex stop straight into the next all the
-    // way around — no duplicate/near-duplicate positions, no hard edges, no
-    // seams. The 55%/75% colors are the midpoint blend of what used to be
-    // two different band colors at that angle, so the transition still
-    // passes through red→orange and orange→yellow, just continuously.
+    // Story ring gradient stops — brand spec v2 (colour flow, from top,
+    // clockwise, percentages measured exactly as spec'd):
+    //   0%–15%   Pink / Magenta   #FF1493
+    //   15%–55%  Pink-Red         #FF3B30
+    //   55%–75%  Orange           #FF8A00
+    //   75%–100% Yellow           #FFD600
+    // Four flat, high-contrast bands — no purple, no per-band sub-blend.
+    // Each color is duplicated at its band's start/end position so the
+    // transition between bands is a hard edge (matches the reference
+    // "vibrant & high contrast" 4-block breakdown) rather than a blend.
+    // The loop does NOT close seamlessly (yellow #FFD600 at 100% is a
+    // different color from pink #FF1493 at 0%) — that visible seam at
+    // 12 o'clock is intentional, matching the reference spec's
+    // "Starting from Top" flow.
     private static final int[] INSTA_GRADIENT_COLORS = {
-        0xFF8A2BE2, // purple  (0%)
-        0xFFFF1493, // pink    (15%)
-        0xFFFF5318, // red-orange blend (55%)
-        0xFFFFBE00, // orange-yellow blend (75%)
-        0xFFFFF200  // yellow  (100%)
+        0xFFFF1493, // pink/magenta (0%)
+        0xFFFF1493, // pink/magenta (15% — hard edge)
+        0xFFFF3B30, // pink-red     (15% — hard edge)
+        0xFFFF3B30, // pink-red     (55% — hard edge)
+        0xFFFF8A00, // orange       (55% — hard edge)
+        0xFFFF8A00, // orange       (75% — hard edge)
+        0xFFFFD600, // yellow       (75% — hard edge)
+        0xFFFFD600  // yellow       (100%)
     };
 
-    // Cumulative positions (0..1) matching the colors above — each unique,
-    // no duplicates, so there is no seam/hard-edge anywhere on the ring.
+    // Cumulative positions (0..1) matching the percentages above exactly.
+    // 0.15, 0.55 and 0.75 each appear twice to create the hard band edges noted above.
     private static final float[] INSTA_GRADIENT_POSITIONS = {
-        0f, 0.15f, 0.55f, 0.75f, 1f
+        0f, 0.15f, 0.15f, 0.55f, 0.55f, 0.75f, 0.75f, 1f
     };
 
     private static final int MAX_CACHED_SIZES = 8;

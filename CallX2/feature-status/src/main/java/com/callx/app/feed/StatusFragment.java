@@ -404,11 +404,6 @@ public class StatusFragment extends BaseFragment {
                         StatusItem item = stSnap.getValue(StatusItem.class);
                         if (item == null || (item.deleted != null && item.deleted)) continue;
                         if (item.expiresAt != null && item.expiresAt < now) continue;
-                        // A reel shared via "Add to Story" is tagged
-                        // type=="reel_story" and belongs only in the Reels-home
-                        // story ring / StoryViewerActivity — keep it out of the
-                        // WhatsApp-style Status tab so it doesn't show up twice.
-                        if ("reel_story".equals(item.type)) continue;
                         items2.add(item);
                     }
                     items2.sort((a, b) -> Long.compare(
