@@ -550,6 +550,24 @@
                 android:paddingEnd="12dp"
                 android:singleLine="true"/>
 
+            <!-- ✅ NEW: Settings button — moves the font / style / align / bg /
+                 colour / size controls out of this card into a bottom sheet
+                 (see bottom_sheet_text_overlay_style.xml + openTextOverlayStyleSheet()),
+                 reusing the same BottomSheetDialog mechanism the sticker picker
+                 sheet is built on. Keeps Step 2's card panel the same compact
+                 height as every other step, instead of growing tall and
+                 shrinking the video preview. -->
+            <ImageButton
+                android:id="@+id/btn_text_overlay_settings"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="8dp"
+                android:src="@drawable/ic_editor_text_settings"
+                android:scaleType="center"
+                android:padding="9dp"
+                android:background="@drawable/bg_reel_editor_tool_chip"
+                android:contentDescription="Text style settings"/>
+
             <TextView
                 android:id="@+id/btn_add_text"
                 android:layout_width="60dp"
@@ -560,84 +578,6 @@
                 android:textSize="14sp"
                 android:fontFamily="sans-serif-medium"
                 android:layout_marginStart="8dp"/>
-        </LinearLayout>
-
-        <!-- Font family chips (populated in code: Classic / Serif / Mono / Condensed) -->
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:scrollbars="none">
-            <LinearLayout
-                android:id="@+id/ll_text_font_row"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"/>
-        </HorizontalScrollView>
-
-        <!-- Bold / Italic / Align chips (populated in code) -->
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:scrollbars="none">
-            <LinearLayout
-                android:id="@+id/ll_text_style_row"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"/>
-        </HorizontalScrollView>
-
-        <!-- Background style chips: None / Pill / Solid / Highlight (populated in code) -->
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:scrollbars="none">
-            <LinearLayout
-                android:id="@+id/ll_text_bg_row"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"/>
-        </HorizontalScrollView>
-
-        <!-- Color swatches (populated in code) -->
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:scrollbars="none">
-            <LinearLayout
-                android:id="@+id/ll_text_color_row"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"/>
-        </HorizontalScrollView>
-
-        <!-- Size slider -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="10dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="SIZE"
-                android:textColor="@color/trim_text_secondary"
-                android:textSize="11sp"
-                android:fontFamily="sans-serif-medium"
-                android:layout_marginEnd="8dp"/>
-
-            <SeekBar
-                android:id="@+id/seek_text_size"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:max="48"
-                android:progress="12"/>
         </LinearLayout>
 
         <TextView

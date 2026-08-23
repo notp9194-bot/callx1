@@ -157,6 +157,14 @@ public class ReelEditorActivity extends AppCompatActivity {
     private SeekBar        seekTextSize;
     private TextView       btnDeleteTextOverlay;
     private TextView       tvTextTrashZone;
+    // ✅ NEW: font/style/bg/colour/size controls now live in a bottom sheet
+    // (see bottom_sheet_text_overlay_style.xml + openTextOverlayStyleSheet())
+    // instead of always-visible inline in Step 2's card, so that card stays
+    // the same compact height as every other step and the video preview no
+    // longer shrinks to make room for it. Same BottomSheetDialog class the
+    // sticker picker sheet is built on — cached and re-shown, not rebuilt.
+    private View            btnTextOverlaySettings;
+    private com.google.android.material.bottomsheet.BottomSheetDialog textOverlayStyleSheet;
     /** All advanced text overlays currently live on the video preview (see TextOverlayStyle tag on each). */
     private final List<TextView> textOverlayViews = new ArrayList<>();
     /** Currently selected overlay (style chips edit this one live) — null = next "Add" creates a new one. */
@@ -482,14 +490,13 @@ public class ReelEditorActivity extends AppCompatActivity {
         etTextOverlay      = findViewById(R.id.et_text_overlay);
         btnNext            = findViewById(R.id.btn_editor_next);
         btnAddText         = findViewById(R.id.btn_add_text);
-        llTextFontRow      = findViewById(R.id.ll_text_font_row);
-        llTextStyleRow     = findViewById(R.id.ll_text_style_row);
-        llTextBgRow        = findViewById(R.id.ll_text_bg_row);
-        llTextColorRow     = findViewById(R.id.ll_text_color_row);
-        seekTextSize       = findViewById(R.id.seek_text_size);
+        btnTextOverlaySettings = findViewById(R.id.btn_text_overlay_settings);
+        // ✅ NOTE: llTextFontRow / llTextStyleRow / llTextBgRow / llTextColorRow /
+        // seekTextSize are NO LONGER in this activity's layout — they now live in
+        // bottom_sheet_text_overlay_style.xml and are bound lazily the first time
+        // openTextOverlayStyleSheet() inflates it (see below), not here.
         btnDeleteTextOverlay = findViewById(R.id.btn_delete_text_overlay);
         tvTextTrashZone    = findViewById(R.id.tv_text_trash_zone);
-        setupAdvancedTextOverlayPanel();
         progressBuffering  = findViewById(R.id.editor_progress_buffering);
         btnToolFilters     = findViewById(R.id.btn_tool_filters);
         btnToolStickers    = findViewById(R.id.btn_tool_stickers);
@@ -1148,11 +1155,63 @@ public class ReelEditorActivity extends AppCompatActivity {
      * subsequent selection change just flips .setSelected() on the existing
      * chips via syncTextOverlayPanelSelectionUI().
      */
+    /**
+     * ✅ NEW: Step 2 · Text Overlay — Settings button (between the text input
+     * and Add button). Opens the font / bold·italic·align / background /
+     * colour / size controls in a bottom sheet instead of inline in the card.
+     *
+     * Why: those controls used to sit directly inside Step 2's card, always
+     * visible, which made that step's card panel noticeably taller than every
+     * other step (Trim, Look, Motion & Sound, Finishing) — and since the video
+     * preview above shrinks to make room for the card, Step 2 had a visibly
+     * smaller preview than the rest of the wizard. Moving them into a sheet
+     * that only appears on demand keeps Step 2's card the same compact height
+     * as the others, so the preview area stays consistent across all 5 steps.
+     *
+     * Reuses the same com.google.android.material.bottomsheet.BottomSheetDialog
+     * class the sticker picker sheet (StatusStickerPickerSheet) and other
+     * sheets in this app (see DuetReelActivity) are already built on — no new
+     * popup/dialog mechanism, just this screen's existing chip-building logic
+     * (setupAdvancedTextOverlayPanel() etc.) pointed at a sheet's views instead
+     * of the activity's own layout.
+     */
+    private void openTextOverlayStyleSheet() {
+        if (textOverlayStyleSheet == null) {
+            View sheetView = getLayoutInflater().inflate(R.layout.bottom_sheet_text_overlay_style, null);
+            llTextFontRow  = sheetView.findViewById(R.id.ll_text_font_row);
+            llTextStyleRow = sheetView.findViewById(R.id.ll_text_style_row);
+            llTextBgRow    = sheetView.findViewById(R.id.ll_text_bg_row);
+            llTextColorRow = sheetView.findViewById(R.id.ll_text_color_row);
+            seekTextSize   = sheetView.findViewById(R.id.seek_text_size);
+
+            textOverlayStyleSheet = new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+            textOverlayStyleSheet.setContentView(sheetView);
+
+            View btnDone = sheetView.findViewById(R.id.btn_text_style_done);
+            if (btnDone != null) btnDone.setOnClickListener(v -> textOverlayStyleSheet.dismiss());
+
+            // First real build now that the sheet's rows/seekbar actually exist.
+            setupAdvancedTextOverlayPanel();
+        } else {
+            // Sheet already built — just reflect whichever overlay is
+            // currently selected (in case selection changed while it was closed).
+            syncTextOverlayPanelSelectionUI();
+        }
+        textOverlayStyleSheet.show();
+    }
+
     private void setupAdvancedTextOverlayPanel() {
         if (textOverlayPanelBuilt) {
             syncTextOverlayPanelSelectionUI();
             return;
         }
+        // ✅ Views now live in bottom_sheet_text_overlay_style.xml, bound lazily
+        // by openTextOverlayStyleSheet() the first time the settings sheet is
+        // opened. Until then there's nothing to build — this may be reached
+        // earlier (e.g. selectTextOverlay() tapping an existing overlay before
+        // the sheet has ever been opened), so just no-op and let the sheet's
+        // own open path do the real one-time build once the views exist.
+        if (llTextFontRow == null) return;
         textOverlayPanelBuilt = true;
         int dp = (int) getResources().getDisplayMetrics().density;
 
@@ -2727,6 +2786,10 @@ public class ReelEditorActivity extends AppCompatActivity {
         // Editing screen crop feature (core's MediaCropActivity) the exact
         // same way MediaEditActivity's btnEditCrop does.
         if (btnEditorCrop != null) btnEditorCrop.setOnClickListener(v -> openCropScreen());
+
+        // ✅ NEW: Step 2 · Text Overlay — Settings button opens the font/style/
+        // bg/colour/size bottom sheet (see openTextOverlayStyleSheet()).
+        if (btnTextOverlaySettings != null) btnTextOverlaySettings.setOnClickListener(v -> openTextOverlayStyleSheet());
 
         // ✅ NEW: Music chip — if a sound is already selected tap → SoundDetail,
         //                       otherwise → MusicPickerActivity to pick one.
