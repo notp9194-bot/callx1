@@ -1162,12 +1162,13 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (llTextFontRow != null) {
             llTextFontRow.removeAllViews();
             for (int i = 0; i < fontKeys.length; i++) {
+                final int idx = i;
                 TextView chip = buildChip(fontLabels[i], dp);
                 chip.setTypeface(resolvePreviewTypeface(fontKeys[i], false, false));
                 chip.setSelected(fontKeys[i].equals(currentFontKey));
                 chip.setTag(fontKeys[i]);
                 chip.setOnClickListener(v -> {
-                    currentFontKey = fontKeys[i];
+                    currentFontKey = fontKeys[idx];
                     refreshChipSelection(llTextFontRow, v);
                     applyLiveStyleToSelection();
                 });
@@ -1203,11 +1204,12 @@ public class ReelEditorActivity extends AppCompatActivity {
             String[] aligns = {"left", "center", "right"};
             String[] alignLabels = {"⇤", "≡", "⇥"};
             for (int i = 0; i < aligns.length; i++) {
+                final int idx = i;
                 TextView chip = buildChip(alignLabels[i], dp);
                 chip.setSelected(aligns[i].equals(currentAlign));
                 chip.setTag(aligns[i]);
                 chip.setOnClickListener(v -> {
-                    currentAlign = aligns[i];
+                    currentAlign = aligns[idx];
                     refreshChipSelection(llTextStyleRow, v, /*skipFirstN=*/2);
                     applyLiveStyleToSelection();
                 });
@@ -1221,11 +1223,12 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (llTextBgRow != null) {
             llTextBgRow.removeAllViews();
             for (int i = 0; i < bgKeys.length; i++) {
+                final int idx = i;
                 TextView chip = buildChip(bgLabels[i], dp);
                 chip.setSelected(bgKeys[i].equals(currentBgStyle));
                 chip.setTag(bgKeys[i]);
                 chip.setOnClickListener(v -> {
-                    currentBgStyle = bgKeys[i];
+                    currentBgStyle = bgKeys[idx];
                     refreshChipSelection(llTextBgRow, v);
                     applyLiveStyleToSelection();
                 });
