@@ -204,12 +204,4 @@
          so any step-wizard screen (Reel Editor, Reel Upload, Add Status, etc.)
          can reuse the same short format without a step-name suffix. -->
     <string name="editor_step_pill_format">Step %1$d of %2$d</string>
-
-    <!-- ✅ NEW: always-visible labels under each icon in the Reel Editor's
-         icon-box stepper (activity_reel_editor.xml editor_stepper). -->
-    <string name="editor_step_label_1">Trim &amp; Crop</string>
-    <string name="editor_step_label_2">Text Overlay</string>
-    <string name="editor_step_label_3">Look</string>
-    <string name="editor_step_label_4">Motion &amp; Sound</string>
-    <string name="editor_step_label_5">Finishing</string>
 </resources>

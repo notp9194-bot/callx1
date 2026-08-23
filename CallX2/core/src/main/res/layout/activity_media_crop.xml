@@ -11,6 +11,7 @@
    3. Bottom bar: aspect-ratio chip strip + current aspect label
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -91,11 +92,37 @@
     </LinearLayout>
 
     <!-- ── Crop canvas — fills all remaining space ────────────────── -->
-    <com.callx.app.media.crop.CropOverlayView
-        android:id="@+id/media_crop_view"
+    <!-- ✅ NEW: FrameLayout stack so video mode can show the REAL playing
+         video underneath the crop overlay instead of a frozen preview frame.
+           1. media_crop_player  — Media3 PlayerView, video mode only. Base
+              fit-center matches CropOverlayView's own fit-center exactly
+              (same padding, RESIZE_MODE_FIT), and MediaCropActivity keeps its
+              view-transform (scaleX/Y + translationX/Y, pivot 0,0) mirrored
+              to the crop view's live pan/zoom matrix every frame.
+           2. media_crop_view    — same CropOverlayView as before. In video
+              mode it skips drawing its own bitmap (setVideoMode(true)) and
+              becomes a transparent dim/grid/handle overlay only, so the
+              PlayerView underneath shows through inside the crop box. -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"/>
+        android:layout_weight="1">
+
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/media_crop_player"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:padding="16dp"
+            android:visibility="gone"
+            app:use_controller="false"
+            app:resize_mode="fit"
+            app:surface_type="texture_view"/>
+
+        <com.callx.app.media.crop.CropOverlayView
+            android:id="@+id/media_crop_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"/>
+    </FrameLayout>
 
     <!-- ── Bottom bar: aspect chips + label ──────────────────────── -->
     <LinearLayout

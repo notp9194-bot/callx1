@@ -69,6 +69,18 @@ public class CropOverlayView extends View {
     private Bitmap      bitmap;
     private final Matrix imageMatrix    = new Matrix();
     private final Matrix invImageMatrix = new Matrix();
+    /** ✅ NEW: the original fit-center matrix from {@link #initLayout()}, frozen
+     *  (never touched by pan/pinch/rotate). Video mode uses the delta between
+     *  this and the live {@link #imageMatrix} to mirror pan/zoom onto the
+     *  real PlayerView playing underneath — see {@link #getBaseContentMatrix()}. */
+    private final Matrix baseMatrix = new Matrix();
+
+    /** ✅ NEW: true when this crop screen is cropping a video. The overlay then
+     *  draws only chrome (dim/border/grid/handles) — no bitmap — because a
+     *  real, playing PlayerView sits underneath showing the actual video;
+     *  the bitmap (a single representative frame) still drives all the crop
+     *  math exactly as before, it's just never painted on screen. */
+    private boolean videoMode = false;
 
     // ─── Crop box (in view coords) ────────────────────────────────────────
     private final RectF cropRect = new RectF();
@@ -190,6 +202,34 @@ public class CropOverlayView extends View {
     }
 
     /**
+     * ✅ NEW: switch the overlay into video mode — it stops painting the
+     * bitmap itself (a real playing video renders underneath instead via
+     * PlayerView) and its own background goes transparent so that video
+     * shows through inside the crop box; only the dim mask, border, grid and
+     * handles are still drawn on top. Call once, before {@link #setBitmap}.
+     */
+    public void setVideoMode(boolean video) {
+        this.videoMode = video;
+        setBackgroundColor(video ? Color.TRANSPARENT : Color.BLACK);
+        invalidate();
+    }
+
+    /**
+     * ✅ NEW: the live pan/zoom/crop transform, as a fresh copy. Combined with
+     * {@link #getBaseContentMatrix()}, the caller can compute exactly how far
+     * the content has been panned/scaled from its initial fit-center position
+     * — used to mirror the same pan/zoom onto the real video PlayerView.
+     */
+    public Matrix getContentMatrix() {
+        return new Matrix(imageMatrix);
+    }
+
+    /** ✅ NEW: the frozen initial fit-center matrix set once in {@link #initLayout()}. */
+    public Matrix getBaseContentMatrix() {
+        return new Matrix(baseMatrix);
+    }
+
+    /**
      * Returns a cropped Bitmap (original resolution) corresponding to the
      * current crop box and image transform. Never returns null if bitmap set.
      */
@@ -269,6 +309,7 @@ public class CropOverlayView extends View {
         imageMatrix.reset();
         imageMatrix.setScale(scale, scale);
         imageMatrix.postTranslate(tx, ty);
+        baseMatrix.set(imageMatrix);  // ✅ NEW: freeze the fit-center matrix
 
         // Initial crop box = 90 % of the image area in view coords
         RectF imgBounds = imageBoundsInView();
@@ -281,6 +322,7 @@ public class CropOverlayView extends View {
         constrainImage();
 
         initialized = true;
+        notifyContentTransformChanged();  // ✅ NEW: let video mode sync initial PlayerView position
         invalidate();
     }
 
@@ -293,11 +335,15 @@ public class CropOverlayView extends View {
         super.onDraw(canvas);
         if (bitmap == null) return;
 
-        // 1. Image
-        canvas.save();
-        canvas.concat(imageMatrix);
-        canvas.drawBitmap(bitmap, 0, 0, bitmapPaint);
-        canvas.restore();
+        // 1. Image — ✅ NEW: skipped in video mode; the real PlayerView underneath
+        // is already showing the actual (playing) video at this exact position,
+        // so painting the static preview-frame bitmap on top would hide it again.
+        if (!videoMode) {
+            canvas.save();
+            canvas.concat(imageMatrix);
+            canvas.drawBitmap(bitmap, 0, 0, bitmapPaint);
+            canvas.restore();
+        }
 
         // 2. Dim region outside crop
         drawDim(canvas);
@@ -424,6 +470,7 @@ public class CropOverlayView extends View {
                     panLastX = event.getX();
                     panLastY = event.getY();
                     constrainImage();
+                    notifyContentTransformChanged();
                     invalidate();
                 }
                 return true;
@@ -506,6 +553,19 @@ public class CropOverlayView extends View {
         imageMatrix.postTranslate(dPanX, dPanY);
         // Clamp scale: image must still fill crop box after scaling
         constrainImage();
+        notifyContentTransformChanged();
+    }
+
+    /** ✅ NEW: fired after any imageMatrix change (pan/pinch/init) — separate
+     *  from {@link #cropChangedListener}'s crop-box-resize notifications so
+     *  video mode can re-sync the PlayerView's on-screen transform every time
+     *  the user pans/zooms the content, not just when the box is resized. */
+    private OnCropChangedListener contentTransformListener;
+    public void setOnContentTransformChangedListener(OnCropChangedListener l) {
+        contentTransformListener = l;
+    }
+    private void notifyContentTransformChanged() {
+        if (contentTransformListener != null) contentTransformListener.onCropChanged();
     }
 
     // ─── Constraint: image always fills the crop box ──────────────────────

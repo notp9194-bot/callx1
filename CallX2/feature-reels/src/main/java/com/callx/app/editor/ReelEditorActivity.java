@@ -239,9 +239,6 @@ public class ReelEditorActivity extends AppCompatActivity {
     private TextView[]                 editorStepDots;
     private View[]                     editorStepLines;
     private ImageView[]                editorStepRings;
-    /** ✅ NEW: always-visible label under each icon box (see updateEditorStepDots()) —
-     * bold/white once its step is reached/passed, dim while still upcoming. */
-    private TextView[]                 editorStepLabels;
     private ObjectAnimator             editorActiveStepRingSpin;
     private View                       btnEditorStepBack, btnEditorStepNext;
     private int                        editorCurrentStep = 0;
@@ -255,7 +252,7 @@ public class ReelEditorActivity extends AppCompatActivity {
     /** Short step name shown in tv_editor_step_name, next to the "Step X of Y" pill
      *  (all-caps via android:textAllCaps, so plain-case names are given here). */
     private static final String[] EDITOR_STEP_NAMES = {
-            "Trim & Crop",
+            "Trim and Crop",
             "Text Overlay",
             "Look",
             "Motion & Sound",
@@ -2719,11 +2716,6 @@ public class ReelEditorActivity extends AppCompatActivity {
                 findViewById(R.id.step_ring_3), findViewById(R.id.step_ring_4),
                 findViewById(R.id.step_ring_5)
         };
-        editorStepLabels = new TextView[] {
-                findViewById(R.id.step_label_1), findViewById(R.id.step_label_2),
-                findViewById(R.id.step_label_3), findViewById(R.id.step_label_4),
-                findViewById(R.id.step_label_5)
-        };
         btnEditorStepBack = findViewById(R.id.btn_editor_step_back);
         btnEditorStepNext = findViewById(R.id.btn_editor_step_next);
 
@@ -2778,33 +2770,44 @@ public class ReelEditorActivity extends AppCompatActivity {
     }
 
     /**
-     * ✅ CHANGED: icon-box stepper (screenshot reference). The number badges
-     * (editorStepDots) and connecting lines (editorStepLines) are static in
-     * XML now — always the same brand pink badge / gradient line regardless
-     * of progress — so only the per-step label needs updating here: bold +
-     * white once a step is reached/passed, dim while still upcoming. The
-     * active step's gradient border is handled separately in
-     * updateActiveEditorStepRing().
+     * Reused from NewStatusActivity's updateWizardProgress() / ReelUploadActivity's
+     * updateStepDots() — same dot stepper visuals (numbered circle turns
+     * brand-gradient once its step is reached/passed, connecting line to its
+     * right fills solid, everything ahead stays the neutral "not yet" grey) —
+     * just sized for this wizard's 5 steps.
      */
     private void updateEditorStepDots() {
-        if (editorStepLabels != null) {
-            for (int i = 0; i < editorStepLabels.length; i++) {
-                if (editorStepLabels[i] == null) continue;
-                boolean active = i <= editorCurrentStep;
-                editorStepLabels[i].setTextColor(androidx.core.content.ContextCompat.getColor(this,
-                        active ? com.callx.app.core.R.color.white
-                               : com.callx.app.core.R.color.trim_text_secondary));
+        if (editorStepDots == null) return;
+        for (int i = 0; i < editorStepDots.length; i++) {
+            if (editorStepDots[i] == null) continue;
+            boolean active = i <= editorCurrentStep;
+            editorStepDots[i].setBackgroundResource(active
+                    ? com.callx.app.core.R.drawable.bg_trim_gradient_button
+                    : com.callx.app.core.R.drawable.bg_trim_circle_btn);
+            editorStepDots[i].setTextColor(androidx.core.content.ContextCompat.getColor(this,
+                    active ? com.callx.app.core.R.color.white
+                           : com.callx.app.core.R.color.trim_text_secondary));
+        }
+        if (editorStepLines == null) return;
+        // ✅ FIX: completed segments now use bg_step_line_gradient (the same
+        // brand gradient as the active step dot) instead of a flat solid
+        // color, so consecutive completed lines read as one continuous
+        // gradient strip joining the step dots, instead of separate flat bars.
+        for (int i = 0; i < editorStepLines.length; i++) {
+            if (editorStepLines[i] == null) continue;
+            if (editorCurrentStep >= i + 1) {
+                editorStepLines[i].setBackgroundResource(R.drawable.bg_step_line_gradient);
+            } else {
+                editorStepLines[i].setBackgroundColor(androidx.core.content.ContextCompat.getColor(this,
+                        com.callx.app.core.R.color.trim_divider));
             }
         }
         updateActiveEditorStepRing();
     }
 
     /**
-     * ✅ CHANGED: shows the gradient border overlay (bg_step_icon_box_active)
-     * on whichever step's icon box is currently active, hides it on every
-     * other box. No longer spins — a rotating ring didn't read correctly
-     * behind a rounded-square box, so this now just toggles visibility of a
-     * static border (see bg_step_icon_box_active.xml).
+     * ✅ NEW: spins a vibrant-green ring behind the step dot currently in
+     * use (editorCurrentStep) — mirrors ReelUploadActivity's updateActiveStepRing().
      */
     private void updateActiveEditorStepRing() {
         if (editorStepRings == null) return;
@@ -2814,7 +2817,18 @@ public class ReelEditorActivity extends AppCompatActivity {
         }
         for (int i = 0; i < editorStepRings.length; i++) {
             if (editorStepRings[i] == null) continue;
-            editorStepRings[i].setVisibility(i == editorCurrentStep ? View.VISIBLE : View.GONE);
+            if (i == editorCurrentStep) {
+                editorStepRings[i].setVisibility(View.VISIBLE);
+                editorStepRings[i].setRotation(0f);
+                editorActiveStepRingSpin = ObjectAnimator.ofFloat(
+                        editorStepRings[i], View.ROTATION, 0f, 360f);
+                editorActiveStepRingSpin.setDuration(1400);
+                editorActiveStepRingSpin.setRepeatCount(ObjectAnimator.INFINITE);
+                editorActiveStepRingSpin.setInterpolator(new android.view.animation.LinearInterpolator());
+                editorActiveStepRingSpin.start();
+            } else {
+                editorStepRings[i].setVisibility(View.GONE);
+            }
         }
     }
 

@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
@@ -19,7 +20,11 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.PlayerView;
 
 import com.callx.app.core.R;
 import com.callx.app.media.VideoCropTransformer;
@@ -60,10 +65,19 @@ import java.util.concurrent.Executors;
  * ✅ NEW: Video crop. Pass {@link #EXTRA_VIDEO_URI} instead of
  * {@link #EXTRA_IMAGE_URI} and the exact same screen (same
  * {@link CropOverlayView}, same aspect-ratio chips, same drag handles) is
- * used to frame the crop box on a representative preview frame; on Done the
- * crop is applied to the *entire* video via {@link VideoCropTransformer}
- * (Media3 Transformer), and a re-encoded, permanently-cropped .mp4 is
- * returned through the same {@link #RESULT_CROPPED_URI} extra. Only one of
+ * used to frame the crop box — but now over the ACTUAL PLAYING VIDEO (a
+ * looping, muted {@link PlayerView}) instead of a single frozen preview
+ * frame. CropOverlayView's own bitmap draw is switched off in video mode
+ * ({@link CropOverlayView#setVideoMode(boolean)}); every pan/pinch the user
+ * makes on the crop box is mirrored 1:1 onto the PlayerView's on-screen
+ * transform (see {@link #syncPlayerTransform()}) so what's visible is
+ * exactly what gets cropped. The underlying crop-box math is untouched — it
+ * still runs off a single representative frame at the video's native
+ * resolution, only now that frame is never painted, just used for geometry.
+ * On Done the crop is applied to the *entire* video via
+ * {@link VideoCropTransformer} (Media3 Transformer), and a re-encoded,
+ * permanently-cropped .mp4 is returned through the same
+ * {@link #RESULT_CROPPED_URI} extra. Only one of
  * EXTRA_IMAGE_URI / EXTRA_VIDEO_URI should be supplied per call. Callers:
  *   - feature-reels ReelEditorActivity (Step 1 · Trim and Crop)
  *   - feature-chat MediaEditActivity (Crop tool, image AND video)
@@ -88,6 +102,9 @@ public class MediaCropActivity extends AppCompatActivity {
     private LinearLayout    aspectRow;
     private View            btnRotate;
     private TextView        tvAspectHint;
+    /** ✅ NEW: real video playback shown behind cropView in video mode. */
+    private PlayerView      playerView;
+    private ExoPlayer       exoPlayer;
 
     // ── State ─────────────────────────────────────────────────────────────
     private Uri     sourceUri;
@@ -120,6 +137,7 @@ public class MediaCropActivity extends AppCompatActivity {
         bindViews();
         setupButtons();
         buildAspectRow();
+        if (isVideoMode) setupVideoPlayback();   // ✅ NEW
         loadBitmapAsync();
     }
 
@@ -132,6 +150,62 @@ public class MediaCropActivity extends AppCompatActivity {
         aspectRow    = findViewById(R.id.media_crop_aspect_row);
         btnRotate    = findViewById(R.id.media_crop_btn_rotate);
         tvAspectHint = findViewById(R.id.media_crop_aspect_label);
+        playerView   = findViewById(R.id.media_crop_player);
+    }
+
+    /**
+     * ✅ NEW: starts real looping playback of the source video underneath the
+     * crop overlay, and wires {@link CropOverlayView}'s pan/zoom notifications
+     * to keep the PlayerView's on-screen position matching the crop math
+     * exactly (see {@link #syncPlayerTransform()}).
+     */
+    private void setupVideoPlayback() {
+        cropView.setVideoMode(true);
+        playerView.setVisibility(View.VISIBLE);
+        playerView.setPivotX(0f);
+        playerView.setPivotY(0f);
+
+        exoPlayer = new ExoPlayer.Builder(this).build();
+        playerView.setPlayer(exoPlayer);
+        exoPlayer.setMediaItem(MediaItem.fromUri(sourceUri));
+        exoPlayer.setRepeatMode(Player.REPEAT_MODE_ALL);
+        exoPlayer.setVolume(0f); // muted — this is a crop preview, not a playback screen
+        exoPlayer.prepare();
+        exoPlayer.setPlayWhenReady(true);
+
+        cropView.setOnContentTransformChangedListener(this::syncPlayerTransform);
+    }
+
+    /**
+     * ✅ NEW: mirrors {@link CropOverlayView}'s current pan/zoom onto
+     * {@link #playerView} so the live video visually pans/zooms exactly like
+     * the crop box math does — the two matrices are both pure uniform-scale +
+     * translate (no rotation in video mode), so the delta between "current"
+     * and "base fit-center" decomposes cleanly into a View-level
+     * scale (pivot 0,0) + translation.
+     */
+    private void syncPlayerTransform() {
+        if (playerView == null) return;
+        Matrix current = cropView.getContentMatrix();
+        Matrix base    = cropView.getBaseContentMatrix();
+
+        float[] c = new float[9];
+        float[] b = new float[9];
+        current.getValues(c);
+        base.getValues(b);
+
+        float s0 = b[Matrix.MSCALE_X];
+        float s1 = c[Matrix.MSCALE_X];
+        if (s0 == 0f) return;
+        float k = s1 / s0;
+
+        float t0x = b[Matrix.MTRANS_X], t0y = b[Matrix.MTRANS_Y];
+        float t1x = c[Matrix.MTRANS_X], t1y = c[Matrix.MTRANS_Y];
+
+        playerView.setScaleX(k);
+        playerView.setScaleY(k);
+        playerView.setTranslationX(t1x - k * t0x);
+        playerView.setTranslationY(t1y - k * t0y);
     }
 
     // ── Buttons ───────────────────────────────────────────────────────────
@@ -362,5 +436,9 @@ public class MediaCropActivity extends AppCompatActivity {
         super.onDestroy();
         bgExec.shutdownNow();
         if (sourceBitmap != null && !sourceBitmap.isRecycled()) sourceBitmap.recycle();
+        if (exoPlayer != null) {          // ✅ NEW
+            exoPlayer.release();
+            exoPlayer = null;
+        }
     }
 }

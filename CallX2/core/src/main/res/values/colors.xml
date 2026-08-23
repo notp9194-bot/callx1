@@ -140,14 +140,4 @@
     <color name="trim_circle_btn_bg_on_photo">#4D000000</color>
     <color name="trim_tooltip_bg">#E6141420</color>
     <color name="trim_tooltip_text">#FFFFFF</color>
-
-    <!-- ✅ NEW: Reel Editor step-icon stepper (replaces plain numbered dots
-         with icon boxes + label, see activity_reel_editor.xml editor_stepper).
-         step_icon_box_bg is the dark rounded-square fill behind every step
-         icon; step_badge_bg is the small pink number badge overlapping the
-         bottom of each box (always the same brand pink regardless of
-         active/completed/future state — only the box border and label
-         color change with progress). -->
-    <color name="step_icon_box_bg">#20202B</color>
-    <color name="step_badge_bg">#FF3B5C</color>
 </resources>
