@@ -9,6 +9,7 @@ import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PointF;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
@@ -194,11 +195,21 @@ public class CropOverlayView extends View {
      */
     public Bitmap getCroppedBitmap() {
         if (bitmap == null) return null;
+        Rect r = getCropRectInBitmapPixels();
+        return Bitmap.createBitmap(bitmap, r.left, r.top, r.width(), r.height());
+    }
 
+    /**
+     * Maps the on-screen crop box → bitmap pixel coordinates (clamped to the
+     * bitmap bounds). Shared by {@link #getCroppedBitmap()} (still-image path)
+     * and {@link #getCropRectNormalized()} (video path, where the "bitmap" is
+     * just a representative preview frame at the video's own resolution) so
+     * both crop targets read the exact same math.
+     */
+    public Rect getCropRectInBitmapPixels() {
         // Invert the image matrix to map view coords → bitmap coords
         imageMatrix.invert(invImageMatrix);
 
-        // Map crop rect corners through the inverse matrix
         float[] pts = {
             cropRect.left,  cropRect.top,
             cropRect.right, cropRect.bottom
@@ -213,7 +224,21 @@ public class CropOverlayView extends View {
         bw = Math.max(1, bw);
         bh = Math.max(1, bh);
 
-        return Bitmap.createBitmap(bitmap, bx, by, bw, bh);
+        return new Rect(bx, by, bx + bw, by + bh);
+    }
+
+    /**
+     * Same crop box as {@link #getCropRectInBitmapPixels()} but expressed as
+     * fractions of the bitmap's width/height (0f–1f). This is what the video
+     * crop path needs: the preview frame shown here is usually a downscaled
+     * stand-in for the real video resolution, so callers convert this
+     * normalized rect into the source video's own pixel/NDC space instead of
+     * using raw preview-frame pixels.
+     */
+    public RectF getCropRectNormalized() {
+        Rect r = getCropRectInBitmapPixels();
+        float bw = bitmap.getWidth(), bh = bitmap.getHeight();
+        return new RectF(r.left / bw, r.top / bh, r.right / bw, r.bottom / bh);
     }
 
     // ═════════════════════════════════════════════════════════════════════

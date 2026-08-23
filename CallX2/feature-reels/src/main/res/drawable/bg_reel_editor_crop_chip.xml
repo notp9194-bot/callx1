@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ✅ NEW: Step 1 · Trim and Crop → Crop chip border.
+     Same chip fill as every other tool chip (bg_reel_editor_tool_chip's
+     trim_chip_bg), but the 1dp border is now the same pink→purple gradient
+     as the "Done" button (bg_trim_gradient_button's trim_gradient_start/end)
+     instead of the plain trim_chip_stroke color — makes this one chip stand
+     out from Filters/Stickers/Subtitles/etc.
+
+     A <shape>'s <stroke> can only be a solid color, so the gradient border
+     is faked with two stacked shapes: a fully gradient-filled rectangle
+     behind, and an inset rectangle (inset = desired border width) filled
+     with the normal chip background on top — leaving only a 1dp ring of the
+     gradient visible around the edge. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="linear"
+                android:angle="0"
+                android:startColor="@color/trim_gradient_start"
+                android:endColor="@color/trim_gradient_end"/>
+            <corners android:radius="6dp"/>
+        </shape>
+    </item>
+    <item
+        android:top="1dp"
+        android:bottom="1dp"
+        android:left="1dp"
+        android:right="1dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/trim_chip_bg"/>
+            <corners android:radius="5dp"/>
+        </shape>
+    </item>
+</layer-list>

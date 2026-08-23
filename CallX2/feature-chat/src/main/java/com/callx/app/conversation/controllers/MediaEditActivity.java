@@ -61,7 +61,8 @@ import java.util.concurrent.Executors;
  * Images:
  *  ✅ Rotate (90° incremental)
  *  ✅ Flip/mirror — horizontal (tap) and vertical (long-press), independent of rotation
- *  ✅ Crop (dedicated {@link MediaCropActivity} in :core, with aspect-ratio presets + drag handles)
+ *  ✅ Crop (dedicated {@link MediaCropActivity} in :core, with aspect-ratio presets + drag handles —
+ *     now also available on videos, which re-encodes the whole clip cropped instead of just a still)
  *  ✅ Filters — swipe-up carousel (None/Pop/B&W/Cool/Chrome/Film/Warm/Vivid/Fade)
  *  ✅ Sticker picker — full emoji/text/GIF/trending via {@link ChatStickerPickerActivity}
  *  ✅ Text overlay — full font/color/size/bold/italic/align via sticker picker text tab
@@ -70,6 +71,7 @@ import java.util.concurrent.Executors;
  *  ✅ HD toggle
  *
  * Videos:
+ *  ✅ Crop — same {@link MediaCropActivity} as images; re-encodes the whole video cropped
  *  ✅ Trim — dedicated {@link ChatVideoTrimActivity} with dual-handle trim + frame strip
  *  ✅ Filters — same filter carousel (applied as color LUT on thumbnail preview)
  *  ✅ Play/pause inline preview
@@ -273,13 +275,19 @@ public class MediaEditActivity extends AppCompatActivity {
                 String uriStr = result.getData().getStringExtra(MediaCropActivity.RESULT_CROPPED_URI);
                 if (uriStr != null) {
                     EditState st = current();
-                    st.uri     = Uri.parse(uriStr);
+                    st.uri = Uri.parse(uriStr);
+                    // ✅ NEW: for video, the crop result is a brand-new re-encoded
+                    // .mp4 that already reflects any prior trim, so any separate
+                    // trimmedUri is now stale — clear it so effectiveUri() picks
+                    // up the freshly-cropped file instead of the old trim.
+                    if (st.isVideo) st.trimmedUri = null;
                     st.overlays.clear();
                     st.strokes.clear();
                     stickerLayer.removeAllViews();
                     drawOverlay.clearStrokes();
                     rebuildThumbStrip();
                     showCurrentItem();
+                    Toast.makeText(this, "Crop applied ✓", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -453,15 +461,17 @@ public class MediaEditActivity extends AppCompatActivity {
             });
         }
 
-        // Crop — images only, launches core's MediaCropActivity
+        // ✅ CHANGED: Crop now supports images AND video — launches core's
+        // MediaCropActivity in image mode or video mode depending on the
+        // current item, same shared crop screen either way.
         if (btnEditCrop != null) btnEditCrop.setOnClickListener(v -> {
             EditState st = current();
-            if (st.isVideo) {
-                Toast.makeText(this, "Use Trim for videos", Toast.LENGTH_SHORT).show();
-                return;
-            }
             Intent i = new Intent(this, MediaCropActivity.class);
-            i.putExtra(MediaCropActivity.EXTRA_IMAGE_URI, st.effectiveUri().toString());
+            if (st.isVideo) {
+                i.putExtra(MediaCropActivity.EXTRA_VIDEO_URI, st.effectiveUri().toString());
+            } else {
+                i.putExtra(MediaCropActivity.EXTRA_IMAGE_URI, st.effectiveUri().toString());
+            }
             cropLauncher.launch(i);
         });
 
@@ -1464,7 +1474,8 @@ public class MediaEditActivity extends AppCompatActivity {
         ivVideoPlayBadge.setVisibility(isVideo ? View.VISIBLE : View.GONE);
         if (btnEditRotate != null) btnEditRotate.setAlpha(isVideo ? 0.35f : 1f);
         if (btnEditFlip   != null) btnEditFlip.setAlpha(isVideo ? 0.35f : 1f);
-        if (btnEditCrop   != null) btnEditCrop.setAlpha(isVideo ? 0.35f : 1f);
+        // Crop now works on video too, so unlike rotate/flip/adjust it's never dimmed.
+        if (btnEditCrop   != null) btnEditCrop.setAlpha(1f);
         if (btnEditAdjust != null) btnEditAdjust.setAlpha(isVideo ? 0.35f : 1f);
         if (btnEditTrim   != null) {
             btnEditTrim.setVisibility(isVideo ? View.VISIBLE : View.GONE);

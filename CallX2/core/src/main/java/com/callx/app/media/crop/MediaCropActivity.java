@@ -5,6 +5,8 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.RectF;
+import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -17,8 +19,10 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
+import androidx.media3.common.util.UnstableApi;
 
 import com.callx.app.core.R;
+import com.callx.app.media.VideoCropTransformer;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -44,7 +48,7 @@ import java.util.concurrent.Executors;
  *
  * Returns a full-resolution cropped JPEG URI via FileProvider on RESULT_OK.
  *
- * Usage from any feature module:
+ * Usage from any feature module (still image):
  * <pre>
  *   Intent i = new Intent();
  *   i.setClassName(getPackageName(), "com.callx.app.media.crop.MediaCropActivity");
@@ -52,10 +56,26 @@ import java.util.concurrent.Executors;
  *   launcher.launch(i);
  *   // onResult: data.getStringExtra(MediaCropActivity.RESULT_CROPPED_URI)
  * </pre>
+ *
+ * ✅ NEW: Video crop. Pass {@link #EXTRA_VIDEO_URI} instead of
+ * {@link #EXTRA_IMAGE_URI} and the exact same screen (same
+ * {@link CropOverlayView}, same aspect-ratio chips, same drag handles) is
+ * used to frame the crop box on a representative preview frame; on Done the
+ * crop is applied to the *entire* video via {@link VideoCropTransformer}
+ * (Media3 Transformer), and a re-encoded, permanently-cropped .mp4 is
+ * returned through the same {@link #RESULT_CROPPED_URI} extra. Only one of
+ * EXTRA_IMAGE_URI / EXTRA_VIDEO_URI should be supplied per call. Callers:
+ *   - feature-reels ReelEditorActivity (Step 1 · Trim and Crop)
+ *   - feature-chat MediaEditActivity (Crop tool, image AND video)
+ * <pre>
+ *   i.putExtra(MediaCropActivity.EXTRA_VIDEO_URI, sourceVideoUri.toString());
+ * </pre>
  */
+@UnstableApi
 public class MediaCropActivity extends AppCompatActivity {
 
     public static final String EXTRA_IMAGE_URI    = "media_crop_uri";
+    public static final String EXTRA_VIDEO_URI    = "media_crop_video_uri";
     public static final String RESULT_CROPPED_URI = "media_crop_result_uri";
 
     // ── Aspect ratio presets ──────────────────────────────────────────────
@@ -70,9 +90,12 @@ public class MediaCropActivity extends AppCompatActivity {
     private TextView        tvAspectHint;
 
     // ── State ─────────────────────────────────────────────────────────────
-    private Uri    sourceUri;
-    private Bitmap sourceBitmap;
-    private int    selectedAspect = 0;   // index into RATIOS
+    private Uri     sourceUri;
+    private Bitmap  sourceBitmap;
+    private int     selectedAspect = 0;   // index into RATIOS
+    /** ✅ NEW: true when launched with EXTRA_VIDEO_URI — the crop box is set on a
+     *  preview frame but Done re-encodes the whole video instead of saving a still. */
+    private boolean isVideoMode = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService bgExec = Executors.newSingleThreadExecutor();
 
@@ -83,9 +106,16 @@ public class MediaCropActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_media_crop);
 
-        String uriStr = getIntent().getStringExtra(EXTRA_IMAGE_URI);
-        if (uriStr == null) { finish(); return; }
-        sourceUri = Uri.parse(uriStr);
+        String videoUriStr = getIntent().getStringExtra(EXTRA_VIDEO_URI);
+        String imageUriStr = getIntent().getStringExtra(EXTRA_IMAGE_URI);
+        if (videoUriStr != null) {
+            isVideoMode = true;
+            sourceUri = Uri.parse(videoUriStr);
+        } else if (imageUriStr != null) {
+            sourceUri = Uri.parse(imageUriStr);
+        } else {
+            finish(); return;
+        }
 
         bindViews();
         setupButtons();
@@ -115,17 +145,25 @@ public class MediaCropActivity extends AppCompatActivity {
         btnDone.setOnClickListener(v -> {
             if (sourceBitmap == null) return;
             btnDone.setEnabled(false);
-            btnDone.setText("Saving…");
-            doCropAndReturn();
+            btnDone.setText(isVideoMode ? "Cropping video…" : "Saving…");
+            if (isVideoMode) cropVideoAndReturn();
+            else doCropAndReturn();
         });
 
         if (btnRotate != null) {
-            btnRotate.setOnClickListener(v -> {
-                cropView.rotate90();
-                // After rotation, update sourceBitmap reference so getCroppedBitmap bakes from latest
-                // (rotate90 handles this internally via bitmap recycle+replace)
-                sourceBitmap = null; // getCroppedBitmap uses cropView's internal bitmap
-            });
+            // ✅ Rotate stays image-only: it rotates the still preview bitmap in
+            // place, which has no meaningful counterpart for a full video crop
+            // export, so it's hidden rather than silently doing nothing useful.
+            if (isVideoMode) {
+                btnRotate.setVisibility(View.GONE);
+            } else {
+                btnRotate.setOnClickListener(v -> {
+                    cropView.rotate90();
+                    // After rotation, update sourceBitmap reference so getCroppedBitmap bakes from latest
+                    // (rotate90 handles this internally via bitmap recycle+replace)
+                    sourceBitmap = null; // getCroppedBitmap uses cropView's internal bitmap
+                });
+            }
         }
     }
 
@@ -179,6 +217,10 @@ public class MediaCropActivity extends AppCompatActivity {
 
     private void loadBitmapAsync() {
         btnDone.setEnabled(false);
+        if (isVideoMode) {
+            loadVideoPreviewFrameAsync();
+            return;
+        }
         bgExec.submit(() -> {
             try {
                 // Decode at max 2K — no need for full original res in the crop view
@@ -206,6 +248,43 @@ public class MediaCropActivity extends AppCompatActivity {
             } catch (Exception e) {
                 mainHandler.post(() ->
                     Toast.makeText(this, "Could not load image: " + e.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        });
+    }
+
+    /**
+     * ✅ NEW: video-mode preview. Grabs one representative frame (via the same
+     * MediaMetadataRetriever approach used elsewhere in the app, e.g. Reels'
+     * thumbnail-frame extraction) at the video's own resolution and feeds it
+     * into {@link #cropView} exactly like a decoded photo — same setBitmap()
+     * call, same aspect chips, same drag handles. Only the Done action differs
+     * (see {@link #cropVideoAndReturn()}).
+     */
+    private void loadVideoPreviewFrameAsync() {
+        bgExec.submit(() -> {
+            MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+            try {
+                mmr.setDataSource(this, sourceUri);
+                long durationMs = 0;
+                try {
+                    String d = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+                    if (d != null) durationMs = Long.parseLong(d);
+                } catch (Exception ignored) {}
+                long frameAtUs = (durationMs > 0) ? (durationMs * 1000L) / 3 : 0; // ~1/3 in — usually representative
+                Bitmap bmp = mmr.getFrameAtTime(frameAtUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+                if (bmp == null) bmp = mmr.getFrameAtTime(0);
+                if (bmp == null) throw new Exception("Could not extract a preview frame");
+                final Bitmap finalBmp = bmp;
+                mainHandler.post(() -> {
+                    sourceBitmap = finalBmp;
+                    cropView.setBitmap(finalBmp);
+                    btnDone.setEnabled(true);
+                });
+            } catch (Exception e) {
+                mainHandler.post(() ->
+                    Toast.makeText(this, "Could not load video: " + e.getMessage(), Toast.LENGTH_LONG).show());
+            } finally {
+                try { mmr.release(); } catch (Exception ignored) {}
             }
         });
     }
@@ -242,6 +321,36 @@ public class MediaCropActivity extends AppCompatActivity {
                     btnDone.setEnabled(true);
                     btnDone.setText("Done");
                 });
+            }
+        });
+    }
+
+    /**
+     * ✅ NEW: video-mode Done action. Reads the same normalized crop box the
+     * still-image path would have used ({@link CropOverlayView#getCropRectNormalized()})
+     * and hands it to {@link VideoCropTransformer}, which re-encodes the
+     * *entire* source video cropped to that region (Media3 Transformer +
+     * Crop effect) — this is a real crop of the video itself, not just a
+     * cropped thumbnail frame.
+     */
+    private void cropVideoAndReturn() {
+        RectF cropFraction = cropView.getCropRectNormalized();
+        VideoCropTransformer.cropVideo(this, sourceUri, cropFraction, new VideoCropTransformer.Callback() {
+            @Override public void onProgress(int percent) {
+                if (percent >= 0) btnDone.setText("Cropping video… " + percent + "%");
+            }
+
+            @Override public void onSuccess(Uri outputUri) {
+                Intent res = new Intent();
+                res.putExtra(RESULT_CROPPED_URI, outputUri.toString());
+                setResult(Activity.RESULT_OK, res);
+                finish();
+            }
+
+            @Override public void onError(Exception e) {
+                Toast.makeText(MediaCropActivity.this, "Video crop failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                btnDone.setEnabled(true);
+                btnDone.setText("Done");
             }
         });
     }

@@ -1449,47 +1449,24 @@ public class ReelEditorActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * ✅ CHANGED: was a bare AlertDialog with RGB seekbars — now reuses the
+     * shared :core rainbow bottom sheet (same GRID / SPECTRUM / SLIDERS
+     * picker as Status's highlight ring color and Chat's MediaEditActivity),
+     * so Step 2's "+" custom-colour swatch matches the rest of the app.
+     */
     private void showCustomColorPicker() {
-        int dp = (int) getResources().getDisplayMetrics().density;
-        LinearLayout container = new LinearLayout(this);
-        container.setOrientation(LinearLayout.VERTICAL);
-        container.setPadding(24 * dp, 16 * dp, 24 * dp, 8 * dp);
-
-        View preview = new View(this);
-        LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 40 * dp);
-        pLp.bottomMargin = 12 * dp;
-        preview.setLayoutParams(pLp);
-        preview.setBackgroundColor(currentTextColor);
-        container.addView(preview);
-
-        SeekBar r = new SeekBar(this), g = new SeekBar(this), b = new SeekBar(this);
-        r.setMax(255); g.setMax(255); b.setMax(255);
-        r.setProgress(Color.red(currentTextColor));
-        g.setProgress(Color.green(currentTextColor));
-        b.setProgress(Color.blue(currentTextColor));
-
-        SeekBar.OnSeekBarChangeListener listener = new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
-                preview.setBackgroundColor(Color.rgb(r.getProgress(), g.getProgress(), b.getProgress()));
-            }
-            @Override public void onStartTrackingTouch(SeekBar sb) {}
-            @Override public void onStopTrackingTouch(SeekBar sb) {}
-        };
-        r.setOnSeekBarChangeListener(listener);
-        g.setOnSeekBarChangeListener(listener);
-        b.setOnSeekBarChangeListener(listener);
-        container.addView(r); container.addView(g); container.addView(b);
-
-        new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Custom colour")
-            .setView(container)
-            .setPositiveButton("Apply", (dialog, which) -> {
-                currentTextColor = Color.rgb(r.getProgress(), g.getProgress(), b.getProgress());
-                setupAdvancedTextOverlayPanel();
-                applyLiveStyleToSelection();
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
+        String currentHex = String.format("#%06X", (0xFFFFFF & currentTextColor));
+        com.callx.app.utils.RainbowStripColorPickerBottomSheet.show(
+                this, "Custom colour", currentHex, false,
+                hex -> {
+                    if (hex == null) return;
+                    try {
+                        currentTextColor = Color.parseColor(hex);
+                        setupAdvancedTextOverlayPanel();
+                        applyLiveStyleToSelection();
+                    } catch (Exception ignored) { /* keep previous color on parse failure */ }
+                });
     }
 
     private Typeface resolvePreviewTypeface(String fontKey, boolean bold, boolean italic) {
@@ -2111,60 +2088,78 @@ public class ReelEditorActivity extends AppCompatActivity {
     }
 
     /**
-     * ✅ NEW: Step 1 · Trim and Crop → Crop button.
-     * Reuses Chat's Media Editing screen crop feature — the exact same
-     * {@link MediaCropActivity} (in :core) that MediaEditActivity's
-     * btnEditCrop launches — instead of building a separate crop screen.
-     * Since MediaCropActivity crops a still image, the current playhead
-     * frame is grabbed the same way {@link #openFiltersScreen()} does,
-     * handed to the shared crop screen, and the cropped result is stored
-     * as this reel's custom thumbnail/cover frame.
+     * ✅ CHANGED: Step 1 · Trim and Crop → Crop button.
+     * Used to only grab the current playhead frame and crop *that still
+     * image* for use as a custom thumbnail. Now reuses :core's
+     * {@link MediaCropActivity} in its new video mode (EXTRA_VIDEO_URI)
+     * instead, which crops the *entire video* via Media3 Transformer — a
+     * real reframe of the reel, not just its thumbnail. It's the exact same
+     * shared crop screen Chat's MediaEditActivity uses (same aspect chips,
+     * same drag handles), just launched in video mode here.
      */
     private void openCropScreen() {
         if (videoUriStr == null || videoUriStr.isEmpty()) return;
-        final long frameAtMs = (player != null) ? Math.max(0, player.getCurrentPosition()) : trimStartMs;
+        Uri uri = isFilePath ? Uri.fromFile(new File(videoUriStr)) : Uri.parse(videoUriStr);
 
-        filterPreviewExecutor.execute(() -> {
-            Uri previewUri = extractFrameAsProviderUri(frameAtMs);
-            handler.post(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                if (previewUri == null) {
-                    Toast.makeText(this, "Couldn't load a frame to crop", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                Intent i = new Intent(this, MediaCropActivity.class);
-                i.putExtra(MediaCropActivity.EXTRA_IMAGE_URI, previewUri.toString());
-                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                startActivityForResult(i, REQ_CROP);
-            });
-        });
+        Intent i = new Intent(this, MediaCropActivity.class);
+        i.putExtra(MediaCropActivity.EXTRA_VIDEO_URI, uri.toString());
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startActivityForResult(i, REQ_CROP);
     }
 
-    /** Copies the cropped file:// / content:// result from MediaCropActivity into
-     *  this activity's own cache so it behaves like every other thumbnail path
-     *  used downstream (applyThumbnailBadge, upload intent extras, etc). */
-    private void handleCropResult(String croppedUriStr) {
-        if (croppedUriStr == null || croppedUriStr.isEmpty()) return;
+    /**
+     * ✅ CHANGED: the cropped result from MediaCropActivity is now a
+     * permanently-cropped .mp4 for the whole reel (not a cropped still).
+     * Swaps it in as the working video, reloads the player on the new
+     * source, and refreshes the trim filmstrip + thumbnail so both reflect
+     * the newly-cropped frame.
+     */
+    private void handleCropResult(String croppedVideoUriStr) {
+        if (croppedVideoUriStr == null || croppedVideoUriStr.isEmpty()) return;
         try {
-            Uri croppedUri = Uri.parse(croppedUriStr);
-            File dir = new File(getCacheDir(), "reel_crop");
-            if (!dir.exists()) dir.mkdirs();
-            File out = new File(dir, "crop_" + System.currentTimeMillis() + ".jpg");
-            try (InputStream in = getContentResolver().openInputStream(croppedUri);
-                 FileOutputStream fos = new FileOutputStream(out)) {
-                if (in == null) throw new Exception("Could not open cropped result");
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
+            videoUriStr = Uri.parse(croppedVideoUriStr).getPath();
+            isFilePath  = true;
+
+            if (player != null) {
+                try { player.release(); } catch (Exception ignored) {}
+                player = null;
             }
-            thumbnailPath    = out.getAbsolutePath();
-            thumbnailFrameMs = (player != null) ? Math.max(0, player.getCurrentPosition()) : trimStartMs;
-            applyThumbnailBadge(thumbnailPath);
-            if (btnToolThumbnail != null) btnToolThumbnail.setColorFilter(android.graphics.Color.WHITE);
+            setupPlayer();
+            loadMetadata();          // refresh duration + trim filmstrip for the cropped video
+            regenerateThumbnailFromCurrentVideo();
+
             Toast.makeText(this, "Crop applied ✓", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Toast.makeText(this, "Crop failed to apply", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /** Re-extracts a thumbnail/cover frame from whatever videoUriStr currently points
+     *  to — used after a crop so the thumbnail badge reflects the new framing instead
+     *  of a stale frame captured from the pre-crop video. */
+    private void regenerateThumbnailFromCurrentVideo() {
+        final long frameAtMs = (player != null) ? Math.max(0, player.getCurrentPosition()) : trimStartMs;
+        filterPreviewExecutor.execute(() -> {
+            Uri previewUri = extractFrameAsProviderUri(frameAtMs);
+            handler.post(() -> {
+                if (isFinishing() || isDestroyed() || previewUri == null) return;
+                try {
+                    File dir = new File(getCacheDir(), "reel_crop");
+                    if (!dir.exists()) dir.mkdirs();
+                    File out = new File(dir, "crop_" + System.currentTimeMillis() + ".jpg");
+                    try (InputStream in = getContentResolver().openInputStream(previewUri);
+                         FileOutputStream fos = new FileOutputStream(out)) {
+                        if (in == null) throw new Exception("Could not open frame");
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
+                    }
+                    thumbnailPath    = out.getAbsolutePath();
+                    thumbnailFrameMs = frameAtMs;
+                    applyThumbnailBadge(thumbnailPath);
+                } catch (Exception ignored) { /* thumbnail refresh is best-effort */ }
+            });
+        });
     }
 
     private void setupPlayer() {
