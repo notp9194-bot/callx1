@@ -154,6 +154,11 @@ public class ReelEditorActivity extends AppCompatActivity {
     private View          btnNext, btnAddText;
     // ── Step 2 · Advanced text overlay wizard ───────────────────────────────
     private LinearLayout  llTextFontRow, llTextStyleRow, llTextBgRow, llTextColorRow;
+    // ✅ NEW: text animation chip row (None / Typewriter / Word Reveal)
+    private LinearLayout  llTextAnimRow;
+    // ✅ NEW: gradient fill preset row + outline (stroke) row — Instagram-parity
+    // additions to the Text Style sheet (see StyledOverlayTextView).
+    private LinearLayout  llTextFillRow, llTextOutlineRow;
     private SeekBar        seekTextSize;
     private TextView       btnDeleteTextOverlay;
     private TextView       tvTextTrashZone;
@@ -170,13 +175,36 @@ public class ReelEditorActivity extends AppCompatActivity {
     /** Currently selected overlay (style chips edit this one live) — null = next "Add" creates a new one. */
     private TextView        selectedTextOverlay = null;
     // Style state carried forward for the NEXT overlay you add (and live-edits the selection, if any).
-    private String  currentFontKey   = "classic";   // classic | serif | mono | condensed
+    private String  currentFontKey   = "classic";   // classic | serif | mono | condensed | strong | neon | typewriter
     private boolean currentBold      = true;
     private boolean currentItalic    = false;
     private String  currentBgStyle   = "pill";      // none | pill | solid | highlight
     private String  currentAlign     = "center";    // left | center | right
     private int     currentTextColor = Color.WHITE;
     private float   currentTextSizeSp = 24f;
+    // ✅ NEW: text-in animation carried forward for the NEXT overlay (and live-edits the selection)
+    private String  currentAnimKey   = "none";      // none | typewriter | word
+    // ✅ NEW: gradient/multi-colour text fill + outline (stroke), Instagram-parity additions.
+    private boolean currentGradientEnabled = false;
+    private int     currentGradientStart   = Color.WHITE;
+    private int     currentGradientEnd     = Color.WHITE;
+    private boolean currentOutlineEnabled  = false;
+    private int     currentOutlineColor    = Color.BLACK;
+    private static final float OUTLINE_WIDTH_DP = 2.5f;
+    // ✅ NEW: named 2-colour gradient presets for the FILL row (Instagram-style
+    // gradient text). LinkedHashMap keeps FILL chip ordering stable.
+    private static final java.util.LinkedHashMap<String, int[]> GRADIENT_PRESETS = new java.util.LinkedHashMap<>();
+    static {
+        GRADIENT_PRESETS.put("sunset", new int[]{0xFFFF9500, 0xFFFF2D78});
+        GRADIENT_PRESETS.put("ocean",  new int[]{0xFF00C7BE, 0xFF007AFF});
+        GRADIENT_PRESETS.put("purple", new int[]{0xFF5856D6, 0xFFAF52DE});
+        GRADIENT_PRESETS.put("fire",   new int[]{0xFFFF3B30, 0xFFFFCC00});
+        GRADIENT_PRESETS.put("mint",   new int[]{0xFF34C759, 0xFF00C7BE});
+    }
+    /** Runnable driving the char/word-reveal preview for whichever overlay last triggered it —
+     *  a newer preview supersedes an older one instead of letting both tick in parallel. */
+    private Runnable activeAnimPreviewRunnable;
+    private TextView activeAnimPreviewTarget;
     // ── Perf: Step 2 text overlay optimization ─────────────────────────────
     /** True once the chip/swatch rows have been built — after that, reselecting
      *  an overlay only updates selection state on the existing views instead of
@@ -1135,6 +1163,98 @@ public class ReelEditorActivity extends AppCompatActivity {
         String align    = "center";
         int colorInt    = Color.WHITE;
         float sizeSp    = 24f;
+        String animKey  = "none"; // ✅ NEW: none | typewriter | word
+        // ✅ NEW: gradient/multi-colour text fill.
+        boolean gradientEnabled = false;
+        int gradientStart = Color.WHITE;
+        int gradientEnd   = Color.WHITE;
+        // ✅ NEW: text outline/stroke.
+        boolean outlineEnabled = false;
+        int outlineColor = Color.BLACK;
+    }
+
+    /**
+     * ✅ NEW: TextView subclass that adds the two Instagram-parity looks a plain
+     * TextView can't do on its own — gradient/multi-colour text fill and an
+     * outline/stroke around the glyphs.
+     *
+     * Gradient fill: a LinearGradient shader is built once the view is actually
+     * measured (onSizeChanged — WRAP_CONTENT views have width 0 until then) and
+     * set directly on getPaint(), which is the exact TextPaint TextView already
+     * draws with.
+     *
+     * Outline: TextView/TextPaint has no separate "stroke colour" — Paint.Style
+     * .FILL_AND_STROKE draws both passes in the SAME colour. The standard trick
+     * (used by Instagram-style caption libraries) is two draw passes: flip the
+     * shared paint to STROKE + the outline colour, call super.onDraw() once,
+     * restore FILL + the real colour/shader, call super.onDraw() again. No
+     * second view, no restructuring of the drag/scale/rotate code that already
+     * targets a single TextView per overlay.
+     */
+    private static class StyledOverlayTextView extends TextView {
+        private int[] gradientColors;
+        private boolean outlineEnabled;
+        private int outlineColor = Color.BLACK;
+        private float outlineWidthPx;
+
+        StyledOverlayTextView(android.content.Context ctx) {
+            super(ctx);
+        }
+
+        void setGradientFill(boolean enabled, int startColor, int endColor) {
+            gradientColors = enabled ? new int[]{startColor, endColor} : null;
+            rebuildGradientShader();
+        }
+
+        void setOutline(boolean enabled, int color, float widthPx) {
+            this.outlineEnabled = enabled;
+            this.outlineColor = color;
+            this.outlineWidthPx = widthPx;
+            invalidate();
+        }
+
+        private void rebuildGradientShader() {
+            if (gradientColors != null && getWidth() > 0) {
+                getPaint().setShader(new android.graphics.LinearGradient(
+                    0f, 0f, getWidth(), 0f, gradientColors, null, android.graphics.Shader.TileMode.CLAMP));
+            } else {
+                getPaint().setShader(null);
+            }
+            invalidate();
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            super.onSizeChanged(w, h, oldw, oldh);
+            rebuildGradientShader();
+        }
+
+        @Override
+        protected void onDraw(android.graphics.Canvas canvas) {
+            if (outlineEnabled) {
+                android.text.TextPaint tp = getPaint();
+                int savedColor = tp.getColor();
+                Paint.Style savedStyle = tp.getStyle();
+                float savedStrokeWidth = tp.getStrokeWidth();
+                android.graphics.Shader savedShader = tp.getShader();
+
+                // Pass 1: stroke-only outline, drawn behind the fill, solid colour (no shader).
+                tp.setStyle(Paint.Style.STROKE);
+                tp.setStrokeWidth(outlineWidthPx);
+                tp.setStrokeJoin(Paint.Join.ROUND);
+                tp.setStrokeMiter(2f);
+                tp.setColor(outlineColor);
+                tp.setShader(null);
+                super.onDraw(canvas);
+
+                // Pass 2: restore normal fill (colour or gradient shader) on top.
+                tp.setStyle(savedStyle);
+                tp.setStrokeWidth(savedStrokeWidth);
+                tp.setColor(savedColor);
+                tp.setShader(savedShader);
+            }
+            super.onDraw(canvas);
+        }
     }
 
     private FrameLayout getVideoOverlayLayer() {
@@ -1182,6 +1302,9 @@ public class ReelEditorActivity extends AppCompatActivity {
             llTextStyleRow = sheetView.findViewById(R.id.ll_text_style_row);
             llTextBgRow    = sheetView.findViewById(R.id.ll_text_bg_row);
             llTextColorRow = sheetView.findViewById(R.id.ll_text_color_row);
+            llTextAnimRow  = sheetView.findViewById(R.id.ll_text_anim_row);
+            llTextFillRow    = sheetView.findViewById(R.id.ll_text_fill_row);
+            llTextOutlineRow = sheetView.findViewById(R.id.ll_text_outline_row);
             seekTextSize   = sheetView.findViewById(R.id.seek_text_size);
 
             textOverlayStyleSheet = new com.google.android.material.bottomsheet.BottomSheetDialog(this);
@@ -1216,8 +1339,11 @@ public class ReelEditorActivity extends AppCompatActivity {
         int dp = (int) getResources().getDisplayMetrics().density;
 
         // ── Font family chips ──────────────────────────────────────────
-        String[] fontKeys   = {"classic", "serif", "mono", "condensed"};
-        String[] fontLabels = {"Classic", "Serif", "Mono", "Condensed"};
+        // ✅ NEW: strong/neon/typewriter are stylized looks (system typeface +
+        // letter-spacing + glow, see applyFontFlourish()) matching Instagram's
+        // Strong/Neon/Typewriter text styles — no bundled font assets needed.
+        String[] fontKeys   = {"classic", "serif", "mono", "condensed", "strong", "neon", "typewriter"};
+        String[] fontLabels = {"Classic", "Serif", "Mono", "Condensed", "Strong", "Neon", "Typewriter"};
         if (llTextFontRow != null) {
             llTextFontRow.removeAllViews();
             for (int i = 0; i < fontKeys.length; i++) {
@@ -1276,6 +1402,27 @@ public class ReelEditorActivity extends AppCompatActivity {
             }
         }
 
+        // ── ✅ NEW: Animation chips (text-in reveal) ─────────────────────
+        String[] animKeys   = {"none", "typewriter", "word"};
+        String[] animLabels = {"None", "Typewriter", "Word Reveal"};
+        if (llTextAnimRow != null) {
+            llTextAnimRow.removeAllViews();
+            for (int i = 0; i < animKeys.length; i++) {
+                final int idx = i;
+                TextView chip = buildChip(animLabels[i], dp);
+                chip.setSelected(animKeys[i].equals(currentAnimKey));
+                chip.setTag(animKeys[i]);
+                chip.setOnClickListener(v -> {
+                    currentAnimKey = animKeys[idx];
+                    refreshChipSelection(llTextAnimRow, v);
+                    applyLiveStyleToSelection();
+                    // Replay the reveal immediately so picking a style previews it live.
+                    if (selectedTextOverlay != null) playTextAnimationPreview(selectedTextOverlay);
+                });
+                llTextAnimRow.addView(chip);
+            }
+        }
+
         // ── Background style chips ─────────────────────────────────────
         String[] bgKeys    = {"none", "pill", "solid", "highlight"};
         String[] bgLabels  = {"No BG", "Pill", "Solid", "Highlight"};
@@ -1331,6 +1478,70 @@ public class ReelEditorActivity extends AppCompatActivity {
             llTextColorRow.addView(customSwatch);
         }
 
+        // ── ✅ NEW: Fill chips — Solid or a named gradient preset ───────
+        // "Solid" turns gradientEnabled off (falls back to the COLOUR swatch
+        // above); each gradient chip previews its own 2-colour gradient as
+        // the chip's own background so the row doubles as a live swatch.
+        if (llTextFillRow != null) {
+            llTextFillRow.removeAllViews();
+            String activeFillKey = currentFillPresetKey();
+
+            TextView solidChip = buildChip("Solid", dp);
+            solidChip.setSelected("solid".equals(activeFillKey));
+            solidChip.setTag("solid");
+            solidChip.setOnClickListener(v -> {
+                currentGradientEnabled = false;
+                refreshChipSelection(llTextFillRow, v);
+                applyLiveStyleToSelection();
+            });
+            llTextFillRow.addView(solidChip);
+
+            for (java.util.Map.Entry<String, int[]> entry : GRADIENT_PRESETS.entrySet()) {
+                final String key = entry.getKey();
+                final int[] preset = entry.getValue();
+                TextView chip = buildChip(capitalize(key), dp);
+                chip.setBackground(buildGradientChipBackground(preset[0], preset[1], dp));
+                chip.setSelected(key.equals(activeFillKey));
+                chip.setTag(key);
+                chip.setOnClickListener(v -> {
+                    currentGradientEnabled = true;
+                    currentGradientStart = preset[0];
+                    currentGradientEnd = preset[1];
+                    refreshChipSelection(llTextFillRow, v);
+                    applyLiveStyleToSelection();
+                });
+                llTextFillRow.addView(chip);
+            }
+        }
+
+        // ── ✅ NEW: Outline (stroke) chips — None + a small colour set ──
+        if (llTextOutlineRow != null) {
+            llTextOutlineRow.removeAllViews();
+            TextView chipOff = buildChip("None", dp);
+            chipOff.setSelected(!currentOutlineEnabled);
+            chipOff.setTag("outline_off");
+            chipOff.setOnClickListener(v -> {
+                currentOutlineEnabled = false;
+                refreshChipSelection(llTextOutlineRow, v);
+                applyLiveStyleToSelection();
+            });
+            llTextOutlineRow.addView(chipOff);
+
+            int[] outlineColors = { Color.BLACK, Color.WHITE, 0xFFFF3B30, 0xFF007AFF, 0xFFFFCC00, 0xFF34C759 };
+            for (int color : outlineColors) {
+                View swatch = buildColorSwatch(color, dp);
+                swatch.setSelected(currentOutlineEnabled && color == currentOutlineColor);
+                swatch.setTag(color);
+                swatch.setOnClickListener(v -> {
+                    currentOutlineEnabled = true;
+                    currentOutlineColor = color;
+                    refreshChipSelection(llTextOutlineRow, v);
+                    applyLiveStyleToSelection();
+                });
+                llTextOutlineRow.addView(swatch);
+            }
+        }
+
         if (seekTextSize != null) {
             seekTextSize.setProgress((int) currentTextSizeSp - 12);
             seekTextSize.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -1353,6 +1564,7 @@ public class ReelEditorActivity extends AppCompatActivity {
      */
     private void syncTextOverlayPanelSelectionUI() {
         syncRowSelectionByTag(llTextFontRow, currentFontKey);
+        syncRowSelectionByTag(llTextAnimRow, currentAnimKey);
         if (llTextStyleRow != null) {
             for (int i = 0; i < llTextStyleRow.getChildCount(); i++) {
                 View child = llTextStyleRow.getChildAt(i);
@@ -1371,9 +1583,54 @@ public class ReelEditorActivity extends AppCompatActivity {
                 }
             }
         }
+        if (llTextFillRow != null) {
+            String activeFillKey = currentFillPresetKey();
+            for (int i = 0; i < llTextFillRow.getChildCount(); i++) {
+                View child = llTextFillRow.getChildAt(i);
+                child.setSelected(activeFillKey.equals(child.getTag()));
+            }
+        }
+        if (llTextOutlineRow != null) {
+            for (int i = 0; i < llTextOutlineRow.getChildCount(); i++) {
+                View child = llTextOutlineRow.getChildAt(i);
+                Object tag = child.getTag();
+                if ("outline_off".equals(tag)) child.setSelected(!currentOutlineEnabled);
+                else if (tag instanceof Integer) child.setSelected(currentOutlineEnabled && (Integer) tag == currentOutlineColor);
+            }
+        }
         if (seekTextSize != null) {
             seekTextSize.setProgress((int) currentTextSizeSp - 12);
         }
+    }
+
+    /** Returns "solid" or the matching GRADIENT_PRESETS key for the current gradient state. */
+    private String currentFillPresetKey() {
+        if (!currentGradientEnabled) return "solid";
+        for (java.util.Map.Entry<String, int[]> e : GRADIENT_PRESETS.entrySet()) {
+            int[] p = e.getValue();
+            if (p[0] == currentGradientStart && p[1] == currentGradientEnd) return e.getKey();
+        }
+        return "solid";
+    }
+
+    private String capitalize(String s) {
+        return s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
+    /** Chip background that previews a 2-colour gradient — used for the FILL preset chips. */
+    private android.graphics.drawable.Drawable buildGradientChipBackground(int startColor, int endColor, int dp) {
+        android.graphics.drawable.GradientDrawable unselected = new android.graphics.drawable.GradientDrawable(
+            android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT, new int[]{startColor, endColor});
+        unselected.setCornerRadius(20f);
+        android.graphics.drawable.GradientDrawable selected = new android.graphics.drawable.GradientDrawable(
+            android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT, new int[]{startColor, endColor});
+        selected.setCornerRadius(20f);
+        selected.setStroke(2 * dp, Color.WHITE);
+
+        android.graphics.drawable.StateListDrawable sld = new android.graphics.drawable.StateListDrawable();
+        sld.addState(new int[]{android.R.attr.state_selected}, selected);
+        sld.addState(new int[]{}, unselected);
+        return sld;
     }
 
     /** Sets .setSelected(true) on the one child of `row` whose String tag equals `key`. */
@@ -1474,6 +1731,10 @@ public class ReelEditorActivity extends AppCompatActivity {
         if ("serif".equals(fontKey)) base = Typeface.SERIF;
         else if ("mono".equals(fontKey)) base = Typeface.MONOSPACE;
         else if ("condensed".equals(fontKey)) base = Typeface.create("sans-serif-condensed", Typeface.NORMAL);
+        // ✅ NEW stylized looks — built from system typefaces, not bundled font assets.
+        else if ("strong".equals(fontKey)) base = Typeface.create("sans-serif-black", Typeface.NORMAL);
+        else if ("neon".equals(fontKey)) base = Typeface.create("sans-serif-condensed", Typeface.NORMAL);
+        else if ("typewriter".equals(fontKey)) base = Typeface.MONOSPACE;
         else base = Typeface.SANS_SERIF;
 
         int style = Typeface.NORMAL;
@@ -1481,6 +1742,26 @@ public class ReelEditorActivity extends AppCompatActivity {
         else if (bold) style = Typeface.BOLD;
         else if (italic) style = Typeface.ITALIC;
         return Typeface.create(base, style);
+    }
+
+    /**
+     * ✅ NEW: applies the letter-spacing/glow flourish that makes "Strong" /
+     * "Neon" / "Typewriter" read as distinct stylized looks rather than just
+     * a different Typeface — TextView only supports one Typeface at a time,
+     * so the rest of the look (tracking, glow) is layered on top here.
+     * Mirrors the export-time look built in ReelVideoExportEngine.drawStyledOverlay().
+     */
+    private void applyFontFlourish(TextView tv, String fontKey, int dp) {
+        if ("neon".equals(fontKey)) {
+            tv.setLetterSpacing(0.05f);
+            tv.setShadowLayer(16f * dp, 0f, 0f, tv.getCurrentTextColor());
+        } else if ("typewriter".equals(fontKey)) {
+            tv.setLetterSpacing(0.08f);
+        } else if ("strong".equals(fontKey)) {
+            tv.setLetterSpacing(0.01f);
+        } else {
+            tv.setLetterSpacing(0f);
+        }
     }
 
     /** Creates a brand-new draggable/pinch-scale/rotate text overlay using the current style-panel settings. */
@@ -1498,8 +1779,14 @@ public class ReelEditorActivity extends AppCompatActivity {
         style.align = currentAlign;
         style.colorInt = currentTextColor;
         style.sizeSp = currentTextSizeSp;
+        style.animKey = currentAnimKey;
+        style.gradientEnabled = currentGradientEnabled;
+        style.gradientStart = currentGradientStart;
+        style.gradientEnd = currentGradientEnd;
+        style.outlineEnabled = currentOutlineEnabled;
+        style.outlineColor = currentOutlineColor;
 
-        TextView tv = new TextView(this);
+        StyledOverlayTextView tv = new StyledOverlayTextView(this);
         tv.setTag(style);
         applyStyleToView(tv, style, dp);
 
@@ -1514,8 +1801,61 @@ public class ReelEditorActivity extends AppCompatActivity {
         tv.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(220).start();
 
         selectTextOverlay(tv);
+        playTextAnimationPreview(tv);
         scheduleStickerJsonMerge();
         updateBadge("text_overlay", "🔤 Text (" + textOverlayViews.size() + ")");
+    }
+
+    /**
+     * ✅ NEW: previews the chosen text-in animation (typewriter / word-by-word reveal) on
+     * `tv` by progressively re-setting its displayed text. The full source string always
+     * lives in `style.text` (never mutated here), so this only affects what's momentarily
+     * on screen — mergeTextOverlaysIntoStickerJson() reads style.text, not tv.getText(),
+     * so a save mid-animation can never persist a half-revealed string. A newer call here
+     * (new overlay, or animation chip changed) supersedes whatever was previously ticking.
+     */
+    private void playTextAnimationPreview(TextView tv) {
+        if (tv == null) return;
+        Object tag = tv.getTag();
+        if (!(tag instanceof TextOverlayStyle)) return;
+        TextOverlayStyle style = (TextOverlayStyle) tag;
+        String full = style.text != null ? style.text : "";
+
+        if (activeAnimPreviewRunnable != null) handler.removeCallbacks(activeAnimPreviewRunnable);
+        activeAnimPreviewTarget = tv;
+
+        if ("none".equals(style.animKey) || full.isEmpty()) {
+            tv.setText(full);
+            return;
+        }
+
+        boolean wordMode = "word".equals(style.animKey);
+        String[] words = wordMode ? full.trim().split("\\s+") : null;
+        int totalUnits = wordMode ? words.length : full.length();
+        final long stepMs = wordMode
+            ? Math.max(80L, Math.min(320L, 1400L / Math.max(1, totalUnits)))
+            : Math.max(18L, Math.min(70L, 900L / Math.max(1, totalUnits)));
+
+        tv.setText("");
+        activeAnimPreviewRunnable = new Runnable() {
+            int shown = 0;
+            @Override public void run() {
+                if (activeAnimPreviewTarget != tv) return; // superseded by a newer preview
+                shown++;
+                if (wordMode) {
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < Math.min(shown, words.length); i++) {
+                        if (i > 0) sb.append(' ');
+                        sb.append(words[i]);
+                    }
+                    tv.setText(sb.toString());
+                } else {
+                    tv.setText(full.substring(0, Math.min(shown, full.length())));
+                }
+                if (shown < totalUnits) handler.postDelayed(this, stepMs);
+            }
+        };
+        handler.post(activeAnimPreviewRunnable);
     }
 
     private void applyStyleToView(TextView tv, TextOverlayStyle style, int dp) {
@@ -1555,6 +1895,19 @@ public class ReelEditorActivity extends AppCompatActivity {
             }
             tv.setBackground(bg);
         }
+
+        // ✅ NEW: letter-spacing/glow flourish for Strong/Neon/Typewriter — applied last so
+        // Neon's glow shadow isn't overwritten by the bgStyle shadow logic just above.
+        applyFontFlourish(tv, style.fontKey, dp);
+
+        // ✅ NEW: gradient/multi-colour fill + outline/stroke — only StyledOverlayTextView
+        // instances (every overlay created via createAdvancedTextOverlay) support these;
+        // guarded so applyStyleToView stays safe if ever called with a plain TextView.
+        if (tv instanceof StyledOverlayTextView) {
+            StyledOverlayTextView stv = (StyledOverlayTextView) tv;
+            stv.setGradientFill(style.gradientEnabled, style.gradientStart, style.gradientEnd);
+            stv.setOutline(style.outlineEnabled, style.outlineColor, OUTLINE_WIDTH_DP * dp);
+        }
     }
 
     /** Live-restyles the currently selected overlay whenever a chip/slider changes, matching the panel exactly. */
@@ -1570,6 +1923,12 @@ public class ReelEditorActivity extends AppCompatActivity {
         style.align = currentAlign;
         style.colorInt = currentTextColor;
         style.sizeSp = currentTextSizeSp;
+        style.animKey = currentAnimKey;
+        style.gradientEnabled = currentGradientEnabled;
+        style.gradientStart = currentGradientStart;
+        style.gradientEnd = currentGradientEnd;
+        style.outlineEnabled = currentOutlineEnabled;
+        style.outlineColor = currentOutlineColor;
         int dp = (int) getResources().getDisplayMetrics().density;
         applyStyleToView(selectedTextOverlay, style, dp);
         // Interactive path (chip taps, seekbar drag ticks) — coalesced, not synchronous.
@@ -1588,6 +1947,12 @@ public class ReelEditorActivity extends AppCompatActivity {
             currentAlign = style.align;
             currentTextColor = style.colorInt;
             currentTextSizeSp = style.sizeSp;
+            currentAnimKey = style.animKey;
+            currentGradientEnabled = style.gradientEnabled;
+            currentGradientStart = style.gradientStart;
+            currentGradientEnd = style.gradientEnd;
+            currentOutlineEnabled = style.outlineEnabled;
+            currentOutlineColor = style.outlineColor;
             setupAdvancedTextOverlayPanel();
         }
         for (TextView other : textOverlayViews) {
@@ -1826,7 +2191,10 @@ public class ReelEditorActivity extends AppCompatActivity {
             if (!first) sb.append(',');
             first = false;
             sb.append("{\"type\":\"text\",\"value\":\"");
-            appendJsonEscaped(sb, tv.getText());
+            // ✅ Read the full source text from the style tag, not tv.getText() — while a
+            // typewriter/word-reveal preview animation is running, tv.getText() is only a
+            // partially-revealed substring, and this can be called (debounced) mid-animation.
+            appendJsonEscaped(sb, style.text != null ? style.text : tv.getText());
             sb.append("\",\"x\":").append(xFrac)
               .append(",\"y\":").append(yFrac)
               .append(",\"color\":\"");
@@ -1839,6 +2207,16 @@ public class ReelEditorActivity extends AppCompatActivity {
               .append("\",\"size\":").append(style.sizeSp)
               .append(",\"rotation\":").append(tv.getRotation())
               .append(",\"scale\":").append(tv.getScaleX())
+              .append(",\"anim\":\"").append(style.animKey)
+              .append("\",\"gradientOn\":").append(style.gradientEnabled)
+              .append(",\"gradientStart\":\"");
+            appendColorHex(sb, style.gradientStart);
+            sb.append("\",\"gradientEnd\":\"");
+            appendColorHex(sb, style.gradientEnd);
+            sb.append("\",\"outlineOn\":").append(style.outlineEnabled)
+              .append(",\"outlineColor\":\"");
+            appendColorHex(sb, style.outlineColor);
+            sb.append('"')
               .append('}');
         }
         if (preservedNonText != null) {
@@ -3031,7 +3409,11 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (targetStatus) mergeSubtitleCaptionIntoOverlay();
 
         boolean hasFilter   = !filterName.isEmpty() && !filterName.equals("Normal");
-        boolean hasOverlays = !stickerJson.isEmpty();
+        // ✅ FIX: stickerJson defaults to "[]", not "", so the old
+        // `!stickerJson.isEmpty()` check was true even with zero overlays —
+        // harmless on its own (just an unnecessary re-encode), but worth
+        // checking for real content while fixing the bug below.
+        boolean hasOverlays = !stickerJson.isEmpty() && !stickerJson.equals("[]");
         // ✅ FIX: previously only filter/overlays triggered a re-encode, so a user
         // who only adjusted the trim handles still had the FULL original video
         // uploaded (trimStartMs/trimEndMs were sent to ReelUploadActivity but never
@@ -3039,15 +3421,67 @@ public class ReelEditorActivity extends AppCompatActivity {
         boolean hasTrim = totalDurationMs > 0 && trimEndMs > trimStartMs
             && (trimStartMs > 0 || trimEndMs < totalDurationMs);
 
+        boolean needsBake = (hasFilter || hasOverlays || hasTrim)
+            && videoUriStr != null && !videoUriStr.isEmpty();
+
         // ✅ NEW: If a filter, text/sticker overlay, or a trim range is active and we
         // have a local file, burn them into the actual video pixels (Media3 Transformer)
         // before uploading — this is also what makes the uploaded video length match
         // exactly what the trim preview showed.
-        if (isFilePath && (hasFilter || hasOverlays || hasTrim) && videoUriStr != null && !videoUriStr.isEmpty()) {
+        if (needsBake && isFilePath) {
             runHardBakeExport(hasTrim);
             return;
         }
+        // ✅ FIX: text overlay disappears after upload — root cause. ReelCameraActivity
+        // (the normal "record/pick video → Reel" entry point) opens this screen with
+        // EXTRA_IS_FILE_PATH=false for gallery-picked videos (content:// URI), so the
+        // `isFilePath` check above used to skip hard-bake ENTIRELY whenever the source
+        // wasn't already a local file — the text overlay looked fine in this screen's
+        // live preview (a real TextView drawn on top of the player) but never got burned
+        // into the uploaded video's pixels. It rode along instead as a "type":"text" entry
+        // in sticker_json, but ReelPlayerFragment's playback sticker layer renders every
+        // sticker_json entry via StatusStickerOverlayView, which has no "text" case and
+        // silently fails (caught exception) for one — so it never appeared after upload.
+        // Fix: copy the content URI to a local file first, then run the same hard-bake
+        // path instead of skipping it.
+        if (needsBake) {
+            copyThenHardBakeExport(hasTrim);
+            return;
+        }
         proceedToUploadInternal();
+    }
+
+    /** Copies a content:// video to a local cache file, then runs runHardBakeExport() on it —
+     *  see the FIX note in proceedToUpload() above for why this is needed. */
+    private void copyThenHardBakeExport(boolean hasTrim) {
+        android.app.ProgressDialog dialog = new android.app.ProgressDialog(this);
+        dialog.setMessage("Preparing video…");
+        dialog.setCancelable(false);
+        dialog.show();
+
+        Uri src = Uri.parse(videoUriStr);
+        new Thread(() -> {
+            String localPath;
+            try {
+                localPath = copyUriToCacheFile(src);
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    dialog.dismiss();
+                    Toast.makeText(ReelEditorActivity.this,
+                        "Couldn't apply edits, uploading original video.", Toast.LENGTH_SHORT).show();
+                    proceedToUploadInternal();
+                });
+                return;
+            }
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                dialog.dismiss();
+                videoUriStr = localPath;
+                isFilePath  = true;
+                runHardBakeExport(hasTrim);
+            });
+        }).start();
     }
 
     /** Re-encodes the video with the selected filter + text/stickers (+ trim range) baked in, then continues to upload. */

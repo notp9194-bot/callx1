@@ -68,7 +68,9 @@
                 android:background="@drawable/bg_trim_gradient_button_ripple"/>
         </LinearLayout>
 
-        <!-- Font family chips (populated in code: Classic / Serif / Mono / Condensed) -->
+        <!-- Font family chips (populated in code: Classic / Serif / Mono / Condensed /
+             Strong / Neon / Typewriter — the last three are stylized, Instagram-style
+             looks built from system typefaces + letter-spacing + glow, not new font assets) -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -85,6 +87,31 @@
             android:scrollbars="none">
             <LinearLayout
                 android:id="@+id/ll_text_font_row"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"/>
+        </HorizontalScrollView>
+
+        <!-- ✅ NEW: Text animation chips: None / Typewriter / Word Reveal (populated in code).
+             Previews live in the editor (chars/words reveal on the selected overlay) and the
+             same reveal timing is baked into the exported video via ReelVideoExportEngine. -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ANIMATION"
+            android:textColor="@color/trim_text_secondary"
+            android:textSize="11sp"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.1"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp"/>
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none">
+            <LinearLayout
+                android:id="@+id/ll_text_anim_row"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"/>
@@ -154,6 +181,53 @@
             android:scrollbars="none">
             <LinearLayout
                 android:id="@+id/ll_text_color_row"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"/>
+        </HorizontalScrollView>
+
+        <!-- ✅ NEW: Fill — Solid or a named 2-colour gradient preset (populated in code).
+             Each gradient chip previews its own colours as the chip background. -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="FILL"
+            android:textColor="@color/trim_text_secondary"
+            android:textSize="11sp"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.1"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp"/>
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none">
+            <LinearLayout
+                android:id="@+id/ll_text_fill_row"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"/>
+        </HorizontalScrollView>
+
+        <!-- ✅ NEW: Outline/stroke — None or a colour swatch (populated in code). -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="OUTLINE"
+            android:textColor="@color/trim_text_secondary"
+            android:textSize="11sp"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.1"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp"/>
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none">
+            <LinearLayout
+                android:id="@+id/ll_text_outline_row"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"/>

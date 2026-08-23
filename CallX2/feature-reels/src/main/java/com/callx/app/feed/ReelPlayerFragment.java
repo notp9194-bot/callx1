@@ -848,7 +848,15 @@ public class ReelPlayerFragment extends Fragment
                 depth--;
                 if (depth == 0) {
                     String obj = inner.substring(start, i + 1);
-                    addVideoStickerView(obj, layer, idx);
+                    // ✅ FIX: "type":"text" entries (ReelEditorActivity's Step-2 text
+                    // overlays) are meant to be hard-baked into the video pixels, not
+                    // rendered here — StatusStickerOverlayView.fromJson() has no "text"
+                    // case and was falling through to buildQuestion() with the wrong
+                    // fields, throwing and getting silently swallowed by the catch below.
+                    // Skip them explicitly instead of relying on that to fail quietly.
+                    if (!obj.contains("\"type\":\"text\"")) {
+                        addVideoStickerView(obj, layer, idx);
+                    }
                     idx++;
                     start = i + 1;
                     while (start < inner.length() && inner.charAt(start) == ',') start++;

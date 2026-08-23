@@ -89,14 +89,41 @@ public class ReelVideoExportEngine {
         public final String  align;     // left|center|right
         public final float   rotationDeg;
         public final float   scale;
+        // ✅ NEW: text-in animation baked into the exported pixels (see drawStyledOverlay).
+        public final String  animKey;       // none|typewriter|word
+        public final long    animDurationMs; // derived from text length — 0 when animKey is "none"
+        // ✅ NEW: gradient/multi-colour fill + outline/stroke — mirrors the editor's
+        // StyledOverlayTextView so the exported pixels match the live preview.
+        public final boolean gradientEnabled;
+        public final int     gradientStart;
+        public final int     gradientEnd;
+        public final boolean outlineEnabled;
+        public final int     outlineColor;
 
         public OverlayItem(String text, int color, float x, float y, float textSizeSp) {
-            this(text, color, x, y, textSizeSp, "classic", false, false, "pill", "center", 0f, 1f);
+            this(text, color, x, y, textSizeSp, "classic", false, false, "pill", "center", 0f, 1f, "none",
+                false, Color.WHITE, Color.WHITE, false, Color.BLACK);
         }
 
         public OverlayItem(String text, int color, float x, float y, float textSizeSp,
                             String fontKey, boolean bold, boolean italic, String bgStyle,
                             String align, float rotationDeg, float scale) {
+            this(text, color, x, y, textSizeSp, fontKey, bold, italic, bgStyle, align, rotationDeg, scale, "none",
+                false, Color.WHITE, Color.WHITE, false, Color.BLACK);
+        }
+
+        public OverlayItem(String text, int color, float x, float y, float textSizeSp,
+                            String fontKey, boolean bold, boolean italic, String bgStyle,
+                            String align, float rotationDeg, float scale, String animKey) {
+            this(text, color, x, y, textSizeSp, fontKey, bold, italic, bgStyle, align, rotationDeg, scale, animKey,
+                false, Color.WHITE, Color.WHITE, false, Color.BLACK);
+        }
+
+        public OverlayItem(String text, int color, float x, float y, float textSizeSp,
+                            String fontKey, boolean bold, boolean italic, String bgStyle,
+                            String align, float rotationDeg, float scale, String animKey,
+                            boolean gradientEnabled, int gradientStart, int gradientEnd,
+                            boolean outlineEnabled, int outlineColor) {
             this.text = text;
             this.color = color;
             this.x = x;
@@ -109,7 +136,26 @@ public class ReelVideoExportEngine {
             this.align = align != null ? align : "center";
             this.rotationDeg = rotationDeg;
             this.scale = scale <= 0f ? 1f : scale;
+            this.animKey = animKey != null ? animKey : "none";
+            this.animDurationMs = computeAnimDurationMs(text, this.animKey);
+            this.gradientEnabled = gradientEnabled;
+            this.gradientStart = gradientStart;
+            this.gradientEnd = gradientEnd;
+            this.outlineEnabled = outlineEnabled;
+            this.outlineColor = outlineColor;
         }
+    }
+
+    /** Same reveal-speed formula the editor's live preview uses (playTextAnimationPreview
+     *  in ReelEditorActivity), so the baked export matches what the user saw while editing. */
+    private static long computeAnimDurationMs(@Nullable String text, String animKey) {
+        if (text == null || text.isEmpty() || "none".equals(animKey)) return 0L;
+        if ("word".equals(animKey)) {
+            int words = text.trim().isEmpty() ? 1 : text.trim().split("\\s+").length;
+            return Math.max(500L, Math.min(2500L, words * 220L));
+        }
+        int chars = text.length();
+        return Math.max(600L, Math.min(3000L, chars * 45L));
     }
 
     /**
@@ -117,7 +163,8 @@ public class ReelVideoExportEngine {
      * [{"type":"text","value":"Hello|#FF0000","x":0.5,"y":0.5}, {"type":"emoji","value":"🔥","x":0.3,"y":0.2}]
      * or the richer Step-2 "advanced text overlay" schema:
      * [{"type":"text","value":"Hello","x":0.5,"y":0.5,"color":"#FF0000","font":"serif",
-     *   "bold":true,"italic":false,"bg":"solid","align":"center","size":30,"rotation":12,"scale":1.4}]
+     *   "bold":true,"italic":false,"bg":"solid","align":"center","size":30,"rotation":12,
+     *   "scale":1.4,"anim":"typewriter"}]
      */
     public static List<OverlayItem> parseOverlayJsonArray(@Nullable String json) {
         List<OverlayItem> result = new ArrayList<>();
@@ -172,8 +219,23 @@ public class ReelVideoExportEngine {
             boolean italic = obj.contains("\"italic\":true");
             float rotation = extractJsonFloat(obj, "rotation", 0f);
             float scale = extractJsonFloat(obj, "scale", 1f);
+            String anim = extractJsonString(obj, "anim");
 
-            return new OverlayItem(value, color, x, y, size, font, bold, italic, bg, align, rotation, scale);
+            // ✅ NEW: gradient fill + outline — absent in older/legacy sticker JSON,
+            // so all of these default to "off" when the keys aren't present.
+            boolean gradientOn = obj.contains("\"gradientOn\":true");
+            int gradientStart = Color.WHITE, gradientEnd = Color.WHITE;
+            String gStartStr = extractJsonString(obj, "gradientStart");
+            String gEndStr = extractJsonString(obj, "gradientEnd");
+            if (gStartStr != null) { try { gradientStart = Color.parseColor(gStartStr); } catch (Exception ignored) {} }
+            if (gEndStr != null) { try { gradientEnd = Color.parseColor(gEndStr); } catch (Exception ignored) {} }
+            boolean outlineOn = obj.contains("\"outlineOn\":true");
+            int outlineColor = Color.BLACK;
+            String outlineColorStr = extractJsonString(obj, "outlineColor");
+            if (outlineColorStr != null) { try { outlineColor = Color.parseColor(outlineColorStr); } catch (Exception ignored) {} }
+
+            return new OverlayItem(value, color, x, y, size, font, bold, italic, bg, align, rotation, scale, anim,
+                gradientOn, gradientStart, gradientEnd, outlineOn, outlineColor);
         } catch (Exception e) {
             return null;
         }
@@ -360,7 +422,16 @@ public class ReelVideoExportEngine {
         }
     }
 
-    /** Draws all text/sticker overlays onto a single transparent bitmap and overlays it on every frame. */
+    /**
+     * Draws all text/sticker overlays onto a transparent bitmap and overlays it on every frame.
+     *
+     * ✅ NEW: when at least one overlay has a text-in animation (typewriter / word reveal), the
+     * bitmap can no longer be built once and reused for the whole video — the revealed text
+     * changes with presentationTimeUs. To keep the common case (no animated overlays) exactly
+     * as cheap as before, this only switches to per-frame rendering when something actually
+     * animates, and even then stops re-rendering once every animation has settled — the frame
+     * at that point is cached and reused for the rest of the reel.
+     */
     private static void addOverlayEffect(Context context, List<Effect> effects,
                                           String inputPath, @Nullable List<OverlayItem> overlays) {
         if (overlays == null || overlays.isEmpty()) return;
@@ -368,28 +439,75 @@ public class ReelVideoExportEngine {
         int[] size = readVideoSize(inputPath);
         int width = size[0] > 0 ? size[0] : 720;
         int height = size[1] > 0 ? size[1] : 1280;
-
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
         float density = context.getResources().getDisplayMetrics().density;
 
+        long maxAnimUs = 0L;
         for (OverlayItem item : overlays) {
-            drawStyledOverlay(canvas, item, width, height, density);
+            if (!"none".equals(item.animKey)) {
+                maxAnimUs = Math.max(maxAnimUs, item.animDurationMs * 1000L);
+            }
+        }
+        final long settleAtUs = maxAnimUs;
+
+        if (settleAtUs == 0L) {
+            // Fast path — nothing animates in, so render exactly once (unchanged behavior/perf).
+            final Bitmap bitmap = renderOverlayFrame(overlays, width, height, density, 0L);
+            BitmapOverlay overlay = new BitmapOverlay() {
+                @Override public Bitmap getBitmap(long presentationTimeUs) { return bitmap; }
+                @Override public OverlaySettings getOverlaySettings(long presentationTimeUs) {
+                    return new OverlaySettings.Builder().build();
+                }
+            };
+            effects.add(new OverlayEffect(ImmutableList.of(overlay)));
+            return;
         }
 
+        // Slow path — re-render only while an animation is still revealing, then cache.
+        final Bitmap[] settledFrame = new Bitmap[1];
         BitmapOverlay overlay = new BitmapOverlay() {
-            @Override
-            public Bitmap getBitmap(long presentationTimeUs) {
-                return bitmap;
+            @Override public Bitmap getBitmap(long presentationTimeUs) {
+                if (presentationTimeUs >= settleAtUs) {
+                    if (settledFrame[0] == null) {
+                        settledFrame[0] = renderOverlayFrame(overlays, width, height, density, presentationTimeUs);
+                    }
+                    return settledFrame[0];
+                }
+                return renderOverlayFrame(overlays, width, height, density, presentationTimeUs);
             }
-
-            @Override
-            public OverlaySettings getOverlaySettings(long presentationTimeUs) {
+            @Override public OverlaySettings getOverlaySettings(long presentationTimeUs) {
                 return new OverlaySettings.Builder().build();
             }
         };
-
         effects.add(new OverlayEffect(ImmutableList.of(overlay)));
+    }
+
+    private static Bitmap renderOverlayFrame(List<OverlayItem> overlays, int width, int height,
+                                              float density, long presentationTimeUs) {
+        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        for (OverlayItem item : overlays) {
+            drawStyledOverlay(canvas, item, width, height, density, presentationTimeUs);
+        }
+        return bitmap;
+    }
+
+    /** Returns how much of item.text should be visible at presentationTimeUs given its animKey. */
+    private static String revealedText(OverlayItem item, long presentationTimeUs) {
+        if ("none".equals(item.animKey) || item.animDurationMs <= 0L) return item.text;
+        float progress = Math.min(1f, (presentationTimeUs / 1000f) / item.animDurationMs);
+        if ("word".equals(item.animKey)) {
+            String[] words = item.text.trim().split("\\s+");
+            int shown = Math.max(1, Math.min(words.length, Math.round(progress * words.length)));
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < shown; i++) {
+                if (i > 0) sb.append(' ');
+                sb.append(words[i]);
+            }
+            return sb.toString();
+        }
+        int totalChars = item.text.length();
+        int shown = Math.max(1, Math.min(totalChars, Math.round(progress * totalChars)));
+        return item.text.substring(0, shown);
     }
 
     /**
@@ -399,13 +517,19 @@ public class ReelVideoExportEngine {
      * TextView) showed, so the exported/baked video looks identical to what
      * the user styled on screen instead of the old fixed white-bold-pill text.
      */
-    private static void drawStyledOverlay(Canvas canvas, OverlayItem item, int videoWidth, int videoHeight, float density) {
+    private static void drawStyledOverlay(Canvas canvas, OverlayItem item, int videoWidth, int videoHeight,
+                                           float density, long presentationTimeUs) {
         float sizePx = item.textSizeSp * density * ((float) videoWidth / 1080f) * item.scale;
 
         Paint paint = new Paint();
         paint.setAntiAlias(true);
         paint.setTextSize(sizePx);
         paint.setTypeface(resolveTypeface(item.fontKey, item.bold, item.italic));
+
+        // ✅ NEW: Strong/Neon/Typewriter tracking, matching the editor preview's applyFontFlourish().
+        if ("neon".equals(item.fontKey)) paint.setLetterSpacing(0.05f);
+        else if ("typewriter".equals(item.fontKey)) paint.setLetterSpacing(0.08f);
+        else if ("strong".equals(item.fontKey)) paint.setLetterSpacing(0.01f);
 
         boolean highlight = "highlight".equals(item.bgStyle);
         int textColor = item.color;
@@ -415,7 +539,11 @@ public class ReelVideoExportEngine {
             textColor = luminance > 150 ? Color.BLACK : Color.WHITE;
         }
         paint.setColor(textColor);
-        if (!"none".equals(item.bgStyle) && !highlight) {
+        boolean neon = "neon".equals(item.fontKey);
+        if (neon) {
+            // Bloom pass drawn first (see below), then a crisp un-shadowed pass on top.
+            paint.setShadowLayer(0f, 0f, 0f, 0);
+        } else if (!"none".equals(item.bgStyle)) {
             paint.setShadowLayer(4f * density, 0f, 2f * density, 0x99000000);
         }
 
@@ -423,7 +551,10 @@ public class ReelVideoExportEngine {
             : "right".equals(item.align) ? Paint.Align.RIGHT : Paint.Align.CENTER;
         paint.setTextAlign(paintAlign);
 
-        String[] lines = item.text.split("\\n", -1);
+        // ✅ NEW: text-in animation — only the revealed prefix is drawn/measured, so the
+        // background box (pill/solid/highlight) grows with the text exactly like the preview.
+        String displayText = revealedText(item, presentationTimeUs);
+        String[] lines = displayText.split("\\n", -1);
         float lineHeight = sizePx * 1.25f;
         float pad = 8f * density * item.scale;
 
@@ -453,6 +584,50 @@ public class ReelVideoExportEngine {
             canvas.drawRoundRect(rect, radius, radius, bg);
         }
 
+        // ✅ NEW: Neon glow — two soft blurred bloom passes in the text's own colour, then a
+        // crisp pass on top. A single TextView shadowLayer can't build this look on the preview
+        // side, but a manually-drawn Canvas has no such limit, so export can go a bit further.
+        if (neon) {
+            Paint glow = new Paint(paint);
+            glow.setShadowLayer(22f * density, 0f, 0f, textColor);
+            float gy = -blockHeight / 2f + lineHeight * 0.8f;
+            for (String line : lines) {
+                float lineX = paintAlign == Paint.Align.LEFT ? -maxLineWidth / 2f
+                    : paintAlign == Paint.Align.RIGHT ? maxLineWidth / 2f : 0f;
+                canvas.drawText(line, lineX, gy, glow);
+                gy += lineHeight;
+            }
+        }
+
+        // ✅ NEW: outline/stroke pass, drawn behind the fill — same two-pass trick as
+        // the editor's StyledOverlayTextView (a single Paint has one colour, so the
+        // stroke-coloured pass has to be a separate drawText call before the fill one).
+        if (item.outlineEnabled) {
+            Paint outline = new Paint(paint);
+            outline.setShader(null);
+            outline.setStyle(Paint.Style.STROKE);
+            outline.setStrokeJoin(Paint.Join.ROUND);
+            outline.setStrokeMiter(2f);
+            outline.setStrokeWidth(2.5f * density * item.scale);
+            outline.setColor(item.outlineColor);
+            outline.setShadowLayer(0f, 0f, 0f, 0);
+            float oy = -blockHeight / 2f + lineHeight * 0.8f;
+            for (String line : lines) {
+                float lineX = paintAlign == Paint.Align.LEFT ? -maxLineWidth / 2f
+                    : paintAlign == Paint.Align.RIGHT ? maxLineWidth / 2f : 0f;
+                canvas.drawText(line, lineX, oy, outline);
+                oy += lineHeight;
+            }
+        }
+
+        // ✅ NEW: gradient/multi-colour fill — a LinearGradient shader spanning the
+        // widest line's width, matching StyledOverlayTextView's onSizeChanged shader.
+        if (item.gradientEnabled) {
+            paint.setShader(new android.graphics.LinearGradient(
+                -maxLineWidth / 2f, 0f, maxLineWidth / 2f, 0f,
+                item.gradientStart, item.gradientEnd, android.graphics.Shader.TileMode.CLAMP));
+        }
+
         float baselineY = -blockHeight / 2f + lineHeight * 0.8f;
         for (String line : lines) {
             float lineX;
@@ -470,6 +645,10 @@ public class ReelVideoExportEngine {
         if ("serif".equals(fontKey)) base = Typeface.SERIF;
         else if ("mono".equals(fontKey)) base = Typeface.MONOSPACE;
         else if ("condensed".equals(fontKey)) base = Typeface.create("sans-serif-condensed", Typeface.NORMAL);
+        // ✅ NEW — mirrors ReelEditorActivity.resolvePreviewTypeface() so export matches preview.
+        else if ("strong".equals(fontKey)) base = Typeface.create("sans-serif-black", Typeface.NORMAL);
+        else if ("neon".equals(fontKey)) base = Typeface.create("sans-serif-condensed", Typeface.NORMAL);
+        else if ("typewriter".equals(fontKey)) base = Typeface.MONOSPACE;
         else base = Typeface.SANS_SERIF;
 
         int style = Typeface.NORMAL;

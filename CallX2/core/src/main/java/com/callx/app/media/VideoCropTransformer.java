@@ -72,8 +72,13 @@ public final class VideoCropTransformer {
             float topNdc    =  1f - 2f * cropFraction.top;
             float bottomNdc =  1f - 2f * cropFraction.bottom;
 
-            // Crop(left, top, right, bottom) — all in NDC, left<right and bottom<top.
-            Crop cropEffect = new Crop(leftNdc, topNdc, rightNdc, bottomNdc);
+            // Crop(left, bottom, right, top) — all in NDC, left<right and bottom<top.
+            // ⚠️ FIX: Media3's Crop constructor takes (left, BOTTOM, right, TOP) — bottom
+            // before top — not (left, top, right, bottom) as the visual reading order would
+            // suggest. Passing topNdc/bottomNdc in the wrong slots made "bottom" > "top" from
+            // the effect's point of view, which is exactly why crop wasn't applying (the
+            // Crop effect silently no-ops / export shows the uncropped frame on invalid bounds).
+            Crop cropEffect = new Crop(leftNdc, bottomNdc, rightNdc, topNdc);
 
             MediaItem mediaItem = MediaItem.fromUri(inputUri);
             EditedMediaItem editedMediaItem = new EditedMediaItem.Builder(mediaItem)
