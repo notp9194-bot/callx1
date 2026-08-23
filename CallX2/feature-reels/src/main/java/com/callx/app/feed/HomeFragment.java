@@ -402,8 +402,16 @@ public class HomeFragment extends Fragment {
                              @Nullable Bundle savedInstanceState) {
         View v = inflater.inflate(R.layout.fragment_home, container, false);
         bindViews(v);
-        // ── v243: header/footer are inflated ONCE here (not lazily by the
-        // adapter) so every existing method that reaches for containerStories,
+        // ── v243: LayoutManager must be attached to recyclerHome BEFORE
+        // anything is inflated with it as the (false-attach) parent —
+        // RecyclerView.generateLayoutParams() requires one to already be set
+        // even just to build a root view's LayoutParams, or inflate() throws
+        // "RecyclerView has no LayoutManager". Adapter is set once built below.
+        recyclerHome.setLayoutManager(new LinearLayoutManager(requireContext()));
+        recyclerHome.setItemViewCacheSize(4);
+        feedScrollContentRoot = recyclerHome;
+        // Header/footer are inflated ONCE here (not lazily by the adapter) so
+        // every existing method that reaches for containerStories,
         // btnHomeFollowing, containerTrending, etc. keeps working exactly as
         // before — those fields are populated immediately, same timing as
         // when fragment_home.xml held them directly. FeedAdapter just wraps
@@ -414,11 +422,8 @@ public class HomeFragment extends Fragment {
         bindHeaderViews(headerView);
         bindFooterViews(footerView);
         feedAdapter = new FeedAdapter(headerView, footerView);
-        recyclerHome.setLayoutManager(new LinearLayoutManager(requireContext()));
         recyclerHome.setAdapter(feedAdapter);
-        recyclerHome.setItemViewCacheSize(4);
-        feedScrollContentRoot = recyclerHome;
-        // ── Initialise the single shared ExoPlayer for inline feed playback ──
+
         // ★ Built via AdaptiveStreamingManager.buildBarePlayer() instead of a
         // plain ExoPlayer.Builder() — gets the SAME network-tier-tuned
         // LoadControl (short start buffer, e.g. ~800ms bufferForPlaybackMs on
