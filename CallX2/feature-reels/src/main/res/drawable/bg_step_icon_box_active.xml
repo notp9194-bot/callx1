@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ✅ NEW: brand pink→purple gradient border ring drawn on top of
+     bg_step_icon_box for whichever step is currently active — same
+     glow-layer + inset-fill trick as core's bg_step_indicator_pill: bottom
+     layer is a full gradient-filled rounded square, top layer insets by the
+     border width with a transparent center, so only a 2dp gradient ring
+     shows around the icon box's edge. Replaces the old spinning
+     bg_step_active_ring_orange halo (a circular ring didn't read correctly
+     behind a rounded-square box). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="linear"
+                android:angle="45"
+                android:startColor="@color/trim_gradient_start"
+                android:endColor="@color/trim_gradient_end"/>
+            <corners android:radius="14dp"/>
+        </shape>
+    </item>
+
+    <item
+        android:top="2dp"
+        android:bottom="2dp"
+        android:left="2dp"
+        android:right="2dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent"/>
+            <corners android:radius="12dp"/>
+        </shape>
+    </item>
+
+</layer-list>
