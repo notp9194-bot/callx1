@@ -239,9 +239,6 @@ public class ReelEditorActivity extends AppCompatActivity {
     private TextView[]                 editorStepDots;
     private View[]                     editorStepLines;
     private ImageView[]                editorStepRings;
-    // ✅ NEW: screenshot-style icon boxes (bg_editor_step_card_active/inactive)
-    // that step_dot_N's badge now sits on top of — see updateEditorStepCards().
-    private FrameLayout[]              editorStepCards;
     private ObjectAnimator             editorActiveStepRingSpin;
     private View                       btnEditorStepBack, btnEditorStepNext;
     private int                        editorCurrentStep = 0;
@@ -2719,11 +2716,6 @@ public class ReelEditorActivity extends AppCompatActivity {
                 findViewById(R.id.step_ring_3), findViewById(R.id.step_ring_4),
                 findViewById(R.id.step_ring_5)
         };
-        editorStepCards = new FrameLayout[] {
-                findViewById(R.id.step_card_1), findViewById(R.id.step_card_2),
-                findViewById(R.id.step_card_3), findViewById(R.id.step_card_4),
-                findViewById(R.id.step_card_5)
-        };
         btnEditorStepBack = findViewById(R.id.btn_editor_step_back);
         btnEditorStepNext = findViewById(R.id.btn_editor_step_next);
 
@@ -2810,25 +2802,7 @@ public class ReelEditorActivity extends AppCompatActivity {
                         com.callx.app.core.R.color.trim_divider));
             }
         }
-        updateEditorStepCards();
         updateActiveEditorStepRing();
-    }
-
-    /**
-     * ✅ NEW: only the CURRENT step's icon box gets the brand gradient border
-     * (bg_editor_step_card_active) — matches the reference screenshot, where
-     * completed/upcoming steps stay a plain dark box and only the step you're
-     * actually on is highlighted. The small numbered badge (editorStepDots)
-     * keeps its own separate "reached vs not" coloring, unchanged.
-     */
-    private void updateEditorStepCards() {
-        if (editorStepCards == null) return;
-        for (int i = 0; i < editorStepCards.length; i++) {
-            if (editorStepCards[i] == null) continue;
-            editorStepCards[i].setBackgroundResource(i == editorCurrentStep
-                    ? com.callx.app.core.R.drawable.bg_editor_step_card_active
-                    : com.callx.app.core.R.drawable.bg_editor_step_card_inactive);
-        }
     }
 
     /**
