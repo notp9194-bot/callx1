@@ -216,161 +216,372 @@
 
         </LinearLayout>
 
+        <!-- ✅ CHANGED: screenshot-style step cards — each step is now its own
+             icon+label box (bg_editor_step_card_active/inactive) with a small
+             numbered badge overlapping its top-right corner, instead of a bare
+             numbered dot, so the tool bar itself communicates what each step
+             DOES (Trim/Cut, Text Overlay, Add Music, Filters, Cover/Final) —
+             not just how many steps are left. Ids kept close to the old
+             step_dot_N/step_line_N/step_ring_N so updateEditorStepDots() only
+             needed to be extended, not rewritten. -->
         <LinearLayout
             android:id="@+id/editor_stepper"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="top">
 
-            <FrameLayout
-                android:layout_width="48dp"
-                android:layout_height="48dp">
+            <!-- Step 1 · Trim / Cut -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center_horizontal">
 
-                <ImageView
-                    android:id="@+id/step_ring_1"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:src="@drawable/bg_step_active_ring_orange"
-                    android:contentDescription="@null"
-                    android:visibility="gone"/>
+                <FrameLayout
+                    android:layout_width="52dp"
+                    android:layout_height="52dp">
+
+                    <ImageView
+                        android:id="@+id/step_ring_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:src="@drawable/bg_step_active_ring_orange"
+                        android:contentDescription="@null"
+                        android:visibility="gone"/>
+
+                    <FrameLayout
+                        android:id="@+id/step_card_1"
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:layout_gravity="center"
+                        android:background="@drawable/bg_editor_step_card_active">
+
+                        <ImageView
+                            android:id="@+id/step_icon_1"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_step_trim"
+                            android:contentDescription="@null"/>
+                    </FrameLayout>
+
+                    <TextView
+                        android:id="@+id/step_dot_1"
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:layout_gravity="top|end"
+                        android:gravity="center"
+                        android:text="1"
+                        android:textSize="9sp"
+                        android:textColor="@color/white"
+                        android:textStyle="bold"
+                        android:background="@drawable/bg_trim_gradient_button"/>
+                </FrameLayout>
 
                 <TextView
-                    android:id="@+id/step_dot_1"
-                    android:layout_gravity="center"
-                    android:layout_width="26dp"
-                    android:layout_height="26dp"
-                    android:gravity="center"
-                    android:text="1"
-                    android:textSize="11sp"
-                    android:textColor="@color/white"
+                    android:id="@+id/step_label_1"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Trim / Cut"
+                    android:textColor="@color/trim_text_primary"
+                    android:textSize="10sp"
                     android:textStyle="bold"
-                    android:background="@drawable/bg_trim_gradient_button"/>
-            </FrameLayout>
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+
             <View
                 android:id="@+id/step_line_1"
                 android:layout_width="0dp"
-                android:layout_height="4dp"
+                android:layout_height="3dp"
                 android:layout_weight="1"
-                android:layout_marginHorizontal="4dp"
+                android:layout_marginTop="26dp"
+                android:layout_marginHorizontal="2dp"
                 android:background="@color/trim_divider"/>
-            <FrameLayout
-                android:layout_width="48dp"
-                android:layout_height="48dp">
 
-                <ImageView
-                    android:id="@+id/step_ring_2"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:src="@drawable/bg_step_active_ring_orange"
-                    android:contentDescription="@null"
-                    android:visibility="gone"/>
+            <!-- Step 2 · Text Overlay -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center_horizontal">
+
+                <FrameLayout
+                    android:layout_width="52dp"
+                    android:layout_height="52dp">
+
+                    <ImageView
+                        android:id="@+id/step_ring_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:src="@drawable/bg_step_active_ring_orange"
+                        android:contentDescription="@null"
+                        android:visibility="gone"/>
+
+                    <FrameLayout
+                        android:id="@+id/step_card_2"
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:layout_gravity="center"
+                        android:background="@drawable/bg_editor_step_card_inactive">
+
+                        <!-- Matches the reference screenshot's "Tt" text-tool glyph
+                             exactly — a real letter mark reads clearer at this size
+                             than any generic text icon would. -->
+                        <TextView
+                            android:id="@+id/step_icon_2"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center"
+                            android:text="Tt"
+                            android:textColor="@color/white"
+                            android:textStyle="bold"
+                            android:textSize="17sp"/>
+                    </FrameLayout>
+
+                    <TextView
+                        android:id="@+id/step_dot_2"
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:layout_gravity="top|end"
+                        android:gravity="center"
+                        android:text="2"
+                        android:textSize="9sp"
+                        android:textColor="@color/trim_text_secondary"
+                        android:textStyle="bold"
+                        android:background="@drawable/bg_trim_circle_btn"/>
+                </FrameLayout>
 
                 <TextView
-                    android:id="@+id/step_dot_2"
-                    android:layout_gravity="center"
-                    android:layout_width="26dp"
-                    android:layout_height="26dp"
-                    android:gravity="center"
-                    android:text="2"
-                    android:textSize="11sp"
-                    android:textColor="@color/trim_text_secondary"
+                    android:id="@+id/step_label_2"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Text Overlay"
+                    android:textColor="@color/trim_text_primary"
+                    android:textSize="10sp"
                     android:textStyle="bold"
-                    android:background="@drawable/bg_trim_circle_btn"/>
-            </FrameLayout>
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+
             <View
                 android:id="@+id/step_line_2"
                 android:layout_width="0dp"
-                android:layout_height="4dp"
+                android:layout_height="3dp"
                 android:layout_weight="1"
-                android:layout_marginHorizontal="4dp"
+                android:layout_marginTop="26dp"
+                android:layout_marginHorizontal="2dp"
                 android:background="@color/trim_divider"/>
-            <FrameLayout
-                android:layout_width="48dp"
-                android:layout_height="48dp">
 
-                <ImageView
-                    android:id="@+id/step_ring_3"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:src="@drawable/bg_step_active_ring_orange"
-                    android:contentDescription="@null"
-                    android:visibility="gone"/>
+            <!-- Step 3 · Add Music -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center_horizontal">
+
+                <FrameLayout
+                    android:layout_width="52dp"
+                    android:layout_height="52dp">
+
+                    <ImageView
+                        android:id="@+id/step_ring_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:src="@drawable/bg_step_active_ring_orange"
+                        android:contentDescription="@null"
+                        android:visibility="gone"/>
+
+                    <FrameLayout
+                        android:id="@+id/step_card_3"
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:layout_gravity="center"
+                        android:background="@drawable/bg_editor_step_card_inactive">
+
+                        <ImageView
+                            android:id="@+id/step_icon_3"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_step_music"
+                            android:contentDescription="@null"/>
+                    </FrameLayout>
+
+                    <TextView
+                        android:id="@+id/step_dot_3"
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:layout_gravity="top|end"
+                        android:gravity="center"
+                        android:text="3"
+                        android:textSize="9sp"
+                        android:textColor="@color/trim_text_secondary"
+                        android:textStyle="bold"
+                        android:background="@drawable/bg_trim_circle_btn"/>
+                </FrameLayout>
 
                 <TextView
-                    android:id="@+id/step_dot_3"
-                    android:layout_gravity="center"
-                    android:layout_width="26dp"
-                    android:layout_height="26dp"
-                    android:gravity="center"
-                    android:text="3"
-                    android:textSize="11sp"
-                    android:textColor="@color/trim_text_secondary"
+                    android:id="@+id/step_label_3"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Add Music"
+                    android:textColor="@color/trim_text_primary"
+                    android:textSize="10sp"
                     android:textStyle="bold"
-                    android:background="@drawable/bg_trim_circle_btn"/>
-            </FrameLayout>
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+
             <View
                 android:id="@+id/step_line_3"
                 android:layout_width="0dp"
-                android:layout_height="4dp"
+                android:layout_height="3dp"
                 android:layout_weight="1"
-                android:layout_marginHorizontal="4dp"
+                android:layout_marginTop="26dp"
+                android:layout_marginHorizontal="2dp"
                 android:background="@color/trim_divider"/>
-            <FrameLayout
-                android:layout_width="48dp"
-                android:layout_height="48dp">
 
-                <ImageView
-                    android:id="@+id/step_ring_4"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:src="@drawable/bg_step_active_ring_orange"
-                    android:contentDescription="@null"
-                    android:visibility="gone"/>
+            <!-- Step 4 · Filters -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center_horizontal">
+
+                <FrameLayout
+                    android:layout_width="52dp"
+                    android:layout_height="52dp">
+
+                    <ImageView
+                        android:id="@+id/step_ring_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:src="@drawable/bg_step_active_ring_orange"
+                        android:contentDescription="@null"
+                        android:visibility="gone"/>
+
+                    <FrameLayout
+                        android:id="@+id/step_card_4"
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:layout_gravity="center"
+                        android:background="@drawable/bg_editor_step_card_inactive">
+
+                        <ImageView
+                            android:id="@+id/step_icon_4"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_step_filters"
+                            android:contentDescription="@null"/>
+                    </FrameLayout>
+
+                    <TextView
+                        android:id="@+id/step_dot_4"
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:layout_gravity="top|end"
+                        android:gravity="center"
+                        android:text="4"
+                        android:textSize="9sp"
+                        android:textColor="@color/trim_text_secondary"
+                        android:textStyle="bold"
+                        android:background="@drawable/bg_trim_circle_btn"/>
+                </FrameLayout>
 
                 <TextView
-                    android:id="@+id/step_dot_4"
-                    android:layout_gravity="center"
-                    android:layout_width="26dp"
-                    android:layout_height="26dp"
-                    android:gravity="center"
-                    android:text="4"
-                    android:textSize="11sp"
-                    android:textColor="@color/trim_text_secondary"
+                    android:id="@+id/step_label_4"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Filters"
+                    android:textColor="@color/trim_text_primary"
+                    android:textSize="10sp"
                     android:textStyle="bold"
-                    android:background="@drawable/bg_trim_circle_btn"/>
-            </FrameLayout>
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+
             <View
                 android:id="@+id/step_line_4"
                 android:layout_width="0dp"
-                android:layout_height="4dp"
+                android:layout_height="3dp"
                 android:layout_weight="1"
-                android:layout_marginHorizontal="4dp"
+                android:layout_marginTop="26dp"
+                android:layout_marginHorizontal="2dp"
                 android:background="@color/trim_divider"/>
-            <FrameLayout
-                android:layout_width="48dp"
-                android:layout_height="48dp">
 
-                <ImageView
-                    android:id="@+id/step_ring_5"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:src="@drawable/bg_step_active_ring_orange"
-                    android:contentDescription="@null"
-                    android:visibility="gone"/>
+            <!-- Step 5 · Cover / Final -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center_horizontal">
+
+                <FrameLayout
+                    android:layout_width="52dp"
+                    android:layout_height="52dp">
+
+                    <ImageView
+                        android:id="@+id/step_ring_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:src="@drawable/bg_step_active_ring_orange"
+                        android:contentDescription="@null"
+                        android:visibility="gone"/>
+
+                    <FrameLayout
+                        android:id="@+id/step_card_5"
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:layout_gravity="center"
+                        android:background="@drawable/bg_editor_step_card_inactive">
+
+                        <ImageView
+                            android:id="@+id/step_icon_5"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_step_cover"
+                            android:contentDescription="@null"/>
+                    </FrameLayout>
+
+                    <TextView
+                        android:id="@+id/step_dot_5"
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:layout_gravity="top|end"
+                        android:gravity="center"
+                        android:text="5"
+                        android:textSize="9sp"
+                        android:textColor="@color/trim_text_secondary"
+                        android:textStyle="bold"
+                        android:background="@drawable/bg_trim_circle_btn"/>
+                </FrameLayout>
 
                 <TextView
-                    android:id="@+id/step_dot_5"
-                    android:layout_gravity="center"
-                    android:layout_width="26dp"
-                    android:layout_height="26dp"
-                    android:gravity="center"
-                    android:text="5"
-                    android:textSize="11sp"
-                    android:textColor="@color/trim_text_secondary"
+                    android:id="@+id/step_label_5"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Cover / Final"
+                    android:textColor="@color/trim_text_primary"
+                    android:textSize="10sp"
                     android:textStyle="bold"
-                    android:background="@drawable/bg_trim_circle_btn"/>
-            </FrameLayout>
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+
         </LinearLayout>
     </LinearLayout>
 
