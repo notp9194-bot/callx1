@@ -24,6 +24,8 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.DiffUtil;
+import androidx.recyclerview.widget.ListUpdateCallback;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.datasource.cache.CacheDataSource;
@@ -303,6 +305,41 @@ public class HomeFragment extends Fragment {
      *  the two don't always land on the same post (feels organic, like IG). */
     private static final int SUGGESTED_REELS_EVERY_N_POSTS = 4;
 
+    // ══════════════════════════════════════════════════════════════════════
+    // ── v280: list cap / windowing ──────────────────────────────────────────
+    // Infinite scroll only ever appends, so a long Home session accumulates
+    // every post ever fetched in currentFeedPosts/feedCards/feedItems forever
+    // — none of it is recycled RecyclerView-style the way onBindViewHolder's
+    // views are (see FeedAdapter.onViewRecycled: that only nulls a feedCards
+    // *slot*, it never shrinks the backing lists). maybeTrimFeedWindow()
+    // periodically drops posts the user has scrolled well past off the FRONT
+    // of these lists so their size stays bounded by how far the user has
+    // scrolled forward, not by the session's total lifetime. The AHEAD side
+    // (posts fetched but not yet scrolled to) is intentionally left alone —
+    // it's already bounded by FEED_FETCH_BATCH per page and trimming it would
+    // create a permanent gap once oldestFeedTimestamp has already moved past
+    // it (loadMoreFeedPosts would never re-fetch it). Front-trim is safe by
+    // comparison because reloadTrimmedFrontPosts() below re-fetches exactly
+    // that range if the user scrolls back up into it.
+    // ══════════════════════════════════════════════════════════════════════
+    /** How many posts behind the current visible position stay loaded. */
+    private static final int FEED_WINDOW_BEHIND = 15;
+    /** How many posts ahead of the current visible position stay loaded —
+     *  documented for symmetry with FEED_WINDOW_BEHIND; the ahead side is
+     *  never actively trimmed (see class-doc block above), so this only
+     *  documents the intended shape of the window, not a trim boundary. */
+    private static final int FEED_WINDOW_AHEAD = 30;
+    /** Trim only once the feed is a full page past the window, so a single
+     *  page append doesn't trigger a DiffUtil pass every time. */
+    private static final int FEED_TRIM_SLACK = FEED_PAGE_SIZE;
+    /** Newest timestamp among posts ever trimmed off the front — null until
+     *  the first trim. reloadTrimmedFrontPosts() uses this to know when it
+     *  has re-fetched all the way back to where trimming started. */
+    private Long frontTrimHighWaterTimestamp = null;
+    /** Guards reloadTrimmedFrontPosts() against duplicate in-flight fetches
+     *  from a fast scroll-up. */
+    private boolean isLoadingNewerFeed = false;
+
     private boolean          isLoadingMoreFeed   = false;
     private boolean          feedHasMore         = true;
     private Long             oldestFeedTimestamp = null;
@@ -366,7 +403,46 @@ public class HomeFragment extends Fragment {
             if (feedWindowManager != null) feedWindowManager.onScrollSettled();
         }
     };
-    private final Runnable playVisibleRunnable = this::playMostVisibleCard;
+    /** ★ Instagram-level instant autoplay: coalesces to at most one
+     *  playMostVisibleCard() call per Looper pass (~once per frame) instead
+     *  of the old "wait 120ms after scroll goes quiet" debounce. The old
+     *  debounce reset on every single onScrolled call, so during any
+     *  continuous drag/fling — where onScrolled fires continuously — it
+     *  never actually fired until the whole scroll had been motionless for
+     *  120ms straight, meaning a reel didn't start playing until well after
+     *  it had already settled into view. playMostVisibleCard() itself is
+     *  cheap (a bounded visibility scan with an early break, no allocation)
+     *  and only does real work when the dominant card actually changed, so
+     *  running it every frame during scroll is safe — a card now starts
+     *  playing the moment it becomes the most-visible one, not 120ms after
+     *  the finger stops. playVisibleCheckScheduled guards against queuing
+     *  more than one pending check per frame.
+     *
+     *  ★★ Ultra-advanced: the hot-path scheduling itself runs on
+     *  Choreographer rather than the plain main-thread Handler used
+     *  everywhere else. Handler.post() only queues behind whatever else is
+     *  already sitting in the main Looper's message queue (input events,
+     *  other posted work), so under load its "next frame" isn't reliably
+     *  synced to vsync. Choreographer.postFrameCallback() is the same
+     *  primitive RecyclerView's own scroll/layout pipeline uses internally
+     *  — it runs exactly once per display refresh, right alongside the
+     *  layout pass that just moved these cards, so the visibility check
+     *  always reads this frame's final positions instead of racing an
+     *  arbitrary queued message. */
+    private boolean playVisibleCheckScheduled = false;
+    private final android.view.Choreographer.FrameCallback playVisibleFrameCallback = frameTimeNanos -> {
+        playVisibleCheckScheduled = false;
+        playMostVisibleCard();
+    };
+    /** Handler-based twin of playVisibleFrameCallback — kept for the few
+     *  call sites elsewhere that want a deliberate fixed delay (e.g. "wait
+     *  300ms for a transition to finish, then re-check") rather than a
+     *  frame-synced check; the hot scroll path below uses the Choreographer
+     *  callback exclusively. */
+    private final Runnable playVisibleRunnable = () -> {
+        playVisibleCheckScheduled = false;
+        playMostVisibleCard();
+    };
     private int paginateThresholdPx = 0;
     private int prefetchThresholdPx = 0;
     /** Reused by playMostVisibleCard() so a scroll never allocates an int[]. */
@@ -381,6 +457,12 @@ public class HomeFragment extends Fragment {
      *  the card load and the prefetch so both hit the same Glide cache key. */
     private static final int THUMB_DECODE_W = 540;
     private static final int THUMB_DECODE_H = 960;
+    /** Trending strip / Continue Watching tiles render at ~120–140dp — the
+     *  fixed 720x720 decode those two spots used was sized for a full-width
+     *  card, roughly 3-5x more pixels than any device density actually needs
+     *  for a ~140dp tile, wasting decode time and heap on every card. 260px
+     *  covers up to xxhdpi (140dp × ~1.9) with headroom. */
+    private static final int STRIP_THUMB_DECODE_PX = 260;
     /** De-dupes prefetchUpcomingFeedMedia() across a fling's scroll events. */
     private int lastPrefetchFromIndex = -1;
 
@@ -402,6 +484,16 @@ public class HomeFragment extends Fragment {
                              @Nullable Bundle savedInstanceState) {
         View v = inflater.inflate(R.layout.fragment_home, container, false);
         bindViews(v);
+        // ★ Ultra-advanced: GpuDecodeWarmup was previously only fired from
+        // ReelsFragment, so a user who opens the Home tab FIRST (very common
+        // — it's the app's default landing tab) paid the full one-time
+        // MediaCodec HAL + EGL/GL driver cold-start cost (50-150ms+) inline
+        // on their very first Home feed reel instead of it being paid
+        // speculatively in the background beforehand. warmUpOnce() is
+        // guarded to run at most once per process, so calling it from both
+        // tabs is free — whichever tab the user opens first now wins the
+        // warm-up instead of only Reels.
+        com.callx.app.player.GpuDecodeWarmup.warmUpOnce(requireContext());
         // ── v243: LayoutManager must be attached to recyclerHome BEFORE
         // anything is inflated with it as the (false-attach) parent —
         // RecyclerView.generateLayoutParams() requires one to already be set
@@ -409,6 +501,13 @@ public class HomeFragment extends Fragment {
         // "RecyclerView has no LayoutManager". Adapter is set once built below.
         recyclerHome.setLayoutManager(new LinearLayoutManager(requireContext()));
         recyclerHome.setItemViewCacheSize(4);
+        // Instagram/TikTok-style feeds run without the default add/remove/
+        // change fade-and-shift animation: every notifyItemChanged (like
+        // count ticking up, a save toggling, DiffUtil remapping positions
+        // after loadMoreReels()/trimFeedFront()) would otherwise trigger a
+        // ~120ms cross-fade + shift on that row, which reads as stutter on
+        // a feed that scrolls continuously. Content still updates instantly.
+        recyclerHome.setItemAnimator(null);
         feedScrollContentRoot = recyclerHome;
         // Header/footer are inflated ONCE here (not lazily by the adapter) so
         // every existing method that reaches for containerStories,
@@ -695,8 +794,12 @@ public class HomeFragment extends Fragment {
             prefetchThresholdPx = dpToPx(1400);
             recyclerHome.addOnScrollListener(new RecyclerView.OnScrollListener() {
                 @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                    scrollHandler.removeCallbacks(playVisibleRunnable);
-                    scrollHandler.postDelayed(playVisibleRunnable, 120);
+                    // Instant-play trigger, frame-synced — see
+                    // playVisibleFrameCallback doc.
+                    if (!playVisibleCheckScheduled) {
+                        playVisibleCheckScheduled = true;
+                        android.view.Choreographer.getInstance().postFrameCallback(playVisibleFrameCallback);
+                    }
 
                     // ★ Buttery scroll: promote the RecyclerView itself to a
                     // hardware layer for the duration of active scrolling —
@@ -713,7 +816,21 @@ public class HomeFragment extends Fragment {
                     // Scrolling up can never bring the bottom closer, so the
                     // pagination/prefetch math is skipped entirely for half
                     // of all scroll events.
-                    if (dy <= 0) return;
+                    if (dy <= 0) {
+                        // v280: mirror image of the pagination check below,
+                        // but toward the top — once the user scrolls back
+                        // within paginateThresholdPx of the very top of a
+                        // feed whose front has been trimmed, silently
+                        // re-fetch the trimmed range instead of letting the
+                        // feed appear to have hit a hard top it never had.
+                        if (dy < 0 && frontTrimHighWaterTimestamp != null && !isLoadingNewerFeed) {
+                            int offsetUp = rv.computeVerticalScrollOffset();
+                            if (offsetUp < paginateThresholdPx) {
+                                reloadTrimmedFrontPosts();
+                            }
+                        }
+                        return;
+                    }
                     int range  = rv.computeVerticalScrollRange();
                     int offset = rv.computeVerticalScrollOffset();
                     int extent = rv.computeVerticalScrollExtent();
@@ -728,6 +845,21 @@ public class HomeFragment extends Fragment {
                     // content otherwise causes.
                     if (remaining < prefetchThresholdPx && remaining >= paginateThresholdPx) {
                         prefetchUpcomingFeedMedia();
+                    }
+                }
+
+                @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                    // Definitive settle check: guarantees the truly-final
+                    // resting position is evaluated with zero delay the
+                    // instant RecyclerView reports IDLE, on top of the
+                    // per-frame checks already firing during the scroll —
+                    // matches Instagram's "already playing by the time your
+                    // thumb lifts" feel instead of waiting on a fixed timer.
+                    if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                        android.view.Choreographer.getInstance().removeFrameCallback(playVisibleFrameCallback);
+                        scrollHandler.removeCallbacks(playVisibleRunnable);
+                        playVisibleCheckScheduled = false;
+                        playMostVisibleCard();
                     }
                 }
             });
@@ -835,15 +967,88 @@ public class HomeFragment extends Fragment {
     // ── Auto-play helpers ─────────────────────────────────────────────────
 
     /**
-     * Walk all tracked feed cards; find the one with the largest visible area
-     * on screen, then attach the shared ExoPlayer to it.
+     * ★★★ Ultra-advanced: the "screen just appeared" autoplay trigger.
+     *
+     * Three call sites — the very first cold-load render, onResume(), and
+     * onTabBecameVisible() (switching into the Home tab) — used to just wait
+     * a flat 300-400ms guess before calling playMostVisibleCard(), on the
+     * theory that the freshly-(re)shown view hierarchy needed a moment to
+     * finish laying out before getLocationOnScreen() would read correct
+     * numbers. That flat guess is exactly the same anti-pattern the old
+     * 120ms scroll debounce was: a fixed wait bigger than the work it's
+     * covering for. A ViewTreeObserver.OnPreDrawListener fires at the
+     * precise next predraw — i.e. the instant this frame's layout pass has
+     * actually finished — which is normally one display frame (~16ms) away,
+     * not 300-400ms, and is exactly the "is layout done yet" signal the old
+     * delays were guessing at instead of listening for. This is the
+     * difference between "reel is already playing before you've finished
+     * looking at the screen" (real Instagram) and a visible quarter-second
+     * of a frozen thumbnail.
+     */
+    private void scheduleImmediatePlayCheck() {
+        if (recyclerHome == null || !isAdded()) return;
+        final android.view.ViewTreeObserver vto = recyclerHome.getViewTreeObserver();
+        if (!vto.isAlive()) { playMostVisibleCard(); return; }
+        vto.addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                android.view.ViewTreeObserver current = recyclerHome != null
+                        ? recyclerHome.getViewTreeObserver() : vto;
+                if (current.isAlive()) current.removeOnPreDrawListener(this);
+                playMostVisibleCard();
+                return true;
+            }
+        });
+    }
+
+    /**
+     * Walk the tracked feed cards currently on/near screen; find the one with
+     * the largest visible area, then attach the shared ExoPlayer to it.
+     *
+     * ★★ Ultra-advanced: bounded to RecyclerView's own known visible range
+     * instead of walking every card from index 0 every single frame.
+     * LinearLayoutManager already tracks its first/last visible adapter
+     * position as a side effect of laying itself out — reading that back is
+     * free — so reusing it here turns this from an O(entire loaded feed)
+     * scan into an O(rows actually on/near screen) one. On a feed that's
+     * grown to hundreds/thousands of loaded cards after a long scrolling
+     * session, that is the difference between a few pointer comparisons and
+     * genuinely walking the whole list every frame during scroll.
      */
     private void playMostVisibleCard() {
         if (!isAdded() || feedPlayer == null || feedCards.isEmpty()) return;
         int screenH = getResources().getDisplayMetrics().heightPixels;
+
+        int scanFrom = 0, scanTo = feedCards.size() - 1;
+        if (recyclerHome != null && recyclerHome.getLayoutManager() instanceof LinearLayoutManager) {
+            LinearLayoutManager lm = (LinearLayoutManager) recyclerHome.getLayoutManager();
+            int firstAdapterPos = lm.findFirstVisibleItemPosition();
+            int lastAdapterPos  = lm.findLastVisibleItemPosition();
+            if (firstAdapterPos != RecyclerView.NO_POSITION && lastAdapterPos != RecyclerView.NO_POSITION) {
+                int minPost = Integer.MAX_VALUE, maxPost = -1;
+                // A couple of rows of padding on each side: a fast fling can
+                // cover more than one row between two consecutive checks, and
+                // non-post rows (header/suggested/banner) sit between
+                // ROW_POST entries, so this keeps the bound safe without
+                // ever missing the real winner.
+                int padStart = Math.max(0, firstAdapterPos - FEED_HEADER_OFFSET - 3);
+                int padEnd   = Math.min(feedItems.size() - 1, lastAdapterPos - FEED_HEADER_OFFSET + 3);
+                for (int p = padStart; p <= padEnd; p++) {
+                    FeedRow row = feedItems.get(p);
+                    if (row.type == ROW_POST && row.postIndex >= 0) {
+                        if (row.postIndex < minPost) minPost = row.postIndex;
+                        if (row.postIndex > maxPost) maxPost = row.postIndex;
+                    }
+                }
+                if (maxPost >= 0) {
+                    scanFrom = minPost;
+                    scanTo   = Math.min(feedCards.size() - 1, maxPost);
+                }
+            }
+        }
+
         int bestIdx = -1;
         int bestPx  = 0;
-        for (int i = 0; i < feedCards.size(); i++) {
+        for (int i = scanFrom; i <= scanTo; i++) {
             HomeFeedCard fc = feedCards.get(i);
             // v243: null now means "recycled / not currently bound to a live
             // ViewHolder" — same as the old detached/unmeasured checks below.
@@ -855,10 +1060,6 @@ public class HomeFragment extends Fragment {
             int cardBot = cardTop + root.getHeight();
             int vis     = Math.max(0, Math.min(cardBot, screenH) - Math.max(cardTop, 0));
             if (vis > bestPx) { bestPx = vis; bestIdx = i; }
-            // Cards are laid out top-to-bottom, so once one starts below the
-            // viewport every later card does too — stop walking the list
-            // instead of measuring every card in a long feed on each scroll.
-            else if (cardTop > screenH && bestIdx >= 0) break;
         }
         if (bestIdx >= 0 && bestIdx != currentPlayingIndex) attachPlayerToCard(bestIdx);
     }
@@ -1376,7 +1577,7 @@ public class HomeFragment extends Fragment {
             if (currentPlayingIndex >= 0) {
                 if (!userPausedActiveCard) { feedPlayer.play(); startProgressTicker(); }
             } else if (!currentFeedPosts.isEmpty()) {
-                scrollHandler.postDelayed(this::playMostVisibleCard, 300);
+                scheduleImmediatePlayCheck();
             }
         }
         // The autoplay preference can be changed in Reel Feed Settings while
@@ -1437,7 +1638,7 @@ public class HomeFragment extends Fragment {
             if (currentPlayingIndex >= 0) {
                 if (!userPausedActiveCard) { feedPlayer.play(); startProgressTicker(); }
             } else if (!currentFeedPosts.isEmpty()) {
-                scrollHandler.postDelayed(this::playMostVisibleCard, 300);
+                scheduleImmediatePlayCheck();
             }
         }
         // ★ INSTAGRAM-LEVEL FIX: previously the top story row was only ever
@@ -1473,6 +1674,7 @@ public class HomeFragment extends Fragment {
         super.onDestroyView();
         stopRealtimeNewPostsListener();
         scrollHandler.removeCallbacks(playVisibleRunnable);
+        android.view.Choreographer.getInstance().removeFrameCallback(playVisibleFrameCallback);
         scrollHandler.removeCallbacks(scrollSettleRunnable);
         cancelStagedFeedRender();
         if (cardPool != null) { cardPool.release(); cardPool = null; }
@@ -1602,6 +1804,8 @@ public class HomeFragment extends Fragment {
         feedHasMore         = true;
         oldestFeedTimestamp = null;
         newestFeedTimestamp = null;
+        frontTrimHighWaterTimestamp = null;
+        isLoadingNewerFeed = false;
         renderedReelIds.clear();
         lastPrefetchFromIndex = -1;
         postsSincePeopleYouMayLike = 0;
@@ -2081,13 +2285,10 @@ public class HomeFragment extends Fragment {
             for (int i = 0; i < posts.size(); i++) {
                 renderOneFeedItem(i, posts.get(i));
             }
-            // Auto-play first visible card after layout
-            if (recyclerHome != null) {
-                recyclerHome.post(() -> {
-                    scrollHandler.removeCallbacks(playVisibleRunnable);
-                    scrollHandler.postDelayed(playVisibleRunnable, 400);
-                });
-            }
+            // Auto-play first visible card the instant layout finishes —
+            // see scheduleImmediatePlayCheck() doc (was a flat 400ms guess).
+            scrollHandler.removeCallbacks(playVisibleRunnable);
+            scheduleImmediatePlayCheck();
             // Start listening for brand-new posts published while the user
             // is sitting on Home — real background updates, not just
             // pull-to-refresh, same as Instagram's live feed.
@@ -2164,6 +2365,241 @@ public class HomeFragment extends Fragment {
         }
         isLoadingMoreFeed = false;
         showFeedFooterLoading(false);
+        // v280: check once per page append, not per scroll delta — see the
+        // list-cap/windowing block above for why this only trims the front.
+        maybeTrimFeedWindow();
+    }
+
+    // ── v280: list cap / windowing (front-trim + DiffUtil remap) ───────────
+
+    /** Resolves a FeedRow's current reelId identity via currentFeedPosts —
+     *  ONLY valid to call after currentFeedPosts has already been mutated to
+     *  its final post-operation state (see call sites below). */
+    private String postReelId(FeedRow row) {
+        if (row.type != ROW_POST || row.postIndex < 0 || row.postIndex >= currentFeedPosts.size()) return null;
+        ReelModel r = currentFeedPosts.get(row.postIndex);
+        return r != null ? r.reelId : null;
+    }
+
+    /** Diffs feedItems' old vs new shape by post identity (reelId) rather
+     *  than raw position, so a front-trim's index remap turns into the
+     *  correct sequence of RecyclerView remove/insert/move calls instead of
+     *  a manual, error-prone position recomputation. reelIdOf carries each
+     *  ROW_POST row's identity as it stood BEFORE this operation's mutation
+     *  (postIndex may already have been rewritten in place by the caller). */
+    private void applyFeedItemsDiff(List<FeedRow> oldItems, List<FeedRow> newItems, Map<FeedRow, String> reelIdOf) {
+        if (feedAdapter == null) return;
+        DiffUtil.DiffResult result = DiffUtil.calculateDiff(new DiffUtil.Callback() {
+            @Override public int getOldListSize() { return oldItems.size(); }
+            @Override public int getNewListSize() { return newItems.size(); }
+            @Override public boolean areItemsTheSame(int oldPos, int newPos) {
+                FeedRow o = oldItems.get(oldPos), n = newItems.get(newPos);
+                if (o.type != n.type) return false;
+                if (o.type == ROW_POST) {
+                    String a = reelIdOf.get(o);
+                    String b = reelIdOf.containsKey(n) ? reelIdOf.get(n) : postReelId(n);
+                    return a != null && a.equals(b);
+                }
+                return o == n; // non-post rows carry no reelId — same instance = same row
+            }
+            @Override public boolean areContentsTheSame(int oldPos, int newPos) {
+                // A trim/prepend only ever moves rows around or drops/adds
+                // whole posts — it never changes what an existing row looks
+                // like, and onBindViewHolder re-reads postIndex fresh on
+                // every bind regardless of position, so "same item" already
+                // implies "same content" here.
+                return true;
+            }
+        });
+        feedItems.clear();
+        feedItems.addAll(newItems);
+        result.dispatchUpdatesTo(new ListUpdateCallback() {
+            @Override public void onInserted(int position, int count) {
+                feedAdapter.notifyItemRangeInserted(FEED_HEADER_OFFSET + position, count);
+            }
+            @Override public void onRemoved(int position, int count) {
+                feedAdapter.notifyItemRangeRemoved(FEED_HEADER_OFFSET + position, count);
+            }
+            @Override public void onMoved(int fromPosition, int toPosition) {
+                feedAdapter.notifyItemMoved(FEED_HEADER_OFFSET + fromPosition, FEED_HEADER_OFFSET + toPosition);
+            }
+            @Override public void onChanged(int position, int count, Object payload) {
+                feedAdapter.notifyItemRangeChanged(FEED_HEADER_OFFSET + position, count, payload);
+            }
+        });
+    }
+
+    /** Called once per page append (see appendFeedPage) — cheap bookkeeping
+     *  unless the feed has actually grown past the window, so a normal
+     *  scroll session pays for nothing here until it's grown far enough to
+     *  matter. */
+    private void maybeTrimFeedWindow() {
+        if (!isAdded() || feedAdapter == null) return;
+        int total = currentFeedPosts.size();
+        if (total <= FEED_WINDOW_BEHIND + FEED_WINDOW_AHEAD + FEED_TRIM_SLACK) return;
+
+        int refIndex = currentPlayingIndex >= 0 ? currentPlayingIndex : 0;
+        int lowerBound = Math.max(0, refIndex - FEED_WINDOW_BEHIND);
+        if (lowerBound <= 0) return; // nothing far enough behind yet
+
+        trimFeedFront(lowerBound);
+    }
+
+    /** Drops the first cutCount posts from currentFeedPosts/feedCards
+     *  (already scrolled well past — see the class-doc block above) and
+     *  remaps every surviving ROW_POST's postIndex, applying the change via
+     *  DiffUtil instead of a blanket notifyDataSetChanged(). */
+    private void trimFeedFront(int cutCount) {
+        List<FeedRow> oldItems = new ArrayList<>(feedItems);
+        List<ReelModel> oldPosts = currentFeedPosts;
+        if (oldPosts.isEmpty() || cutCount <= 0) return;
+
+        // Capture each surviving/removed ROW_POST row's identity BEFORE any
+        // postIndex remap below, since several rows are mutated in place.
+        Map<FeedRow, String> reelIdOf = new HashMap<>();
+        for (FeedRow row : oldItems) {
+            if (row.type == ROW_POST && row.postIndex >= 0 && row.postIndex < oldPosts.size()) {
+                reelIdOf.put(row, oldPosts.get(row.postIndex).reelId);
+            }
+        }
+
+        // Track the newest timestamp we're about to drop, so a scroll back
+        // up knows exactly how far to re-fetch (see reloadTrimmedFrontPosts).
+        long newHigh = oldPosts.get(0).timestamp;
+        frontTrimHighWaterTimestamp = (frontTrimHighWaterTimestamp == null)
+                ? newHigh : Math.max(frontTrimHighWaterTimestamp, newHigh);
+        // These posts may come back via reloadTrimmedFrontPosts() — let
+        // renderOneFeedItem() re-add them instead of skipping them as
+        // "already rendered".
+        for (int i = 0; i < cutCount; i++) {
+            ReelModel removed = oldPosts.get(i);
+            if (removed != null && removed.reelId != null) renderedReelIds.remove(removed.reelId);
+        }
+
+        currentFeedPosts = new ArrayList<>(oldPosts.subList(cutCount, oldPosts.size()));
+        int cardCut = Math.min(cutCount, feedCards.size());
+        for (int i = 0; i < cardCut; i++) {
+            // Should already be null (well past the RecyclerView's bound
+            // range) — defensively detach the shared player anyway in case a
+            // very fast fling raced past onViewRecycled.
+            HomeFeedCard c = feedCards.get(i);
+            if (c != null && c.playerView != null) c.playerView.setPlayer(null);
+        }
+        if (cardCut > 0) feedCards.subList(0, cardCut).clear();
+
+        List<FeedRow> newItems = new ArrayList<>();
+        boolean pastCut = false;
+        for (FeedRow row : oldItems) {
+            if (!pastCut) {
+                if (row.type == ROW_POST && row.postIndex >= cutCount) {
+                    pastCut = true;
+                } else {
+                    continue; // drop trimmed posts and any row interleaved before them
+                }
+            }
+            if (row.type == ROW_POST) row.postIndex -= cutCount;
+            newItems.add(row);
+        }
+
+        if (currentPlayingIndex >= 0) currentPlayingIndex -= cutCount;
+
+        applyFeedItemsDiff(oldItems, newItems, reelIdOf);
+    }
+
+    /**
+     * Scroll-up counterpart to loadMoreFeedPosts(): once the user scrolls
+     * back within paginateThresholdPx of the top of a feed whose front has
+     * been trimmed, re-fetch exactly the trimmed range from Firebase (posts
+     * newer than the current head, up to frontTrimHighWaterTimestamp) and
+     * prepend them — same DiffUtil path as trimFeedFront, just growing the
+     * front instead of shrinking it.
+     */
+    private void reloadTrimmedFrontPosts() {
+        if (isLoadingNewerFeed || frontTrimHighWaterTimestamp == null) return;
+        if (!isAdded() || getContext() == null || currentFeedPosts.isEmpty()) return;
+        isLoadingNewerFeed = true;
+        long lowTimestamp = currentFeedPosts.get(0).timestamp;
+
+        FirebaseUtils.getReelsRef()
+                .orderByChild("timestamp")
+                .startAt(lowTimestamp + 1)
+                .limitToFirst(FEED_FETCH_BATCH)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        isLoadingNewerFeed = false;
+                        if (!isAdded() || getContext() == null) return;
+                        List<ReelModel> newer = new ArrayList<>();
+                        for (DataSnapshot s : snap.getChildren()) {
+                            ReelModel r = s.getValue(ReelModel.class);
+                            if (r == null) continue;
+                            if (r.reelId == null) r.reelId = s.getKey();
+                            if (renderedReelIds.contains(r.reelId)) continue;
+                            if (isFollowingMode && !cachedFollowedUids.contains(r.uid)) continue;
+                            // Anything newer than the high-water mark belongs
+                            // to the real-time "new posts" listener, not the
+                            // trimmed gap this method is refilling.
+                            if (r.timestamp > frontTrimHighWaterTimestamp) continue;
+                            newer.add(r);
+                        }
+                        if (newer.isEmpty()) {
+                            // Caught all the way back up to where trimming started.
+                            frontTrimHighWaterTimestamp = null;
+                            return;
+                        }
+                        newer.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
+                        List<ReelModel> pageToPrepend = isFollowingMode
+                                ? newer
+                                : FeedRankingEngine.buildRankedFeed(newer, cachedRankingProfile);
+                        requireActivity().runOnUiThread(() -> prependFeedPosts(pageToPrepend));
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) { isLoadingNewerFeed = false; }
+                });
+    }
+
+    /** Prepends previously-trimmed posts back onto the front of
+     *  currentFeedPosts/feedCards, shifts every existing postIndex forward,
+     *  and applies the change through the same DiffUtil path trimFeedFront
+     *  uses (see applyFeedItemsDiff). */
+    private void prependFeedPosts(List<ReelModel> newerPosts) {
+        if (!isAdded() || feedAdapter == null || newerPosts.isEmpty()) return;
+        List<FeedRow> oldItems = new ArrayList<>(feedItems);
+        List<ReelModel> oldPosts = currentFeedPosts;
+
+        Map<FeedRow, String> reelIdOf = new HashMap<>();
+        for (FeedRow row : oldItems) {
+            if (row.type == ROW_POST && row.postIndex >= 0 && row.postIndex < oldPosts.size()) {
+                reelIdOf.put(row, oldPosts.get(row.postIndex).reelId);
+            }
+        }
+
+        int shift = newerPosts.size();
+        List<ReelModel> merged = new ArrayList<>(shift + oldPosts.size());
+        merged.addAll(newerPosts);
+        merged.addAll(oldPosts);
+        currentFeedPosts = merged;
+
+        List<HomeFeedCard> shiftedCards = new ArrayList<>(currentFeedPosts.size());
+        for (int i = 0; i < shift; i++) shiftedCards.add(null);
+        shiftedCards.addAll(feedCards);
+        feedCards.clear();
+        feedCards.addAll(shiftedCards);
+
+        for (FeedRow row : oldItems) {
+            if (row.type == ROW_POST) row.postIndex += shift;
+        }
+        List<FeedRow> newItems = new ArrayList<>(oldItems.size() + shift);
+        for (int i = 0; i < shift; i++) {
+            ReelModel r = newerPosts.get(i);
+            if (r.reelId != null) renderedReelIds.add(r.reelId);
+            FeedRow row = new FeedRow(ROW_POST);
+            row.postIndex = i;
+            newItems.add(row);
+        }
+        newItems.addAll(oldItems);
+
+        if (currentPlayingIndex >= 0) currentPlayingIndex += shift;
+
+        applyFeedItemsDiff(oldItems, newItems, reelIdOf);
     }
 
     // ── Infinite scroll (pagination) ─────────────────────────────────────
@@ -2500,28 +2936,72 @@ public class HomeFragment extends Fragment {
         headerRow.addView(btnMore);
         section.addView(headerRow);
 
-        HorizontalScrollView scroller = new HorizontalScrollView(requireContext());
-        scroller.setHorizontalScrollBarEnabled(false);
-        LinearLayout.LayoutParams scrollerLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        scrollerLp.topMargin = dpToPx(8);
-        scroller.setLayoutParams(scrollerLp);
+        // ── Instagram-level: real RecyclerView instead of an eagerly-inflated
+        // HorizontalScrollView+LinearLayout row ──────────────────────────────
+        // The old code inflated + Glide-loaded EVERY candidate tile up front,
+        // even the ones off-screen to the right, and — since this whole row is
+        // itself just one FrameLayout bound fresh by FeedAdapter every time it
+        // scrolls back into view (ROW_SUGGESTED_REELS has no inner recycling)
+        // — repeated that full inflate+decode cost on every rebind. A nested
+        // RecyclerView only builds/binds the tiles actually on/near screen,
+        // and — backed by SUGGESTED_REELS_TILE_POOL, shared across every
+        // "Suggested reels" strip inserted into the feed — a tile ViewHolder
+        // scrolled out of one strip can be handed straight to the next strip
+        // (or to this same strip on its next rebind) with no re-inflation and
+        // no re-decoding, exactly like Instagram's nested-recycling rows.
+        RecyclerView tilesRecycler = new RecyclerView(requireContext());
+        tilesRecycler.setLayoutManager(
+                new LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false));
+        tilesRecycler.setRecycledViewPool(SUGGESTED_REELS_TILE_POOL);
+        tilesRecycler.setItemViewCacheSize(4);
+        tilesRecycler.setHasFixedSize(true);
+        tilesRecycler.setItemAnimator(null);
+        LinearLayout.LayoutParams recyclerLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(284));
+        recyclerLp.topMargin = dpToPx(8);
+        tilesRecycler.setLayoutParams(recyclerLp);
+        tilesRecycler.setAdapter(new SuggestedReelsTileAdapter(candidates, reelIds));
 
-        LinearLayout row = new LinearLayout(requireContext());
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        scroller.addView(row);
+        section.addView(tilesRecycler);
+        container.addView(section);
+    }
 
-        int cardW = dpToPx(160);
-        int cardH = dpToPx(284); // ~9:16 thumbnail card, bigger tile so only ~2 tiles + a peek of the 3rd fit per screen (matches reference screenshot)
+    /** Shared across every "Suggested reels" strip mixed into the Home feed —
+     *  see bindSuggestedReelsRowContent() note above for why this must be a
+     *  single shared instance rather than one pool per strip. */
+    private static final RecyclerView.RecycledViewPool SUGGESTED_REELS_TILE_POOL =
+            new RecyclerView.RecycledViewPool();
 
-        for (int idx = 0; idx < candidates.size(); idx++) {
-            ReelModel r = candidates.get(idx);
-            final int startPos = idx;
+    /** Backs one "Suggested reels" strip's tiles with real ViewHolder
+     *  recycling (see bindSuggestedReelsRowContent()). ~9:16 tile, bigger
+     *  than a grid cell so only ~2 tiles + a peek of the 3rd fit per screen
+     *  (matches reference screenshot) — same sizing as the old manual row. */
+    private class SuggestedReelsTileAdapter extends RecyclerView.Adapter<SuggestedReelsTileAdapter.TileHolder> {
+        private static final int TILE_W_DP = 160;
+        private static final int TILE_H_DP = 284;
 
+        private final List<ReelModel> items;
+        private final ArrayList<String> reelIds;
+
+        SuggestedReelsTileAdapter(List<ReelModel> items, ArrayList<String> reelIds) {
+            this.items = items;
+            this.reelIds = reelIds;
+        }
+
+        class TileHolder extends RecyclerView.ViewHolder {
+            final FrameLayout tile;
+            final ImageView thumb;
+            final TextView tvViews;
+            TileHolder(FrameLayout tile, ImageView thumb, TextView tvViews) {
+                super(tile);
+                this.tile = tile; this.thumb = thumb; this.tvViews = tvViews;
+            }
+        }
+
+        @NonNull @Override
+        public TileHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             FrameLayout tile = new FrameLayout(requireContext());
-            LinearLayout.LayoutParams tileLp = new LinearLayout.LayoutParams(cardW, cardH);
-            tileLp.setMarginEnd(dpToPx(8));
-            tile.setLayoutParams(tileLp);
+            tile.setLayoutParams(new ViewGroup.MarginLayoutParams(dpToPx(TILE_W_DP), dpToPx(TILE_H_DP)));
             tile.setBackgroundResource(R.drawable.bg_speed_chip);
             tile.setClipToOutline(true);
 
@@ -2529,18 +3009,11 @@ public class HomeFragment extends Fragment {
             thumb.setLayoutParams(new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
             thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            String thumbUrl = r.effectiveThumbUrl();
-            if (thumbUrl != null && !thumbUrl.isEmpty()) {
-                Glide.with(requireContext()).load(thumbUrl)
-                    .apply(new RequestOptions().format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565))
-                    .into(thumb);
-            }
             tile.addView(thumb);
 
             // Views count pill, bottom-left, with a small play glyph — same
             // read-at-a-glance treatment Instagram uses on its reel tiles.
             TextView tvViews = new TextView(requireContext());
-            tvViews.setText("▶ " + formatCount(r.viewsCount));
             tvViews.setTextColor(0xFFFFFFFF);
             tvViews.setTextSize(12f);
             tvViews.setShadowLayer(4f, 0f, 0f, 0xCC000000);
@@ -2551,23 +3024,53 @@ public class HomeFragment extends Fragment {
             tvViews.setLayoutParams(viewsLp);
             tile.addView(tvViews);
 
-            tile.setOnClickListener(v -> {
+            return new TileHolder(tile, thumb, tvViews);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull TileHolder holder, int position) {
+            ReelModel r = items.get(position);
+            holder.tvViews.setText("▶ " + formatCount(r.viewsCount));
+
+            ViewGroup.LayoutParams rawLp = holder.tile.getLayoutParams();
+            if (rawLp instanceof ViewGroup.MarginLayoutParams) {
+                ((ViewGroup.MarginLayoutParams) rawLp).setMarginEnd(
+                        position == items.size() - 1 ? 0 : dpToPx(8));
+            }
+
+            String thumbUrl = r.effectiveThumbUrl();
+            if (thumbUrl != null && !thumbUrl.isEmpty()) {
+                // Same RGB_565 + no-crossfade treatment as the rest of the
+                // feed's cheap-decode thumbnails (FEED_IMAGE_OPTS).
+                Glide.with(requireContext()).load(thumbUrl).apply(FEED_IMAGE_OPTS).into(holder.thumb);
+            } else {
+                Glide.with(requireContext()).clear(holder.thumb);
+            }
+
+            final int startPos = position;
+            holder.tile.setOnClickListener(v -> {
                 if (!isAdded() || getContext() == null) return;
                 Intent i = new Intent(getContext(), SingleReelPlayerActivity.class);
                 i.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, reelIds);
                 i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, startPos);
                 startActivity(i);
             });
-            tile.setOnLongClickListener(v -> {
-                showSuggestedReelPeek(r, tile);
+            holder.tile.setOnLongClickListener(v -> {
+                showSuggestedReelPeek(r, holder.tile);
                 return true;
             });
-
-            row.addView(tile);
         }
 
-        section.addView(scroller);
-        container.addView(section);
+        @Override
+        public void onViewRecycled(@NonNull TileHolder holder) {
+            // Cancel/clear this Glide load before the ViewHolder goes back to
+            // the SHARED pool — otherwise a slow in-flight load from strip A
+            // could land its bitmap into an ImageView strip B has since reused
+            // for a different reel.
+            Glide.with(requireContext()).clear(holder.thumb);
+        }
+
+        @Override public int getItemCount() { return items.size(); }
     }
 
     /**
@@ -3684,7 +4187,8 @@ public class HomeFragment extends Fragment {
                 tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
 
                 if (reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
-                    Glide.with(requireContext()).load(reel.thumbUrl).centerCrop().override(720, 720).into(thumb);
+                    Glide.with(requireContext()).load(reel.thumbUrl).apply(FEED_IMAGE_OPTS)
+                        .centerCrop().override(STRIP_THUMB_DECODE_PX, STRIP_THUMB_DECODE_PX).into(thumb);
                 }
 
                 // ✅ Open specific reel in the player (not just showReelFeed)
@@ -3918,7 +4422,8 @@ public class HomeFragment extends Fragment {
             tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
 
             if (reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
-                Glide.with(requireContext()).load(reel.thumbUrl).centerCrop().override(720, 720).into(ivThumb);
+                Glide.with(requireContext()).load(reel.thumbUrl).apply(FEED_IMAGE_OPTS)
+                    .centerCrop().override(STRIP_THUMB_DECODE_PX, STRIP_THUMB_DECODE_PX).into(ivThumb);
             }
 
             final String reelId = reel.reelId;
