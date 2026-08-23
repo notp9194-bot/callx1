@@ -220,11 +220,14 @@
                 </FrameLayout>
 
                 <!-- ── Feed Container ── -->
-                <LinearLayout
+                <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/container_feed"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"/>
+                    android:nestedScrollingEnabled="false"
+                    android:overScrollMode="never"
+                    android:clipToPadding="false"
+                    android:paddingBottom="8dp"/>
 
                 <!-- Feed loading / empty -->
                 <ProgressBar

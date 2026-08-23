@@ -90,7 +90,7 @@ public class HomeFragment extends Fragment {
 
     private SwipeRefreshLayout swipeRefresh;
     private LinearLayout       containerStories;
-    private LinearLayout       containerFeed;
+    private RecyclerView       containerFeed;
     private LinearLayout       containerTrending;
     private LinearLayout       containerFriendsActivity;
     private LinearLayout       containerContinueWatching;
@@ -157,15 +157,11 @@ public class HomeFragment extends Fragment {
     private final Runnable thermalChangeListener = this::onThermalChanged;
     /** Same singleton "precompute counts/caption ahead of the swipe" cache the
      *  Reels tab uses — see ReelUiStatePrecomputer/ReelUiStateCache docs. */
-    private com.callx.app.cache.ReelUiStatePrecomputer uiStatePrecomputer;
+    private com.callx.app.cache.HomeUiStatePrecomputer uiStatePrecomputer;
     /** Same singleton offline-download/cache-fallback manager the Reels tab's
      *  "more" sheet uses (ReelPlayerController.saveReelOffline) — backs
      *  Home's own "Save for offline" menu item below. */
     private com.callx.app.player.ReelOfflineManager offlineManager;
-    /** Manual view-virtualization for the feed's NestedScrollView — see class doc.
-     *  Unloads off-screen card bitmaps and pauses Glide during fling so image
-     *  decode work never competes with the scroll frame budget. */
-    private HomeFeedWindowManager feedWindowManager;
     /** The exact list of posts currently backing feedCards, index-aligned with it. */
     private List<ReelModel> currentFeedPosts = new ArrayList<>();
 
@@ -287,8 +283,10 @@ public class HomeFragment extends Fragment {
     /** Whether the hardware-layer promotion actually got applied this scroll. */
     private boolean   isHwLayerOn              = false;
     private View      feedScrollContentRoot     = null;
-    /** Idle-time pre-inflater for feed cards — see HomeFeedCardPool. */
-    private HomeFeedCardPool cardPool = null;
+    /** RecyclerView owns card inflation/recycling; the feed adapter is the
+     * bounded source of truth for Home post data. */
+    private HomeFeedAdapter homeFeedAdapter;
+    private static final int HOME_FEED_WINDOW_SIZE = 24;
 
     // ── Scroll-listener hot path ────────────────────────────────────────
     // onScrollChange fires on EVERY scrolled pixel — several hundred times a
@@ -298,7 +296,7 @@ public class HomeFragment extends Fragment {
     private final Runnable scrollSettleRunnable = new Runnable() {
         @Override public void run() {
             endFeedScrollLayer();
-            if (feedWindowManager != null) feedWindowManager.onScrollSettled();
+            if (containerFeed != null) containerFeed.setItemViewCacheSize(2);
         }
     };
     private final Runnable playVisibleRunnable = this::playMostVisibleCard;
@@ -366,14 +364,26 @@ public class HomeFragment extends Fragment {
         predictivePreloader = new com.callx.app.cache.ReelPredictivePreloader(requireContext());
         // Same UI-state precompute + offline manager the Reels tab wires up
         // alongside its preloaders.
-        uiStatePrecomputer  = new com.callx.app.cache.ReelUiStatePrecomputer();
+        uiStatePrecomputer  = new com.callx.app.cache.HomeUiStatePrecomputer();
         offlineManager      = com.callx.app.player.ReelOfflineManager.get(requireContext());
-        feedWindowManager   = new HomeFeedWindowManager(scrollView, Glide.with(this));
-        feedWindowManager.setFeedContainer(containerFeed);
-        // Warm a couple of feed cards while the main thread is idle so the
-        // first flings don't pay inflate cost on the frame they need it.
-        cardPool = HomeFeedCardPool.createOrNull(
-                inflater, R.layout.item_home_feed_post, containerFeed);
+        // Home post cards use real ViewHolder recycling. This replaces the
+        // former permanent-child LinearLayout and makes recycle/unbind the
+        // lifecycle boundary for player surfaces and card media.
+        homeFeedAdapter = new HomeFeedAdapter(this, new HomeFeedAdapter.Callback() {
+            @Override public void onBindPost(@NonNull View card, int position,
+                                              @NonNull ReelModel reel) {
+                ensureFeedCardSlots(currentFeedPosts.size());
+                bindFeedPostCard(card, reel, cachedLikedIds, cachedSavedIds,
+                        cachedMyUidForFeed, cachedFollowedUids, position);
+            }
+
+            @Override public void onPostRecycled(@NonNull View card) {
+                unbindFeedCard(card);
+            }
+        });
+        containerFeed.setAdapter(homeFeedAdapter);
+        containerFeed.setItemViewCacheSize(2);
+        containerFeed.setHasFixedSize(false);
         // ── Watch tracking + autoplay preference ───────────────────────────
         // Both are read once here: the watch-progress map powers resume
         // positions for every card without a per-card Firebase read, and the
@@ -496,7 +506,9 @@ public class HomeFragment extends Fragment {
         tvFeedTitle               = v.findViewById(R.id.tv_feed_title);
         btnNewPost                = v.findViewById(R.id.btn_new_post);
         btnNotifications          = v.findViewById(R.id.btn_notifications);
-        // NestedScrollView for scroll-triggered auto-play
+        // The parent scroll owns the complete Home surface; RecyclerView
+        // remains non-nested so it can recycle post holders without creating
+        // a second vertical scroll container.
         scrollView                = v.findViewById(R.id.nested_scroll_home);
         // The single LinearLayout NestedScrollView wraps — this is what gets
         // promoted to a hardware layer while actively scrolling.
@@ -616,7 +628,7 @@ public class HomeFragment extends Fragment {
                     // of the scroll — see HomeFeedWindowManager. Resumed, and
                     // off-screen card bitmaps re-windowed, on the same settle
                     // timer as the hardware-layer drop below.
-                    if (feedWindowManager != null) feedWindowManager.onScrollStarted();
+                    if (containerFeed != null) containerFeed.setItemViewCacheSize(1);
                     scrollHandler.removeCallbacks(scrollSettleRunnable);
                     scrollHandler.postDelayed(scrollSettleRunnable, 180);
 
@@ -711,7 +723,8 @@ public class HomeFragment extends Fragment {
         // uses, pointed at the upcoming slice of the ranked feed list.
         // Thermal-gated: skip on HOT so we don't keep opening byte-range
         // downloads while the device is being throttled to cool down.
-        if (videoPreloader != null && currentThermalLevel() != com.callx.app.player.ReelThermalManager.Level.HOT) {
+        if (videoPreloader != null && thermalManager != null
+                && thermalManager.canBytePreload()) {
             videoPreloader.preloadFrom(currentFeedPosts, fromIndex);
         }
         // Same precompute as attachPlayerToCard(), pointed at the freshly
@@ -832,10 +845,10 @@ public class HomeFragment extends Fragment {
         // preload is cheap local decode work so it isn't gated, matching
         // Reels tab's own gating.
         if (!currentFeedPosts.isEmpty() && index < currentFeedPosts.size()) {
-            com.callx.app.player.ReelThermalManager.Level thermalLevel = currentThermalLevel();
-            boolean canPreload = thermalLevel != com.callx.app.player.ReelThermalManager.Level.HOT;
-            boolean canPredictivePreload = (thermalLevel == com.callx.app.player.ReelThermalManager.Level.SAFE
-                || thermalLevel == com.callx.app.player.ReelThermalManager.Level.LIGHT);
+            boolean canPreload = thermalManager != null && thermalManager.canBytePreload();
+            boolean canPredictivePreload = thermalManager != null
+                && thermalManager.getLevel()
+                    == com.callx.app.player.ReelThermalManager.Level.SAFE;
             if (canPreload && videoPreloader != null) videoPreloader.preloadFrom(currentFeedPosts, index);
             if (thumbPreloader != null) thumbPreloader.preloadFrom(currentFeedPosts, index);
             if (canPredictivePreload && predictivePreloader != null) predictivePreloader.preloadSmartFrom(currentFeedPosts, index);
@@ -875,7 +888,6 @@ public class HomeFragment extends Fragment {
 
         if (card.playerView != null) card.playerView.setPlayer(feedPlayer);
         // Never let the virtualizer pull the playing card out of the tree.
-        if (feedWindowManager != null) feedWindowManager.setProtectedView(card.rootView);
         feedPlayer.setVolume(isMuted ? 0f : 1f);
         feedPlayer.setPlaybackSpeed(1f);
 
@@ -1374,7 +1386,6 @@ public class HomeFragment extends Fragment {
         scrollHandler.removeCallbacks(playVisibleRunnable);
         scrollHandler.removeCallbacks(scrollSettleRunnable);
         cancelStagedFeedRender();
-        if (cardPool != null) { cardPool.release(); cardPool = null; }
         flushActiveWatchProgress();
         stopProgressTicker();
         progressTicker = null;
@@ -1472,8 +1483,7 @@ public class HomeFragment extends Fragment {
         updateFeedToggleUI();
         resetFeedPaginationState();
         cancelStagedFeedRender();
-        if (containerFeed != null) containerFeed.removeAllViews();
-        if (feedWindowManager != null) feedWindowManager.reset();
+        resetRecyclerFeed();
         showFeedLoading(true);
         showFeedEmpty(false);
         loadFeed();
@@ -1525,8 +1535,7 @@ public class HomeFragment extends Fragment {
 
     private void clearAllSections() {
         cancelStagedFeedRender();
-        if (containerFeed != null)             containerFeed.removeAllViews();
-        if (feedWindowManager != null)         feedWindowManager.reset();
+        resetRecyclerFeed();
         if (containerTrending != null)         clearContainerKeepLoader(containerTrending);
         if (containerFriendsActivity != null)  clearContainerKeepLoader(containerFriendsActivity);
         if (containerContinueWatching != null) clearContainerKeepLoader(containerContinueWatching);
@@ -1536,6 +1545,75 @@ public class HomeFragment extends Fragment {
         if (pbActivity != null)   pbActivity.setVisibility(View.VISIBLE);
         if (pbContinue != null)   pbContinue.setVisibility(View.VISIBLE);
         if (pbSuggested != null)  pbSuggested.setVisibility(View.VISIBLE);
+    }
+
+    /** Clears adapter rows and player bindings without touching the static
+     * Home header/footer sections. */
+    private void resetRecyclerFeed() {
+        flushActiveWatchProgress();
+        stopProgressTicker();
+        if (watchTracker != null) watchTracker.onCardInactive();
+        userPausedActiveCard = false;
+        if (homeFeedAdapter != null) homeFeedAdapter.clear();
+        currentPlayingIndex = -1;
+        feedCards.clear();
+    }
+
+    /** Keeps only a bounded working set of post models. Old cards are removed
+     * from the data source as well as from the adapter; unloading bitmaps alone
+     * would still leave an ever-growing object graph. */
+    private void trimFeedWindow() {
+        if (currentFeedPosts == null || currentFeedPosts.size() <= HOME_FEED_WINDOW_SIZE) return;
+        int remove = currentFeedPosts.size() - HOME_FEED_WINDOW_SIZE;
+        if (currentPlayingIndex >= 0 && currentPlayingIndex < remove) {
+            HomeFeedCard active = currentPlayingIndex < feedCards.size()
+                    ? feedCards.get(currentPlayingIndex) : null;
+            if (active != null && active.playerView != null) active.playerView.setPlayer(null);
+            if (feedPlayer != null) feedPlayer.setPlayWhenReady(false);
+            currentPlayingIndex = -1;
+        } else if (currentPlayingIndex >= remove) {
+            currentPlayingIndex -= remove;
+        }
+        currentFeedPosts = new ArrayList<>(currentFeedPosts.subList(remove,
+                currentFeedPosts.size()));
+        if (feedCards.size() >= remove) {
+            List<HomeFeedCard> retained = new ArrayList<>(
+                    feedCards.subList(remove, feedCards.size()));
+            feedCards.clear();
+            feedCards.addAll(retained);
+        } else {
+            feedCards.clear();
+        }
+        if (homeFeedAdapter != null) homeFeedAdapter.setPosts(currentFeedPosts);
+    }
+
+    private void ensureFeedCardSlots(int size) {
+        while (feedCards.size() < size) feedCards.add(new HomeFeedCard());
+        while (feedCards.size() > size) feedCards.remove(feedCards.size() - 1);
+    }
+
+    /** RecyclerView lifecycle boundary: detach the shared player before a
+     * holder leaves the active window and release all view references. */
+    private void unbindFeedCard(View card) {
+        for (int i = 0; i < feedCards.size(); i++) {
+            HomeFeedCard entry = feedCards.get(i);
+            if (entry.rootView != card) continue;
+            if (currentPlayingIndex == i && feedPlayer != null) {
+                flushActiveWatchProgress();
+                feedPlayer.setPlayWhenReady(false);
+                if (entry.playerView != null) entry.playerView.setPlayer(null);
+                currentPlayingIndex = -1;
+            }
+            entry.rootView = null;
+            entry.playerView = null;
+            entry.thumbView = null;
+            entry.endOverlay = null;
+            entry.seekBar = null;
+            entry.tvPosition = null;
+            entry.speedChip = null;
+            entry.playOverlay = null;
+            return;
+        }
     }
 
     private void clearContainerKeepLoader(LinearLayout container) {
@@ -1950,37 +2028,21 @@ public class HomeFragment extends Fragment {
             stopProgressTicker();
             if (watchTracker != null) watchTracker.onCardInactive();
             userPausedActiveCard = false;
-            containerFeed.removeAllViews();
+            if (homeFeedAdapter != null) homeFeedAdapter.clear();
             feedCards.clear();
-            if (feedWindowManager != null) feedWindowManager.reset();
             renderedReelIds.clear();
             postsSincePeopleYouMayLike = 0;
             postsSinceSuggestedReels = 0;
-            currentFeedPosts = posts;
-            currentPlayingIndex = -1;
-            // No more artificial 10-item cap — this page is already bounded
-            // by FEED_FETCH_BATCH, and infinite scroll appends further pages
-            // as the user nears the bottom instead of ever showing an "end".
-            int count = posts.size();
-            // PERF: stagger card creation across frames. Inflating a card +
-            // dispatching its avatar/thumb Glide requests is real work; doing
-            // them all in one runOnUiThread block competes for the same 16ms
-            // frame budget and is the main cause of a visible stutter when
-            // opening Home or switching Following/For You. The first 3 cards
-            // (~one screen) still render immediately so content is visible
-            // instantly; the rest are added one-per-frame via postDelayed.
-            int immediate = Math.min(count, 3);
-            for (int i = 0; i < immediate; i++) {
-                renderOneFeedItem(posts.get(i), likedIds, savedIds, myUid, followedUids);
+            currentFeedPosts = new ArrayList<>(posts);
+            for (ReelModel post : currentFeedPosts) {
+                if (post != null && post.reelId != null) renderedReelIds.add(post.reelId);
             }
-            // The rest are drained one per frame by a self-chaining renderer
-            // that YIELDS WHILE THE USER IS SCROLLING. The old version posted
-            // every remaining card up-front on a fixed 16ms ladder, so those
-            // inflations landed in the middle of the user's first fling — the
-            // one moment the frame budget is already fully spent.
-            startStagedFeedRender(posts, immediate, likedIds, savedIds, myUid, followedUids);
+            trimFeedWindow();
+            currentPlayingIndex = -1;
+            ensureFeedCardSlots(currentFeedPosts.size());
+            if (homeFeedAdapter != null) homeFeedAdapter.setPosts(currentFeedPosts);
             // Auto-play first visible card after layout
-            containerFeed.post(() -> {
+            if (containerFeed != null) containerFeed.post(() -> {
                 scrollHandler.removeCallbacks(playVisibleRunnable);
                 scrollHandler.postDelayed(playVisibleRunnable, 400);
             });
@@ -2078,7 +2140,15 @@ public class HomeFragment extends Fragment {
                                     String myUid, Set<String> followedUids) {
         if (reel == null || reel.reelId == null || renderedReelIds.contains(reel.reelId)) return;
         renderedReelIds.add(reel.reelId);
-        addFeedPostCard(reel, likedIds, savedIds, myUid, followedUids);
+        // Kept as a compatibility path for older staged callers. New Home
+        // renders submit models to HomeFeedAdapter, which owns inflation.
+        if (homeFeedAdapter != null) {
+            int index = currentFeedPosts.indexOf(reel);
+            if (index >= 0) {
+                ensureFeedCardSlots(currentFeedPosts.size());
+                homeFeedAdapter.setPosts(currentFeedPosts);
+            }
+        }
 
         if (isFollowingMode) return; // Following stays a pure chronological feed
         postsSincePeopleYouMayLike++;
@@ -2111,9 +2181,13 @@ public class HomeFragment extends Fragment {
         if (!isAdded() || containerFeed == null) return;
         List<ReelModel> merged = new ArrayList<>(currentFeedPosts);
         merged.addAll(newPosts);
+        for (ReelModel post : newPosts) {
+            if (post != null && post.reelId != null) renderedReelIds.add(post.reelId);
+        }
         currentFeedPosts = merged;
-        enqueueStagedFeedRender(newPosts, cachedLikedIds, cachedSavedIds,
-                cachedMyUidForFeed, cachedFollowedUids);
+        trimFeedWindow();
+        ensureFeedCardSlots(currentFeedPosts.size());
+        if (homeFeedAdapter != null) homeFeedAdapter.setPosts(currentFeedPosts);
         isLoadingMoreFeed = false;
         showFeedFooterLoading(false);
     }
@@ -2196,9 +2270,10 @@ public class HomeFragment extends Fragment {
                     pb.setLayoutParams(lp);
                     feedLoadMoreFooter = pb;
                 }
-                if (feedLoadMoreFooter.getParent() == null) containerFeed.addView(feedLoadMoreFooter);
+                if (feedLoadMoreFooter.getParent() == null && homeFeedAdapter != null)
+                    homeFeedAdapter.addViewItem(feedLoadMoreFooter);
             } else if (feedLoadMoreFooter != null && feedLoadMoreFooter.getParent() != null) {
-                containerFeed.removeView(feedLoadMoreFooter);
+                if (homeFeedAdapter != null) homeFeedAdapter.removeViewItem(feedLoadMoreFooter);
             }
         });
     }
@@ -2324,7 +2399,7 @@ public class HomeFragment extends Fragment {
         }
 
         section.addView(scroller);
-        containerFeed.addView(section);
+        if (homeFeedAdapter != null) homeFeedAdapter.addViewItem(section);
     }
 
     // ── Inline "Suggested reels" — Instagram-style thumbnail row ──────────
@@ -2410,9 +2485,7 @@ public class HomeFragment extends Fragment {
             android.widget.PopupMenu menu = new android.widget.PopupMenu(requireContext(), btnMore);
             menu.getMenu().add("Not interested");
             menu.setOnMenuItemClickListener(item -> {
-                if (containerFeed != null && section.getParent() == containerFeed) {
-                    containerFeed.removeView(section);
-                }
+                if (homeFeedAdapter != null) homeFeedAdapter.removeViewItem(section);
                 return true;
             });
             menu.show();
@@ -2487,7 +2560,7 @@ public class HomeFragment extends Fragment {
         }
 
         section.addView(scroller);
-        containerFeed.addView(section);
+        if (homeFeedAdapter != null) homeFeedAdapter.addViewItem(section);
     }
 
     /**
@@ -2587,7 +2660,7 @@ public class HomeFragment extends Fragment {
                 if (scrollView != null) scrollView.smoothScrollTo(0, 0);
                 resetFeedPaginationState();
                 cancelStagedFeedRender();
-                if (containerFeed != null) containerFeed.removeAllViews();
+                resetRecyclerFeed();
                 showFeedLoading(true);
                 loadFeed();
             });
@@ -2596,25 +2669,22 @@ public class HomeFragment extends Fragment {
         ((TextView) newPostsBanner).setText(newPostsPending == 1
                 ? "1 new post · Tap to refresh" : (newPostsPending + " new posts · Tap to refresh"));
         if (newPostsBanner.getParent() == null) {
-            containerFeed.addView(newPostsBanner, 0);
+            if (homeFeedAdapter != null) homeFeedAdapter.addViewItem(newPostsBanner);
         }
     }
 
     private void hideNewPostsBanner() {
         if (newPostsBanner != null && newPostsBanner.getParent() != null && containerFeed != null) {
-            containerFeed.removeView(newPostsBanner);
+            if (homeFeedAdapter != null) homeFeedAdapter.removeViewItem(newPostsBanner);
         }
         newPostsBanner = null;
         newPostsPending = 0;
     }
 
-    private void addFeedPostCard(ReelModel reel, Set<String> likedIds,
-                                  Set<String> savedIds, String myUid, Set<String> followedUids) {
-        if (!isAdded() || getContext() == null || containerFeed == null) return;
-        View card = cardPool != null
-            ? cardPool.obtain()
-            : LayoutInflater.from(requireContext())
-                .inflate(R.layout.item_home_feed_post, containerFeed, false);
+    private void bindFeedPostCard(View card, ReelModel reel, Set<String> likedIds,
+                                  Set<String> savedIds, String myUid, Set<String> followedUids,
+                                  int cardIndex) {
+        if (!isAdded() || getContext() == null || card == null || reel == null) return;
 
         CircleImageView avatar    = card.findViewById(R.id.iv_post_avatar);
         // FIX v39: seamless gradient ring (see StoryRingGradientDrawable doc for why
@@ -2707,9 +2777,12 @@ public class HomeFragment extends Fragment {
             frameVideo.setLayoutParams(lp);
         }
 
-        // ── Register HomeFeedCard for auto-play ─────────────────────────────
-        final int cardIndex = feedCards.size();
-        HomeFeedCard feedCard = new HomeFeedCard();
+        // ── Register/update HomeFeedCard for auto-play ─────────────────────
+        // The entry is stable by data index while its ViewHolder is recycled.
+        // That lets playback callbacks keep referring to the correct reel
+        // even when the adapter moves a holder to another position.
+        HomeFeedCard feedCard = cardIndex >= 0 && cardIndex < feedCards.size()
+                ? feedCards.get(cardIndex) : new HomeFeedCard();
         feedCard.rootView   = card;
         feedCard.playerView = pvFeed;
         feedCard.thumbView  = ivThumb;
@@ -2722,7 +2795,7 @@ public class HomeFragment extends Fragment {
         feedCard.tvPosition  = tvPosition;
         feedCard.speedChip   = tvSpeedChip;
         feedCard.playOverlay = playOverlay;
-        feedCards.add(feedCard);
+        if (cardIndex >= feedCards.size()) feedCards.add(feedCard);
 
         // Photo-only posts have no timeline to scrub and never autoplay, so
         // the video-only chrome stays hidden for them.
@@ -3400,15 +3473,6 @@ public class HomeFragment extends Fragment {
             });
         }
 
-        // ★ Register with the off-screen media windower BEFORE the card is
-        // attached — its own avatar/thumbnail Glide loads above already
-        // dispatched, so it starts out in the "loaded" state and only gets
-        // unloaded once it actually scrolls far enough away.
-        if (feedWindowManager != null) {
-            feedWindowManager.registerCard(card, avatar, reel.ownerPhoto, ivThumb, reel.thumbUrl);
-        }
-
-        containerFeed.addView(card);
     }
 
     /**
