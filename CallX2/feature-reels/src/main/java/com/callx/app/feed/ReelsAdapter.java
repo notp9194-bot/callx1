@@ -34,6 +34,41 @@ public class ReelsAdapter extends FragmentStateAdapter {
     private final List<ReelModel> reels = new ArrayList<>();
     private boolean gamesCardsEnabled = false;
 
+    /**
+     * ★ BUG FIX — this is what made "Watch more reels" (and switchFeed's
+     * For You ↔ Following toggle) land on the WRONG reel.
+     *
+     * getItemId() below is position-based (position + 1), by design — see
+     * that method's doc for why reelId-based ids don't work with this
+     * feed's infinite-scroll wraparound. The old comment on setReels()
+     * claimed a full reset "correctly invalidates every id at once", but
+     * notifyDataSetChanged() alone does NOT do that: FragmentStateAdapter
+     * only drops a fragment whose id no longer satisfies containsItem() —
+     * and since id=1 is still "contained" after setReels()/prependReel()
+     * (the new list still has ≥1 item), the OLD fragment that was already
+     * showing at id=1 was kept and reused as-is, still bound to whatever
+     * reel it was originally created for. So `openReelInFeed()`'s
+     * `currentList.add(0, reel); adapter.setReels(currentList);` correctly
+     * put the target reel at position 0 in the data — but ViewPager2 kept
+     * displaying the stale fragment that used to live at position 0,
+     * instead of a fresh one bound to the new reel. Same root cause made
+     * switchFeed() risk showing stale For-You fragments after switching to
+     * Following whenever the two lists were long enough to keep old ids
+     * "contained".
+     *
+     * Fix: fold a generation counter into every id, bumped only on a
+     * structural reset (setReels/prependReel — anything that changes what
+     * reel a given position used to mean). A stale id's epoch no longer
+     * matches, containsItem() returns false, FragmentStateAdapter tears
+     * down the old fragment and createFragment() runs fresh for that
+     * position — so it's finally bound to the reel actually at that index
+     * now. addReels() (pure tail-append, used by infinite-scroll pagination)
+     * deliberately does NOT bump this — every existing position still means
+     * the same reel it always did, so those fragments correctly stay put
+     * and pagination doesn't pay for a full-feed refresh it doesn't need.
+     */
+    private long idEpoch = 0L;
+
     public ReelsAdapter(FragmentActivity fa) {
         super(fa);
     }
@@ -56,6 +91,7 @@ public class ReelsAdapter extends FragmentStateAdapter {
     public void setReels(List<ReelModel> newReels) {
         reels.clear();
         reels.addAll(newReels);
+        idEpoch++; // structural reset — see idEpoch doc above
         notifyDataSetChanged();
     }
 
@@ -70,6 +106,7 @@ public class ReelsAdapter extends FragmentStateAdapter {
 
     public void prependReel(ReelModel reel) {
         reels.add(0, reel);
+        idEpoch++; // shifts every existing item's position — see idEpoch doc above
         notifyDataSetChanged();
     }
 
@@ -128,19 +165,23 @@ public class ReelsAdapter extends FragmentStateAdapter {
      * FragmentStateAdapter requires to be unique and breaks ViewPager2
      * (duplicate item ids / the wrong fragment reused at the wrong
      * position). Position is always unique and stable here: the list is
-     * append-only except for the rare full reset (setReels/notifyDataSetChanged),
-     * which correctly invalidates every id at once anyway.
+     * append-only except for the rare full reset (setReels/prependReel),
+     * which now bumps idEpoch — see its doc — so every id from before the
+     * reset stops matching containsItem() and gets recreated fresh instead
+     * of silently reusing stale content at its new position.
      */
     @Override
     public long getItemId(int position) {
         if (isGamesCardPosition(position)) return -1000L;
-        return position + 1L;
+        return (idEpoch << 32) | (position + 1L);
     }
 
     @Override
     public boolean containsItem(long itemId) {
         if (itemId == -1000L) return gamesCardsEnabled && reels.size() >= GAMES_CARD_POSITION;
-        long pos = itemId - 1L;
+        long epoch = itemId >>> 32;
+        if (epoch != idEpoch) return false; // id from before a structural reset — force recreate
+        long pos = (itemId & 0xFFFFFFFFL) - 1L;
         return pos >= 0 && pos < getItemCount() && !isGamesCardPosition((int) pos);
     }
 }

@@ -44,6 +44,96 @@
             android:background="@drawable/bg_btn_primary"/>
     </RelativeLayout>
 
+    <!-- ✅ NEW: Live preview — shows the actual reel video/photo (reusing the same
+         rounded PlayerView-based preview style as the editor's step screens, e.g.
+         ReelSubtitlesActivity) so the user can watch the selected transition play
+         out on their own clip instead of a generic demo card. -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="220dp"
+        android:layout_margin="12dp"
+        android:background="@drawable/bg_reel_preview_rounded"
+        android:clipToOutline="true">
+
+        <!-- Content layer: this whole FrameLayout is what gets scaled / rotated /
+             translated / faded to demo Fade, Zoom, Spin, Slide, Blur, Glitch. -->
+        <FrameLayout
+            android:id="@+id/fl_transition_preview_content"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <androidx.media3.ui.PlayerView
+                android:id="@+id/transition_preview_player"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                app:use_controller="false"
+                app:resize_mode="fit"
+                app:surface_type="texture_view"
+                android:visibility="gone"/>
+
+            <ImageView
+                android:id="@+id/iv_transition_preview_photo"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="fitCenter"
+                android:visibility="gone"/>
+        </FrameLayout>
+
+        <!-- Wipe curtain: width animated 0 → full to sweep across the clip -->
+        <View
+            android:id="@+id/v_transition_wipe_overlay"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="start"
+            android:background="#000000"/>
+
+        <!-- Split curtains: height animated 0 → half from top and bottom -->
+        <View
+            android:id="@+id/v_transition_split_top"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_gravity="top"
+            android:background="#000000"/>
+
+        <View
+            android:id="@+id/v_transition_split_bottom"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_gravity="bottom"
+            android:background="#000000"/>
+
+        <!-- Flash / glitch flicker layer -->
+        <View
+            android:id="@+id/v_transition_flash_overlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#FFFFFF"
+            android:alpha="0"/>
+
+        <TextView
+            android:id="@+id/tv_transition_no_preview"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="Preview unavailable"
+            android:textSize="13sp"
+            android:textColor="#AAFFFFFF"
+            android:visibility="gone"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|start"
+            android:layout_margin="10dp"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="3dp"
+            android:text="● LIVE PREVIEW"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:background="@drawable/bg_btn_primary"/>
+    </FrameLayout>
+
     <!-- Selected info -->
     <LinearLayout
         android:layout_width="match_parent"

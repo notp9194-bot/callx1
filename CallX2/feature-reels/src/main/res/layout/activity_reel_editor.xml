@@ -116,23 +116,24 @@
             android:padding="16dp"
             android:contentDescription="Play/Pause"/>
 
-        <!-- Text overlay preview -->
+        <!-- ✅ ADVANCED: the old single static tv_text_preview is gone — Step 2
+             now supports any number of draggable/pinch-to-scale/rotate text
+             overlays, added dynamically as styled TextViews onto this same
+             FrameLayout (see ReelEditorActivity#createAdvancedTextOverlay). -->
+
+        <!-- Drag-to-delete zone shown only while a text overlay is being dragged. -->
         <TextView
-            android:id="@+id/tv_text_preview"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:layout_marginTop="60dp"
-            android:text=""
-            android:textColor="#FFFFFF"
-            android:textSize="20sp"
-            android:fontFamily="sans-serif-medium"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
-            android:background="#88000000"
-            android:visibility="gone"/>
+            android:id="@+id/tv_text_trash_zone"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="14dp"
+            android:text="🗑"
+            android:textSize="24sp"
+            android:gravity="center"
+            android:background="@drawable/bg_premium_circle_button"
+            android:visibility="gone"
+            android:elevation="8dp"/>
     </FrameLayout>
     </FrameLayout>
 
@@ -203,7 +204,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
-                android:text="Trim"
+                android:text="Trim and Crop"
                 android:textAllCaps="true"
                 android:textColor="@color/trim_text_primary"
                 android:textSize="@dimen/step_name_text_size"
@@ -387,16 +388,58 @@
             android:orientation="vertical"
             android:padding="16dp">
 
-        <!-- Trim section -->
-        <TextView
-            android:layout_width="wrap_content"
+        <!-- Trim & Crop section header + Crop button
+             ✅ NEW: Crop button reuses Chat's Media Editing screen crop feature
+             (core's MediaCropActivity — same crop screen, aspect chips, and
+             drag handles as btnEditCrop in MediaEditActivity) so Step 1 now
+             covers both trimming the clip and cropping its framing. -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="TRIM"
-            android:textColor="@color/trim_text_secondary"
-            android:textSize="11sp"
-            android:fontFamily="sans-serif-medium"
-            android:letterSpacing="0.1"
-            android:layout_marginBottom="8dp"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="TRIM AND CROP"
+                android:textColor="@color/trim_text_secondary"
+                android:textSize="11sp"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.1"/>
+
+            <LinearLayout
+                android:id="@+id/btn_editor_crop"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_reel_editor_tool_chip"
+                android:paddingStart="10dp"
+                android:paddingEnd="12dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:clickable="true"
+                android:focusable="true">
+
+                <ImageView
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:src="@drawable/ic_editor_crop"
+                    android:contentDescription="@null"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:text="Crop"
+                    android:textColor="@color/trim_text_primary"
+                    android:textSize="12sp"
+                    android:fontFamily="sans-serif-medium"/>
+            </LinearLayout>
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -443,7 +486,7 @@
         </LinearLayout>
         <!-- ═══════ /STEP 1 ═══════ -->
 
-        <!-- ═══════ STEP 2 · TEXT OVERLAY ═══════ -->
+        <!-- ═══════ STEP 2 · TEXT OVERLAY (ULTRA ADVANCED) ═══════ -->
         <LinearLayout
             android:id="@+id/editor_step_text"
             android:layout_width="match_parent"
@@ -458,16 +501,36 @@
             android:background="@color/trim_divider"
             android:layout_marginVertical="12dp"/>
 
-        <TextView
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="TEXT OVERLAY"
-            android:textColor="@color/trim_text_secondary"
-            android:textSize="11sp"
-            android:fontFamily="sans-serif-medium"
-            android:letterSpacing="0.1"
-            android:layout_marginBottom="8dp"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
 
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="TEXT OVERLAY"
+                android:textColor="@color/trim_text_secondary"
+                android:textSize="11sp"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.1"/>
+
+            <TextView
+                android:id="@+id/btn_delete_text_overlay"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🗑 Delete"
+                android:textColor="#FF6B6B"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:visibility="gone"
+                android:padding="4dp"/>
+        </LinearLayout>
+
+        <!-- Text input row -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -498,6 +561,93 @@
                 android:fontFamily="sans-serif-medium"
                 android:layout_marginStart="8dp"/>
         </LinearLayout>
+
+        <!-- Font family chips (populated in code: Classic / Serif / Mono / Condensed) -->
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:scrollbars="none">
+            <LinearLayout
+                android:id="@+id/ll_text_font_row"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"/>
+        </HorizontalScrollView>
+
+        <!-- Bold / Italic / Align chips (populated in code) -->
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:scrollbars="none">
+            <LinearLayout
+                android:id="@+id/ll_text_style_row"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"/>
+        </HorizontalScrollView>
+
+        <!-- Background style chips: None / Pill / Solid / Highlight (populated in code) -->
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:scrollbars="none">
+            <LinearLayout
+                android:id="@+id/ll_text_bg_row"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"/>
+        </HorizontalScrollView>
+
+        <!-- Color swatches (populated in code) -->
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:scrollbars="none">
+            <LinearLayout
+                android:id="@+id/ll_text_color_row"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"/>
+        </HorizontalScrollView>
+
+        <!-- Size slider -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="10dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="SIZE"
+                android:textColor="@color/trim_text_secondary"
+                android:textSize="11sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginEnd="8dp"/>
+
+            <SeekBar
+                android:id="@+id/seek_text_size"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="48"
+                android:progress="12"/>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Pinch to resize &amp; rotate  •  Drag to move  •  Drag to 🗑 to delete"
+            android:textColor="@color/trim_text_muted"
+            android:textSize="10sp"
+            android:gravity="center"
+            android:layout_marginTop="10dp"/>
 
         </LinearLayout>
         <!-- ═══════ /STEP 2 ═══════ -->

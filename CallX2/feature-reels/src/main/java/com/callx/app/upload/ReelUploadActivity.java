@@ -883,6 +883,15 @@ public class ReelUploadActivity extends AppCompatActivity {
                 goToStep(currentStep + 1);
             });
         }
+        // ✅ NEW: tapping a step dot jumps back to an already-visited step;
+        // tapping ahead does nothing — only btnStepNext may move forward
+        // (and still runs canLeaveMediaStep() as before). Shared across every
+        // stepper screen — see StepDotsNavigationHelper.
+        com.callx.app.utils.StepDotsNavigationHelper.bindStepDots(stepDots,
+            new com.callx.app.utils.StepDotsNavigationHelper.StepNavigator() {
+                @Override public int getCurrentStep() { return currentStep; }
+                @Override public void goToStep(int step) { ReelUploadActivity.this.goToStep(step); }
+            });
         updateStepUi();
     }
 

@@ -453,6 +453,13 @@ public class HomeFragment extends Fragment {
     private static final int MAX_HW_LAYER_PX = 4096;
     /** Decode size for the 36dp card avatar (36dp ≈ 144px at xxhdpi). */
     private static final int AVATAR_DECODE_PX = 144;
+    /** ★ Ultra-advanced optimization: Pattern.compile() is far from free —
+     *  buildCaptionSpannable() used to recompile this same regex on EVERY
+     *  card bind (every scroll rebind, not just once per unique caption).
+     *  Compiled once and reused; matching against it per-bind is cheap,
+     *  compiling it per-bind was not. */
+    private static final java.util.regex.Pattern HASHTAG_PATTERN =
+        java.util.regex.Pattern.compile("#(\\w+)");
     /** Card thumbnail decode size — 9:16, matching the card frame. Shared by
      *  the card load and the prefetch so both hit the same Glide cache key. */
     private static final int THUMB_DECODE_W = 540;
@@ -500,7 +507,18 @@ public class HomeFragment extends Fragment {
         // even just to build a root view's LayoutParams, or inflate() throws
         // "RecyclerView has no LayoutManager". Adapter is set once built below.
         recyclerHome.setLayoutManager(new LinearLayoutManager(requireContext()));
-        recyclerHome.setItemViewCacheSize(4);
+        recyclerHome.setItemViewCacheSize(6);
+        // ★ Ultra-advanced optimization: item_home_feed_post.xml is a heavy
+        // inflate (PlayerView, seek bar, ~28 child views). The default
+        // recycled-pool cap is 5 per view type — on a fast fling that's not
+        // always enough to keep ahead of the scroll, so the pool empties and
+        // RecyclerView falls back to a fresh LayoutInflater.inflate() (the
+        // second most expensive thing in this bind path after the
+        // findViewById cost PostRowHolder.cacheViews() already removed).
+        // Raising the pool for just the post row type keeps more already-
+        // inflated instances on hand for a big fling, at the cost of a
+        // little idle memory — the standard fix for this exact stutter.
+        recyclerHome.getRecycledViewPool().setMaxRecycledViews(ROW_POST, 10);
         // Instagram/TikTok-style feeds run without the default add/remove/
         // change fade-and-shift animation: every notifyItemChanged (like
         // count ticking up, a save toggling, DiffUtil remapping positions
@@ -3215,13 +3233,20 @@ public class HomeFragment extends Fragment {
      * it no longer inflates a view, pulls from cardPool, or appends anything
      * to a container — RecyclerView owns attach/detach/recycling now.
      */
-    private void addFeedPostCard(View card, int postIndex, ReelModel reel, Set<String> likedIds,
+    private void addFeedPostCard(PostRowHolder holder, int postIndex, ReelModel reel, Set<String> likedIds,
                                   Set<String> savedIds, String myUid, Set<String> followedUids) {
         if (!isAdded() || getContext() == null) return;
-        CircleImageView avatar    = card.findViewById(R.id.iv_post_avatar);
+        // ★ Ultra-advanced optimization: every one of these used to be a
+        // fresh card.findViewById(...) tree-walk on EVERY bind (~28 calls,
+        // repeated for every card that scrolls into view during a fling).
+        // holder.cacheViews() already did that lookup once at inflate time
+        // (onCreateViewHolder) — this is now just a set of field reads, and
+        // every line below is completely unchanged. See PostRowHolder doc.
+        View card                 = holder.itemView;
+        CircleImageView avatar    = holder.avatar;
         // FIX v39: seamless gradient ring (see StoryRingGradientDrawable doc for why
         // the old story_ring_insta_gradient.xml background had a visible seam).
-        ImageView ivPostStoryRing = card.findViewById(R.id.iv_post_story_ring);
+        ImageView ivPostStoryRing = holder.ivPostStoryRing;
         // Instagram-style: gradient only while unseen, flat gray once seen,
         // hidden with no active status — same StatusCacheManager everything
         // else in the app reads from. Mirrors ReelUiController.
@@ -3244,11 +3269,11 @@ public class HomeFragment extends Fragment {
                 ivPostStoryRing.setVisibility(View.GONE);
             }
         }
-        TextView tvOwner          = card.findViewById(R.id.tv_post_owner);
-        TextView tvTime           = card.findViewById(R.id.tv_post_time);
-        TextView tvAudio          = card.findViewById(R.id.tv_post_audio);
-        TextView tvSuggested      = card.findViewById(R.id.tv_post_suggested);
-        TextView btnPostFollow    = card.findViewById(R.id.btn_post_follow);
+        TextView tvOwner          = holder.tvOwner;
+        TextView tvTime           = holder.tvTime;
+        TextView tvAudio          = holder.tvAudio;
+        TextView tvSuggested      = holder.tvSuggested;
+        TextView btnPostFollow    = holder.btnPostFollow;
 
         // FIX: cardPool.obtain() can hand back a RECYCLED view that was
         // previously bound to a different post — one where tv_post_suggested
@@ -3266,25 +3291,25 @@ public class HomeFragment extends Fragment {
         if (tvAudio       != null) tvAudio.setVisibility(View.GONE);
         if (btnPostFollow != null) btnPostFollow.setVisibility(View.GONE);
         if (tvTime        != null) tvTime.setVisibility(View.VISIBLE);
-        ImageView ivThumb         = card.findViewById(R.id.iv_post_thumb);
-        TextView tvCaption        = card.findViewById(R.id.tv_post_caption);
-        TextView tvLikes          = card.findViewById(R.id.tv_post_likes);
-        TextView tvComments       = card.findViewById(R.id.tv_post_comments);
-        TextView tvReposts        = card.findViewById(R.id.tv_post_reposts);
-        ImageButton btnLike       = card.findViewById(R.id.btn_post_like);
-        ImageButton btnComment    = card.findViewById(R.id.btn_post_comment);
-        ImageButton btnRepost     = card.findViewById(R.id.btn_post_repost);
-        ImageButton btnSave       = card.findViewById(R.id.btn_post_save);
-        PlayerView  pvFeed        = card.findViewById(R.id.pv_feed_post);
-        FrameLayout frameVideo    = card.findViewById(R.id.frame_video);
-        View        endOverlay    = card.findViewById(R.id.layout_end_of_reel_card);
-        View        watchMore     = card.findViewById(R.id.btn_watch_more_card);
-        TextView    watchAgain    = card.findViewById(R.id.btn_watch_again_card);
-        ImageButton btnMute       = card.findViewById(R.id.btn_post_mute);
-        SeekBar     sbProgress    = card.findViewById(R.id.sb_post_progress);
-        TextView    tvPosition    = card.findViewById(R.id.tv_post_position);
-        TextView    tvSpeedChip   = card.findViewById(R.id.tv_post_speed_chip);
-        View        playOverlay   = card.findViewById(R.id.btn_post_play_overlay);
+        ImageView ivThumb         = holder.ivThumb;
+        TextView tvCaption        = holder.tvCaption;
+        TextView tvLikes          = holder.tvLikes;
+        TextView tvComments       = holder.tvComments;
+        TextView tvReposts        = holder.tvReposts;
+        ImageButton btnLike       = holder.btnLike;
+        ImageButton btnComment    = holder.btnComment;
+        ImageButton btnRepost     = holder.btnRepost;
+        ImageButton btnSave       = holder.btnSave;
+        PlayerView  pvFeed        = holder.pvFeed;
+        FrameLayout frameVideo    = holder.frameVideo;
+        View        endOverlay    = holder.endOverlay;
+        View        watchMore     = holder.watchMore;
+        TextView    watchAgain    = holder.watchAgain;
+        ImageButton btnMute       = holder.btnMute;
+        SeekBar     sbProgress    = holder.sbProgress;
+        TextView    tvPosition    = holder.tvPosition;
+        TextView    tvSpeedChip   = holder.tvSpeedChip;
+        View        playOverlay   = holder.playOverlay;
 
         // ── Instagram-level approach: Home Feed vs Reels tab ─────────────────
         // Reels tab (fragment_reel_player.xml) is a dedicated fullscreen
@@ -3298,15 +3323,22 @@ public class HomeFragment extends Fragment {
         // top/bottom to fit that shorter frame — same visual effect as the
         // real Instagram app. This does NOT touch the Reels tab; that stays
         // full 9:16 via fragment_reel_player.xml, untouched by this cap.
+        // ★ Ultra-advanced optimization: this height is identical for every
+        // card (same screen, same 0.75 cap) — it was being recomputed AND
+        // re-applied via setLayoutParams() on every single bind, which
+        // forces a full measure/layout pass on frameVideo every time a card
+        // scrolls into view, even though the number never actually changes
+        // for the life of the fragment. Computed once and cached below;
+        // setLayoutParams() is now only called when the height genuinely
+        // differs (first bind of a given recycled view, or a config change
+        // that invalidated the cache).
         if (frameVideo != null) {
-            int screenW   = getResources().getDisplayMetrics().widthPixels;
-            int screenH   = getResources().getDisplayMetrics().heightPixels;
-            int full916H  = (int) (screenW * 16f / 9f);
-            int feedCapH  = (int) (screenH * 0.75f);
-            int videoH    = Math.min(full916H, feedCapH);
+            int videoH = feedCardVideoHeightPx();
             android.view.ViewGroup.LayoutParams lp = frameVideo.getLayoutParams();
-            lp.height = videoH;
-            frameVideo.setLayoutParams(lp);
+            if (lp.height != videoH) {
+                lp.height = videoH;
+                frameVideo.setLayoutParams(lp);
+            }
         }
 
         // ── Register HomeFeedCard for auto-play ─────────────────────────────
@@ -3427,7 +3459,7 @@ public class HomeFragment extends Fragment {
                 + " \u2227 " + (reel.collabCollaboratorName != null ? reel.collabCollaboratorName : "User");
             tvOwner.setText(collabLabel);
             // Load collaborator's avatar into a second circle view if one exists in layout
-            View collabAvatarContainer = card.findViewById(R.id.layout_collab_avatar);
+            View collabAvatarContainer = holder.collabAvatarContainer;
             if (collabAvatarContainer instanceof LinearLayout) {
                 // Dual-avatar rendering: two overlapping circle images
                 LinearLayout collabRow = (LinearLayout) collabAvatarContainer;
@@ -3488,7 +3520,7 @@ public class HomeFragment extends Fragment {
             : (reel.caption != null ? reel.caption : "");
         final int CAPTION_MAX_LINES = 2;
         boolean[] captionExpanded = {false};
-        View btnReadMore = card.findViewById(R.id.tv_post_read_more);
+        View btnReadMore = holder.btnReadMore;
 
         // Apply hashtag spans
         android.text.SpannableString captionSpannable = buildCaptionSpannable(captionText);
@@ -3881,7 +3913,7 @@ public class HomeFragment extends Fragment {
         }
 
         // ── Send / Share button — open ReelShareSheetFragment ──
-        View btnSend = card.findViewById(R.id.btn_post_send);
+        View btnSend = holder.btnSend;
         if (btnSend != null) {
             btnSend.setOnClickListener(x -> {
                 if (!isAdded() || getContext() == null || reelId == null) return;
@@ -3909,7 +3941,7 @@ public class HomeFragment extends Fragment {
         }
 
         // ── More options (⋮) button ──
-        View btnMore = card.findViewById(R.id.btn_post_more);
+        View btnMore = holder.btnMore;
         if (btnMore != null) {
             btnMore.setOnClickListener(x -> {
                 if (!isAdded() || getContext() == null) return;
@@ -4071,8 +4103,7 @@ public class HomeFragment extends Fragment {
         if (text == null || text.isEmpty())
             return new android.text.SpannableString("");
         android.text.SpannableString span = new android.text.SpannableString(text);
-        java.util.regex.Matcher m =
-            java.util.regex.Pattern.compile("#(\\w+)").matcher(text);
+        java.util.regex.Matcher m = HASHTAG_PATTERN.matcher(text);
         while (m.find()) {
             final String tag = m.group(1);
             final int s = m.start(), e = m.end();
@@ -4758,6 +4789,22 @@ public class HomeFragment extends Fragment {
         return (int)(dp * getContext().getResources().getDisplayMetrics().density);
     }
 
+    /** Cached feed-card video-frame height (see addFeedPostCard's comment) —
+     *  same value for every card, so it's computed once instead of on every
+     *  bind. -1 means "not computed yet / invalidated". */
+    private int cachedFeedVideoH = -1;
+
+    private int feedCardVideoHeightPx() {
+        if (cachedFeedVideoH > 0 || getContext() == null) {
+            return cachedFeedVideoH > 0 ? cachedFeedVideoH : 0;
+        }
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        int full916H = (int) (dm.widthPixels * 16f / 9f);
+        int feedCapH = (int) (dm.heightPixels * 0.75f);
+        cachedFeedVideoH = Math.min(full916H, feedCapH);
+        return cachedFeedVideoH;
+    }
+
     /** Same red used by the full-screen reel player's like button (#FF416C) —
      *  keeps the liked-state color consistent between the home feed's inline
      *  reel card and ReelPlayerFragment/ReelSocialController. */
@@ -4819,7 +4866,11 @@ public class HomeFragment extends Fragment {
                 case ROW_POST: {
                     View v = LayoutInflater.from(parent.getContext())
                         .inflate(R.layout.item_home_feed_post, parent, false);
-                    return new PostRowHolder(v);
+                    PostRowHolder prh = new PostRowHolder(v);
+                    // ★ Cache all 28 child-view references ONCE here, at
+                    // inflate time — not on every bind. See PostRowHolder doc.
+                    prh.cacheViews();
+                    return prh;
                 }
                 default: {
                     // ROW_SUGGESTED_CREATORS / ROW_SUGGESTED_REELS / ROW_NEW_POSTS_BANNER /
@@ -4851,7 +4902,7 @@ public class HomeFragment extends Fragment {
                     h.boundPostIndex = row.postIndex;
                     if (row.postIndex >= 0 && row.postIndex < currentFeedPosts.size()) {
                         ReelModel reel = currentFeedPosts.get(row.postIndex);
-                        addFeedPostCard(holder.itemView, row.postIndex, reel,
+                        addFeedPostCard(h, row.postIndex, reel,
                             cachedLikedIds != null ? cachedLikedIds : new HashSet<>(),
                             cachedSavedIds != null ? cachedSavedIds : new HashSet<>(),
                             cachedMyUidForFeed, cachedFollowedUids != null ? cachedFollowedUids : new HashSet<>());
@@ -4972,9 +5023,91 @@ public class HomeFragment extends Fragment {
      *  different posts as the user scrolls, unlike the old one-View-per-post
      *  model. boundPostIndex tracks which currentFeedPosts entry it's
      *  currently showing, so onViewRecycled can null out the right feedCards
-     *  slot. */
+     *  slot.
+     *
+     *  ★ Ultra-advanced optimization: view-holder caching. addFeedPostCard()
+     *  used to run ~28 findViewById() tree-walks on EVERY bind — meaning
+     *  every single card that scrolled into view during a fling paid that
+     *  cost again, even though the same 28 children exist in every recycled
+     *  instance of item_home_feed_post.xml. cacheViews() now does that
+     *  lookup exactly once, right after inflation (onCreateViewHolder) —
+     *  every rebind afterwards is a plain field read. This is the same
+     *  reason plain RecyclerView.ViewHolder subclasses exist in the first
+     *  place; addFeedPostCard was just never wired to take advantage of it.
+     *  addFeedPostCard()'s ~800 lines of bind logic are otherwise completely
+     *  unchanged — it now reads `holder.avatar` etc. instead of calling
+     *  `card.findViewById(...)`, nothing else about it moved. */
     private static class PostRowHolder extends RecyclerView.ViewHolder {
         int boundPostIndex = -1;
+        boolean viewsCached = false;
+
+        CircleImageView avatar;
+        ImageView       ivPostStoryRing;
+        TextView        tvOwner;
+        TextView        tvTime;
+        TextView        tvAudio;
+        TextView        tvSuggested;
+        TextView        btnPostFollow;
+        ImageView       ivThumb;
+        TextView        tvCaption;
+        TextView        tvLikes;
+        TextView        tvComments;
+        TextView        tvReposts;
+        ImageButton     btnLike;
+        ImageButton     btnComment;
+        ImageButton     btnRepost;
+        ImageButton     btnSave;
+        PlayerView      pvFeed;
+        FrameLayout     frameVideo;
+        View            endOverlay;
+        View            watchMore;
+        TextView        watchAgain;
+        ImageButton     btnMute;
+        SeekBar         sbProgress;
+        TextView        tvPosition;
+        TextView        tvSpeedChip;
+        View            playOverlay;
+        View            collabAvatarContainer;
+        View            btnReadMore;
+        View            btnSend;
+        View            btnMore;
+
         PostRowHolder(@NonNull View itemView) { super(itemView); }
+
+        /** Runs once per physical inflated instance — NOT once per bind. */
+        void cacheViews() {
+            if (viewsCached) return;
+            avatar                = itemView.findViewById(R.id.iv_post_avatar);
+            ivPostStoryRing       = itemView.findViewById(R.id.iv_post_story_ring);
+            tvOwner               = itemView.findViewById(R.id.tv_post_owner);
+            tvTime                = itemView.findViewById(R.id.tv_post_time);
+            tvAudio               = itemView.findViewById(R.id.tv_post_audio);
+            tvSuggested           = itemView.findViewById(R.id.tv_post_suggested);
+            btnPostFollow         = itemView.findViewById(R.id.btn_post_follow);
+            ivThumb               = itemView.findViewById(R.id.iv_post_thumb);
+            tvCaption             = itemView.findViewById(R.id.tv_post_caption);
+            tvLikes               = itemView.findViewById(R.id.tv_post_likes);
+            tvComments            = itemView.findViewById(R.id.tv_post_comments);
+            tvReposts             = itemView.findViewById(R.id.tv_post_reposts);
+            btnLike               = itemView.findViewById(R.id.btn_post_like);
+            btnComment            = itemView.findViewById(R.id.btn_post_comment);
+            btnRepost             = itemView.findViewById(R.id.btn_post_repost);
+            btnSave               = itemView.findViewById(R.id.btn_post_save);
+            pvFeed                = itemView.findViewById(R.id.pv_feed_post);
+            frameVideo            = itemView.findViewById(R.id.frame_video);
+            endOverlay            = itemView.findViewById(R.id.layout_end_of_reel_card);
+            watchMore             = itemView.findViewById(R.id.btn_watch_more_card);
+            watchAgain            = itemView.findViewById(R.id.btn_watch_again_card);
+            btnMute               = itemView.findViewById(R.id.btn_post_mute);
+            sbProgress            = itemView.findViewById(R.id.sb_post_progress);
+            tvPosition            = itemView.findViewById(R.id.tv_post_position);
+            tvSpeedChip           = itemView.findViewById(R.id.tv_post_speed_chip);
+            playOverlay           = itemView.findViewById(R.id.btn_post_play_overlay);
+            collabAvatarContainer = itemView.findViewById(R.id.layout_collab_avatar);
+            btnReadMore           = itemView.findViewById(R.id.tv_post_read_more);
+            btnSend               = itemView.findViewById(R.id.btn_post_send);
+            btnMore               = itemView.findViewById(R.id.btn_post_more);
+            viewsCached = true;
+        }
     }
 }

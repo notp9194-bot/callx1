@@ -1007,13 +1007,13 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         sv.setLayoutParams(lp);
         flStickerLayer.addView(sv);
         fullStickerViews.add(sv);
-        sv.attachDragToParent(flStickerLayer);
-        sv.setOnLongClickListener(v -> {
-            flStickerLayer.removeView(sv);
-            fullStickerViews.remove(sv);
+        // Long-press OR drag-to-trash removes it — both gestures live inside
+        // attachDragToParent itself, so no need to reimplement removal here.
+        sv.setOnStickerRemovedListener(removed -> {
+            fullStickerViews.remove(removed);
             rebuildStickerJson();
-            return true;
         });
+        sv.attachDragToParent(flStickerLayer);
         rebuildStickerJson();
         Toast.makeText(this, "🎵 Music sticker attached! Drag to reposition.", Toast.LENGTH_SHORT).show();
     }
@@ -1032,14 +1032,13 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
             sv.setLayoutParams(lp);
             flStickerLayer.addView(sv);
             fullStickerViews.add(sv);
-            sv.attachDragToParent(flStickerLayer);
-            // Long-press to remove
-            sv.setOnLongClickListener(v -> {
-                flStickerLayer.removeView(sv);
-                fullStickerViews.remove(sv);
+            // Long-press OR drag-to-trash removes it — both gestures live
+            // inside attachDragToParent itself, no need to reimplement here.
+            sv.setOnStickerRemovedListener(removed -> {
+                fullStickerViews.remove(removed);
                 rebuildStickerJson();
-                return true;
             });
+            sv.attachDragToParent(flStickerLayer);
             rebuildStickerJson();
             Toast.makeText(this, getStickerLabel(result.type) + " added! Drag to reposition.", Toast.LENGTH_SHORT).show();
         });
@@ -1447,6 +1446,16 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
                 if (next < panels.length) showPanel(panels[next], tabs[next]);
             });
         }
+        // ✅ NEW: tapping a step dot jumps back to an already-visited step;
+        // tapping ahead does nothing — only btnPhotoEditorStepNext may move
+        // forward. Shared across every stepper screen — see StepDotsNavigationHelper.
+        com.callx.app.utils.StepDotsNavigationHelper.bindStepDots(photoEditorStepDots,
+            new com.callx.app.utils.StepDotsNavigationHelper.StepNavigator() {
+                @Override public int getCurrentStep() { return photoEditorCurrentStep; }
+                @Override public void goToStep(int step) {
+                    if (step >= 0 && step < panels.length) showPanel(panels[step], tabs[step]);
+                }
+            });
         updatePhotoEditorStepUi();
     }
 

@@ -81,19 +81,43 @@ public class ReelVideoExportEngine {
         public final float  x; // 0..1, left edge anchor
         public final float  y; // 0..1, top edge anchor
         public final float  textSizeSp;
+        // ── Advanced text-overlay styling (Step 2 wizard) ──────────────────
+        public final String  fontKey;   // classic|serif|mono|condensed
+        public final boolean bold;
+        public final boolean italic;
+        public final String  bgStyle;   // none|pill|solid|highlight
+        public final String  align;     // left|center|right
+        public final float   rotationDeg;
+        public final float   scale;
 
         public OverlayItem(String text, int color, float x, float y, float textSizeSp) {
+            this(text, color, x, y, textSizeSp, "classic", false, false, "pill", "center", 0f, 1f);
+        }
+
+        public OverlayItem(String text, int color, float x, float y, float textSizeSp,
+                            String fontKey, boolean bold, boolean italic, String bgStyle,
+                            String align, float rotationDeg, float scale) {
             this.text = text;
             this.color = color;
             this.x = x;
             this.y = y;
             this.textSizeSp = textSizeSp;
+            this.fontKey = fontKey != null ? fontKey : "classic";
+            this.bold = bold;
+            this.italic = italic;
+            this.bgStyle = bgStyle != null ? bgStyle : "pill";
+            this.align = align != null ? align : "center";
+            this.rotationDeg = rotationDeg;
+            this.scale = scale <= 0f ? 1f : scale;
         }
     }
 
     /**
      * Parses the JSON array produced by ReelCameraActivity / ReelEditorActivity, e.g.
      * [{"type":"text","value":"Hello|#FF0000","x":0.5,"y":0.5}, {"type":"emoji","value":"🔥","x":0.3,"y":0.2}]
+     * or the richer Step-2 "advanced text overlay" schema:
+     * [{"type":"text","value":"Hello","x":0.5,"y":0.5,"color":"#FF0000","font":"serif",
+     *   "bold":true,"italic":false,"bg":"solid","align":"center","size":30,"rotation":12,"scale":1.4}]
      */
     public static List<OverlayItem> parseOverlayJsonArray(@Nullable String json) {
         List<OverlayItem> result = new ArrayList<>();
@@ -127,13 +151,29 @@ public class ReelVideoExportEngine {
             if (value == null) return null;
 
             int color = Color.WHITE;
+            // Legacy inline format: "text|#RRGGBB"
             if (value.contains("|#")) {
                 int sep = value.lastIndexOf("|#");
                 String colorHex = value.substring(sep + 1);
                 value = value.substring(0, sep);
                 try { color = Color.parseColor(colorHex); } catch (Exception ignored) {}
             }
-            return new OverlayItem(value, color, x, y, 28f);
+            // Advanced schema: explicit "color" key wins over the legacy inline one.
+            String colorStr = extractJsonString(obj, "color");
+            if (colorStr != null) {
+                try { color = Color.parseColor(colorStr); } catch (Exception ignored) {}
+            }
+
+            float size = extractJsonFloat(obj, "size", 28f);
+            String font = extractJsonString(obj, "font");
+            String bg = extractJsonString(obj, "bg");
+            String align = extractJsonString(obj, "align");
+            boolean bold = obj.contains("\"bold\":true");
+            boolean italic = obj.contains("\"italic\":true");
+            float rotation = extractJsonFloat(obj, "rotation", 0f);
+            float scale = extractJsonFloat(obj, "scale", 1f);
+
+            return new OverlayItem(value, color, x, y, size, font, bold, italic, bg, align, rotation, scale);
         } catch (Exception e) {
             return null;
         }
@@ -334,23 +374,7 @@ public class ReelVideoExportEngine {
         float density = context.getResources().getDisplayMetrics().density;
 
         for (OverlayItem item : overlays) {
-            Paint paint = new Paint();
-            paint.setAntiAlias(true);
-            paint.setColor(item.color);
-            paint.setTextSize(item.textSizeSp * density * ((float) width / 1080f));
-            paint.setTypeface(Typeface.DEFAULT_BOLD);
-
-            Paint bg = new Paint();
-            bg.setColor(0x55000000);
-
-            float px = item.x * width;
-            float py = item.y * height;
-            float pad = 8f * density;
-            android.graphics.Rect bounds = new android.graphics.Rect();
-            paint.getTextBounds(item.text, 0, item.text.length(), bounds);
-
-            canvas.drawRect(px - pad, py - pad, px + bounds.width() + pad, py + bounds.height() + pad, bg);
-            canvas.drawText(item.text, px, py - bounds.top, paint);
+            drawStyledOverlay(canvas, item, width, height, density);
         }
 
         BitmapOverlay overlay = new BitmapOverlay() {
@@ -366,6 +390,93 @@ public class ReelVideoExportEngine {
         };
 
         effects.add(new OverlayEffect(ImmutableList.of(overlay)));
+    }
+
+    /**
+     * Draws one advanced text overlay — font family, bold/italic, background
+     * style (none/pill/solid/highlight), multi-line alignment, rotation and
+     * scale — matching what the Step 2 editor preview (draggable/pinchable
+     * TextView) showed, so the exported/baked video looks identical to what
+     * the user styled on screen instead of the old fixed white-bold-pill text.
+     */
+    private static void drawStyledOverlay(Canvas canvas, OverlayItem item, int videoWidth, int videoHeight, float density) {
+        float sizePx = item.textSizeSp * density * ((float) videoWidth / 1080f) * item.scale;
+
+        Paint paint = new Paint();
+        paint.setAntiAlias(true);
+        paint.setTextSize(sizePx);
+        paint.setTypeface(resolveTypeface(item.fontKey, item.bold, item.italic));
+
+        boolean highlight = "highlight".equals(item.bgStyle);
+        int textColor = item.color;
+        if (highlight) {
+            // Light backgrounds get dark text and vice versa, same contrast rule as the editor preview.
+            double luminance = (0.299 * Color.red(item.color) + 0.587 * Color.green(item.color) + 0.114 * Color.blue(item.color));
+            textColor = luminance > 150 ? Color.BLACK : Color.WHITE;
+        }
+        paint.setColor(textColor);
+        if (!"none".equals(item.bgStyle) && !highlight) {
+            paint.setShadowLayer(4f * density, 0f, 2f * density, 0x99000000);
+        }
+
+        Paint.Align paintAlign = "left".equals(item.align) ? Paint.Align.LEFT
+            : "right".equals(item.align) ? Paint.Align.RIGHT : Paint.Align.CENTER;
+        paint.setTextAlign(paintAlign);
+
+        String[] lines = item.text.split("\\n", -1);
+        float lineHeight = sizePx * 1.25f;
+        float pad = 8f * density * item.scale;
+
+        // Widest line drives the background box width.
+        float maxLineWidth = 0f;
+        for (String line : lines) maxLineWidth = Math.max(maxLineWidth, paint.measureText(line));
+        float blockHeight = lineHeight * lines.length;
+
+        canvas.save();
+        canvas.translate(item.x * videoWidth, item.y * videoHeight);
+        canvas.rotate(item.rotationDeg);
+
+        if (!"none".equals(item.bgStyle)) {
+            Paint bg = new Paint();
+            bg.setAntiAlias(true);
+            if (highlight) {
+                bg.setColor(item.color);
+            } else if ("solid".equals(item.bgStyle)) {
+                bg.setColor(0xEE000000);
+            } else { // pill
+                bg.setColor(0x66000000);
+            }
+            android.graphics.RectF rect = new android.graphics.RectF(
+                -maxLineWidth / 2f - pad, -blockHeight / 2f - pad,
+                maxLineWidth / 2f + pad, blockHeight / 2f + pad);
+            float radius = "solid".equals(item.bgStyle) || highlight ? 6f * density : (blockHeight / 2f + pad);
+            canvas.drawRoundRect(rect, radius, radius, bg);
+        }
+
+        float baselineY = -blockHeight / 2f + lineHeight * 0.8f;
+        for (String line : lines) {
+            float lineX;
+            if (paintAlign == Paint.Align.LEFT) lineX = -maxLineWidth / 2f;
+            else if (paintAlign == Paint.Align.RIGHT) lineX = maxLineWidth / 2f;
+            else lineX = 0f;
+            canvas.drawText(line, lineX, baselineY, paint);
+            baselineY += lineHeight;
+        }
+        canvas.restore();
+    }
+
+    private static Typeface resolveTypeface(String fontKey, boolean bold, boolean italic) {
+        Typeface base;
+        if ("serif".equals(fontKey)) base = Typeface.SERIF;
+        else if ("mono".equals(fontKey)) base = Typeface.MONOSPACE;
+        else if ("condensed".equals(fontKey)) base = Typeface.create("sans-serif-condensed", Typeface.NORMAL);
+        else base = Typeface.SANS_SERIF;
+
+        int style = Typeface.NORMAL;
+        if (bold && italic) style = Typeface.BOLD_ITALIC;
+        else if (bold) style = Typeface.BOLD;
+        else if (italic) style = Typeface.ITALIC;
+        return Typeface.create(base, style);
     }
 
     private static int[] readVideoSize(String path) {

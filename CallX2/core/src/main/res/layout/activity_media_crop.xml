@@ -69,19 +69,23 @@
             android:layout_marginEnd="6dp"
             android:contentDescription="Rotate 90°"/>
 
-        <!-- Done -->
+        <!-- Done — ✅ reused from the Reel Editor screen's own Done button
+             (btn_editor_next in activity_reel_editor.xml): same gradient
+             ripple background, white text, sans-serif-medium, 14sp, so the
+             crop screen's Done button looks consistent whichever screen
+             launched it. -->
         <TextView
             android:id="@+id/media_crop_btn_done"
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:text="Done"
-            android:textColor="#000000"
+            android:textColor="#FFFFFF"
             android:textSize="14sp"
-            android:textStyle="bold"
+            android:fontFamily="sans-serif-medium"
             android:gravity="center"
-            android:background="#40C060"
-            android:paddingStart="20dp"
-            android:paddingEnd="20dp"
+            android:background="@drawable/bg_trim_gradient_button_ripple"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
             android:clickable="true"
             android:focusable="true"/>
     </LinearLayout>

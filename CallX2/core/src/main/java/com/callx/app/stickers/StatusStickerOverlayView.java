@@ -51,6 +51,45 @@ public class StatusStickerOverlayView extends LinearLayout {
     public void setOnStickerTappedListener(OnStickerTappedListener l) { this.stickerTapListener = l; }
     public float getStickerScale() { return stickerScale; }
 
+    // ── Rotation (two-finger twist, mirrors the pinch-to-scale gesture) ────
+    private float stickerRotationDeg = 0f;
+    public float getStickerRotationDeg() { return stickerRotationDeg; }
+    /** Applies (and persists via {@link #toJsonWithScale()}) a new rotation, in degrees. */
+    public void applyRotation(float degrees) {
+        // Normalise into -180..180 so it never accumulates into huge numbers
+        // across many gestures, while still spinning freely either direction.
+        float d = degrees % 360f;
+        if (d > 180f) d -= 360f;
+        if (d < -180f) d += 360f;
+        stickerRotationDeg = d;
+        setRotation(stickerRotationDeg);
+    }
+
+    // ── Removal (long-press OR drag-to-trash) ───────────────────────────────
+    /** Fired once this sticker has actually been removed from its parent (either gesture). */
+    public interface OnStickerRemovedListener { void onRemoved(StatusStickerOverlayView sticker); }
+    private OnStickerRemovedListener removedListener;
+    /**
+     * Lets a host screen react to removal (e.g. drop it from its own tracking
+     * list, rebuild sticker JSON, clear a toolbar badge) WITHOUT re-attaching
+     * its own long-click listener — {@link #attachDragToParent} already owns
+     * both removal gestures (long-press and drag-to-trash) so hosts never
+     * need to reimplement "remove + rebuild" themselves.
+     */
+    public void setOnStickerRemovedListener(OnStickerRemovedListener l) { this.removedListener = l; }
+
+    /** Shared removal path for both the long-press and drag-to-trash gestures. */
+    private void removeAnimated(final ViewGroup parent, boolean withHaptic) {
+        if (withHaptic) performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        if (countdownTimer != null) { countdownTimer.cancel(); countdownTimer = null; }
+        animate().scaleX(0f).scaleY(0f).alpha(0f).setDuration(180)
+            .setInterpolator(new android.view.animation.AccelerateInterpolator())
+            .withEndAction(() -> {
+                parent.removeView(this);
+                if (removedListener != null) removedListener.onRemoved(this);
+            }).start();
+    }
+
     // ── Viewer "tap to zoom, react to return" gate ───────────────────────────
     // Used only by the status VIEWER (never the composer): a viewer's first
     // tap enlarges the sticker to the middle of the screen — front and centre,
@@ -496,6 +535,11 @@ public class StatusStickerOverlayView extends LinearLayout {
         try { savedScale = Float.parseFloat(jsonNum(json, "scale", "1.0")); } catch (Exception ignored) {}
         v.applyScale(savedScale);
 
+        // Saved finger-rotation (degrees), same numeric-JSON pattern as scale above.
+        float savedRotation = 0f;
+        try { savedRotation = Float.parseFloat(jsonNum(json, "rotationDeg", "0")); } catch (Exception ignored) {}
+        v.applyRotation(savedRotation);
+
         // Saved finger-adjusted position (posXRatio/posYRatio, 0..1 relative to
         // the parent frame) baked in by toJsonWithScale() at post-time. -1 means
         // this sticker JSON has no saved position (e.g. a legacy status posted
@@ -546,6 +590,7 @@ public class StatusStickerOverlayView extends LinearLayout {
         try {
             org.json.JSONObject o = new org.json.JSONObject(stickerJson != null ? stickerJson : "{}");
             o.put("scale", stickerScale);
+            o.put("rotationDeg", stickerRotationDeg);
             if (getParent() instanceof View) {
                 View parent = (View) getParent();
                 if (parent.getWidth() > 0 && parent.getHeight() > 0) {
@@ -1560,11 +1605,97 @@ public class StatusStickerOverlayView extends LinearLayout {
         return v;
     }
 
-    // ─── Drag support ──────────────────────────────────────────────────────
+    // ─── Drag support (ultra-advanced: drag, pinch-scale, twist-rotate, ────
+    // ─── center-snap alignment guides, and drag-to-trash removal) ──────────
+
+    // One shared trash pill + one shared pair of snap-guide lines per parent
+    // FrameLayout — however many stickers live in that parent, they all
+    // reuse the same overlay chrome instead of each sticker adding its own
+    // (which used to stack duplicate trash icons/guides on screen).
+    private static final java.util.WeakHashMap<ViewGroup, View> trashChrome = new java.util.WeakHashMap<>();
+    private static final java.util.WeakHashMap<ViewGroup, View[]> guideChrome = new java.util.WeakHashMap<>();
+
+    private static View getOrCreateTrash(ViewGroup parent) {
+        View existing = trashChrome.get(parent);
+        if (existing != null && existing.getParent() == parent) return existing;
+        Context ctx = parent.getContext();
+        int dp = dp(ctx);
+
+        FrameLayout trash = new FrameLayout(ctx);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        bg.setColor(0xCC1A1A1A);
+        bg.setStroke((int) (1.5f * dp), 0x66FFFFFF);
+        trash.setBackground(bg);
+
+        TextView icon = new TextView(ctx);
+        icon.setText("\uD83D\uDDD1\uFE0F"); // 🗑️
+        icon.setTextSize(24);
+        icon.setGravity(Gravity.CENTER);
+        trash.addView(icon, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+
+        int size = dp * 60;
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(size, size);
+        lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        lp.bottomMargin = dp * 28;
+        trash.setLayoutParams(lp);
+        trash.setAlpha(0f);
+        trash.setScaleX(0.6f); trash.setScaleY(0.6f);
+        trash.setVisibility(View.GONE);
+        trash.setElevation(40f * dp);
+
+        parent.addView(trash);
+        trashChrome.put(parent, trash);
+        return trash;
+    }
+
+    private static View[] getOrCreateGuides(ViewGroup parent) {
+        View[] existing = guideChrome.get(parent);
+        if (existing != null && existing[0].getParent() == parent) return existing;
+        Context ctx = parent.getContext();
+        int dp = dp(ctx);
+
+        View vLine = new View(ctx);
+        vLine.setBackgroundColor(0xAAFF3B7A);
+        vLine.setAlpha(0f);
+        FrameLayout.LayoutParams vlp = new FrameLayout.LayoutParams(
+            Math.max(1, dp / 2), FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER_HORIZONTAL);
+        vLine.setLayoutParams(vlp);
+
+        View hLine = new View(ctx);
+        hLine.setBackgroundColor(0xAAFF3B7A);
+        hLine.setAlpha(0f);
+        FrameLayout.LayoutParams hlp = new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, Math.max(1, dp / 2), Gravity.CENTER_VERTICAL);
+        hLine.setLayoutParams(hlp);
+
+        parent.addView(vLine);
+        parent.addView(hLine);
+        View[] pair = { vLine, hLine };
+        guideChrome.put(parent, pair);
+        return pair;
+    }
 
     /**
-     * Make this sticker draggable within the given FrameLayout parent.
-     * Long-press removes the sticker with a scale-out animation.
+     * Make this sticker draggable, pinch-to-scale, twist-to-rotate, and
+     * removable within the given FrameLayout parent — the same "ultra
+     * advanced" adjustment gesture set on every screen that uses stickers
+     * (Reels editor, photo-slideshow editor, Status composer, …):
+     *
+     *  • 1-finger drag repositions it, with magnetic center-snap alignment
+     *    guides (like CapCut/Instagram) that give a light haptic tick when
+     *    the sticker's center crosses the frame's horizontal/vertical middle.
+     *  • 2-finger pinch resizes it; 2-finger twist rotates it — both at once.
+     *  • Dragging it down onto the trash pill that fades in at the bottom
+     *    removes it (release-to-delete), with a haptic tick on entry and a
+     *    shrink-and-fade on release, exactly like the long-press shortcut.
+     *  • A quick tap (no drag) still fires {@link #setOnStickerTappedListener}.
+     *
+     * Call {@link #setOnStickerRemovedListener} beforehand if the host screen
+     * needs to know when removal happens (e.g. to drop it from its own list
+     * and rebuild sticker JSON) — both removal gestures route through it, so
+     * hosts never need to reimplement removal themselves.
      */
     @android.annotation.SuppressLint("ClickableViewAccessibility")
     public void attachDragToParent(final ViewGroup parent) {
@@ -1572,7 +1703,13 @@ public class StatusStickerOverlayView extends LinearLayout {
         final float[] startPos   = new float[2];
         final long[]  downTime   = new long[1];
         final boolean[] moved    = new boolean[1];
+        final boolean[] hoveringTrash = new boolean[1];
+        final boolean[] snappedX = new boolean[1];
+        final boolean[] snappedY = new boolean[1];
+        final float[] startAngle = new float[1];
+        final float[] startRotation = new float[1];
         final int touchSlop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
+        final int snapPx = dp(getContext()) * 10;
 
         final ScaleGestureDetector scaleDetector = new ScaleGestureDetector(getContext(),
             new ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -1585,6 +1722,8 @@ public class StatusStickerOverlayView extends LinearLayout {
 
         setOnTouchListener((view, event) -> {
             scaleDetector.onTouchEvent(event);
+            View trash = getOrCreateTrash(parent);
+            View[] guides = getOrCreateGuides(parent);
 
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
@@ -1606,17 +1745,29 @@ public class StatusStickerOverlayView extends LinearLayout {
                     startPos[1]   = view.getY();
                     downTime[0]   = System.currentTimeMillis();
                     moved[0]      = false;
+                    hoveringTrash[0] = false;
+                    snappedX[0] = false; snappedY[0] = false;
+                    bringToFront();
+                    trash.bringToFront();
+                    guides[0].bringToFront();
+                    guides[1].bringToFront();
                     animate().scaleX(stickerScale * 1.05f).scaleY(stickerScale * 1.05f).setDuration(80).start();
                     return true;
                 case MotionEvent.ACTION_POINTER_DOWN:
                     // Second finger just landed — rebase the drag anchor so the sticker
-                    // doesn't jump when we go from 1-finger drag to 2-finger pinch.
+                    // doesn't jump when we go from 1-finger drag to 2-finger pinch/rotate.
                     if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(true);
                     startTouch[0] = event.getRawX();
                     startTouch[1] = event.getRawY();
                     startPos[0]   = view.getX();
                     startPos[1]   = view.getY();
+                    if (event.getPointerCount() == 2) {
+                        startAngle[0] = (float) Math.toDegrees(Math.atan2(
+                            event.getY(1) - event.getY(0), event.getX(1) - event.getX(0)));
+                        startRotation[0] = stickerRotationDeg;
+                    }
                     moved[0]      = true;
+                    hideTrashAndGuides(trash, guides);
                     return true;
                 case MotionEvent.ACTION_MOVE:
                     // Keep re-asserting this every move: some ScrollView/
@@ -1624,12 +1775,55 @@ public class StatusStickerOverlayView extends LinearLayout {
                     // each new touch sequence, so a single ACTION_DOWN call
                     // isn't always enough for the whole drag.
                     if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(true);
-                    if (event.getPointerCount() == 1 && !scaleDetector.isInProgress()) {
+                    if (event.getPointerCount() == 2) {
+                        // Twist-to-rotate, concurrent with the pinch above.
+                        float angle = (float) Math.toDegrees(Math.atan2(
+                            event.getY(1) - event.getY(0), event.getX(1) - event.getX(0)));
+                        applyRotation(startRotation[0] + (angle - startAngle[0]));
+                    } else if (event.getPointerCount() == 1 && !scaleDetector.isInProgress()) {
                         float dx = event.getRawX() - startTouch[0];
                         float dy = event.getRawY() - startTouch[1];
-                        if (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop) moved[0] = true;
-                        view.setX(startPos[0] + dx);
-                        view.setY(startPos[1] + dy);
+                        if (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop) {
+                            if (!moved[0]) showTrash(trash); // first real movement — reveal the trash pill
+                            moved[0] = true;
+                        }
+                        float targetX = startPos[0] + dx;
+                        float targetY = startPos[1] + dy;
+
+                        // Magnetic center-snap: pull onto the parent's exact
+                        // horizontal/middle once the sticker's own center gets
+                        // close, and light up a thin guide line while snapped.
+                        if (parent.getWidth() > 0 && parent.getHeight() > 0) {
+                            float centerX = targetX + view.getWidth()  / 2f;
+                            float centerY = targetY + view.getHeight() / 2f;
+                            float parentCx = parent.getWidth()  / 2f;
+                            float parentCy = parent.getHeight() / 2f;
+
+                            boolean nowSnapX = Math.abs(centerX - parentCx) < snapPx;
+                            if (nowSnapX) targetX = parentCx - view.getWidth() / 2f;
+                            if (nowSnapX && !snappedX[0]) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+                            guides[0].animate().alpha(nowSnapX ? 1f : 0f).setDuration(100).start();
+                            snappedX[0] = nowSnapX;
+
+                            boolean nowSnapY = Math.abs(centerY - parentCy) < snapPx;
+                            if (nowSnapY) targetY = parentCy - view.getHeight() / 2f;
+                            if (nowSnapY && !snappedY[0]) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+                            guides[1].animate().alpha(nowSnapY ? 1f : 0f).setDuration(100).start();
+                            snappedY[0] = nowSnapY;
+                        }
+
+                        view.setX(targetX);
+                        view.setY(targetY);
+
+                        // Are we hovering the trash pill? Compare on-screen centers.
+                        boolean hovering = overlaps(view, trash);
+                        if (hovering != hoveringTrash[0]) {
+                            hoveringTrash[0] = hovering;
+                            setTrashArmed(trash, hovering);
+                            if (hovering) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+                            float warn = hovering ? 0.55f : stickerScale;
+                            view.animate().scaleX(warn).scaleY(warn).alpha(hovering ? 0.6f : 1f).setDuration(120).start();
+                        }
                     }
                     return true;
                 case MotionEvent.ACTION_POINTER_UP:
@@ -1642,7 +1836,12 @@ public class StatusStickerOverlayView extends LinearLayout {
                 case MotionEvent.ACTION_UP:
                     // Gesture is fully done — let the parent scroll normally again.
                     if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(false);
-                    animate().scaleX(stickerScale).scaleY(stickerScale).setDuration(80).start();
+                    hideTrashAndGuides(trash, guides);
+                    if (moved[0] && hoveringTrash[0] && parent == getParent()) {
+                        removeAnimated(parent, true);
+                        return true;
+                    }
+                    animate().scaleX(stickerScale).scaleY(stickerScale).alpha(1f).setDuration(80).start();
                     boolean isTap = !moved[0] && (System.currentTimeMillis() - downTime[0]) < 300;
                     if (isTap && stickerTapListener != null) stickerTapListener.onTapped(this);
                     return true;
@@ -1651,17 +1850,63 @@ public class StatusStickerOverlayView extends LinearLayout {
                     // restore normal scrolling rather than leaving it stuck
                     // disallowed for the rest of the screen's lifetime.
                     if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(false);
-                    animate().scaleX(stickerScale).scaleY(stickerScale).setDuration(80).start();
+                    hideTrashAndGuides(trash, guides);
+                    animate().scaleX(stickerScale).scaleY(stickerScale).alpha(1f).setDuration(80).start();
                     return true;
             }
             return false;
         });
 
         setOnLongClickListener(view -> {
-            view.animate().scaleX(0f).scaleY(0f).alpha(0f).setDuration(200)
-                .withEndAction(() -> parent.removeView(view)).start();
+            removeAnimated(parent, true);
             return true;
         });
+    }
+
+    private static void showTrash(View trash) {
+        trash.setVisibility(View.VISIBLE);
+        trash.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(150).start();
+    }
+
+    private static void hideTrashAndGuides(View trash, View[] guides) {
+        trash.animate().alpha(0f).scaleX(0.6f).scaleY(0.6f).setDuration(150)
+            .withEndAction(() -> trash.setVisibility(View.GONE)).start();
+        setTrashArmed(trash, false);
+        guides[0].animate().alpha(0f).setDuration(100).start();
+        guides[1].animate().alpha(0f).setDuration(100).start();
+    }
+
+    private static void setTrashArmed(View trash, boolean armed) {
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        int dp = dp(trash.getContext());
+        if (armed) {
+            bg.setColor(0xFFFF3B30);
+            bg.setStroke((int) (1.5f * dp), 0xFFFFFFFF);
+            trash.animate().scaleX(1.2f).scaleY(1.2f).setDuration(120).start();
+        } else {
+            bg.setColor(0xCC1A1A1A);
+            bg.setStroke((int) (1.5f * dp), 0x66FFFFFF);
+            trash.animate().scaleX(1f).scaleY(1f).setDuration(120).start();
+        }
+        trash.setBackground(bg);
+    }
+
+    /** True if the dragged sticker's on-screen center currently sits over the trash pill. */
+    private static boolean overlaps(View sticker, View trash) {
+        int[] stickerLoc = new int[2];
+        int[] trashLoc = new int[2];
+        sticker.getLocationOnScreen(stickerLoc);
+        trash.getLocationOnScreen(trashLoc);
+        float stickerCx = stickerLoc[0] + sticker.getWidth() * sticker.getScaleX() / 2f;
+        float stickerCy = stickerLoc[1] + sticker.getHeight() * sticker.getScaleY() / 2f;
+        // Generous hit-zone: trash bounds expanded by half its own size, so
+        // the sticker doesn't need pixel-perfect alignment to register — the
+        // same forgiving target size CapCut/Instagram use for drag-to-delete.
+        float pad = trash.getWidth() * 0.5f;
+        float left = trashLoc[0] - pad, right = trashLoc[0] + trash.getWidth() + pad;
+        float top = trashLoc[1] - pad, bottom = trashLoc[1] + trash.getHeight() + pad;
+        return stickerCx >= left && stickerCx <= right && stickerCy >= top && stickerCy <= bottom;
     }
 
     // ─── Helpers ───────────────────────────────────────────────────────────

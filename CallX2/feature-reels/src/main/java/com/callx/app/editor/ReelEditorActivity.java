@@ -6,13 +6,19 @@ import com.callx.app.music.MusicPickerActivity;
 import com.callx.app.music.SoundDetailActivity;
 import com.callx.app.music.AudioMixHelper;
 import com.callx.app.social.DuetReelActivity;
+// ✅ NEW: reused from Chat's Media Editing screen (MediaEditActivity's btnEditCrop)
+// — same crop screen (aspect chips, drag handles, rotate) lives in :core so any
+// feature module can launch it, same pattern already used for ReelCameraActivity.
+import com.callx.app.media.crop.MediaCropActivity;
 
 import android.animation.ObjectAnimator;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
+import android.graphics.Typeface;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Bundle;
@@ -33,6 +39,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.FileProvider;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -50,8 +57,12 @@ import com.callx.app.stickers.StatusStickerPickerSheet;
 import com.callx.app.stickers.StatusStickerOverlayView;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * ReelEditorActivity v13 — Full visual apply of all editing tools.
@@ -125,6 +136,9 @@ public class ReelEditorActivity extends AppCompatActivity {
     /** ✅ NEW: open SoundDetailActivity for the already-selected sound */
     private static final int REQ_SOUND_DETAIL = 409;
     private static final int REQ_BEAT_SYNC    = 410;
+    /** ✅ NEW: Step 1 · Trim and Crop → crop button → core's MediaCropActivity
+     *  (reused from Chat's Media Editing screen). */
+    private static final int REQ_CROP         = 411;
 
     // ── XML views ─────────────────────────────────────────────────────────
     private PlayerView    playerView;
@@ -137,11 +151,43 @@ public class ReelEditorActivity extends AppCompatActivity {
     private com.callx.app.views.VideoTrimFilmstripView trimFilmstripView;
     private TextView      tvTrimStart, tvTrimEnd, tvDuration;
     private EditText      etTextOverlay;
-    private TextView      tvTextPreview;
     private View          btnNext, btnAddText;
+    // ── Step 2 · Advanced text overlay wizard ───────────────────────────────
+    private LinearLayout  llTextFontRow, llTextStyleRow, llTextBgRow, llTextColorRow;
+    private SeekBar        seekTextSize;
+    private TextView       btnDeleteTextOverlay;
+    private TextView       tvTextTrashZone;
+    /** All advanced text overlays currently live on the video preview (see TextOverlayStyle tag on each). */
+    private final List<TextView> textOverlayViews = new ArrayList<>();
+    /** Currently selected overlay (style chips edit this one live) — null = next "Add" creates a new one. */
+    private TextView        selectedTextOverlay = null;
+    // Style state carried forward for the NEXT overlay you add (and live-edits the selection, if any).
+    private String  currentFontKey   = "classic";   // classic | serif | mono | condensed
+    private boolean currentBold      = true;
+    private boolean currentItalic    = false;
+    private String  currentBgStyle   = "pill";      // none | pill | solid | highlight
+    private String  currentAlign     = "center";    // left | center | right
+    private int     currentTextColor = Color.WHITE;
+    private float   currentTextSizeSp = 24f;
+    // ── Perf: Step 2 text overlay optimization ─────────────────────────────
+    /** True once the chip/swatch rows have been built — after that, reselecting
+     *  an overlay only updates selection state on the existing views instead of
+     *  tearing down and reallocating every chip + drawable from scratch. */
+    private boolean textOverlayPanelBuilt = false;
+    /** Coalesces bursty stickerJson rebuilds (seekbar drag ticks, rapid chip taps)
+     *  into a single rebuild ~100ms after the last change. proceedToUpload() still
+     *  does a synchronous flush right before the value is actually read, so this
+     *  never affects correctness — it only skips the wasted intermediate rebuilds. */
+    private static final long STICKER_JSON_MERGE_DEBOUNCE_MS = 100L;
+    private final Runnable stickerJsonMergeRunnable = this::mergeTextOverlaysIntoStickerJson;
+    /** Background thread for extracting the Step-3 Filters preview frame off a video —
+     *  frame decoding via MediaMetadataRetriever must never run on the UI thread. */
+    private final ExecutorService filterPreviewExecutor = Executors.newSingleThreadExecutor();
     private ProgressBar   progressBuffering;
     private ImageButton   btnToolFilters, btnToolStickers, btnToolSubtitles,
                           btnToolTransitions, btnToolVoice, btnToolAudioMixer, btnToolThumbnail;
+    /** ✅ NEW: Step 1 · Trim and Crop → Crop button (reused Chat's crop feature) */
+    private View                        btnEditorCrop;
     /** ✅ NEW: music chip / tool button — opens SoundDetail (if sound selected) or MusicPicker */
     private ImageButton   btnToolMusic;
 
@@ -161,7 +207,7 @@ public class ReelEditorActivity extends AppCompatActivity {
     private View                       btnEditorStepBack, btnEditorStepNext;
     private int                        editorCurrentStep = 0;
     private static final String[] EDITOR_STEP_TITLES = {
-            "Step 1 of 5 · Trim",
+            "Step 1 of 5 · Trim and Crop",
             "Step 2 of 5 · Text Overlay",
             "Step 3 of 5 · Tools · Look",
             "Step 4 of 5 · Tools · Motion & Sound",
@@ -170,7 +216,7 @@ public class ReelEditorActivity extends AppCompatActivity {
     /** Short step name shown in tv_editor_step_name, next to the "Step X of Y" pill
      *  (all-caps via android:textAllCaps, so plain-case names are given here). */
     private static final String[] EDITOR_STEP_NAMES = {
-            "Trim",
+            "Trim and Crop",
             "Text Overlay",
             "Look",
             "Motion & Sound",
@@ -434,9 +480,16 @@ public class ReelEditorActivity extends AppCompatActivity {
         tvTrimEnd          = findViewById(R.id.tv_editor_trim_end);
         tvDuration         = findViewById(R.id.tv_editor_duration);
         etTextOverlay      = findViewById(R.id.et_text_overlay);
-        tvTextPreview      = findViewById(R.id.tv_text_preview);
         btnNext            = findViewById(R.id.btn_editor_next);
         btnAddText         = findViewById(R.id.btn_add_text);
+        llTextFontRow      = findViewById(R.id.ll_text_font_row);
+        llTextStyleRow     = findViewById(R.id.ll_text_style_row);
+        llTextBgRow        = findViewById(R.id.ll_text_bg_row);
+        llTextColorRow     = findViewById(R.id.ll_text_color_row);
+        seekTextSize       = findViewById(R.id.seek_text_size);
+        btnDeleteTextOverlay = findViewById(R.id.btn_delete_text_overlay);
+        tvTextTrashZone    = findViewById(R.id.tv_text_trash_zone);
+        setupAdvancedTextOverlayPanel();
         progressBuffering  = findViewById(R.id.editor_progress_buffering);
         btnToolFilters     = findViewById(R.id.btn_tool_filters);
         btnToolStickers    = findViewById(R.id.btn_tool_stickers);
@@ -445,6 +498,7 @@ public class ReelEditorActivity extends AppCompatActivity {
         btnToolVoice       = findViewById(R.id.btn_tool_voice);
         btnToolAudioMixer  = findViewById(R.id.btn_tool_audio_mixer);
         btnToolThumbnail   = findViewById(R.id.btn_tool_thumbnail);
+        btnEditorCrop      = findViewById(R.id.btn_editor_crop);
         // ✅ NEW: music chip button (add btn_tool_music ImageButton to the toolbar XML)
         btnToolMusic       = findViewById(R.id.btn_tool_music);
 
@@ -464,7 +518,8 @@ public class ReelEditorActivity extends AppCompatActivity {
     /**
      * Programmatically adds overlay views into the FrameLayout that wraps the PlayerView.
      * Called once in onCreate after bindViews().
-     * Layers (bottom→top): PlayerView | filterOverlayView | tvTextPreview (XML) |
+     * Layers (bottom→top): PlayerView | filterOverlayView | advanced text overlays
+     *                       (added per-overlay, see createAdvancedTextOverlay) |
      *                       sticker TextViews (added per sticker) | tvSubtitlePreview |
      *                       ivThumbBadge | badgeStrip
      */
@@ -652,14 +707,13 @@ public class ReelEditorActivity extends AppCompatActivity {
             sv.setLayoutParams(lp);
             fl.addView(sv);
             fullStickerViews.add(sv);
-            sv.attachDragToParent(fl);
-            // Long-press to remove, same gesture as the emoji stickers below
-            sv.setOnLongClickListener(v -> {
-                fl.removeView(sv);
-                fullStickerViews.remove(sv);
+            // Long-press OR drag-to-trash removes it (both gestures live inside
+            // attachDragToParent itself — no need to reimplement removal here).
+            sv.setOnStickerRemovedListener(removed -> {
+                fullStickerViews.remove(removed);
                 rebuildFullStickerJson(fl);
-                return true;
             });
+            sv.attachDragToParent(fl);
             rebuildFullStickerJson(fl);
 
             if (btnToolStickers != null) btnToolStickers.setColorFilter(
@@ -1055,6 +1109,758 @@ public class ReelEditorActivity extends AppCompatActivity {
         });
     }
 
+    // ════════════════════════════════════════════════════════════════════
+    // ── Step 2 · ULTRA ADVANCED text overlay system ───────────────────────
+    // Multiple simultaneous overlays, each independently draggable, pinch-
+    // to-scale + rotate, with per-overlay font family / bold / italic /
+    // background style (none·pill·solid·highlight) / alignment / colour /
+    // size — all of which also bake into the exported video pixels via
+    // ReelVideoExportEngine (see drawStyledOverlay there).
+    // ════════════════════════════════════════════════════════════════════
+
+    /** Small holder tagged onto each overlay TextView so its style survives drag/scale/rotate. */
+    private static class TextOverlayStyle {
+        String text;
+        String fontKey  = "classic";
+        boolean bold    = true;
+        boolean italic  = false;
+        String bgStyle  = "pill";
+        String align    = "center";
+        int colorInt    = Color.WHITE;
+        float sizeSp    = 24f;
+    }
+
+    private FrameLayout getVideoOverlayLayer() {
+        if (playerView == null) return null;
+        ViewGroup parent = (ViewGroup) playerView.getParent();
+        return (parent instanceof FrameLayout) ? (FrameLayout) parent : null;
+    }
+
+    /**
+     * Builds all the chip rows (font / bold·italic·align / background style /
+     * colour) once, in code.
+     * Perf: this used to run in full — removeAllViews() + brand-new TextViews +
+     * brand-new GradientDrawable/StateListDrawable per chip — on every single
+     * overlay tap/reselect. On a screen where tapping between overlays is the
+     * core interaction, that meant dozens of view + drawable allocations per
+     * tap for zero visual difference beyond which chip is highlighted. Now the
+     * rows are physically built exactly once per screen session; every
+     * subsequent selection change just flips .setSelected() on the existing
+     * chips via syncTextOverlayPanelSelectionUI().
+     */
+    private void setupAdvancedTextOverlayPanel() {
+        if (textOverlayPanelBuilt) {
+            syncTextOverlayPanelSelectionUI();
+            return;
+        }
+        textOverlayPanelBuilt = true;
+        int dp = (int) getResources().getDisplayMetrics().density;
+
+        // ── Font family chips ──────────────────────────────────────────
+        String[] fontKeys   = {"classic", "serif", "mono", "condensed"};
+        String[] fontLabels = {"Classic", "Serif", "Mono", "Condensed"};
+        if (llTextFontRow != null) {
+            llTextFontRow.removeAllViews();
+            for (int i = 0; i < fontKeys.length; i++) {
+                TextView chip = buildChip(fontLabels[i], dp);
+                chip.setTypeface(resolvePreviewTypeface(fontKeys[i], false, false));
+                chip.setSelected(fontKeys[i].equals(currentFontKey));
+                chip.setTag(fontKeys[i]);
+                chip.setOnClickListener(v -> {
+                    currentFontKey = fontKeys[i];
+                    refreshChipSelection(llTextFontRow, v);
+                    applyLiveStyleToSelection();
+                });
+                llTextFontRow.addView(chip);
+            }
+        }
+
+        // ── Bold / Italic / Align chips ────────────────────────────────
+        if (llTextStyleRow != null) {
+            llTextStyleRow.removeAllViews();
+            TextView chipBold = buildChip("B", dp);
+            chipBold.setTypeface(null, android.graphics.Typeface.BOLD);
+            chipBold.setSelected(currentBold);
+            chipBold.setTag("bold");
+            chipBold.setOnClickListener(v -> {
+                currentBold = !currentBold;
+                v.setSelected(currentBold);
+                applyLiveStyleToSelection();
+            });
+            llTextStyleRow.addView(chipBold);
+
+            TextView chipItalic = buildChip("I", dp);
+            chipItalic.setTypeface(null, android.graphics.Typeface.ITALIC);
+            chipItalic.setSelected(currentItalic);
+            chipItalic.setTag("italic");
+            chipItalic.setOnClickListener(v -> {
+                currentItalic = !currentItalic;
+                v.setSelected(currentItalic);
+                applyLiveStyleToSelection();
+            });
+            llTextStyleRow.addView(chipItalic);
+
+            String[] aligns = {"left", "center", "right"};
+            String[] alignLabels = {"⇤", "≡", "⇥"};
+            for (int i = 0; i < aligns.length; i++) {
+                TextView chip = buildChip(alignLabels[i], dp);
+                chip.setSelected(aligns[i].equals(currentAlign));
+                chip.setTag(aligns[i]);
+                chip.setOnClickListener(v -> {
+                    currentAlign = aligns[i];
+                    refreshChipSelection(llTextStyleRow, v, /*skipFirstN=*/2);
+                    applyLiveStyleToSelection();
+                });
+                llTextStyleRow.addView(chip);
+            }
+        }
+
+        // ── Background style chips ─────────────────────────────────────
+        String[] bgKeys    = {"none", "pill", "solid", "highlight"};
+        String[] bgLabels  = {"No BG", "Pill", "Solid", "Highlight"};
+        if (llTextBgRow != null) {
+            llTextBgRow.removeAllViews();
+            for (int i = 0; i < bgKeys.length; i++) {
+                TextView chip = buildChip(bgLabels[i], dp);
+                chip.setSelected(bgKeys[i].equals(currentBgStyle));
+                chip.setTag(bgKeys[i]);
+                chip.setOnClickListener(v -> {
+                    currentBgStyle = bgKeys[i];
+                    refreshChipSelection(llTextBgRow, v);
+                    applyLiveStyleToSelection();
+                });
+                llTextBgRow.addView(chip);
+            }
+        }
+
+        // ── Colour swatches ─────────────────────────────────────────────
+        int[] colors = {
+            Color.WHITE, Color.BLACK, 0xFFFF3B30, 0xFFFF9500, 0xFFFFCC00,
+            0xFF34C759, 0xFF00C7BE, 0xFF007AFF, 0xFFAF52DE, 0xFFFF2D78
+        };
+        if (llTextColorRow != null) {
+            llTextColorRow.removeAllViews();
+            for (int color : colors) {
+                View swatch = buildColorSwatch(color, dp);
+                swatch.setSelected(color == currentTextColor);
+                swatch.setTag(color);
+                swatch.setOnClickListener(v -> {
+                    currentTextColor = color;
+                    refreshChipSelection(llTextColorRow, v);
+                    applyLiveStyleToSelection();
+                });
+                llTextColorRow.addView(swatch);
+            }
+            // Custom colour swatch — opens a simple RGB picker dialog.
+            TextView customSwatch = new TextView(this);
+            customSwatch.setText("+");
+            customSwatch.setGravity(Gravity.CENTER);
+            customSwatch.setTextColor(Color.WHITE);
+            customSwatch.setTextSize(16);
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(32 * dp, 32 * dp);
+            clp.setMargins(4 * dp, 4 * dp, 4 * dp, 4 * dp);
+            customSwatch.setLayoutParams(clp);
+            android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+            gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            gd.setColor(0xFF3A3A3C);
+            gd.setStroke((int) (1.5f * dp), 0x66FFFFFF);
+            customSwatch.setBackground(gd);
+            customSwatch.setOnClickListener(v -> showCustomColorPicker());
+            llTextColorRow.addView(customSwatch);
+        }
+
+        if (seekTextSize != null) {
+            seekTextSize.setProgress((int) currentTextSizeSp - 12);
+            seekTextSize.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                    currentTextSizeSp = 12 + progress;
+                    if (fromUser) applyLiveStyleToSelection();
+                }
+                @Override public void onStartTrackingTouch(SeekBar sb) {}
+                @Override public void onStopTrackingTouch(SeekBar sb) {}
+            });
+        }
+    }
+
+    /**
+     * Lightweight reselection path: flips .setSelected() on the already-built
+     * chips/swatches to match the current style state, and updates the size
+     * seekbar's progress — no view or drawable allocation at all. This is what
+     * actually runs every time the user taps between overlays, replacing the
+     * old full teardown-and-rebuild.
+     */
+    private void syncTextOverlayPanelSelectionUI() {
+        syncRowSelectionByTag(llTextFontRow, currentFontKey);
+        if (llTextStyleRow != null) {
+            for (int i = 0; i < llTextStyleRow.getChildCount(); i++) {
+                View child = llTextStyleRow.getChildAt(i);
+                Object tag = child.getTag();
+                if ("bold".equals(tag)) child.setSelected(currentBold);
+                else if ("italic".equals(tag)) child.setSelected(currentItalic);
+                else if (tag instanceof String) child.setSelected(tag.equals(currentAlign));
+            }
+        }
+        syncRowSelectionByTag(llTextBgRow, currentBgStyle);
+        if (llTextColorRow != null) {
+            for (int i = 0; i < llTextColorRow.getChildCount(); i++) {
+                View child = llTextColorRow.getChildAt(i);
+                if (child.getTag() instanceof Integer) {
+                    child.setSelected((Integer) child.getTag() == currentTextColor);
+                }
+            }
+        }
+        if (seekTextSize != null) {
+            seekTextSize.setProgress((int) currentTextSizeSp - 12);
+        }
+    }
+
+    /** Sets .setSelected(true) on the one child of `row` whose String tag equals `key`. */
+    private void syncRowSelectionByTag(LinearLayout row, String key) {
+        if (row == null) return;
+        for (int i = 0; i < row.getChildCount(); i++) {
+            View child = row.getChildAt(i);
+            child.setSelected(key.equals(child.getTag()));
+        }
+    }
+
+    private TextView buildChip(String label, int dp) {
+        TextView chip = new TextView(this);
+        chip.setText(label);
+        chip.setTextSize(13);
+        chip.setTextColor(Color.WHITE);
+        chip.setGravity(Gravity.CENTER);
+        chip.setPadding(14 * dp, 8 * dp, 14 * dp, 8 * dp);
+        chip.setBackground(buildChipBackground());
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 0, 8 * dp, 0);
+        chip.setLayoutParams(lp);
+        return chip;
+    }
+
+    private android.graphics.drawable.Drawable buildChipBackground() {
+        android.graphics.drawable.GradientDrawable selected = new android.graphics.drawable.GradientDrawable();
+        selected.setColor(0xFF5B5BF6);
+        selected.setCornerRadius(20f);
+        android.graphics.drawable.GradientDrawable unselected = new android.graphics.drawable.GradientDrawable();
+        unselected.setColor(0xFF2A2A30);
+        unselected.setStroke(1, 0x33FFFFFF);
+        unselected.setCornerRadius(20f);
+
+        android.graphics.drawable.StateListDrawable sld = new android.graphics.drawable.StateListDrawable();
+        sld.addState(new int[]{android.R.attr.state_selected}, selected);
+        sld.addState(new int[]{}, unselected);
+        return sld;
+    }
+
+    private View buildColorSwatch(int color, int dp) {
+        View swatch = new View(this);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(28 * dp, 28 * dp);
+        lp.setMargins(0, 4 * dp, 8 * dp, 4 * dp);
+        swatch.setLayoutParams(lp);
+
+        android.graphics.drawable.GradientDrawable unselected = new android.graphics.drawable.GradientDrawable();
+        unselected.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        unselected.setColor(color);
+        android.graphics.drawable.GradientDrawable selected = new android.graphics.drawable.GradientDrawable();
+        selected.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        selected.setColor(color);
+        selected.setStroke((int) (2.5f * dp), 0xFF5B5BF6);
+
+        android.graphics.drawable.StateListDrawable sld = new android.graphics.drawable.StateListDrawable();
+        sld.addState(new int[]{android.R.attr.state_selected}, selected);
+        sld.addState(new int[]{}, unselected);
+        swatch.setBackground(sld);
+        return swatch;
+    }
+
+    /** Deselects every sibling chip in a row (except the given N leading ones) so only `keep` stays selected. */
+    private void refreshChipSelection(LinearLayout row, View keep) {
+        refreshChipSelection(row, keep, 0);
+    }
+
+    private void refreshChipSelection(LinearLayout row, View keep, int skipFirstN) {
+        if (row == null) return;
+        for (int i = skipFirstN; i < row.getChildCount(); i++) {
+            View child = row.getChildAt(i);
+            child.setSelected(child == keep);
+        }
+    }
+
+    private void showCustomColorPicker() {
+        int dp = (int) getResources().getDisplayMetrics().density;
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(24 * dp, 16 * dp, 24 * dp, 8 * dp);
+
+        View preview = new View(this);
+        LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 40 * dp);
+        pLp.bottomMargin = 12 * dp;
+        preview.setLayoutParams(pLp);
+        preview.setBackgroundColor(currentTextColor);
+        container.addView(preview);
+
+        SeekBar r = new SeekBar(this), g = new SeekBar(this), b = new SeekBar(this);
+        r.setMax(255); g.setMax(255); b.setMax(255);
+        r.setProgress(Color.red(currentTextColor));
+        g.setProgress(Color.green(currentTextColor));
+        b.setProgress(Color.blue(currentTextColor));
+
+        SeekBar.OnSeekBarChangeListener listener = new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                preview.setBackgroundColor(Color.rgb(r.getProgress(), g.getProgress(), b.getProgress()));
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) {}
+            @Override public void onStopTrackingTouch(SeekBar sb) {}
+        };
+        r.setOnSeekBarChangeListener(listener);
+        g.setOnSeekBarChangeListener(listener);
+        b.setOnSeekBarChangeListener(listener);
+        container.addView(r); container.addView(g); container.addView(b);
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Custom colour")
+            .setView(container)
+            .setPositiveButton("Apply", (dialog, which) -> {
+                currentTextColor = Color.rgb(r.getProgress(), g.getProgress(), b.getProgress());
+                setupAdvancedTextOverlayPanel();
+                applyLiveStyleToSelection();
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    private Typeface resolvePreviewTypeface(String fontKey, boolean bold, boolean italic) {
+        Typeface base;
+        if ("serif".equals(fontKey)) base = Typeface.SERIF;
+        else if ("mono".equals(fontKey)) base = Typeface.MONOSPACE;
+        else if ("condensed".equals(fontKey)) base = Typeface.create("sans-serif-condensed", Typeface.NORMAL);
+        else base = Typeface.SANS_SERIF;
+
+        int style = Typeface.NORMAL;
+        if (bold && italic) style = Typeface.BOLD_ITALIC;
+        else if (bold) style = Typeface.BOLD;
+        else if (italic) style = Typeface.ITALIC;
+        return Typeface.create(base, style);
+    }
+
+    /** Creates a brand-new draggable/pinch-scale/rotate text overlay using the current style-panel settings. */
+    private void createAdvancedTextOverlay(String text) {
+        FrameLayout fl = getVideoOverlayLayer();
+        if (fl == null) return;
+        int dp = (int) getResources().getDisplayMetrics().density;
+
+        TextOverlayStyle style = new TextOverlayStyle();
+        style.text = text;
+        style.fontKey = currentFontKey;
+        style.bold = currentBold;
+        style.italic = currentItalic;
+        style.bgStyle = currentBgStyle;
+        style.align = currentAlign;
+        style.colorInt = currentTextColor;
+        style.sizeSp = currentTextSizeSp;
+
+        TextView tv = new TextView(this);
+        tv.setTag(style);
+        applyStyleToView(tv, style, dp);
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
+        tv.setLayoutParams(lp);
+        fl.addView(tv);
+        textOverlayViews.add(tv);
+        makeTextOverlayInteractive(tv, fl);
+
+        tv.setScaleX(0.3f); tv.setScaleY(0.3f); tv.setAlpha(0f);
+        tv.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(220).start();
+
+        selectTextOverlay(tv);
+        scheduleStickerJsonMerge();
+        updateBadge("text_overlay", "🔤 Text (" + textOverlayViews.size() + ")");
+    }
+
+    private void applyStyleToView(TextView tv, TextOverlayStyle style, int dp) {
+        tv.setText(style.text);
+        tv.setTextSize(style.sizeSp);
+        tv.setTypeface(resolvePreviewTypeface(style.fontKey, style.bold, style.italic));
+        tv.setGravity("left".equals(style.align) ? Gravity.START
+            : "right".equals(style.align) ? Gravity.END : Gravity.CENTER);
+
+        boolean highlight = "highlight".equals(style.bgStyle);
+        int textColor = style.colorInt;
+        if (highlight) {
+            double luminance = 0.299 * Color.red(style.colorInt) + 0.587 * Color.green(style.colorInt) + 0.114 * Color.blue(style.colorInt);
+            textColor = luminance > 150 ? Color.BLACK : Color.WHITE;
+        }
+        tv.setTextColor(textColor);
+        tv.setPadding(10 * dp, 6 * dp, 10 * dp, 6 * dp);
+
+        // Perf: only allocate a GradientDrawable when a background is actually
+        // needed — "none" is a common style pick and previously paid for a
+        // throwaway GradientDrawable on every single style change regardless.
+        if ("none".equals(style.bgStyle)) {
+            tv.setShadowLayer(4f, 0f, 2f, 0x99000000);
+            tv.setBackground(null);
+        } else {
+            tv.setShadowLayer(0f, 0f, 0f, 0);
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            if (highlight) {
+                bg.setColor(style.colorInt);
+                bg.setCornerRadius(6f * dp);
+            } else if ("solid".equals(style.bgStyle)) {
+                bg.setColor(0xEE000000);
+                bg.setCornerRadius(6f * dp);
+            } else { // pill
+                bg.setColor(0x66000000);
+                bg.setCornerRadius(999f);
+            }
+            tv.setBackground(bg);
+        }
+    }
+
+    /** Live-restyles the currently selected overlay whenever a chip/slider changes, matching the panel exactly. */
+    private void applyLiveStyleToSelection() {
+        if (selectedTextOverlay == null) return;
+        Object tag = selectedTextOverlay.getTag();
+        if (!(tag instanceof TextOverlayStyle)) return;
+        TextOverlayStyle style = (TextOverlayStyle) tag;
+        style.fontKey = currentFontKey;
+        style.bold = currentBold;
+        style.italic = currentItalic;
+        style.bgStyle = currentBgStyle;
+        style.align = currentAlign;
+        style.colorInt = currentTextColor;
+        style.sizeSp = currentTextSizeSp;
+        int dp = (int) getResources().getDisplayMetrics().density;
+        applyStyleToView(selectedTextOverlay, style, dp);
+        // Interactive path (chip taps, seekbar drag ticks) — coalesced, not synchronous.
+        scheduleStickerJsonMerge();
+    }
+
+    private void selectTextOverlay(TextView tv) {
+        selectedTextOverlay = tv;
+        Object tag = tv.getTag();
+        if (tag instanceof TextOverlayStyle) {
+            TextOverlayStyle style = (TextOverlayStyle) tag;
+            currentFontKey = style.fontKey;
+            currentBold = style.bold;
+            currentItalic = style.italic;
+            currentBgStyle = style.bgStyle;
+            currentAlign = style.align;
+            currentTextColor = style.colorInt;
+            currentTextSizeSp = style.sizeSp;
+            setupAdvancedTextOverlayPanel();
+        }
+        for (TextView other : textOverlayViews) {
+            other.setAlpha(other == tv ? 1f : 0.85f);
+        }
+        if (btnDeleteTextOverlay != null) btnDeleteTextOverlay.setVisibility(View.VISIBLE);
+    }
+
+    private void deselectTextOverlay() {
+        selectedTextOverlay = null;
+        for (TextView other : textOverlayViews) other.setAlpha(1f);
+        if (btnDeleteTextOverlay != null) btnDeleteTextOverlay.setVisibility(View.GONE);
+    }
+
+    private void deleteSelectedTextOverlay() {
+        if (selectedTextOverlay == null) return;
+        removeTextOverlay(selectedTextOverlay);
+    }
+
+    private void removeTextOverlay(TextView tv) {
+        FrameLayout fl = getVideoOverlayLayer();
+        tv.animate().scaleX(0f).scaleY(0f).alpha(0f).setDuration(160)
+            .withEndAction(() -> { if (fl != null) fl.removeView(tv); }).start();
+        textOverlayViews.remove(tv);
+        if (selectedTextOverlay == tv) deselectTextOverlay();
+        scheduleStickerJsonMerge();
+        updateBadge("text_overlay", textOverlayViews.isEmpty() ? null : "🔤 Text (" + textOverlayViews.size() + ")");
+    }
+
+    /**
+     * Single-finger drag to move, two-finger pinch to scale + twist to rotate,
+     * tap to select (re-opens the style panel pre-filled with this overlay's
+     * current style), drag onto the bottom trash icon to delete.
+     */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private void makeTextOverlayInteractive(TextView tv, FrameLayout fl) {
+        final float[] startTouch = new float[2];
+        final float[] startPos   = new float[2];
+        final float[] startSpan  = new float[1];
+        final float[] startAngle = new float[1];
+        final float[] startScale = new float[1];
+        final float[] startRotation = new float[1];
+        final boolean[] moved = {false};
+        final boolean[] twoFinger = {false};
+        // Perf: trash-zone hit testing used to call View.getLocationOnScreen()
+        // (a full view-hierarchy transform walk) for BOTH the trash icon and the
+        // dragged overlay on every single ACTION_MOVE pixel — at drag speed that's
+        // 100+ hierarchy walks/sec. The trash icon and the overlay's parent frame
+        // don't move mid-gesture, so their screen offsets only need computing once,
+        // at ACTION_DOWN; every ACTION_MOVE after that is pure arithmetic.
+        final int[]   reusableLoc   = new int[2];
+        final float[] trashCenter   = new float[2]; // screen-space, cached per gesture
+        final float[] flOffset      = new float[2]; // screen-space top-left of the overlay's parent
+        final boolean[] trashCached = {false};
+
+        tv.setOnTouchListener((v, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    moved[0] = false;
+                    twoFinger[0] = false;
+                    startTouch[0] = event.getRawX();
+                    startTouch[1] = event.getRawY();
+                    startPos[0] = v.getX();
+                    startPos[1] = v.getY();
+                    trashCached[0] = false;
+                    if (tvTextTrashZone != null && fl != null) {
+                        tvTextTrashZone.getLocationOnScreen(reusableLoc);
+                        trashCenter[0] = reusableLoc[0] + tvTextTrashZone.getWidth() / 2f;
+                        trashCenter[1] = reusableLoc[1] + tvTextTrashZone.getHeight() / 2f;
+                        fl.getLocationOnScreen(reusableLoc);
+                        flOffset[0] = reusableLoc[0];
+                        flOffset[1] = reusableLoc[1];
+                        trashCached[0] = true;
+                    }
+                    return true;
+
+                case MotionEvent.ACTION_POINTER_DOWN:
+                    if (event.getPointerCount() == 2) {
+                        twoFinger[0] = true;
+                        startSpan[0] = pointerSpacing(event);
+                        startAngle[0] = pointerAngle(event);
+                        startScale[0] = v.getScaleX();
+                        startRotation[0] = v.getRotation();
+                        if (tvTextTrashZone != null) tvTextTrashZone.setVisibility(View.GONE);
+                    }
+                    return true;
+
+                case MotionEvent.ACTION_MOVE:
+                    if (twoFinger[0] && event.getPointerCount() >= 2) {
+                        float span = pointerSpacing(event);
+                        float angle = pointerAngle(event);
+                        float scale = startScale[0] * (span / Math.max(startSpan[0], 1f));
+                        scale = Math.max(0.4f, Math.min(4f, scale));
+                        v.setScaleX(scale);
+                        v.setScaleY(scale);
+                        v.setRotation(startRotation[0] + (angle - startAngle[0]));
+                        moved[0] = true;
+                    } else if (event.getPointerCount() == 1) {
+                        float dx = event.getRawX() - startTouch[0];
+                        float dy = event.getRawY() - startTouch[1];
+                        if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved[0] = true;
+                        v.setX(startPos[0] + dx);
+                        v.setY(startPos[1] + dy);
+                        if (moved[0] && tvTextTrashZone != null && trashCached[0]) {
+                            tvTextTrashZone.setVisibility(View.VISIBLE);
+                            boolean over = isOverTrashZoneFast(v, flOffset, trashCenter);
+                            tvTextTrashZone.setAlpha(over ? 1f : 0.5f);
+                        }
+                    }
+                    return true;
+
+                case MotionEvent.ACTION_POINTER_UP:
+                    // Recapture single-pointer baseline so the remaining finger doesn't jump.
+                    startTouch[0] = event.getRawX();
+                    startTouch[1] = event.getRawY();
+                    startPos[0] = v.getX();
+                    startPos[1] = v.getY();
+                    return true;
+
+                case MotionEvent.ACTION_UP:
+                    if (tvTextTrashZone != null) tvTextTrashZone.setVisibility(View.GONE);
+                    if (!moved[0]) {
+                        selectTextOverlay(tv);
+                    } else if (!twoFinger[0] && tvTextTrashZone != null && trashCached[0]
+                            && isOverTrashZoneFast(v, flOffset, trashCenter)) {
+                        removeTextOverlay(tv);
+                    } else {
+                        selectTextOverlay(tv);
+                        syncOverlayPositionIntoStyle(tv, fl);
+                        scheduleStickerJsonMerge();
+                    }
+                    return true;
+            }
+            return false;
+        });
+    }
+
+    private float pointerSpacing(MotionEvent event) {
+        float dx = event.getX(0) - event.getX(1);
+        float dy = event.getY(0) - event.getY(1);
+        return (float) Math.sqrt(dx * dx + dy * dy);
+    }
+
+    private float pointerAngle(MotionEvent event) {
+        float dx = event.getX(1) - event.getX(0);
+        float dy = event.getY(1) - event.getY(0);
+        return (float) Math.toDegrees(Math.atan2(dy, dx));
+    }
+
+    /**
+     * Zero-allocation, zero-syscall trash-zone hit test used during active drag.
+     * `flOffset`/`trashCenter` are pre-cached once per gesture (see
+     * makeTextOverlayInteractive's ACTION_DOWN) — this just does arithmetic on
+     * the overlay's already-known local X/Y, so it's safe to call on every
+     * ACTION_MOVE without any per-frame cost.
+     */
+    private boolean isOverTrashZoneFast(View overlay, float[] flOffset, float[] trashCenter) {
+        float overlayCx = flOffset[0] + overlay.getX() + overlay.getWidth() / 2f;
+        float overlayCy = flOffset[1] + overlay.getY() + overlay.getHeight() / 2f;
+        float dist = (float) Math.hypot(overlayCx - trashCenter[0], overlayCy - trashCenter[1]);
+        return dist < tvTextTrashZone.getWidth();
+    }
+
+    /** Stores the overlay's current normalised (0..1) position + rotation/scale into its style tag. */
+    private void syncOverlayPositionIntoStyle(TextView tv, FrameLayout fl) {
+        if (fl == null || fl.getWidth() == 0 || fl.getHeight() == 0) return;
+        Object tag = tv.getTag();
+        if (!(tag instanceof TextOverlayStyle)) return;
+        // Position/rotation/scale are read directly off the view at export time
+        // (see mergeTextOverlaysIntoStickerJson), so nothing else to do here —
+        // this hook exists for symmetry / future per-overlay persistence needs.
+    }
+
+    /** Joins every active overlay's text (used only as a caption-prefill fallback). */
+    private String getAllTextOverlaysJoined() {
+        StringBuilder sb = new StringBuilder();
+        for (TextView tv : textOverlayViews) {
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(tv.getText());
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Fast-path entry point for interactive edits (drag/pinch/chip taps/seekbar
+     * ticks). Coalesces bursts of these into one rebuild instead of doing the
+     * full O(n) rebuild (string building + JSON re-parse) on every single tick —
+     * a seekbar drag alone can fire this dozens of times a second. proceedToUpload()
+     * bypasses this and calls mergeTextOverlaysIntoStickerJson() directly for a
+     * guaranteed-fresh synchronous flush before the value is ever read.
+     */
+    private void scheduleStickerJsonMerge() {
+        handler.removeCallbacks(stickerJsonMergeRunnable);
+        handler.postDelayed(stickerJsonMergeRunnable, STICKER_JSON_MERGE_DEBOUNCE_MS);
+    }
+
+    /**
+     * Rebuilds the "type":"text" entries inside stickerJson from every live
+     * overlay's current position/rotation/scale/style — preserving any
+     * non-text entries already in stickerJson (emoji stickers, interactive
+     * cards) untouched. This is what makes Step 2 overlays both hard-bake
+     * into the exported video (ReelVideoExportEngine) and ride along in the
+     * sticker_json extra for playback rendering.
+     */
+    private void mergeTextOverlaysIntoStickerJson() {
+        handler.removeCallbacks(stickerJsonMergeRunnable);
+        FrameLayout fl = getVideoOverlayLayer();
+        int flWidth = (fl != null) ? fl.getWidth() : 0;
+        int flHeight = (fl != null) ? fl.getHeight() : 0;
+
+        // Preserve any non-text entries already present (emoji/interactive stickers)
+        // before we start overwriting the buffer with the rebuilt text entries.
+        List<String> preservedNonText = null;
+        for (String obj : splitJsonObjects(stickerJson)) {
+            if (!obj.contains("\"type\":\"text\"")) {
+                if (preservedNonText == null) preservedNonText = new ArrayList<>();
+                preservedNonText.add(obj);
+            }
+        }
+
+        StringBuilder sb = new StringBuilder(64 + textOverlayViews.size() * 160);
+        sb.append('[');
+        boolean first = true;
+        for (TextView tv : textOverlayViews) {
+            if (tv.getParent() == null) continue;
+            Object tag = tv.getTag();
+            if (!(tag instanceof TextOverlayStyle)) continue;
+            TextOverlayStyle style = (TextOverlayStyle) tag;
+
+            float xFrac = 0.5f, yFrac = 0.5f;
+            if (flWidth > 0 && flHeight > 0) {
+                xFrac = (tv.getX() + tv.getWidth() / 2f) / flWidth;
+                yFrac = (tv.getY() + tv.getHeight() / 2f) / flHeight;
+            }
+
+            if (!first) sb.append(',');
+            first = false;
+            sb.append("{\"type\":\"text\",\"value\":\"");
+            appendJsonEscaped(sb, tv.getText());
+            sb.append("\",\"x\":").append(xFrac)
+              .append(",\"y\":").append(yFrac)
+              .append(",\"color\":\"");
+            appendColorHex(sb, style.colorInt);
+            sb.append("\",\"font\":\"").append(style.fontKey)
+              .append("\",\"bold\":").append(style.bold)
+              .append(",\"italic\":").append(style.italic)
+              .append(",\"bg\":\"").append(style.bgStyle)
+              .append("\",\"align\":\"").append(style.align)
+              .append("\",\"size\":").append(style.sizeSp)
+              .append(",\"rotation\":").append(tv.getRotation())
+              .append(",\"scale\":").append(tv.getScaleX())
+              .append('}');
+        }
+        if (preservedNonText != null) {
+            for (String obj : preservedNonText) {
+                if (!first) sb.append(',');
+                first = false;
+                sb.append(obj);
+            }
+        }
+        sb.append(']');
+        stickerJson = sb.toString();
+    }
+
+    /** Appends `text` JSON-escaped straight into `sb` — avoids the 3 intermediate
+     *  String allocations that chained .replace() calls would otherwise produce. */
+    private static void appendJsonEscaped(StringBuilder sb, CharSequence text) {
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            switch (c) {
+                case '\\': sb.append("\\\\"); break;
+                case '"':  sb.append("\\\""); break;
+                case '\n': sb.append("\\n");  break;
+                default:   sb.append(c);
+            }
+        }
+    }
+
+    private static final char[] HEX_DIGITS = "0123456789ABCDEF".toCharArray();
+
+    /** Manual #RRGGBB hex formatting — avoids String.format's Locale/Formatter
+     *  allocation overhead, which otherwise runs once per overlay per merge. */
+    private static void appendColorHex(StringBuilder sb, int colorInt) {
+        sb.append('#');
+        for (int shift = 20; shift >= 0; shift -= 4) {
+            sb.append(HEX_DIGITS[(colorInt >> shift) & 0xF]);
+        }
+    }
+
+    /** Splits a top-level JSON array string into its individual {...} object substrings. */
+    private List<String> splitJsonObjects(String json) {
+        List<String> result = new ArrayList<>();
+        if (json == null || json.length() < 2) return result;
+        String inner = json.trim();
+        if (inner.startsWith("[")) inner = inner.substring(1, inner.length() - 1);
+        int depth = 0, start = 0;
+        for (int i = 0; i < inner.length(); i++) {
+            char c = inner.charAt(i);
+            if (c == '{') depth++;
+            else if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    result.add(inner.substring(start, i + 1));
+                    start = i + 1;
+                    while (start < inner.length() && inner.charAt(start) == ',') start++;
+                }
+            }
+        }
+        return result;
+    }
+
+
     /**
      * Show subtitle preview at the bottom of the video.
      * Displays the first subtitle line as a representative preview.
@@ -1166,6 +1972,136 @@ public class ReelEditorActivity extends AppCompatActivity {
             trimFilmstripView.setDuration(totalDurationMs);
             trimFilmstripView.setTrimRange(0, totalDurationMs);
             trimFilmstripView.loadThumbnails(this, videoUriStr, isFilePath, totalDurationMs);
+        }
+    }
+
+    /**
+     * Bug fix: Step 3 → Filters used to hand ReelFiltersActivity the raw video
+     * URI as if it were a still image (`EXTRA_THUMBNAIL_URI` → `ImageView.
+     * setImageURI()`), which silently fails since an ImageView can't decode
+     * video — so the Filters & Adjust screen opened with no preview at all.
+     * This grabs an actual frame off the video (at the current playhead, same
+     * MediaMetadataRetriever pattern used by ReelThumbnailPickerActivity),
+     * saves it as a temp JPEG, and hands that over via a FileProvider URI —
+     * plus the currently-applied filter/slider values so re-opening Filters
+     * continues from where the user left off instead of resetting to Normal.
+     */
+    private void openFiltersScreen() {
+        if (videoUriStr == null || videoUriStr.isEmpty()) return;
+        final long frameAtMs = (player != null) ? Math.max(0, player.getCurrentPosition()) : trimStartMs;
+
+        filterPreviewExecutor.execute(() -> {
+            Uri previewUri = extractFrameAsProviderUri(frameAtMs);
+            handler.post(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                Intent i = new Intent(ReelEditorActivity.this, ReelFiltersActivity.class);
+                if (previewUri != null) {
+                    i.putExtra(ReelFiltersActivity.EXTRA_THUMBNAIL_URI, previewUri.toString());
+                    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                } else {
+                    // Extraction failed (corrupt frame, odd codec, etc.) — still open
+                    // the screen so filter/slider values can be picked; just no preview.
+                    Toast.makeText(ReelEditorActivity.this,
+                        "Couldn't load a preview frame — filters will still apply to the video",
+                        Toast.LENGTH_SHORT).show();
+                }
+                if (!filterName.isEmpty()) {
+                    i.putExtra(ReelFiltersActivity.EXTRA_CURRENT_FILTER,     filterName);
+                    i.putExtra(ReelFiltersActivity.EXTRA_CURRENT_BRIGHTNESS, filterBrightness);
+                    i.putExtra(ReelFiltersActivity.EXTRA_CURRENT_CONTRAST,   filterContrast);
+                    i.putExtra(ReelFiltersActivity.EXTRA_CURRENT_SATURATION, filterSaturation);
+                    i.putExtra(ReelFiltersActivity.EXTRA_CURRENT_BEAUTY,     filterBeauty);
+                }
+                startActivityForResult(i, REQ_FILTERS);
+            });
+        });
+    }
+
+    /** Runs off the UI thread. Extracts one frame near `atMs`, writes it to a
+     *  cache file, and returns a content:// URI for it via the app's existing
+     *  FileProvider — or null if extraction fails for any reason. */
+    private Uri extractFrameAsProviderUri(long atMs) {
+        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+        Bitmap frame = null;
+        try {
+            if (isFilePath) mmr.setDataSource(videoUriStr);
+            else             mmr.setDataSource(this, Uri.parse(videoUriStr));
+            frame = mmr.getFrameAtTime(atMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+            if (frame == null) {
+                // Fall back to the very first frame if the playhead position fails to decode.
+                frame = mmr.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+            }
+            if (frame == null) return null;
+
+            File dir = new File(getCacheDir(), "filter_preview");
+            if (!dir.exists()) dir.mkdirs();
+            File out = new File(dir, "frame_" + System.currentTimeMillis() + ".jpg");
+            try (FileOutputStream fos = new FileOutputStream(out)) {
+                frame.compress(Bitmap.CompressFormat.JPEG, 90, fos);
+            }
+            return FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", out);
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (frame != null) frame.recycle();
+            try { mmr.release(); } catch (Exception ignored) {}
+        }
+    }
+
+    /**
+     * ✅ NEW: Step 1 · Trim and Crop → Crop button.
+     * Reuses Chat's Media Editing screen crop feature — the exact same
+     * {@link MediaCropActivity} (in :core) that MediaEditActivity's
+     * btnEditCrop launches — instead of building a separate crop screen.
+     * Since MediaCropActivity crops a still image, the current playhead
+     * frame is grabbed the same way {@link #openFiltersScreen()} does,
+     * handed to the shared crop screen, and the cropped result is stored
+     * as this reel's custom thumbnail/cover frame.
+     */
+    private void openCropScreen() {
+        if (videoUriStr == null || videoUriStr.isEmpty()) return;
+        final long frameAtMs = (player != null) ? Math.max(0, player.getCurrentPosition()) : trimStartMs;
+
+        filterPreviewExecutor.execute(() -> {
+            Uri previewUri = extractFrameAsProviderUri(frameAtMs);
+            handler.post(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (previewUri == null) {
+                    Toast.makeText(this, "Couldn't load a frame to crop", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                Intent i = new Intent(this, MediaCropActivity.class);
+                i.putExtra(MediaCropActivity.EXTRA_IMAGE_URI, previewUri.toString());
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                startActivityForResult(i, REQ_CROP);
+            });
+        });
+    }
+
+    /** Copies the cropped file:// / content:// result from MediaCropActivity into
+     *  this activity's own cache so it behaves like every other thumbnail path
+     *  used downstream (applyThumbnailBadge, upload intent extras, etc). */
+    private void handleCropResult(String croppedUriStr) {
+        if (croppedUriStr == null || croppedUriStr.isEmpty()) return;
+        try {
+            Uri croppedUri = Uri.parse(croppedUriStr);
+            File dir = new File(getCacheDir(), "reel_crop");
+            if (!dir.exists()) dir.mkdirs();
+            File out = new File(dir, "crop_" + System.currentTimeMillis() + ".jpg");
+            try (InputStream in = getContentResolver().openInputStream(croppedUri);
+                 FileOutputStream fos = new FileOutputStream(out)) {
+                if (in == null) throw new Exception("Could not open cropped result");
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
+            }
+            thumbnailPath    = out.getAbsolutePath();
+            thumbnailFrameMs = (player != null) ? Math.max(0, player.getCurrentPosition()) : trimStartMs;
+            applyThumbnailBadge(thumbnailPath);
+            if (btnToolThumbnail != null) btnToolThumbnail.setColorFilter(android.graphics.Color.WHITE);
+            Toast.makeText(this, "Crop applied ✓", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Crop failed to apply", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -1356,6 +2292,14 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (btnEditorStepNext != null) {
             btnEditorStepNext.setOnClickListener(v -> goToEditorStep(editorCurrentStep + 1));
         }
+        // ✅ NEW: tapping a step dot jumps back to an already-visited step;
+        // tapping ahead does nothing — only btnEditorStepNext may move forward.
+        // Shared across every stepper screen — see StepDotsNavigationHelper.
+        com.callx.app.utils.StepDotsNavigationHelper.bindStepDots(editorStepDots,
+            new com.callx.app.utils.StepDotsNavigationHelper.StepNavigator() {
+                @Override public int getCurrentStep() { return editorCurrentStep; }
+                @Override public void goToStep(int step) { goToEditorStep(step); }
+            });
         updateEditorStepUi();
     }
 
@@ -1681,20 +2625,26 @@ public class ReelEditorActivity extends AppCompatActivity {
             }
         });
 
+        // Advanced text overlay Add: creates a brand-new styled overlay from the
+        // current text field + whatever style chips are active (see
+        // setupAdvancedTextOverlayPanel / createAdvancedTextOverlay below).
         btnAddText.setOnClickListener(v -> {
             String text = etTextOverlay.getText() != null
                 ? etTextOverlay.getText().toString().trim() : "";
             if (!text.isEmpty()) {
-                tvTextPreview.setText(text);
-                tvTextPreview.setVisibility(View.VISIBLE);
+                createAdvancedTextOverlay(text);
                 etTextOverlay.setText("");
             }
         });
 
-        tvTextPreview.setOnClickListener(v -> {
-            tvTextPreview.setVisibility(View.GONE);
-            tvTextPreview.setText("");
-        });
+        if (btnDeleteTextOverlay != null) {
+            btnDeleteTextOverlay.setOnClickListener(v -> deleteSelectedTextOverlay());
+        }
+
+        // Tapping empty video area (not on any overlay) deselects the current one.
+        if (videoPreviewContainer instanceof FrameLayout) {
+            videoPreviewContainer.setOnClickListener(v -> deselectTextOverlay());
+        }
 
         if (trimFilmstripView != null) {
             trimFilmstripView.setOnTrimChangeListener(new com.callx.app.views.VideoTrimFilmstripView.OnTrimChangeListener() {
@@ -1713,11 +2663,7 @@ public class ReelEditorActivity extends AppCompatActivity {
 
         // ── Tool buttons ─────────────────────────────────────────────────
 
-        if (btnToolFilters != null) btnToolFilters.setOnClickListener(v -> {
-            Intent i = new Intent(this, ReelFiltersActivity.class);
-            i.putExtra(ReelFiltersActivity.EXTRA_THUMBNAIL_URI, videoUriStr);
-            startActivityForResult(i, REQ_FILTERS);
-        });
+        if (btnToolFilters != null) btnToolFilters.setOnClickListener(v -> openFiltersScreen());
 
         if (btnToolStickers != null) btnToolStickers.setOnClickListener(v -> openFullStickerPicker());
 
@@ -1728,8 +2674,24 @@ public class ReelEditorActivity extends AppCompatActivity {
             startActivityForResult(i, REQ_SUBTITLES);
         });
 
-        if (btnToolTransitions != null) btnToolTransitions.setOnClickListener(v ->
-            startActivityForResult(new Intent(this, ReelTransitionsActivity.class), REQ_TRANSITIONS));
+        if (btnToolTransitions != null) btnToolTransitions.setOnClickListener(v -> {
+            // ✅ FIX: pass the reel's own media + current trim range so the
+            // Transitions screen can show a LIVE preview (same video, looped
+            // within [trimStartMs, trimEndMs] just like this screen) instead
+            // of a generic icon card, and preselect whatever was chosen before.
+            Intent i = new Intent(this, ReelTransitionsActivity.class);
+            i.putExtra(ReelTransitionsActivity.EXTRA_MEDIA_URI,    videoUriStr);
+            i.putExtra(ReelTransitionsActivity.EXTRA_IS_FILE_PATH, isFilePath);
+            i.putExtra(ReelTransitionsActivity.EXTRA_IS_IMAGE,     false);
+            i.putExtra(ReelTransitionsActivity.EXTRA_TRIM_START_MS, trimStartMs);
+            i.putExtra(ReelTransitionsActivity.EXTRA_TRIM_END_MS,   trimEndMs);
+            if (!transitionName.isEmpty()) {
+                i.putExtra(ReelTransitionsActivity.EXTRA_SELECTED_NAME,     transitionName);
+                i.putExtra(ReelTransitionsActivity.EXTRA_SELECTED_DURATION, transitionDuration);
+                i.putExtra(ReelTransitionsActivity.EXTRA_SELECTED_APPLY_ALL, transitionApplyAll);
+            }
+            startActivityForResult(i, REQ_TRANSITIONS);
+        });
 
         if (btnToolVoice != null) btnToolVoice.setOnClickListener(v -> {
             Intent i = new Intent(this, ReelVoiceEffectsActivity.class);
@@ -1757,6 +2719,11 @@ public class ReelEditorActivity extends AppCompatActivity {
             i.putExtra(ReelThumbnailPickerActivity.EXTRA_IS_FILE_PATH, isFilePath);
             startActivityForResult(i, REQ_THUMBNAIL);
         });
+
+        // ✅ NEW: Step 1 · Trim and Crop → Crop button — reuses Chat's Media
+        // Editing screen crop feature (core's MediaCropActivity) the exact
+        // same way MediaEditActivity's btnEditCrop does.
+        if (btnEditorCrop != null) btnEditorCrop.setOnClickListener(v -> openCropScreen());
 
         // ✅ NEW: Music chip — if a sound is already selected tap → SoundDetail,
         //                       otherwise → MusicPickerActivity to pick one.
@@ -1931,6 +2898,12 @@ public class ReelEditorActivity extends AppCompatActivity {
                 }
                 break;
             }
+
+            case REQ_CROP: {
+                String croppedUriStr = data.getStringExtra(MediaCropActivity.RESULT_CROPPED_URI);
+                handleCropResult(croppedUriStr);
+                break;
+            }
         }
     }
 
@@ -1981,6 +2954,13 @@ public class ReelEditorActivity extends AppCompatActivity {
     // ── Proceed to upload ─────────────────────────────────────────────────
 
     private void proceedToUpload() {
+        // ✅ NEW: fold all advanced Step-2 text overlays (with their font/color/
+        // bg/align/rotation/scale styling) into stickerJson BEFORE anything below
+        // reads it — this is what makes them both hard-bake into the exported
+        // video pixels (runHardBakeExport) AND ride along in the sticker_json
+        // extra for playback rendering.
+        mergeTextOverlaysIntoStickerJson();
+
         // ✅ FIX: Status has no separate subtitle-burn step (unlike this same
         // editor's other exit paths, which never had one either — see
         // mergeSubtitleCaptionIntoOverlay()'s javadoc). Merge the first caption
@@ -2062,9 +3042,9 @@ public class ReelEditorActivity extends AppCompatActivity {
     }
 
     private void proceedToUploadInternal() {
-        String textOverlay = (tvTextPreview != null
-            && tvTextPreview.getVisibility() == View.VISIBLE)
-            ? tvTextPreview.getText().toString() : "";
+        // Caption fallback: join all active text overlays' text (used to
+        // prefill ReelUploadActivity's caption field when relevant).
+        String textOverlay = getAllTextOverlaysJoined();
 
         // NEW: when this screen was opened directly on an already-picked video
         // via Status's pencil/Edit action (allowMediaEditFallback), Done takes
@@ -2279,6 +3259,7 @@ public class ReelEditorActivity extends AppCompatActivity {
             player = null;
         }
         handler.removeCallbacksAndMessages(null);
+        filterPreviewExecutor.shutdownNow();
         if (editorActiveStepRingSpin != null) editorActiveStepRingSpin.cancel();
         super.onDestroy();
     }

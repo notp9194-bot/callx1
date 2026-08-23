@@ -345,6 +345,16 @@ public class NewStatusActivity extends AppCompatActivity {
                 post();
             }
         });
+        // ✅ NEW: tapping a step dot jumps back to an already-visited step;
+        // tapping ahead does nothing — only btnStepNext may move forward
+        // (and still runs the hasComposerContent() check as before). Shared
+        // across every stepper screen — see StepDotsNavigationHelper.
+        TextView[] stepDots = {binding.stepDot1, binding.stepDot2, binding.stepDot3};
+        com.callx.app.utils.StepDotsNavigationHelper.bindStepDots(stepDots,
+            new com.callx.app.utils.StepDotsNavigationHelper.StepNavigator() {
+                @Override public int getCurrentStep() { return wizardStep; }
+                @Override public void goToStep(int step) { showWizardStep(step); }
+            });
         showWizardStep(0);
     }
 
