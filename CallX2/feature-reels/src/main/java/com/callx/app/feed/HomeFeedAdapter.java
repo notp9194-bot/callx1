@@ -83,9 +83,10 @@ public final class HomeFeedAdapter extends RecyclerView.Adapter<RecyclerView.Vie
 
     public void setPosts(@NonNull List<ReelModel> posts) {
         List<Item> next = new ArrayList<>(posts.size());
+        int feedIndex = 0;
         for (int i = 0; i < posts.size(); i++) {
             ReelModel reel = posts.get(i);
-            if (reel != null && reel.reelId != null) next.add(Item.post(i, reel));
+            if (reel != null) next.add(Item.post(feedIndex++, reel));
         }
         replace(next);
     }
@@ -95,7 +96,7 @@ public final class HomeFeedAdapter extends RecyclerView.Adapter<RecyclerView.Vie
         List<Item> next = new ArrayList<>(items);
         int index = feedIndexStart;
         for (ReelModel reel : posts) {
-            if (reel != null && reel.reelId != null) next.add(Item.post(index++, reel));
+            if (reel != null) next.add(Item.post(index++, reel));
         }
         replace(next);
     }
