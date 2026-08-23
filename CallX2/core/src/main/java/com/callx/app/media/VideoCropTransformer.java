@@ -72,13 +72,30 @@ public final class VideoCropTransformer {
             float topNdc    =  1f - 2f * cropFraction.top;
             float bottomNdc =  1f - 2f * cropFraction.bottom;
 
-            // Crop(left, bottom, right, top) — all in NDC, left<right and bottom<top.
-            // ⚠️ FIX: Media3's Crop constructor takes (left, BOTTOM, right, TOP) — bottom
-            // before top — not (left, top, right, bottom) as the visual reading order would
-            // suggest. Passing topNdc/bottomNdc in the wrong slots made "bottom" > "top" from
-            // the effect's point of view, which is exactly why crop wasn't applying (the
-            // Crop effect silently no-ops / export shows the uncropped frame on invalid bounds).
-            Crop cropEffect = new Crop(leftNdc, bottomNdc, rightNdc, topNdc);
+            // ⚠️ REAL FIX: androidx.media3.effect.Crop's constructor is
+            // Crop(left, right, bottom, top) — NOT (left, bottom, right, top) as a
+            // previous pass here assumed. That earlier "fix" put rightNdc where
+            // bottom was expected and bottomNdc where right was expected, so the
+            // effect's own left<right / bottom<top validation was checking the
+            // wrong pair of values — which is exactly the "top value ... should be
+            // greater than bottom value ..." crash seen from Crop's precondition.
+            // Clamp defensively too: a crop box can legitimately shrink to just a
+            // few px from a screen edge (e.g. dragged almost to the bottom), and
+            // float rounding through the NDC conversion must never be allowed to
+            // invert left/right or bottom/top and reach the constructor.
+            float left   = Math.min(leftNdc, rightNdc);
+            float right  = Math.max(leftNdc, rightNdc);
+            float bottom = Math.min(bottomNdc, topNdc);
+            float top    = Math.max(bottomNdc, topNdc);
+            float minSpan = 0.01f; // ~0.5% of frame — guards against a degenerate/zero-area crop
+            if (right - left < minSpan) { float c = (left + right) / 2f; left = c - minSpan / 2f; right = c + minSpan / 2f; }
+            if (top - bottom < minSpan) { float c = (bottom + top) / 2f; bottom = c - minSpan / 2f; top = c + minSpan / 2f; }
+            left   = Math.max(-1f, left);
+            right  = Math.min(1f, right);
+            bottom = Math.max(-1f, bottom);
+            top    = Math.min(1f, top);
+
+            Crop cropEffect = new Crop(left, right, bottom, top);
 
             MediaItem mediaItem = MediaItem.fromUri(inputUri);
             EditedMediaItem editedMediaItem = new EditedMediaItem.Builder(mediaItem)

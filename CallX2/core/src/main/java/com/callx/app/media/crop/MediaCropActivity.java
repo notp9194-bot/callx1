@@ -71,9 +71,12 @@ import java.util.concurrent.Executors;
  * ({@link CropOverlayView#setVideoMode(boolean)}); every pan/pinch the user
  * makes on the crop box is mirrored 1:1 onto the PlayerView's on-screen
  * transform (see {@link #syncPlayerTransform()}) so what's visible is
- * exactly what gets cropped. The underlying crop-box math is untouched — it
- * still runs off a single representative frame at the video's native
- * resolution, only now that frame is never painted, just used for geometry.
+ * exactly what gets cropped. The crop-box math runs off the video's real
+ * width/height/rotation read from metadata (see
+ * {@link #loadVideoContentSizeAsync()}) — no decoded preview frame is
+ * involved at all, so there's nothing that could ever be mistaken for a
+ * static thumbnail, and no risk of a downscaled extracted frame silently
+ * disagreeing with the video's true resolution.
  * On Done the crop is applied to the *entire* video via
  * {@link VideoCropTransformer} (Media3 Transformer), and a re-encoded,
  * permanently-cropped .mp4 is returned through the same
@@ -292,7 +295,7 @@ public class MediaCropActivity extends AppCompatActivity {
     private void loadBitmapAsync() {
         btnDone.setEnabled(false);
         if (isVideoMode) {
-            loadVideoPreviewFrameAsync();
+            loadVideoContentSizeAsync();
             return;
         }
         bgExec.submit(() -> {
@@ -327,31 +330,37 @@ public class MediaCropActivity extends AppCompatActivity {
     }
 
     /**
-     * ✅ NEW: video-mode preview. Grabs one representative frame (via the same
-     * MediaMetadataRetriever approach used elsewhere in the app, e.g. Reels'
-     * thumbnail-frame extraction) at the video's own resolution and feeds it
-     * into {@link #cropView} exactly like a decoded photo — same setBitmap()
-     * call, same aspect chips, same drag handles. Only the Done action differs
-     * (see {@link #cropVideoAndReturn()}).
+     * ✅ CHANGED: video-mode layout no longer decodes a representative frame
+     * at all. Some OEM {@link MediaMetadataRetriever} implementations return
+     * {@link MediaMetadataRetriever#getFrameAtTime} bitmaps at a silently
+     * downscaled "thumbnail" resolution rather than the video's true
+     * resolution — since the old code fed that bitmap straight into
+     * {@link CropOverlayView#setBitmap} and used its decoded width/height for
+     * every crop-box calculation, a resolution mismatch there was a real
+     * source of misaligned/failed crops. It also meant nothing (not even the
+     * live video, which starts independently) appeared laid out correctly
+     * until a full frame decode finished.
+     * <p>Now we only read {@link MediaMetadataRetriever#METADATA_KEY_VIDEO_WIDTH}
+     * / {@code _HEIGHT} / {@code _ROTATION} — the exact dimensions the real
+     * video will play and export at — and hand them to
+     * {@link CropOverlayView#setContentSize(int, int)}, which drives crop-box
+     * layout directly against those numbers. The live {@link #playerView}
+     * (already playing from {@link #setupVideoPlayback()}) is the only thing
+     * ever painted; there is no still frame to be mistaken for one.
      */
-    private void loadVideoPreviewFrameAsync() {
+    private void loadVideoContentSizeAsync() {
         bgExec.submit(() -> {
             MediaMetadataRetriever mmr = new MediaMetadataRetriever();
             try {
                 mmr.setDataSource(this, sourceUri);
-                long durationMs = 0;
-                try {
-                    String d = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
-                    if (d != null) durationMs = Long.parseLong(d);
-                } catch (Exception ignored) {}
-                long frameAtUs = (durationMs > 0) ? (durationMs * 1000L) / 3 : 0; // ~1/3 in — usually representative
-                Bitmap bmp = mmr.getFrameAtTime(frameAtUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
-                if (bmp == null) bmp = mmr.getFrameAtTime(0);
-                if (bmp == null) throw new Exception("Could not extract a preview frame");
-                final Bitmap finalBmp = bmp;
+                int w = parseIntMeta(mmr, MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH);
+                int h = parseIntMeta(mmr, MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
+                int rotation = parseIntMeta(mmr, MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
+                if (w <= 0 || h <= 0) throw new Exception("Could not read video dimensions");
+                if (rotation == 90 || rotation == 270) { int t = w; w = h; h = t; }
+                final int finalW = w, finalH = h;
                 mainHandler.post(() -> {
-                    sourceBitmap = finalBmp;
-                    cropView.setBitmap(finalBmp);
+                    cropView.setContentSize(finalW, finalH);
                     btnDone.setEnabled(true);
                 });
             } catch (Exception e) {
@@ -361,6 +370,15 @@ public class MediaCropActivity extends AppCompatActivity {
                 try { mmr.release(); } catch (Exception ignored) {}
             }
         });
+    }
+
+    private static int parseIntMeta(MediaMetadataRetriever mmr, int key) {
+        try {
+            String v = mmr.extractMetadata(key);
+            return v != null ? Integer.parseInt(v) : 0;
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     // ── Crop + save ───────────────────────────────────────────────────────

@@ -78,9 +78,20 @@ public class CropOverlayView extends View {
     /** ✅ NEW: true when this crop screen is cropping a video. The overlay then
      *  draws only chrome (dim/border/grid/handles) — no bitmap — because a
      *  real, playing PlayerView sits underneath showing the actual video;
-     *  the bitmap (a single representative frame) still drives all the crop
-     *  math exactly as before, it's just never painted on screen. */
+     *  crop math in this mode runs off {@link #setContentSize(int, int)}
+     *  (real video width/height), not a decoded bitmap at all. */
     private boolean videoMode = false;
+
+    /** ✅ NEW: real video width/height (post-rotation) in video mode, set via
+     *  {@link #setContentSize(int, int)} — drives ALL crop-box/layout math in
+     *  video mode instead of a decoded preview-frame bitmap. This removes the
+     *  dependency on {@link android.media.MediaMetadataRetriever#getFrameAtTime}
+     *  ever having produced a bitmap (which some OEMs silently return at a
+     *  downscaled "thumbnail" resolution, and which always costs a decode
+     *  before anything can appear) — video mode now lays out and starts
+     *  playing immediately from metadata alone. */
+    private int contentWidthPx  = 0;
+    private int contentHeightPx = 0;
 
     // ─── Crop box (in view coords) ────────────────────────────────────────
     private final RectF cropRect = new RectF();
@@ -214,6 +225,28 @@ public class CropOverlayView extends View {
         invalidate();
     }
 
+    /** ✅ NEW: sets the real (post-rotation) content dimensions for video
+     *  mode — replaces {@link #setBitmap(Bitmap)} as the layout driver when
+     *  {@link #videoMode} is true. Call once video mode is on; safe to call
+     *  before the view has been measured (layout runs once size is known,
+     *  same as {@link #setBitmap(Bitmap)}). */
+    public void setContentSize(int width, int height) {
+        this.contentWidthPx  = width;
+        this.contentHeightPx = height;
+        initialized = false;
+        if (getWidth() > 0 && getHeight() > 0) initLayout();
+        invalidate();
+    }
+
+    /** True once there is content (bitmap for image mode, or known
+     *  dimensions for video mode) to lay out / draw / hit-test against. */
+    private boolean hasContent() {
+        return videoMode ? (contentWidthPx > 0 && contentHeightPx > 0) : bitmap != null;
+    }
+
+    private float contentWidth()  { return videoMode ? contentWidthPx  : bitmap.getWidth(); }
+    private float contentHeight() { return videoMode ? contentHeightPx : bitmap.getHeight(); }
+
     /**
      * ✅ NEW: the live pan/zoom/crop transform, as a fresh copy. Combined with
      * {@link #getBaseContentMatrix()}, the caller can compute exactly how far
@@ -247,7 +280,7 @@ public class CropOverlayView extends View {
      * both crop targets read the exact same math.
      */
     public Rect getCropRectInBitmapPixels() {
-        // Invert the image matrix to map view coords → bitmap coords
+        // Invert the image matrix to map view coords → bitmap/content coords
         imageMatrix.invert(invImageMatrix);
 
         float[] pts = {
@@ -256,10 +289,11 @@ public class CropOverlayView extends View {
         };
         invImageMatrix.mapPoints(pts);
 
+        int cw = (int) contentWidth(), ch = (int) contentHeight();
         int bx = (int) Math.max(0, pts[0]);
         int by = (int) Math.max(0, pts[1]);
-        int bw = (int) Math.min(bitmap.getWidth()  - bx, pts[2] - pts[0]);
-        int bh = (int) Math.min(bitmap.getHeight() - by, pts[3] - pts[1]);
+        int bw = (int) Math.min(cw - bx, pts[2] - pts[0]);
+        int bh = (int) Math.min(ch - by, pts[3] - pts[1]);
 
         bw = Math.max(1, bw);
         bh = Math.max(1, bh);
@@ -277,7 +311,7 @@ public class CropOverlayView extends View {
      */
     public RectF getCropRectNormalized() {
         Rect r = getCropRectInBitmapPixels();
-        float bw = bitmap.getWidth(), bh = bitmap.getHeight();
+        float bw = contentWidth(), bh = contentHeight();
         return new RectF(r.left / bw, r.top / bh, r.right / bw, r.bottom / bh);
     }
 
@@ -288,16 +322,16 @@ public class CropOverlayView extends View {
     @Override
     protected void onSizeChanged(int w, int h, int oldW, int oldH) {
         super.onSizeChanged(w, h, oldW, oldH);
-        if (bitmap != null && !initialized) initLayout();
+        if (hasContent() && !initialized) initLayout();
     }
 
     private void initLayout() {
-        if (bitmap == null || getWidth() == 0 || getHeight() == 0) return;
+        if (!hasContent() || getWidth() == 0 || getHeight() == 0) return;
 
         float vw = getWidth()  - padL - padR;
         float vh = getHeight() - padT - padB;
-        float bw = bitmap.getWidth();
-        float bh = bitmap.getHeight();
+        float bw = contentWidth();
+        float bh = contentHeight();
 
         // Scale to fit-center inside the padded view area
         float scale = Math.min(vw / bw, vh / bh);
@@ -333,7 +367,7 @@ public class CropOverlayView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        if (bitmap == null) return;
+        if (!hasContent()) return;
 
         // 1. Image — ✅ NEW: skipped in video mode; the real PlayerView underneath
         // is already showing the actual (playing) video at this exact position,
@@ -413,7 +447,7 @@ public class CropOverlayView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        if (bitmap == null) return false;
+        if (!hasContent()) return false;
 
         int action = event.getActionMasked();
         int pointerCount = event.getPointerCount();
@@ -571,7 +605,7 @@ public class CropOverlayView extends View {
     // ─── Constraint: image always fills the crop box ──────────────────────
 
     private void constrainImage() {
-        if (bitmap == null) return;
+        if (!hasContent()) return;
 
         RectF imgBounds = imageBoundsInView();
         float bw = imgBounds.width(), bh = imgBounds.height();
@@ -646,9 +680,10 @@ public class CropOverlayView extends View {
 
     // ─── Helpers ──────────────────────────────────────────────────────────
 
-    /** Returns the bitmap's bounding rect mapped through imageMatrix. */
+    /** Returns the content's (bitmap, or video content size) bounding rect
+     *  mapped through imageMatrix. */
     private RectF imageBoundsInView() {
-        RectF r = new RectF(0, 0, bitmap.getWidth(), bitmap.getHeight());
+        RectF r = new RectF(0, 0, contentWidth(), contentHeight());
         imageMatrix.mapRect(r);
         return r;
     }

@@ -82,8 +82,8 @@
                     android:layout_height="38dp"
                     android:layout_gravity="center"
                     android:src="@drawable/ic_person"
-                    app:civ_border_width="2dp"
-                    app:civ_border_color="@android:color/white"/>
+                    app:civ_border_width="0dp"
+                    app:civ_border_color="@android:color/transparent"/>
 
                 <!-- Collab second avatar — overlaps the first; GONE for solo posts -->
                 <LinearLayout
