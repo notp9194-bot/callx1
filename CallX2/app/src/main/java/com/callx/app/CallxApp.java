@@ -205,9 +205,18 @@ public class CallxApp extends Application {
                 // is thrown away; only the "DB is genuinely open" side
                 // effect matters.
                 db.chatDao().getChatCount();
-                Log.d(TAG, "AppDatabase (SQLCipher) warm-up complete");
+                Log.d(TAG, "AppDatabase warm-up complete");
             } catch (Exception e) {
                 Log.w(TAG, "AppDatabase warm-up failed (will retry on first use): " + e.getMessage());
+            } finally {
+                // v240 — ALWAYS flip this, even on failure. MainActivity's
+                // splash gate (see setKeepOnScreenCondition) waits on this
+                // flag with its own bounded timeout, but flipping it here
+                // too means a failed warm-up doesn't leave the flag stuck
+                // false relying only on the timeout — the real first DAO
+                // call from ChatsFragment will just re-pay the cost as
+                // before this fix ever existed.
+                com.callx.app.db.AppDatabase.markDbWarmupComplete();
             }
         }, "db-warmup").start();
 

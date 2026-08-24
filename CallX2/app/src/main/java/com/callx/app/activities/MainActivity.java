@@ -76,6 +76,17 @@ public class MainActivity extends AppCompatActivity
 
     private ActivityMainBinding binding;
 
+    // v240 — splash-hold gate (see onCreate/installSplashScreen). Captured
+    // as early as possible so the elapsed-time cap is measured from
+    // Activity creation, not from further down onCreate.
+    private static final long sProcessStartMs = android.os.SystemClock.elapsedRealtime();
+    // Cap on how long the splash icon is allowed to stay up waiting for
+    // AppDatabase's warm-up. Tuned to cover the common-case cold open
+    // without risking the "app looks frozen" perception on a genuinely
+    // slow device — past this, MainActivity proceeds and ChatsFragment
+    // pays whatever DB-open cost is left, exactly like before this fix.
+    private static final long SPLASH_MAX_HOLD_MS = 1200L;
+
     // My profile cache — for UserReelsActivity launch
     private String myName     = "";
     private String myPhotoUrl = "";
@@ -171,7 +182,27 @@ public class MainActivity extends AppCompatActivity
         // stays up either through the brief auth-check-and-redirect (not
         // logged in) or straight through to the real UI being ready to
         // paint (logged in), never a blank/white flash in between.
-        androidx.core.splashscreen.SplashScreen.installSplashScreen(this);
+        androidx.core.splashscreen.SplashScreen.installSplashScreen(this)
+                // v240 — PERF FIX: "chats tab first open is a 500ms-3sec
+                // blank/loading wait" — root cause was that the splash's
+                // default dismiss condition (this Activity's first frame
+                // drawn) fires the moment ChatsFragment's layout inflates,
+                // which happens LONG before AppDatabase's real file-open +
+                // migration cost (paid on the db-warmup thread, see
+                // CallxApp) finishes. So the splash vanished instantly and
+                // the user watched an empty Chat List for the real wait
+                // instead — same total time, but felt like the app was
+                // slow/broken rather than "still launching".
+                //
+                // Fix: hold the splash icon on screen until AppDatabase
+                // signals it's genuinely open (AppDatabase.isDbWarmupComplete()),
+                // capped by SPLASH_MAX_HOLD_MS so a genuinely slow/cold
+                // device (or a warm-up that errors) can't hold the splash
+                // forever — it falls through to the old behavior (Chat
+                // List pays whatever's left of the cost itself) past the cap.
+                .setKeepOnScreenCondition(() ->
+                        !com.callx.app.db.AppDatabase.isDbWarmupComplete()
+                                && (android.os.SystemClock.elapsedRealtime() - sProcessStartMs) < SPLASH_MAX_HOLD_MS);
 
         // MUST be called before super.onCreate / setContentView so the window
         // is configured for edge-to-edge before any layout pass happens.

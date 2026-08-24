@@ -69,6 +69,22 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     private EditText etChatSearch;
     private ImageButton btnChatSearchClear;
     private String chatSearchQuery = "";
+    private static final long CHAT_SEARCH_DEBOUNCE_MS = 120L;
+    private Runnable pendingChatSearch;
+    private long chatSearchDataVersion = 0L;
+    private long lastAppliedSearchDataVersion = -1L;
+    private String lastAppliedSearchQuery;
+    private final Map<String, SearchIndexEntry> chatSearchIndex = new HashMap<>();
+
+    private static final class SearchIndexEntry {
+        final String signature;
+        final String normalizedText;
+
+        SearchIndexEntry(String signature, String normalizedText) {
+            this.signature = signature;
+            this.normalizedText = normalizedText;
+        }
+    }
 
     private LinearLayout llSelectionBar;
     private TextView tvSelectedCount;
@@ -186,6 +202,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         pbLoadingMoreChats = v.findViewById(R.id.pb_loading_more_chats);
 
         chatSearchQuery = "";
+        lastAppliedSearchQuery = null;
+        lastAppliedSearchDataVersion = -1L;
         setupChatSearch();
 
         View banner = v.findViewById(R.id.banner_requests);
@@ -381,7 +399,19 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     btnChatSearchClear.setVisibility(chatSearchQuery.isEmpty()
                             ? View.GONE : View.VISIBLE);
                 }
-                applyChatSearch();
+                if (pendingChatSearch != null) {
+                    mainHandler.removeCallbacks(pendingChatSearch);
+                }
+                if (chatSearchQuery.isEmpty()) {
+                    pendingChatSearch = null;
+                    applyChatSearch();
+                } else {
+                    pendingChatSearch = () -> {
+                        pendingChatSearch = null;
+                        applyChatSearch();
+                    };
+                    mainHandler.postDelayed(pendingChatSearch, CHAT_SEARCH_DEBOUNCE_MS);
+                }
             }
 
             @Override public void afterTextChanged(Editable s) {}
@@ -405,10 +435,16 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     /** Applies the current query without changing the source contacts list. */
     private void applyChatSearch() {
         if (adapter == null) return;
+        if (chatSearchDataVersion == lastAppliedSearchDataVersion
+                && chatSearchQuery.equals(lastAppliedSearchQuery)) {
+            return;
+        }
 
         if (chatSearchQuery.isEmpty()) {
             adapter.submitList(new ArrayList<>(contacts));
             updateChatSearchEmptyState(false);
+            lastAppliedSearchQuery = chatSearchQuery;
+            lastAppliedSearchDataVersion = chatSearchDataVersion;
             return;
         }
 
@@ -419,19 +455,44 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         }
         adapter.submitList(filtered);
         updateChatSearchEmptyState(filtered.isEmpty());
+        lastAppliedSearchQuery = chatSearchQuery;
+        lastAppliedSearchDataVersion = chatSearchDataVersion;
     }
 
     private boolean matchesChatSearch(User user, String query) {
         if (user == null) return false;
-        return containsIgnoreCase(user.name, query)
-                || containsIgnoreCase(user.callxId, query)
-                || containsIgnoreCase(user.lastMessage, query)
-                || containsIgnoreCase(
-                        ChatListPreviewUtil.labelForType(user.lastMessageType), query);
+        return getSearchIndexText(user).contains(query);
     }
 
-    private static boolean containsIgnoreCase(String value, String query) {
-        return value != null && value.toLowerCase(Locale.ROOT).contains(query);
+    /**
+     * Builds each row's searchable text once per data version. The signature
+     * detects in-place Firebase updates to an existing User object, while the
+     * normalized cache avoids four lowercase allocations on every keystroke.
+     */
+    private String getSearchIndexText(User user) {
+        String key = user.uid != null
+                ? user.uid
+                : "anonymous:" + System.identityHashCode(user);
+        String typeLabel = ChatListPreviewUtil.labelForType(user.lastMessageType);
+        String signature = safeSearchValue(user.name) + '\u0001'
+                + safeSearchValue(user.callxId) + '\u0001'
+                + safeSearchValue(user.lastMessage) + '\u0001'
+                + safeSearchValue(typeLabel);
+        SearchIndexEntry cached = chatSearchIndex.get(key);
+        if (cached != null && cached.signature.equals(signature)) {
+            return cached.normalizedText;
+        }
+
+        String normalized = (safeSearchValue(user.name) + " "
+                + safeSearchValue(user.callxId) + " "
+                + safeSearchValue(user.lastMessage) + " "
+                + safeSearchValue(typeLabel)).toLowerCase(Locale.ROOT);
+        chatSearchIndex.put(key, new SearchIndexEntry(signature, normalized));
+        return normalized;
+    }
+
+    private static String safeSearchValue(String value) {
+        return value == null ? "" : value;
     }
 
     private void updateChatSearchEmptyState(boolean show) {
@@ -1263,6 +1324,11 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             mainHandler.removeCallbacks(pendingContactsWork);
             pendingContactsWork = null;
         }
+        if (pendingChatSearch != null) {
+            mainHandler.removeCallbacks(pendingChatSearch);
+            pendingChatSearch = null;
+        }
+        chatSearchIndex.clear();
         // v94: drop any not-yet-processed delta so a recreated view starts clean.
         pendingChildUpserts.clear();
         pendingChildRemovals.clear();
@@ -1295,6 +1361,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     private void diffUpdateContacts(List<User> newList) {
         contacts.clear();
         contacts.addAll(newList);
+        chatSearchDataVersion++;
 
         Long oldest = null;
         for (User u : contacts) {

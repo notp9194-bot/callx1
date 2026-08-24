@@ -644,6 +644,22 @@ public abstract class AppDatabase extends RoomDatabase {
 
     public static boolean isWarm() { return sInstance != null; }
 
+    // v240 — PERF FIX: real "DB fully open" signal for the splash-screen
+    // gate. isWarm() above only tells you Room.databaseBuilder().build()
+    // ran — that call is cheap object construction and returns almost
+    // instantly, well BEFORE the actual slow part (file open + schema
+    // validation + migrations) has happened. A splash gate built on
+    // isWarm() would let the splash dismiss immediately and the user
+    // would still stare at an empty/loading Chat List for the real
+    // 500ms-3sec cost, same as before this fix. This flag is only set
+    // TRUE after a real DAO query (see CallxApp's db-warmup thread)
+    // actually completes, so it reflects the DB being genuinely ready.
+    private static volatile boolean sDbWarmupComplete = false;
+
+    public static boolean isDbWarmupComplete() { return sDbWarmupComplete; }
+
+    public static void markDbWarmupComplete() { sDbWarmupComplete = true; }
+
     public static AppDatabase getInstance(Context ctx) {
         if (sInstance == null) {
             synchronized (AppDatabase.class) {
