@@ -7,55 +7,80 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.RequestManager;
 
 /**
- * GlideScrollListener — v86 Ultra Pro Max: hardware layer toggle + Glide pause.
+ * GlideScrollListener — v87 Ultra Pro Max: hardware layer toggle + Glide pause.
  *
  * v85: Glide pause during SETTLING, resume on IDLE/DRAGGING.
+ * v86: hardware layer promoted on SETTLING (WRONG — see v87 fix below).
  *
- * v86 ADDITIONS:
- *  Hardware layer during fling (same technique as Telegram's LegacyListView):
- *    • SCROLL_STATE_SETTLING → setLayerType(HARDWARE) on all visible children.
- *      The GPU composites the pre-rendered row textures without involving the CPU
- *      or the RenderThread per frame — this is why Telegram feels buttery at 60fps
- *      even on mid-range phones. Rows that don't change during scroll are perfect
- *      candidates for hardware layer caching.
- *    • SCROLL_STATE_IDLE     → setLayerType(NONE) to free GPU texture memory and
- *      allow normal software draws again (needed for typing indicator / tick updates).
- *    • SCROLL_STATE_DRAGGING → setLayerType(NONE); user may pause and the content
- *      needs to update normally (new Firebase messages, typing).
+ * v87 FIX — root cause of the fling "jhatka":
+ *    setLayerType(HARDWARE) is not instant. The *first* draw after the call
+ *    is a synchronous full software draw pass of the view, uploaded as a GPU
+ *    texture — only frames *after* that are cheap composites. v86 triggered
+ *    this upload exactly on SCROLL_STATE_SETTLING, which is the frame fling
+ *    velocity peaks at (RecyclerView enters SETTLING right as the finger
+ *    leaves the screen with full fling velocity). Promoting every visible
+ *    row to a hardware layer at that exact moment meant N synchronous texture
+ *    uploads landing on the single fastest-moving frame — the stutter felt
+ *    right at the start of the fling.
  *
- * setLayerType(HARDWARE) cost:
- *    First call uploads each view's bitmap to a GPU texture (one-time cost).
- *    Subsequent frames during the fling just composite — O(1) GPU work regardless
- *    of view complexity. Combined with our pre-baked canvas paths and zero-alloc
- *    onDraw(), the upload is trivially fast.
+ *    Fix (same idea as Reels' beginFeedScrollLayer(), which promotes on the
+ *    first scrolled pixel instead of on fling-settle): promote to HARDWARE
+ *    on the very first onScrolled() delta, i.e. during the low-velocity drag
+ *    phase, well before SETTLING/fling ever begins. By the time RecyclerView
+ *    transitions to SETTLING and velocity peaks, every row's GPU texture is
+ *    already uploaded and warm — SETTLING then costs only cheap composites,
+ *    zero uploads.
+ *
+ *    • onScrolled() (first delta after IDLE) → setLayerType(HARDWARE) on all
+ *      visible children, while velocity is still low (drag phase).
+ *    • SCROLL_STATE_SETTLING  → layer already warm; just pause Glide decode
+ *      so decode work doesn't compete with the GPU during fling.
+ *    • SCROLL_STATE_IDLE      → setLayerType(NONE) to free GPU texture memory
+ *      and resume normal software draws (typing indicator / tick updates)
+ *      and resume Glide loading.
  */
 public class GlideScrollListener extends RecyclerView.OnScrollListener {
 
     private final RequestManager glide;
+    private boolean hwLayerOn = false;
 
     public GlideScrollListener(Context context) {
         this.glide = Glide.with(context.getApplicationContext());
     }
 
     @Override
+    public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
+        // Promote at the very first pixel of movement — still low velocity
+        // (drag phase) — so the one-time GPU texture upload per row happens
+        // here instead of at fling-peak (SETTLING).
+        if (!hwLayerOn) {
+            hwLayerOn = true;
+            setChildLayerType(recyclerView, View.LAYER_TYPE_HARDWARE);
+        }
+    }
+
+    @Override
     public void onScrollStateChanged(RecyclerView recyclerView, int newState) {
         switch (newState) {
             case RecyclerView.SCROLL_STATE_SETTLING:
-                // Fast fling: pause Glide decoding + hand off to GPU compositing
+                // Fling in progress: textures already warm from onScrolled()
+                // above — just pause Glide decoding so it doesn't compete
+                // with GPU compositing on this frame.
                 glide.pauseRequests();
-                setChildLayerType(recyclerView, View.LAYER_TYPE_HARDWARE);
                 break;
 
             case RecyclerView.SCROLL_STATE_DRAGGING:
-                // User in control: resume loading, drop hardware layer (content can update)
+                // User back in control after a fling-interrupt: keep the
+                // hardware layer (still cheap/warm), just resume loading.
                 glide.resumeRequests();
-                setChildLayerType(recyclerView, View.LAYER_TYPE_NONE);
                 break;
 
             case RecyclerView.SCROLL_STATE_IDLE:
-                // Scroll settled: resume loading remaining avatars, drop GPU textures
+                // Scroll settled: resume loading remaining avatars, drop GPU
+                // textures, and reset so the next scroll re-promotes early.
                 glide.resumeRequests();
                 setChildLayerType(recyclerView, View.LAYER_TYPE_NONE);
+                hwLayerOn = false;
                 break;
         }
     }

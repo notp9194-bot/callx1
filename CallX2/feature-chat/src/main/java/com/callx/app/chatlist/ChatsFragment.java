@@ -55,6 +55,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
     private final List<User> contacts = new ArrayList<>();
     private ChatListAdapter adapter;
+    // v95: background pre-inflation pool for item_chat rows — see ChatRowPrewarmPool.
+    private final ChatRowPrewarmPool prewarmPool = new ChatRowPrewarmPool();
     private View emptyState;
 
     private LinearLayout llSelectionBar;
@@ -187,6 +189,15 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // v83: constructor no longer takes a list — submitList() is the write path
         adapter = new ChatListAdapter(this);
         rv.setAdapter(adapter);
+
+        // v95: kick off background XML pre-inflation immediately so, by the
+        // time the user's finger actually starts scrolling, onCreateViewHolder
+        // is just draining an already-filled queue instead of paying real
+        // LayoutInflater cost on the main thread. `rv` is passed only so the
+        // background inflate generates the correct RecyclerView.LayoutParams
+        // subtype — it is never touched/mutated off the main thread.
+        prewarmPool.start(requireContext().getApplicationContext(), rv);
+        adapter.setPrewarmPool(prewarmPool);
 
         // Fixed-size rows: tell RV it never needs to re-measure the whole list
         // when an item changes — saves a full layout pass on every Firebase update.
@@ -1156,6 +1167,11 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // v94: drop any not-yet-processed delta so a recreated view starts clean.
         pendingChildUpserts.clear();
         pendingChildRemovals.clear();
+        // v95: stop background prewarm thread — any views already sitting in
+        // its queue are just plain Views with no listeners attached, safe to
+        // drop; the pool itself is thrown away, a fresh one won't be created
+        // until onCreateView runs again.
+        prewarmPool.stop();
         super.onDestroyView();
     }
 

@@ -333,10 +333,25 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         this.longPressListener = listener;
     }
 
+    // v95: optional background pre-inflation pool — see ChatRowPrewarmPool.
+    // Set by ChatsFragment right after the adapter is created; onCreateViewHolder
+    // polls it first and only pays a synchronous inflate if it's empty/unset.
+    private ChatRowPrewarmPool prewarmPool;
+
+    void setPrewarmPool(ChatRowPrewarmPool pool) {
+        this.prewarmPool = pool;
+    }
+
     @NonNull @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        View v = LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_chat, parent, false);
+        View v = prewarmPool != null ? prewarmPool.poll() : null;
+        if (v == null) {
+            // Pool miss (cold start burst outrunning the background thread, or
+            // prewarm disabled) — same synchronous inflate as before, so
+            // correctness is never affected, only the fast-path cost.
+            v = LayoutInflater.from(parent.getContext())
+                    .inflate(R.layout.item_chat, parent, false);
+        }
         VH h = new VH(v);
         // v92: install every click/long-click listener ONCE per VH here,
         // instead of re-allocating them on every bind — see installStaticListeners().

@@ -150,6 +150,11 @@ public class HomeFragment extends Fragment {
     private boolean            isMuted = false;
     private final Handler      scrollHandler = new Handler(Looper.getMainLooper());
 
+    // ── v281: Ultra-advanced performance coordinator ──────────────────────
+    // Coordinates metadata caching, scroll state machine, network batching,
+    // view recycling, and smart prefetch for Instagram-level feed speed.
+    private HomeFeedUltraOptimizer ultraOptimizer;
+
     // ── v177: preload feature (same as Reels tab) ──────────────────────────
     // Preloads upcoming videos/thumbnails a couple cards ahead of whichever
     // card is currently playing, so by the time the user scrolls to them
@@ -506,7 +511,24 @@ public class HomeFragment extends Fragment {
         // RecyclerView.generateLayoutParams() requires one to already be set
         // even just to build a root view's LayoutParams, or inflate() throws
         // "RecyclerView has no LayoutManager". Adapter is set once built below.
-        recyclerHome.setLayoutManager(new LinearLayoutManager(requireContext()));
+        LinearLayoutManager homeLayoutManager = new LinearLayoutManager(requireContext());
+        // ★ Ultra-advanced optimization: fragment_home.xml pins recycler_home
+        // to match_parent/match_parent inside a CoordinatorLayout, so the
+        // RecyclerView's own on-screen size never changes as items are
+        // added/removed/resized (posts loading, rows swapping in) — exactly
+        // the contract setHasFixedSize() requires. Skips a measure/layout
+        // pass of the RecyclerView's PARENT on every adapter change (it only
+        // re-measures itself), same class of win as the item-cache/pool
+        // tuning below, just one level up the view tree.
+        recyclerHome.setHasFixedSize(true);
+        // Instagram-level look-ahead: LinearLayoutManager's default gap-worker
+        // prefetch only warms 1 extra row per fling frame. item_home_feed_post
+        // is a heavy inflate (PlayerView + ~28 children, see ROW_POST pool
+        // note below) so widening this to 2 gives the prefetch thread more of
+        // a head start on the next row while the current one is still
+        // settling, at the cost of a little extra idle prefetch work.
+        homeLayoutManager.setInitialPrefetchItemCount(2);
+        recyclerHome.setLayoutManager(homeLayoutManager);
         recyclerHome.setItemViewCacheSize(6);
         // ★ Ultra-advanced optimization: item_home_feed_post.xml is a heavy
         // inflate (PlayerView, seek bar, ~28 child views). The default
@@ -540,6 +562,32 @@ public class HomeFragment extends Fragment {
         bindFooterViews(footerView);
         feedAdapter = new FeedAdapter(headerView, footerView);
         recyclerHome.setAdapter(feedAdapter);
+
+        // ── v281: Initialize ultra-advanced performance coordinator ────────
+        // Coordinates metadata caching, scroll state, network batching, view
+        // recycling, and smart prefetch for Instagram-level feed speed.
+        if (this.ultraOptimizer == null) {
+            this.ultraOptimizer = new HomeFeedUltraOptimizer();
+            this.ultraOptimizer.initialize(requireContext(), 
+                FirebaseUtils.getReelsRef(), scrollHandler);
+        }
+
+        // Hook RecyclerView scroll events → ultraOptimizer scroll state machine
+        recyclerHome.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                if (ultraOptimizer != null) {
+                    ultraOptimizer.onRecyclerScrollStateChanged(newState);
+                }
+            }
+
+            @Override
+            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                if (ultraOptimizer != null) {
+                    ultraOptimizer.onRecyclerScrolled(dx, dy);
+                }
+            }
+        });
 
         // ★ Built via AdaptiveStreamingManager.buildBarePlayer() instead of a
         // plain ExoPlayer.Builder() — gets the SAME network-tier-tuned
@@ -1747,6 +1795,13 @@ public class HomeFragment extends Fragment {
             suggestedReelsPeekController.dismiss();
             suggestedReelsPeekController = null;
         }
+
+        // ── v281: Shutdown ultra-advanced performance coordinator ──────────
+        // Cancels pending batches, clears caches, tears down background threads.
+        if (ultraOptimizer != null) {
+            ultraOptimizer.shutdown();
+            ultraOptimizer = null;
+        }
     }
 
     /**
@@ -1947,60 +2002,115 @@ public class HomeFragment extends Fragment {
     private void collectStoryEntries(List<String> uids, int index,
                                      Map<String, Set<String>> seenMap,
                                      List<StoryEntry> collected) {
+        // ★ Ultra-advanced optimization: the old implementation walked
+        // contacts ONE AT A TIME and, for each contact, chained
+        // getUserRef() → (only then) getUserStatusRef() → (only then) the
+        // NEXT contact's pair of reads. For 15 contacts that's up to 30
+        // fully sequential Firebase round-trips standing between opening
+        // the Home tab and the very first row (the stories bar) rendering
+        // anything at all — by far the single biggest source of Home's
+        // cold-start latency. Delegates to the parallel implementation
+        // below; kept as a thin wrapper so any other call site still
+        // compiles unchanged.
+        collectStoryEntriesParallel(uids, seenMap);
+    }
+
+    /** Fires every contact's profile read AND status read for ALL contacts
+     *  (capped at 15, same limit as before) CONCURRENTLY instead of one
+     *  contact — and one read — at a time. Neither a contact's own profile
+     *  read depends on its status read (or vice versa), and no contact's
+     *  reads depend on any other contact's, so nothing here actually needed
+     *  to be sequential in the first place.
+     *
+     *  Firebase's Android SDK always delivers ValueEventListener callbacks
+     *  on the main thread, one at a time, even though the underlying network
+     *  requests race in parallel — so the plain int counters below (no
+     *  AtomicInteger, no synchronization) are safe: every mutation happens
+     *  from the same thread, just not necessarily in request order.
+     *
+     *  Results are written into an index-addressed `slots` array (not
+     *  appended as each contact resolves) specifically so the final sort
+     *  ties break in the SAME original-contact-list order the old
+     *  sequential version produced — Collections.sort is stable, so the
+     *  only thing that has to be preserved is insertion order into the list
+     *  being sorted, which index-addressing guarantees regardless of which
+     *  contact's network reads happen to land first. */
+    private void collectStoryEntriesParallel(List<String> uids, Map<String, Set<String>> seenMap) {
         if (!isAdded() || getContext() == null) return;
-        if (index >= uids.size() || index >= 15) {
-            // Sort: unseen first, then seen
-            collected.sort((a, b) -> Boolean.compare(!a.hasUnseen, !b.hasUnseen));
-            for (StoryEntry entry : collected) addStoryView(entry);
-            return;
+        final int limit = Math.min(uids.size(), 15);
+        if (limit == 0) return;
+
+        final StoryEntry[] slots = new StoryEntry[limit];
+        final int[] contactsRemaining = { limit };
+        final long cutoff = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(24);
+
+        for (int idx = 0; idx < limit; idx++) {
+            final int slot = idx;
+            final String uid = uids.get(idx);
+            final String[] nameHolder  = new String[1];
+            final String[] photoHolder = new String[1];
+            final DataSnapshot[] statusHolder = new DataSnapshot[1];
+            final boolean[] userDone   = { false };
+            final boolean[] statusDone = { false };
+
+            Runnable maybeFinishContact = () -> {
+                if (!userDone[0] || !statusDone[0]) return; // wait for both this contact's reads
+                boolean hasActive = false;
+                boolean allSeen   = true;
+                Set<String> mySeenForOwner = seenMap.containsKey(uid) ? seenMap.get(uid) : new HashSet<>();
+                if (statusHolder[0] != null) {
+                    for (DataSnapshot s : statusHolder[0].getChildren()) {
+                        Long ts = s.child("timestamp").getValue(Long.class);
+                        if (ts == null || ts <= cutoff) continue;
+                        hasActive = true;
+                        if (mySeenForOwner == null || !mySeenForOwner.contains(s.getKey())) {
+                            allSeen = false; // at least one unseen
+                        }
+                    }
+                }
+                if (hasActive) {
+                    // ★ INSTAGRAM FIX: gradient ring is driven purely by
+                    // "has this been seen" (see original note this replaces).
+                    slots[slot] = new StoryEntry(uid, nameHolder[0], photoHolder[0], !allSeen, false);
+                }
+                contactsRemaining[0]--;
+                if (contactsRemaining[0] == 0) {
+                    if (!isAdded() || getContext() == null) return;
+                    for (StoryEntry e : slots) if (e != null) collected.add(e);
+                    collected.sort((a, b) -> Boolean.compare(!a.hasUnseen, !b.hasUnseen));
+                    for (StoryEntry entry : collected) addStoryView(entry);
+                }
+            };
+
+            FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (!isAdded() || getContext() == null) return;
+                    nameHolder[0] = snap.child("name").getValue(String.class);
+                    String _photo = snap.child("photoUrl").getValue(String.class);
+                    String _thumb = snap.child("thumbUrl").getValue(String.class);
+                    photoHolder[0] = (_thumb != null && !_thumb.isEmpty()) ? _thumb : _photo;
+                    userDone[0] = true;
+                    maybeFinishContact.run();
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    userDone[0] = true;
+                    maybeFinishContact.run();
+                }
+            });
+
+            FirebaseUtils.getUserStatusRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot statusSnap) {
+                    if (!isAdded() || getContext() == null) return;
+                    statusHolder[0] = statusSnap;
+                    statusDone[0] = true;
+                    maybeFinishContact.run();
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    statusDone[0] = true;
+                    maybeFinishContact.run();
+                }
+            });
         }
-        String uid = uids.get(index);
-
-        FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                if (!isAdded() || getContext() == null) return;
-                String name  = snap.child("name").getValue(String.class);
-                String _photo = snap.child("photoUrl").getValue(String.class);
-                String _thumb = snap.child("thumbUrl").getValue(String.class);
-                String photo = (_thumb != null && !_thumb.isEmpty()) ? _thumb : _photo;
-
-                FirebaseUtils.getUserStatusRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(@NonNull DataSnapshot statusSnap) {
-                        if (!isAdded() || getContext() == null) return;
-                        long cutoff = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(24);
-                        boolean hasActive = false;
-                        boolean allSeen   = true;
-                        Set<String> mySeenForOwner = seenMap.containsKey(uid) ? seenMap.get(uid) : new HashSet<>();
-
-                        for (DataSnapshot s : statusSnap.getChildren()) {
-                            Long ts = s.child("timestamp").getValue(Long.class);
-                            if (ts == null || ts <= cutoff) continue;
-                            hasActive = true;
-                            if (mySeenForOwner == null || !mySeenForOwner.contains(s.getKey())) {
-                                allSeen = false; // at least one unseen
-                            }
-                        }
-
-                        if (hasActive) {
-                            // ★ INSTAGRAM FIX: gradient ring is driven purely by
-                            // "has this been seen" — a story used to keep its
-                            // gradient forever once it was tagged "reel_story",
-                            // even after the viewer had already watched it. Now
-                            // it's just unseen-state, same as every other story
-                            // type — matches Instagram's actual behavior.
-                            collected.add(new StoryEntry(uid, name, photo, !allSeen, false));
-                        }
-                        collectStoryEntries(uids, index + 1, seenMap, collected);
-                    }
-                    @Override public void onCancelled(@NonNull DatabaseError e) {
-                        collectStoryEntries(uids, index + 1, seenMap, collected);
-                    }
-                });
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {
-                collectStoryEntries(uids, index + 1, seenMap, collected);
-            }
-        });
     }
 
     private void addStoryView(StoryEntry entry) {
@@ -2386,6 +2496,13 @@ public class HomeFragment extends Fragment {
         // v280: check once per page append, not per scroll delta — see the
         // list-cap/windowing block above for why this only trims the front.
         maybeTrimFeedWindow();
+
+        // ── v281: Prefetch metadata for all newly-loaded posts ──────────────
+        // Batched via networkBatcher (50ms coalesce window); results cached
+        // so immediate display of post counts without spinners.
+        if (ultraOptimizer != null && !newPosts.isEmpty()) {
+            ultraOptimizer.prefetchPostMetadata(newPosts, FirebaseUtils.getReelsRef());
+        }
     }
 
     // ── v280: list cap / windowing (front-trim + DiffUtil remap) ───────────
@@ -2784,41 +2901,82 @@ public class HomeFragment extends Fragment {
         header.setTypeface(null, android.graphics.Typeface.BOLD);
         section.addView(header);
 
-        HorizontalScrollView scroller = new HorizontalScrollView(requireContext());
-        scroller.setHorizontalScrollBarEnabled(false);
-        LinearLayout.LayoutParams scrollerLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        scrollerLp.topMargin = dpToPx(8);
-        scroller.setLayoutParams(scrollerLp);
+        // ── Instagram-level: real RecyclerView instead of an eagerly-inflated
+        // HorizontalScrollView+LinearLayout row ──────────────────────────────
+        // Mirrors bindSuggestedReelsRowContent()'s nested-RecyclerView upgrade
+        // below: the old code built + Glide-loaded every candidate chip up
+        // front (including chips off-screen to the right) as fresh View
+        // objects, and — since this whole row is itself just one FrameLayout
+        // FeedAdapter rebinds from scratch every time it scrolls back into
+        // view — repeated that full build+decode cost on every rebind, with
+        // zero reuse either across rebinds of the same strip or across the
+        // multiple "Suggested for you" strips mixed periodically into a long
+        // infinite-scroll session. A nested RecyclerView backed by the SAME
+        // shared pool as the reels tiles below only builds/binds chips
+        // actually on/near screen, and hands a chip ViewHolder scrolled out
+        // of one strip straight to the next strip (or this strip's next
+        // rebind) with no re-inflation and no re-decoding.
+        RecyclerView chipsRecycler = new RecyclerView(requireContext());
+        chipsRecycler.setLayoutManager(
+                new LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false));
+        chipsRecycler.setRecycledViewPool(SUGGESTED_CREATORS_TILE_POOL);
+        chipsRecycler.setItemViewCacheSize(4);
+        chipsRecycler.setHasFixedSize(true);
+        chipsRecycler.setItemAnimator(null);
+        LinearLayout.LayoutParams recyclerLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        recyclerLp.topMargin = dpToPx(8);
+        chipsRecycler.setLayoutParams(recyclerLp);
+        chipsRecycler.setAdapter(new SuggestedCreatorsTileAdapter(candidates));
 
-        LinearLayout row = new LinearLayout(requireContext());
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        scroller.addView(row);
+        section.addView(chipsRecycler);
+        container.addView(section);
+    }
 
-        for (String[] c : candidates) {
-            String uid = c[0], name = c[1], photo = c[2];
+    /** Shared across every "Suggested for you" creators strip mixed into the
+     *  Home feed — see bindSuggestedCreatorsRowContent() note above for why
+     *  this must be a single shared instance rather than one pool per strip. */
+    private static final RecyclerView.RecycledViewPool SUGGESTED_CREATORS_TILE_POOL =
+            new RecyclerView.RecycledViewPool();
+
+    /** Backs one "Suggested for you" strip's avatar chips with real
+     *  ViewHolder recycling (see bindSuggestedCreatorsRowContent()). Chip
+     *  dimensions (136dp wide, 90dp avatar) unchanged from the old manual
+     *  row, so this is a drop-in visual match. */
+    private class SuggestedCreatorsTileAdapter extends RecyclerView.Adapter<SuggestedCreatorsTileAdapter.TileHolder> {
+        private static final int CHIP_W_DP = 136;
+        private static final int AVATAR_DP = 90;
+
+        private final List<String[]> items;
+
+        SuggestedCreatorsTileAdapter(List<String[]> items) {
+            this.items = items;
+        }
+
+        class TileHolder extends RecyclerView.ViewHolder {
+            final LinearLayout chip;
+            final CircleImageView av;
+            final TextView tvName;
+            TileHolder(LinearLayout chip, CircleImageView av, TextView tvName) {
+                super(chip);
+                this.chip = chip; this.av = av; this.tvName = tvName;
+            }
+        }
+
+        @NonNull @Override
+        public TileHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             LinearLayout chip = new LinearLayout(requireContext());
             chip.setOrientation(LinearLayout.VERTICAL);
             chip.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
-            LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(
-                    dpToPx(136), LinearLayout.LayoutParams.WRAP_CONTENT);
-            chipLp.setMarginEnd(dpToPx(12));
-            chip.setLayoutParams(chipLp);
+            chip.setLayoutParams(new ViewGroup.MarginLayoutParams(dpToPx(CHIP_W_DP), ViewGroup.LayoutParams.WRAP_CONTENT));
             chip.setPadding(dpToPx(6), dpToPx(10), dpToPx(6), dpToPx(10));
             chip.setBackgroundResource(R.drawable.bg_speed_chip);
 
             CircleImageView av = new CircleImageView(requireContext());
-            av.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(90), dpToPx(90)));
-            av.setImageResource(R.drawable.ic_person);
-            if (photo != null && !photo.isEmpty()) {
-                Glide.with(requireContext()).load(photo)
-                    .apply(RequestOptions.circleCropTransform())
-                    .placeholder(R.drawable.ic_person).into(av);
-            }
+            av.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(AVATAR_DP), dpToPx(AVATAR_DP)));
             chip.addView(av);
 
             TextView tvName = new TextView(requireContext());
-            tvName.setText(name);
             tvName.setTextSize(13f);
             tvName.setTextColor(0xFFFFFFFF);
             tvName.setMaxLines(1);
@@ -2830,18 +2988,49 @@ public class HomeFragment extends Fragment {
             tvName.setLayoutParams(nameLp);
             chip.addView(tvName);
 
-            chip.setOnClickListener(v -> {
+            return new TileHolder(chip, av, tvName);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull TileHolder holder, int position) {
+            String[] c = items.get(position);
+            String uid = c[0], name = c[1], photo = c[2];
+
+            ViewGroup.LayoutParams rawLp = holder.chip.getLayoutParams();
+            if (rawLp instanceof ViewGroup.MarginLayoutParams) {
+                ((ViewGroup.MarginLayoutParams) rawLp).setMarginEnd(
+                        position == items.size() - 1 ? 0 : dpToPx(12));
+            }
+
+            holder.tvName.setText(name);
+            holder.av.setImageResource(R.drawable.ic_person);
+            if (photo != null && !photo.isEmpty()) {
+                Glide.with(requireContext()).load(photo)
+                    .apply(RequestOptions.circleCropTransform())
+                    .placeholder(R.drawable.ic_person).into(holder.av);
+            } else {
+                Glide.with(requireContext()).clear(holder.av);
+            }
+
+            holder.chip.setOnClickListener(v -> {
                 if (!isAdded() || getContext() == null) return;
                 Intent i = new Intent(getContext(), UserReelsActivity.class);
                 i.putExtra(UserReelsActivity.EXTRA_UID, uid);
                 i.putExtra(UserReelsActivity.EXTRA_NAME, name);
                 startActivity(i);
             });
-            row.addView(chip);
         }
 
-        section.addView(scroller);
-        container.addView(section);
+        @Override
+        public void onViewRecycled(@NonNull TileHolder holder) {
+            // Cancel/clear this Glide load before the ViewHolder goes back to
+            // the SHARED pool — otherwise a slow in-flight load from strip A
+            // could land its bitmap into an avatar strip B has since reused
+            // for a different creator.
+            Glide.with(requireContext()).clear(holder.av);
+        }
+
+        @Override public int getItemCount() { return items.size(); }
     }
 
     // ── Inline "Suggested reels" — Instagram-style thumbnail row ──────────
@@ -4414,32 +4603,57 @@ public class HomeFragment extends Fragment {
             });
     }
 
+    /** ★ Ultra-advanced optimization: the old implementation fetched each of
+     *  the (up to 8) Continue Watching reels ONE AT A TIME — reelId[i+1]'s
+     *  fetch only started after reelId[i]'s fetch AND its card render had
+     *  both finished. None of these per-reel reads depend on each other (a
+     *  watch-history reelId list is already fully known up front), so this
+     *  is the same class of unnecessary serialization as the old stories
+     *  loader (see collectStoryEntriesParallel) — just fixed here for the
+     *  Continue Watching strip. Fires all reads concurrently and renders
+     *  cards in the ORIGINAL (most-recently-watched-first) order via an
+     *  index-addressed slot array + a join counter, exactly mirroring the
+     *  stories fix; same reasoning applies for why plain int counters are
+     *  safe (Firebase Android callbacks land on the main thread one at a
+     *  time even though the underlying reads race in parallel). */
     private void loadReelsByIds(List<String> ids, int index) {
         if (!isAdded() || getContext() == null) return;
-        if (index == 0 && pbContinue != null)
-            requireActivity().runOnUiThread(() -> pbContinue.setVisibility(View.GONE));
-        if (index >= ids.size()) return;
+        if (pbContinue != null) requireActivity().runOnUiThread(() -> pbContinue.setVisibility(View.GONE));
+        if (ids.isEmpty()) return;
 
-        String reelId = ids.get(index);
-        FirebaseUtils.getReelsRef().child(reelId)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (!isAdded() || getContext() == null) return;
-                    ReelModel r = snap.getValue(ReelModel.class);
-                    if (r != null) {
-                        if (r.reelId == null) r.reelId = reelId;
-                        addContinueWatchingCard(r, ids, index);
-                    } else {
-                        loadReelsByIds(ids, index + 1);
+        final int total = ids.size();
+        final ReelModel[] slots = new ReelModel[total];
+        final int[] remaining = { total };
+
+        for (int i = 0; i < total; i++) {
+            final int slot = i;
+            String reelId = ids.get(i);
+            FirebaseUtils.getReelsRef().child(reelId)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        if (!isAdded() || getContext() == null) return;
+                        ReelModel r = snap.getValue(ReelModel.class);
+                        if (r != null && r.reelId == null) r.reelId = reelId;
+                        slots[slot] = r; // null (deleted reel) is a valid, skippable slot
+                        finishOneContinueWatchingSlot(slots, remaining);
                     }
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {
-                    loadReelsByIds(ids, index + 1);
-                }
-            });
+                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                        finishOneContinueWatchingSlot(slots, remaining);
+                    }
+                });
+        }
     }
 
-    private void addContinueWatchingCard(ReelModel reel, List<String> allIds, int position) {
+    private void finishOneContinueWatchingSlot(ReelModel[] slots, int[] remaining) {
+        remaining[0]--;
+        if (remaining[0] != 0) return;
+        if (!isAdded() || getContext() == null) return;
+        for (ReelModel r : slots) {
+            if (r != null) addContinueWatchingCard(r);
+        }
+    }
+
+    private void addContinueWatchingCard(ReelModel reel) {
         if (!isAdded() || getContext() == null || containerContinueWatching == null) return;
         requireActivity().runOnUiThread(() -> {
             if (!isAdded() || getContext() == null) return;
@@ -4479,7 +4693,6 @@ public class HomeFragment extends Fragment {
             card.setOnClickListener(v -> openReelById(reelId, name));
             containerContinueWatching.addView(card);
         });
-        loadReelsByIds(allIds, position + 1);
     }
 
     private void clearWatchHistory() {
