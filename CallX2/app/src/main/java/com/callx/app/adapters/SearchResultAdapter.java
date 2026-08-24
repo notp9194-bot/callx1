@@ -11,6 +11,7 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.R;
+import com.callx.app.utils.AvatarUrlBuilder;
 import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,6 +32,10 @@ public class SearchResultAdapter extends RecyclerView.Adapter<SearchResultAdapte
             this.photoUrl = photoUrl; this.thumbUrl = thumbUrl;
         }
     }
+
+    // Matches item_search_result.xml iv_avatar (52dp) — kept as one constant
+    // so the decode/download size always tracks the actual view size.
+    private static final int AVATAR_SIZE_DP = 52;
 
     private final List<UserResult> list = new ArrayList<>();
     private OnUserClickListener listener;
@@ -55,11 +60,22 @@ public class SearchResultAdapter extends RecyclerView.Adapter<SearchResultAdapte
         UserResult u = list.get(pos);
         h.tvName.setText(u.name != null ? u.name : "User");
         h.tvCallxId.setText(u.callxId != null ? u.callxId : "");
-        String avatarUrl = (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
+        // Bug fix: previously loaded thumbUrl-or-else-raw-photoUrl directly with only
+        // .override(96,96) — override just downsamples AFTER the bytes are downloaded,
+        // it does not reduce network data. Many users have no thumbUrl yet, so this
+        // silently downloaded the full 800x800 photo for every row while typing a
+        // search. Now routed through the central AvatarUrlBuilder (same helper used by
+        // ChatListAdapter/ReelCommentsAdapter/ProfileActivity) so Cloudinary serves an
+        // already-resized, low-data variant — for the thumb AND as a safety net when
+        // only the full photo exists.
+        String baseUrl = (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
+        String avatarUrl = AvatarUrlBuilder.build(h.ivAvatar.getContext(), baseUrl, AVATAR_SIZE_DP);
         if (avatarUrl != null && !avatarUrl.isEmpty()) {
             Glide.with(h.ivAvatar.getContext()).load(avatarUrl)
                 .placeholder(R.drawable.ic_person).circleCrop()
-                    .override(96, 96).into(h.ivAvatar);
+                .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+                .override(AvatarUrlBuilder.dpToPx(h.ivAvatar.getContext(), AVATAR_SIZE_DP) * 2)
+                .into(h.ivAvatar);
         } else {
             h.ivAvatar.setImageResource(R.drawable.ic_person);
         }

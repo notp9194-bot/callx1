@@ -6,6 +6,8 @@ import android.net.NetworkCapabilities;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.content.Context;
 import android.content.Intent;
 import android.view.*;
@@ -21,6 +23,7 @@ import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.ChatEntity;
 import com.callx.app.db.entity.ChatFolderEntity;
 import com.callx.app.models.User;
+import com.callx.app.utils.ChatListPreviewUtil;
 import com.callx.app.utils.FirebaseUtils;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
@@ -62,6 +65,10 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     // ContactSheetPrewarmPool for details.
     private final ContactSheetPrewarmPool contactSheetPool = new ContactSheetPrewarmPool();
     private View emptyState;
+    private TextView searchEmptyState;
+    private EditText etChatSearch;
+    private ImageButton btnChatSearchClear;
+    private String chatSearchQuery = "";
 
     private LinearLayout llSelectionBar;
     private TextView tvSelectedCount;
@@ -171,9 +178,15 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         View v = inflater.inflate(R.layout.fragment_chats, parent, false);
         RecyclerView rv  = v.findViewById(R.id.rv_chats);
         emptyState       = v.findViewById(R.id.empty_state);
+        searchEmptyState = v.findViewById(R.id.tv_chat_search_empty);
+        etChatSearch     = v.findViewById(R.id.et_chat_search);
+        btnChatSearchClear = v.findViewById(R.id.btn_chat_search_clear);
         llSelectionBar   = v.findViewById(R.id.ll_selection_bar);
         tvSelectedCount  = v.findViewById(R.id.tv_selected_count);
         pbLoadingMoreChats = v.findViewById(R.id.pb_loading_more_chats);
+
+        chatSearchQuery = "";
+        setupChatSearch();
 
         View banner = v.findViewById(R.id.banner_requests);
         if (banner != null) banner.setVisibility(View.GONE);
@@ -348,6 +361,87 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         loadContacts();
         loadSpecialRequests();
         return v;
+    }
+
+    /**
+     * Chat-tab search reuses the Status tab's premium pill field. Filtering is
+     * display-only: the complete contacts list remains intact so Firebase
+     * updates, Room hydration, pagination, and folder switching keep working
+     * while a query is active.
+     */
+    private void setupChatSearch() {
+        if (etChatSearch == null) return;
+
+        etChatSearch.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                chatSearchQuery = s == null ? "" : s.toString().trim();
+                if (btnChatSearchClear != null) {
+                    btnChatSearchClear.setVisibility(chatSearchQuery.isEmpty()
+                            ? View.GONE : View.VISIBLE);
+                }
+                applyChatSearch();
+            }
+
+            @Override public void afterTextChanged(Editable s) {}
+        });
+
+        if (btnChatSearchClear != null) {
+            btnChatSearchClear.setOnClickListener(view -> {
+                etChatSearch.setText("");
+                etChatSearch.requestFocus();
+                etChatSearch.post(() -> {
+                    android.view.inputmethod.InputMethodManager imm =
+                            (android.view.inputmethod.InputMethodManager)
+                                    requireContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if (imm != null) imm.showSoftInput(etChatSearch,
+                            android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+                });
+            });
+        }
+    }
+
+    /** Applies the current query without changing the source contacts list. */
+    private void applyChatSearch() {
+        if (adapter == null) return;
+
+        if (chatSearchQuery.isEmpty()) {
+            adapter.submitList(new ArrayList<>(contacts));
+            updateChatSearchEmptyState(false);
+            return;
+        }
+
+        String query = chatSearchQuery.toLowerCase(Locale.ROOT);
+        List<User> filtered = new ArrayList<>();
+        for (User user : contacts) {
+            if (matchesChatSearch(user, query)) filtered.add(user);
+        }
+        adapter.submitList(filtered);
+        updateChatSearchEmptyState(filtered.isEmpty());
+    }
+
+    private boolean matchesChatSearch(User user, String query) {
+        if (user == null) return false;
+        return containsIgnoreCase(user.name, query)
+                || containsIgnoreCase(user.callxId, query)
+                || containsIgnoreCase(user.lastMessage, query)
+                || containsIgnoreCase(
+                        ChatListPreviewUtil.labelForType(user.lastMessageType), query);
+    }
+
+    private static boolean containsIgnoreCase(String value, String query) {
+        return value != null && value.toLowerCase(Locale.ROOT).contains(query);
+    }
+
+    private void updateChatSearchEmptyState(boolean show) {
+        if (searchEmptyState != null) {
+            searchEmptyState.setVisibility(show ? View.VISIBLE : View.GONE);
+        }
+        if (emptyState != null) {
+            emptyState.setVisibility(show ? View.GONE
+                    : (contacts.isEmpty() ? View.VISIBLE : View.GONE));
+        }
     }
 
 
@@ -1209,7 +1303,11 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         }
         oldestLoadedTimestamp = oldest;
 
-        if (adapter != null) adapter.submitList(new ArrayList<>(contacts));
+        if (adapter != null) {
+            applyChatSearch();
+        } else {
+            updateChatSearchEmptyState(false);
+        }
         // v210: opportunistically refresh the instant-snapshot cache used
         // for next cold start — fire-and-forget, background thread, cheap
         // (top 15 only). See ChatSnapshotCache class doc.

@@ -883,6 +883,18 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
     private static final long OPEN_CHAT_SAFETY_CAP_MS = 150L;
 
+    /** Unwraps a Context to find the underlying Activity, if any (a Context
+     *  passed here can be wrapped, e.g. ContextThemeWrapper). Returns null
+     *  if this Context isn't (and doesn't wrap) an Activity — e.g. it's an
+     *  Application or Service context. */
+    private static android.app.Activity unwrapActivity(Context ctx) {
+        while (ctx instanceof android.content.ContextWrapper) {
+            if (ctx instanceof android.app.Activity) return (android.app.Activity) ctx;
+            ctx = ((android.content.ContextWrapper) ctx).getBaseContext();
+        }
+        return (ctx instanceof android.app.Activity) ? (android.app.Activity) ctx : null;
+    }
+
     private void openChat(Context ctx, User u) {
         String chatId = (myUid != null && u.uid != null)
                 ? FirebaseUtils.getChatId(myUid, u.uid) : null;
@@ -898,6 +910,15 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             i.putExtra("partnerName",  u.name);
             i.putExtra("partnerPhoto", u.photoUrl != null ? u.photoUrl : "");
             i.putExtra("partnerThumb", u.thumbUrl != null ? u.thumbUrl : "");
+            // Navigation here runs from an async callback (Room read
+            // completion or the safety timer below), so by the time it
+            // fires `ctx` isn't guaranteed to be an Activity context in
+            // every caller of this adapter. startActivity() on a non-
+            // Activity context requires FLAG_ACTIVITY_NEW_TASK or it
+            // throws — add it whenever ctx doesn't resolve to an Activity.
+            if (unwrapActivity(ctx) == null) {
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            }
             // WhatsApp-style smooth push: chat screen slides in from the
             // right while the list parallaxes back underneath, instead of
             // the previous instant/no-anim swap.
