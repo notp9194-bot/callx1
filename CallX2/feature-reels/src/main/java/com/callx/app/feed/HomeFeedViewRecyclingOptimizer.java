@@ -24,14 +24,14 @@ public class HomeFeedViewRecyclingOptimizer {
 
     private static final String TAG = "ViewRecyclingOpt";
 
-    private final Set<HomeFeedCard> detachedCards = Collections.synchronizedSet(
+    private final Set<HomeFragment.HomeFeedCard> detachedCards = Collections.synchronizedSet(
         new HashSet<>());
 
     /**
      * Called when a HomeFeedCard is about to scroll off-screen (onViewRecycled).
      * Clears all resource bindings so the card doesn't hold memory.
      */
-    public void onCardDetaching(@NonNull HomeFeedCard card) {
+    public void onCardDetaching(@NonNull HomeFragment.HomeFeedCard card) {
         if (card == null) return;
 
         detachedCards.add(card);
@@ -58,7 +58,7 @@ public class HomeFeedViewRecyclingOptimizer {
      * Restores view references if needed (though most often the ViewHolder
      * will be immediately re-bound anyway).
      */
-    public void onCardAttaching(@NonNull HomeFeedCard card) {
+    public void onCardAttaching(@NonNull HomeFragment.HomeFeedCard card) {
         if (card == null) return;
         detachedCards.remove(card);
         // Re-binding happens naturally in FeedAdapter.onBindViewHolder

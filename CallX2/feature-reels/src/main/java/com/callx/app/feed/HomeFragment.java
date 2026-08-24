@@ -183,8 +183,12 @@ public class HomeFragment extends Fragment {
     /** The exact list of posts currently backing feedCards, index-aligned with it. */
     private List<ReelModel> currentFeedPosts = new ArrayList<>();
 
-    /** Lightweight holder for each inline feed card. */
-    private static class HomeFeedCard {
+    /** Lightweight holder for each inline feed card.
+     *  Package-private (not private) so HomeFeedViewRecyclingOptimizer and
+     *  HomeFeedUltraOptimizer, which live in the same package, can reference
+     *  it as HomeFragment.HomeFeedCard for their onCardDetaching/onCardAttaching
+     *  hooks. */
+    static class HomeFeedCard {
         View      rootView;
         PlayerView playerView;
         ImageView  thumbView;

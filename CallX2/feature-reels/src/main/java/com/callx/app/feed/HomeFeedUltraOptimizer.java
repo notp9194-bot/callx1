@@ -131,7 +131,7 @@ public class HomeFeedUltraOptimizer {
      * Called when a HomeFeedCard (ViewHolder) is about to scroll off-screen.
      * Coordinator cues recyclingOptimizer to detach Glide/ExoPlayer resources.
      */
-    public void onCardDetaching(@NonNull HomeFeedCard card) {
+    public void onCardDetaching(@NonNull HomeFragment.HomeFeedCard card) {
         recyclingOptimizer.onCardDetaching(card);
     }
 
@@ -139,7 +139,7 @@ public class HomeFeedUltraOptimizer {
      * Called when a HomeFeedCard is rebound (scrolled back into view).
      * Coordinator cues recyclingOptimizer to restore bindings if needed.
      */
-    public void onCardAttaching(@NonNull HomeFeedCard card) {
+    public void onCardAttaching(@NonNull HomeFragment.HomeFeedCard card) {
         recyclingOptimizer.onCardAttaching(card);
     }
 
