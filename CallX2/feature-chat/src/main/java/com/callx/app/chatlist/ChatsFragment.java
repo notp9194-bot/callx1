@@ -57,6 +57,10 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     private ChatListAdapter adapter;
     // v95: background pre-inflation pool for item_chat rows — see ChatRowPrewarmPool.
     private final ChatRowPrewarmPool prewarmPool = new ChatRowPrewarmPool();
+    // Ultra optimization: pre-inflates the avatar-tap contact bottom sheet on a
+    // background thread so opening it never pays synchronous inflate cost — see
+    // ContactSheetPrewarmPool for details.
+    private final ContactSheetPrewarmPool contactSheetPool = new ContactSheetPrewarmPool();
     private View emptyState;
 
     private LinearLayout llSelectionBar;
@@ -198,6 +202,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // subtype — it is never touched/mutated off the main thread.
         prewarmPool.start(requireContext().getApplicationContext(), rv);
         adapter.setPrewarmPool(prewarmPool);
+        contactSheetPool.start(requireContext().getApplicationContext());
 
         // Fixed-size rows: tell RV it never needs to re-measure the whole list
         // when an item changes — saves a full layout pass on every Firebase update.
@@ -1172,6 +1177,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // drop; the pool itself is thrown away, a fresh one won't be created
         // until onCreateView runs again.
         prewarmPool.stop();
+        contactSheetPool.stop();
         super.onDestroyView();
     }
 
@@ -1345,8 +1351,15 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
 
         BottomSheetDialog sheet = new BottomSheetDialog(getContext(),
             com.google.android.material.R.style.Theme_Material3_Light_BottomSheetDialog);
-        View sv = LayoutInflater.from(getContext())
-            .inflate(R.layout.bottom_sheet_contact_call, null);
+        // Ultra optimization: take an already-inflated view from the background
+        // prewarm pool (instant, O(1)) instead of paying LayoutInflater cost on
+        // this tap frame. Falls back to a normal synchronous inflate only if the
+        // pool hasn't produced a spare yet (e.g. a very fast repeat tap).
+        View sv = contactSheetPool.poll();
+        if (sv == null) {
+            sv = LayoutInflater.from(getContext())
+                .inflate(R.layout.bottom_sheet_contact_call, null);
+        }
         sheet.setContentView(sv);
 
         CircleImageView ivAvatar = sv.findViewById(R.id.iv_avatar_sheet);

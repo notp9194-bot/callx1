@@ -44,9 +44,6 @@ public class HomeFeedPrefetchManager implements HomeFeedUltraOptimizer.ScrollSta
         this.mainHandler = handler;
         this.scrollStateManager = scrollMgr;
         this.metadataCache = metaCache;
-
-        // Listen to scroll state changes
-        scrollStateManager.getListener(); // (would need to add a method to subscribe)
     }
 
     /**

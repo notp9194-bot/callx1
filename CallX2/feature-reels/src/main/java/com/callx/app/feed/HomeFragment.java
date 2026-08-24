@@ -2045,6 +2045,7 @@ public class HomeFragment extends Fragment {
         if (limit == 0) return;
 
         final StoryEntry[] slots = new StoryEntry[limit];
+        final List<StoryEntry> collected = new ArrayList<>();
         final int[] contactsRemaining = { limit };
         final long cutoff = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(24);
 

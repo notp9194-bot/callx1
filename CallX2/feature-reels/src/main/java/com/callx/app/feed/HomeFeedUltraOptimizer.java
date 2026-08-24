@@ -77,6 +77,10 @@ public class HomeFeedUltraOptimizer {
 
         this.prefetchManager = new HomeFeedPrefetchManager(ctx, mainHandler,
             scrollStateManager, metadataCache);
+
+        // Subscribe the prefetch manager to scroll state changes so it can
+        // pause/resume heavy prefetch work during flings.
+        addScrollStateListener(this.prefetchManager);
     }
 
     public void onRecyclerScrollStateChanged(int newState) {
