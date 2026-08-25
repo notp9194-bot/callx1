@@ -748,7 +748,19 @@ package com.callx.app.profile;
                           .load(gridUrl)
                           .thumbnail(glideRequests.load(blurUrl).apply(GRID_OPTIONS))
                           .apply(GRID_OPTIONS)
-                          .override(gridThumbSize, precomputedCellHeightPx)
+                          // FIX: decode target must match the aspect ratio actually
+                          // fetched from Cloudinary (gridThumbSize x gridThumbHeight,
+                          // a true 9:16 crop — see gridThumbHeight's javadoc). Using
+                          // precomputedCellHeightPx here instead was a MISMATCHED
+                          // ratio (that value tracks the real on-screen cell height,
+                          // not gridThumbSize's 9:16 pair), so Glide's centerCrop
+                          // was re-cropping an already-correctly-cropped image into
+                          // the wrong aspect — cutting off extra content (e.g. a
+                          // face near the top/bottom) on top of Cloudinary's own
+                          // crop. The ImageView's own centerCrop scaleType still
+                          // fits this to the real cell size on screen, so display
+                          // sizing is unaffected — only the decode target changes.
+                          .override(gridThumbSize, gridThumbHeight)
                           .placeholder(blurPlaceholder != null ? blurPlaceholder : context.getDrawable(R.drawable.ic_reels))
                           .into(h.ivThumb);
               } finally {
@@ -894,8 +906,12 @@ package com.callx.app.profile;
           // exact same decoded size that will actually be reused on bind —
           // otherwise the preload would cache a differently-sized decode
           // and onBindViewHolder's request wouldn't hit it.
+          // Must match the real bind's override() exactly (see the FIX note
+          // in bindViewHolderInternal) — gridThumbHeight, not
+          // precomputedCellHeightPx, or the preload warms a differently-
+          // cropped decode that the real bind can't reuse.
           return glideRequests.load(item).apply(GRID_OPTIONS)
-                  .override(gridThumbSize, precomputedCellHeightPx);
+                  .override(gridThumbSize, gridThumbHeight);
       }
 
       /** Thumb pixel size Glide should decode to while preloading — matches the real bind size. */
