@@ -112,11 +112,14 @@ public final class ChatListTextPrecompute {
     private static final float NAME_TIME_GAP_DP = 8f;   // ChatRowContentView.nameTimeGapPx
     private static final float TICK_SIZE_DP     = 12f;  // ChatRowContentView tick size
     private static final float TICK_GAP_DP      = 4f;   // ChatRowContentView tick gap
-    // item_chat.xml: 14dp*2 row padding + 58dp avatar box + 14dp rowContent
-    // marginStart + 8dp meta-column marginStart = fixed reserved width before
+    // item_chat.xml: 14dp*2 row padding + 48dp avatar box + 12dp rowContent
+    // marginStart + 6dp meta-column marginStart = fixed reserved width before
     // the (variable) badge/call-buttons meta column is subtracted.
-    private static final float ROW_FIXED_RESERVED_DP = 14f * 2 + 58f + 14f + 8f;
-    private static final float CALL_BTN_WIDTH_DP = 34f * 2 + 6f; // ChatListCallButtonsView.onMeasure
+    // v245: avatar box 58dp→48dp, avatar-to-text gap 14dp→12dp, text-to-meta
+    // gap 8dp→6dp — kept in sync with item_chat.xml's actual current values.
+    private static final float ROW_FIXED_RESERVED_DP = 14f * 2 + 48f + 12f + 6f;
+    // v243: CALL_BTN_WIDTH_DP no longer used — call-buttons view removed
+    // from item_chat.xml (see computeRowContentWidth below).
     private static final float BADGE_MIN_DP      = 20f;          // ChatListUnreadBadgeView.MIN_SIZE_DP
     private static final float BADGE_PAD_H_DP    = 6f;           // ChatListUnreadBadgeView.PAD_H_DP
 
@@ -277,8 +280,11 @@ public final class ChatListTextPrecompute {
             float textW = sBadgePaint.measureText(label);
             badgeWidthPx = Math.max(BADGE_MIN_DP * density, textW + BADGE_PAD_H_DP * 2 * density);
         }
-        float callBtnWidthPx = isSelecting ? 0f : CALL_BTN_WIDTH_DP * density;
-        float metaWidthPx = Math.max(badgeWidthPx, callBtnWidthPx);
+        // v243 fix: call-buttons view removed from item_chat.xml, so it no
+        // longer competes with the badge for meta-column width — was still
+        // reserving 74dp for a view that doesn't exist anymore, silently
+        // truncating name/message text shorter than necessary on every row.
+        float metaWidthPx = badgeWidthPx;
 
         float reservedPx = ROW_FIXED_RESERVED_DP * density + metaWidthPx;
         return (int) (dm.widthPixels - reservedPx);

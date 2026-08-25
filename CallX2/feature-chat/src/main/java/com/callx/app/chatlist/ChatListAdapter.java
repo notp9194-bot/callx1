@@ -241,15 +241,21 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         setHasStableIds(true);
     }
 
-    // v85: resolve avatar decode size lazily from context (50dp avatar)
+    // v85: resolve avatar decode size lazily from context (40dp avatar —
+    // WhatsApp-matched size, v245)
     // v93: package-visible so ChatsFragment's scroll-ahead avatar preloader
     // (see preloadUpcomingAvatars()) can request bytes with the EXACT same
     // override/format/transform signature this adapter uses — otherwise
     // Glide's disk-cache key wouldn't match and the preload would be wasted.
+    // v244/v245 — PERF FIX: this decode size MUST always match the
+    // CircleImageView's actual laid-out size exactly (item_chat.xml).
+    // Decoding bigger than what's ever displayed means Glide holds/caches/
+    // GPU-uploads a bitmap with wasted pixels on every avatar, every scroll
+    // frame — free to fix, so kept in sync.
     private static int sAvatarSizePx = 0;
     static int getAvatarSizePx(Context ctx) {
         if (sAvatarSizePx == 0)
-            sAvatarSizePx = Math.round(50f * ctx.getResources().getDisplayMetrics().density);
+            sAvatarSizePx = Math.round(40f * ctx.getResources().getDisplayMetrics().density);
         return sAvatarSizePx;
     }
 

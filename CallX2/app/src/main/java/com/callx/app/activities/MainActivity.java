@@ -262,10 +262,10 @@ public class MainActivity extends AppCompatActivity
           // to run regardless of the button, so that one scheduling call is kept.
           YouTubeNotificationWorker.schedule(this);
 
-        binding.btnSearchToolbar.setOnClickListener(v -> {
-            startActivity(new Intent(this, SearchActivity.class));
-            overridePendingTransition(0, 0); // Tab switch — instant 0ms
-        });
+        // v247: top toolbar search icon removed — bottom-nav's FAB on the
+        // Chats tab already opens the exact same SearchActivity (see
+        // binding.fabAction click handler below), so this was a duplicate
+        // entry point for the same action.
 
         binding.btnNotificationsToolbar.setOnClickListener(v -> {
             startActivity(new Intent(this, AllNotificationsActivity.class));
@@ -829,6 +829,20 @@ public class MainActivity extends AppCompatActivity
             case TAB_REELS:  binding.fabAction.setImageResource(R.drawable.ic_add_reels);  break;
             case TAB_CALLS:  binding.fabAction.setImageResource(R.drawable.ic_phone);      break;
         }
+        // v241 — FIX: duplicate icon bug. Status tab has its OWN fab stack
+        // (fab_edit_status + fab_camera_status in fragment_status.xml) and
+        // Groups tab has its OWN fab_new_group (fragment_groups.xml) — both
+        // ALWAYS visible regardless of this shared MainActivity fabAction,
+        // which this switch statement was also always keeping visible with
+        // a matching icon on top of them. Net effect: user saw 2 camera
+        // icons stacked on Status, 2 group icons stacked on Groups. Chats/
+        // Calls/Reels fragments have no FAB of their own, so only this
+        // shared fabAction ever showed there — exactly 1 icon, which is
+        // the correct/expected look this fix brings Status and Groups to.
+        // Fix: hide this shared FAB on the two tabs that already draw
+        // their own — it stays the single icon everywhere else.
+        boolean fragmentHasOwnFab = (position == TAB_STATUS || position == TAB_GROUPS);
+        binding.fabAction.setVisibility(fragmentHasOwnFab ? android.view.View.GONE : android.view.View.VISIBLE);
     }
 
     private void loadMyAvatar() {

@@ -32,39 +32,42 @@
         android:orientation="horizontal"
         android:paddingStart="14dp"
         android:paddingEnd="14dp"
-        android:paddingTop="10dp"
-        android:paddingBottom="10dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
         android:gravity="center_vertical">
 
-        <!-- Avatar area: Glide-loaded CircleImageView + canvas story ring + selection overlay -->
+        <!-- Avatar area: Glide-loaded CircleImageView + canvas story ring +
+             selection overlay
+             v243: restored ChatListStoryRingView (v242 removed it by
+             mistake — user only asked for the green avatar border ring
+             below, not the seen/unseen story ring, which is a separate
+             view). Green border ring (civ_border_color) removed instead. -->
         <FrameLayout
-            android:layout_width="58dp"
-            android:layout_height="58dp">
+            android:layout_width="48dp"
+            android:layout_height="48dp">
 
             <!-- Story ring drawn by canvas — sits BEHIND avatar so the avatar clips over it -->
             <com.callx.app.chatlist.canvas.ChatListStoryRingView
                 android:id="@+id/view_story_ring"
-                android:layout_width="58dp"
-                android:layout_height="58dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:layout_gravity="center"
                 android:clickable="true"
                 android:focusable="true"/>
 
             <de.hdodenhof.circleimageview.CircleImageView
                 android:id="@+id/iv_avatar"
-                android:layout_width="50dp"
-                android:layout_height="50dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:layout_gravity="center"
                 android:src="@drawable/ic_person"
-                app:civ_border_width="1.5dp"
-                app:civ_border_color="@color/brand_primary"
                 xmlns:app="http://schemas.android.com/apk/res-auto"/>
 
             <!-- Selection checkmark overlay (visible only in selection mode) -->
             <FrameLayout
                 android:id="@+id/fl_select_overlay"
-                android:layout_width="58dp"
-                android:layout_height="58dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:layout_gravity="center"
                 android:background="#99000000"
                 android:visibility="gone">
@@ -105,7 +108,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="14dp"/>
+            android:layout_marginStart="12dp"/>
 
         <!-- Right meta column: unread badge (canvas) + call buttons (canvas) -->
         <LinearLayout
@@ -114,7 +117,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="end|center_vertical"
-            android:layout_marginStart="8dp">
+            android:layout_marginStart="6dp">
 
             <!-- v82: unread badge — canvas pill+count, self-sizes to 0 when count=0 -->
             <com.callx.app.chatlist.canvas.ChatListUnreadBadgeView
@@ -122,13 +125,10 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"/>
 
-            <!-- v82: call buttons — canvas icons with touch regions -->
-            <com.callx.app.chatlist.canvas.ChatListCallButtonsView
-                android:id="@+id/view_call_buttons"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:visibility="gone"/>
+            <!-- v242: call/video buttons removed — duplicate of the same
+                 actions already reachable from the avatar's contact bottom
+                 sheet, and removing this canvas view drops per-row draw +
+                 touch-region hit-testing work. -->
 
         </LinearLayout>
 
