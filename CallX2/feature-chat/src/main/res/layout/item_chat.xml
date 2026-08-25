@@ -32,8 +32,8 @@
         android:orientation="horizontal"
         android:paddingStart="14dp"
         android:paddingEnd="14dp"
-        android:paddingTop="8dp"
-        android:paddingBottom="8dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
         android:gravity="center_vertical">
 
         <!-- Avatar area: Glide-loaded CircleImageView + canvas story ring +
@@ -108,7 +108,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="12dp"/>
+            android:layout_marginStart="14dp"/>
 
         <!-- Right meta column: unread badge (canvas) + call buttons (canvas) -->
         <LinearLayout
@@ -117,7 +117,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="end|center_vertical"
-            android:layout_marginStart="6dp">
+            android:layout_marginStart="8dp">
 
             <!-- v82: unread badge — canvas pill+count, self-sizes to 0 when count=0 -->
             <com.callx.app.chatlist.canvas.ChatListUnreadBadgeView
