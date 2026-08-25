@@ -493,6 +493,17 @@ public class CallxApp extends Application {
     //   SIGKILL can only arrive after onStop() returns, so this flush
     //   always completes in time.
     // ──────────────────────────────────────────────────────────────
+    // WhatsApp-style background grace period: chhoti background trips
+    // (notification check, 2-3 second app-switch) par turant presence/ack
+    // disconnect NAHI karte — sirf agar app is duration se zyada der
+    // background me rahe tabhi goOffline() fire hota hai. Foreground pe
+    // wapas aane se pehle hi cancel ho jaye to koi disconnect/reconnect
+    // hota hi nahi (bilkul WhatsApp jaisa "halka connection zinda" behavior).
+    private static final long BACKGROUND_GRACE_MS = 2 * 60 * 1000L; // 2 minutes
+    private final android.os.Handler backgroundGraceHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable pendingGoOffline;
+
     private void registerForegroundTracking() {
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
 
@@ -500,7 +511,15 @@ public class CallxApp extends Application {
 
             @Override public void onActivityStarted(Activity a) {
                 if (sActivityRefs == 0) {
-                    // App is coming to foreground — mark online
+                    // App is coming back to foreground within (or after) the
+                    // grace window — cancel any pending offline-flip first.
+                    if (pendingGoOffline != null) {
+                        backgroundGraceHandler.removeCallbacks(pendingGoOffline);
+                        pendingGoOffline = null;
+                    }
+                    // goOnline() itself no-ops if we never actually went
+                    // offline (isOnline still true) — so a quick app-switch
+                    // inside the grace window causes zero Firebase writes.
                     com.callx.app.utils.PresenceManager.getInstance().goOnline();
                 }
                 sActivityRefs++;
@@ -525,10 +544,22 @@ public class CallxApp extends Application {
                 if (sActivityRefs > 0) sActivityRefs--;
 
                 if (sActivityRefs == 0) {
-                    // All activities stopped — app going to background
-
-                    // Mark user offline + write lastSeen to Firebase
-                    com.callx.app.utils.PresenceManager.getInstance().goOffline();
+                    // All activities stopped — app going to background.
+                    //
+                    // Don't flip presence offline immediately: schedule it
+                    // BACKGROUND_GRACE_MS out. onActivityStarted() above
+                    // cancels this if the user comes back before it fires —
+                    // so brief switches (notification pull-down, another
+                    // app for a few seconds) never touch Firebase at all,
+                    // exactly like WhatsApp keeping a light connection alive.
+                    if (pendingGoOffline != null) {
+                        backgroundGraceHandler.removeCallbacks(pendingGoOffline);
+                    }
+                    pendingGoOffline = () -> {
+                        com.callx.app.utils.PresenceManager.getInstance().goOffline();
+                        pendingGoOffline = null;
+                    };
+                    backgroundGraceHandler.postDelayed(pendingGoOffline, BACKGROUND_GRACE_MS);
 
                     // FIX #5: flush analytics NOW before OS can SIGKILL
                     try {
