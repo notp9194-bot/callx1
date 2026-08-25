@@ -1,114 +1,190 @@
 <?xml version="1.0" encoding="utf-8"?>
-  <!-- ULTRA (overdraw fix): elevation removed from the cell root. Cells sit
-       edge-to-edge (WhiteGridDecoration only draws in the gap between them),
-       so a per-cell drop shadow was invisible under the neighboring cell
-       99% of the time — it just cost every one of the ~30+ on-screen/cached
-       cells an extra shadow draw pass (outline + stencil) per frame during
-       scroll for zero visible result. clipToOutline stays: that's the
-       rounded-corner clip, unrelated to the shadow. -->
-   <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-      android:layout_width="match_parent"
-      android:layout_height="wrap_content"
-      android:background="@drawable/bg_reel_grid_cell"
-      android:clipToOutline="true"
-      android:foreground="?attr/selectableItemBackground">
-      <ImageView android:id="@+id/iv_thumb"
-          android:layout_width="match_parent" android:layout_height="match_parent"
-          android:minHeight="160dp" android:scaleType="centerCrop"
-          android:contentDescription="Reel thumbnail"/>
-        <!-- Soft lower scrim keeps the play count legible on bright footage. -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="58dp"
-            android:layout_gravity="bottom"
-            android:background="@drawable/gradient_profile_reel_bottom"/>
+<!-- ULTRA (overdraw fix): elevation removed from the cell root. Cells sit
+     edge-to-edge (WhiteGridDecoration only draws in the gap between them),
+     so a per-cell drop shadow was invisible under the neighboring cell
+     99% of the time — it just cost every one of the ~30+ on-screen/cached
+     cells an extra shadow draw pass (outline + stencil) per frame during
+     scroll for zero visible result. clipToOutline stays: that's the
+     rounded-corner clip, unrelated to the shadow.
 
-        <!-- TikTok-style play affordance + views sit together at bottom-left. -->
-       <ImageView
-           android:id="@+id/iv_play_overlay"
-            android:layout_width="22dp"
-            android:layout_height="22dp"
-            android:layout_gravity="bottom|start"
-            android:layout_marginStart="7dp"
-            android:layout_marginBottom="7dp"
-            android:padding="2dp"
-           android:src="@drawable/ic_play_rounded"
-           android:tint="#FFFFFFFF"
-           android:contentDescription="Play reel"/>
+     Grid cell converted from FrameLayout -> ConstraintLayout so iv_thumb
+     can hold a true 9:16 portrait aspect ratio (app:layout_constraintDimensionRatio)
+     instead of a fixed minHeight. All overlay children are pinned to
+     iv_thumb's own edges (not the cell root) so they stay correctly
+     positioned regardless of ratio. -->
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_reel_grid_cell"
+    android:clipToOutline="true"
+    android:foreground="?attr/selectableItemBackground">
 
-       <!-- Views are intentionally the only bottom overlay: no title or duration. -->
-       <TextView
-           android:id="@+id/tv_views_overlay"
-           android:layout_width="wrap_content"
-           android:layout_height="wrap_content"
-            android:layout_gravity="bottom|start"
-            android:layout_marginStart="30dp"
-           android:layout_marginBottom="6dp"
-            android:background="@android:color/transparent"
-           android:drawableStart="@drawable/ic_reel_views_small"
-           android:drawablePadding="2dp"
-           android:gravity="center"
-            android:minHeight="22dp"
-            android:paddingStart="0dp"
-            android:paddingEnd="2dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp">
-           android:singleLine="true"
-           android:includeFontPadding="false"
-           android:text="0"
-           android:textColor="#FFFFFFFF"
-            android:textSize="10sp"
-           android:textStyle="bold"
-           android:fontFamily="sans-serif-medium"
-           android:contentDescription="Views"/>
-       </TextView>
-      <View android:id="@+id/view_dim_overlay"
-          android:layout_width="match_parent" android:layout_height="match_parent"
-          android:background="#44000000" android:visibility="gone"/>
-      <!-- Instagram-style "Just watched" indicator: shown when the CURRENT
-           viewer has this reelId in their own watch history (regardless of
-           whose profile is open) — see ReelGridAdapter#setWatchedReelIds()
-           and UserReelsActivity#loadWatchedReelIds(). Scrim dims the thumb
-           slightly so the white label stays readable over any image. -->
-      <View android:id="@+id/view_watched_scrim"
-          android:layout_width="match_parent" android:layout_height="match_parent"
-          android:background="#4D000000" android:visibility="gone"/>
-      <TextView android:id="@+id/tv_just_watched"
-          android:layout_width="wrap_content" android:layout_height="wrap_content"
-          android:layout_gravity="center"
-          android:text="Just watched"
-          android:textColor="#FFFFFF" android:textSize="12sp"
-          android:fontFamily="sans-serif-medium"
-          android:shadowColor="#CC000000" android:shadowDx="0" android:shadowDy="1" android:shadowRadius="3"
-          android:visibility="gone"/>
-      <View android:id="@+id/view_select_overlay"
-          android:layout_width="match_parent" android:layout_height="match_parent"
-          android:background="#556C5CE7" android:visibility="gone"/>
-      <ImageView android:id="@+id/iv_checkmark"
-          android:layout_width="24dp" android:layout_height="24dp"
-           android:layout_gravity="top|start" android:layout_margin="6dp"
-          android:src="@drawable/ic_double_tick_blue"
-          android:background="@drawable/circle_primary"
-          android:padding="3dp" android:contentDescription="Selected" android:visibility="gone"/>
-      <!-- Multi-image/clip carousel indicator (Instagram-style stack icon,
-           top-right) — shown when the reel has more than one photoUrls entry. -->
-      <ImageView android:id="@+id/iv_stack_indicator"
-          android:layout_width="16dp" android:layout_height="16dp"
-           android:layout_gravity="top|start"
-           android:layout_marginTop="36dp" android:layout_marginStart="10dp"
-          android:src="@drawable/ic_carousel_stack"
-          android:contentDescription="Multiple items"
-          android:visibility="gone"/>
-      <!-- Double-tap-to-like burst — Instagram-style big heart, center of
-           cell, hidden until ReelGridAdapter#playDoubleTapHeart() fires it. -->
-      <ImageView android:id="@+id/iv_double_tap_heart"
-          android:layout_width="56dp" android:layout_height="56dp"
-          android:layout_gravity="center"
-          android:src="@drawable/ic_heart_filled"
-          android:tint="#FFFFFF"
-          android:alpha="0"
-          android:elevation="4dp"
-          android:contentDescription="Liked"
-          android:visibility="gone"/>
-  </FrameLayout>
-  
+    <!-- Thumbnail — locked to 9:16 portrait (width:height) instead of a
+         fixed minHeight, so every grid cell is a consistent Reel/TikTok
+         style portrait tile regardless of the source image's own ratio. -->
+    <ImageView
+        android:id="@+id/iv_thumb"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:scaleType="centerCrop"
+        android:contentDescription="Reel thumbnail"
+        app:layout_constraintDimensionRatio="9:16"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <!-- Soft lower scrim keeps the play count legible on bright footage. -->
+    <View
+        android:layout_width="0dp"
+        android:layout_height="58dp"
+        app:layout_constraintStart_toStartOf="@id/iv_thumb"
+        app:layout_constraintEnd_toEndOf="@id/iv_thumb"
+        app:layout_constraintBottom_toBottomOf="@id/iv_thumb"
+        android:background="@drawable/gradient_profile_reel_bottom"/>
+
+    <!-- TikTok-style play affordance — top-right corner of the thumbnail. -->
+    <ImageView
+        android:id="@+id/iv_play_overlay"
+        android:layout_width="22dp"
+        android:layout_height="22dp"
+        android:layout_marginTop="7dp"
+        android:layout_marginEnd="7dp"
+        android:padding="2dp"
+        android:src="@drawable/ic_play_rounded"
+        android:tint="#FFFFFFFF"
+        android:contentDescription="Play reel"
+        app:layout_constraintTop_toTopOf="@id/iv_thumb"
+        app:layout_constraintEnd_toEndOf="@id/iv_thumb"/>
+
+    <!-- Views count + its icon — bottom-right corner of the thumbnail.
+         Views are intentionally the only bottom overlay: no title or duration. -->
+    <TextView
+        android:id="@+id/tv_views_overlay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="7dp"
+        android:background="@android:color/transparent"
+        android:drawableStart="@drawable/ic_reel_views_small"
+        android:drawablePadding="2dp"
+        android:gravity="center"
+        android:minHeight="22dp"
+        android:paddingStart="4dp"
+        android:paddingEnd="2dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="2dp"
+        android:singleLine="true"
+        android:includeFontPadding="false"
+        android:text="0"
+        android:textColor="#FFFFFFFF"
+        android:textSize="10sp"
+        android:textStyle="bold"
+        android:fontFamily="sans-serif-medium"
+        android:contentDescription="Views"
+        app:layout_constraintBottom_toBottomOf="@id/iv_thumb"
+        app:layout_constraintEnd_toEndOf="@id/iv_thumb"/>
+
+    <View
+        android:id="@+id/view_dim_overlay"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="#44000000"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="@id/iv_thumb"
+        app:layout_constraintStart_toStartOf="@id/iv_thumb"
+        app:layout_constraintEnd_toEndOf="@id/iv_thumb"
+        app:layout_constraintBottom_toBottomOf="@id/iv_thumb"/>
+
+    <!-- Instagram-style "Just watched" indicator: shown when the CURRENT
+         viewer has this reelId in their own watch history (regardless of
+         whose profile is open) — see ReelGridAdapter#setWatchedReelIds()
+         and UserReelsActivity#loadWatchedReelIds(). Scrim dims the thumb
+         slightly so the white label stays readable over any image. -->
+    <View
+        android:id="@+id/view_watched_scrim"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="#4D000000"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="@id/iv_thumb"
+        app:layout_constraintStart_toStartOf="@id/iv_thumb"
+        app:layout_constraintEnd_toEndOf="@id/iv_thumb"
+        app:layout_constraintBottom_toBottomOf="@id/iv_thumb"/>
+
+    <TextView
+        android:id="@+id/tv_just_watched"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Just watched"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:fontFamily="sans-serif-medium"
+        android:shadowColor="#CC000000"
+        android:shadowDx="0"
+        android:shadowDy="1"
+        android:shadowRadius="3"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="@id/iv_thumb"
+        app:layout_constraintStart_toStartOf="@id/iv_thumb"
+        app:layout_constraintEnd_toEndOf="@id/iv_thumb"
+        app:layout_constraintBottom_toBottomOf="@id/iv_thumb"/>
+
+    <View
+        android:id="@+id/view_select_overlay"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="#556C5CE7"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="@id/iv_thumb"
+        app:layout_constraintStart_toStartOf="@id/iv_thumb"
+        app:layout_constraintEnd_toEndOf="@id/iv_thumb"
+        app:layout_constraintBottom_toBottomOf="@id/iv_thumb"/>
+
+    <ImageView
+        android:id="@+id/iv_checkmark"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_margin="6dp"
+        android:src="@drawable/ic_double_tick_blue"
+        android:background="@drawable/circle_primary"
+        android:padding="3dp"
+        android:contentDescription="Selected"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="@id/iv_thumb"
+        app:layout_constraintStart_toStartOf="@id/iv_thumb"/>
+
+    <!-- Multi-image/clip carousel indicator (Instagram-style stack icon,
+         top-left, below the checkmark slot) — shown when the reel has more
+         than one photoUrls entry. -->
+    <ImageView
+        android:id="@+id/iv_stack_indicator"
+        android:layout_width="16dp"
+        android:layout_height="16dp"
+        android:layout_marginTop="36dp"
+        android:layout_marginStart="10dp"
+        android:src="@drawable/ic_carousel_stack"
+        android:contentDescription="Multiple items"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="@id/iv_thumb"
+        app:layout_constraintStart_toStartOf="@id/iv_thumb"/>
+
+    <!-- Double-tap-to-like burst — Instagram-style big heart, center of
+         cell, hidden until ReelGridAdapter#playDoubleTapHeart() fires it. -->
+    <ImageView
+        android:id="@+id/iv_double_tap_heart"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:src="@drawable/ic_heart_filled"
+        android:tint="#FFFFFF"
+        android:alpha="0"
+        android:elevation="4dp"
+        android:contentDescription="Liked"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="@id/iv_thumb"
+        app:layout_constraintStart_toStartOf="@id/iv_thumb"
+        app:layout_constraintEnd_toEndOf="@id/iv_thumb"
+        app:layout_constraintBottom_toBottomOf="@id/iv_thumb"/>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

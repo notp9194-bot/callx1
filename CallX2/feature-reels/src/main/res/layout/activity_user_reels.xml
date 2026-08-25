@@ -299,11 +299,20 @@
                     android:maxLines="2" android:lineSpacingMultiplier="1.2"/>
             </LinearLayout>
 
-            <!-- ── Bio links — compact chip row (Screenshot 2 style) ── -->
+            <!-- ── Bio links — compact chip row (Screenshot 2 style) ──
+                 Centered left-right: the ScrollView itself is wrap_content
+                 and center_horizontal within the (match_parent) header
+                 column, so a short pill row sits centered instead of
+                 hugging the start edge. If the chips ever overflow the
+                 screen width the row still scrolls normally, since
+                 wrap_content on a HorizontalScrollView caps at its own
+                 measured content and centering has no visible effect
+                 once it's full-width. -->
             <HorizontalScrollView
                 android:id="@+id/hsv_bio_links"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
                 android:scrollbars="none"
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
@@ -315,7 +324,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:gravity="center_vertical"/>
+                    android:gravity="center"/>
             </HorizontalScrollView>
 
             <!-- ── Instagram-style Profile Song pill (Screenshot 1 / 2 style) ──
