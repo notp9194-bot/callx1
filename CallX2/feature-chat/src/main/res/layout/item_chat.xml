@@ -23,51 +23,45 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="2dp"
+    android:layout_marginBottom="6dp"
     android:background="@drawable/bg_chat_row">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:paddingStart="14dp"
-        android:paddingEnd="14dp"
-        android:paddingTop="10dp"
-        android:paddingBottom="10dp"
+        android:padding="14dp"
         android:gravity="center_vertical">
 
-        <!-- Avatar area: Glide-loaded CircleImageView + canvas story ring +
-             selection overlay
-             v243: restored ChatListStoryRingView (v242 removed it by
-             mistake — user only asked for the green avatar border ring
-             below, not the seen/unseen story ring, which is a separate
-             view). Green border ring (civ_border_color) removed instead. -->
+        <!-- Avatar area: Glide-loaded CircleImageView + canvas story ring + selection overlay -->
         <FrameLayout
-            android:layout_width="48dp"
-            android:layout_height="48dp">
+            android:layout_width="58dp"
+            android:layout_height="58dp">
 
             <!-- Story ring drawn by canvas — sits BEHIND avatar so the avatar clips over it -->
             <com.callx.app.chatlist.canvas.ChatListStoryRingView
                 android:id="@+id/view_story_ring"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="58dp"
+                android:layout_height="58dp"
                 android:layout_gravity="center"
                 android:clickable="true"
                 android:focusable="true"/>
 
             <de.hdodenhof.circleimageview.CircleImageView
                 android:id="@+id/iv_avatar"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="50dp"
+                android:layout_height="50dp"
                 android:layout_gravity="center"
                 android:src="@drawable/ic_person"
+                app:civ_border_width="1.5dp"
+                app:civ_border_color="@color/brand_primary"
                 xmlns:app="http://schemas.android.com/apk/res-auto"/>
 
             <!-- Selection checkmark overlay (visible only in selection mode) -->
             <FrameLayout
                 android:id="@+id/fl_select_overlay"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="58dp"
+                android:layout_height="58dp"
                 android:layout_gravity="center"
                 android:background="#99000000"
                 android:visibility="gone">
@@ -125,10 +119,13 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"/>
 
-            <!-- v242: call/video buttons removed — duplicate of the same
-                 actions already reachable from the avatar's contact bottom
-                 sheet, and removing this canvas view drops per-row draw +
-                 touch-region hit-testing work. -->
+            <!-- v82: call buttons — canvas icons with touch regions -->
+            <com.callx.app.chatlist.canvas.ChatListCallButtonsView
+                android:id="@+id/view_call_buttons"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:visibility="gone"/>
 
         </LinearLayout>
 

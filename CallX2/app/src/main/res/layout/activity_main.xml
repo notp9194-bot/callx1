@@ -108,8 +108,15 @@
                 android:gravity="center_vertical"
                 android:layout_marginEnd="8dp">
 
-            <!-- v247: search icon removed — duplicate of the Chats-tab
-                 FAB below, which opens the same SearchActivity. -->
+                <ImageButton
+                    android:id="@+id/btn_search_toolbar"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:src="@drawable/ic_search"
+                    android:tint="?attr/colorOnSurface"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:layout_marginEnd="4dp"
+                    android:contentDescription="Search"/>
 
                 <!-- Notification bell with badge -->
                 <FrameLayout
