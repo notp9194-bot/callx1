@@ -16,32 +16,63 @@
           android:layout_width="match_parent" android:layout_height="match_parent"
           android:minHeight="160dp" android:scaleType="centerCrop"
           android:contentDescription="Reel thumbnail"/>
-      <TextView android:id="@+id/tv_caption"
-          android:layout_width="match_parent" android:layout_height="wrap_content"
-          android:layout_gravity="top"
-          android:paddingStart="6dp" android:paddingEnd="6dp" android:paddingTop="6dp"
-          android:textColor="#FFFFFF" android:textSize="11sp" android:textStyle="bold"
-          android:maxLines="3" android:ellipsize="end"
-          android:shadowColor="#CC000000" android:shadowDx="0" android:shadowDy="1" android:shadowRadius="3"
-          android:visibility="gone"/>
-      <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
-          android:layout_gravity="bottom|start"
-          android:layout_marginStart="4dp" android:layout_marginBottom="4dp"
-          android:orientation="horizontal" android:gravity="center_vertical">
-          <ImageView android:layout_width="10dp" android:layout_height="10dp"
-              android:src="@drawable/ic_play" android:tint="#FFFFFF"
-              android:alpha="0.9" android:contentDescription="Views"/>
-          <TextView android:id="@+id/tv_views_overlay"
-              android:layout_width="wrap_content" android:layout_height="wrap_content"
-              android:layout_marginStart="3dp" android:text="0"
-              android:textColor="#FFFFFF" android:textSize="10sp" android:fontFamily="sans-serif-medium"/>
-      </LinearLayout>
-      <TextView android:id="@+id/tv_duration"
-          android:layout_width="wrap_content" android:layout_height="wrap_content"
-          android:layout_gravity="bottom|end"
-          android:layout_marginEnd="4dp" android:layout_marginBottom="4dp"
-          android:text="0:00" android:textColor="#DDDDDD"
-          android:textSize="10sp" android:fontFamily="sans-serif-medium" android:visibility="gone"/>
+       <!-- Subtle scrims keep the controls readable over bright thumbnails. -->
+       <View
+           android:layout_width="match_parent"
+           android:layout_height="72dp"
+           android:layout_gravity="top"
+           android:background="@drawable/gradient_reel_top"/>
+       <View
+           android:layout_width="match_parent"
+           android:layout_height="82dp"
+           android:layout_gravity="bottom"
+           android:background="@drawable/gradient_reel_bottom"/>
+
+       <!-- The play affordance sits in the top-right, like the reference card. -->
+       <ImageView
+           android:id="@+id/iv_play_overlay"
+           android:layout_width="44dp"
+           android:layout_height="44dp"
+           android:layout_gravity="top|end"
+           android:layout_marginTop="8dp"
+           android:layout_marginEnd="8dp"
+           android:padding="8dp"
+           android:src="@drawable/ic_play"
+           android:tint="#FFFFFFFF"
+           android:contentDescription="Play reel"/>
+
+       <!-- Views are intentionally the only bottom overlay: no title or duration. -->
+       <LinearLayout
+           android:id="@+id/views_pill"
+           android:layout_width="wrap_content"
+           android:layout_height="wrap_content"
+           android:layout_gravity="bottom|end"
+           android:layout_marginEnd="8dp"
+           android:layout_marginBottom="8dp"
+           android:background="@drawable/bg_reel_views_pill"
+           android:gravity="center_vertical"
+           android:minHeight="38dp"
+           android:orientation="horizontal"
+           android:paddingStart="9dp"
+           android:paddingEnd="11dp"
+           android:paddingTop="5dp"
+           android:paddingBottom="5dp">
+           <ImageView
+               android:layout_width="24dp"
+               android:layout_height="24dp"
+               android:src="@drawable/ic_reel_views"
+               android:contentDescription="Views"/>
+           <TextView
+               android:id="@+id/tv_views_overlay"
+               android:layout_width="wrap_content"
+               android:layout_height="wrap_content"
+               android:layout_marginStart="5dp"
+               android:text="0"
+               android:textColor="#FFFFFFFF"
+               android:textSize="14sp"
+               android:textStyle="bold"
+               android:fontFamily="sans-serif-medium"/>
+       </LinearLayout>
       <View android:id="@+id/view_dim_overlay"
           android:layout_width="match_parent" android:layout_height="match_parent"
           android:background="#44000000" android:visibility="gone"/>
@@ -66,7 +97,7 @@
           android:background="#556C5CE7" android:visibility="gone"/>
       <ImageView android:id="@+id/iv_checkmark"
           android:layout_width="24dp" android:layout_height="24dp"
-          android:layout_gravity="top|end" android:layout_margin="6dp"
+           android:layout_gravity="top|start" android:layout_margin="6dp"
           android:src="@drawable/ic_double_tick_blue"
           android:background="@drawable/circle_primary"
           android:padding="3dp" android:contentDescription="Selected" android:visibility="gone"/>
@@ -74,8 +105,8 @@
            top-right) — shown when the reel has more than one photoUrls entry. -->
       <ImageView android:id="@+id/iv_stack_indicator"
           android:layout_width="16dp" android:layout_height="16dp"
-          android:layout_gravity="top|end"
-          android:layout_marginTop="6dp" android:layout_marginEnd="6dp"
+           android:layout_gravity="top|start"
+           android:layout_marginTop="36dp" android:layout_marginStart="10dp"
           android:src="@drawable/ic_carousel_stack"
           android:contentDescription="Multiple items"
           android:visibility="gone"/>
