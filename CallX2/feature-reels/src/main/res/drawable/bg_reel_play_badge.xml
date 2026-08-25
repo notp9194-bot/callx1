@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    bg_reel_play_badge.xml
+    Small circular translucent-black backing behind the top-right play icon
+    on grid thumbnails — gives just enough contrast on bright/white thumbs
+    without the old full-width top gradient band.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#40000000"/>
+</shape>
