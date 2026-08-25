@@ -376,6 +376,17 @@
                     android:maxLines="1"
                     android:ellipsize="end"
                     android:text="Song name..."/>
+
+                <!-- Reused from the Adjust Music screen's track-info row
+                     (activity_reel_photo_music_trim.xml#iv_trim_cover row,
+                     ic_waveform_mini) — same icon on the right side of this
+                     pill, matching that screen's audio glyph. -->
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_marginStart="6dp"
+                    android:src="@drawable/ic_waveform_mini"
+                    android:contentDescription="Audio"/>
             </LinearLayout>
 
             <!-- ── isSelf: empty song stub pill — tap to add a song ──
