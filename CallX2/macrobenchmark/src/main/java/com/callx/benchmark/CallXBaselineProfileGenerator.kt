@@ -18,6 +18,16 @@ import org.junit.runner.RunWith
  *  Run: ./gradlew :macrobenchmark:generateBaselineProfile
  *  Output: app/src/main/baseline-prof.txt (auto-replaced by AGP)
  *
+ *  v243: RE-RUN REQUIRED — v96 through v242 landed real hot-path changes
+ *  since this profile was last generated (AsyncListDiffer's dedicated
+ *  executor, ChatListLayoutManager prefetch tuning, RubberBandEdgeEffect's
+ *  hardware-layer toggle, the row-height cache path in onCreateViewHolder,
+ *  adaptive LIVE_SYNC_WINDOW). A baseline profile AOT-compiles the METHODS
+ *  it recorded; new methods/call paths added after generation get NO AOT
+ *  benefit until this is re-run — they silently fall back to JIT-only,
+ *  which on a cold start is exactly the slow path this file exists to
+ *  avoid. Re-run on a connected device/emulator before the next release.
+ *
  *  9 real user journeys cover:
  *    1. Cold start → chat list
  *    2. Open chat → scroll messages

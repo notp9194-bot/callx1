@@ -140,7 +140,31 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     // first paint; Firebase stays the source of truth and is queried directly,
     // page by page, for anything beyond what's cached.
     private static final int PAGE_SIZE        = 30; // chats fetched per "load more"
-    private static final int LIVE_SYNC_WINDOW = 60; // most-recent chats kept live-synced
+    // v243: adaptive live-sync payload trim. Every child event inside this
+    // window costs a snapshot deserialize + delta-merge pass (see
+    // processContactsDelta()) even when the row never scrolls into view —
+    // the window is a live-listener cost, not a memory cost. On a low-RAM
+    // device (same isLowRamDevice() signal CallxGlideModule already uses to
+    // scale its caches) a smaller live window cuts that background work
+    // proportionally; older chats are still fully reachable via
+    // loadMoreOlderContacts(), this only shrinks what stays PUSH-synced.
+    private static final int LIVE_SYNC_WINDOW_NORMAL  = 60;
+    private static final int LIVE_SYNC_WINDOW_LOW_RAM = 30;
+    // Not resolved at field-init time — getContext() is null until the
+    // fragment is attached, so this is lazily computed + cached on first use
+    // (see getLiveSyncWindow()), by which point onAttach has already run.
+    private int cachedLiveSyncWindow = -1;
+
+    private int getLiveSyncWindow() {
+        if (cachedLiveSyncWindow > 0) return cachedLiveSyncWindow;
+        Context ctx = getContext();
+        if (ctx == null) return LIVE_SYNC_WINDOW_NORMAL; // not yet attached; don't cache
+        android.app.ActivityManager am =
+                (android.app.ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
+        boolean lowRam = am != null && (am.isLowRamDevice() || am.getMemoryClass() < 128);
+        cachedLiveSyncWindow = lowRam ? LIVE_SYNC_WINDOW_LOW_RAM : LIVE_SYNC_WINDOW_NORMAL;
+        return cachedLiveSyncWindow;
+    }
 
     private boolean isLoadingMoreChats = false;
     private boolean hasMoreOlderChats  = true;
@@ -292,8 +316,10 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // v85+: null ItemAnimator — removes all animation overhead
         rv.setItemAnimator(null);
 
-        // v86: disable over-scroll edge glow + nested scroll overhead
-        rv.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        // v240: match Calls tab feel — rubber-band edge instead of flat glow.
+        // Reuses the same factory already proven in ChatActivity/GroupChatActivity.
+        rv.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+        rv.setEdgeEffectFactory(new com.callx.app.chat.performance.RubberBandEdgeEffectFactory());
         rv.setNestedScrollingEnabled(false);
 
         // v88: fine-tune touch slop — default gives precise single-tap detection
@@ -762,7 +788,15 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         for (int i = start; i <= end && i >= 0 && i < contacts.size(); i++) {
             User u = contacts.get(i);
             if (u == null) continue;
-            String url = (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
+            // v244: was falling back to full-res photoUrl here when thumbUrl
+            // was missing — but ChatListAdapter.resolveListAvatarUrl() (the
+            // ACTUAL row-bind call) never does that fallback; it shows the
+            // placeholder icon instead (see v208 comment there). So this
+            // preload was silently downloading + disk-caching a full-res
+            // photo that the row bind was never going to display — pure
+            // wasted network + data usage on every such row. Match the bind
+            // path exactly: thumbUrl only, skip the row entirely if absent.
+            String url = ChatListAdapter.resolveListAvatarUrl(u);
             if (url == null || url.isEmpty()) continue;
             glide.load(url)
                     .dontAnimate()
@@ -843,7 +877,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         };
         contactsRef = FirebaseUtils.getContactsRef(uid)
                 .orderByChild("lastMessageAt")
-                .limitToLast(LIVE_SYNC_WINDOW);
+                .limitToLast(getLiveSyncWindow());
         contactsRef.addChildEventListener(contactsListener);
     }
 

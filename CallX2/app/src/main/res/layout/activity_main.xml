@@ -247,8 +247,8 @@
             android:minWidth="260dp"
             android:maxWidth="380dp"
             android:background="@color/transparent"
-            app:itemIconTint="@color/brand_primary"
-            app:itemTextColor="@color/brand_primary"
+            app:itemIconTint="@color/bottom_nav_item_color"
+            app:itemTextColor="@color/bottom_nav_item_color"
             app:itemIconSize="22dp"
             app:menu="@menu/bottom_nav_menu"
             app:labelVisibilityMode="labeled"/>

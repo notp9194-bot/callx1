@@ -6,6 +6,7 @@ import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.AsyncListDiffer;
+import androidx.recyclerview.widget.AsyncDifferConfig;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
@@ -129,7 +130,27 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     };
 
     // ── v83: AsyncListDiffer — owns the list, runs diff on a bg thread ────────
-    private final AsyncListDiffer<User> differ = new AsyncListDiffer<>(this, DIFF_CALLBACK);
+    // v242: AsyncListDiffer's 2-arg constructor defaults to
+    // ArchTaskExecutor.getIOThreadExecutor() — a single shared background
+    // thread used app-wide for LiveData.postValue(), other AsyncListDiffer/
+    // ListAdapter instances, etc. On the Chats tab specifically, Firebase's
+    // ValueEventListener callbacks (v92 bounded live sync) and Room's own
+    // query executor are separate pools already, but this shared IO executor
+    // can still queue behind unrelated background work from elsewhere in the
+    // app. A dedicated single-thread executor means a chat-list diff never
+    // waits behind, or blocks, work that has nothing to do with this screen.
+    private static final java.util.concurrent.Executor CHAT_DIFF_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "ChatListDiffThread");
+                t.setPriority(Thread.NORM_PRIORITY - 1); // slightly below default, never starve UI
+                return t;
+            });
+
+    private final AsyncListDiffer<User> differ = new AsyncListDiffer<>(
+            new androidx.recyclerview.widget.AdapterListUpdateCallback(this),
+            new AsyncDifferConfig.Builder<>(DIFF_CALLBACK)
+                    .setBackgroundThreadExecutor(CHAT_DIFF_EXECUTOR)
+                    .build());
 
     // v92: Resources held for precompute() calls — width is now derived
     // per-user/per-call (screen width + that row's own badge/tick/time
@@ -342,6 +363,50 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         this.prewarmPool = pool;
     }
 
+    // v242: item_chat.xml's root is layout_height="wrap_content" — but the
+    // resolved wrap height NEVER varies (ChatRowContentView.onMeasure derives
+    // its height purely from font-metric constants set once in its
+    // constructor, not from the actual name/message text of any given row).
+    // So the wrap_content walk (root FrameLayout asking its LinearLayout
+    // child, which asks ITS children, to determine "how tall am I") produces
+    // the exact same answer for all ~25 rows in the RecycledViewPool ceiling
+    // — it's just being redundantly recomputed on every fresh VH instead of
+    // once. Cache it after the first real measure, then force every
+    // subsequent VH's root straight to that exact height (EXACTLY spec),
+    // skipping the redundant wrap-content resolution walk entirely for every
+    // VH after the first — which is also exactly the burst of VHs created
+    // together when the Chats tab first opens (RecycledViewPool + prewarm
+    // pool both front-load their inflation right there).
+    private static volatile int sCachedRowHeightPx = -1;
+
+    private void applyCachedRowHeight(View itemView, ViewGroup parent) {
+        ViewGroup.LayoutParams lp = itemView.getLayoutParams();
+        if (lp == null) lp = new RecyclerView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+
+        if (sCachedRowHeightPx > 0) {
+            // Fast path: skip wrap_content resolution, go straight to EXACTLY.
+            if (lp.height != sCachedRowHeightPx) {
+                lp.height = sCachedRowHeightPx;
+                itemView.setLayoutParams(lp);
+            }
+            return;
+        }
+        // Slow path (runs once, ever): let it wrap_content normally, then
+        // read back and cache the result off this first real measure pass.
+        int widthSpec = View.MeasureSpec.makeMeasureSpec(
+                parent.getWidth() > 0 ? parent.getWidth() : getScreenWidthFallback(itemView),
+                View.MeasureSpec.EXACTLY);
+        int heightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
+        itemView.measure(widthSpec, heightSpec);
+        int measured = itemView.getMeasuredHeight();
+        if (measured > 0) sCachedRowHeightPx = measured;
+    }
+
+    private int getScreenWidthFallback(View v) {
+        return v.getResources().getDisplayMetrics().widthPixels;
+    }
+
     @NonNull @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View v = prewarmPool != null ? prewarmPool.poll() : null;
@@ -352,6 +417,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             v = LayoutInflater.from(parent.getContext())
                     .inflate(R.layout.item_chat, parent, false);
         }
+        applyCachedRowHeight(v, parent);
         VH h = new VH(v);
         // v92: install every click/long-click listener ONCE per VH here,
         // instead of re-allocating them on every bind — see installStaticListeners().
@@ -569,6 +635,9 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
                     i.putExtra("partnerName", u.name);
                     i.putExtra("isCaller", true);
                     i.putExtra("video", false);
+                    if (unwrapActivity(ctx) == null) {
+                        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    }
                     ctx.startActivity(i);
                 },
                 () -> {
@@ -582,6 +651,9 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
                     i.putExtra("partnerName", u.name);
                     i.putExtra("isCaller", true);
                     i.putExtra("video", true);
+                    if (unwrapActivity(ctx) == null) {
+                        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    }
                     ctx.startActivity(i);
                 }
             );
@@ -947,6 +1019,9 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
                     "com.callx.app.viewer.StatusViewerActivity");
             si.putExtra("ownerUid",  u.uid);
             si.putExtra("ownerName", u.name != null ? u.name : "");
+            if (unwrapActivity(ctx) == null) {
+                si.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            }
             ctx.startActivity(si);
         } else {
             openChat(ctx, u);

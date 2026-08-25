@@ -46,6 +46,22 @@ public class ChatListLayoutManager extends LinearLayoutManager {
     public ChatListLayoutManager(Context context) {
         super(context);
         extraSpacePx = getScreenHeight(context);
+        // v241: tell RecyclerView's GapWorker how many rows a fresh scroll-state
+        // pass should prefetch. Stock LLM defaults to 2 — bump it to roughly one
+        // screen's worth so, on a hard fling, GapWorker has already inflated +
+        // bound the next rows on a background pass before they're needed for
+        // layout. Estimated off ~72dp average row height (58dp avatar + 14dp
+        // padding) so this scales sanely across screen sizes instead of a
+        // hardcoded item count.
+        setInitialPrefetchItemCount(estimatePrefetchCount(context));
+    }
+
+    private static int estimatePrefetchCount(Context context) {
+        float density = context.getResources().getDisplayMetrics().density;
+        int rowHeightPx = (int) (72 * density);
+        int screenHeightPx = getScreenHeight(context);
+        int count = rowHeightPx > 0 ? (screenHeightPx / rowHeightPx) + 2 : 6;
+        return Math.max(4, Math.min(count, 12)); // sane floor/ceiling
     }
 
     /**

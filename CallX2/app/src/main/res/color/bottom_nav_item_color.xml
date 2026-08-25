@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    bottom_nav_item_color.xml — v245
+
+    WhatsApp-style bottom nav tint: only the currently ACTIVE tab (icon +
+    label) shows brand green; every other tab is plain white. Previously
+    itemIconTint/itemTextColor on the BottomNavigationView pointed straight
+    at @color/brand_primary (a flat color, not a selector) — so every tab
+    rendered green all the time regardless of selection state, with no
+    visual distinction for which one is active.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/brand_primary" android:state_checked="true"/>
+    <item android:color="@color/white"         android:state_checked="false"/>
+</selector>

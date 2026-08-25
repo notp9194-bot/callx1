@@ -85,6 +85,7 @@ public final class RubberBandEdgeEffectFactory extends RecyclerView.EdgeEffectFa
         final float maxTranslatePx;
         float rawTopPull = 0f;    // unbounded accumulated drag distance, top edge
         float rawBottomPull = 0f; // unbounded accumulated drag distance, bottom edge
+        boolean hwLayerActive = false; // v241: tracks whether rv currently has a hardware layer
 
         private RubberState(RecyclerView rv) {
             this.rv = rv;
@@ -95,6 +96,35 @@ public final class RubberBandEdgeEffectFactory extends RecyclerView.EdgeEffectFa
                     .setDampingRatio(SPRING_DAMPING_RATIO);
             this.spring = new SpringAnimation(rv, DynamicAnimation.TRANSLATION_Y)
                     .setSpring(force);
+            // v241: strip the layer the instant the spring settles back to 0 —
+            // covers both the release-triggered snap-back AND any interruption
+            // (e.g. a new pull cancels the spring, see pull() below, which also
+            // clears the layer on its own path).
+            this.spring.addEndListener((animation, canceled, value, velocity) -> {
+                if (!canceled) setHardwareLayer(false);
+            });
+        }
+
+        /**
+         * v241: ULTRA-ADVANCED — hardware layer only while the RecyclerView is
+         * actually being translated (active drag pull OR settling spring).
+         * translationY forces the RecyclerView (and everything it draws — every
+         * visible row's canvas content) to be re-rastered and re-composited each
+         * frame; without a layer, that repaint cost is charged to EVERY frame of
+         * the bounce. A hardware layer bakes one GPU texture once, then the
+         * translation becomes a cheap texture-matrix transform per frame — same
+         * technique the story-ring/badge canvas views don't need (they don't
+         * animate continuously) but this DOES, since it drives real per-frame
+         * translation for potentially hundreds of ms per bounce.
+         * Toggled off the moment the spring settles so idle scroll — the vast
+         * majority of the screen's lifetime — never pays the extra texture
+         * memory/composite cost of a layer sitting on unnecessarily.
+         */
+        private void setHardwareLayer(boolean on) {
+            if (on == hwLayerActive) return;
+            hwLayerActive = on;
+            rv.setLayerType(on ? android.view.View.LAYER_TYPE_HARDWARE
+                               : android.view.View.LAYER_TYPE_NONE, null);
         }
 
         static RubberState getOrCreate(RecyclerView rv) {
@@ -112,6 +142,7 @@ public final class RubberBandEdgeEffectFactory extends RecyclerView.EdgeEffectFa
         }
 
         void pull(boolean isTop, float rawDelta) {
+            setHardwareLayer(true); // v241: drag itself also translates every frame
             spring.cancel(); // an active drag always wins over a settling spring
             if (isTop) rawTopPull = Math.max(0f, rawTopPull + rawDelta);
             else rawBottomPull = Math.max(0f, rawBottomPull + rawDelta);

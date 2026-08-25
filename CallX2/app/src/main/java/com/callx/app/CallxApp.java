@@ -117,17 +117,24 @@ public class CallxApp extends Application {
         // synchronous calls made directly from onBindViewHolder() or from
         // a main-thread listener callback instead of a background executor.
         if (BuildConfig.DEBUG) {
+            // v243: detectAll() — every ThreadPolicy check the current API
+            // level supports (disk reads/writes, network, custom slow calls,
+            // resource mismatches on O+, unbuffered I/O on P+, explicit GC
+            // on S+), instead of hand-picking a subset. Catches the small
+            // accidental main-thread call (e.g. a stray SharedPreferences
+            // read added later in some unrelated screen) that a manually
+            // curated list would silently miss.
             android.os.StrictMode.setThreadPolicy(
                     new android.os.StrictMode.ThreadPolicy.Builder()
-                            .detectDiskReads()
-                            .detectDiskWrites()
-                            .detectNetwork()
+                            .detectAll()
                             .penaltyLog()
                             .build());
             android.os.StrictMode.setVmPolicy(
                     new android.os.StrictMode.VmPolicy.Builder()
                             .detectLeakedSqlLiteObjects()
                             .detectLeakedClosableObjects()
+                            .detectActivityLeaks()             // v243: Activity context outliving its lifecycle
+                            .detectLeakedRegistrationObjects() // v243: unregistered BroadcastReceiver/ServiceConnection
                             .penaltyLog()
                             .build());
         }
