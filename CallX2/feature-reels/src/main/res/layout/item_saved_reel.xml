@@ -35,15 +35,6 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"/>
 
-    <!-- Soft lower scrim keeps the play count legible on bright footage. -->
-    <View
-        android:layout_width="0dp"
-        android:layout_height="58dp"
-        app:layout_constraintStart_toStartOf="@id/iv_thumb"
-        app:layout_constraintEnd_toEndOf="@id/iv_thumb"
-        app:layout_constraintBottom_toBottomOf="@id/iv_thumb"
-        android:background="@drawable/gradient_profile_reel_bottom"/>
-
     <!-- TikTok-style play affordance — top-right corner of the thumbnail. -->
     <ImageView
         android:id="@+id/iv_play_overlay"
@@ -82,6 +73,10 @@
         android:textSize="10sp"
         android:textStyle="bold"
         android:fontFamily="sans-serif-medium"
+        android:shadowColor="#CC000000"
+        android:shadowDx="0"
+        android:shadowDy="1"
+        android:shadowRadius="3"
         android:contentDescription="Views"
         app:layout_constraintBottom_toBottomOf="@id/iv_thumb"
         app:layout_constraintEnd_toEndOf="@id/iv_thumb"/>

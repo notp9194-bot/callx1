@@ -392,6 +392,28 @@ public class UserReelsActivity extends AppCompatActivity
     private boolean isFirstResume = true;
     /** Persistent count listener — auto-updates tvTotalLikes whenever a reel is added/removed/edited. */
     private ValueEventListener reelCountLiveListener = null;
+    // FIX: reelsByUser/{uid}/{reelId} is only an INDEX node (reelId -> true),
+    // it does not carry the reel's likesCount — that lives under
+    // reels/{reelId}/likesCount.
+    //
+    // ULTRA (likes-total perf): the naive fix was one PERSISTENT
+    // ValueEventListener per reel (N live RTDB subscriptions for an N-reel
+    // profile) — every like/unlike on ANY of the user's reels, anywhere in
+    // the app, re-pushed data down all N listeners and re-ran the sum. For
+    // a creator with hundreds of reels that's hundreds of standing
+    // subscriptions for one stat most users glance at once.
+    //
+    // Replaced with: a SINGLE persistent listener on the cheap index node
+    // (reelIds only) + a batched, parallel, ONE-SHOT read of each reel's
+    // likesCount whenever that index actually changes (reel added/removed —
+    // rare). One combined tvTotalLikes.setText() per batch instead of one
+    // per reel. requestGeneration guards a slow in-flight batch from
+    // clobbering the UI with stale results if the index changes again
+    // before it finishes. Individual likes on an already-known reel are
+    // reflected optimistically (see likeReelFromGrid()) instead of via a
+    // live per-reel subscription.
+    private final Map<String, Long> perReelLikeCounts = new HashMap<>();
+    private int likeCountRequestGeneration = 0;
 
     private ReelModel         pinnedReel = null;
     private ReelPeekPreviewController peekController;
@@ -3303,6 +3325,14 @@ public class UserReelsActivity extends AppCompatActivity
 
                 targetReel.likesCount = targetReel.likesCount + 1;
                 if (adapter != null) adapter.notifyItemChanged(finalAdapterPosition);
+                // ULTRA: optimistic local bump — total-likes no longer has a
+                // live per-reel listener (see loadReelCount()), so reflect
+                // this like instantly instead of waiting on the next
+                // index-triggered batched re-fetch.
+                if (targetUid != null && targetUid.equals(myUid) && perReelLikeCounts.containsKey(targetReel.reelId)) {
+                    perReelLikeCounts.put(targetReel.reelId, perReelLikeCounts.get(targetReel.reelId) + 1);
+                    recomputeTotalLikes();
+                }
 
                 if (targetReel.uid != null && !targetReel.uid.equals(myUid)) {
                     String myName = FirebaseUtils.getCurrentName();
@@ -5260,17 +5290,52 @@ public class UserReelsActivity extends AppCompatActivity
         DatabaseReference ref = FirebaseUtils.getReelsByUserRef(targetUid);
         reelCountLiveListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                if (tvTotalLikes == null) return;
-                long totalLikes = 0;
+                List<String> reelIds = new ArrayList<>();
                 for (DataSnapshot child : snap.getChildren()) {
-                    Long likes = child.child("likesCount").getValue(Long.class);
-                    if (likes != null) totalLikes += likes;
+                    if (child.getKey() != null) reelIds.add(child.getKey());
                 }
-                tvTotalLikes.setText(String.valueOf(totalLikes));
+                fetchLikeCountsBatched(reelIds);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         ref.addValueEventListener(reelCountLiveListener);
+    }
+
+    /**
+     * Fires all N one-shot likesCount reads in parallel (no serial round
+     * trips) and applies exactly ONE UI update once every read is back —
+     * see the ULTRA comment above perReelLikeCounts for why this replaced
+     * N persistent listeners.
+     */
+    private void fetchLikeCountsBatched(List<String> reelIds) {
+        final int generation = ++likeCountRequestGeneration;
+        perReelLikeCounts.clear();
+        if (reelIds.isEmpty()) { recomputeTotalLikes(); return; }
+
+        final int[] remaining = { reelIds.size() };
+        for (String reelId : reelIds) {
+            FirebaseUtils.getReelsRef().child(reelId).child("likesCount")
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot s) {
+                        if (generation != likeCountRequestGeneration) return; // superseded — drop
+                        Long likes = s.getValue(Long.class);
+                        perReelLikeCounts.put(reelId, likes != null ? likes : 0L);
+                        if (--remaining[0] == 0) recomputeTotalLikes();
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                        if (generation != likeCountRequestGeneration) return;
+                        perReelLikeCounts.put(reelId, 0L);
+                        if (--remaining[0] == 0) recomputeTotalLikes();
+                    }
+                });
+        }
+    }
+
+    private void recomputeTotalLikes() {
+        if (tvTotalLikes == null) return;
+        long totalLikes = 0;
+        for (Long v : perReelLikeCounts.values()) totalLikes += v;
+        tvTotalLikes.setText(String.valueOf(totalLikes));
     }
 
     // ── More menu ─────────────────────────────────────────────────────────
@@ -5418,6 +5483,8 @@ public class UserReelsActivity extends AppCompatActivity
                       .removeEventListener(reelCountLiveListener); } catch (Exception ignored) {}
             reelCountLiveListener = null;
         }
+        likeCountRequestGeneration++; // invalidate any in-flight batched reads
+        perReelLikeCounts.clear();
     }
 
     // ── Silent grid refresh (called from onResume for self) ───────────────

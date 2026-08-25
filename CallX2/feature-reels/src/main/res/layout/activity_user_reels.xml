@@ -84,7 +84,9 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="52dp"
         android:background="?attr/colorSurface"
-        android:elevation="0dp">
+        android:elevation="0dp"
+        android:outlineSpotShadowColor="@android:color/transparent"
+        android:outlineAmbientShadowColor="@android:color/transparent">
         <!-- NOTE: app:liftOnScroll removed — it dynamically raised this
              AppBarLayout's elevation above the fixed nav bar's (0dp) while
              scrolling, which flips the z-order (Android stacks by elevation

@@ -48,12 +48,30 @@ public class CloudinaryUploader {
      * expected byte budget) should pass "webp" explicitly here instead.
      */
     public static String deriveThumbUrl(String secureUrl, int size, String format) {
+        return deriveThumbUrl(secureUrl, size, size, format);
+    }
+
+    /**
+     * Same as deriveThumbUrl(url, size, format) but with independent width/
+     * height instead of forcing a square crop.
+     *
+     * CROP FIX: the square-only overload above was requesting a w=h square
+     * crop from Cloudinary for grid/pinned cells that are actually 9:16
+     * portrait (grid) or a wide banner (pinned) — Glide's own centerCrop()
+     * then cropped that already-cropped square a SECOND time to fit the
+     * real cell shape, discarding much more of the source image than
+     * necessary (e.g. a portrait shot got its top/bottom cut by Cloudinary,
+     * then its sides cut again by Glide). Passing the real target aspect
+     * ratio here means Cloudinary's c_fill crops once, to the shape the
+     * cell will actually display, and Glide's centerCrop just scales.
+     */
+    public static String deriveThumbUrl(String secureUrl, int width, int height, String format) {
         if (secureUrl == null || secureUrl.isEmpty()) return secureUrl;
         String marker = "/upload/";
         int idx = secureUrl.indexOf(marker);
         if (idx < 0) return secureUrl; // not a Cloudinary delivery URL we recognize — use as-is
         String f = (format == null || format.isEmpty()) ? "auto" : format;
-        String transform = "w_" + size + ",h_" + size + ",c_fill,q_auto,f_" + f + "/";
+        String transform = "w_" + width + ",h_" + height + ",c_fill,q_auto,f_" + f + "/";
         return secureUrl.substring(0, idx + marker.length())
                 + transform
                 + secureUrl.substring(idx + marker.length());
