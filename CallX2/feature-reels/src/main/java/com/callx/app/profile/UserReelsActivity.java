@@ -4662,6 +4662,7 @@ public class UserReelsActivity extends AppCompatActivity
                     targetPhoto = url;
                     Glide.with(UserReelsActivity.this).load(url).circleCrop()
                         .placeholder(R.drawable.ic_person).into(ivAvatar); // decodes at ivAvatar's actual 92dp size, not a fixed override
+                }
                 // Bio / about
                 if (cached.about != null && !cached.about.isEmpty() && tvBio != null) {
                     tvBio.setText(cached.about);
