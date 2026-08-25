@@ -14,7 +14,7 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.chat.R;
 
-import com.callx.app.chatlist.canvas.ChatListCallButtonsView;
+// v243: ChatListCallButtonsView import removed — view no longer used.
 import com.callx.app.chatlist.canvas.ChatListLastMessageView;
 import com.callx.app.chatlist.canvas.ChatListStoryRingView;
 import com.callx.app.chatlist.canvas.ChatListUnreadBadgeView;
@@ -562,36 +562,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             });
         }
 
-        if (h.callButtonsView != null) {
-            h.callButtonsView.setListeners(
-                () -> {
-                    User u = h.boundUser;
-                    if (u == null) return;
-                    if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
-                    Context ctx = h.itemView.getContext();
-                    Intent i = new Intent().setClassName(ctx.getPackageName(),
-                            "com.callx.app.call.CallActivity");
-                    i.putExtra("partnerUid", u.uid);
-                    i.putExtra("partnerName", u.name);
-                    i.putExtra("isCaller", true);
-                    i.putExtra("video", false);
-                    ctx.startActivity(i);
-                },
-                () -> {
-                    User u = h.boundUser;
-                    if (u == null) return;
-                    if (isSelecting) { toggleSelection(h.getAdapterPosition()); return; }
-                    Context ctx = h.itemView.getContext();
-                    Intent i = new Intent().setClassName(ctx.getPackageName(),
-                            "com.callx.app.call.CallActivity");
-                    i.putExtra("partnerUid", u.uid);
-                    i.putExtra("partnerName", u.name);
-                    i.putExtra("isCaller", true);
-                    i.putExtra("video", true);
-                    ctx.startActivity(i);
-                }
-            );
-        }
+        // v243: call-buttons view removed from item_chat.xml — listener
+        // wiring removed too (see field/findViewById removal below).
 
         h.ivAvatar.setOnClickListener(v -> {
             User u = h.boundUser;
@@ -700,9 +672,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             }
         }
 
-        if (h.callButtonsView != null) {
-            h.callButtonsView.setVisibility(isSelecting ? View.GONE : View.VISIBLE);
-        }
+        // v243: call-buttons view removed from item_chat.xml — visibility
+        // toggle removed too.
     }
 
     /**
@@ -1018,7 +989,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         ChatRowContentView lastMessageView;
         ChatListUnreadBadgeView unreadBadgeView;
         ChatListStoryRingView   storyRingView;
-        ChatListCallButtonsView callButtonsView;
+        // v243: callButtonsView field removed (view no longer in item_chat.xml).
         // unchanged
         CircleImageView ivAvatar;
         android.widget.ImageView ivCheck;
@@ -1042,7 +1013,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             lastMessageView = rowContent;
             unreadBadgeView = v.findViewById(R.id.view_unread_badge);
             storyRingView   = v.findViewById(R.id.view_story_ring);
-            callButtonsView = v.findViewById(R.id.view_call_buttons);
+            // v243: call-buttons view removed from item_chat.xml.
             ivAvatar        = v.findViewById(R.id.iv_avatar);
             flSelectOverlay = v.findViewById(R.id.fl_select_overlay);
             ivCheck         = v.findViewById(R.id.iv_check);
