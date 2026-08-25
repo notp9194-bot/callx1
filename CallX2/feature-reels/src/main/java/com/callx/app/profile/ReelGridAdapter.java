@@ -416,14 +416,15 @@ package com.callx.app.profile;
           this.precomputedCellHeightPx = computeCellHeightPx(context);
       }
 
-      /** Cell width = screen width split across GRID_SPAN_COUNT columns (matching
-       *  WhiteGridDecoration's gutter), height = that width at a 16:9 ratio —
-       *  computed once so every cell gets its final height at creation time. */
+       /** Cell width = screen width split across GRID_SPAN_COUNT columns (matching
+        *  WhiteGridDecoration's gutter), height = that width at a 4:5 portrait
+        *  ratio — the familiar TikTok profile-grid silhouette. Computed once so
+        *  every cell gets its final height at creation time. */
       private static int computeCellHeightPx(Context ctx) {
           android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
           int spacingPx  = Math.round(2 * dm.density); // matches WhiteGridDecoration
           int cellWidthPx = (dm.widthPixels - spacingPx * (GRID_SPAN_COUNT + 1)) / GRID_SPAN_COUNT;
-          return Math.round(cellWidthPx * 16f / 9f);
+          return Math.round(cellWidthPx * 1.25f);
       }
 
       /** Optional — enables the long-press "peek" mini preview popup's dismiss callback. */

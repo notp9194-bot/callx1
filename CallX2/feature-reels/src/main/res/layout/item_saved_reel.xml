@@ -6,7 +6,7 @@
        cells an extra shadow draw pass (outline + stencil) per frame during
        scroll for zero visible result. clipToOutline stays: that's the
        rounded-corner clip, unrelated to the shadow. -->
-  <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+   <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
       android:layout_width="match_parent"
       android:layout_height="wrap_content"
       android:background="@drawable/bg_reel_grid_cell"
@@ -16,15 +16,22 @@
           android:layout_width="match_parent" android:layout_height="match_parent"
           android:minHeight="160dp" android:scaleType="centerCrop"
           android:contentDescription="Reel thumbnail"/>
-       <!-- The play affordance sits in the top-right, like the reference card. -->
+        <!-- Soft lower scrim keeps the play count legible on bright footage. -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="58dp"
+            android:layout_gravity="bottom"
+            android:background="@drawable/gradient_profile_reel_bottom"/>
+
+        <!-- TikTok-style play affordance + views sit together at bottom-left. -->
        <ImageView
            android:id="@+id/iv_play_overlay"
-           android:layout_width="27dp"
-           android:layout_height="27dp"
-           android:layout_gravity="top|end"
-           android:layout_marginTop="7dp"
-           android:layout_marginEnd="7dp"
-           android:padding="4dp"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_gravity="bottom|start"
+            android:layout_marginStart="7dp"
+            android:layout_marginBottom="7dp"
+            android:padding="2dp"
            android:src="@drawable/ic_play_rounded"
            android:tint="#FFFFFFFF"
            android:contentDescription="Play reel"/>
@@ -34,23 +41,23 @@
            android:id="@+id/tv_views_overlay"
            android:layout_width="wrap_content"
            android:layout_height="wrap_content"
-           android:layout_gravity="bottom|end"
-           android:layout_marginEnd="6dp"
+            android:layout_gravity="bottom|start"
+            android:layout_marginStart="30dp"
            android:layout_marginBottom="6dp"
-           android:background="@drawable/bg_reel_views_pill"
+            android:background="@android:color/transparent"
            android:drawableStart="@drawable/ic_reel_views_small"
            android:drawablePadding="2dp"
            android:gravity="center"
-           android:minHeight="20dp"
-           android:paddingStart="5dp"
-           android:paddingEnd="6dp"
-           android:paddingTop="2dp"
-           android:paddingBottom="2dp">
+            android:minHeight="22dp"
+            android:paddingStart="0dp"
+            android:paddingEnd="2dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp">
            android:singleLine="true"
            android:includeFontPadding="false"
            android:text="0"
            android:textColor="#FFFFFFFF"
-           android:textSize="9sp"
+            android:textSize="10sp"
            android:textStyle="bold"
            android:fontFamily="sans-serif-medium"
            android:contentDescription="Views"/>
