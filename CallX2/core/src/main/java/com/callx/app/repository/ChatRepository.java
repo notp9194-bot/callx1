@@ -231,6 +231,59 @@ public class ChatRepository {
      * `inserted < pageSize` to decide endOfPaginationReached (fewer rows than
      * requested means Firebase has no more history above this point).
      */
+    /**
+     * TELEGRAM-LEVEL FIX: bootstrap fetch for when {@link MessageRemoteMediator}'s
+     * PREPEND runs with NOTHING loaded in Room yet for this chat — the exact
+     * situation right after an uninstall+reinstall+relogin (Room is a brand
+     * new empty database) combined with Paging3's own automatic prefetch,
+     * which can fire a PREPEND probe before {@link #syncMessagesDelta}'s
+     * async Firebase call has had a chance to land.
+     *
+     * Previously that "nothing loaded yet" case was read as "no older
+     * history exists on the server" and permanently marked
+     * endOfPaginationReached=true for the rest of that chat screen's
+     * session — so scrolling up after a fresh install silently showed
+     * nothing beyond whatever first page happened to arrive, exactly like
+     * the reported bug. This fetches the newest window directly from
+     * Firebase (same query syncMessagesDelta uses for a first-ever sync)
+     * so PREPEND always gets a real, current answer instead of guessing
+     * "empty" from a Room table that just hasn't caught up yet.
+     */
+    public io.reactivex.rxjava3.core.Single<Integer> fetchInitialMessagesFromFirebase(
+            String chatId, int pageSize) {
+        return io.reactivex.rxjava3.core.Single.<Integer>create(emitter -> {
+            Query query = mFirebase.getReference("messages")
+                    .child(chatId)
+                    .orderByChild("timestamp")
+                    .limitToLast(pageSize);
+
+            query.addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override
+                public void onDataChange(DataSnapshot snapshot) {
+                    List<MessageEntity> initial = new ArrayList<>();
+                    for (DataSnapshot child : snapshot.getChildren()) {
+                        Message m = child.getValue(Message.class);
+                        if (m == null) continue;
+                        if (m.id == null) m.id = child.getKey();
+                        initial.add(toEntity(m, chatId));
+                    }
+                    mExecutor.execute(() -> {
+                        if (!initial.isEmpty()) {
+                            mDb.messageDao().insertMessages(initial);
+                            mCache.invalidateMessages(chatId);
+                        }
+                        if (!emitter.isDisposed()) emitter.onSuccess(initial.size());
+                    });
+                }
+
+                @Override
+                public void onCancelled(DatabaseError error) {
+                    if (!emitter.isDisposed()) emitter.onError(error.toException());
+                }
+            });
+        }).subscribeOn(io.reactivex.rxjava3.schedulers.Schedulers.io());
+    }
+
     public io.reactivex.rxjava3.core.Single<Integer> fetchOlderMessagesFromFirebase(
             String chatId, long beforeTimestamp, int pageSize) {
         return io.reactivex.rxjava3.core.Single.<Integer>create(emitter -> {

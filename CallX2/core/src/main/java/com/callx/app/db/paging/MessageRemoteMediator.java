@@ -70,9 +70,22 @@ public class MessageRemoteMediator extends RxRemoteMediator<MessageCursor, Messa
         // so we know where to ask Firebase to continue from.
         MessageEntity oldestLoaded = state.firstItemOrNull();
         if (oldestLoaded == null || oldestLoaded.timestamp == null) {
-            // Nothing loaded yet to anchor from — let the local PagingSource
-            // handle the initial page; nothing for the network to do yet.
-            return Single.just(new MediatorResult.Success(true));
+            // ROOT-CAUSE FIX (uninstall+reinstall+relogin — old messages never
+            // load on scroll): this used to report Success(true), i.e. "no
+            // older history on the server". That's wrong here — it only means
+            // Room hasn't loaded anything YET, which is exactly the state
+            // right after a fresh install (empty Room) the instant Paging3's
+            // own prefetch fires an early PREPEND probe, before
+            // syncMessagesDelta()'s async Firebase call lands. A RemoteMediator's
+            // endOfPaginationReached is sticky for the rest of this Pager's
+            // life — declaring it here permanently blocked every future
+            // prepend for the whole chat-screen session, even after messages
+            // did arrive. Bootstrap directly from Firebase instead, so this
+            // always resolves against real server data rather than an empty
+            // local table that just hasn't caught up.
+            return repository.fetchInitialMessagesFromFirebase(chatId, pageSize)
+                    .map(insertedCount -> (MediatorResult) new MediatorResult.Success(insertedCount == 0))
+                    .onErrorReturn(MediatorResult.Error::new);
         }
 
         return repository.fetchOlderMessagesFromFirebase(chatId, oldestLoaded.timestamp, pageSize)
