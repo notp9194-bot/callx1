@@ -126,7 +126,7 @@ public class UserReelsActivity extends AppCompatActivity
     private final Handler   storyRingHandler = new Handler(Looper.getMainLooper());
     private Runnable        storyRingRevealRunnable;
     private android.animation.ValueAnimator storyRingRevealAnimator;
-    private TextView        tvName, tvDisplayName, tvReelCount, tvFollowers, tvFollowing, tvBio;
+    private TextView        tvName, tvDisplayName, tvTotalLikes, tvFollowers, tvFollowing, tvBio;
     private TextView        tvMutualFollowers;
     private LinearLayout    layoutMutualFollowers;
     private CircleImageView ivMutual1, ivMutual2, ivMutual3;
@@ -390,7 +390,7 @@ public class UserReelsActivity extends AppCompatActivity
     // ── Realtime update helpers (self only) ───────────────────────────────
     /** Skip the silent grid refresh on the very first onResume (right after onCreate). */
     private boolean isFirstResume = true;
-    /** Persistent count listener — auto-updates tvReelCount whenever a reel is added/removed. */
+    /** Persistent count listener — auto-updates tvTotalLikes whenever a reel is added/removed/edited. */
     private ValueEventListener reelCountLiveListener = null;
 
     private ReelModel         pinnedReel = null;
@@ -536,7 +536,7 @@ public class UserReelsActivity extends AppCompatActivity
         }
         tvName               = findViewById(R.id.tv_name);
         tvDisplayName        = findViewById(R.id.tv_display_name);
-        tvReelCount          = findViewById(R.id.tv_reel_count);
+        tvTotalLikes         = findViewById(R.id.tv_total_likes);
         tvFollowers          = findViewById(R.id.tv_followers);
         tvFollowing          = findViewById(R.id.tv_following);
         tvBio                = findViewById(R.id.tv_bio);
@@ -3910,13 +3910,22 @@ public class UserReelsActivity extends AppCompatActivity
 
     // ── HD Avatar loader (permanently cached) ────────────────────────────────
     /**
-     * Always loads photoUrl at HD quality (720×720) — no low-res fallback.
+     * Loads photoUrl decoded at ivAvatar's actual on-screen size — no fixed
+     * oversized override. ivAvatar is a fixed 92dp x 92dp view (see
+     * activity_user_reels.xml), so a hardcoded override(720,720) was decoding
+     * ~4x more pixels than any screen density ever displays (92dp is ~368px
+     * even at xxxhdpi/4.0x) — wasted decode time + wasted memory per bitmap,
+     * multiplied by every profile visited this session.
+     *
+     * Not calling .override() here lets Glide size the decode to ivAvatar's
+     * actual measured/layout dimensions (converted to the right px count for
+     * the device's density automatically) — sharp at every density, without
+     * over-decoding.
      *
      * Caching strategy:
      *  • DiskCacheStrategy.ALL  → source file + decoded bitmap both cached on disk permanently.
      *  • skipMemoryCache(false) → decoded bitmap also lives in LRU memory cache.
      *  • On revisit: zero network — instant display from memory or disk cache.
-     *  • override(720,720)      → HD decode, sharp even on xxxhdpi screens.
      *
      * Called from loadAvatarAndStartAnimation() after Firebase returns photoUrl.
      */
@@ -3927,10 +3936,9 @@ public class UserReelsActivity extends AppCompatActivity
             .load(photoUrl)
             .circleCrop()
             .diskCacheStrategy(DiskCacheStrategy.ALL)      // source + decoded bitmap permanently cached
-            .override(720, 720)                            // HD always — xxxhdpi pe bhi sharp
             .placeholder(R.drawable.ic_person)
             .skipMemoryCache(false)                        // memory cache active — revisit pe instant display
-            .into(ivAvatar);
+            .into(ivAvatar);                               // no override() — decodes at ivAvatar's actual 92dp size
     }
 
     private void loadAvatarAndStartAnimation() {
@@ -4653,9 +4661,7 @@ public class UserReelsActivity extends AppCompatActivity
                 if (url != null && !url.isEmpty() && ivAvatar != null) {
                     targetPhoto = url;
                     Glide.with(UserReelsActivity.this).load(url).circleCrop()
-                        .override(240, 240)
-                        .placeholder(R.drawable.ic_person).into(ivAvatar);
-                }
+                        .placeholder(R.drawable.ic_person).into(ivAvatar); // decodes at ivAvatar's actual 92dp size, not a fixed override
                 // Bio / about
                 if (cached.about != null && !cached.about.isEmpty() && tvBio != null) {
                     tvBio.setText(cached.about);
@@ -4802,8 +4808,7 @@ public class UserReelsActivity extends AppCompatActivity
                     targetPhoto = photo;
                     String displayPhoto = (photoThumb != null && !photoThumb.isEmpty()) ? photoThumb : photo;
                     Glide.with(UserReelsActivity.this).load(displayPhoto).circleCrop()
-                        .override(240, 240)
-                        .placeholder(R.drawable.ic_person).into(ivAvatar);
+                        .placeholder(R.drawable.ic_person).into(ivAvatar); // decodes at ivAvatar's actual 92dp size, not a fixed override
                 }
 
                 // Bio
@@ -5244,17 +5249,23 @@ public class UserReelsActivity extends AppCompatActivity
 
 
     /**
-     * ✅ Instagram approach: persistent ValueEventListener so the reel count
-     * updates in real-time whenever a reel is added/removed — no manual
-     * re-query needed after upload. Listener is removed in onDestroy.
+     * ✅ Instagram approach: persistent ValueEventListener so the total-likes
+     * stat updates in real-time whenever a reel is added/removed/liked — no
+     * manual re-query needed after upload or a like. Sums `likesCount` across
+     * every reel node under this user. Listener is removed in onDestroy.
      */
     private void loadReelCount() {
         if (reelCountLiveListener != null) return; // already attached
         DatabaseReference ref = FirebaseUtils.getReelsByUserRef(targetUid);
         reelCountLiveListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                if (tvReelCount != null)
-                    tvReelCount.setText(String.valueOf(snap.getChildrenCount()));
+                if (tvTotalLikes == null) return;
+                long totalLikes = 0;
+                for (DataSnapshot child : snap.getChildren()) {
+                    Long likes = child.child("likesCount").getValue(Long.class);
+                    if (likes != null) totalLikes += likes;
+                }
+                tvTotalLikes.setText(String.valueOf(totalLikes));
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
@@ -5364,7 +5375,7 @@ public class UserReelsActivity extends AppCompatActivity
      * ✅ Instagram approach: on every resume AFTER the first (i.e. returning
      * from upload, camera, player, settings…), silently check if new reels
      * were uploaded and prepend them to the grid — no skeleton flash, no full
-     * reload. The persistent count listener already keeps tvReelCount live.
+     * reload. The persistent count listener already keeps tvTotalLikes live.
      */
     @Override
     protected void onResume() {

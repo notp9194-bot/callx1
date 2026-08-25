@@ -167,26 +167,28 @@
                             android:maxLines="1" android:ellipsize="end"/>
                     </LinearLayout>
 
-                    <!-- Stats: Reels | Followers | Following -->
+                    <!-- Stats: Following | Followers | Likes -->
                     <LinearLayout
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:orientation="horizontal"
                         android:gravity="center">
 
-                        <!-- Reels count -->
-                        <LinearLayout
+                        <!-- Following count (clickable) -->
+                        <LinearLayout android:id="@+id/layout_following_click"
                             android:layout_width="0dp" android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:orientation="vertical"
-                            android:gravity="center">
-                            <TextView android:id="@+id/tv_reel_count"
+                            android:gravity="center"
+                            android:clickable="true" android:focusable="true"
+                            android:foreground="?attr/selectableItemBackground">
+                            <TextView android:id="@+id/tv_following"
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="0"
                                 android:textSize="17sp"
                                 android:fontFamily="sans-serif-bold"
                                 android:textColor="?attr/colorOnSurface"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="Reels"
+                                android:text="Following"
                                 android:textSize="12sp"
                                 android:textColor="?attr/colorOnSurfaceVariant"/>
                         </LinearLayout>
@@ -211,22 +213,20 @@
                                 android:textColor="?attr/colorOnSurfaceVariant"/>
                         </LinearLayout>
 
-                        <!-- Following count (clickable) -->
-                        <LinearLayout android:id="@+id/layout_following_click"
+                        <!-- Total likes (sum of likesCount across all of this user's reels) -->
+                        <LinearLayout
                             android:layout_width="0dp" android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:orientation="vertical"
-                            android:gravity="center"
-                            android:clickable="true" android:focusable="true"
-                            android:foreground="?attr/selectableItemBackground">
-                            <TextView android:id="@+id/tv_following"
+                            android:gravity="center">
+                            <TextView android:id="@+id/tv_total_likes"
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="0"
                                 android:textSize="17sp"
                                 android:fontFamily="sans-serif-bold"
                                 android:textColor="?attr/colorOnSurface"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="Following"
+                                android:text="Likes"
                                 android:textSize="12sp"
                                 android:textColor="?attr/colorOnSurfaceVariant"/>
                         </LinearLayout>
@@ -352,10 +352,15 @@
                 android:foreground="?attr/selectableItemBackground"
                 android:visibility="gone">
 
+                <!-- Reused from the grid thumbnail's top-right play affordance
+                     (item_saved_reel.xml#iv_play_overlay, ic_play_rounded) so
+                     the pill's play glyph matches the modern rounded style
+                     used everywhere else in the reels grid instead of the
+                     older sharp-triangle ic_play. -->
                 <ImageView
                     android:layout_width="14dp"
                     android:layout_height="14dp"
-                    android:src="@drawable/ic_play"
+                    android:src="@drawable/ic_play_rounded"
                     android:tint="?attr/colorOnSurface"
                     android:layout_marginEnd="6dp"
                     android:contentDescription="Now playing"/>
@@ -838,7 +843,7 @@
 
         </LinearLayout>
 
-        <!-- ── CHILD 2: TabLayout — pinned (noScroll), sticks below top nav once header collapses ── -->
+        <!-- ── CHILD 2: TabLayout (noScroll) — pins once header collapses ── -->
         <com.google.android.material.tabs.TabLayout
             android:id="@+id/tab_layout"
             android:layout_width="match_parent"
