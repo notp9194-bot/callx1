@@ -656,6 +656,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                             String u = snap.child(key).getValue(String.class);
                             if (u != null && !u.isEmpty()) { soundUrl = u; break; }
                         }
+                        refreshTrimButtonVisibility();
                     }
                     if (previewAudioUrl.isEmpty()) {
                         String pu = snap.child("previewAudioUrl").getValue(String.class);
@@ -711,6 +712,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                     if (soundUrl.isEmpty()) {
                         String u = snap.child("audioUrl").getValue(String.class);
                         if (u != null && !u.isEmpty()) soundUrl = u;
+                        refreshTrimButtonVisibility();
                     }
                     if (previewAudioUrl.isEmpty()) {
                         String pu = snap.child("previewAudioUrl").getValue(String.class);
@@ -1256,6 +1258,22 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     // Click listeners
     // ─────────────────────────────────────────────────────────────────────────
 
+    /**
+     * ✂ Re-checks whether the "Set Start Point" trim chip should show.
+     *
+     * Bug fix: btnTrimStart's visibility used to be decided ONCE, synchronously,
+     * in setupClickListeners() — right when soundUrl might still be empty for
+     * screens opened with only a soundId (e.g. deep links), since the real
+     * audioUrl only arrives later via loadSoundData()'s async Firebase callback.
+     * That's why the chip showed up fine when opened as a sheet (soundUrl passed
+     * in directly) but never appeared on the full-screen entry that resolves the
+     * URL afterwards. Calling this again once soundUrl is actually known fixes it.
+     */
+    private void refreshTrimButtonVisibility() {
+        if (btnTrimStart == null || isGone()) return;
+        btnTrimStart.setVisibility(soundUrl != null && !soundUrl.isEmpty() ? View.VISIBLE : View.GONE);
+    }
+
     private void setupClickListeners() {
         // Close: Activity → finish(), Sheet → dismiss() — callback handles it
         if (btnBack != null) btnBack.setOnClickListener(v -> {
@@ -1285,12 +1303,14 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
 
         // ✂ Trim chip — was left unwired after the UI rework; sound has a URL to trim
         if (btnTrimStart != null) {
-            btnTrimStart.setVisibility(soundUrl != null && !soundUrl.isEmpty() ? View.VISIBLE : View.GONE);
+            refreshTrimButtonVisibility();
             btnTrimStart.setOnClickListener(v -> {
                 if (isGone()) return;
                 Intent i = new Intent(requireContext(), com.callx.app.editor.ReelMusicTrimActivity.class);
                 i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_ID,       soundId);
                 i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_TITLE,    soundTitle);
+                i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_ARTIST,   artist);
+                i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_COVER,    coverUrl);
                 i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_URL,      soundUrl);
                 i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_DURATION_MS,    durationMs);
                 startActivityForResult(i, REQUEST_TRIM_SOUND);
