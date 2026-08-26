@@ -30,6 +30,13 @@
            android:contentDescription="Play reel"/>
 
        <!-- Views are intentionally the only bottom overlay: no title or duration. -->
+       <!-- NOTE: was previously malformed (tag closed early with ">" then
+            singleLine/text/textColor/etc. sat as stray text instead of real
+            attributes) — those attributes were silently never applied.
+            Fixed into one well-formed self-closing tag below. textColor and
+            the icon's drawableTint now resolve @color/reel_grid_views_text,
+            which flips light/dark via values-night/colors.xml, to match
+            the theme-aware bg_reel_views_pill (drawable/ + drawable-night/). -->
        <TextView
            android:id="@+id/tv_views_overlay"
            android:layout_width="wrap_content"
@@ -39,22 +46,22 @@
            android:layout_marginBottom="6dp"
            android:background="@drawable/bg_reel_views_pill"
            android:drawableStart="@drawable/ic_reel_views_small"
+           android:drawableTint="@color/reel_grid_views_text"
            android:drawablePadding="2dp"
            android:gravity="center"
            android:minHeight="20dp"
            android:paddingStart="5dp"
            android:paddingEnd="6dp"
            android:paddingTop="2dp"
-           android:paddingBottom="2dp">
+           android:paddingBottom="2dp"
            android:singleLine="true"
            android:includeFontPadding="false"
            android:text="0"
-           android:textColor="#FFFFFFFF"
+           android:textColor="@color/reel_grid_views_text"
            android:textSize="9sp"
            android:textStyle="bold"
            android:fontFamily="sans-serif-medium"
            android:contentDescription="Views"/>
-       </TextView>
       <View android:id="@+id/view_dim_overlay"
           android:layout_width="match_parent" android:layout_height="match_parent"
           android:background="#44000000" android:visibility="gone"/>

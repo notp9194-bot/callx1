@@ -35,6 +35,12 @@
     <!-- Reel grid gutter — black in dark mode, Instagram-style. -->
     <color name="reel_grid_gutter">#000000</color>
 
+    <!-- Grid thumbnail views-count pill (item_saved_reel.xml) — Dark Mode.
+         Pill lightens to a frosted white-ish chip (see drawable-night/
+         bg_reel_views_pill.xml) so text/icon flip to a dark tone here for
+         contrast, instead of staying always-white like light mode. -->
+    <color name="reel_grid_views_text">#FF1D251E</color>
+
     <!-- "View All Reels" pill button (UserReelsActivity) — same solid
          black + green look as light mode, intentional (see values/colors.xml). -->
     <color name="view_all_reels_bg">#0D0D0D</color>

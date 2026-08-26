@@ -340,8 +340,8 @@
                 <ImageView
                     android:layout_width="14dp"
                     android:layout_height="14dp"
-                    android:src="@drawable/ic_waveform_mini"
-                    android:tint="?attr/colorOnSurface"
+                    android:src="@drawable/ic_play_rounded"
+                    android:tint="@color/trim_gradient_end"
                     android:layout_marginEnd="6dp"
                     android:contentDescription="Now playing"/>
 
@@ -356,6 +356,13 @@
                     android:maxLines="1"
                     android:ellipsize="end"
                     android:text="Song name..."/>
+
+                <ImageView
+                    android:layout_width="13dp"
+                    android:layout_height="13dp"
+                    android:src="@drawable/ic_waveform_mini"
+                    android:layout_marginStart="6dp"
+                    android:contentDescription="Now playing"/>
             </LinearLayout>
 
             <!-- ── isSelf: empty song stub pill — tap to add a song ──
