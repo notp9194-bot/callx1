@@ -1,11 +1,15 @@
 package com.callx.app.music;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ValueAnimator;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.AccelerateDecelerateInterpolator;
 import android.widget.FrameLayout;
 
 import androidx.annotation.NonNull;
@@ -77,6 +81,8 @@ public class SoundDetailSheetFragment extends BottomSheetDialogFragment {
 
     // Peek-hint nudge — see onStart()
     private final Handler nudgeHandler = new Handler(Looper.getMainLooper());
+    private ValueAnimator nudgeUpAnimator;
+    private ValueAnimator nudgeDownAnimator;
 
     // ─────────────────────────────────────────────────────────────────────────
     // View — sirf ek container FrameLayout chahiye
@@ -148,36 +154,66 @@ public class SoundDetailSheetFragment extends BottomSheetDialogFragment {
         behavior.setSkipCollapsed(false); // 60% state zaroor dikhao
         behavior.setState(BottomSheetBehavior.STATE_COLLAPSED); // pehle 60%
 
-        // Peek-hint nudge: sheet khulte hi thodi der baad khud-ba-khud
-        // 80% tak upar jaake wapas 60% pe aa jaati hai — is se user ko pata
-        // chalta hai ki neeche aur content hai (Reels with this sound grid)
-        // bina unhe khud drag kiye. Agar user khud drag karna shuru kar de
-        // to nudge turant cancel ho jaata hai (naturally interrupt).
+        // Peek-hint nudge: sheet khulte hi 2 second baad khud-ba-khud
+        // thoda upar peek karke wapas apni jagah aa jaati hai — is se user
+        // ko pata chalta hai ki neeche aur content hai (Reels with this
+        // sound grid) bina unhe khud drag kiye. Behavior.setState() se
+        // seedha EXPANDED pe jump karne ki jagah, yahan peekHeight ko khud
+        // ValueAnimator se smoothly animate kiya ja raha hai — isse motion
+        // ek gentle ease ke saath hota hai, abrupt snap nahi. Agar user
+        // khud drag karna shuru kar de to nudge turant cancel ho jaata hai.
         behavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
             @Override public void onStateChanged(@NonNull View bottomSheet, int newState) {
                 if (newState == BottomSheetBehavior.STATE_DRAGGING) {
-                    nudgeHandler.removeCallbacksAndMessages(null);
+                    cancelNudge();
                 }
             }
             @Override public void onSlide(@NonNull View bottomSheet, float slideOffset) { }
         });
 
+        int peekCollapsed = (int)(screenH * 0.60f);
+        int peekNudged    = (int)(screenH * 0.72f); // gentle upward peek — enough to hint at the grid, not a full expand
+
         nudgeHandler.postDelayed(() -> {
             if (!isAdded() || getDialog() == null) return;
             if (behavior.getState() != BottomSheetBehavior.STATE_COLLAPSED) return;
-            behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-            nudgeHandler.postDelayed(() -> {
+
+            nudgeUpAnimator = ValueAnimator.ofInt(peekCollapsed, peekNudged);
+            nudgeUpAnimator.setDuration(450);
+            nudgeUpAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
+            nudgeUpAnimator.addUpdateListener(anim -> {
                 if (!isAdded() || getDialog() == null) return;
-                if (behavior.getState() == BottomSheetBehavior.STATE_EXPANDED) {
-                    behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+                behavior.setPeekHeight((int) anim.getAnimatedValue(), false);
+            });
+            nudgeUpAnimator.addListener(new AnimatorListenerAdapter() {
+                @Override public void onAnimationEnd(@NonNull Animator animation) {
+                    if (!isAdded() || getDialog() == null) return;
+                    if (behavior.getState() != BottomSheetBehavior.STATE_COLLAPSED) return;
+
+                    nudgeDownAnimator = ValueAnimator.ofInt(peekNudged, peekCollapsed);
+                    nudgeDownAnimator.setDuration(450);
+                    nudgeDownAnimator.setStartDelay(400); // brief hold at the nudged height
+                    nudgeDownAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
+                    nudgeDownAnimator.addUpdateListener(anim2 -> {
+                        if (!isAdded() || getDialog() == null) return;
+                        behavior.setPeekHeight((int) anim2.getAnimatedValue(), false);
+                    });
+                    nudgeDownAnimator.start();
                 }
-            }, 550);
-        }, 450);
+            });
+            nudgeUpAnimator.start();
+        }, 2000);
+    }
+
+    private void cancelNudge() {
+        nudgeHandler.removeCallbacksAndMessages(null);
+        if (nudgeUpAnimator != null)   nudgeUpAnimator.cancel();
+        if (nudgeDownAnimator != null) nudgeDownAnimator.cancel();
     }
 
     @Override
     public void onStop() {
         super.onStop();
-        nudgeHandler.removeCallbacksAndMessages(null);
+        cancelNudge();
     }
 }

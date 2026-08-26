@@ -26,6 +26,10 @@
     <color name="sound_detail_text_light">#1A1A1A</color>
     <color name="sound_detail_subtext_light">#666666</color>
     <color name="sound_detail_button_light">#E8E8E8</color>
+    <!-- "Use with Video" accent — darker green for contrast on the light
+         button background (sound_detail_button_light #E8E8E8). See
+         values-night for the brighter dark-mode shade. -->
+    <color name="sound_detail_video_accent">#1DB954</color>
     
     <!-- Common Colors -->
     <color name="white">#FFFFFF</color>

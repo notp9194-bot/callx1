@@ -145,8 +145,8 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private TextView     tvSoundTitle, tvArtist, tvDuration, tvReelCount,
                          tvTrendingRank, tvSavesCount, tvBpm, tvGenre,
                          tvOriginalBadge, tvIsVerified;
-    private TextView     btnUseSoundCamera, btnUseSoundGallery, btnTrimStart, tvAddToProfile;
-    private View         btnAddToProfile;
+    private TextView     tvAddToProfile;
+    private View         btnUseSoundCamera, btnUseSoundGallery, btnAddToProfile;
     private ImageView    ivSoundCover, ivDiscRing;
     private RecyclerView rvReels, rvRelated;
     private ProgressBar  progressBar, progressReelsPagination;
@@ -298,9 +298,6 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         if (requestCode == REQUEST_TRIM_SOUND && resultCode == android.app.Activity.RESULT_OK && data != null) {
             trimStartMs = data.getIntExtra(com.callx.app.editor.ReelMusicTrimActivity.RESULT_START_MS, 0);
             trimEndMs   = data.getIntExtra(com.callx.app.editor.ReelMusicTrimActivity.RESULT_END_MS, durationMs);
-            if (btnTrimStart != null && !isGone()) {
-                btnTrimStart.setText("✂ " + formatMs(trimStartMs) + " – " + formatMs(trimEndMs));
-            }
             // ✅ FIX: after trim dialog, auto-launch the pending destination
             int target = pendingUseTarget;
             pendingUseTarget = -1;
@@ -412,7 +409,6 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         tvIsVerified      = v.findViewById(R.id.tv_sound_verified_badge);
         btnUseSoundCamera = v.findViewById(R.id.btn_use_sound_camera);
         btnUseSoundGallery= v.findViewById(R.id.btn_use_sound_gallery);
-        btnTrimStart      = v.findViewById(R.id.btn_trim_start);
         btnAddToProfile   = v.findViewById(R.id.btn_add_to_profile);
         tvAddToProfile    = v.findViewById(R.id.tv_add_to_profile);
         ivSoundCover      = v.findViewById(R.id.iv_sound_cover);
@@ -542,9 +538,9 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         if (ivSoundCover == null || isGone()) return;
         // Rounded-square crop now that the cover is a larger, static
         // screenshot-style thumbnail (previously CircleCrop, when this was
-        // a small spinning vinyl disc). Radius bumped 14dp -> 20dp for a
-        // noticeably more rounded corner on the taller cover.
-        int radiusPx = Math.round(20 * getResources().getDisplayMetrics().density);
+        // a small spinning vinyl disc). Radius bumped 14dp -> 20dp -> 28dp
+        // for a noticeably more rounded corner as the cover was sized down.
+        int radiusPx = Math.round(28 * getResources().getDisplayMetrics().density);
         if (url != null && !url.isEmpty()) {
             Glide.with(requireContext()).load(url)
                 .transform(new RoundedCorners(radiusPx))
@@ -680,7 +676,6 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                             String u = snap.child(key).getValue(String.class);
                             if (u != null && !u.isEmpty()) { soundUrl = u; break; }
                         }
-                        refreshTrimButtonVisibility();
                     }
                     if (previewAudioUrl.isEmpty()) {
                         String pu = snap.child("previewAudioUrl").getValue(String.class);
@@ -736,7 +731,6 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                     if (soundUrl.isEmpty()) {
                         String u = snap.child("audioUrl").getValue(String.class);
                         if (u != null && !u.isEmpty()) soundUrl = u;
-                        refreshTrimButtonVisibility();
                     }
                     if (previewAudioUrl.isEmpty()) {
                         String pu = snap.child("previewAudioUrl").getValue(String.class);
@@ -1282,22 +1276,6 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     // Click listeners
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * ✂ Re-checks whether the "Set Start Point" trim chip should show.
-     *
-     * Bug fix: btnTrimStart's visibility used to be decided ONCE, synchronously,
-     * in setupClickListeners() — right when soundUrl might still be empty for
-     * screens opened with only a soundId (e.g. deep links), since the real
-     * audioUrl only arrives later via loadSoundData()'s async Firebase callback.
-     * That's why the chip showed up fine when opened as a sheet (soundUrl passed
-     * in directly) but never appeared on the full-screen entry that resolves the
-     * URL afterwards. Calling this again once soundUrl is actually known fixes it.
-     */
-    private void refreshTrimButtonVisibility() {
-        if (btnTrimStart == null || isGone()) return;
-        btnTrimStart.setVisibility(soundUrl != null && !soundUrl.isEmpty() ? View.VISIBLE : View.GONE);
-    }
-
     private void setupClickListeners() {
         // Close: Activity → finish(), Sheet → dismiss() — callback handles it
         if (btnBack != null) btnBack.setOnClickListener(v -> {
@@ -1324,22 +1302,6 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             if (isGone()) return;
             showUseTypeDialog(1 /* gallery */);
         });
-
-        // ✂ Trim chip — was left unwired after the UI rework; sound has a URL to trim
-        if (btnTrimStart != null) {
-            refreshTrimButtonVisibility();
-            btnTrimStart.setOnClickListener(v -> {
-                if (isGone()) return;
-                Intent i = new Intent(requireContext(), com.callx.app.editor.ReelMusicTrimActivity.class);
-                i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_ID,       soundId);
-                i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_TITLE,    soundTitle);
-                i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_ARTIST,   artist);
-                i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_COVER,    coverUrl);
-                i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_URL,      soundUrl);
-                i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_DURATION_MS,    durationMs);
-                startActivityForResult(i, REQUEST_TRIM_SOUND);
-            });
-        }
 
         if (btnMore != null) btnMore.setOnClickListener(v -> showMoreMenu());
 
@@ -1372,10 +1334,15 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         popup.getMenu().add(0, 4, 3, "Not interested");
         popup.getMenu().add(0, 7, 4, "🔍 Search Sounds");
         popup.getMenu().add(0, 8, 5, "🎚 Remix this Sound");
+        // ✂ Set Start Point — moved here from the on-screen chip; sound has a
+        // URL to trim (same condition the old chip used to decide visibility)
+        if (soundUrl != null && !soundUrl.isEmpty()) {
+            popup.getMenu().add(0, 9, 6, "✂ Set Start Point");
+        }
         String myUid = FirebaseUtils.getCurrentUid();
         if (myUid != null && myUid.equals(creatorUid)) {
-            popup.getMenu().add(0, 5, 6, "Upload Sound");
-            popup.getMenu().add(0, 6, 7, "View Analytics");
+            popup.getMenu().add(0, 5, 7, "Upload Sound");
+            popup.getMenu().add(0, 6, 8, "View Analytics");
         }
         popup.setOnMenuItemClickListener(item -> {
             switch (item.getItemId()) {
@@ -1395,15 +1362,30 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                 case 7: startActivity(new Intent(requireContext(), SoundSearchActivity.class)); return true;
                 case 8: { Intent i = new Intent(requireContext(), SoundRemixActivity.class);
                     i.putExtra(SoundRemixActivity.EXTRA_SOUND_A_ID,    soundId);
-                    i.putExtra(SoundRemixActivity.EXTRA_SOUND_A_TITLE, soundTitle);
                     i.putExtra(SoundRemixActivity.EXTRA_SOUND_A_URL,   soundUrl);
+                    i.putExtra(SoundRemixActivity.EXTRA_SOUND_A_TITLE, soundTitle);
                     i.putExtra(SoundRemixActivity.EXTRA_SOUND_A_COVER, coverUrl);
                     i.putExtra(SoundRemixActivity.EXTRA_SOUND_A_ARTIST,artist);
                     startActivity(i); return true; }
+                case 9: openTrimSound(); return true;
                 default: return true;
             }
         });
         popup.show();
+    }
+
+    /** ✂ Opens the trim editor — moved here from the on-screen "Set Start
+     *  Point" chip into the 3-dot menu. Same intent/extras as before. */
+    private void openTrimSound() {
+        if (isGone()) return;
+        Intent i = new Intent(requireContext(), com.callx.app.editor.ReelMusicTrimActivity.class);
+        i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_ID,       soundId);
+        i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_TITLE,    soundTitle);
+        i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_ARTIST,   artist);
+        i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_COVER,    coverUrl);
+        i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_SOUND_URL,      soundUrl);
+        i.putExtra(com.callx.app.editor.ReelMusicTrimActivity.EXTRA_DURATION_MS,    durationMs);
+        startActivityForResult(i, REQUEST_TRIM_SOUND);
     }
 
     /** ✅ FIX: "Report sound" used to be a silent no-op — now asks for a reason
