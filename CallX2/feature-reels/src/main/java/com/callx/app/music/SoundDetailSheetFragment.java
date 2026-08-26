@@ -178,6 +178,15 @@ public class SoundDetailSheetFragment extends BottomSheetDialogFragment {
             if (!isAdded() || getDialog() == null) return;
             if (behavior.getState() != BottomSheetBehavior.STATE_COLLAPSED) return;
 
+            // ✅ NEW: peek height ke saath-saath andar ka content bhi
+            // (SoundDetailFragment) upar scroll hota hai, taaki "Reels with
+            // this sound" grid ka hint sirf sheet bade hone se nahi balki
+            // content khud upar aane se bhi mile — jaisa user drag karega.
+            SoundDetailFragment childFrag = getChildDetailFragment();
+            if (childFrag != null) {
+                childFrag.playReelsHintScroll(childFrag.getReelsHintScrollTarget(), 450, 400);
+            }
+
             nudgeUpAnimator = ValueAnimator.ofInt(peekCollapsed, peekNudged);
             nudgeUpAnimator.setDuration(450);
             nudgeUpAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
@@ -205,10 +214,20 @@ public class SoundDetailSheetFragment extends BottomSheetDialogFragment {
         }, 2000);
     }
 
+    /** Sheet ke andar host kiya gaya SoundDetailFragment nikaalta hai. */
+    @Nullable
+    private SoundDetailFragment getChildDetailFragment() {
+        androidx.fragment.app.Fragment f =
+            getChildFragmentManager().findFragmentById(android.R.id.content);
+        return (f instanceof SoundDetailFragment) ? (SoundDetailFragment) f : null;
+    }
+
     private void cancelNudge() {
         nudgeHandler.removeCallbacksAndMessages(null);
         if (nudgeUpAnimator != null)   nudgeUpAnimator.cancel();
         if (nudgeDownAnimator != null) nudgeDownAnimator.cancel();
+        SoundDetailFragment childFrag = getChildDetailFragment();
+        if (childFrag != null) childFrag.cancelReelsHintScroll();
     }
 
     @Override

@@ -40,6 +40,7 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.ListPreloader;
 import com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader;
 import com.bumptech.glide.load.resource.bitmap.CircleCrop;
+import com.bumptech.glide.load.resource.bitmap.CenterCrop;
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.bumptech.glide.request.RequestOptions;
 import androidx.transition.AutoTransition;
@@ -497,6 +498,68 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private boolean isGone() { return !isAdded() || getContext() == null; }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Sheet peek-hint scroll — called by SoundDetailSheetFragment
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private ObjectAnimator hintScrollUp, hintScrollDown;
+
+    /**
+     * ✅ NEW: sheet ke "peek nudge" ke saath saath andar ka content bhi
+     * thoda upar scroll karta hai, taaki "Reels with this sound" grid ka
+     * hint dikhe — bilkul waise jaise user khud finger se scroll karta hai.
+     * Sirf peekHeight badhne se sheet ka container to bada hota tha, lekin
+     * andar ka scroll wahi ka wahi rehta tha — is wajah se grid section
+     * upar nahi aata tha. Public taaki SoundDetailSheetFragment (parent
+     * sheet host) apne nudge timer se ise call kar sake.
+     *
+     * @param targetScrollY kitna scroll karna hai (px) — sheet host apni
+     *                      expanded height ke hisaab se decide karta hai.
+     * @param duration      ek taraf ki animation duration (ms).
+     * @param holdMs        upar pahunch ke kitni der ruk kar wapas aana hai.
+     */
+    /**
+     * "Reels with this sound" header tak scroll karne ke liye target Y (px)
+     * batata hai — sheet host isse peek-nudge ke duration mein use karta
+     * hai. Agar header abhi tak layout/visible nahi hua (reels load ho rahe
+     * hain), to ek reasonable fallback estimate deta hai.
+     */
+    public int getReelsHintScrollTarget() {
+        if (layoutReelsHeader != null && layoutReelsHeader.getVisibility() == View.VISIBLE
+                && layoutReelsHeader.getTop() > 0) {
+            return layoutReelsHeader.getTop();
+        }
+        return Math.round(280 * getResources().getDisplayMetrics().density); // fallback estimate
+    }
+
+    public void playReelsHintScroll(int targetScrollY, long duration, long holdMs) {
+        if (scrollSoundDetail == null || isGone() || targetScrollY <= 0) return;
+        cancelReelsHintScroll();
+
+        int startY = scrollSoundDetail.getScrollY();
+        hintScrollUp = ObjectAnimator.ofInt(scrollSoundDetail, "scrollY", startY, targetScrollY);
+        hintScrollUp.setDuration(duration);
+        hintScrollUp.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+        hintScrollUp.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(@NonNull android.animation.Animator animation) {
+                if (isGone() || scrollSoundDetail == null) return;
+                hintScrollDown = ObjectAnimator.ofInt(scrollSoundDetail, "scrollY",
+                        scrollSoundDetail.getScrollY(), startY);
+                hintScrollDown.setDuration(duration);
+                hintScrollDown.setStartDelay(holdMs);
+                hintScrollDown.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+                hintScrollDown.start();
+            }
+        });
+        hintScrollUp.start();
+    }
+
+    /** User khud drag/scroll kare to nudge turant cancel — sheet host isse call karta hai. */
+    public void cancelReelsHintScroll() {
+        if (hintScrollUp   != null) hintScrollUp.cancel();
+        if (hintScrollDown != null) hintScrollDown.cancel();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Shimmer
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -540,12 +603,24 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         // screenshot-style thumbnail (previously CircleCrop, when this was
         // a small spinning vinyl disc). Radius bumped 14dp -> 20dp -> 28dp
         // for a noticeably more rounded corner as the cover was sized down.
+        //
+        // ✅ BUG FIX: corners weren't visible in the app even though
+        // RoundedCorners was applied. Root cause: .override(720, 720) forced
+        // a SQUARE bitmap decode, RoundedCorners then rounded that square's
+        // corners — but the ImageView's centerCrop scaleType afterwards
+        // cropped the square down to the view's portrait 99x119 shape,
+        // slicing off exactly the rounded corner strips from top/bottom and
+        // leaving straight edges. Fix: chain CenterCrop() before
+        // RoundedCorners() so Glide crops to the view's aspect ratio FIRST,
+        // then rounds the corners of that already-cropped shape — and match
+        // the override() size to the view's real aspect instead of a square.
         int radiusPx = Math.round(28 * getResources().getDisplayMetrics().density);
         if (url != null && !url.isEmpty()) {
             Glide.with(requireContext()).load(url)
-                .transform(new RoundedCorners(radiusPx))
+                .transform(new CenterCrop(), new RoundedCorners(radiusPx))
                 .placeholder(R.drawable.ic_music_note)
-                .override(720, 720).into(ivSoundCover);
+                .override(360, 432) // matches the 99:119 view aspect ratio
+                .into(ivSoundCover);
         } else {
             ivSoundCover.setImageResource(R.drawable.ic_music_note);
         }
