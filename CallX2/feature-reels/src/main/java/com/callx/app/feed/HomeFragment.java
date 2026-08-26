@@ -456,6 +456,9 @@ public class HomeFragment extends Fragment {
     private int prefetchThresholdPx = 0;
     /** Reused by playMostVisibleCard() so a scroll never allocates an int[]. */
     private final int[] visibilityLoc = new int[2];
+    /** Low-pass filtered scroll velocity used by the landing ripple. */
+    private long lastHomeScrollSampleNanos = 0L;
+    private float lastHomeScrollVelocityPxPerMs = 0f;
     /** Max side a hardware layer can be rasterized into on virtually all
      *  GPUs; a taller layer is silently refused, so promoting a very long
      *  feed's content root costs a re-render for nothing. */
@@ -869,6 +872,8 @@ public class HomeFragment extends Fragment {
             prefetchThresholdPx = dpToPx(1400);
             recyclerHome.addOnScrollListener(new RecyclerView.OnScrollListener() {
                 @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                    sampleHomeScrollVelocity(dy);
+
                     // Instant-play trigger, frame-synced — see
                     // playVisibleFrameCallback doc.
                     if (!playVisibleCheckScheduled) {
@@ -935,10 +940,46 @@ public class HomeFragment extends Fragment {
                         scrollHandler.removeCallbacks(playVisibleRunnable);
                         playVisibleCheckScheduled = false;
                         playMostVisibleCard();
+                        settleHomeWaterFlow();
                     }
                 }
             });
         }
+    }
+
+    /**
+     * Samples the already-delivered scroll deltas rather than installing a
+     * second touch/velocity pipeline. The exponential low-pass filter keeps a
+     * single noisy callback from making the landing ripple jumpy.
+     */
+    private void sampleHomeScrollVelocity(int dy) {
+        long now = System.nanoTime();
+        if (lastHomeScrollSampleNanos != 0L) {
+            float elapsedMs = (now - lastHomeScrollSampleNanos) / 1_000_000f;
+            if (elapsedMs >= 1f && elapsedMs <= 100f && dy != 0) {
+                float instant = Math.abs(dy) / elapsedMs;
+                lastHomeScrollVelocityPxPerMs =
+                    (lastHomeScrollVelocityPxPerMs * 0.65f) + (instant * 0.35f);
+            }
+        }
+        lastHomeScrollSampleNanos = now;
+    }
+
+    /**
+     * Adds the final "water settling" moment after the list comes to rest.
+     * This runs once per scroll gesture, never on the hot per-pixel path.
+     */
+    private void settleHomeWaterFlow() {
+        if (recyclerHome == null || !isAdded()) return;
+        if (currentPlayingIndex >= 0 && currentPlayingIndex < feedCards.size()) {
+            HomeFeedCard card = feedCards.get(currentPlayingIndex);
+            if (card != null && card.rootView != null && card.rootView.getParent() != null) {
+                ReelLiquidScrollEffect.settleRipple(
+                    card.rootView, lastHomeScrollVelocityPxPerMs);
+            }
+        }
+        lastHomeScrollSampleNanos = 0L;
+        lastHomeScrollVelocityPxPerMs = 0f;
     }
 
     // ── Buttery scroll helpers ──────────────────────────────────────────

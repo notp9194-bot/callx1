@@ -21,7 +21,7 @@
              last, rendered from item_home_header.xml / item_home_footer.xml
              — everything in between (posts + interleaved suggested rows)
              gets real ViewHolder recycling. See HomeFragment's FeedAdapter. -->
-        <androidx.recyclerview.widget.RecyclerView
+        <com.callx.app.feed.WaterFlowRecyclerView
             android:id="@+id/recycler_home"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
