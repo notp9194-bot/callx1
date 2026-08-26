@@ -126,7 +126,7 @@ public class UserReelsActivity extends AppCompatActivity
     private final Handler   storyRingHandler = new Handler(Looper.getMainLooper());
     private Runnable        storyRingRevealRunnable;
     private android.animation.ValueAnimator storyRingRevealAnimator;
-    private TextView        tvName, tvDisplayName, tvTotalLikes, tvFollowers, tvFollowing, tvBio;
+    private TextView        tvName, tvDisplayName, tvReelCount, tvFollowers, tvFollowing, tvBio;
     private TextView        tvMutualFollowers;
     private LinearLayout    layoutMutualFollowers;
     private CircleImageView ivMutual1, ivMutual2, ivMutual3;
@@ -390,30 +390,8 @@ public class UserReelsActivity extends AppCompatActivity
     // ── Realtime update helpers (self only) ───────────────────────────────
     /** Skip the silent grid refresh on the very first onResume (right after onCreate). */
     private boolean isFirstResume = true;
-    /** Persistent count listener — auto-updates tvTotalLikes whenever a reel is added/removed/edited. */
+    /** Persistent count listener — auto-updates tvReelCount whenever a reel is added/removed. */
     private ValueEventListener reelCountLiveListener = null;
-    // FIX: reelsByUser/{uid}/{reelId} is only an INDEX node (reelId -> true),
-    // it does not carry the reel's likesCount — that lives under
-    // reels/{reelId}/likesCount.
-    //
-    // ULTRA (likes-total perf): the naive fix was one PERSISTENT
-    // ValueEventListener per reel (N live RTDB subscriptions for an N-reel
-    // profile) — every like/unlike on ANY of the user's reels, anywhere in
-    // the app, re-pushed data down all N listeners and re-ran the sum. For
-    // a creator with hundreds of reels that's hundreds of standing
-    // subscriptions for one stat most users glance at once.
-    //
-    // Replaced with: a SINGLE persistent listener on the cheap index node
-    // (reelIds only) + a batched, parallel, ONE-SHOT read of each reel's
-    // likesCount whenever that index actually changes (reel added/removed —
-    // rare). One combined tvTotalLikes.setText() per batch instead of one
-    // per reel. requestGeneration guards a slow in-flight batch from
-    // clobbering the UI with stale results if the index changes again
-    // before it finishes. Individual likes on an already-known reel are
-    // reflected optimistically (see likeReelFromGrid()) instead of via a
-    // live per-reel subscription.
-    private final Map<String, Long> perReelLikeCounts = new HashMap<>();
-    private int likeCountRequestGeneration = 0;
 
     private ReelModel         pinnedReel = null;
     private ReelPeekPreviewController peekController;
@@ -558,7 +536,7 @@ public class UserReelsActivity extends AppCompatActivity
         }
         tvName               = findViewById(R.id.tv_name);
         tvDisplayName        = findViewById(R.id.tv_display_name);
-        tvTotalLikes         = findViewById(R.id.tv_total_likes);
+        tvReelCount          = findViewById(R.id.tv_reel_count);
         tvFollowers          = findViewById(R.id.tv_followers);
         tvFollowing          = findViewById(R.id.tv_following);
         tvBio                = findViewById(R.id.tv_bio);
@@ -3325,14 +3303,6 @@ public class UserReelsActivity extends AppCompatActivity
 
                 targetReel.likesCount = targetReel.likesCount + 1;
                 if (adapter != null) adapter.notifyItemChanged(finalAdapterPosition);
-                // ULTRA: optimistic local bump — total-likes no longer has a
-                // live per-reel listener (see loadReelCount()), so reflect
-                // this like instantly instead of waiting on the next
-                // index-triggered batched re-fetch.
-                if (targetUid != null && targetUid.equals(myUid) && perReelLikeCounts.containsKey(targetReel.reelId)) {
-                    perReelLikeCounts.put(targetReel.reelId, perReelLikeCounts.get(targetReel.reelId) + 1);
-                    recomputeTotalLikes();
-                }
 
                 if (targetReel.uid != null && !targetReel.uid.equals(myUid)) {
                     String myName = FirebaseUtils.getCurrentName();
@@ -3940,22 +3910,13 @@ public class UserReelsActivity extends AppCompatActivity
 
     // ── HD Avatar loader (permanently cached) ────────────────────────────────
     /**
-     * Loads photoUrl decoded at ivAvatar's actual on-screen size — no fixed
-     * oversized override. ivAvatar is a fixed 92dp x 92dp view (see
-     * activity_user_reels.xml), so a hardcoded override(720,720) was decoding
-     * ~4x more pixels than any screen density ever displays (92dp is ~368px
-     * even at xxxhdpi/4.0x) — wasted decode time + wasted memory per bitmap,
-     * multiplied by every profile visited this session.
-     *
-     * Not calling .override() here lets Glide size the decode to ivAvatar's
-     * actual measured/layout dimensions (converted to the right px count for
-     * the device's density automatically) — sharp at every density, without
-     * over-decoding.
+     * Always loads photoUrl at HD quality (720×720) — no low-res fallback.
      *
      * Caching strategy:
      *  • DiskCacheStrategy.ALL  → source file + decoded bitmap both cached on disk permanently.
      *  • skipMemoryCache(false) → decoded bitmap also lives in LRU memory cache.
      *  • On revisit: zero network — instant display from memory or disk cache.
+     *  • override(720,720)      → HD decode, sharp even on xxxhdpi screens.
      *
      * Called from loadAvatarAndStartAnimation() after Firebase returns photoUrl.
      */
@@ -3966,9 +3927,10 @@ public class UserReelsActivity extends AppCompatActivity
             .load(photoUrl)
             .circleCrop()
             .diskCacheStrategy(DiskCacheStrategy.ALL)      // source + decoded bitmap permanently cached
+            .override(720, 720)                            // HD always — xxxhdpi pe bhi sharp
             .placeholder(R.drawable.ic_person)
             .skipMemoryCache(false)                        // memory cache active — revisit pe instant display
-            .into(ivAvatar);                               // no override() — decodes at ivAvatar's actual 92dp size
+            .into(ivAvatar);
     }
 
     private void loadAvatarAndStartAnimation() {
@@ -4691,7 +4653,8 @@ public class UserReelsActivity extends AppCompatActivity
                 if (url != null && !url.isEmpty() && ivAvatar != null) {
                     targetPhoto = url;
                     Glide.with(UserReelsActivity.this).load(url).circleCrop()
-                        .placeholder(R.drawable.ic_person).into(ivAvatar); // decodes at ivAvatar's actual 92dp size, not a fixed override
+                        .override(240, 240)
+                        .placeholder(R.drawable.ic_person).into(ivAvatar);
                 }
                 // Bio / about
                 if (cached.about != null && !cached.about.isEmpty() && tvBio != null) {
@@ -4839,7 +4802,8 @@ public class UserReelsActivity extends AppCompatActivity
                     targetPhoto = photo;
                     String displayPhoto = (photoThumb != null && !photoThumb.isEmpty()) ? photoThumb : photo;
                     Glide.with(UserReelsActivity.this).load(displayPhoto).circleCrop()
-                        .placeholder(R.drawable.ic_person).into(ivAvatar); // decodes at ivAvatar's actual 92dp size, not a fixed override
+                        .override(240, 240)
+                        .placeholder(R.drawable.ic_person).into(ivAvatar);
                 }
 
                 // Bio
@@ -5280,62 +5244,21 @@ public class UserReelsActivity extends AppCompatActivity
 
 
     /**
-     * ✅ Instagram approach: persistent ValueEventListener so the total-likes
-     * stat updates in real-time whenever a reel is added/removed/liked — no
-     * manual re-query needed after upload or a like. Sums `likesCount` across
-     * every reel node under this user. Listener is removed in onDestroy.
+     * ✅ Instagram approach: persistent ValueEventListener so the reel count
+     * updates in real-time whenever a reel is added/removed — no manual
+     * re-query needed after upload. Listener is removed in onDestroy.
      */
     private void loadReelCount() {
         if (reelCountLiveListener != null) return; // already attached
         DatabaseReference ref = FirebaseUtils.getReelsByUserRef(targetUid);
         reelCountLiveListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                List<String> reelIds = new ArrayList<>();
-                for (DataSnapshot child : snap.getChildren()) {
-                    if (child.getKey() != null) reelIds.add(child.getKey());
-                }
-                fetchLikeCountsBatched(reelIds);
+                if (tvReelCount != null)
+                    tvReelCount.setText(String.valueOf(snap.getChildrenCount()));
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         ref.addValueEventListener(reelCountLiveListener);
-    }
-
-    /**
-     * Fires all N one-shot likesCount reads in parallel (no serial round
-     * trips) and applies exactly ONE UI update once every read is back —
-     * see the ULTRA comment above perReelLikeCounts for why this replaced
-     * N persistent listeners.
-     */
-    private void fetchLikeCountsBatched(List<String> reelIds) {
-        final int generation = ++likeCountRequestGeneration;
-        perReelLikeCounts.clear();
-        if (reelIds.isEmpty()) { recomputeTotalLikes(); return; }
-
-        final int[] remaining = { reelIds.size() };
-        for (String reelId : reelIds) {
-            FirebaseUtils.getReelsRef().child(reelId).child("likesCount")
-                .addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(@NonNull DataSnapshot s) {
-                        if (generation != likeCountRequestGeneration) return; // superseded — drop
-                        Long likes = s.getValue(Long.class);
-                        perReelLikeCounts.put(reelId, likes != null ? likes : 0L);
-                        if (--remaining[0] == 0) recomputeTotalLikes();
-                    }
-                    @Override public void onCancelled(@NonNull DatabaseError e) {
-                        if (generation != likeCountRequestGeneration) return;
-                        perReelLikeCounts.put(reelId, 0L);
-                        if (--remaining[0] == 0) recomputeTotalLikes();
-                    }
-                });
-        }
-    }
-
-    private void recomputeTotalLikes() {
-        if (tvTotalLikes == null) return;
-        long totalLikes = 0;
-        for (Long v : perReelLikeCounts.values()) totalLikes += v;
-        tvTotalLikes.setText(String.valueOf(totalLikes));
     }
 
     // ── More menu ─────────────────────────────────────────────────────────
@@ -5441,7 +5364,7 @@ public class UserReelsActivity extends AppCompatActivity
      * ✅ Instagram approach: on every resume AFTER the first (i.e. returning
      * from upload, camera, player, settings…), silently check if new reels
      * were uploaded and prepend them to the grid — no skeleton flash, no full
-     * reload. The persistent count listener already keeps tvTotalLikes live.
+     * reload. The persistent count listener already keeps tvReelCount live.
      */
     @Override
     protected void onResume() {
@@ -5483,8 +5406,6 @@ public class UserReelsActivity extends AppCompatActivity
                       .removeEventListener(reelCountLiveListener); } catch (Exception ignored) {}
             reelCountLiveListener = null;
         }
-        likeCountRequestGeneration++; // invalidate any in-flight batched reads
-        perReelLikeCounts.clear();
     }
 
     // ── Silent grid refresh (called from onResume for self) ───────────────

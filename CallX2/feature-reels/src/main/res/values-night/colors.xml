@@ -60,4 +60,6 @@
     <color name="trim_circle_btn_bg_on_photo">#59000000</color>
     <color name="trim_tooltip_bg">#F0202028</color>
     <color name="trim_tooltip_text">#FFFFFF</color>
+
+    <color name="x_logo_tint">#FFFFFF</color>
 </resources>

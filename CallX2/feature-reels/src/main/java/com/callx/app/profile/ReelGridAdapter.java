@@ -165,12 +165,6 @@ package com.callx.app.profile;
       // flips mid-scroll; re-create the adapter/screen to re-resolve).
       private final int gridThumbSize;
       private final int pinnedThumbSize;
-      // Aspect-matched heights for the two sizes above — see
-      // deriveThumbUrl(url, width, height, format) javadoc for why these
-      // (not a square) must be requested from Cloudinary to avoid a
-      // double-crop with Glide's own centerCrop().
-      private final int gridThumbHeight;
-      private final int pinnedThumbHeight;
 
       // ── Precomputed cell height (no runtime measure) ────────────────────
       // Old approach measured holder.itemView.getWidth() inside a post{}
@@ -184,11 +178,6 @@ package com.callx.app.profile;
       // post(), no re-measure, no per-attach layout pass.
       private static final int GRID_SPAN_COUNT = 3;
       private final int precomputedCellHeightPx;
-      // Pinned hero card's fixed height (item_pinned_reel.xml: android:layout_height="220dp"),
-      // resolved to px once so Glide can be told the exact decode target — see
-      // precomputedCellHeightPx above for why this is precomputed instead of measured.
-      private static final int PINNED_CARD_HEIGHT_DP = 220;
-      private final int precomputedPinnedHeightPx;
 
       /**
        * Symmetric grid spacing (Instagram-style): equal gap between every
@@ -399,9 +388,6 @@ package com.callx.app.profile;
           this.pinnedThumbSize = resolveThumbSize(context, PINNED_THUMB_SIZE_WIFI, PINNED_THUMB_SIZE_CELLULAR);
           this.touchSlopPx     = ViewConfiguration.get(context).getScaledTouchSlop();
           this.precomputedCellHeightPx = computeCellHeightPx(context);
-          this.precomputedPinnedHeightPx = computePinnedHeightPx(context);
-          this.gridThumbHeight   = Math.round(this.gridThumbSize * 16f / 9f); // matches 9:16 grid cell ratio
-          this.pinnedThumbHeight = Math.round(this.pinnedThumbSize * ((float) this.precomputedPinnedHeightPx / context.getResources().getDisplayMetrics().widthPixels)); // matches pinned card's actual on-screen ratio
       }
 
       /**
@@ -428,25 +414,16 @@ package com.callx.app.profile;
           this.pinnedThumbSize = resolveThumbSize(context, PINNED_THUMB_SIZE_WIFI, PINNED_THUMB_SIZE_CELLULAR);
           this.touchSlopPx     = ViewConfiguration.get(context).getScaledTouchSlop();
           this.precomputedCellHeightPx = computeCellHeightPx(context);
-          this.precomputedPinnedHeightPx = computePinnedHeightPx(context);
-          this.gridThumbHeight   = Math.round(this.gridThumbSize * 16f / 9f); // matches 9:16 grid cell ratio
-          this.pinnedThumbHeight = Math.round(this.pinnedThumbSize * ((float) this.precomputedPinnedHeightPx / context.getResources().getDisplayMetrics().widthPixels)); // matches pinned card's actual on-screen ratio
       }
 
-       /** Cell width = screen width split across GRID_SPAN_COUNT columns (matching
-        *  WhiteGridDecoration's gutter), height = that width at a 9:16 portrait
-        *  ratio — matches the actual reel video aspect ratio. Computed once so
-        *  every cell gets its final height at creation time. */
+      /** Cell width = screen width split across GRID_SPAN_COUNT columns (matching
+       *  WhiteGridDecoration's gutter), height = that width at a 16:9 ratio —
+       *  computed once so every cell gets its final height at creation time. */
       private static int computeCellHeightPx(Context ctx) {
           android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
           int spacingPx  = Math.round(2 * dm.density); // matches WhiteGridDecoration
           int cellWidthPx = (dm.widthPixels - spacingPx * (GRID_SPAN_COUNT + 1)) / GRID_SPAN_COUNT;
-          return Math.round(cellWidthPx * (16f / 9f));
-      }
-
-      /** Pixel height of the fixed-220dp pinned hero card — see PINNED_CARD_HEIGHT_DP. */
-      private static int computePinnedHeightPx(Context ctx) {
-          return Math.round(PINNED_CARD_HEIGHT_DP * ctx.getResources().getDisplayMetrics().density);
+          return Math.round(cellWidthPx * 16f / 9f);
       }
 
       /** Optional — enables the long-press "peek" mini preview popup's dismiss callback. */
@@ -735,32 +712,13 @@ package com.callx.app.profile;
           if (r.thumbUrl != null && !r.thumbUrl.isEmpty()) {
               android.os.Trace.beginSection("ReelGridAdapter.glideRequestSetup");
               try {
-                  String gridUrl = CloudinaryUploader.deriveThumbUrl(r.thumbUrl, gridThumbSize, gridThumbHeight, "webp");
+                  String gridUrl = CloudinaryUploader.deriveThumbUrl(r.thumbUrl, gridThumbSize, "webp");
                   String blurUrl = CloudinaryUploader.deriveThumbUrl(r.thumbUrl, BLUR_THUMB_SIZE, "webp");
                   Drawable blurPlaceholder = blurHashPlaceholder(r.blurHash);
-                  // .override() pins the decode target to the real cell size
-                  // (gridThumbSize × precomputedCellHeightPx) instead of
-                  // leaving Glide to infer it from the ImageView's measured
-                  // size — guarantees the bitmap is never decoded larger
-                  // than what the 3-column cell can actually show, even if
-                  // the view hasn't been through a layout pass yet.
                   glideRequests
                           .load(gridUrl)
                           .thumbnail(glideRequests.load(blurUrl).apply(GRID_OPTIONS))
                           .apply(GRID_OPTIONS)
-                          // FIX: decode target must match the aspect ratio actually
-                          // fetched from Cloudinary (gridThumbSize x gridThumbHeight,
-                          // a true 9:16 crop — see gridThumbHeight's javadoc). Using
-                          // precomputedCellHeightPx here instead was a MISMATCHED
-                          // ratio (that value tracks the real on-screen cell height,
-                          // not gridThumbSize's 9:16 pair), so Glide's centerCrop
-                          // was re-cropping an already-correctly-cropped image into
-                          // the wrong aspect — cutting off extra content (e.g. a
-                          // face near the top/bottom) on top of Cloudinary's own
-                          // crop. The ImageView's own centerCrop scaleType still
-                          // fits this to the real cell size on screen, so display
-                          // sizing is unaffected — only the decode target changes.
-                          .override(gridThumbSize, gridThumbHeight)
                           .placeholder(blurPlaceholder != null ? blurPlaceholder : context.getDrawable(R.drawable.ic_reels))
                           .into(h.ivThumb);
               } finally {
@@ -812,17 +770,13 @@ package com.callx.app.profile;
       private void bindPinned(PinnedVH h) {
           if (pinnedReel == null) return;
           if (pinnedReel.thumbUrl != null && !pinnedReel.thumbUrl.isEmpty()) {
-              String pinnedUrl = CloudinaryUploader.deriveThumbUrl(pinnedReel.thumbUrl, pinnedThumbSize, pinnedThumbHeight, "webp");
+              String pinnedUrl = CloudinaryUploader.deriveThumbUrl(pinnedReel.thumbUrl, pinnedThumbSize, "webp");
               String blurUrl   = CloudinaryUploader.deriveThumbUrl(pinnedReel.thumbUrl, BLUR_THUMB_SIZE, "webp");
               Drawable blurPlaceholder = blurHashPlaceholder(pinnedReel.blurHash);
-              // Same reasoning as the grid bind above — decode target pinned
-              // to the pinned card's actual on-screen size instead of being
-              // inferred from the view.
               glideRequests
                       .load(pinnedUrl)
                       .thumbnail(glideRequests.load(blurUrl).apply(GRID_OPTIONS))
                       .apply(GRID_OPTIONS)
-                      .override(pinnedThumbSize, precomputedPinnedHeightPx)
                       .placeholder(blurPlaceholder != null ? blurPlaceholder : context.getDrawable(R.drawable.ic_reels))
                       .into(h.ivThumb);
           } else h.ivThumb.setImageResource(R.drawable.ic_reels);
@@ -897,21 +851,12 @@ package com.callx.app.profile;
           if (idx < 0 || idx >= displayList.size()) return Collections.emptyList();
           ReelModel r = displayList.get(idx);
           if (r == null || r.thumbUrl == null || r.thumbUrl.isEmpty()) return Collections.emptyList();
-          return Collections.singletonList(CloudinaryUploader.deriveThumbUrl(r.thumbUrl, gridThumbSize, gridThumbHeight, "webp"));
+          return Collections.singletonList(CloudinaryUploader.deriveThumbUrl(r.thumbUrl, gridThumbSize, "webp"));
       }
 
       @Nullable @Override
       public RequestBuilder<?> getPreloadRequestBuilder(@NonNull String item) {
-          // Match the real bind's override() so the preloader warms the
-          // exact same decoded size that will actually be reused on bind —
-          // otherwise the preload would cache a differently-sized decode
-          // and onBindViewHolder's request wouldn't hit it.
-          // Must match the real bind's override() exactly (see the FIX note
-          // in bindViewHolderInternal) — gridThumbHeight, not
-          // precomputedCellHeightPx, or the preload warms a differently-
-          // cropped decode that the real bind can't reuse.
-          return glideRequests.load(item).apply(GRID_OPTIONS)
-                  .override(gridThumbSize, gridThumbHeight);
+          return glideRequests.load(item).apply(GRID_OPTIONS);
       }
 
       /** Thumb pixel size Glide should decode to while preloading — matches the real bind size. */

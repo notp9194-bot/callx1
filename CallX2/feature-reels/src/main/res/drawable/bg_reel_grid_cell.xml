@@ -8,14 +8,9 @@
     of hard-edged rectangles. (Cell elevation/shadow was removed — see
     item_saved_reel.xml/item_pinned_reel.xml — this shape now only serves
     the outline-clip, not a shadow.)
-
-    NOTE: fill kept transparent on purpose — a solid surface_secondary_light
-    fill (dark gray in night mode) was showing through as a black/dark box
-    behind the thumbnail while it loads. Transparent lets the screen's own
-    background show through instead, so no black patch is visible.
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="@android:color/transparent" />
-    <corners android:radius="6dp" />
+    <solid android:color="#000000" />
+    <corners android:radius="8dp" />
 </shape>

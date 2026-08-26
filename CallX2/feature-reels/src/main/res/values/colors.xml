@@ -78,4 +78,8 @@
     <color name="trim_circle_btn_bg_on_photo">#4D000000</color>
     <color name="trim_tooltip_bg">#E6141420</color>
     <color name="trim_tooltip_text">#FFFFFF</color>
+
+    <!-- X (Twitter) badge glyph — dark on the light-mode surface fill,
+         white on the night solid-black badge (see bg_social_x_btn_adaptive). -->
+    <color name="x_logo_tint">#0F1419</color>
 </resources>

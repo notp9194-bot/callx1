@@ -105,6 +105,16 @@ public class SoundDetailActivity extends AppCompatActivity {
         private static final int GRID_SPAN_COUNT = 3;
         private static int cachedCellHeightPx = -1;
 
+        // ── Data-saving thumb sizing (ported from ReelGridAdapter) ──
+        // Previously this grid loaded item.thumbnailUrl straight into Glide —
+        // the raw, full-size original, freshly re-downloaded every time
+        // (no CDN resize, unlike UserReelsActivity's grid). Now derive a
+        // CDN-resized/webp thumb sized to the actual grid cell, same as the
+        // profile reel grid, so it's small AND reuses Glide's disk cache.
+        private static final int GRID_THUMB_SIZE_WIFI     = 300;
+        private static final int GRID_THUMB_SIZE_CELLULAR = 200;
+        private static int cachedGridThumbSize = -1;
+
         private static int resolveCellHeightPx(android.content.Context ctx) {
             if (cachedCellHeightPx > 0) return cachedCellHeightPx;
             android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
@@ -112,6 +122,24 @@ public class SoundDetailActivity extends AppCompatActivity {
             int cellWidthPx = (dm.widthPixels - spacingPx * (GRID_SPAN_COUNT + 1)) / GRID_SPAN_COUNT;
             cachedCellHeightPx = Math.round(cellWidthPx * 16f / 9f);
             return cachedCellHeightPx;
+        }
+
+        private static int resolveGridThumbSize(android.content.Context ctx) {
+            if (cachedGridThumbSize > 0) return cachedGridThumbSize;
+            try {
+                android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
+                        ctx.getApplicationContext().getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
+                android.net.Network net = cm != null ? cm.getActiveNetwork() : null;
+                android.net.NetworkCapabilities nc = (cm != null && net != null) ? cm.getNetworkCapabilities(net) : null;
+                boolean unmetered = nc != null && (
+                        nc.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+                        || nc.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+                        || nc.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET));
+                cachedGridThumbSize = unmetered ? GRID_THUMB_SIZE_WIFI : GRID_THUMB_SIZE_CELLULAR;
+            } catch (Exception e) {
+                cachedGridThumbSize = GRID_THUMB_SIZE_WIFI; // safe default
+            }
+            return cachedGridThumbSize;
         }
 
         public ReelThumbAdapter() { items = new java.util.ArrayList<>(); listener = null; }
@@ -150,9 +178,13 @@ public class SoundDetailActivity extends AppCompatActivity {
         @Override
         public void onBindViewHolder(@androidx.annotation.NonNull VH h, int pos) {
             ReelThumbItem item = items.get(pos);
-            if (item.thumbnailUrl != null && !item.thumbnailUrl.isEmpty())
-                com.bumptech.glide.Glide.with(h.iv.getContext()).load(item.thumbnailUrl)
+            if (item.thumbnailUrl != null && !item.thumbnailUrl.isEmpty()) {
+                int thumbSize = resolveGridThumbSize(h.iv.getContext());
+                String gridUrl = com.callx.app.utils.CloudinaryUploader.deriveThumbUrl(
+                        item.thumbnailUrl, thumbSize, "webp");
+                com.bumptech.glide.Glide.with(h.iv.getContext()).load(gridUrl)
                     .centerCrop().into(h.iv);
+            }
             if (h.tvViews != null) h.tvViews.setText(formatViews(item.viewsCount));
             if (h.tvOriginal != null)
                 h.tvOriginal.setVisibility(item.isOriginalCreator ? android.view.View.VISIBLE : android.view.View.GONE);
