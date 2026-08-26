@@ -545,32 +545,11 @@ public class HomeFragment extends Fragment {
         // inflated instances on hand for a big fling, at the cost of a
         // little idle memory — the standard fix for this exact stutter.
         recyclerHome.getRecycledViewPool().setMaxRecycledViews(ROW_POST, 10);
-        // ── Advanced fling: a light flick should carry the feed further than
-        // the raw gesture velocity, not stop right where the finger left off.
-        // RecyclerView's default fling distance is a 1:1 function of the
-        // finger's release velocity — on a tall, heavy-row feed like this
-        // one that reads as "stiff" (needs a bigger swipe to move much).
-        // Intercepting via OnFlingListener and re-dispatching a boosted
-        // velocity keeps all of RecyclerView/OverScroller's native fling
-        // physics (deceleration curve, edge-effect, nested-scroll
-        // cooperation) — only the initial velocity is scaled up — so it
-        // still feels native, just more fluid ("water-like" momentum)
-        // instead of needing repeated big scrolls to cover distance.
-        final float FLING_VELOCITY_BOOST = 1.35f;
-        final int maxFlingVelocity = android.view.ViewConfiguration.get(requireContext())
-                .getScaledMaximumFlingVelocity();
-        recyclerHome.setOnFlingListener(new androidx.recyclerview.widget.RecyclerView.OnFlingListener() {
-            @Override
-            public boolean onFling(int velocityX, int velocityY) {
-                int boostedY = (int) (velocityY * FLING_VELOCITY_BOOST);
-                // Clamp so the boost can't exceed what the system considers a
-                // physically valid fling — avoids an unnaturally long "shot"
-                // on an already-fast flick.
-                if (boostedY > maxFlingVelocity) boostedY = maxFlingVelocity;
-                else if (boostedY < -maxFlingVelocity) boostedY = -maxFlingVelocity;
-                return recyclerHome.fling(0, boostedY);
-            }
-        });
+        // Keep RecyclerView's native fling implementation. Do not call
+        // recyclerHome.fling() from an OnFlingListener: RecyclerView invokes
+        // that listener from fling(), so re-dispatching here recursively
+        // re-enters the callback until the app crashes with StackOverflowError
+        // as soon as the feed is flung.
         // Instagram/TikTok-style feeds run without the default add/remove/
         // change fade-and-shift animation: every notifyItemChanged (like
         // count ticking up, a save toggling, DiffUtil remapping positions
@@ -2593,31 +2572,6 @@ public class HomeFragment extends Fragment {
                 feedAdapter.notifyItemRangeChanged(FEED_HEADER_OFFSET + position, count, payload);
             }
         });
-
-        // ★ CRASH FIX: trimFeedFront()/prependFeedPosts() mutate a surviving
-        // FeedRow's postIndex IN PLACE (row.postIndex -= cutCount / += shift)
-        // so feedItems stays correct, but a ViewHolder that's still attached
-        // (on/near screen) is never rebound just because it *moved* — DiffUtil
-        // only emits onMoved for it, and RecyclerView repositions an already-
-        // bound ViewHolder without calling onBindViewHolder again. That
-        // ViewHolder's click/scrub-bar listeners (built in addFeedPostCard())
-        // captured the OLD postIndex as a final int at its last real bind —
-        // so after a trim/prepend those closures keep firing with a stale
-        // index. A stale index can land on a DIFFERENT post's slot in
-        // feedCards/currentFeedPosts (front-trim/prepend shift everyone by
-        // the same offset, so the slot still exists — it just now belongs to
-        // the wrong reel), and functions like attachPlayerToCard()/
-        // toggleCardPlayback() then attach the shared ExoPlayer/PlayerView to
-        // that wrong, already-in-use card — corrupting playback state and
-        // occasionally crashing (ExoPlayer/PlayerView surface conflicts) the
-        // next time the feed is scrolled and playMostVisibleCard() reconciles
-        // against that corrupted state.
-        //
-        // Fix: force every currently-attached ROW_POST holder to rebind
-        // (fresh cardIndex, fresh listeners) whenever the front-trim/prepend
-        // path runs. itemAnimator is null on recyclerHome (see setup), so
-        // this causes no flicker — it's an instant rebind, not an animation.
-        feedAdapter.notifyItemRangeChanged(FEED_HEADER_OFFSET, newItems.size());
     }
 
     /** Called once per page append (see appendFeedPage) — cheap bookkeeping
