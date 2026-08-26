@@ -845,7 +845,12 @@
             app:tabPaddingStart="-1dp"
             app:tabPaddingEnd="-1dp">
 
-            <!-- Icon-only tabs — Instagram style: Reels | Repost | Duet | Collab Repost | Series -->
+            <!-- Icon-only tabs — Instagram style: Posts | Reels | Repost | Duet | Collab Repost | Series -->
+            <com.google.android.material.tabs.TabItem
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:icon="@drawable/ic_photo_library"/>
+
             <com.google.android.material.tabs.TabItem
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

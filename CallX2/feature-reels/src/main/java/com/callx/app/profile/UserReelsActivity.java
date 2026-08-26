@@ -102,12 +102,17 @@ public class UserReelsActivity extends AppCompatActivity
     private static final int TAB_DUET          = 5;
     private static final int TAB_COLLAB_REPOST = 6;
 
-    // Visible tab STRIP position (0..4 — what tab.getPosition() returns for
-    // the 5 tabs: Reels, Repost, Duet, Collab Repost, Series) → internal data
-    // constant above. Needed because the strip no longer has tabs in constant
-    // order, so position and data-constant are no longer the same number.
+    // Visible tab STRIP position (0..5 — what tab.getPosition() returns for
+    // the 6 tabs: Posts, Reels, Repost, Duet, Collab Repost, Series) →
+    // internal data constant above. Needed because the strip no longer has
+    // tabs in constant order, so position and data-constant are no longer
+    // the same number.
+    // Instagram-style "Posts" tab (leftmost) shares TAB_REELS' data/network
+    // path — it's not a separate loaded list, just a photo-only FILTERED
+    // view over reelsTabData (see isPostsTabActive()/filterPhotoPostsOnly()).
     private static final int[] VISIBLE_TAB_DATA =
-            { TAB_REELS, TAB_REPOST, TAB_DUET, TAB_COLLAB_REPOST, TAB_SERIES };
+            { TAB_REELS, TAB_REELS, TAB_REPOST, TAB_DUET, TAB_COLLAB_REPOST, TAB_SERIES };
+    private static final int POSTS_STRIP_POSITION = 0;
     // Current tab strip position (0..2) — separate from `activeTab`, which
     // holds the DATA constant (0/3/4). Used to compute swipe-left/right's
     // next/previous tab.
@@ -1092,6 +1097,9 @@ public class UserReelsActivity extends AppCompatActivity
       private void applyFilter() {
           if (adapter == null) return;
           List<ReelModel> source = activeTabData();
+          // Posts tab (leftmost): sort/other chips still apply, but only
+          // ever within the photo-only subset — never mix videos back in.
+          if (isPostsTabActive()) source = filterPhotoPostsOnly(source);
           List<ReelModel> filtered;
           switch (activeFilter) {
               case FILTER_OLDEST:
@@ -1169,7 +1177,12 @@ public class UserReelsActivity extends AppCompatActivity
                     // so this is a plain flag reset, no separate notify needed.
                     if (adapter.isLoadingFooterVisible()) adapter.resetLoadingFooterState();
                     footerPositionAtShow = -1;
-                    if (!isSeries) adapter.setDataList(activeTabData());
+                    if (!isSeries) {
+                        adapter.setDataList(activeTabData());
+                        // Posts tab (leftmost, Instagram-style): show photo
+                        // posts only — filter on top of the just-set full list.
+                        if (isPostsTabActive()) applyFilter();
+                    }
                     if (isSeries ? seriesTabData.isEmpty() : activeTabData().isEmpty()) loadCurrentTab(true);
                     else { refreshEmptyState(); updateViewAllButton(); }
                     // Each tab keeps its OWN accent color — re-apply whichever
@@ -1391,6 +1404,32 @@ public class UserReelsActivity extends AppCompatActivity
             case TAB_COLLAB_REPOST: return collabRepostTabData;
             default:         return reelsTabData;
         }
+    }
+
+    /** True when the leftmost "Posts" tab (photo-only, Instagram-style) is the one showing. */
+    private boolean isPostsTabActive() {
+        return activeTab == TAB_REELS && activeTabPosition == POSTS_STRIP_POSITION;
+    }
+
+    /** Photo-only subset of a reel list — used to back the Posts tab's grid. */
+    private List<ReelModel> filterPhotoPostsOnly(List<ReelModel> source) {
+        List<ReelModel> out = new ArrayList<>();
+        for (ReelModel r : source) {
+            if (r != null && "photo_slideshow".equals(r.mediaType)) out.add(r);
+        }
+        return out;
+    }
+
+    /**
+     * The list currently BACKING the grid on screen — same as
+     * activeTabData() for every tab except Posts, where the adapter shows a
+     * filtered COPY (not reelsTabData itself). Any code that maps an
+     * adapter position to a ReelModel (tap-to-open, like, long-press,
+     * multi-select) must index into THIS, not activeTabData(), or it'll
+     * grab the wrong reel while the Posts tab is active.
+     */
+    private List<ReelModel> currentGridData() {
+        return isPostsTabActive() ? filterPhotoPostsOnly(activeTabData()) : activeTabData();
     }
 
     // ── Swipe left/right on the grid to switch tabs (mirrors Reels/Repost/Duet) ──
@@ -3008,6 +3047,13 @@ public class UserReelsActivity extends AppCompatActivity
 
     private void onPullToRefresh() {
         if (swipeRefreshReels == null) return;
+        // Header (avatar/name/bio/links/followers/following/song) only ever
+        // loaded once from onCreate() → loadUserProfile(). Pull-to-refresh
+        // was only merging the grid below, so the top area never updated.
+        // Fire it in parallel with the grid refresh below — it's its own
+        // set of single-value listeners, so it doesn't block/slow the
+        // grid's ultra-optimized merge path.
+        loadUserProfile();
         if (activeTab == TAB_SERIES) {
             // Series lists are tiny (a handful of albums) — the normal
             // refresh path is already cheap enough here, no need for a
@@ -3076,7 +3122,12 @@ public class UserReelsActivity extends AppCompatActivity
         }
         target.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
         if (tabAtStart == activeTab && adapter != null) {
-            if (activeFilter == FILTER_ALL) {
+            if (isPostsTabActive()) {
+                // Same reasoning as finishLoading(): Posts' displayList is a
+                // filtered copy, not `target` itself — re-derive through the
+                // filter path instead of diffing the wrong list.
+                applyFilter();
+            } else if (activeFilter == FILTER_ALL) {
                 // displayList == target here (same reference, re-pointed on
                 // every tab switch — see setupTabs()), so a direct diff against
                 // it is safe and gives the minimal-rebind path described above.
@@ -3120,7 +3171,19 @@ public class UserReelsActivity extends AppCompatActivity
         boolean wasSkeleton = adapter.isSkeletonMode();
         adapter.setSkeletonMode(false);
         if (tab == activeTab) {
-            if (refresh) {
+            if (isPostsTabActive()) {
+                // Posts tab's displayed list is a filtered COPY of
+                // reelsTabData (not the same reference), so the raw
+                // insertStart/insertCount index math above (computed
+                // against reelsTabData's own size) does not line up with
+                // the adapter's smaller photo-only list — always re-derive
+                // + diff the filtered subset instead of a positional insert.
+                applyFilter();
+                if (adapter.isLoadingFooterVisible()) {
+                    adapter.hideLoadingFooterAt(footerPositionAtShow);
+                    footerPositionAtShow = -1;
+                }
+            } else if (refresh) {
                 if (wasSkeleton) {
                     // Skeleton → real content: crossfade instead of the old
                     // instant notifyDataSetChanged() swap.
@@ -3239,10 +3302,17 @@ public class UserReelsActivity extends AppCompatActivity
 
     private void refreshEmptyState() {
         if (activeTab == TAB_SERIES) return; // series tab manages own empty state
-        boolean empty = activeTabData().isEmpty() && !adapter.hasPinned();
+        boolean isPosts = isPostsTabActive();
+        boolean empty = (isPosts ? filterPhotoPostsOnly(activeTabData()) : activeTabData()).isEmpty()
+                && !adapter.hasPinned();
         showEmptyLayout(empty);
         if (rvReels != null) rvReels.setVisibility(empty ? View.GONE : View.VISIBLE);
         if (tvEmptyTitle == null) return;
+        if (isPosts) {
+            tvEmptyTitle.setText("No Posts Yet");
+            if (tvEmptySubtitle != null) tvEmptySubtitle.setText("Photo posts will appear here.");
+            return;
+        }
         switch (activeTab) {
             case TAB_LIKED:
                 tvEmptyTitle.setText("No Liked Reels");
@@ -3281,7 +3351,7 @@ public class UserReelsActivity extends AppCompatActivity
             targetReel = pinnedReel;
         } else {
             int dataIdx = adapter.hasPinned() ? adapterPosition - 1 : adapterPosition;
-            List<ReelModel> data = activeTabData();
+            List<ReelModel> data = currentGridData();
             if (dataIdx < 0 || dataIdx >= data.size()) return;
             targetReel = data.get(dataIdx);
         }
@@ -3330,7 +3400,7 @@ public class UserReelsActivity extends AppCompatActivity
         int reelIdx = adapter.hasPinned() ? adapterPos - 1 : adapterPos;
         if (reelIdx < 0) reelIdx = 0;
 
-        List<ReelModel> data = activeTabData();
+        List<ReelModel> data = currentGridData();
         if (data.isEmpty()) return;
 
         // Clamp to valid range
@@ -3422,7 +3492,7 @@ public class UserReelsActivity extends AppCompatActivity
 
     @Override
     public void onLongPress(int adapterPos) {
-        List<ReelModel> data = activeTabData();
+        List<ReelModel> data = currentGridData();
         int reelIdx = adapter.hasPinned() ? adapterPos - 1 : adapterPos;
         // Self's own Reels tab gets management options (Insights/Pin/Share/
         // Delete) in the peek's compact card; anyone else's reel just gets
@@ -3546,7 +3616,7 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     private void toggleSelection(int adapterPos) {
-        List<ReelModel> data = activeTabData();
+        List<ReelModel> data = currentGridData();
         int reelIdx = adapter.hasPinned() ? adapterPos - 1 : adapterPos;
         if (reelIdx < 0 || reelIdx >= data.size()) return;
         String reelId = data.get(reelIdx).reelId;
@@ -3598,7 +3668,13 @@ public class UserReelsActivity extends AppCompatActivity
                 List<ReelModel> oldSnapshot = new ArrayList<>(activeTabData());
                 activeTabData().removeIf(r -> selectedReelIds.contains(r.reelId));
                 exitMultiSelectMode();
-                adapter.diffDataSetChanged(oldSnapshot);
+                if (isPostsTabActive()) {
+                    // displayList is a filtered copy, not activeTabData()
+                    // itself — re-derive it instead of diffing the wrong list.
+                    applyFilter();
+                } else {
+                    adapter.diffDataSetChanged(oldSnapshot);
+                }
                 refreshEmptyState();
                 Toast.makeText(this, "Deleted successfully", Toast.LENGTH_SHORT).show();
             },
@@ -4529,7 +4605,7 @@ public class UserReelsActivity extends AppCompatActivity
                 if (!reelsTabData.isEmpty()) return; // Firebase already won the race — don't clobber
                 reelsTabData.addAll(cached);
                 if (activeTab == TAB_REELS) {
-                    adapter.notifyDataSetChanged();
+                    if (isPostsTabActive()) applyFilter(); else adapter.notifyDataSetChanged();
                     refreshEmptyState();
                     updateViewAllButton();
                 }
@@ -5490,11 +5566,18 @@ public class UserReelsActivity extends AppCompatActivity
                         fetched.sort((a, b) -> Long.compare(b.timestamp, a.timestamp));
                         reelsTabData.addAll(0, fetched);
                         if (activeTab == TAB_REELS && adapter != null) {
-                            int basePos = adapter.hasPinned() ? 1 : 0;
-                            adapter.notifyItemRangeInserted(basePos, fetched.size());
-                            // Scroll to top so new reel is immediately visible
-                            if (rvReels != null)
-                                rvReels.post(() -> rvReels.smoothScrollToPosition(0));
+                            if (isPostsTabActive()) {
+                                // Displayed list here is a filtered copy, not
+                                // reelsTabData itself — a raw positional
+                                // insert would be against the wrong indices.
+                                applyFilter();
+                            } else {
+                                int basePos = adapter.hasPinned() ? 1 : 0;
+                                adapter.notifyItemRangeInserted(basePos, fetched.size());
+                                // Scroll to top so new reel is immediately visible
+                                if (rvReels != null)
+                                    rvReels.post(() -> rvReels.smoothScrollToPosition(0));
+                            }
                         }
                         refreshEmptyState();
                     });
