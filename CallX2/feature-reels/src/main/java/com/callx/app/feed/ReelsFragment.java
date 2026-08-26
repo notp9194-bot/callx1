@@ -261,6 +261,7 @@ public class ReelsFragment extends Fragment {
         // Must be initialized BEFORE preloaders so we can gate them immediately.
         thermalManager = ReelThermalManager.get(requireContext());
         thermalManager.addChangeListener(thermalChangeListener);
+        ReelLiquidScrollEffect.setEnabled(thermalManager.getLevel() != ReelThermalManager.Level.HOT);
 
         ReelCacheManager.init(requireContext());
         videoPreloader = new ReelVideoPreloader(requireContext());
@@ -322,6 +323,18 @@ public class ReelsFragment extends Fragment {
 
             @Override
             public void onPageScrollStateChanged(int state) {
+                // Water-flow settle wobble (ReelLiquidScrollEffect): fires
+                // once, only after ViewPager2's own native snap has fully
+                // finished — never during the drag itself — so it adds no
+                // per-frame cost to the swipe (see configurePagerForVideoScroll()).
+                if (state == ViewPager2.SCROLL_STATE_IDLE && adapter != null) {
+                    int pos = vpReels.getCurrentItem();
+                    Fragment f = getChildFragmentManager()
+                        .findFragmentByTag("f" + adapter.getItemId(pos));
+                    if (f != null && f.getView() != null) {
+                        ReelLiquidScrollEffect.settleRipple(f.getView(), lastScrollVelocity);
+                    }
+                }
             }
 
             @Override
@@ -743,6 +756,10 @@ public class ReelsFragment extends Fragment {
         if (thermalManager == null) return;
         ReelThermalManager.Level level = thermalManager.getLevel();
         android.util.Log.d("ReelsFragment", "Thermal changed → " + level);
+        // Same philosophy as the preload cancellation below: turn the liquid
+        // scroll effect (ReelLiquidScrollEffect) off under HOT so it isn't
+        // spending extra GPU/CPU on an already-throttling device.
+        ReelLiquidScrollEffect.setEnabled(level != ReelThermalManager.Level.HOT);
         if (level == ReelThermalManager.Level.HOT) {
             // Cancel all active byte downloads immediately
             if (videoPreloader != null) videoPreloader.cancelAll();
@@ -1190,8 +1207,15 @@ public class ReelsFragment extends Fragment {
             rv.setHasFixedSize(true);
             rv.setItemViewCacheSize(1);
             rv.setItemAnimator(null);
-            rv.setOverScrollMode(View.OVER_SCROLL_NEVER);
             rv.setNestedScrollingEnabled(false);
+            // "Paani behta hai" water-flow feel (ReelLiquidScrollEffect):
+            // needs overScrollMode != NEVER on the INNER RecyclerView so the
+            // edge-pull effect actually fires when the user overscrolls past
+            // the first/last reel. This intentionally overrides the
+            // OVER_SCROLL_NEVER set above/on vpReels — it only replaces the
+            // stock glow, adds nothing to the per-frame drag-between-pages
+            // cost the PERF note above is about.
+            ReelLiquidScrollEffect.applyWaterEdgeEffect(rv);
         }
     }
 
