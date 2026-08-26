@@ -18,6 +18,8 @@
     <!-- Dark Mode - Sound Detail Screen -->
     <color name="sound_detail_bg_light">#0F0F0F</color>
     <color name="sound_detail_card_light">#1A1A1A</color>
+    <!-- Now matches the grid/screen background in dark mode too -->
+    <color name="sound_detail_panel_bg">#0F0F0F</color>
     <color name="sound_detail_text_light">#FFFFFF</color>
     <color name="sound_detail_subtext_light">#B0B0B0</color>
     <color name="sound_detail_button_light">#2A2A2A</color>

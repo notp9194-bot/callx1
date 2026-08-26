@@ -40,6 +40,7 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.ListPreloader;
 import com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader;
 import com.bumptech.glide.load.resource.bitmap.CircleCrop;
+import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.bumptech.glide.request.RequestOptions;
 import androidx.transition.AutoTransition;
 import androidx.transition.TransitionManager;
@@ -113,6 +114,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private boolean triedFallbackUrl = false; // already swapped preview↔full-quality URL once
     private boolean skipPreviewUrl   = false; // preview URL failed — force full-quality soundUrl
     private boolean miniPlayerActive = false;
+    private boolean autoPlayAttempted = false; // Instagram-style: fire the auto-play exactly once per screen open, whenever the playback URL first becomes available (bundle args or async Firebase fetch)
 
     private String  creatorUid, creatorName, creatorPhoto;
 
@@ -514,9 +516,13 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
 
     private void loadCoverImage(String url) {
         if (ivSoundCover == null || isGone()) return;
+        // Rounded-square crop now that the cover is a larger, static
+        // screenshot-style thumbnail (previously CircleCrop, when this was
+        // a small spinning vinyl disc).
+        int radiusPx = Math.round(14 * getResources().getDisplayMetrics().density);
         if (url != null && !url.isEmpty()) {
             Glide.with(requireContext()).load(url)
-                .transform(new CircleCrop())
+                .transform(new RoundedCorners(radiusPx))
                 .placeholder(R.drawable.ic_music_note)
                 .override(720, 720).into(ivSoundCover);
         } else {
@@ -589,18 +595,11 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     // ─────────────────────────────────────────────────────────────────────────
 
     private void startDiscAnimation() {
-        if (ivSoundCover == null) return;
-        if (discAnimator != null && discAnimator.isRunning()) return;
-        float start = ivSoundCover.getRotation();
-        discAnimator = ObjectAnimator.ofFloat(ivSoundCover, "rotation", start, start + 360f);
-        discAnimator.setDuration(6000);
-        discAnimator.setRepeatCount(ObjectAnimator.INFINITE);
-        discAnimator.setRepeatMode(ObjectAnimator.RESTART);
-        discAnimator.setInterpolator(new LinearInterpolator());
-        discAnimator.addUpdateListener(a -> {
-            if (ivDiscRing != null) ivDiscRing.setRotation((float) a.getAnimatedValue());
-        });
-        discAnimator.start();
+        // Intentionally a no-op now: the cover is a large static
+        // screenshot-style thumbnail (see loadCoverImage/RoundedCorners),
+        // not a spinning vinyl disc, so it must stay still during
+        // playback. stopDiscAnimation() is left as-is (harmless if
+        // discAnimator is null) in case anything still calls it.
     }
 
     private void stopDiscAnimation() {
@@ -682,11 +681,11 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                     }
 
                     if (tvReelCount  != null) tvReelCount.setText(formatCount(count  != null ? count  : 0) + " Reels");
-                    if (tvSavesCount != null) { tvSavesCount.setText(formatCount(saves != null ? saves : 0) + " Saves"); tvSavesCount.setVisibility(View.VISIBLE); }
+                    if (tvSavesCount != null) { tvSavesCount.setText("•  " + formatCount(saves != null ? saves : 0) + " Saves"); tvSavesCount.setVisibility(View.VISIBLE); }
 
                     if (tvTrendingRank != null) {
-                        if (rank != null && rank > 0 && rank <= 50) { tvTrendingRank.setVisibility(View.VISIBLE); tvTrendingRank.setText("#" + rank + " Trending"); }
-                        else if (Boolean.TRUE.equals(trending))      { tvTrendingRank.setVisibility(View.VISIBLE); tvTrendingRank.setText("🔥 Trending"); }
+                        if (rank != null && rank > 0 && rank <= 50) { tvTrendingRank.setVisibility(View.VISIBLE); tvTrendingRank.setText("🔥  #" + rank + " Trending"); }
+                        else if (Boolean.TRUE.equals(trending))      { tvTrendingRank.setVisibility(View.VISIBLE); tvTrendingRank.setText("🔥  Trending"); }
                         else                                           tvTrendingRank.setVisibility(View.GONE);
                     }
                     if (tvOriginalBadge != null) tvOriginalBadge.setVisibility(Boolean.TRUE.equals(orig) ? View.VISIBLE : View.GONE);
@@ -1749,6 +1748,16 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         if (btnPlayPause == null) return;
         boolean has = !getPlaybackUrl().isEmpty();
         btnPlayPause.setAlpha(has ? 1f : 0.4f); btnPlayPause.setEnabled(has);
+        // Instagram-style auto-play: as soon as we have a URL to play (bundle
+        // args resolved this synchronously in onViewCreated, or it just
+        // landed from the async Firebase fetch in loadSoundData()), start
+        // playback without waiting for a tap. Guarded to fire once so a
+        // later refresh/relayout of this same screen can't restart it out
+        // from under the user if they've already paused it themselves.
+        if (has && !autoPlayAttempted && !isGone()) {
+            autoPlayAttempted = true;
+            togglePlayPause();
+        }
     }
 
     private void updateSaveButton() {

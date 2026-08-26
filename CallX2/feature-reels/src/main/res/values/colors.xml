@@ -18,6 +18,11 @@
     <!-- Light Mode - Sound Detail Screen -->
     <color name="sound_detail_bg_light">#FFFFFF</color>
     <color name="sound_detail_card_light">#F8F8F8</color>
+    <!-- Info panel above the reels grid — light mode only: matches the
+         grid/screen background (sound_detail_bg_light) instead of the
+         slightly-tinted card color. Night mode keeps the old card shade
+         (see values-night/colors.xml). -->
+    <color name="sound_detail_panel_bg">#FFFFFF</color>
     <color name="sound_detail_text_light">#1A1A1A</color>
     <color name="sound_detail_subtext_light">#666666</color>
     <color name="sound_detail_button_light">#E8E8E8</color>
@@ -88,4 +93,10 @@
     <!-- X (Twitter) badge glyph — dark on the light-mode surface fill,
          white on the night solid-black badge (see bg_social_x_btn_adaptive). -->
     <color name="x_logo_tint">#0F1419</color>
+
+    <!-- Premium-feature badge (SoundDetail "Use in Camera"/"Use with Video"
+         buttons) — same gold in light & dark mode by design, matches how
+         other premium/CTA accents in this file (e.g. view_all_reels_stroke)
+         stay fixed regardless of theme. -->
+    <color name="premium_badge_gold">#FFC947</color>
 </resources>
