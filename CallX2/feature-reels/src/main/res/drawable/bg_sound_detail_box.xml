@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Rounded fill box for the Sound Detail screen only.
+
+    bg_card_rounded (?attr/colorSurfaceVariant) resolves to plain white in
+    this app's light theme — same as this screen's panel background — so it
+    was invisible in light mode. bg_reel_follow_btn (white border on
+    transparent) was built for the dark fullscreen reel player and is
+    likewise invisible on a white panel.
+
+    This reuses sound_detail_button_light, the color token already defined
+    for this screen (E8E8E8 light / 2A2A2A dark), so it stays visibly
+    distinct from the panel background in both modes. Shared by the
+    waveform/seekbar card and the "Use in Camera" / "Use with Video"
+    buttons — one drawable, not three.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/sound_detail_button_light"/>
+    <corners android:radius="12dp"/>
+</shape>

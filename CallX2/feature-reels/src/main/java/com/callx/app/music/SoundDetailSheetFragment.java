@@ -1,6 +1,8 @@
 package com.callx.app.music;
 
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -73,6 +75,9 @@ public class SoundDetailSheetFragment extends BottomSheetDialogFragment {
 
     private static String n(String s) { return s != null ? s : ""; }
 
+    // Peek-hint nudge — see onStart()
+    private final Handler nudgeHandler = new Handler(Looper.getMainLooper());
+
     // ─────────────────────────────────────────────────────────────────────────
     // View — sirf ek container FrameLayout chahiye
     // ─────────────────────────────────────────────────────────────────────────
@@ -142,5 +147,37 @@ public class SoundDetailSheetFragment extends BottomSheetDialogFragment {
         behavior.setExpandedOffset((int)(screenH * 0.20f));   // 80% — max expand
         behavior.setSkipCollapsed(false); // 60% state zaroor dikhao
         behavior.setState(BottomSheetBehavior.STATE_COLLAPSED); // pehle 60%
+
+        // Peek-hint nudge: sheet khulte hi thodi der baad khud-ba-khud
+        // 80% tak upar jaake wapas 60% pe aa jaati hai — is se user ko pata
+        // chalta hai ki neeche aur content hai (Reels with this sound grid)
+        // bina unhe khud drag kiye. Agar user khud drag karna shuru kar de
+        // to nudge turant cancel ho jaata hai (naturally interrupt).
+        behavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
+            @Override public void onStateChanged(@NonNull View bottomSheet, int newState) {
+                if (newState == BottomSheetBehavior.STATE_DRAGGING) {
+                    nudgeHandler.removeCallbacksAndMessages(null);
+                }
+            }
+            @Override public void onSlide(@NonNull View bottomSheet, float slideOffset) { }
+        });
+
+        nudgeHandler.postDelayed(() -> {
+            if (!isAdded() || getDialog() == null) return;
+            if (behavior.getState() != BottomSheetBehavior.STATE_COLLAPSED) return;
+            behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+            nudgeHandler.postDelayed(() -> {
+                if (!isAdded() || getDialog() == null) return;
+                if (behavior.getState() == BottomSheetBehavior.STATE_EXPANDED) {
+                    behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+                }
+            }, 550);
+        }, 450);
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        nudgeHandler.removeCallbacksAndMessages(null);
     }
 }

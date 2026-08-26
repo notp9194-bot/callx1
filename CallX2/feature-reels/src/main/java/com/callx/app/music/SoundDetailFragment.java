@@ -52,6 +52,8 @@ import com.callx.app.utils.MediaSwipeReplyCloseHelper;
 import com.callx.app.utils.ReelFirebaseUtils;
 import com.callx.app.utils.SwipeAwareFrameLayout;
 import com.facebook.shimmer.ShimmerFrameLayout;
+import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.shape.CornerFamily;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.ChildEventListener;
 import com.google.firebase.database.DataSnapshot;
@@ -138,11 +140,13 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
 
     // ── Views ─────────────────────────────────────────────────────────────────
     private View         viewDragHandle;
+    private MaterialCardView rootCard;
     private ImageButton  btnBack, btnShare, btnSaveSound, btnMore, btnPlayPause;
     private TextView     tvSoundTitle, tvArtist, tvDuration, tvReelCount,
                          tvTrendingRank, tvSavesCount, tvBpm, tvGenre,
                          tvOriginalBadge, tvIsVerified;
-    private TextView     btnUseSoundCamera, btnUseSoundGallery, btnTrimStart, btnAddToProfile;
+    private TextView     btnUseSoundCamera, btnUseSoundGallery, btnTrimStart, tvAddToProfile;
+    private View         btnAddToProfile;
     private ImageView    ivSoundCover, ivDiscRing;
     private RecyclerView rvReels, rvRelated;
     private ProgressBar  progressBar, progressReelsPagination;
@@ -356,14 +360,32 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
 
     private void applyMode() {
         if (isSheet) {
-            // Sheet: drag handle dikhao + X icon
+            // Sheet: drag handle dikhao + X icon + top corners rounded
             if (viewDragHandle != null) viewDragHandle.setVisibility(View.VISIBLE);
             if (btnBack != null) btnBack.setImageResource(R.drawable.ic_close);
+            applyRootCorners(true);
         } else {
-            // Activity: drag handle chhupao + back arrow
+            // Activity: drag handle chhupao + back arrow + flat corners
             if (viewDragHandle != null) viewDragHandle.setVisibility(View.GONE);
             if (btnBack != null) btnBack.setImageResource(R.drawable.ic_arrow_back);
+            applyRootCorners(false);
         }
+    }
+
+    /** Sheet mode: round only the top-left/top-right corners (bottom stays
+     *  flush with the screen edge, same as a standard bottom sheet). Activity
+     *  mode: flat, unchanged. MaterialCardView clips its children to this
+     *  shape — a plain View's rectangular background can't. */
+    private void applyRootCorners(boolean rounded) {
+        if (rootCard == null) return;
+        float radiusPx = rounded ? 24 * getResources().getDisplayMetrics().density : 0f;
+        rootCard.setShapeAppearanceModel(
+            rootCard.getShapeAppearanceModel().toBuilder()
+                .setTopLeftCorner(CornerFamily.ROUNDED, radiusPx)
+                .setTopRightCorner(CornerFamily.ROUNDED, radiusPx)
+                .setBottomLeftCorner(CornerFamily.ROUNDED, 0f)
+                .setBottomRightCorner(CornerFamily.ROUNDED, 0f)
+                .build());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -372,6 +394,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
 
     private void bindViews(View v) {
         viewDragHandle    = v.findViewById(R.id.view_drag_handle);
+        rootCard          = v.findViewById(R.id.root_sound_detail);
         btnBack           = v.findViewById(R.id.btn_sound_back);
         btnPlayPause      = v.findViewById(R.id.btn_sound_play_pause);
         btnShare          = v.findViewById(R.id.btn_sound_share);
@@ -391,6 +414,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         btnUseSoundGallery= v.findViewById(R.id.btn_use_sound_gallery);
         btnTrimStart      = v.findViewById(R.id.btn_trim_start);
         btnAddToProfile   = v.findViewById(R.id.btn_add_to_profile);
+        tvAddToProfile    = v.findViewById(R.id.tv_add_to_profile);
         ivSoundCover      = v.findViewById(R.id.iv_sound_cover);
         ivDiscRing        = v.findViewById(R.id.iv_disc_ring);
         rvReels           = v.findViewById(R.id.rv_sound_reels);
@@ -518,8 +542,9 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         if (ivSoundCover == null || isGone()) return;
         // Rounded-square crop now that the cover is a larger, static
         // screenshot-style thumbnail (previously CircleCrop, when this was
-        // a small spinning vinyl disc).
-        int radiusPx = Math.round(14 * getResources().getDisplayMetrics().density);
+        // a small spinning vinyl disc). Radius bumped 14dp -> 20dp for a
+        // noticeably more rounded corner on the taller cover.
+        int radiusPx = Math.round(20 * getResources().getDisplayMetrics().density);
         if (url != null && !url.isEmpty()) {
             Glide.with(requireContext()).load(url)
                 .transform(new RoundedCorners(radiusPx))
@@ -1329,7 +1354,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                 data.put("soundUrl", soundUrl); data.put("durationMs", durationMs);
                 com.google.firebase.database.FirebaseDatabase.getInstance()
                     .getReference("reels/users").child(myUid).child("profileSong").setValue(data)
-                    .addOnSuccessListener(u -> { if (btnAddToProfile != null) btnAddToProfile.setText("✓  Added to profile"); })
+                    .addOnSuccessListener(u -> { if (tvAddToProfile != null) tvAddToProfile.setText("✓  Added to profile"); })
                     .addOnFailureListener(e -> { if (isAdded()) Toast.makeText(requireContext(), "Failed: " + e.getMessage(), Toast.LENGTH_SHORT).show(); });
             });
         }
