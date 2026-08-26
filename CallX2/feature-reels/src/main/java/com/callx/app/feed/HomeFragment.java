@@ -545,6 +545,32 @@ public class HomeFragment extends Fragment {
         // inflated instances on hand for a big fling, at the cost of a
         // little idle memory — the standard fix for this exact stutter.
         recyclerHome.getRecycledViewPool().setMaxRecycledViews(ROW_POST, 10);
+        // ── Advanced fling: a light flick should carry the feed further than
+        // the raw gesture velocity, not stop right where the finger left off.
+        // RecyclerView's default fling distance is a 1:1 function of the
+        // finger's release velocity — on a tall, heavy-row feed like this
+        // one that reads as "stiff" (needs a bigger swipe to move much).
+        // Intercepting via OnFlingListener and re-dispatching a boosted
+        // velocity keeps all of RecyclerView/OverScroller's native fling
+        // physics (deceleration curve, edge-effect, nested-scroll
+        // cooperation) — only the initial velocity is scaled up — so it
+        // still feels native, just more fluid ("water-like" momentum)
+        // instead of needing repeated big scrolls to cover distance.
+        final float FLING_VELOCITY_BOOST = 1.35f;
+        final int maxFlingVelocity = android.view.ViewConfiguration.get(requireContext())
+                .getScaledMaximumFlingVelocity();
+        recyclerHome.setOnFlingListener(new androidx.recyclerview.widget.RecyclerView.OnFlingListener() {
+            @Override
+            public boolean onFling(int velocityX, int velocityY) {
+                int boostedY = (int) (velocityY * FLING_VELOCITY_BOOST);
+                // Clamp so the boost can't exceed what the system considers a
+                // physically valid fling — avoids an unnaturally long "shot"
+                // on an already-fast flick.
+                if (boostedY > maxFlingVelocity) boostedY = maxFlingVelocity;
+                else if (boostedY < -maxFlingVelocity) boostedY = -maxFlingVelocity;
+                return recyclerHome.fling(0, boostedY);
+            }
+        });
         // Instagram/TikTok-style feeds run without the default add/remove/
         // change fade-and-shift animation: every notifyItemChanged (like
         // count ticking up, a save toggling, DiffUtil remapping positions

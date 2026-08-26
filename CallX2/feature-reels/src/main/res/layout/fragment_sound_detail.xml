@@ -385,7 +385,7 @@
             <!-- Reels grid -->
             <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_sound_reels"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:background="#FFFFFF"
+                android:background="@color/sound_detail_bg_light"
                 android:padding="1dp"
                 android:nestedScrollingEnabled="false"
                 android:clipToPadding="false" android:clipChildren="false"

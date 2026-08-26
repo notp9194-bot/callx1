@@ -113,10 +113,14 @@ public class UserReelsActivity extends AppCompatActivity
     private static final int[] VISIBLE_TAB_DATA =
             { TAB_REELS, TAB_REELS, TAB_REPOST, TAB_DUET, TAB_COLLAB_REPOST, TAB_SERIES };
     private static final int POSTS_STRIP_POSITION = 0;
+    private static final int REELS_STRIP_POSITION = 1;
     // Current tab strip position (0..2) — separate from `activeTab`, which
     // holds the DATA constant (0/3/4). Used to compute swipe-left/right's
     // next/previous tab.
-    private int activeTabPosition = 0;
+    // Instagram-style default: this screen opens on the Reels tab, not
+    // Posts — see setupTabs(), which also moves the visible tab-strip
+    // selection to match on cold start.
+    private int activeTabPosition = REELS_STRIP_POSITION;
     // Previous tab STRIP position, used only to compute the slide direction
     // for slideSwapGridContent() — -1 means "no tab switch has happened
     // yet" (skip the slide on the very first onTabSelected at cold start).
@@ -1141,6 +1145,16 @@ public class UserReelsActivity extends AppCompatActivity
         // SurfaceFlinger — so this work can never compete with the pixels
         // the user is waiting to see.
         if (tabLayout == null) return;
+
+        // Instagram-style: this screen opens with Reels as the active tab,
+        // not the leftmost Posts tab (TabLayout otherwise auto-selects
+        // position 0). Select it BEFORE the listener below is attached, so
+        // this only moves the visual highlight — it doesn't fire
+        // onTabSelected and re-run the tab-switch pipeline (data load for
+        // the Reels tab already happens further down onCreate()).
+        TabLayout.Tab defaultReelsTab = tabLayout.getTabAt(REELS_STRIP_POSITION);
+        if (defaultReelsTab != null) defaultReelsTab.select();
+
         tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override public void onTabSelected(TabLayout.Tab tab) {
                 int newPos = tab.getPosition();

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Reels tab icon + small down-chevron badge (bottom-right), Instagram-style,
+  so the user knows this tab has a tappable filter/sort menu.
+  Both layers are tinted together by TabLayout's app:tabIconTint, so the
+  badge automatically matches selected/unselected tab color states.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:width="20dp"
+        android:height="20dp"
+        android:gravity="center"
+        android:drawable="@drawable/ic_reels"/>
+
+    <item
+        android:width="10dp"
+        android:height="10dp"
+        android:gravity="bottom|end"
+        android:bottom="1dp"
+        android:end="-2dp"
+        android:drawable="@drawable/ic_arrow_drop_down"/>
+
+</layer-list>
