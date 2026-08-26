@@ -97,30 +97,8 @@ public class CallxApp extends Application {
             } catch (Throwable ignored) {
                 // Fall through to previous/default handler below no matter what.
             } finally {
-                // FIX (silent crash — no "App Crashed" dialog during heavy
-                // main-thread load, e.g. mid Reels/Home-feed scroll):
-                // startActivity() above only SENDS an async request to
-                // launch CrashReportActivity — the actual launch happens
-                // later via a callback into this process (or a freshly
-                // spawned one, since this process is about to die). Killing
-                // the process synchronously right here raced that callback.
-                // Under light load the IPC usually won the race and the
-                // dialog appeared; under heavy load (continuous video
-                // decode + GC + Choreographer callbacks competing for the
-                // same thread, exactly what's happening during a Reels/Home
-                // feed scroll) the kill below consistently won instead, so
-                // CrashReportActivity's launch request never got serviced
-                // and the app just vanished with nothing shown.
-                // Move the kill onto a short-lived background thread with a
-                // small grace delay so the system has time to actually
-                // schedule/launch the crash screen first — the process is
-                // finishing either way, this just stops it from finishing
-                // *before* the dialog it just requested gets to appear.
-                new Thread(() -> {
-                    try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
-                    android.os.Process.killProcess(android.os.Process.myPid());
-                    System.exit(1);
-                }, "crash-shutdown").start();
+                android.os.Process.killProcess(android.os.Process.myPid());
+                System.exit(1);
             }
         });
 

@@ -58,11 +58,19 @@ public class HomeFeedMetadataCache {
     private volatile long totalMisses = 0;
 
     public HomeFeedMetadataCache(int maxEntries) {
+        // ★ FIX: LruCache's max-size is expressed in the same units sizeOf()
+        // returns, NOT in entry count. sizeOf() used to return a flat 5120
+        // ("~5KB/entry") while the caller passed a plain entry count (1024)
+        // straight through as the byte budget — so a single entry (5120)
+        // already exceeded the whole cache's capacity (1024) and every
+        // put() was evicted immediately. The cache never actually cached
+        // anything; every get() was a permanent miss. sizeOf() now reports
+        // 1 "unit" per entry, so maxEntries really is the entry-count cap
+        // the constructor name promises.
         this.cache = new LruCache<String, PostMetadata>(maxEntries) {
             @Override
             protected int sizeOf(String key, PostMetadata value) {
-                // ~5KB per entry (estimated): 500 bytes overhead + caption
-                return 5120;
+                return 1;
             }
         };
     }

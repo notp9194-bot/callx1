@@ -58,7 +58,6 @@ import com.callx.app.models.ReelModel;
 import com.callx.app.ranking.FeedRankingEngine;
 import com.callx.app.ranking.RankingProfile;
 import com.callx.app.utils.FirebaseUtils;
-import com.callx.app.utils.CrashReporter;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
 
@@ -891,24 +890,6 @@ public class HomeFragment extends Fragment {
             prefetchThresholdPx = dpToPx(1400);
             recyclerHome.addOnScrollListener(new RecyclerView.OnScrollListener() {
                 @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                    // FIX (silent home-feed-scroll crash): this fires on
-                    // every scrolled pixel — by far the hottest path in the
-                    // whole screen — and drives pagination/prefetch/hardware
-                    // layer promotion together. Any exception thrown from in
-                    // here (or from anything it calls) used to come straight
-                    // out of RecyclerView's scroll dispatch with nothing
-                    // captured before the app went down. Wrap it the same
-                    // way the rest of the app reports handled exceptions so
-                    // a bad scroll tick shows the trace instead of silently
-                    // closing the app.
-                    try {
-                        onScrolledSafely(rv, dx, dy);
-                    } catch (Exception e) {
-                        CrashReporter.report(requireContext(), "HomeFeed.onScrolled", e);
-                    }
-                }
-
-                private void onScrolledSafely(@NonNull RecyclerView rv, int dx, int dy) {
                     // Instant-play trigger, frame-synced — see
                     // playVisibleFrameCallback doc.
                     if (!playVisibleCheckScheduled) {
@@ -970,15 +951,11 @@ public class HomeFragment extends Fragment {
                     // per-frame checks already firing during the scroll —
                     // matches Instagram's "already playing by the time your
                     // thumb lifts" feel instead of waiting on a fixed timer.
-                    try {
-                        if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                            android.view.Choreographer.getInstance().removeFrameCallback(playVisibleFrameCallback);
-                            scrollHandler.removeCallbacks(playVisibleRunnable);
-                            playVisibleCheckScheduled = false;
-                            playMostVisibleCard();
-                        }
-                    } catch (Exception e) {
-                        CrashReporter.report(requireContext(), "HomeFeed.onScrollStateChanged", e);
+                    if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                        android.view.Choreographer.getInstance().removeFrameCallback(playVisibleFrameCallback);
+                        scrollHandler.removeCallbacks(playVisibleRunnable);
+                        playVisibleCheckScheduled = false;
+                        playMostVisibleCard();
                     }
                 }
             });
@@ -1134,23 +1111,6 @@ public class HomeFragment extends Fragment {
      * genuinely walking the whole list every frame during scroll.
      */
     private void playMostVisibleCard() {
-        // FIX (silent home-feed-scroll crash): fires on essentially every
-        // frame while scrolling (see call sites in the scroll-settle
-        // debounce below). It reads feedCards/feedItems positions computed
-        // from the LayoutManager mid-scroll — if those ever drift out of
-        // sync with a concurrent feed update, or a recycled card's rootView
-        // is mid-teardown, this used to throw straight out of a scroll
-        // callback with nothing captured. Route it through CrashReporter
-        // like every other risky path in the app instead of letting it take
-        // the whole screen down silently.
-        try {
-            playMostVisibleCardUnsafe();
-        } catch (Exception e) {
-            CrashReporter.report(requireContext(), "HomeFeed.playMostVisibleCard", e);
-        }
-    }
-
-    private void playMostVisibleCardUnsafe() {
         if (!isAdded() || feedPlayer == null || feedCards.isEmpty()) return;
         int screenH = getResources().getDisplayMetrics().heightPixels;
 
@@ -1230,24 +1190,7 @@ public class HomeFragment extends Fragment {
      * scroll past the predicted next card, or scrolling backward).
      */
     private void attachPlayerToCard(int index) {
-        // FIX (silent home-feed-scroll crash): this is the most fragile part
-        // of the scroll path — juggling feedPlayer/standbyNextPlayer/
-        // standbyPrevPlayer between cards, ExoPlayer state, and Surface
-        // attach/detach on whichever PlayerView happens to be live right
-        // now. Any exception in here (e.g. a card recycled out from under
-        // us mid-swap) used to propagate straight up from a scroll listener
-        // with no captured trace before the app closed. Same CrashReporter
-        // routing as the rest of the app so the "App Crashed" dialog can
-        // actually show what broke.
-        try {
-            attachPlayerToCardUnsafe(index);
-        } catch (Exception e) {
-            CrashReporter.report(requireContext(), "HomeFeed.attachPlayerToCard idx=" + index, e);
-        }
-    }
-
-    private void attachPlayerToCardUnsafe(int index) {
-        if (!isAdded() || feedPlayer == null || index < 0 || index >= feedCards.size()) return;
+        if (!isAdded() || feedPlayer == null || index >= feedCards.size()) return;
         // Detach old
         if (currentPlayingIndex >= 0 && currentPlayingIndex < feedCards.size()
                 && feedCards.get(currentPlayingIndex) != null) {
@@ -2650,6 +2593,31 @@ public class HomeFragment extends Fragment {
                 feedAdapter.notifyItemRangeChanged(FEED_HEADER_OFFSET + position, count, payload);
             }
         });
+
+        // ★ CRASH FIX: trimFeedFront()/prependFeedPosts() mutate a surviving
+        // FeedRow's postIndex IN PLACE (row.postIndex -= cutCount / += shift)
+        // so feedItems stays correct, but a ViewHolder that's still attached
+        // (on/near screen) is never rebound just because it *moved* — DiffUtil
+        // only emits onMoved for it, and RecyclerView repositions an already-
+        // bound ViewHolder without calling onBindViewHolder again. That
+        // ViewHolder's click/scrub-bar listeners (built in addFeedPostCard())
+        // captured the OLD postIndex as a final int at its last real bind —
+        // so after a trim/prepend those closures keep firing with a stale
+        // index. A stale index can land on a DIFFERENT post's slot in
+        // feedCards/currentFeedPosts (front-trim/prepend shift everyone by
+        // the same offset, so the slot still exists — it just now belongs to
+        // the wrong reel), and functions like attachPlayerToCard()/
+        // toggleCardPlayback() then attach the shared ExoPlayer/PlayerView to
+        // that wrong, already-in-use card — corrupting playback state and
+        // occasionally crashing (ExoPlayer/PlayerView surface conflicts) the
+        // next time the feed is scrolled and playMostVisibleCard() reconciles
+        // against that corrupted state.
+        //
+        // Fix: force every currently-attached ROW_POST holder to rebind
+        // (fresh cardIndex, fresh listeners) whenever the front-trim/prepend
+        // path runs. itemAnimator is null on recyclerHome (see setup), so
+        // this causes no flicker — it's an instant rebind, not an animation.
+        feedAdapter.notifyItemRangeChanged(FEED_HEADER_OFFSET, newItems.size());
     }
 
     /** Called once per page append (see appendFeedPage) — cheap bookkeeping
@@ -3611,13 +3579,8 @@ public class HomeFragment extends Fragment {
         // that invalidated the cache).
         if (frameVideo != null) {
             int videoH = feedCardVideoHeightPx();
-            // FIX: getLayoutParams() can legitimately return null for a view
-            // that hasn't been attached/laid out yet (e.g. a ViewHolder
-            // freshly inflated off-screen by a fast fling, bound before its
-            // first layout pass) — this was a plain field read straight
-            // after (lp.height), which NPE'd on exactly that recycler path.
             android.view.ViewGroup.LayoutParams lp = frameVideo.getLayoutParams();
-            if (lp != null && lp.height != videoH) {
+            if (lp.height != videoH) {
                 lp.height = videoH;
                 frameVideo.setLayoutParams(lp);
             }
@@ -5194,29 +5157,6 @@ public class HomeFragment extends Fragment {
 
         @Override
         public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
-            // FIX (silent home-feed-scroll crash): everything below runs on
-            // EVERY card that scrolls into view — including the shared
-            // ExoPlayer attach/detach dance in addFeedPostCard(). A single
-            // bad reel row (unexpected null field, index drift between
-            // feedItems/currentFeedPosts during a concurrent Firebase
-            // update, a mid-recycle race, etc.) used to throw here with NO
-            // trace: this fires deep inside RecyclerView's layout pass, and
-            // depending on timing it could reach the process a few
-            // scroll-frames later, well past the point CallxApp's crash
-            // screen has anything useful to show. Wrapping it the same way
-            // StatusViewerActivity already does (see CrashReporter class
-            // doc) means a bad bind now shows the SAME "App Crashed" trace
-            // dialog — copy-paste-able — instead of the feed just closing
-            // with nothing to go on, and the app keeps running (this row
-            // just stays unbound instead of the whole screen going down).
-            try {
-                bindRowSafely(holder, position);
-            } catch (Exception e) {
-                CrashReporter.report(requireContext(), "HomeFeed.onBindViewHolder pos=" + position, e);
-            }
-        }
-
-        private void bindRowSafely(@NonNull RecyclerView.ViewHolder holder, int position) {
             int vt = getItemViewType(position);
             switch (vt) {
                 case VT_HEADER:
