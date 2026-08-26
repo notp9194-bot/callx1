@@ -39,11 +39,10 @@
     <color name="reel_grid_gutter">#FFFFFF</color>
 
     <!-- Grid thumbnail views-count pill (item_saved_reel.xml) — Light Mode.
-         Pill stays a dark translucent chip (works over any thumbnail image),
-         text/icon flip to a dark tone in dark mode (values-night) so the
-         pill itself can lighten there instead of always being pure black,
-         per explicit theme-aware request. -->
-    <color name="reel_grid_views_text">#FFFFFFFF</color>
+         Pill is a white chip (bg_reel_views_pill.xml), text/icon are black
+         to match; dark mode flips both the pill and this color (see
+         values-night/colors.xml + drawable-night/bg_reel_views_pill.xml). -->
+    <color name="reel_grid_views_text">#FF000000</color>
 
     <!-- "View All Reels" pill button (UserReelsActivity) — solid black
          pill with bright green text/icon, same in light & dark mode by

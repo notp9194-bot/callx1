@@ -768,6 +768,14 @@ public class UserReelsActivity extends AppCompatActivity
             // khulta tha, ab woh trigger click pe move ho gaya hai (long-
             // press listener isliye hata diya, ab redundant hai).
             ivAvatar.setOnClickListener(v -> openStatusOrAvatarZoom(v));
+
+            // Long-press: story (seen ya unseen) ho tab bhi seedha avatar-zoom
+            // khol do — story check bypass karke — taki user sirf photo
+            // dekhna chahe to dekh sake, tap se story open kiye bina.
+            ivAvatar.setOnLongClickListener(v -> {
+                showAvatarZoom(v, targetPhoto, targetName);
+                return true;
+            });
         }
     }
 
