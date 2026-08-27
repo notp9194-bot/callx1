@@ -209,8 +209,11 @@ public class FollowingListActivity extends AppCompatActivity {
             if (isSelf) {
                 h.btnAction.setVisibility(View.VISIBLE);
                 h.btnAction.setText("Following");
-                h.btnAction.setBackgroundColor(0xFF333333);
-                h.btnAction.setTextColor(0xFFCCCCCC);
+                android.util.TypedValue tv = new android.util.TypedValue();
+                getTheme().resolveAttribute(com.google.android.material.R.attr.colorSurfaceVariant, tv, true);
+                h.btnAction.setBackgroundColor(tv.data);
+                getTheme().resolveAttribute(com.google.android.material.R.attr.colorOnSurfaceVariant, tv, true);
+                h.btnAction.setTextColor(tv.data);
                 h.btnAction.setOnClickListener(v -> unfollowUser(u, h.getAdapterPosition()));
             } else {
                 h.btnAction.setVisibility(View.GONE);

@@ -18,6 +18,7 @@ import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.profile.ReelUserProfileSheet;
 import com.callx.app.profile.UserReelsActivity;
 import com.callx.app.reels.R;
+import com.callx.app.utils.AvatarUrlBuilder;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.android.material.tabs.TabLayout;
 import com.google.android.material.tabs.TabLayoutMediator;
@@ -246,7 +247,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16f);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         title.setGravity(android.view.Gravity.CENTER);
-        title.setTextColor(0xFFFFE082);
+        title.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurface));
         LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         titleLp.topMargin = dp(14);
@@ -262,7 +263,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         sub.setText(subs[Math.min(tabIdx, 3)]);
         sub.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f);
         sub.setGravity(android.view.Gravity.CENTER);
-        sub.setTextColor(0xFF888888);
+        sub.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         subLp.topMargin = dp(8);
@@ -285,7 +286,13 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                         if (s.getKey() != null) myFollowing.add(s.getKey());
                     }
                     myFollowingLoaded = true;
-                    for (UserListAdapter a : adapters) if (a != null) a.notifyDataSetChanged();
+                    // PERF: payload-only refresh — every row's follow-state
+                    // button repaints, but avatars/bio/row-click listeners
+                    // are left untouched (see
+                    // UserListAdapter#refreshAllFollowStates), instead of a
+                    // full notifyDataSetChanged() that re-decodes every
+                    // visible avatar just because the button state changed.
+                    for (UserListAdapter a : adapters) if (a != null) a.refreshAllFollowStates();
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
                     myFollowingLoaded = true;
@@ -433,7 +440,12 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             }
         }
 
-        if (adapters[tab] != null) adapters[tab].notifyDataSetChanged();
+        // PERF: submitList() runs AsyncListDiffer's old-list/new-list diff on
+        // a background thread and dispatches minimal insert/remove/move
+        // calls — was notifyDataSetChanged(), which force-rebound every row
+        // (full avatar Glide re-decode included) on every single keystroke
+        // while typing in the search box. Same fix as the reel comment list.
+        if (adapters[tab] != null) adapters[tab].submitList(filteredItems[tab]);
 
         boolean empty = filteredItems[tab].isEmpty();
         showEmpty(tab, empty && allItems[tab].isEmpty() && query.isEmpty());
@@ -494,7 +506,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         android.graphics.drawable.GradientDrawable cardBg = new android.graphics.drawable.GradientDrawable();
         cardBg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
         cardBg.setCornerRadius(22 * density);
-        cardBg.setColor(0xFFFFFFFF);
+        cardBg.setColor(resolveAttrColor(com.google.android.material.R.attr.colorSurface));
         root.setBackground(cardBg);
         root.setLayoutParams(new ViewGroup.LayoutParams(
                 (int) (260 * density), ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -504,10 +516,9 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         int avSz = (int) (52 * density);
         iv.setImageResource(R.drawable.ic_person);
         if (user.photo != null && !user.photo.isEmpty()) {
-            Glide.with(ctx).load(user.photo)
-                .apply(RequestOptions.circleCropTransform())
+            String resizedUrl = AvatarUrlBuilder.build(ctx, user.photo, 52);
+            Glide.with(ctx).load(resizedUrl)
                 .placeholder(R.drawable.ic_person)
-                .override(96, 96)
                 .into(iv);
         }
         LinearLayout.LayoutParams avLp = new LinearLayout.LayoutParams(avSz, avSz);
@@ -518,7 +529,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         tvName.setText(user.name != null ? user.name : user.uid);
         tvName.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f);
         tvName.setTypeface(null, android.graphics.Typeface.BOLD);
-        tvName.setTextColor(0xFF111111);
+        tvName.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurface));
         tvName.setGravity(android.view.Gravity.CENTER);
         tvName.setMaxLines(1);
         tvName.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -539,7 +550,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         TextView foundLabel = new TextView(ctx);
         foundLabel.setText("Found in  ");
         foundLabel.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
-        foundLabel.setTextColor(0xFF888888);
+        foundLabel.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
         chipRow.addView(foundLabel);
 
         // Highlighted chip — one colour per tab
@@ -563,7 +574,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, (int) (density));
         divLp.topMargin = (int) (16 * density);
-        divider.setBackgroundColor(0xFFEDEDED);
+        divider.setBackgroundColor(getResources().getColor(R.color.divider, null));
         root.addView(divider, divLp);
 
         // ── Compact action row (2 buttons, no default AlertDialog chrome) ───
@@ -619,8 +630,8 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             bg.setColor(getResources().getColor(R.color.brand_primary, null));
             btn.setTextColor(0xFFFFFFFF);
         } else {
-            bg.setColor(0xFFF2F2F2);
-            btn.setTextColor(0xFF444444);
+            bg.setColor(resolveAttrColor(com.google.android.material.R.attr.colorSurfaceVariant));
+            btn.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
         }
         btn.setBackground(bg);
     }
@@ -629,14 +640,118 @@ public class FollowConnectionsActivity extends AppCompatActivity {
     // RecyclerView adapter (shared across all tabs)
     // ══════════════════════════════════════════════════════════════════════
 
+    /**
+     * UserListAdapter — shared list adapter for Followers / Following /
+     * Mutual / Suggested tabs.
+     *
+     * PERF (reused from ReelCommentsAdapter's advanced optimization pass):
+     *  ✅ AsyncListDiffer instead of raw notifyDataSetChanged() — every
+     *     filter keystroke, follow/unfollow, and initial-load refresh used
+     *     to force-rebind (and Glide re-decode) every visible row; the
+     *     diff now runs off the main thread and only touches rows that
+     *     actually changed.
+     *  ✅ Payload-based partial bind for follow-state-only changes — skips
+     *     avatar reload, name/bio rebind, and listener reattachment; only
+     *     the action button repaints (mirrors PAYLOAD_LIKE in the comment
+     *     adapter).
+     *  ✅ Stable IDs (uid hash) so RecyclerView's default animator matches
+     *     rows by identity, not position, across diff-driven updates.
+     *  ✅ All click listeners (avatar / row / action button) attached ONCE
+     *     in the ViewHolder constructor and read the live bound item +
+     *     getAdapterPosition() at click time, instead of being reassigned
+     *     on every onBindViewHolder call.
+     */
     private class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.VH> {
 
-        private final List<UserItem> data;
-        private final int            tabIdx;
+        // Avatar decode/target size in px — row avatar is a fixed 46dp
+        // circle (see item_follow_user.xml). Route every load through
+        // AvatarUrlBuilder so Cloudinary returns an already-downscaled 2x
+        // variant and Glide never decodes more pixels than the row can
+        // show — same fix applied to the reel comment list.
+        private static final int AVATAR_SIZE_DP = 46;
 
-        UserListAdapter(List<UserItem> data, int tabIdx) {
-            this.data   = data;
+        // PERF: RequestOptions was rebuilt with `new RequestOptions()
+        // .override(96, 96)` on EVERY avatar bind. The target size is fixed
+        // for every row, so build it once lazily and reuse the same
+        // instance for every Glide.load() call instead.
+        // NOTE: no circleCropTransform() — ivAvatar is a real
+        // CircleImageView, which already clips to a circle at draw time.
+        // Applying circleCrop() on top would allocate + draw a second,
+        // redundant bitmap on every decode for no visual difference.
+        private volatile RequestOptions avatarRequestOptions;
+
+        private RequestOptions avatarRequestOptions(Context ctx) {
+            RequestOptions opts = avatarRequestOptions;
+            if (opts == null) {
+                int sizePx = AvatarUrlBuilder.dpToPx(ctx, AVATAR_SIZE_DP) * 2;
+                opts = new RequestOptions().override(sizePx, sizePx);
+                avatarRequestOptions = opts;
+            }
+            return opts;
+        }
+
+        /** Payload marker for a "follow-state only" partial rebind. */
+        private static final String PAYLOAD_FOLLOW_STATE = "follow_state";
+
+        // NOTE: instance field, not static — UserListAdapter is itself a
+        // non-static inner class of the Activity, and Java only allows
+        // compile-time-constant static members (like the String/int
+        // constants above) inside a non-static inner class, not an object
+        // instance like this callback.
+        private final AsyncListDiffer<UserItem> differ =
+            new AsyncListDiffer<>(this, new DiffUtil.ItemCallback<UserItem>() {
+                @Override
+                public boolean areItemsTheSame(@NonNull UserItem a, @NonNull UserItem b) {
+                    return a.uid != null && a.uid.equals(b.uid);
+                }
+
+                @Override
+                public boolean areContentsTheSame(@NonNull UserItem a, @NonNull UserItem b) {
+                    return Objects.equals(a.name, b.name)
+                        && Objects.equals(a.photo, b.photo)
+                        && Objects.equals(a.bio, b.bio);
+                }
+            });
+        private final int tabIdx;
+
+        UserListAdapter(List<UserItem> initial, int tabIdx) {
             this.tabIdx = tabIdx;
+            setHasStableIds(true);
+            if (initial != null && !initial.isEmpty()) differ.submitList(new ArrayList<>(initial));
+        }
+
+        /** Submit a new filtered/refreshed list — AsyncListDiffer diffs it
+         *  against the current list on a background thread and dispatches
+         *  minimal insert/remove/move calls. */
+        void submitList(List<UserItem> list) {
+            differ.submitList(list != null ? new ArrayList<>(list) : new ArrayList<>());
+        }
+
+        UserItem getItem(int pos) { return differ.getCurrentList().get(pos); }
+
+        @Override
+        public long getItemId(int position) {
+            UserItem u = getItem(position);
+            return (u != null && u.uid != null) ? u.uid.hashCode() : RecyclerView.NO_ID;
+        }
+
+        /** Follow/unfollow toggled elsewhere (e.g. from a different tab, or
+         *  the "my following" bulk load) — repaint just this uid's action
+         *  button instead of the whole row. */
+        void notifyFollowStateChanged(String uid) {
+            List<UserItem> items = differ.getCurrentList();
+            for (int i = 0; i < items.size(); i++) {
+                if (uid != null && uid.equals(items.get(i).uid)) {
+                    notifyItemChanged(i, PAYLOAD_FOLLOW_STATE);
+                    break;
+                }
+            }
+        }
+
+        /** Bulk version of notifyFollowStateChanged — used once after the
+         *  initial "my following" set finishes loading. */
+        void refreshAllFollowStates() {
+            notifyItemRangeChanged(0, getItemCount(), PAYLOAD_FOLLOW_STATE);
         }
 
         @NonNull
@@ -646,20 +761,28 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             return new VH(v);
         }
 
+        /** Payload-aware partial bind — PERF: when only the follow state
+         *  changed, skip the full bind (avatar Glide load, name/bio text)
+         *  and touch only the action button. Falls back to a full bind for
+         *  any other payload or a cold bind. */
+        @Override
+        public void onBindViewHolder(@NonNull VH h, int pos, @NonNull List<Object> payloads) {
+            if (!payloads.isEmpty() && payloads.contains(PAYLOAD_FOLLOW_STATE)) {
+                UserItem u = getItem(pos);
+                h.boundItem = u;
+                bindActionButton(h, u, pos);
+                return;
+            }
+            super.onBindViewHolder(h, pos, payloads);
+        }
+
         @Override
         public void onBindViewHolder(@NonNull VH h, int pos) {
-            UserItem u = data.get(pos);
+            UserItem u = getItem(pos);
+            h.boundItem = u;
 
             // Avatar
-            h.ivAvatar.setImageResource(R.drawable.ic_person);
-            if (u.photo != null && !u.photo.isEmpty()) {
-                Glide.with(FollowConnectionsActivity.this)
-                    .load(u.photo)
-                    .apply(RequestOptions.circleCropTransform())
-                    .placeholder(R.drawable.ic_person)
-                    .override(96, 96)
-                    .into(h.ivAvatar);
-            }
+            bindAvatar(h.ivAvatar, u.photo);
 
             // Name + bio
             h.tvName.setText(u.name != null ? u.name : u.uid);
@@ -672,20 +795,36 @@ public class FollowConnectionsActivity extends AppCompatActivity {
 
             // Action button per tab
             bindActionButton(h, u, pos);
-
-            // Clicks
-            h.ivAvatar.setOnClickListener(v ->
-                ReelUserProfileSheet.show(FollowConnectionsActivity.this, u.uid, u.name, u.photo));
-
-            h.itemView.setOnClickListener(v -> {
-                Intent i = new Intent(FollowConnectionsActivity.this, UserReelsActivity.class);
-                i.putExtra(UserReelsActivity.EXTRA_UID,   u.uid);
-                i.putExtra(UserReelsActivity.EXTRA_NAME,  u.name != null ? u.name : "");
-                i.putExtra(UserReelsActivity.EXTRA_PHOTO, u.photo != null ? u.photo : "");
-                startActivity(i);
-            });
         }
 
+        private void bindAvatar(CircleImageView iv, String photo) {
+            if (photo == null || photo.isEmpty()) {
+                iv.setTag(R.id.tag_avatar_url, null);
+                iv.setImageResource(R.drawable.ic_person);
+                return;
+            }
+            // PERF: skip the Glide call entirely if this exact URL is
+            // already what's loaded/loading into this recycled row — avoids
+            // redundant request-building work on rebinds where the avatar
+            // didn't actually change (e.g. a follow-state-only refresh).
+            Context ctx = FollowConnectionsActivity.this;
+            Object lastUrl = iv.getTag(R.id.tag_avatar_url);
+            if (photo.equals(lastUrl)) return;
+            iv.setTag(R.id.tag_avatar_url, photo);
+
+            iv.setImageResource(R.drawable.ic_person);
+            String resizedUrl = AvatarUrlBuilder.build(ctx, photo, AVATAR_SIZE_DP);
+            Glide.with(ctx)
+                .load(resizedUrl)
+                .apply(avatarRequestOptions(ctx))
+                .placeholder(R.drawable.ic_person)
+                .error(R.drawable.ic_person)
+                .into(iv);
+        }
+
+        /** Sets visibility/text/style only — click behavior for btnAction is
+         *  attached ONCE in the VH constructor (see below), so this never
+         *  touches a listener. */
         private void bindActionButton(VH h, UserItem u, int pos) {
             String myUid = safeMyUid();
 
@@ -698,10 +837,8 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                         h.btnAction.setVisibility(View.GONE);
                     } else if (iFollow) {
                         styleBtn(h.btnAction, "Following", false);
-                        h.btnAction.setOnClickListener(v -> toggleFollowFromBtn(u, h, pos, true));
                     } else {
                         styleBtn(h.btnAction, "Follow", true);
-                        h.btnAction.setOnClickListener(v -> toggleFollowFromBtn(u, h, pos, false));
                     }
                     break;
 
@@ -710,7 +847,6 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                     if (isSelf && myUid != null && !u.uid.equals(myUid)) {
                         h.btnAction.setVisibility(View.VISIBLE);
                         styleBtn(h.btnAction, "Following", false);
-                        h.btnAction.setOnClickListener(v -> unfollowUser(u, pos));
                     } else {
                         h.btnAction.setVisibility(View.GONE);
                     }
@@ -724,39 +860,98 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                         h.btnAction.setVisibility(View.GONE);
                     } else if (iFollowMutual) {
                         styleBtn(h.btnAction, "Following", false);
-                        h.btnAction.setOnClickListener(v -> toggleFollowFromBtn(u, h, pos, true));
                     } else {
                         styleBtn(h.btnAction, "Follow Back", true);
-                        h.btnAction.setOnClickListener(v -> toggleFollowFromBtn(u, h, pos, false));
                     }
                     break;
             }
         }
 
+        // NOTE: a fresh GradientDrawable per call (not cached/shared) —
+        // sharing one Drawable *instance* across multiple recycled rows is
+        // unsafe here since each row's Button has a different wrap_content
+        // width ("Follow" vs "Following" vs "Follow Back"); a shared
+        // instance's bounds get overwritten by whichever row bound last,
+        // stretching the pill on the others. Same pattern already used by
+        // styleCompactDialogBtn()/cardBg/chipBg elsewhere in this file — a
+        // plain shape GradientDrawable is cheap to allocate (no bitmap),
+        // so this isn't the kind of per-bind cost the avatar/list-diff
+        // fixes above target.
         private void styleBtn(Button btn, String text, boolean filled) {
             btn.setText(text);
-            android.util.TypedValue tv = new android.util.TypedValue();
+            float r = 17f * btn.getResources().getDisplayMetrics().density; // pill: half of 34dp height
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+            bg.setCornerRadius(r);
             if (filled) {
-                btn.setBackgroundColor(getResources().getColor(R.color.brand_primary, null));
+                bg.setColor(getResources().getColor(R.color.brand_primary, null));
                 btn.setTextColor(0xFFFFFFFF);
             } else {
-                btn.setBackgroundColor(0xFF333333);
-                btn.setTextColor(0xFFCCCCCC);
+                bg.setColor(resolveAttrColor(com.google.android.material.R.attr.colorSurfaceVariant));
+                btn.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
             }
+            btn.setBackground(bg);
         }
 
-        @Override public int getItemCount() { return data.size(); }
+        @Override public int getItemCount() { return differ.getCurrentList().size(); }
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;
             TextView        tvName, tvBio;
             Button          btnAction;
+
+            /** Which user this recycled row currently displays — refreshed
+             *  on every bind, read by every listener below (all attached
+             *  once, here in the constructor, instead of freshly per bind)
+             *  — same pattern as ReelCommentsAdapter.VH. */
+            UserItem boundItem;
+
             VH(View v) {
                 super(v);
                 ivAvatar  = v.findViewById(R.id.iv_avatar);
                 tvName    = v.findViewById(R.id.tv_name);
                 tvBio     = v.findViewById(R.id.tv_bio);
                 btnAction = v.findViewById(R.id.btn_follow_action);
+
+                // PERF: every listener below is attached ONCE here rather
+                // than reassigned on every onBindViewHolder call — during a
+                // fast fling a recycled row rebinds constantly, so a fresh
+                // lambda per bind per listener adds up fast. Each one reads
+                // the LIVE boundItem / getAdapterPosition() at click time.
+                ivAvatar.setOnClickListener(v2 -> {
+                    if (boundItem != null)
+                        ReelUserProfileSheet.show(FollowConnectionsActivity.this,
+                                boundItem.uid, boundItem.name, boundItem.photo);
+                });
+
+                itemView.setOnClickListener(v2 -> {
+                    if (boundItem == null) return;
+                    Intent i = new Intent(FollowConnectionsActivity.this, UserReelsActivity.class);
+                    i.putExtra(UserReelsActivity.EXTRA_UID,   boundItem.uid);
+                    i.putExtra(UserReelsActivity.EXTRA_NAME,  boundItem.name != null ? boundItem.name : "");
+                    i.putExtra(UserReelsActivity.EXTRA_PHOTO, boundItem.photo != null ? boundItem.photo : "");
+                    startActivity(i);
+                });
+
+                // Follow-state action button — behavior depends on which
+                // tab this row lives in and the LIVE myFollowing membership
+                // at click time (not whatever it was when this row was
+                // bound), so one listener covers every tab/state.
+                btnAction.setOnClickListener(v2 -> {
+                    if (boundItem == null) return;
+                    int pos = getAdapterPosition();
+                    if (pos == RecyclerView.NO_POSITION) return;
+                    switch (tabIdx) {
+                        case TAB_FOLLOWERS:
+                        case TAB_MUTUAL:
+                            boolean currentlyFollowing = myFollowing.contains(boundItem.uid);
+                            toggleFollowFromBtn(boundItem, this, pos, currentlyFollowing);
+                            break;
+                        case TAB_FOLLOWING:
+                            unfollowUser(boundItem, pos);
+                            break;
+                    }
+                });
             }
         }
     }
@@ -776,8 +971,12 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             FirebaseUtils.getReelFollowsRef(myUid).child(u.uid).setValue(true);
             FirebaseUtils.getReelFollowersRef(u.uid).child(myUid).setValue(true);
         }
-        // Refresh the row
-        for (UserListAdapter a : adapters) if (a != null) a.notifyDataSetChanged();
+        // PERF: was a full notifyDataSetChanged() across all 4 tab adapters
+        // — rebuilt every visible row (avatar Glide reload, bio text,
+        // listener churn) just to flip one button's follow state. Payload-
+        // based partial rebind touches only the one row (in each tab) that
+        // actually shows this uid.
+        for (UserListAdapter a : adapters) if (a != null) a.notifyFollowStateChanged(u.uid);
     }
 
     private void unfollowUser(UserItem u, int pos) {
@@ -792,7 +991,10 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                 filteredItems[TAB_FOLLOWING].remove(u);
                 counts[TAB_FOLLOWING] = Math.max(0, counts[TAB_FOLLOWING] - 1);
                 updateTabLabel(TAB_FOLLOWING);
-                if (adapters[TAB_FOLLOWING] != null) adapters[TAB_FOLLOWING].notifyDataSetChanged();
+                // PERF: submitList lets AsyncListDiffer compute a minimal
+                // diff (one row removed) instead of notifyDataSetChanged()
+                // rebuilding every remaining visible row.
+                if (adapters[TAB_FOLLOWING] != null) adapters[TAB_FOLLOWING].submitList(filteredItems[TAB_FOLLOWING]);
                 showEmpty(TAB_FOLLOWING, filteredItems[TAB_FOLLOWING].isEmpty());
             },
             null, null,
@@ -865,6 +1067,14 @@ public class FollowConnectionsActivity extends AppCompatActivity {
 
     private int dp(int v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+
+    /** Resolves a theme attribute (e.g. R.attr.colorSurface) to its current color,
+     *  so dynamically-built views follow light/dark mode instead of hardcoded ARGB. */
+    private int resolveAttrColor(int attrResId) {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        getTheme().resolveAttribute(attrResId, tv, true);
+        return tv.data;
     }
 
     // ══════════════════════════════════════════════════════════════════════

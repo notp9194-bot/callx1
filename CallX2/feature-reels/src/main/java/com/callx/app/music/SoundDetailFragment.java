@@ -160,6 +160,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private View         dividerCreator;
     private ImageView    ivCreatorAvatar;
     private TextView     tvCreatorName;
+    private android.widget.Button btnFollowCreator;
     private SwipeAwareFrameLayout layoutMiniPlayer;
     private ImageView    ivMiniCover;
     private TextView     tvMiniTitle;
@@ -429,6 +430,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         dividerCreator    = v.findViewById(R.id.divider_creator);
         ivCreatorAvatar   = v.findViewById(R.id.iv_creator_avatar);
         tvCreatorName     = v.findViewById(R.id.tv_creator_name);
+        btnFollowCreator  = v.findViewById(R.id.btn_follow_creator);
         layoutMiniPlayer  = v.findViewById(R.id.layout_mini_player);
         ivMiniCover       = v.findViewById(R.id.iv_mini_cover);
         tvMiniTitle       = v.findViewById(R.id.tv_mini_title);
@@ -1323,6 +1325,86 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         layoutCreator.setVisibility(View.VISIBLE);
         if (dividerCreator != null) dividerCreator.setVisibility(View.VISIBLE);
         layoutCreator.setOnClickListener(v -> openUserProfile(uid, name, photo));
+        bindFollowCreatorBtn(uid);
+    }
+
+    /**
+     * Follow/Following pill button on the original-creator row — same
+     * filled/outline style reused across FollowConnectionsActivity,
+     * ReelLikesBottomSheet, and ReelSharesBottomSheet. Hidden entirely when
+     * this sound's creator is the current user (nothing to follow).
+     */
+    private void bindFollowCreatorBtn(String uid) {
+        if (btnFollowCreator == null) return;
+        String myUid = FirebaseUtils.getCurrentUid();
+        if (uid == null || uid.isEmpty() || myUid == null || myUid.isEmpty() || uid.equals(myUid)) {
+            btnFollowCreator.setVisibility(View.GONE);
+            return;
+        }
+        btnFollowCreator.setVisibility(View.VISIBLE);
+        // Consume clicks with a no-op until the real follow state loads
+        // below, so a fast tap can't race the Firebase read.
+        btnFollowCreator.setOnClickListener(v -> {});
+
+        FirebaseUtils.getReelFollowsRef(myUid).child(uid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (isGone()) return;
+                    boolean initiallyFollowing = snap.exists() && Boolean.TRUE.equals(snap.getValue(Boolean.class));
+                    attachFollowCreatorClick(uid, myUid, initiallyFollowing);
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    attachFollowCreatorClick(uid, myUid, false);
+                }
+            });
+    }
+
+    /** Holds the live follow state in a one-element array so the click
+     *  listener always toggles from the current value, not a stale one
+     *  captured at bind time. */
+    private void attachFollowCreatorClick(String uid, String myUid, boolean initiallyFollowing) {
+        if (btnFollowCreator == null || isGone()) return;
+        final boolean[] following = {initiallyFollowing};
+        styleFollowBtn(btnFollowCreator, following[0]);
+        btnFollowCreator.setOnClickListener(v -> {
+            following[0] = !following[0];
+            DatabaseReference ref = FirebaseUtils.getReelFollowsRef(myUid).child(uid);
+            if (following[0]) ref.setValue(true);
+            else              ref.removeValue();
+            styleFollowBtn(btnFollowCreator, following[0]);
+        });
+    }
+
+    /**
+     * Pill-shaped follow button styling — reused from
+     * FollowConnectionsActivity$UserListAdapter#styleBtn() (already reused
+     * in ReelLikesBottomSheet and ReelSharesBottomSheet): filled
+     * brand_primary for "Follow", outline colorSurfaceVariant for
+     * "Following ✓". A fresh GradientDrawable is built per call (not
+     * cached/shared) since this row's button width changes with the text.
+     */
+    private void styleFollowBtn(android.widget.Button btn, boolean isFollowing) {
+        btn.setText(isFollowing ? "Following ✓" : "Follow");
+        float r = 16f * btn.getResources().getDisplayMetrics().density; // pill: half of 32dp height
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        bg.setCornerRadius(r);
+        if (isFollowing) {
+            bg.setColor(resolveAttrColor(com.google.android.material.R.attr.colorSurfaceVariant));
+            btn.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        } else {
+            bg.setColor(getResources().getColor(R.color.brand_primary, null));
+            btn.setTextColor(0xFFFFFFFF);
+        }
+        btn.setBackground(bg);
+    }
+
+    /** Resolves a theme attribute (e.g. colorSurfaceVariant) to its current
+     *  color, so the outline "Following" state follows light/dark mode. */
+    private int resolveAttrColor(int attrResId) {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        requireContext().getTheme().resolveAttribute(attrResId, tv, true);
+        return tv.data;
     }
 
     private void openUserProfile(String uid, String name, String photo) {

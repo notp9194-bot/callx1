@@ -199,8 +199,16 @@ public class FollowersListActivity extends AppCompatActivity {
                 h.btnFollowBack.setVisibility(View.VISIBLE);
                 boolean amFollowing = myFollowing.contains(u.uid);
                 h.btnFollowBack.setText(amFollowing ? "Following" : "Follow Back");
-                h.btnFollowBack.setBackgroundColor(amFollowing ? 0xFF333333
-                    : getResources().getColor(R.color.brand_primary, null));
+                if (amFollowing) {
+                    android.util.TypedValue tv = new android.util.TypedValue();
+                    getTheme().resolveAttribute(com.google.android.material.R.attr.colorSurfaceVariant, tv, true);
+                    h.btnFollowBack.setBackgroundColor(tv.data);
+                    getTheme().resolveAttribute(com.google.android.material.R.attr.colorOnSurfaceVariant, tv, true);
+                    h.btnFollowBack.setTextColor(tv.data);
+                } else {
+                    h.btnFollowBack.setBackgroundColor(getResources().getColor(R.color.brand_primary, null));
+                    h.btnFollowBack.setTextColor(0xFF00C6FF);
+                }
                 h.btnFollowBack.setOnClickListener(v -> toggleFollowBack(u, h, pos));
             } else {
                 h.btnFollowBack.setVisibility(View.GONE);

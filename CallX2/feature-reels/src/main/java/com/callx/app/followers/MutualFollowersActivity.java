@@ -201,8 +201,16 @@ public class MutualFollowersActivity extends AppCompatActivity {
                 h.btnFollowAction.setVisibility(View.VISIBLE);
                 boolean amFollowing = myFollowing.contains(u.uid);
                 h.btnFollowAction.setText(amFollowing ? "Following" : "Follow Back");
-                h.btnFollowAction.setBackgroundColor(amFollowing ? 0xFF333333
-                        : getResources().getColor(R.color.brand_primary, null));
+                if (amFollowing) {
+                    android.util.TypedValue tv = new android.util.TypedValue();
+                    getTheme().resolveAttribute(com.google.android.material.R.attr.colorSurfaceVariant, tv, true);
+                    h.btnFollowAction.setBackgroundColor(tv.data);
+                    getTheme().resolveAttribute(com.google.android.material.R.attr.colorOnSurfaceVariant, tv, true);
+                    h.btnFollowAction.setTextColor(tv.data);
+                } else {
+                    h.btnFollowAction.setBackgroundColor(getResources().getColor(R.color.brand_primary, null));
+                    h.btnFollowAction.setTextColor(0xFF00C6FF);
+                }
                 h.btnFollowAction.setOnClickListener(v -> toggleFollow(u, h, pos));
             } else {
                 h.btnFollowAction.setVisibility(View.GONE);

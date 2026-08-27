@@ -403,11 +403,43 @@ public class ReelLikesBottomSheet extends BottomSheetDialogFragment {
         DatabaseReference followRef = FirebaseUtils.getReelFollowsRef(myUid).child(user.uid);
         if (nowFollowing) {
             followRef.setValue(true);
-            btnFollow.setText("Following ✓");
         } else {
             followRef.removeValue();
-            btnFollow.setText("Follow");
         }
+        styleFollowBtn(btnFollow, nowFollowing);
+    }
+
+    /**
+     * Pill-shaped follow button styling — reused from
+     * FollowConnectionsActivity$UserListAdapter#styleBtn(): filled
+     * brand_primary for "Follow", outline colorSurfaceVariant for
+     * "Following ✓". A fresh GradientDrawable is built per call (not
+     * cached/shared) since sharing one Drawable instance across multiple
+     * recycled rows corrupts corner/bounds rendering when rows differ in
+     * width — same reasoning as the connections screen.
+     */
+    private void styleFollowBtn(Button btn, boolean isFollowing) {
+        btn.setText(isFollowing ? "Following ✓" : "Follow");
+        float r = 16f * btn.getResources().getDisplayMetrics().density; // pill: half of 32dp height
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        bg.setCornerRadius(r);
+        if (isFollowing) {
+            bg.setColor(resolveAttrColor(com.google.android.material.R.attr.colorSurfaceVariant));
+            btn.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        } else {
+            bg.setColor(getResources().getColor(R.color.brand_primary, null));
+            btn.setTextColor(0xFFFFFFFF);
+        }
+        btn.setBackground(bg);
+    }
+
+    /** Resolves a theme attribute (e.g. colorSurfaceVariant) to its current
+     *  color, so the outline "Following" state follows light/dark mode. */
+    private int resolveAttrColor(int attrResId) {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        requireContext().getTheme().resolveAttribute(attrResId, tv, true);
+        return tv.data;
     }
 
     // ── Filter ─────────────────────────────────────────────────────────────
@@ -491,12 +523,16 @@ public class ReelLikesBottomSheet extends BottomSheetDialogFragment {
                 h.ivAvatar.setImageResource(R.drawable.ic_person);
             }
 
-            // Follow button — hide for own profile
+            // Follow button — hide for own profile. Same pill-shaped
+            // filled/outline style as FollowConnectionsActivity's
+            // Follow/Following button (reused here for visual consistency
+            // between the follow-connections screen and the reel likes
+            // sheet).
             if (u.uid.equals(myUid)) {
                 h.btnFollow.setVisibility(View.GONE);
             } else {
                 h.btnFollow.setVisibility(View.VISIBLE);
-                h.btnFollow.setText(u.isFollowing ? "Following ✓" : "Follow");
+                styleFollowBtn(h.btnFollow, u.isFollowing);
                 h.btnFollow.setOnClickListener(v -> toggleFollow(u, h.btnFollow));
             }
 

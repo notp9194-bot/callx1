@@ -446,7 +446,7 @@
                 <!-- Instagram-style 3-button row: Following ▾ | Message | Call -->
                 <LinearLayout android:id="@+id/layout_instagram_cta"
                     android:layout_width="match_parent"
-                    android:layout_height="36dp"
+                    android:layout_height="30dp"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
                     android:layout_marginBottom="8dp"
@@ -455,10 +455,13 @@
                     <!-- Following ▾ / Follow pill -->
                     <Button android:id="@+id/btn_follow"
                         android:layout_width="0dp"
-                        android:layout_height="36dp"
+                        android:layout_height="30dp"
                         android:layout_weight="2.2"
                         android:text="Follow"
-                        android:textSize="14sp"
+                        android:textSize="13sp"
+                        android:minHeight="0dp"
+                        android:paddingTop="0dp"
+                        android:paddingBottom="0dp"
                         android:fontFamily="sans-serif-medium"
                         app:textAllCaps="false"
                         android:background="@drawable/bg_btn_follow_pill"
@@ -468,10 +471,13 @@
                     <!-- Message pill -->
                     <Button android:id="@+id/btn_message_cta"
                         android:layout_width="0dp"
-                        android:layout_height="36dp"
+                        android:layout_height="30dp"
                         android:layout_weight="2"
                         android:text="Message"
-                        android:textSize="14sp"
+                        android:textSize="13sp"
+                        android:minHeight="0dp"
+                        android:paddingTop="0dp"
+                        android:paddingBottom="0dp"
                         android:fontFamily="sans-serif-medium"
                         app:textAllCaps="false"
                         android:background="@drawable/bg_btn_outline_pill"
@@ -480,12 +486,12 @@
 
                     <!-- Add Person / Suggestions circle button -->
                     <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btn_cta_call"
-                        android:layout_width="36dp"
-                        android:layout_height="36dp"
+                        android:layout_width="30dp"
+                        android:layout_height="30dp"
                         android:src="@drawable/ic_person_add"
                         android:background="@drawable/bg_btn_outline_pill"
                         android:tint="?attr/colorOnSurface"
-                        android:padding="8dp"
+                        android:padding="6dp"
                         android:contentDescription="Suggestions"/>
                 </LinearLayout>
 
@@ -565,10 +571,6 @@
                             android:tint="#00F260"
                             android:padding="10dp"
                             android:contentDescription="Audio Call"/>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Call" android:textSize="10sp"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:layout_marginTop="3dp"/>
                     </LinearLayout>
 
                     <!-- Video Call pill -->
@@ -583,10 +585,6 @@
                             android:tint="#A855F7"
                             android:padding="10dp"
                             android:contentDescription="Video Call"/>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Video" android:textSize="10sp"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:layout_marginTop="3dp"/>
                     </LinearLayout>
 
                     <!-- X profile pill -->
@@ -612,10 +610,6 @@
                                 app:civ_border_width="1.5dp"
                                 app:civ_border_color="#000000"/>
                         </FrameLayout>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="X" android:textSize="10sp"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:layout_marginTop="3dp"/>
                     </LinearLayout>
 
                     <!-- YouTube pill -->
@@ -641,10 +635,6 @@
                                 app:civ_border_width="1.5dp"
                                 app:civ_border_color="#FF0000"/>
                         </FrameLayout>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="YouTube" android:textSize="10sp"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:layout_marginTop="3dp"/>
                     </LinearLayout>
                 </LinearLayout>
 

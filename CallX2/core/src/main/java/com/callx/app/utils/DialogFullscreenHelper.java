@@ -9,6 +9,7 @@ import android.graphics.Color;
 import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -16,12 +17,21 @@ import android.view.View;
 import android.view.Window;
 import android.view.animation.Interpolator;
 import android.view.animation.PathInterpolator;
+import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
+
+import com.bumptech.glide.Glide;
+import com.bumptech.glide.request.RequestOptions;
 import com.github.chrisbanes.photoview.PhotoView;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.ValueEventListener;
 
 /**
  * DIALOG FULLSCREEN HELPER — common "avatar zoom" full-screen dialog
@@ -115,6 +125,44 @@ public final class DialogFullscreenHelper {
      */
     public static Dialog showAvatarZoom(Context ctx, View sourceView, String photoUrl, String name,
                                          int icPersonRes, int icCloseRes) {
+        return showAvatarZoom(ctx, sourceView, photoUrl, name, icPersonRes, icCloseRes, null);
+    }
+
+    /**
+     * Optional config for the Follow / Share-profile row shown under the
+     * avatar. Passing null (any of the overloads above) keeps the dialog
+     * exactly as it was for the other 6 existing call sites — this row is
+     * opt-in per caller, not a global change to the shared avatar-zoom
+     * dialog.
+     *
+     * Follow behavior/style here intentionally mirrors
+     * FollowConnectionsActivity's per-row action button (same pill shape,
+     * same Follow / Following states, same reel-follow Firebase writes) so
+     * the two feel like one reused component even though this one lives in
+     * :core and that one in :feature-reels.
+     */
+    public static final class ProfileActionsConfig {
+        public final String targetUid;
+        public final String myUid;
+        public final int brandColorArgb;
+        public final Runnable onShareProfile;
+
+        public ProfileActionsConfig(String targetUid, String myUid, int brandColorArgb, Runnable onShareProfile) {
+            this.targetUid = targetUid;
+            this.myUid = myUid;
+            this.brandColorArgb = brandColorArgb;
+            this.onShareProfile = onShareProfile;
+        }
+    }
+
+    /**
+     * Avatar zoom dialog — same as the 6-arg overload above, plus an
+     * optional Follow + Share-profile row docked under the avatar
+     * (Instagram profile-photo-viewer style). Only pass a non-null
+     * {@code profileActions} where that row should actually appear.
+     */
+    public static Dialog showAvatarZoom(Context ctx, View sourceView, String photoUrl, String name,
+                                         int icPersonRes, int icCloseRes, ProfileActionsConfig profileActions) {
         if (ctx == null) return null;
 
         final Rect srcRect = MediaViewerSourceRect.ofView(sourceView);
@@ -162,6 +210,31 @@ public final class DialogFullscreenHelper {
             tvName.setLayoutParams(nameLp);
         }
 
+        // Optional Follow / Share-profile row — Instagram profile-photo-
+        // viewer style, docked under the avatar (and under the name label,
+        // if one is showing). Only built when the caller opted in via
+        // profileActions (currently: UserReelsActivity's avatar tap only)
+        // — every other existing call site leaves this null and never
+        // allocates any of it.
+        LinearLayout profileActionsRow = null;
+        if (profileActions != null && profileActions.targetUid != null
+                && !profileActions.targetUid.equals(profileActions.myUid)) {
+            profileActionsRow = buildProfileActionsRow(ctx, profileActions);
+            FrameLayout.LayoutParams rowLp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT);
+            rowLp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+            rowLp.leftMargin = (int) (40 * dp);
+            rowLp.rightMargin = (int) (40 * dp);
+            rowLp.bottomMargin = (int) (44 * dp);
+            profileActionsRow.setLayoutParams(rowLp);
+            profileActionsRow.setAlpha(0f);
+            // Give the name label (if present) room to sit above this row
+            // instead of overlapping it — both are bottom-anchored.
+            if (tvName != null) tvName.setPadding(0, 0, 0, (int) (128 * dp));
+        }
+        final LinearLayout finalProfileActionsRow = profileActionsRow;
+
         // Same interactive live-drag + spring-back + fling-to-dismiss gesture
         // MediaViewerActivity uses for chat media (see MEDIA_VIEWER_TELEGRAM_CLOSE
         // docs) — reused as-is, nothing gesture-related is reimplemented here.
@@ -173,12 +246,17 @@ public final class DialogFullscreenHelper {
             new MediaSwipeReplyCloseHelper.Callback() {
                 @Override public void onSwipeUpReply() { /* retired — both directions close, see helper class doc */ }
                 @Override public void onSwipeDownClose(float velocityY) {
-                    closeToSource(dialog, root, photoView, srcRect, velocityY, btnClose, finalTvName, swipeHelperRef[0]);
+                    closeToSource(dialog, root, photoView, srcRect, velocityY, btnClose, finalTvName, finalProfileActionsRow, swipeHelperRef[0]);
                 }
             });
         swipeHelperRef[0] = swipeHelper;
-        if (finalTvName != null) swipeHelper.setChromeViews(btnClose, finalTvName);
-        else swipeHelper.setChromeViews(btnClose);
+        {
+            java.util.List<View> chrome = new java.util.ArrayList<>();
+            chrome.add(btnClose);
+            if (finalTvName != null) chrome.add(finalTvName);
+            if (finalProfileActionsRow != null) chrome.add(finalProfileActionsRow);
+            swipeHelper.setChromeViews(chrome.toArray(new View[0]));
+        }
         root.swipeHelper = swipeHelper;
         // BUG FIX: without this, the shared gesture helper assumes the old
         // media-viewer baseline (scale=1, radius=0, full-view-rect rounded
@@ -191,15 +269,15 @@ public final class DialogFullscreenHelper {
         swipeHelper.configureIdleState(1f, avatarRestingRadiusPx(ctx), true);
 
         photoView.setOnOutsidePhotoTapListener(v ->
-            closeToSource(dialog, root, photoView, srcRect, 0f, btnClose, finalTvName, swipeHelper));
+            closeToSource(dialog, root, photoView, srcRect, 0f, btnClose, finalTvName, finalProfileActionsRow, swipeHelper));
         btnClose.setOnClickListener(v ->
-            closeToSource(dialog, root, photoView, srcRect, 0f, btnClose, finalTvName, swipeHelper));
+            closeToSource(dialog, root, photoView, srcRect, 0f, btnClose, finalTvName, finalProfileActionsRow, swipeHelper));
         // Now that the resting photo is a circle smaller than the screen
         // (not a full-bleed square), tapping the dark area *around* the
         // circle lands on `root` itself, not on photoView — wire that up
         // as an outside-tap close too (WhatsApp/Instagram behaviour).
         root.setOnClickListener(v ->
-            closeToSource(dialog, root, photoView, srcRect, 0f, btnClose, finalTvName, swipeHelper));
+            closeToSource(dialog, root, photoView, srcRect, 0f, btnClose, finalTvName, finalProfileActionsRow, swipeHelper));
 
         // PERF (ultra-advanced pass): if the tapped avatar view already has
         // a decoded bitmap in it (the normal case — every call site here
@@ -228,6 +306,7 @@ public final class DialogFullscreenHelper {
 
         root.addView(photoView);
         if (tvName != null) root.addView(tvName);
+        if (finalProfileActionsRow != null) root.addView(finalProfileActionsRow);
         root.addView(btnClose);
         dialog.setContentView(root);
 
@@ -235,7 +314,7 @@ public final class DialogFullscreenHelper {
         // instant Dialog dismiss.
         dialog.setOnKeyListener((d, keyCode, event) -> {
             if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
-                closeToSource(dialog, root, photoView, srcRect, 0f, btnClose, finalTvName, swipeHelper);
+                closeToSource(dialog, root, photoView, srcRect, 0f, btnClose, finalTvName, finalProfileActionsRow, swipeHelper);
                 return true;
             }
             return false;
@@ -265,9 +344,178 @@ public final class DialogFullscreenHelper {
         dialog.show();
 
         if (srcRect != null) {
-            animateOpenFromSource(root, photoView, srcRect, btnClose, tvName, swipeHelper);
+            animateOpenFromSource(root, photoView, srcRect, btnClose, tvName, finalProfileActionsRow, swipeHelper);
         }
 
+        return dialog;
+    }
+
+    // ── Follow / Share-profile row (avatar-zoom dialog only, opt-in) ───────
+
+    /**
+     * Builds the Follow + "Share profile" row shown under the avatar when
+     * {@link ProfileActionsConfig} is passed. Deliberately self-contained —
+     * reads/writes reel-follow state directly via FirebaseUtils and doesn't
+     * touch the host Activity — same freestanding pattern as
+     * FollowConnectionsActivity's per-row follow button (pill shape, brand
+     * color when filled, "Follow" / "Following" text swap), just rebuilt
+     * here since :core can't reference a :feature-reels class.
+     */
+    private static LinearLayout buildProfileActionsRow(Context ctx, ProfileActionsConfig cfg) {
+        float dp = ctx.getResources().getDisplayMetrics().density;
+
+        LinearLayout row = new LinearLayout(ctx);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setGravity(Gravity.CENTER_HORIZONTAL);
+
+        Button btnFollow = new Button(ctx, null, android.R.attr.borderlessButtonStyle);
+        btnFollow.setAllCaps(false);
+        btnFollow.setTextSize(14.5f);
+        btnFollow.setPadding(0, 0, 0, 0);
+        btnFollow.setMinWidth(0);
+        btnFollow.setMinimumWidth(0);
+        LinearLayout.LayoutParams followLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, (int) (44 * dp));
+        btnFollow.setLayoutParams(followLp);
+
+        TextView tvShare = new TextView(ctx);
+        tvShare.setText("Share profile");
+        tvShare.setTextColor(Color.WHITE);
+        tvShare.setTextSize(14f);
+        tvShare.setGravity(Gravity.CENTER);
+        tvShare.setPadding(0, (int) (14 * dp), 0, 0);
+        tvShare.setBackground(null);
+        tvShare.setClickable(true);
+        tvShare.setFocusable(true);
+
+        row.addView(btnFollow);
+        row.addView(tvShare);
+
+        // Initial style is a neutral "Follow" until the live Firebase check
+        // below resolves — avoids ever flashing the wrong state.
+        styleFollowButton(ctx, btnFollow, false, cfg.brandColorArgb);
+
+        if (cfg.myUid != null) {
+            FirebaseUtils.getReelFollowsRef(cfg.myUid).child(cfg.targetUid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        styleFollowButton(ctx, btnFollow, snap.exists(), cfg.brandColorArgb);
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError error) { /* keep default "Follow" state */ }
+                });
+        }
+
+        btnFollow.setOnClickListener(v -> {
+            if (cfg.myUid == null) return;
+            boolean currentlyFollowing = "Following".contentEquals(btnFollow.getText());
+            if (currentlyFollowing) {
+                FirebaseUtils.getReelFollowsRef(cfg.myUid).child(cfg.targetUid).removeValue();
+                FirebaseUtils.getReelFollowersRef(cfg.targetUid).child(cfg.myUid).removeValue();
+            } else {
+                FirebaseUtils.getReelFollowsRef(cfg.myUid).child(cfg.targetUid).setValue(true);
+                FirebaseUtils.getReelFollowersRef(cfg.targetUid).child(cfg.myUid).setValue(true);
+            }
+            styleFollowButton(ctx, btnFollow, !currentlyFollowing, cfg.brandColorArgb);
+        });
+
+        if (cfg.onShareProfile != null) {
+            tvShare.setOnClickListener(v -> cfg.onShareProfile.run());
+        }
+
+        return row;
+    }
+
+    /** Same pill look FollowConnectionsActivity's styleBtn() uses: filled brand color for "Follow", translucent white for "Following". */
+    private static void styleFollowButton(Context ctx, Button btn, boolean following, int brandColorArgb) {
+        float r = 17f * ctx.getResources().getDisplayMetrics().density; // pill: half of 34dp-equivalent height
+        GradientDrawable bg = new GradientDrawable();
+        bg.setShape(GradientDrawable.RECTANGLE);
+        bg.setCornerRadius(r);
+        if (following) {
+            btn.setText("Following");
+            bg.setColor(Color.argb(0x33, 255, 255, 255));
+            btn.setTextColor(Color.WHITE);
+        } else {
+            btn.setText("Follow");
+            bg.setColor(brandColorArgb);
+            btn.setTextColor(Color.WHITE);
+        }
+        btn.setBackground(bg);
+    }
+
+    // ── Comment photo zoom — small centered popup, own aspect ratio ────────
+
+    /**
+     * Comment photo attachment size in item_reel_comment.xml (150dp square
+     * thumbnail). Kept here (not just in ReelCommentsAdapter) so the popup's
+     * "70% bigger than the thumbnail" sizing stays tied to the real thumbnail
+     * size instead of a separately-hardcoded number.
+     */
+    private static final int COMMENT_PHOTO_THUMB_DP = 150;
+
+    /** How much bigger than the thumbnail the popup opens at — 70% bigger, not fullscreen. */
+    private static final float COMMENT_PHOTO_ZOOM_FACTOR = 1.7f;
+
+    /**
+     * Small centered zoom popup for a reel-comment photo attachment.
+     * Deliberately NOT {@link #showAvatarZoom}: that one is a fullscreen
+     * dialog that always ends up a circle (right for avatars, wrong for a
+     * photo someone attached to a comment). This one:
+     *   - opens at a modest size — the 150dp thumbnail × 1.7, not fullscreen
+     *   - keeps the photo's own aspect ratio (fitCenter, no crop, no circle)
+     *   - decodes at that same popup size (Glide `.override(...)`), so a
+     *     tap never triggers a full-resolution decode just to show ~250dp
+     *     on screen
+     * Dismisses on tap anywhere (scrim or photo) or back press.
+     */
+    public static Dialog showCommentPhotoZoom(Context ctx, String photoUrl) {
+        if (ctx == null || photoUrl == null || photoUrl.isEmpty()) return null;
+
+        float dp = ctx.getResources().getDisplayMetrics().density;
+        int boxPx = Math.round(COMMENT_PHOTO_THUMB_DP * COMMENT_PHOTO_ZOOM_FACTOR * dp);
+
+        Dialog dialog = new Dialog(ctx, android.R.style.Theme_Translucent_NoTitleBar);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        FrameLayout root = new FrameLayout(ctx);
+        root.setBackgroundColor(Color.argb(SCRIM_ALPHA, 0, 0, 0));
+
+        ImageView iv = new ImageView(ctx);
+        iv.setAdjustViewBounds(true);
+        iv.setMaxWidth(boxPx);
+        iv.setMaxHeight(boxPx);
+        // fitCenter, not centerCrop/circleCrop — shows the photo in its own
+        // ratio (portrait stays a tall rect, landscape a wide rect, etc.)
+        // instead of being force-cropped into a square/circle.
+        iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        FrameLayout.LayoutParams ivLp = new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+        ivLp.gravity = Gravity.CENTER;
+        iv.setLayoutParams(ivLp);
+        root.addView(iv);
+
+        Glide.with(ctx).load(photoUrl)
+            .apply(new RequestOptions().override(boxPx, boxPx).fitCenter())
+            .into(iv);
+
+        root.setOnClickListener(v -> dialog.dismiss());
+        dialog.setOnKeyListener((d, keyCode, event) -> {
+            if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
+                dialog.dismiss();
+                return true;
+            }
+            return false;
+        });
+
+        dialog.setContentView(root);
+        Window w = dialog.getWindow();
+        if (w != null) {
+            w.setLayout(
+                android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                android.view.WindowManager.LayoutParams.MATCH_PARENT);
+            w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        }
+        dialog.show();
         return dialog;
     }
 
@@ -281,7 +529,7 @@ public final class DialogFullscreenHelper {
      */
     private static void closeToSource(Dialog dialog, View root, View photoView, Rect target,
                                        float velocityY, ImageButton btnClose, TextView tvName,
-                                       MediaSwipeReplyCloseHelper swipeHelper) {
+                                       View profileActionsRow, MediaSwipeReplyCloseHelper swipeHelper) {
         if (dialog == null || !dialog.isShowing()) return;
 
         if (target == null) {
@@ -324,6 +572,7 @@ public final class DialogFullscreenHelper {
         float startBgAlpha = currentBgAlpha(root);
         float startCloseAlpha = btnClose.getAlpha();
         float startNameAlpha = tvName != null ? tvName.getAlpha() : 0f;
+        float startActionsAlpha = profileActionsRow != null ? profileActionsRow.getAlpha() : 0f;
         float startOnScreenRadius = swipeHelper.getCurrentOnScreenRadiusPx();
         // Avatars are circular — dock back into a full circle sized to the
         // (roughly square) source rect, Instagram-style.
@@ -348,6 +597,7 @@ public final class DialogFullscreenHelper {
             root.setBackgroundColor(Color.argb(bgAlpha, 0, 0, 0));
             btnClose.setAlpha(lerp(startCloseAlpha, 0f, t));
             if (tvName != null) tvName.setAlpha(lerp(startNameAlpha, 0f, t));
+            if (profileActionsRow != null) profileActionsRow.setAlpha(lerp(startActionsAlpha, 0f, t));
         });
         anim.addListener(new AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(Animator animation) {
@@ -361,6 +611,7 @@ public final class DialogFullscreenHelper {
     /** Starts `photoView` scaled/positioned/rounded to look like `source`, then docks up to a centered, fixed-size WhatsApp/Instagram-style circle (never un-rounds to a square). */
     private static void animateOpenFromSource(View root, View photoView, Rect source,
                                                ImageButton btnClose, TextView tvName,
+                                               View profileActionsRow,
                                                MediaSwipeReplyCloseHelper swipeHelper) {
         photoView.post(() -> {
             if (photoView.getWidth() == 0 || photoView.getHeight() == 0) {
@@ -410,6 +661,7 @@ public final class DialogFullscreenHelper {
             root.setBackgroundColor(Color.TRANSPARENT);
             btnClose.setAlpha(0f);
             if (tvName != null) tvName.setAlpha(0f);
+            if (profileActionsRow != null) profileActionsRow.setAlpha(0f);
 
             ValueAnimator anim = ValueAnimator.ofFloat(0f, 1f);
             anim.setDuration(DOCK_ANIM_BASE_MS);
@@ -439,6 +691,7 @@ public final class DialogFullscreenHelper {
             // content starts moving — never leads, matches the media viewer.
             btnClose.animate().alpha(1f).setDuration(220).setStartDelay(90).start();
             if (tvName != null) tvName.animate().alpha(1f).setDuration(220).setStartDelay(90).start();
+            if (profileActionsRow != null) profileActionsRow.animate().alpha(1f).setDuration(220).setStartDelay(90).start();
         });
     }
 

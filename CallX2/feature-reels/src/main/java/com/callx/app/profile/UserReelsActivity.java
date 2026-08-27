@@ -5516,8 +5516,18 @@ public class UserReelsActivity extends AppCompatActivity
 
     private void showAvatarZoom(View sourceView, String photoUrl, String name) {
         if (isFinishing() || isDestroyed()) return;
+        // Follow + Share-profile row under the avatar (Instagram profile-
+        // photo-viewer style) — only for the OTHER user's big top-left
+        // avatar on this screen; never for own profile, and this config is
+        // never passed by any of DialogFullscreenHelper's other 6 callers.
+        com.callx.app.utils.DialogFullscreenHelper.ProfileActionsConfig profileActions = null;
+        if (!isSelf && targetUid != null) {
+            int brandColor = androidx.core.content.ContextCompat.getColor(this, R.color.brand_primary);
+            profileActions = new com.callx.app.utils.DialogFullscreenHelper.ProfileActionsConfig(
+                targetUid, safeMyUid(), brandColor, this::shareProfile);
+        }
         com.callx.app.utils.DialogFullscreenHelper.showAvatarZoom(
-            this, sourceView, photoUrl, name, R.drawable.ic_person, R.drawable.ic_close);
+            this, sourceView, photoUrl, name, R.drawable.ic_person, R.drawable.ic_close, profileActions);
     }
 
     @Override protected void onPause()  { super.onPause();  dismissPreviewDialog(); stopAvatarAnimation(); if (lottieEmpty != null) lottieEmpty.pauseAnimation(); }

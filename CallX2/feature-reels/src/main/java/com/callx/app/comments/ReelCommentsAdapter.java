@@ -62,6 +62,24 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     // pixels than the view can show (see AvatarUrlBuilder.build below).
     private static final int AVATAR_SIZE_DP = 36;
 
+    // Comment photo attachment decode size — iv_comment_image in
+    // item_reel_comment.xml is a fixed 150dp square. Same reasoning as the
+    // avatar above: cap the Glide decode to what the view can actually
+    // show instead of decoding the source photo at full resolution.
+    static final int COMMENT_IMAGE_SIZE_DP = 150;
+    private RequestOptions commentImageRequestOptions;
+
+    private RequestOptions commentImageRequestOptions(Context ctx) {
+        if (commentImageRequestOptions == null) {
+            int px = Math.round(COMMENT_IMAGE_SIZE_DP * ctx.getResources().getDisplayMetrics().density);
+            commentImageRequestOptions = new RequestOptions()
+                .override(px, px)
+                .centerCrop()
+                .placeholder(R.drawable.bg_comment_image_frame);
+        }
+        return commentImageRequestOptions;
+    }
+
     // PERF: RequestOptions was rebuilt with `new RequestOptions().circleCrop()
     // .override(...)` on EVERY avatar bind. Since the target size is fixed
     // for every comment row, build it once lazily and reuse the same
@@ -371,7 +389,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             if (c.imageUrl != null && !c.imageUrl.isEmpty()) {
                 h.ivCommentImage.setVisibility(View.VISIBLE);
                 Glide.with(ctx).load(c.imageUrl)
-                    .apply(new RequestOptions().placeholder(R.drawable.bg_comment_image_frame))
+                    .apply(commentImageRequestOptions(ctx))
                     .into(h.ivCommentImage);
             } else {
                 h.ivCommentImage.setVisibility(View.GONE);
@@ -756,15 +774,16 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
                 else if (adapter.listener != null) adapter.listener.onAvatarClick(boundComment);
             });
 
-            // Tap the attached photo → full-screen pinch-zoom viewer
-            // (reuses the same "avatar zoom" dialog helper other screens use).
+            // Tap the attached photo → small centered zoom (70% bigger than
+            // the 150dp thumbnail, own aspect ratio). NOT the avatar-zoom
+            // dialog (that one is fullscreen + forces a circle, which is
+            // right for avatars but wrong for a comment photo).
             if (ivCommentImage != null) {
                 ivCommentImage.setOnClickListener(v2 -> {
                     if (boundComment != null && boundComment.imageUrl != null
                             && !boundComment.imageUrl.isEmpty()) {
-                        com.callx.app.utils.DialogFullscreenHelper.showAvatarZoom(
-                            v2.getContext(), boundComment.imageUrl,
-                            R.drawable.ic_person, R.drawable.ic_close);
+                        com.callx.app.utils.DialogFullscreenHelper.showCommentPhotoZoom(
+                            v2.getContext(), boundComment.imageUrl);
                     }
                 });
             }

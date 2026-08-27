@@ -76,7 +76,10 @@
 
     </LinearLayout>
 
-    <!-- Follow button (hidden for own user) -->
+    <!-- Follow button (hidden for own user) — background set dynamically in
+         ReelLikesBottomSheet$LikersAdapter#styleFollowBtn(); this is just the
+         fallback shown before the first bind (see item_follow_user.xml's
+         btn_follow_action for the pill this was reused from). -->
     <Button
         android:id="@+id/btn_follow"
         android:layout_width="wrap_content"
@@ -86,7 +89,7 @@
         android:paddingStart="14dp"
         android:paddingEnd="14dp"
         android:layout_marginEnd="6dp"
-        android:background="@drawable/bg_btn_primary"
+        android:background="@drawable/bg_follow_action_btn"
         android:textColor="@android:color/white"
         android:visibility="visible"/>
 

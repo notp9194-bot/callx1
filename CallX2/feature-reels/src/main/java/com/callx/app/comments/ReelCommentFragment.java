@@ -42,6 +42,7 @@ import androidx.recyclerview.widget.RecyclerView.RecycledViewPool;
 import androidx.recyclerview.widget.SimpleItemAnimator;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.models.ReelComment;
 import com.callx.app.models.ReelReply;
 import com.callx.app.reels.R;
@@ -2002,6 +2003,26 @@ public class ReelCommentFragment extends Fragment {
 
     private static final int REPLY_AVATAR_SIZE_DP = 26;
 
+    // PERF: same size-capped decode fix as ReelCommentsAdapter.avatarRequestOptions
+    // — reply avatars were being loaded with a bare Glide.load().into(iv), no
+    // .override(), so Glide had to wait on the ImageView's ViewTreeObserver to
+    // resolve a target size at layout time and could decode a full-resolution
+    // bitmap if the view hadn't been measured yet. Pinning .override(sizePx,
+    // sizePx) to the fixed 26dp reply avatar size (built once, reused for every
+    // reply row) guarantees we never decode more pixels than a reply avatar can
+    // ever show, and skips the ViewTarget size-resolution step entirely.
+    private static volatile RequestOptions replyAvatarRequestOptions;
+
+    private static RequestOptions replyAvatarRequestOptions(Context ctx) {
+        RequestOptions opts = replyAvatarRequestOptions;
+        if (opts == null) {
+            int sizePx = com.callx.app.utils.AvatarUrlBuilder.dpToPx(ctx, REPLY_AVATAR_SIZE_DP) * 2;
+            opts = new RequestOptions().override(sizePx, sizePx);
+            replyAvatarRequestOptions = opts;
+        }
+        return opts;
+    }
+
     private void bindReplyAvatar(android.widget.ImageView iv, @Nullable String uid, @Nullable String photoUrl) {
         // CORRECTNESS: unlike top-level comment rows (managed by
         // ReelCommentsAdapter's RecyclerView, which tags each row with the
@@ -2062,6 +2083,7 @@ public class ReelCommentFragment extends Fragment {
             String resizedUrl = com.callx.app.utils.AvatarUrlBuilder
                 .build(requireContext(), url, REPLY_AVATAR_SIZE_DP);
             Glide.with(requireContext()).load(resizedUrl)
+                .apply(replyAvatarRequestOptions(requireContext()))
                 .placeholder(R.drawable.ic_person)
                 .error(R.drawable.ic_person)
                 .into(iv);

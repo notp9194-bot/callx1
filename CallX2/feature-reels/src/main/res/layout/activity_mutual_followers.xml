@@ -33,7 +33,7 @@
             android:text="Mutual Followers"
             android:textSize="17sp"
             android:fontFamily="sans-serif-bold"
-            android:textColor="#FFFFFF"
+            android:textColor="?attr/colorOnSurface"
             android:ellipsize="end"
             android:maxLines="1"/>
     </LinearLayout>
@@ -117,8 +117,8 @@
                 android:layout_marginTop="16dp"
                 android:text="No mutual followers"
                 android:textSize="17sp"
-            android:fontFamily="sans-serif-bold"
-            android:textColor="#FFE082"/>
+                android:fontFamily="sans-serif-bold"
+                android:textColor="?attr/colorOnSurface"/>
 
             <TextView
                 android:layout_width="wrap_content"
