@@ -3664,10 +3664,10 @@ public class HomeFragment extends Fragment {
 
         // ── Audio-cover tile — reused from the immersive Reels player's
         // right action rail (see fragment_reel_player.xml's
-        // btn_create_audio / ReelUiController), just bigger here (40dp vs
-        // the player's 28dp) and pinned to the video's bottom-right corner
-        // instead of being the last item in a vertical rail. Same cover-
-        // resolution + click destination as the tv_post_audio label below
+        // btn_create_audio / ReelUiController), same 28dp size as the
+        // player and pinned to the video's bottom-right corner instead of
+        // being the last item in a vertical rail. Same cover-resolution +
+        // click destination as the tv_post_audio label below
         // (openHomeCardSoundDetail()). GONE when the reel has no music.
         if (btnAudioCover != null) {
             boolean hasMusic = (reel.musicName != null && !reel.musicName.isEmpty())
@@ -3679,10 +3679,14 @@ public class HomeFragment extends Fragment {
                     ? reel.musicCoverUrl : reel.ownerPhoto;
                 if (isAdded() && getContext() != null && !android.text.TextUtils.isEmpty(coverUrl)) {
                     android.content.Context ctx = requireContext();
-                    int sizePx = AvatarUrlBuilder.dpToPx(ctx, 40) * 2;
+                    // PERF: same 28dp pattern as the player's btn_create_audio —
+                    // server-resize via AvatarUrlBuilder(..,28) AND pin Glide's
+                    // decode with .override() to 28dp*2 (retina), so this never
+                    // decodes more pixels than the 28dp tile actually shows.
+                    int sizePx = AvatarUrlBuilder.dpToPx(ctx, 28) * 2;
                     int cornerRadiusPx = AvatarUrlBuilder.dpToPx(ctx, 4);
                     Glide.with(ctx)
-                        .load(AvatarUrlBuilder.build(ctx, coverUrl, 40))
+                        .load(AvatarUrlBuilder.build(ctx, coverUrl, 28))
                         .apply(new RequestOptions()
                             .transform(new MultiTransformation<>(
                                 new CenterCrop(), new RoundedCorners(cornerRadiusPx)))

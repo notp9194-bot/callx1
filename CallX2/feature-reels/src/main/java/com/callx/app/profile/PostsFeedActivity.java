@@ -939,11 +939,11 @@ public class PostsFeedActivity extends AppCompatActivity {
 
             // ── Audio-cover tile — reused from the immersive Reels player's
             // right action rail (see fragment_reel_player.xml's
-            // btn_create_audio / ReelUiController), just bigger here (40dp
-            // vs the player's 28dp) and pinned to the image's bottom-right
-            // corner instead of being the last item in a vertical rail.
-            // Same cover-resolution + click destination as the tv_post_audio
-            // label above (openSoundDetail()).
+            // btn_create_audio / ReelUiController), same 28dp size as the
+            // player and pinned to the image's bottom-right corner instead
+            // of being the last item in a vertical rail. Same cover-
+            // resolution + click destination as the tv_post_audio label
+            // above (openSoundDetail()).
             if (h.btnAudioCover != null) {
                 if (hasAudio) {
                     h.btnAudioCover.setVisibility(View.VISIBLE);
@@ -952,10 +952,14 @@ public class PostsFeedActivity extends AppCompatActivity {
                         ? r.musicCoverUrl : r.ownerPhoto;
                     if (!android.text.TextUtils.isEmpty(coverUrl)) {
                         android.content.Context ctx = h.btnAudioCover.getContext();
-                        int sizePx = com.callx.app.utils.AvatarUrlBuilder.dpToPx(ctx, 40) * 2;
+                        // PERF: same 28dp pattern as the player's btn_create_audio —
+                        // server-resize via AvatarUrlBuilder(..,28) AND pin Glide's
+                        // decode with .override() to 28dp*2 (retina), so this never
+                        // decodes more pixels than the 28dp tile actually shows.
+                        int sizePx = com.callx.app.utils.AvatarUrlBuilder.dpToPx(ctx, 28) * 2;
                         int cornerRadiusPx = com.callx.app.utils.AvatarUrlBuilder.dpToPx(ctx, 4);
                         Glide.with(ctx)
-                            .load(com.callx.app.utils.AvatarUrlBuilder.build(ctx, coverUrl, 40))
+                            .load(com.callx.app.utils.AvatarUrlBuilder.build(ctx, coverUrl, 28))
                             .apply(new RequestOptions()
                                 .transform(new com.bumptech.glide.load.MultiTransformation<>(
                                     new com.bumptech.glide.load.resource.bitmap.CenterCrop(),
