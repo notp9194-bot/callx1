@@ -1,0 +1,367 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  item_post_feed_photo.xml — Instagram classic-feed-style Post card.
+
+  Unlike item_home_feed_post.xml (used by the video Reels home feed, where
+  the header is overlaid on top of the video with a dark gradient — that's
+  correct for Reels, Instagram does the same), a PHOTO POST in Instagram's
+  Posts feed shows its header as its OWN row, sitting ABOVE the image on
+  the normal theme background, with dark/theme-colored text — never
+  overlaid on the image itself. This layout mirrors that:
+
+  ■ Header row (avatar + username + audio) — its own row, ABOVE the image,
+    on @color/background_light, theme-aware text/icon colors.
+  ■ Image block below the header — plain, no overlay controls (this screen
+    is photo-only; no video/seek/mute-on-video chrome needed here).
+  ■ "1/N" carousel-position chip — top-right corner of the image, for
+    multi-photo (slideshow) posts.
+  ■ Action bar (❤ | 💬 | 🔄 | ▷ | 🔖) below the image with counts —
+    identical structure/ids to item_home_feed_post.xml so PostsAdapter's
+    Holder/onBindViewHolder in PostsFeedActivity keeps working unchanged.
+  ■ Timestamp + caption below the action bar — theme-aware.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/background_light"
+    android:layout_marginBottom="2dp">
+
+    <!-- ══════════ HEADER ROW — above the image, Instagram classic-feed style ══════════ -->
+    <LinearLayout
+        android:id="@+id/overlay_post_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@color/background_light"
+        android:paddingStart="12dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp">
+
+        <!-- Avatar + optional gradient ring -->
+        <FrameLayout
+            android:layout_width="46dp"
+            android:layout_height="46dp">
+
+            <ImageView
+                android:id="@+id/iv_post_story_ring"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:layout_gravity="center"
+                android:background="@drawable/story_ring_insta_gradient"
+                android:visibility="gone"/>
+
+            <de.hdodenhof.circleimageview.CircleImageView
+                android:id="@+id/iv_post_avatar"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_person"
+                app:civ_border_width="0dp"
+                app:civ_border_color="@android:color/transparent"/>
+
+            <!-- Collab second avatar — overlaps the first; GONE for solo posts -->
+            <LinearLayout
+                android:id="@+id/layout_collab_avatar"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|end"
+                android:orientation="horizontal"
+                android:visibility="gone"/>
+        </FrameLayout>
+
+        <!-- Username + Suggested + Audio -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="10dp">
+
+            <TextView
+                android:id="@+id/tv_post_owner"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@username"
+                android:textColor="@color/text_primary"
+                android:textSize="13.5sp"
+                android:fontFamily="sans-serif-medium"/>
+
+            <!-- Shown only for suggested / For You posts -->
+            <TextView
+                android:id="@+id/tv_post_suggested"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Suggested for you"
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp"
+                android:visibility="gone"/>
+
+            <!-- Audio track info -->
+            <TextView
+                android:id="@+id/tv_post_audio"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:drawableStart="@drawable/ic_music"
+                android:drawablePadding="4dp"
+                android:drawableTint="@color/text_secondary"
+                android:text="Original audio"
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp"
+                android:visibility="gone"/>
+        </LinearLayout>
+
+        <!-- Follow pill — GONE by default -->
+        <TextView
+            android:id="@+id/btn_post_follow"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:text="Follow"
+            android:textColor="@color/brand_primary"
+            android:textSize="13sp"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:background="@drawable/bg_filter_chip_unselected"
+            android:visibility="gone"
+            android:layout_marginEnd="6dp"
+            android:clickable="true"
+            android:focusable="true"/>
+
+        <!-- More / ≡ -->
+        <ImageButton
+            android:id="@+id/btn_post_more"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_more_vert"
+            android:tint="@color/text_primary"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="More"/>
+    </LinearLayout>
+    <!-- ═══ End header row ═══ -->
+
+    <!-- ══════════ IMAGE BLOCK ══════════ -->
+    <FrameLayout
+        android:id="@+id/frame_video"
+        android:layout_width="match_parent"
+        android:layout_height="500dp"
+        android:background="#000000">
+
+        <!-- ExoPlayer surface kept in the hierarchy only so PostsAdapter's
+             Holder (shared field name pv_feed_post) keeps resolving — this
+             screen is photo-only and always hides it (see onBindViewHolder). -->
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/pv_feed_post"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"
+            app:use_controller="false"
+            app:resize_mode="zoom"
+            app:surface_type="surface_view"/>
+
+        <ImageView
+            android:id="@+id/iv_post_thumb"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:background="#111111"/>
+
+        <!-- "1/N" carousel-position chip — top-right, for multi-photo posts -->
+        <TextView
+            android:id="@+id/tv_post_carousel_index"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|end"
+            android:layout_margin="12dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:background="@drawable/bg_speed_chip"
+            android:text="1/1"
+            android:textColor="#FFFFFF"
+            android:textSize="11.5sp"
+            android:fontFamily="sans-serif-medium"
+            android:visibility="gone"/>
+
+        <!-- Mute toggle — sits above the audio-cover tile, only shown when the post has an attached music track -->
+        <ImageButton
+            android:id="@+id/btn_post_mute"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="10dp"
+            android:layout_marginBottom="58dp"
+            android:src="@drawable/ic_volume_off"
+            android:tint="#FFFFFF"
+            android:background="#55000000"
+            android:padding="6dp"
+            android:contentDescription="Mute"/>
+
+        <!-- Audio-cover tile — reused from the immersive Reels player's right
+             action rail (see fragment_reel_player.xml's btn_create_audio /
+             ReelUiController), same rounded-square look (bg_audio_create_tile),
+             just bigger here (40dp vs the player's 28dp) and pinned to the
+             bottom-right corner of the image instead of being the last item
+             in a vertical action rail. Tapping opens the same sound-detail
+             screen (see openSoundDetail()). GONE when the post has no
+             attached music. -->
+        <ImageButton
+            android:id="@+id/btn_post_audio_cover"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="10dp"
+            android:layout_marginBottom="10dp"
+            android:src="@drawable/ic_audio"
+            android:scaleType="centerCrop"
+            android:padding="3dp"
+            android:background="@drawable/bg_audio_create_tile"
+            android:contentDescription="Original audio"
+            android:visibility="gone"/>
+    </FrameLayout>
+    <!-- ═══ End image block ═══ -->
+
+    <!-- ══════════ ACTION BAR ══════════ -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp">
+
+        <!-- ❤ Like -->
+        <ImageButton
+            android:id="@+id/btn_post_like"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_heart"
+            android:tint="@color/text_primary"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Like"/>
+
+        <TextView
+            android:id="@+id/tv_post_likes"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:layout_marginEnd="6dp"/>
+
+        <!-- 💬 Comment -->
+        <ImageButton
+            android:id="@+id/btn_post_comment"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_comment_reel"
+            android:tint="@color/text_primary"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Comment"/>
+
+        <TextView
+            android:id="@+id/tv_post_comments"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:layout_marginEnd="6dp"/>
+
+        <!-- 🔄 Repost -->
+        <ImageButton
+            android:id="@+id/btn_post_repost"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_repost"
+            android:tint="@color/text_primary"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Repost"/>
+
+        <TextView
+            android:id="@+id/tv_post_reposts"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:layout_marginEnd="6dp"/>
+
+        <!-- ▷ Send / Share -->
+        <ImageButton
+            android:id="@+id/btn_post_send"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_share_reel"
+            android:tint="@color/text_primary"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Send"/>
+
+        <TextView
+            android:id="@+id/tv_post_sends"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="0"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"/>
+
+        <!-- 🔖 Save -->
+        <ImageButton
+            android:id="@+id/btn_post_save"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_bookmark"
+            android:tint="@color/text_primary"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Save"/>
+    </LinearLayout>
+
+    <!-- Timestamp -->
+    <TextView
+        android:id="@+id/tv_post_time"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="4dp"
+        android:text="1 day ago"
+        android:textColor="@color/text_secondary"
+        android:textSize="11sp"/>
+
+    <!-- Caption -->
+    <TextView
+        android:id="@+id/tv_post_caption"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="2dp"
+        android:text=""
+        android:textColor="@color/text_primary"
+        android:textSize="13sp"
+        android:maxLines="2"
+        android:ellipsize="end"/>
+
+    <!-- "more / less" expand toggle for long captions -->
+    <TextView
+        android:id="@+id/tv_post_read_more"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="14dp"
+        android:text="more"
+        android:textColor="@color/text_secondary"
+        android:textSize="13sp"
+        android:fontFamily="sans-serif-medium"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true"/>
+
+</LinearLayout>

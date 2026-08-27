@@ -41,6 +41,12 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
+import com.bumptech.glide.load.MultiTransformation;
+import com.bumptech.glide.load.DecodeFormat;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.bitmap.CenterCrop;
+import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
+import com.callx.app.utils.AvatarUrlBuilder;
 import com.callx.app.reels.R;
 import com.callx.app.camera.ReelCameraActivity;
 import com.callx.app.comments.ReelCommentActivity;
@@ -3546,6 +3552,7 @@ public class HomeFragment extends Fragment {
         View        watchMore     = holder.watchMore;
         TextView    watchAgain    = holder.watchAgain;
         ImageButton btnMute       = holder.btnMute;
+        ImageButton btnAudioCover = holder.btnAudioCover;
         SeekBar     sbProgress    = holder.sbProgress;
         TextView    tvPosition    = holder.tvPosition;
         TextView    tvSpeedChip   = holder.tvSpeedChip;
@@ -3655,6 +3662,44 @@ public class HomeFragment extends Fragment {
             });
         }
 
+        // ── Audio-cover tile — reused from the immersive Reels player's
+        // right action rail (see fragment_reel_player.xml's
+        // btn_create_audio / ReelUiController), just bigger here (40dp vs
+        // the player's 28dp) and pinned to the video's bottom-right corner
+        // instead of being the last item in a vertical rail. Same cover-
+        // resolution + click destination as the tv_post_audio label below
+        // (openHomeCardSoundDetail()). GONE when the reel has no music.
+        if (btnAudioCover != null) {
+            boolean hasMusic = (reel.musicName != null && !reel.musicName.isEmpty())
+                             || (reel.musicArtist != null && !reel.musicArtist.isEmpty());
+            if (hasMusic) {
+                btnAudioCover.setVisibility(View.VISIBLE);
+                btnAudioCover.setOnClickListener(x -> openHomeCardSoundDetail(reel));
+                String coverUrl = !android.text.TextUtils.isEmpty(reel.musicCoverUrl)
+                    ? reel.musicCoverUrl : reel.ownerPhoto;
+                if (isAdded() && getContext() != null && !android.text.TextUtils.isEmpty(coverUrl)) {
+                    android.content.Context ctx = requireContext();
+                    int sizePx = AvatarUrlBuilder.dpToPx(ctx, 40) * 2;
+                    int cornerRadiusPx = AvatarUrlBuilder.dpToPx(ctx, 4);
+                    Glide.with(ctx)
+                        .load(AvatarUrlBuilder.build(ctx, coverUrl, 40))
+                        .apply(new RequestOptions()
+                            .transform(new MultiTransformation<>(
+                                new CenterCrop(), new RoundedCorners(cornerRadiusPx)))
+                            .override(sizePx, sizePx)
+                            .format(DecodeFormat.PREFER_RGB_565)
+                            .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+                            .placeholder(R.drawable.ic_audio))
+                        .into(btnAudioCover);
+                } else {
+                    btnAudioCover.setImageResource(R.drawable.ic_audio);
+                }
+            } else {
+                btnAudioCover.setVisibility(View.GONE);
+                btnAudioCover.setOnClickListener(null);
+            }
+        }
+
         // ── Audio track label ────────────────────────────────────────────────
         if (tvAudio != null) {
             String audioLabel = reel.musicName != null && !reel.musicName.isEmpty()
@@ -3665,6 +3710,12 @@ public class HomeFragment extends Fragment {
             if (audioLabel != null) {
                 tvAudio.setText(audioLabel);
                 tvAudio.setVisibility(View.VISIBLE);
+                // Tap the song label → SoundDetailActivity, same "Use this
+                // sound" screen the immersive Reels player's audio-pill tap
+                // opens (ReelDuetController.openSoundDetail()).
+                tvAudio.setOnClickListener(x -> openHomeCardSoundDetail(reel));
+            } else {
+                tvAudio.setOnClickListener(null);
             }
         }
 
@@ -4396,6 +4447,55 @@ public class HomeFragment extends Fragment {
         } catch (Exception ignored) {
             tvReposts.setText(formatCount(reel.repostCount + 1));
         }
+    }
+
+    /**
+     * Opens SoundDetailActivity for a Home-feed card's attached music —
+     * same destination/extras as the immersive Reels player's audio-pill
+     * tap (ReelDuetController.openSoundDetail()), just triggered from the
+     * inline feed card's tv_post_audio label instead.
+     */
+    private void openHomeCardSoundDetail(ReelModel reel) {
+        if (!isAdded() || getContext() == null || reel == null) return;
+
+        // ⚠️ reel.musicId is written by a BACKGROUND job (audio extraction +
+        // sound registration) that runs AFTER the reel is already live, so
+        // it can still be empty here even though the sound entity already
+        // exists (or is about to) on Firebase. Fall back to the same
+        // deterministic "orig_{reelId}" ID ReelUploadActivity registers
+        // original audio under — mirrors ReelDuetController.openSoundDetail().
+        String soundId = reel.musicId;
+        if ((soundId == null || soundId.isEmpty()) && reel.reelId != null && !reel.reelId.isEmpty()) {
+            soundId = "orig_" + reel.reelId;
+        }
+
+        Intent i = new Intent(getContext(), com.callx.app.music.SoundDetailActivity.class);
+        i.putExtra(com.callx.app.music.SoundDetailActivity.EXTRA_SOUND_ID,
+            soundId != null ? soundId : "");
+        i.putExtra(com.callx.app.music.SoundDetailActivity.EXTRA_SOUND_TITLE,
+            reel.musicName != null && !reel.musicName.isEmpty() ? reel.musicName : "Original Audio");
+        i.putExtra(com.callx.app.music.SoundDetailActivity.EXTRA_SOUND_URL,
+            reel.musicUrl != null ? reel.musicUrl : "");
+        i.putExtra(com.callx.app.music.SoundDetailActivity.EXTRA_COVER_URL,
+            reel.musicCoverUrl != null ? reel.musicCoverUrl : "");
+        i.putExtra(com.callx.app.music.SoundDetailActivity.EXTRA_ARTIST,
+            reel.musicArtist != null && !reel.musicArtist.isEmpty()
+                ? reel.musicArtist
+                : (reel.ownerName != null ? reel.ownerName : ""));
+        // Only pass creator uid when this reel IS the sound's own source —
+        // otherwise SoundDetailActivity resolves creatorUid from the sound
+        // node itself (see ReelDuetController.openSoundDetail() for why).
+        boolean isOwnSoundSource = reel.reelId != null
+            && soundId != null && soundId.equals("orig_" + reel.reelId);
+        if (isOwnSoundSource && reel.uid != null && !reel.uid.isEmpty()) {
+            i.putExtra(com.callx.app.music.SoundDetailActivity.EXTRA_CREATOR_UID, reel.uid);
+        }
+        if (reel.originalAudioUrl != null && !reel.originalAudioUrl.isEmpty()) {
+            i.putExtra(com.callx.app.music.SoundDetailActivity.EXTRA_ORIGINAL_AUDIO_URL, reel.originalAudioUrl);
+        } else {
+            i.putExtra("reel_video_url", reel.videoUrl != null ? reel.videoUrl : "");
+        }
+        startActivity(i);
     }
 
     /** Opens SingleReelPlayerActivity by reel ID directly */
@@ -5327,6 +5427,7 @@ public class HomeFragment extends Fragment {
         View            watchMore;
         TextView        watchAgain;
         ImageButton     btnMute;
+        ImageButton     btnAudioCover;
         SeekBar         sbProgress;
         TextView        tvPosition;
         TextView        tvSpeedChip;
@@ -5363,6 +5464,7 @@ public class HomeFragment extends Fragment {
             watchMore             = itemView.findViewById(R.id.btn_watch_more_card);
             watchAgain            = itemView.findViewById(R.id.btn_watch_again_card);
             btnMute               = itemView.findViewById(R.id.btn_post_mute);
+            btnAudioCover         = itemView.findViewById(R.id.btn_post_audio_cover);
             sbProgress            = itemView.findViewById(R.id.sb_post_progress);
             tvPosition            = itemView.findViewById(R.id.tv_post_position);
             tvSpeedChip           = itemView.findViewById(R.id.tv_post_speed_chip);

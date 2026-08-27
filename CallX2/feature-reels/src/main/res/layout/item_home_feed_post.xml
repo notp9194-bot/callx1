@@ -165,19 +165,41 @@
                 android:contentDescription="More"/>
         </LinearLayout>
 
-        <!-- Mute toggle — bottom-right corner of video -->
+        <!-- Mute toggle — sits above the audio-cover tile, bottom-right corner of video -->
         <ImageButton
             android:id="@+id/btn_post_mute"
             android:layout_width="34dp"
             android:layout_height="34dp"
             android:layout_gravity="bottom|end"
             android:layout_marginEnd="10dp"
-            android:layout_marginBottom="34dp"
+            android:layout_marginBottom="82dp"
             android:src="@drawable/ic_volume_off"
             android:tint="#FFFFFF"
             android:background="#55000000"
             android:padding="6dp"
             android:contentDescription="Mute"/>
+
+        <!-- Audio-cover tile — reused from the immersive Reels player's right
+             action rail (see fragment_reel_player.xml's btn_create_audio /
+             ReelUiController), same rounded-square look (bg_audio_create_tile),
+             just bigger here (40dp vs the player's 28dp) and pinned to the
+             bottom-right corner of the content instead of being the last item
+             in a vertical action rail. Tapping opens the same sound-detail
+             screen (see openHomeCardSoundDetail()). GONE when the post has no
+             attached music. -->
+        <ImageButton
+            android:id="@+id/btn_post_audio_cover"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="10dp"
+            android:layout_marginBottom="34dp"
+            android:src="@drawable/ic_audio"
+            android:scaleType="centerCrop"
+            android:padding="3dp"
+            android:background="@drawable/bg_audio_create_tile"
+            android:contentDescription="Original audio"
+            android:visibility="gone"/>
 
         <!-- ── Center play button — shown when autoplay is off (feed
              settings) or the user tapped to pause. Tap = play. ── -->

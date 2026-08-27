@@ -976,6 +976,40 @@ public class UserReelsActivity extends AppCompatActivity
         }
     }
 
+    /**
+     * Instagram-style Posts tab auto-fill.
+     *
+     * The Posts tab (leftmost) isn't a separately-loaded list — it's a
+     * photo-only FILTER on top of the same reelsTabData/network path the
+     * Reels tab uses (see isPostsTabActive()/filterPhotoPostsOnly()). Photos
+     * can be sparse among a creator's uploads, so the page(s) of the
+     * underlying feed fetched so far may contain zero (or very few) photo
+     * posts even though plenty exist further back — that used to leave the
+     * Posts tab looking empty until the user happened to switch to the
+     * Reels tab and scroll it (which paginates the SAME reelsTabData/rvReels
+     * pair from underneath, so Posts would suddenly "discover" content on
+     * its next visit).
+     *
+     * Instagram never makes the user do that: its Posts tab quietly keeps
+     * fetching more of the underlying feed by itself, in the background,
+     * until either enough photo posts have surfaced to fill the screen or
+     * the feed is exhausted. This mirrors that — called after every page
+     * lands (see finishLoading()) and right after switching onto the tab
+     * (see setupTabs()), so it keeps chaining on its own with no scroll,
+     * and no tab switch, required.
+     */
+    private void maybeAutoFillPostsTab() {
+        if (isFinishing() || isDestroyed()) return;
+        if (!isPostsTabActive()) return;
+        if (isLoadingMore) return;      // a page is already in flight — it'll re-check us on landing
+        if (!reelsHasMore) return;      // underlying feed is exhausted — nothing left to chain
+        int spanCount = (gridLayoutManager != null) ? gridLayoutManager.getSpanCount() : 3;
+        int minPhotosToFillScreen = spanCount * 4; // ~a screenful, same heuristic as the scroll prefetch distance
+        if (filterPhotoPostsOnly(reelsTabData).size() < minPhotosToFillScreen) {
+            loadCurrentTab(false);
+        }
+    }
+
     private boolean getCurrentTabHasMore() {
         switch (activeTab) {
             case TAB_LIKED:  return likedHasMore;
@@ -1198,7 +1232,18 @@ public class UserReelsActivity extends AppCompatActivity
                         if (isPostsTabActive()) applyFilter();
                     }
                     if (isSeries ? seriesTabData.isEmpty() : activeTabData().isEmpty()) loadCurrentTab(true);
-                    else { refreshEmptyState(); updateViewAllButton(); }
+                    else {
+                        refreshEmptyState();
+                        updateViewAllButton();
+                        // Instagram-style Posts tab auto-fill: reelsTabData
+                        // may already be non-empty (e.g. it was warm-started
+                        // by the default Reels tab) yet still contain ZERO
+                        // photo posts on the page(s) fetched so far, even
+                        // though more exist further back in the feed. Don't
+                        // make the user discover that by switching to Reels
+                        // and scrolling — keep pulling pages right here.
+                        maybeAutoFillPostsTab();
+                    }
                     // Each tab keeps its OWN accent color — re-apply whichever
                     // color (or default) belongs to the tab we just switched to.
                     applyGridAccentColorForActiveTab();
@@ -3197,6 +3242,11 @@ public class UserReelsActivity extends AppCompatActivity
                     adapter.hideLoadingFooterAt(footerPositionAtShow);
                     footerPositionAtShow = -1;
                 }
+                // Instagram-style: this page of the underlying reels feed may
+                // still not carry enough (or any) photo posts — chain another
+                // page automatically instead of leaving Posts empty/sparse
+                // until a scroll on the Reels tab happens to surface one.
+                maybeAutoFillPostsTab();
             } else if (refresh) {
                 if (wasSkeleton) {
                     // Skeleton → real content: crossfade instead of the old
