@@ -31,6 +31,7 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.ListPreloader;
 import com.bumptech.glide.RequestBuilder;
 import com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader;
+import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.comments.ReelCommentActivity;
@@ -443,6 +444,16 @@ public class PostsFeedActivity extends AppCompatActivity {
 
     private int dp(int v) {
         return (int) (v * getResources().getDisplayMetrics().density);
+    }
+
+    /** Solid white when active, translucent white otherwise — same dot
+     *  styling as HomeFragment's photo-slideshow indicator, reused here for
+     *  PostsFeedActivity's multi-photo carousel. */
+    private android.graphics.drawable.GradientDrawable makeCarouselDot(boolean active) {
+        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
+        d.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        d.setColor(active ? 0xFFFFFFFF : 0x66FFFFFF);
+        return d;
     }
 
     /** Pre-fetch which of these posts the current user already liked, so the
@@ -1017,11 +1028,80 @@ public class PostsFeedActivity extends AppCompatActivity {
     private class PostsAdapter extends RecyclerView.Adapter<PostsAdapter.Holder>
             implements ListPreloader.PreloadModelProvider<String> {
 
+        // ── Carousel perf: every row's inner ViewPager2 hosts its OWN
+        // RecyclerView internally. Left default, each one builds/tears down
+        // its own recycled-view pool as rows scroll on/off screen — on a
+        // feed with many multi-photo posts that means repeated ImageView
+        // inflation instead of reuse. Sharing ONE pool across every pager
+        // (they're all the same trivial ImageView viewType) lets a page
+        // view inflated for post A's carousel be recycled straight into
+        // post B's, the same trick Instagram's own feed relies on.
+        private final RecyclerView.RecycledViewPool photoPagerSharedPool = new RecyclerView.RecycledViewPool();
+
+        // Capped decode size for carousel pages, reused across every
+        // PhotoPagerAdapter instance instead of allocating a fresh
+        // RequestOptions per page bind. RGB_565 halves per-pixel memory
+        // vs the default ARGB_8888 — imperceptible for photo feed
+        // thumbnails, and it matters here because a multi-photo post can
+        // have several of these decoded at once (current + offscreen
+        // preload neighbor).
+        private final RequestOptions pagerPhotoOpts = new RequestOptions()
+            .diskCacheStrategy(DiskCacheStrategy.ALL)
+            .override(screenWidthPxOrFallback(), screenWidthPxOrFallback())
+            .format(DecodeFormat.PREFER_RGB_565)
+            .centerCrop();
+
         PostsAdapter() {
             // Stable ids (reelId hash) → RecyclerView can tell "same row,
             // different position" apart from "new row" during the DiffUtil
             // dispatch above, instead of tearing down/recreating views.
             setHasStableIds(true);
+            photoPagerSharedPool.setMaxRecycledViews(0, 8);
+        }
+
+        /** Persistent per-row carousel adapter — replaces the old approach
+         *  of building a brand-new anonymous RecyclerView.Adapter on every
+         *  single onBindViewHolder call. That forced ViewPager2's internal
+         *  RecyclerView to swap adapters on every rebind (scroll past a
+         *  row and back), which drops its whole view-recycling state and
+         *  re-inflates every page from scratch — real jank on a feed you
+         *  swipe AND scroll. This one lives for the Holder's lifetime and
+         *  just gets handed a new photo list per bind. */
+        private class PhotoPagerAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+            private List<String> urls = Collections.emptyList();
+
+            void setUrls(@NonNull List<String> newUrls) {
+                // Same row rebound with the same post (e.g. a live-count
+                // update elsewhere triggered a rebind) — nothing to redo.
+                if (urls == newUrls) return;
+                urls = newUrls;
+                notifyDataSetChanged();
+            }
+
+            @NonNull @Override
+            public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int vt) {
+                ImageView iv = new ImageView(parent.getContext());
+                iv.setLayoutParams(new ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                return new RecyclerView.ViewHolder(iv) {};
+            }
+
+            @Override public void onBindViewHolder(@NonNull RecyclerView.ViewHolder vh, int pos) {
+                Glide.with(vh.itemView.getContext())
+                    .load(urls.get(pos))
+                    .apply(pagerPhotoOpts)
+                    .into((ImageView) vh.itemView);
+            }
+
+            @Override public void onViewRecycled(@NonNull RecyclerView.ViewHolder vh) {
+                // Same reasoning as the outer adapter's onViewRecycled —
+                // release the decoded bitmap the instant a page scrolls
+                // off, don't wait for the next bind to clear it.
+                Glide.with(vh.itemView.getContext()).clear((ImageView) vh.itemView);
+            }
+
+            @Override public int getItemCount() { return urls.size(); }
         }
 
         @Override public long getItemId(int position) {
@@ -1061,21 +1141,72 @@ public class PostsFeedActivity extends AppCompatActivity {
                 .apply(thumbOpts)
                 .into(h.ivThumb);
 
-            // ── Carousel index badge — this card shows only the first
-            // photo statically (no swipe ViewPager here, unlike the
-            // immersive player's ReelPhotoSlideshowController), so this
-            // is a static "1/N" count badge, not a tracked swipe position.
-            // Same "position / total" text format as
-            // ReelPhotoSlideshowController.tvPhotoCounter. Hidden for
-            // single-photo posts.
-            if (h.tvCarouselIndex != null) {
-                int photoCount = r.photoUrls != null ? r.photoUrls.size() : 0;
-                if (photoCount > 1) {
-                    h.tvCarouselIndex.setText("1/" + photoCount);
-                    h.tvCarouselIndex.setVisibility(View.VISIBLE);
-                } else {
-                    h.tvCarouselIndex.setVisibility(View.GONE);
+            // ── Multi-photo carousel — Instagram-level approach: a real
+            // swipeable ViewPager2 (was a static first-photo-only image +
+            // static "1/N" badge before), a bottom dot-indicator strip
+            // (screenshot-2 reference), and a "position/total" chip
+            // top-right (screenshot-3 reference) that tracks the live
+            // swipe position instead of always reading "1/N".
+            final int photoCount = r.photoUrls != null ? r.photoUrls.size() : 0;
+            if (photoCount > 1 && h.photoPager != null) {
+                h.ivThumb.setVisibility(View.GONE);
+                h.photoPager.setVisibility(View.VISIBLE);
+                final List<String> photoList = r.photoUrls;
+                h.photoPagerBoundReel = r;
+
+                // Hand the persistent adapter this row's photo list instead
+                // of swapping the whole adapter object out — see
+                // PhotoPagerAdapter's doc for why that matters.
+                h.photoPagerAdapter.setUrls(photoList);
+                // Recycled Holder may carry a stale scroll position from
+                // whatever row it previously rendered — always reset.
+                h.photoPager.setCurrentItem(0, false);
+
+                // Dot indicator — rebuilt per bind (count varies per post)
+                h.dotsContainer.setVisibility(View.VISIBLE);
+                h.dotsContainer.removeAllViews();
+                final View[] dotViews = new View[photoCount];
+                int dotSz = dp(6), dotMargin = dp(3);
+                for (int di = 0; di < photoCount; di++) {
+                    View dot = new View(h.dotsContainer.getContext());
+                    LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dotSz, dotSz);
+                    dlp.setMargins(dotMargin, 0, dotMargin, 0);
+                    dot.setLayoutParams(dlp);
+                    dot.setBackground(makeCarouselDot(di == 0));
+                    h.dotsContainer.addView(dot);
+                    dotViews[di] = dot;
                 }
+
+                h.tvCarouselIndex.setText("1/" + photoCount);
+                h.tvCarouselIndex.setVisibility(View.VISIBLE);
+
+                if (h.photoPagerCallback != null) {
+                    h.photoPager.unregisterOnPageChangeCallback(h.photoPagerCallback);
+                }
+                h.photoPagerCallback = new androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
+                    @Override public void onPageSelected(int position) {
+                        h.tvCarouselIndex.setText((position + 1) + "/" + photoCount);
+                        for (int di = 0; di < dotViews.length; di++) {
+                            dotViews[di].setBackground(makeCarouselDot(di == position));
+                        }
+                    }
+                };
+                h.photoPager.registerOnPageChangeCallback(h.photoPagerCallback);
+            } else {
+                if (h.photoPager != null) {
+                    h.photoPager.setVisibility(View.GONE);
+                    if (h.photoPagerCallback != null) {
+                        h.photoPager.unregisterOnPageChangeCallback(h.photoPagerCallback);
+                        h.photoPagerCallback = null;
+                    }
+                }
+                h.photoPagerBoundReel = null;
+                if (h.dotsContainer != null) {
+                    h.dotsContainer.setVisibility(View.GONE);
+                    h.dotsContainer.removeAllViews();
+                }
+                h.ivThumb.setVisibility(View.VISIBLE);
+                if (h.tvCarouselIndex != null) h.tvCarouselIndex.setVisibility(View.GONE);
             }
 
             h.tvOwner.setText(r.ownerName != null ? r.ownerName : "");
@@ -1496,6 +1627,11 @@ public class PostsFeedActivity extends AppCompatActivity {
             }
             detachCountListener(h); // v284: row is off-screen, stop listening for its live counts
             h.boundReelId = null;
+            // Carousel pages recycle themselves via PhotoPagerAdapter's own
+            // onViewRecycled (clears each page's Glide target); dropping
+            // the reel reference here just avoids a stale double-tap-like
+            // target while this row sits recycled off-screen.
+            h.photoPagerBoundReel = null;
         }
 
         // ── ListPreloader.PreloadModelProvider ──────────────────────────
@@ -1524,6 +1660,17 @@ public class PostsFeedActivity extends AppCompatActivity {
             TextView  tvReposts, tvSends;
             TextView  btnReadMore;
             TextView  tvCarouselIndex;
+            androidx.viewpager2.widget.ViewPager2 photoPager;
+            LinearLayout dotsContainer;
+            androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback photoPagerCallback;
+            PhotoPagerAdapter photoPagerAdapter;
+            // Mutable — read by the long-lived gesture detector below so
+            // double-tap-to-like always resolves against whichever post
+            // this row currently holds, without rebuilding the detector
+            // (and its GestureDetector/OnTouchListener object graph) on
+            // every single bind, which was the previous approach and the
+            // biggest single allocation source on this carousel.
+            ReelModel photoPagerBoundReel;
             TextView  tvTime;
             ImageButton btnLike, btnComment, btnMute, btnAudioCover;
             ImageButton btnRepost, btnSave;
@@ -1545,6 +1692,9 @@ public class PostsFeedActivity extends AppCompatActivity {
                 ivLikeAnim  = itemView.findViewById(R.id.iv_post_like_anim);
                 frameMedia  = itemView.findViewById(R.id.frame_video);
                 tvCarouselIndex = itemView.findViewById(R.id.tv_post_carousel_index);
+                photoPager  = itemView.findViewById(R.id.post_photo_pager);
+                dotsContainer = itemView.findViewById(R.id.post_photo_dots);
+                setupPhotoPagerOnce();
                 tvTime      = itemView.findViewById(R.id.tv_post_time);
                 tvOwner     = itemView.findViewById(R.id.tv_post_owner);
                 tvSuggested = itemView.findViewById(R.id.tv_post_suggested);
@@ -1565,6 +1715,75 @@ public class PostsFeedActivity extends AppCompatActivity {
                 btnSend     = itemView.findViewById(R.id.btn_post_send);
                 tvSends     = itemView.findViewById(R.id.tv_post_sends);
                 btnReadMore = itemView.findViewById(R.id.tv_post_read_more);
+            }
+
+            /** Runs once per Holder (constructor time), never per bind:
+             *  wires the persistent PhotoPagerAdapter, joins the shared
+             *  recycled-view pool, sets offscreenPageLimit so the next
+             *  photo is already decoded before a swipe reveals it (no
+             *  blank-frame flash mid-gesture — Instagram does the same),
+             *  and installs the double-tap-to-like gesture detector. None
+             *  of this needs to be rebuilt just because the row got
+             *  recycled into a different post underneath it. */
+            private void setupPhotoPagerOnce() {
+                if (photoPager == null) return;
+
+                photoPagerAdapter = new PhotoPagerAdapter();
+                photoPager.setAdapter(photoPagerAdapter);
+                photoPager.setOffscreenPageLimit(1);
+
+                View innerRv = photoPager.getChildAt(0);
+                if (innerRv instanceof RecyclerView) {
+                    ((RecyclerView) innerRv).setRecycledViewPool(photoPagerSharedPool);
+                    // Uniform ImageView pages don't need item-change
+                    // animations (fade/flash) — same reasoning as the
+                    // outer feed list disabling them, one less thing
+                    // fighting the swipe gesture visually.
+                    ((RecyclerView) innerRv).setItemAnimator(null);
+                }
+
+                final android.view.GestureDetector gestureDetector = new android.view.GestureDetector(
+                    photoPager.getContext(),
+                    new android.view.GestureDetector.SimpleOnGestureListener() {
+                        @Override public boolean onDown(android.view.MotionEvent e) { return true; }
+                        @Override public boolean onDoubleTap(android.view.MotionEvent e) {
+                            ReelModel bound = photoPagerBoundReel;
+                            if (bound == null) return true;
+                            if (!likedIds.contains(bound.reelId)) toggleLike(bound, Holder.this);
+                            showLikeAnimation(ivLikeAnim);
+                            return true;
+                        }
+                    });
+                // Double-tap-to-like has to live on the pager itself here —
+                // a ViewPager2 consumes touches before frameMedia's own
+                // OnTouchListener would ever see them. Also claims
+                // horizontal drags immediately so this screen's vertical
+                // RecyclerView doesn't steal a left/right swipe mid-gesture
+                // (same fix as HomeFragment's photo slideshow). Built once
+                // and left attached permanently — harmless while the pager
+                // is GONE for single-photo posts, since a gone view never
+                // dispatches touches.
+                photoPager.setOnTouchListener(new View.OnTouchListener() {
+                    private float downX, downY;
+                    @Override public boolean onTouch(View v, android.view.MotionEvent event) {
+                        switch (event.getActionMasked()) {
+                            case android.view.MotionEvent.ACTION_DOWN:
+                                downX = event.getRawX(); downY = event.getRawY();
+                                v.getParent().requestDisallowInterceptTouchEvent(true);
+                                break;
+                            case android.view.MotionEvent.ACTION_MOVE:
+                                float dx = Math.abs(event.getRawX() - downX);
+                                float dy = Math.abs(event.getRawY() - downY);
+                                v.getParent().requestDisallowInterceptTouchEvent(dx >= dy);
+                                break;
+                            case android.view.MotionEvent.ACTION_UP:
+                            case android.view.MotionEvent.ACTION_CANCEL:
+                                v.getParent().requestDisallowInterceptTouchEvent(false);
+                                break;
+                        }
+                        return gestureDetector.onTouchEvent(event);
+                    }
+                });
             }
         }
     }

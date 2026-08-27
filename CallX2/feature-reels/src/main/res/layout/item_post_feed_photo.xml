@@ -170,6 +170,29 @@
             android:scaleType="centerCrop"
             android:background="#111111"/>
 
+        <!-- Swipeable multi-photo carousel — Instagram-level approach:
+             GONE for single-photo posts (iv_post_thumb above is used
+             instead); shown + populated in PostsAdapter.onBindViewHolder
+             for multi-photo posts. -->
+        <androidx.viewpager2.widget.ViewPager2
+            android:id="@+id/post_photo_pager"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"/>
+
+        <!-- Dot indicator strip — bottom-center of the image, Instagram
+             style (screenshot-2 reference). Populated/shown only for
+             multi-photo posts. -->
+        <LinearLayout
+            android:id="@+id/post_photo_dots"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="10dp"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:visibility="gone"/>
+
         <!-- "1/N" carousel-position chip — top-right, for multi-photo posts -->
         <TextView
             android:id="@+id/tv_post_carousel_index"
