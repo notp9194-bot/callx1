@@ -146,6 +146,7 @@ public class ReelEditActivity extends AppCompatActivity {
             .addOnSuccessListener(u1 -> {
                 FirebaseUtils.getReelsByUserRef(myUid).child(reelId).removeValue();
                 FirebaseUtils.getReelLikesRef(reelId).removeValue();
+                FirebaseUtils.getReelLikeMetaRef(reelId).removeValue();
                 FirebaseUtils.getReelCommentsRef(reelId).removeValue();
                 FirebaseUtils.getReelViewsRef(reelId).removeValue();
                 FirebaseUtils.getReelReactionsRef(reelId).removeValue();

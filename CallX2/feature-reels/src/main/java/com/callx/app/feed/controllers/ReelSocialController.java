@@ -107,6 +107,13 @@ public class ReelSocialController {
     // (see syncMetadataCache()) — the TextViews themselves were previously
     // the only place these numbers lived.
     private int lastKnownLikeCount    = 0;
+    // Live views count, kept in sync the same way as lastKnownLikeCount —
+    // seeded from the feed snapshot in populateCounts(), then corrected by
+    // ReelMetadataCache on revisit and by the live countListener below.
+    // Nothing on the player screen itself displays this (no view-count
+    // TextView here), but anything that needs "current" views — e.g. the
+    // likes bottom sheet header — should read it from here, not reel.viewsCount.
+    private int lastKnownViewCount    = 0;
     private int lastKnownCommentCount = 0;
     private int lastKnownSharesCount  = 0;
     private int lastKnownRepostCount  = 0;
@@ -262,6 +269,13 @@ public class ReelSocialController {
     public void populateCounts() {
         ReelModel reel = delegate.getReel();
         if (reel == null) return;
+        // Seed the live-count fields from the feed snapshot right away so
+        // getLastKnownLikeCount()/getLastKnownViewCount() never hand back a
+        // false "0" to a caller (e.g. openLikesSheet) that asks before
+        // applyCachedSnapshotIfAvailable()/countListener have had a chance
+        // to run. Both get overwritten the instant real data arrives below.
+        lastKnownLikeCount = reel.likesCount;
+        lastKnownViewCount = reel.viewsCount;
         // PERF advance — "precompute next reel's UI state": if this reel's
         // formatted counts were already computed ahead of time (see
         // ReelUiStatePrecomputer, driven from ReelsFragment.onPageSelected),
@@ -289,7 +303,6 @@ public class ReelSocialController {
         ReelModel reel = delegate.getReel();
         if (myUid == null || reel == null || reel.reelId == null) return;
 
-        DatabaseReference likeRef  = FirebaseUtils.getReelLikesRef(reel.reelId).child(myUid);
         DatabaseReference countRef = FirebaseUtils.getReelsRef().child(reel.reelId).child("likesCount");
         DatabaseReference likedByUserRef = FirebaseUtils.getReelLikedByUserRef(myUid).child(reel.reelId);
 
@@ -299,7 +312,7 @@ public class ReelSocialController {
                 btnLike.setImageResource(R.drawable.ic_heart);
                 btnLike.setImageTintList(ColorStateList.valueOf(Color.WHITE));
             }
-            likeRef.removeValue();
+            FirebaseUtils.removeReelLike(reel.reelId, myUid);
             likedByUserRef.removeValue();
             countRef.runTransaction(new Transaction.Handler() {
                 @NonNull @Override public Transaction.Result doTransaction(@NonNull MutableData d) {
@@ -321,7 +334,7 @@ public class ReelSocialController {
             // node to get the *most recent* likers without downloading the whole
             // likes list. isLiked/likeListener checks below only ever used
             // s.exists(), so this is a safe value-type change.
-            likeRef.setValue(System.currentTimeMillis());
+            FirebaseUtils.writeReelLike(reel.reelId, myUid);
             likedByUserRef.setValue(System.currentTimeMillis());
             countRef.runTransaction(new Transaction.Handler() {
                 @NonNull @Override public Transaction.Result doTransaction(@NonNull MutableData d) {
@@ -739,10 +752,12 @@ public class ReelSocialController {
                 Long comments = s.child("commentsCount").getValue(Long.class);
                 Long shares   = s.child("sharesCount").getValue(Long.class);
                 Long reposts  = s.child("repostCount").getValue(Long.class);
+                Long views    = s.child("viewsCount").getValue(Long.class);
                 if (likes    != null) lastKnownLikeCount    = likes.intValue();
                 if (comments != null) lastKnownCommentCount = comments.intValue();
                 if (shares   != null) lastKnownSharesCount  = shares.intValue();
                 if (reposts  != null) lastKnownRepostCount  = reposts.intValue();
+                if (views    != null) lastKnownViewCount    = views.intValue();
                 if (likes    != null && tvLikesCount    != null) tvLikesCount.setText(delegate.formatCount(lastKnownLikeCount));
                 if (comments != null && tvCommentsCount != null) tvCommentsCount.setText(delegate.formatCount(lastKnownCommentCount));
                 if (shares   != null && tvSharesCount   != null) tvSharesCount.setText(delegate.formatCount(lastKnownSharesCount));
@@ -797,6 +812,7 @@ public class ReelSocialController {
         lastKnownCommentCount = cached.commentCount;
         lastKnownSharesCount  = cached.sharesCount;
         lastKnownRepostCount  = cached.repostCount;
+        lastKnownViewCount    = cached.viewCount;
 
         if (btnLike != null) {
             btnLike.setImageResource(isLiked ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
@@ -836,8 +852,20 @@ public class ReelSocialController {
         snap.commentCount      = lastKnownCommentCount;
         snap.sharesCount       = lastKnownSharesCount;
         snap.repostCount       = lastKnownRepostCount;
+        snap.viewCount         = lastKnownViewCount;
         ReelMetadataCache.getInstance().put(reel.reelId, snap);
     }
+
+    // ── Live count accessors ────────────────────────────────────────────
+    // Instagram-style: always the current cached value, never the
+    // feed-load-time snapshot baked into the ReelModel. Callers that show
+    // counts anywhere outside the initial feed row (e.g. the likes bottom
+    // sheet header) should read from here instead of reel.likesCount /
+    // reel.viewsCount.
+    public int getLastKnownLikeCount() { return lastKnownLikeCount; }
+    public int getLastKnownViewCount() { return lastKnownViewCount; }
+    public int getLastKnownSharesCount() { return lastKnownSharesCount; }
+    public int getLastKnownRepostCount() { return lastKnownRepostCount; }
 
     public void removeFirebaseListeners() {
         // FIX: Guard — agar listeners already removed hain to dobara remove mat karo.

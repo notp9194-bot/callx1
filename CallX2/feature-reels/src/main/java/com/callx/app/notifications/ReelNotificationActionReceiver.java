@@ -51,7 +51,7 @@ public class ReelNotificationActionReceiver extends BroadcastReceiver {
 
         // ── Like Reel ──────────────────────────────────────────────────
         if (ACTION_LIKE_REEL.equals(action) && reelId != null) {
-            FirebaseUtils.getReelLikesRef(reelId).child(myUid).setValue(System.currentTimeMillis()); // FIX: timestamp value enables orderByValue().limitToLast(3) recency query for the liker-avatar row
+            FirebaseUtils.writeReelLike(reelId, myUid); // writes reelLikes timestamp + reelLikeMeta denormalized snapshot together
             FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId).setValue(System.currentTimeMillis());
             FirebaseUtils.getReelsRef().child(reelId).child("likeCount")
                 .setValue(com.google.firebase.database.ServerValue.increment(1));

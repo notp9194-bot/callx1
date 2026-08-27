@@ -579,6 +579,10 @@ public class ReelPlayerFragment extends Fragment
     @Override public boolean isSaved()             { return socialController.isSaved(); }
     @Override public boolean isLiked()             { return socialController.isLiked(); }
     @Override public boolean isReposted()          { return socialController.isReposted(); }
+    @Override public int getLastKnownLikeCount()   { return socialController.getLastKnownLikeCount(); }
+    @Override public int getLastKnownViewCount()   { return socialController.getLastKnownViewCount(); }
+    @Override public int getLastKnownSharesCount() { return socialController.getLastKnownSharesCount(); }
+    @Override public int getLastKnownRepostCount() { return socialController.getLastKnownRepostCount(); }
     @Override public boolean isDocked()            { return playerController.isDocked(); }
 
     // ── Player actions ────────────────────────────────────────────────────

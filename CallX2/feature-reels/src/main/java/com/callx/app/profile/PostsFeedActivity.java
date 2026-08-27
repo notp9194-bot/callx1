@@ -39,6 +39,7 @@ import com.callx.app.models.ReelModel;
 import com.callx.app.player.ReelOfflineManager;
 import com.callx.app.player.SingleReelPlayerActivity;
 import com.callx.app.social.ReelShareSheetFragment;
+import com.callx.app.social.ReelSharesBottomSheet;
 import com.callx.app.reels.R;
 import com.callx.app.utils.AlertDialogStyler;
 import com.callx.app.utils.FirebaseUtils;
@@ -1228,6 +1229,17 @@ public class PostsFeedActivity extends AppCompatActivity {
             h.boundReelId = r.reelId;
             attachCountListener(r, h); // v284: keep likes/comments/reposts live while this row is on screen
 
+            // Tap the like count → same ReelLikesBottomSheet the immersive
+            // Reels player opens (ReelShareController.openLikesSheet), so
+            // the likers list looks and behaves identically here.
+            h.tvLikes.setOnClickListener(v -> {
+                if (r.reelId == null || isFinishing() || isDestroyed()) return;
+                com.callx.app.comments.ReelLikesBottomSheet sheet =
+                    com.callx.app.comments.ReelLikesBottomSheet.newInstance(
+                        r.reelId, r.likesCount, r.viewsCount);
+                sheet.show(getSupportFragmentManager(), com.callx.app.comments.ReelLikesBottomSheet.TAG);
+            });
+
             // ── Audio track label (avatar/name ke niche) — same as HomeFragment's
             // header row: song name if set, else "artist · Original audio",
             // else hidden entirely (no music attached to this post).
@@ -1370,7 +1382,19 @@ public class PostsFeedActivity extends AppCompatActivity {
 
             // ── Send / Share button — open ReelShareSheetFragment, same
             // destination as HomeFragment's btnSend. ──
-            if (h.tvSends != null) h.tvSends.setText(formatCount(r.sharesCount));
+            if (h.tvSends != null) {
+                h.tvSends.setText(formatCount(r.sharesCount));
+                // Shares COUNT tap → shares bottom sheet, reusing the
+                // immersive player's ReelSharesBottomSheet (same sheet
+                // ReelShareController.openSharesSheet() shows) instead of
+                // re-triggering the share/send sheet the icon opens.
+                h.tvSends.setOnClickListener(v -> {
+                    if (r.reelId == null) return;
+                    ReelSharesBottomSheet sheet = ReelSharesBottomSheet.newInstance(
+                        r.reelId, r.sharesCount, r.repostCount);
+                    sheet.show(getSupportFragmentManager(), ReelSharesBottomSheet.TAG);
+                });
+            }
             if (h.btnSend != null) {
                 h.btnSend.setOnClickListener(v -> {
                     if (r.reelId == null) return;

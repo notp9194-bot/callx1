@@ -101,16 +101,26 @@ public class ReelShareController {
     public void openLikesSheet() {
         ReelModel reel = delegate.getReel();
         if (reel == null || reel.reelId == null || !delegate.isAdded() || delegate.getActivity() == null) return;
+        // FIX: was passing reel.likesCount/reel.viewsCount — a snapshot frozen
+        // at feed-load time. If the count changed since (a like, someone
+        // else's like) the sheet's header showed a stale number for a beat
+        // while the likers list below it was already live. Pull the current
+        // cached values ReelSocialController's Firebase listeners maintain
+        // instead, so the header opens already correct — matching the
+        // player screen's tvLikesCount, which reads from the same source.
         ReelLikesBottomSheet sheet = ReelLikesBottomSheet.newInstance(
-            reel.reelId, reel.likesCount, reel.viewsCount);
+            reel.reelId, delegate.getLastKnownLikeCount(), delegate.getLastKnownViewCount());
         delegate.showBottomSheet(sheet, ReelLikesBottomSheet.TAG);
     }
 
     public void openSharesSheet() {
         ReelModel reel = delegate.getReel();
         if (reel == null || reel.reelId == null || !delegate.isAdded() || delegate.getActivity() == null) return;
+        // FIX (same pattern as openLikesSheet): reel.sharesCount/repostCount
+        // are a feed-load-time snapshot. Pull the live cached values instead
+        // so the sheet header matches tvSharesCount/tvRepostCount on screen.
         ReelSharesBottomSheet sheet = ReelSharesBottomSheet.newInstance(
-            reel.reelId, reel.sharesCount, reel.repostCount);
+            reel.reelId, delegate.getLastKnownSharesCount(), delegate.getLastKnownRepostCount());
         delegate.showBottomSheet(sheet, ReelSharesBottomSheet.TAG);
     }
 

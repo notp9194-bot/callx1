@@ -266,7 +266,13 @@
             android:text="0"
             android:textColor="@color/text_secondary"
             android:textSize="12sp"
-            android:layout_marginEnd="6dp"/>
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="6dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"/>
 
         <!-- 💬 Comment -->
         <ImageButton
@@ -285,6 +291,7 @@
             android:text="0"
             android:textColor="@color/text_secondary"
             android:textSize="12sp"
+            android:layout_marginStart="6dp"
             android:layout_marginEnd="6dp"/>
 
         <!-- 🔄 Repost -->
@@ -304,6 +311,7 @@
             android:text="0"
             android:textColor="@color/text_secondary"
             android:textSize="12sp"
+            android:layout_marginStart="6dp"
             android:layout_marginEnd="6dp"/>
 
         <!-- ▷ Send / Share -->
@@ -323,7 +331,8 @@
             android:layout_weight="1"
             android:text="0"
             android:textColor="@color/text_secondary"
-            android:textSize="12sp"/>
+            android:textSize="12sp"
+            android:layout_marginStart="6dp"/>
 
         <!-- 🔖 Save -->
         <ImageButton

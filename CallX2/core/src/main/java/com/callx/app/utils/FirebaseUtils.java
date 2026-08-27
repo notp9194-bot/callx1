@@ -138,6 +138,68 @@ public class FirebaseUtils {
         return db().getReference("reelLikes").child(reelId);
     }
 
+    /**
+     * Dedicated like counter: reels/{reelId}/likesCount — kept in sync by
+     * atomic transactions in ReelSocialController.toggleLike(). UI that only
+     * needs the NUMBER of likes (header counts, live badges) should listen
+     * here instead of on getReelLikesRef(), which is the full likers list
+     * (one child per uid) and gets heavier to sync with every single like/
+     * unlike as a reel goes viral.
+     */
+    public static DatabaseReference getReelLikesCountRef(String reelId) {
+        return getReelsRef().child(reelId).child("likesCount");
+    }
+
+    /**
+     * Denormalized liker snapshot: reelLikeMeta/{reelId}/{uid} = {name, username, photo, verified, ts}.
+     * Written alongside every reelLikes/{reelId}/{uid} write (see writeReelLike()) so
+     * ReelLikesBottomSheet can render a whole page of likers from ONE read of this
+     * node instead of one reels/users/{uid} read per liker.
+     */
+    public static DatabaseReference getReelLikeMetaRef(String reelId) {
+        return db().getReference("reelLikeMeta").child(reelId);
+    }
+
+    /**
+     * Writes the like timestamp AND a denormalized display snapshot in one call.
+     * Real N+1 fix: previously reelLikes/{reelId}/{uid} only ever held a bare
+     * timestamp, so nothing was actually denormalized — ReelLikesBottomSheet had
+     * to read reels/users/{uid} separately for every single liker on every page
+     * open (PAGE_SIZE reads per page). Now the liker's display fields are copied
+     * into reelLikeMeta at like time, so later reads are a single node fetch.
+     * Likes written before this fix simply have no reelLikeMeta entry; callers
+     * fall back to a per-user read only for those.
+     */
+    public static void writeReelLike(String reelId, String uid) {
+        if (reelId == null || uid == null || uid.isEmpty()) return;
+        final long now = System.currentTimeMillis();
+        getReelLikesRef(reelId).child(uid).setValue(now);
+
+        db().getReference("reels/users").child(uid).get().addOnSuccessListener(s -> {
+            String name  = s.child("displayName").getValue(String.class);
+            String user  = s.child("handle").getValue(String.class);
+            String thumb = s.child("thumbUrl").getValue(String.class);
+            String photo = s.child("photoUrl").getValue(String.class);
+            Boolean ver  = s.child("verified").getValue(Boolean.class);
+            String resolvedPhoto = (thumb != null && !thumb.isEmpty()) ? thumb : (photo != null ? photo : "");
+
+            java.util.Map<String, Object> meta = new java.util.HashMap<>();
+            meta.put("name", name != null ? name : "User");
+            meta.put("username", user != null ? user : "");
+            meta.put("photo", resolvedPhoto);
+            meta.put("verified", Boolean.TRUE.equals(ver));
+            meta.put("ts", now);
+            getReelLikeMetaRef(reelId).child(uid).setValue(meta);
+        });
+    }
+
+    /** Removes both the like and its denormalized snapshot together. */
+    public static void removeReelLike(String reelId, String uid) {
+        if (reelId == null || uid == null || uid.isEmpty()) return;
+        getReelLikesRef(reelId).child(uid).removeValue();
+        getReelLikeMetaRef(reelId).child(uid).removeValue();
+    }
+
     public static DatabaseReference getReelSavesRef(String uid) {
         return db().getReference("reelSaves").child(uid);
     }

@@ -293,12 +293,19 @@ public class ReelSharesBottomSheet extends BottomSheetDialogFragment {
     }
 
     // ── Real-time count ────────────────────────────────────────────────────
+    // FIX: was listening on getReelRepostsRef(reelId) — the full reposts
+    // list (one child per repost) — just to call getChildrenCount() for the
+    // header number. Same problem as the likes sheet: every repost re-syncs
+    // the whole list to every open sheet. reels/{reelId}/repostCount is
+    // already a dedicated counter kept correct by transactions elsewhere
+    // (RepostWithCaptionActivity, ReelSocialController's undo-repost path),
+    // so listen to that single value instead.
     private void attachRealtimeListener() {
-        realtimeRef = FirebaseUtils.getReelRepostsRef(reelId);
+        realtimeRef = FirebaseUtils.getReelsRef().child(reelId).child("repostCount");
         realtimeListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                long count = snap.getChildrenCount();
-                if (isAdded()) tvRepostsCount.setText(formatCount((int) count));
+                Integer count = snap.getValue(Integer.class);
+                if (isAdded()) tvRepostsCount.setText(formatCount(count != null ? count : 0));
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };

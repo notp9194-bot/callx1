@@ -49,6 +49,15 @@ public interface ReelPlayerDelegate {
     boolean isSaved();
     boolean isLiked();
     boolean isReposted();
+
+    // ── Live cached counts (Instagram-style — always current, never a stale
+    //    feed-load snapshot) maintained by ReelSocialController's Firebase
+    //    listeners. Use these instead of reel.likesCount/reel.viewsCount
+    //    anywhere a "right now" count is needed (e.g. opening the likes sheet). ──
+    int getLastKnownLikeCount();
+    int getLastKnownViewCount();
+    int getLastKnownSharesCount();
+    int getLastKnownRepostCount();
     /** True when the reel is docked (shrunk) above the open comments sheet. */
     boolean isDocked();
 

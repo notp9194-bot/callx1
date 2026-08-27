@@ -52,6 +52,7 @@ import com.callx.app.camera.ReelCameraActivity;
 import com.callx.app.comments.ReelCommentActivity;
 import com.callx.app.explore.ReelExploreActivity;
 import com.callx.app.social.ReelShareSheetFragment;
+import com.callx.app.social.ReelSharesBottomSheet;
 import com.callx.app.upload.ReelUploadActivity;
 import com.callx.app.player.SingleReelPlayerActivity;
 import com.callx.app.profile.ReelPeekPreviewController;
@@ -3950,7 +3951,7 @@ public class HomeFragment extends Fragment {
                                 isLiked[0] = true;
                                 btnLike.setImageResource(R.drawable.ic_heart_filled);
                                 setLikeButtonTint(btnLike, true);
-                                FirebaseUtils.getReelLikesRef(reelId).child(myUid).setValue(System.currentTimeMillis()); // FIX: timestamp value enables orderByValue().limitToLast(3) recency query for the liker-avatar row
+                                FirebaseUtils.writeReelLike(reelId, myUid); // writes reelLikes timestamp + reelLikeMeta denormalized snapshot together
                                 FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId)
                                     .setValue(System.currentTimeMillis());
                                 try {
@@ -4023,7 +4024,7 @@ public class HomeFragment extends Fragment {
                                     btnLike.setImageResource(R.drawable.ic_heart_filled);
                                     setLikeButtonTint(btnLike, true);
                                 }
-                                FirebaseUtils.getReelLikesRef(reelId).child(myUid).setValue(System.currentTimeMillis()); // FIX: timestamp value enables orderByValue().limitToLast(3) recency query for the liker-avatar row
+                                FirebaseUtils.writeReelLike(reelId, myUid); // writes reelLikes timestamp + reelLikeMeta denormalized snapshot together
                                 FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId)
                                     .setValue(System.currentTimeMillis());
                                 try {
@@ -4114,7 +4115,7 @@ public class HomeFragment extends Fragment {
                 if (isLiked[0]) {
                     btnLike.setImageResource(R.drawable.ic_heart_filled);
                     setLikeButtonTint(btnLike, true);
-                    FirebaseUtils.getReelLikesRef(reelId).child(myUid).setValue(System.currentTimeMillis()); // FIX: timestamp value enables orderByValue().limitToLast(3) recency query for the liker-avatar row
+                    FirebaseUtils.writeReelLike(reelId, myUid); // writes reelLikes timestamp + reelLikeMeta denormalized snapshot together
                     FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId)
                         .setValue(System.currentTimeMillis());
                     // Optimistic UI count update
@@ -4126,7 +4127,7 @@ public class HomeFragment extends Fragment {
                 } else {
                     btnLike.setImageResource(R.drawable.ic_heart);
                     setLikeButtonTint(btnLike, false);
-                    FirebaseUtils.getReelLikesRef(reelId).child(myUid).removeValue();
+                    FirebaseUtils.removeReelLike(reelId, myUid);
                     FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId).removeValue();
                 }
             });
@@ -4217,6 +4218,21 @@ public class HomeFragment extends Fragment {
                     FirebaseUtils.getReelSavesRef(myUid).child(reelId).removeValue();
                     FirebaseUtils.getReelSavesIndexRef(reelId).child(myUid).removeValue();
                 }
+            });
+        }
+
+        // ── Shares count tap → shares bottom sheet, same
+        // ReelSharesBottomSheet the immersive player opens via
+        // ReelShareController.openSharesSheet() / same pattern as the
+        // tvComments count tap above. ──
+        TextView tvSends = holder.tvSends;
+        if (tvSends != null) {
+            tvSends.setText(formatCount(reel.sharesCount));
+            tvSends.setOnClickListener(x -> {
+                if (reelId == null) return;
+                ReelSharesBottomSheet sheet = ReelSharesBottomSheet.newInstance(
+                    reelId, reel.sharesCount, reel.repostCount);
+                sheet.show(getChildFragmentManager(), ReelSharesBottomSheet.TAG);
             });
         }
 
@@ -5452,6 +5468,7 @@ public class HomeFragment extends Fragment {
         View            collabAvatarContainer;
         View            btnReadMore;
         View            btnSend;
+        TextView        tvSends;
         View            btnMore;
 
         PostRowHolder(@NonNull View itemView) { super(itemView); }
@@ -5489,6 +5506,7 @@ public class HomeFragment extends Fragment {
             collabAvatarContainer = itemView.findViewById(R.id.layout_collab_avatar);
             btnReadMore           = itemView.findViewById(R.id.tv_post_read_more);
             btnSend               = itemView.findViewById(R.id.btn_post_send);
+            tvSends               = itemView.findViewById(R.id.tv_post_sends);
             btnMore               = itemView.findViewById(R.id.btn_post_more);
             viewsCached = true;
         }

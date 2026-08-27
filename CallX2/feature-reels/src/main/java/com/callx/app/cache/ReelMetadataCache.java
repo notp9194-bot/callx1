@@ -42,6 +42,7 @@ public class ReelMetadataCache {
         public int commentCount = 0;
         public int sharesCount = 0;
         public int repostCount = 0;
+        public int viewCount = 0;
         public boolean isLiked = false;
         public boolean isSaved = false;
         public boolean isFollowing = false;
