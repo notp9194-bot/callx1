@@ -3425,12 +3425,26 @@ public class UserReelsActivity extends AppCompatActivity
         for (ReelModel r : data)
             if (r != null && r.reelId != null) ids.add(r.reelId);
 
-        Intent intent = new Intent(this, SingleReelPlayerActivity.class);
-        intent.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
-        // safeIdx ensures the tapped reel plays first — not position 0
-        intent.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, safeIdx);
-        intent.putExtra(SingleReelPlayerActivity.EXTRA_TITLE,
-            targetName != null ? targetName + "'s Reels" : "Reels");
+        Intent intent;
+        if (isPostsTabActive()) {
+            // Posts tab (photos) → scrollable Home-feed-style screen, NOT
+            // the fullscreen Reels ViewPager2. Instagram opens a grid photo
+            // into a normal scrollable feed, not an immersive video swipe —
+            // this mirrors that. Reels/Repost/Duet/Series tabs are untouched
+            // below and keep using SingleReelPlayerActivity as before.
+            intent = new Intent(this, PostsFeedActivity.class);
+            intent.putStringArrayListExtra(PostsFeedActivity.EXTRA_REEL_IDS, ids);
+            intent.putExtra(PostsFeedActivity.EXTRA_START_POSITION, safeIdx);
+            intent.putExtra(PostsFeedActivity.EXTRA_TITLE,
+                targetName != null ? targetName + "'s Posts" : "Posts");
+        } else {
+            intent = new Intent(this, SingleReelPlayerActivity.class);
+            intent.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
+            // safeIdx ensures the tapped reel plays first — not position 0
+            intent.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, safeIdx);
+            intent.putExtra(SingleReelPlayerActivity.EXTRA_TITLE,
+                targetName != null ? targetName + "'s Reels" : "Reels");
+        }
 
         // ── Grid → player open animation ────────────────────────────────
         // Instagram-style "pinch zoom" reveal: the tapped thumbnail scales
