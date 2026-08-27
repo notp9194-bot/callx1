@@ -252,8 +252,8 @@ public class PostsFeedActivity extends AppCompatActivity {
         class Holder extends RecyclerView.ViewHolder {
             View      pvVideo; // PlayerView — only ever hidden on this screen
             ImageView ivThumb, ivAvatar;
-            TextView  tvOwner, tvCaption, tvLikes, tvComments, tvSuggested;
-            ImageButton btnLike, btnComment, btnFollow;
+            TextView  tvOwner, tvCaption, tvLikes, tvComments, tvSuggested, btnFollow;
+            ImageButton btnLike, btnComment;
 
             Holder(@NonNull View itemView) {
                 super(itemView);
