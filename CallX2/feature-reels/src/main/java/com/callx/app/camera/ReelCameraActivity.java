@@ -156,9 +156,23 @@ public class ReelCameraActivity extends AppCompatActivity {
         /** Serialise to the JSON format expected by ReelEditorActivity / ReelVideoExportEngine.
          *  "value" carries "text|#color" for backward compat with the engine's parser,
          *  plus we add extra fields for richer rendering in the editor. */
-        String toJson() {
+        // ✅ FIX: x/y used to be hardcoded to 0.5/0.5 (dead-center) below regardless
+        // of where the user actually dragged the overlay on the camera preview, so
+        // a repositioned text overlay snapped back to center the moment it reached
+        // the editor. toJson(overlayW, overlayH) now uses the live view's real
+        // on-screen position (converted to a 0..1 fraction of the overlay layer)
+        // when available, falling back to center only for a fresh/never-dragged
+        // overlay.
+        String toJson(int overlayW, int overlayH) {
             String safeText = text.replace("\\", "\\\\").replace("\"", "\\\"");
             String hex = String.format("#%06X", 0xFFFFFF & color);
+            float xFrac = 0.5f, yFrac = 0.5f;
+            if (!Float.isNaN(viewX) && !Float.isNaN(viewY) && overlayW > 0 && overlayH > 0) {
+                float w = liveView != null ? liveView.getWidth()  : 0;
+                float h = liveView != null ? liveView.getHeight() : 0;
+                xFrac = (viewX + w / 2f) / overlayW;
+                yFrac = (viewY + h / 2f) / overlayH;
+            }
             return "{"
                 + "\"type\":\"text\","
                 + "\"value\":\"" + safeText + "|" + hex + "\","
@@ -167,7 +181,7 @@ public class ReelCameraActivity extends AppCompatActivity {
                 + "\"sizeSp\":"  + sizeSp  + ","
                 + "\"bgStyle\":" + bgStyle + ","
                 + "\"align\":"   + align   + ","
-                + "\"x\":0.5,\"y\":0.5"
+                + "\"x\":" + xFrac + ",\"y\":" + yFrac
                 + "}";
         }
     }
@@ -878,8 +892,10 @@ public class ReelCameraActivity extends AppCompatActivity {
 
         // ── Build combined overlay JSON array (stickers + texts) ──────────
         List<String> allOverlays = new ArrayList<>(stickerJsonList);
+        int overlayW = rootOverlay != null ? rootOverlay.getWidth()  : 0;
+        int overlayH = rootOverlay != null ? rootOverlay.getHeight() : 0;
         for (TextOverlayData td : textOverlayList) {
-            allOverlays.add(td.toJson());
+            allOverlays.add(td.toJson(overlayW, overlayH));
         }
         if (!allOverlays.isEmpty()) {
             StringBuilder arr = new StringBuilder("[");

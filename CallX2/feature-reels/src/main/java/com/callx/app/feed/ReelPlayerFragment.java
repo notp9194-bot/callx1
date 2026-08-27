@@ -853,12 +853,17 @@ public class ReelPlayerFragment extends Fragment
                 if (depth == 0) {
                     String obj = inner.substring(start, i + 1);
                     // ✅ FIX: "type":"text" entries (ReelEditorActivity's Step-2 text
-                    // overlays) are meant to be hard-baked into the video pixels, not
-                    // rendered here — StatusStickerOverlayView.fromJson() has no "text"
-                    // case and was falling through to buildQuestion() with the wrong
-                    // fields, throwing and getting silently swallowed by the catch below.
-                    // Skip them explicitly instead of relying on that to fail quietly.
-                    if (!obj.contains("\"type\":\"text\"")) {
+                    // overlays) ride as live styling metadata, not baked video pixels —
+                    // see ReelTextOverlayRenderer. They're rendered as a real sharp
+                    // TextView on top of the player here, matching Instagram's
+                    // overlay/layer approach, instead of being burned into the pixels
+                    // where Cloudinary's compression would blur them along with the
+                    // rest of the video. StatusStickerOverlayView has no "text" case,
+                    // so these are handled by a separate path from the other sticker
+                    // types (poll/quiz/question/emoji/etc).
+                    if (obj.contains("\"type\":\"text\"")) {
+                        addVideoTextOverlayView(obj, layer);
+                    } else {
                         addVideoStickerView(obj, layer, idx);
                     }
                     idx++;
@@ -893,6 +898,44 @@ public class ReelPlayerFragment extends Fragment
             layer.addView(sticker, lp);
 
             wireVideoStickerInteractivity(sticker, stickerIdx);
+        } catch (Exception ignored) {}
+    }
+
+    /**
+     * Renders one "type":"text" sticker_json entry as a real, sharp TextView on
+     * top of the player — see ReelTextOverlayRenderer's class doc for why this
+     * lives outside the baked video pixels. Non-interactive (view-only), same as
+     * Instagram's playback of a caption sticker: draggable only in the editor.
+     */
+    private void addVideoTextOverlayView(String obj, FrameLayout layer) {
+        try {
+            java.util.List<com.callx.app.editor.ReelVideoExportEngine.OverlayItem> items =
+                com.callx.app.editor.ReelVideoExportEngine.parseOverlayJsonArray("[" + obj + "]");
+            if (items.isEmpty()) return;
+            com.callx.app.editor.ReelVideoExportEngine.OverlayItem item = items.get(0);
+            if (item.text == null || item.text.isEmpty()) return;
+
+            View tv = com.callx.app.editor.ReelTextOverlayRenderer.build(layer.getContext(), item);
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.TOP | android.view.Gravity.START);
+            tv.setLayoutParams(lp);
+            layer.addView(tv);
+
+            // x/y are the CENTER of the text block as a fraction of the layer's
+            // size (see ReelEditorActivity#mergeTextOverlaysIntoStickerJson) — a
+            // WRAP_CONTENT view has no measured size yet, so shift it into place
+            // via translationX/Y once its first layout pass reports one.
+            final float xFrac = item.x, yFrac = item.y;
+            tv.getViewTreeObserver().addOnGlobalLayoutListener(
+                new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                    @Override public void onGlobalLayout() {
+                        if (tv.getWidth() == 0 || layer.getWidth() == 0 || layer.getHeight() == 0) return;
+                        tv.setTranslationX(xFrac * layer.getWidth()  - tv.getWidth()  / 2f);
+                        tv.setTranslationY(yFrac * layer.getHeight() - tv.getHeight() / 2f);
+                        tv.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                    }
+                });
         } catch (Exception ignored) {}
     }
 

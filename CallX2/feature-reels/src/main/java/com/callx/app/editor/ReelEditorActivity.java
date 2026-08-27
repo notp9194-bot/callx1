@@ -482,6 +482,19 @@ public class ReelEditorActivity extends AppCompatActivity {
             // Simple split of top-level JSON objects in the array: "[{...},{...}]"
             String inner = presetStickers.substring(1, presetStickers.length() - 1).trim();
             if (!inner.isEmpty()) {
+                // ✅ FIX: this used to do `stickerJson = obj;` on every iteration, which
+                // overwrote the whole field with just the LAST preset object instead of
+                // accumulating all of them — every earlier camera-added sticker/text was
+                // silently gone before the user even saw this screen. Now every non-text
+                // object is accumulated into a real JSON array (so it survives via
+                // mergeTextOverlaysIntoStickerJson()'s "preservedNonText" pass later), and
+                // every "type":"text" object is loaded as a proper advanced overlay instead
+                // (see loadPresetTextOverlay) so it's tracked in textOverlayViews and isn't
+                // dropped by that same merge — previously a camera-made text overlay was
+                // added as an untracked plain TextView (addStickerOverlay's legacy path),
+                // which mergeTextOverlaysIntoStickerJson() has no way to see, so it silently
+                // vanished from stickerJson the moment the user hit Next/Post.
+                List<String> nonTextObjs = new ArrayList<>();
                 int depth = 0, start = 0;
                 for (int i = 0; i < inner.length(); i++) {
                     char c = inner.charAt(i);
@@ -490,17 +503,143 @@ public class ReelEditorActivity extends AppCompatActivity {
                         depth--;
                         if (depth == 0) {
                             String obj = inner.substring(start, i + 1);
-                            stickerJson = obj;
-                            addStickerOverlay(obj);
+                            if (obj.contains("\"type\":\"text\"")) {
+                                loadPresetTextOverlay(obj);
+                            } else {
+                                nonTextObjs.add(obj);
+                                addStickerOverlay(obj);
+                            }
                             start = i + 1;
                             while (start < inner.length() && (inner.charAt(start) == ',' )) start++;
                         }
                     }
                 }
+                if (!nonTextObjs.isEmpty()) {
+                    stickerJson = "[" + String.join(",", nonTextObjs) + "]";
+                }
                 if (btnToolStickers != null) btnToolStickers.setColorFilter(
                     android.graphics.Color.argb(200, 255, 215, 0));
             }
         }
+    }
+
+    /**
+     * Loads one camera-made "type":"text" preset overlay as a proper advanced
+     * (Step 2) text overlay — TextOverlayStyle-tagged, draggable/pinchable, and
+     * tracked in textOverlayViews — instead of the legacy untracked plain-TextView
+     * path addStickerOverlay() uses for emoji/gif stickers. Being tracked here is
+     * what makes it survive mergeTextOverlaysIntoStickerJson() and actually reach
+     * the uploaded reel. Understands both the simple camera schema (int fontIdx/
+     * bgStyle/align — see ReelCameraActivity.TextOverlayData#toJson) and the
+     * richer Step-2 schema (string font/bg/align), so styling picked on the
+     * camera screen (bold/italic/serif/mono, background, alignment) carries
+     * through unchanged instead of silently falling back to defaults.
+     */
+    private void loadPresetTextOverlay(String obj) {
+        FrameLayout fl = getVideoOverlayLayer();
+        if (fl == null) return;
+        int dp = (int) getResources().getDisplayMetrics().density;
+
+        String value = extractJsonStringField(obj, "value");
+        if (value == null) return;
+        int color = Color.WHITE;
+        if (value.contains("|#")) {
+            int sep = value.lastIndexOf("|#");
+            String colorHex = value.substring(sep + 1);
+            value = value.substring(0, sep);
+            try { color = Color.parseColor(colorHex); } catch (Exception ignored) {}
+        }
+        String colorStr = extractJsonStringField(obj, "color");
+        if (colorStr != null) {
+            try { color = Color.parseColor(colorStr); } catch (Exception ignored) {}
+        }
+        if (value.isEmpty()) return;
+
+        TextOverlayStyle style = new TextOverlayStyle();
+        style.text = value;
+        style.colorInt = color;
+
+        // Richer Step-2 schema, if present (string keys).
+        String fontStr = extractJsonStringField(obj, "font");
+        String bgStr    = extractJsonStringField(obj, "bg");
+        String alignStr = extractJsonStringField(obj, "align");
+        boolean hasAdvancedSchema = fontStr != null || bgStr != null || alignStr != null;
+
+        if (hasAdvancedSchema) {
+            style.fontKey = fontStr != null ? fontStr : "classic";
+            style.bgStyle = bgStr != null ? bgStr : "pill";
+            style.align   = alignStr != null ? alignStr : "center";
+            style.bold    = obj.contains("\"bold\":true");
+            style.italic  = obj.contains("\"italic\":true");
+            style.sizeSp  = extractJsonFloatField(obj, "size", 24f);
+        } else {
+            // Simple camera schema — map its int enums onto the advanced string keys.
+            int fontIdx = (int) extractJsonFloatField(obj, "fontIdx", 0f);
+            int bgIdx   = (int) extractJsonFloatField(obj, "bgStyle", 0f);
+            int alignIdx = (int) extractJsonFloatField(obj, "align", 1f);
+            switch (fontIdx) {
+                case 1: style.fontKey = "classic"; style.bold = true;  break;
+                case 2: style.fontKey = "classic"; style.italic = true; break;
+                case 3: style.fontKey = "serif";  break;
+                case 4: style.fontKey = "mono";   break;
+                default: style.fontKey = "classic";
+            }
+            style.bgStyle = bgIdx == 1 ? "pill" : bgIdx == 2 ? "solid" : "none";
+            style.align   = alignIdx == 0 ? "left" : alignIdx == 2 ? "right" : "center";
+            style.sizeSp  = extractJsonFloatField(obj, "sizeSp", 24f);
+        }
+
+        float xFrac = extractJsonFloatField(obj, "x", 0.5f);
+        float yFrac = extractJsonFloatField(obj, "y", 0.5f);
+        float rotation = extractJsonFloatField(obj, "rotation", 0f);
+        float scale     = extractJsonFloatField(obj, "scale", 1f);
+
+        StyledOverlayTextView tv = new StyledOverlayTextView(this);
+        tv.setTag(style);
+        applyStyleToView(tv, style, dp);
+        tv.setRotation(rotation);
+        tv.setScaleX(scale <= 0f ? 1f : scale);
+        tv.setScaleY(scale <= 0f ? 1f : scale);
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+        tv.setLayoutParams(lp);
+        fl.addView(tv);
+        textOverlayViews.add(tv);
+        makeTextOverlayInteractive(tv, fl);
+
+        // Position by center fraction once the view (and layer) are measured —
+        // mirrors mergeTextOverlaysIntoStickerJson's own xFrac/yFrac convention.
+        final float fx = xFrac, fy = yFrac;
+        tv.getViewTreeObserver().addOnGlobalLayoutListener(
+            new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                @Override public void onGlobalLayout() {
+                    if (tv.getWidth() == 0 || fl.getWidth() == 0 || fl.getHeight() == 0) return;
+                    tv.setX(fx * fl.getWidth()  - tv.getWidth()  / 2f);
+                    tv.setY(fy * fl.getHeight() - tv.getHeight() / 2f);
+                    tv.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                }
+            });
+    }
+
+    private String extractJsonStringField(String json, String key) {
+        String marker = "\"" + key + "\":\"";
+        int s = json.indexOf(marker);
+        if (s < 0) return null;
+        s += marker.length();
+        int e = json.indexOf('"', s);
+        if (e < 0) return null;
+        return json.substring(s, e).replace("\\\"", "\"");
+    }
+
+    private float extractJsonFloatField(String json, String key, float fallback) {
+        String marker = "\"" + key + "\":";
+        int s = json.indexOf(marker);
+        if (s < 0) return fallback;
+        s += marker.length();
+        int e = s;
+        while (e < json.length() && (Character.isDigit(json.charAt(e)) || json.charAt(e) == '.' || json.charAt(e) == '-')) e++;
+        try { return Float.parseFloat(json.substring(s, e)); } catch (Exception ex) { return fallback; }
     }
 
     // ── View binding ──────────────────────────────────────────────────────
@@ -2255,6 +2394,36 @@ public class ReelEditorActivity extends AppCompatActivity {
         }
     }
 
+    /** True if stickerJson has any overlay entry that ISN'T "type":"text" (e.g. an
+     *  emoji sticker) — those still need a pixel bake. A "type":"text" entry never
+     *  does: it rides live at playback instead (see proceedToUpload()). */
+    private boolean hasNonTextStickerOverlay(String json) {
+        if (json == null || json.isEmpty() || json.equals("[]")) return false;
+        for (String obj : splitJsonObjects(json)) {
+            if (!obj.contains("\"type\":\"text\"")) return true;
+        }
+        return false;
+    }
+
+    /** Strips every "type":"text" entry out of a sticker_json array, leaving only
+     *  the entries that still need to be drawn into the exported video's pixels
+     *  (e.g. emoji stickers). Text overlays ride live at playback instead (see
+     *  ReelPlayerFragment#addVideoTextOverlayView) — baking them here too would
+     *  draw the same text twice (once burned-in, once as the live layer). */
+    private String stripTextOverlayEntries(String json) {
+        StringBuilder sb = new StringBuilder(json != null ? json.length() : 2);
+        sb.append('[');
+        boolean first = true;
+        for (String obj : splitJsonObjects(json)) {
+            if (obj.contains("\"type\":\"text\"")) continue;
+            if (!first) sb.append(',');
+            first = false;
+            sb.append(obj);
+        }
+        sb.append(']');
+        return sb.toString();
+    }
+
     /** Splits a top-level JSON array string into its individual {...} object substrings. */
     private List<String> splitJsonObjects(String json) {
         List<String> result = new ArrayList<>();
@@ -3393,27 +3562,30 @@ public class ReelEditorActivity extends AppCompatActivity {
     // ── Proceed to upload ─────────────────────────────────────────────────
 
     private void proceedToUpload() {
-        // ✅ NEW: fold all advanced Step-2 text overlays (with their font/color/
+        // ✅ fold all advanced Step-2 text overlays (with their font/color/
         // bg/align/rotation/scale styling) into stickerJson BEFORE anything below
-        // reads it — this is what makes them both hard-bake into the exported
-        // video pixels (runHardBakeExport) AND ride along in the sticker_json
-        // extra for playback rendering.
+        // reads it — this is what makes them ride along in the sticker_json extra
+        // for live playback rendering (see ReelPlayerFragment /
+        // ReelTextOverlayRenderer). They are deliberately NOT hard-baked into the
+        // exported video's pixels (see hasOverlays below) — Instagram-style,
+        // text stays a sharp separate layer no matter how much the video itself
+        // gets compressed.
         mergeTextOverlaysIntoStickerJson();
 
         // ✅ FIX: Status has no separate subtitle-burn step (unlike this same
         // editor's other exit paths, which never had one either — see
         // mergeSubtitleCaptionIntoOverlay()'s javadoc). Merge the first caption
         // line into stickerJson BEFORE the hasOverlays check below so it rides
-        // along on the existing text-overlay hard-bake instead of being
-        // silently dropped when this screen was opened from Status.
+        // along the same live-overlay path when this screen was opened from Status.
         if (targetStatus) mergeSubtitleCaptionIntoOverlay();
 
         boolean hasFilter   = !filterName.isEmpty() && !filterName.equals("Normal");
-        // ✅ FIX: stickerJson defaults to "[]", not "", so the old
-        // `!stickerJson.isEmpty()` check was true even with zero overlays —
-        // harmless on its own (just an unnecessary re-encode), but worth
-        // checking for real content while fixing the bug below.
-        boolean hasOverlays = !stickerJson.isEmpty() && !stickerJson.equals("[]");
+        // ✅ Text overlays ("type":"text") never need a pixel bake — they're
+        // rendered live at playback (ReelPlayerFragment#addVideoTextOverlayView),
+        // so compressing the video never touches their sharpness. Only a
+        // non-text entry (emoji stickers etc.) still needs the hard-bake pass;
+        // an overlay array made up of text alone must NOT trigger one.
+        boolean hasOverlays = hasNonTextStickerOverlay(stickerJson);
         // ✅ FIX: previously only filter/overlays triggered a re-encode, so a user
         // who only adjusted the trim handles still had the FULL original video
         // uploaded (trimStartMs/trimEndMs were sent to ReelUploadActivity but never
@@ -3432,18 +3604,14 @@ public class ReelEditorActivity extends AppCompatActivity {
             runHardBakeExport(hasTrim);
             return;
         }
-        // ✅ FIX: text overlay disappears after upload — root cause. ReelCameraActivity
-        // (the normal "record/pick video → Reel" entry point) opens this screen with
-        // EXTRA_IS_FILE_PATH=false for gallery-picked videos (content:// URI), so the
-        // `isFilePath` check above used to skip hard-bake ENTIRELY whenever the source
-        // wasn't already a local file — the text overlay looked fine in this screen's
-        // live preview (a real TextView drawn on top of the player) but never got burned
-        // into the uploaded video's pixels. It rode along instead as a "type":"text" entry
-        // in sticker_json, but ReelPlayerFragment's playback sticker layer renders every
-        // sticker_json entry via StatusStickerOverlayView, which has no "text" case and
-        // silently fails (caught exception) for one — so it never appeared after upload.
-        // Fix: copy the content URI to a local file first, then run the same hard-bake
-        // path instead of skipping it.
+        // NOTE: this path now only runs for a real filter, a trim range, or a
+        // non-text overlay (e.g. emoji sticker) picked on a gallery video
+        // (content:// URI, EXTRA_IS_FILE_PATH=false). Text overlays no longer
+        // reach here at all — ReelPlayerFragment#addVideoTextOverlayView renders
+        // "type":"text" sticker_json entries live at playback (via
+        // ReelTextOverlayRenderer), so they never need the source copied to a
+        // local file just to be burned into pixels. copyThenHardBakeExport()
+        // below still exists for the filter/trim/emoji-sticker case.
         if (needsBake) {
             copyThenHardBakeExport(hasTrim);
             return;
@@ -3494,8 +3662,14 @@ public class ReelEditorActivity extends AppCompatActivity {
         dialog.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
         dialog.show();
 
+        // ✅ Text overlays are excluded from the pixel bake — they ride live at
+        // playback (ReelPlayerFragment#addVideoTextOverlayView) instead, so they
+        // stay sharp regardless of the video's own compression. Only whatever's
+        // left (e.g. emoji stickers) still needs to be drawn into the exported
+        // frames here; a run that's baking purely because of a filter/trim (no
+        // non-text overlay) now passes an empty overlay list.
         java.util.List<ReelVideoExportEngine.OverlayItem> overlays =
-            ReelVideoExportEngine.parseOverlayJsonArray(stickerJson);
+            ReelVideoExportEngine.parseOverlayJsonArray(stripTextOverlayEntries(stickerJson));
 
         long exportTrimStart = hasTrim ? trimStartMs : 0L;
         long exportTrimEnd   = hasTrim ? trimEndMs   : 0L;
