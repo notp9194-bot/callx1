@@ -223,6 +223,20 @@
             android:background="@drawable/bg_audio_create_tile"
             android:contentDescription="Original audio"
             android:visibility="gone"/>
+
+        <!-- Double tap like animation — same drawable/style as the immersive
+             player's iv_like_anim (fragment_reel_player.xml), just placed
+             here so double-tap-to-like works in the Posts feed too. -->
+        <ImageView
+            android:id="@+id/iv_post_like_anim"
+            android:layout_width="100dp"
+            android:layout_height="100dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_heart_filled"
+            android:tint="#FF416C"
+            android:visibility="gone"
+            android:alpha="0"
+            android:contentDescription="Like animation"/>
     </FrameLayout>
     <!-- ═══ End image block ═══ -->
 

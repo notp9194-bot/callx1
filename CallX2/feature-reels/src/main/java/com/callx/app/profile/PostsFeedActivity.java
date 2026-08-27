@@ -37,6 +37,7 @@ import com.callx.app.comments.ReelCommentActivity;
 import com.callx.app.models.ReelModel;
 import com.callx.app.player.ReelOfflineManager;
 import com.callx.app.player.SingleReelPlayerActivity;
+import com.callx.app.social.ReelShareSheetFragment;
 import com.callx.app.reels.R;
 import com.callx.app.utils.AlertDialogStyler;
 import com.callx.app.utils.FirebaseUtils;
@@ -136,6 +137,10 @@ public class PostsFeedActivity extends AppCompatActivity {
     /** reelIds with a like/unlike write currently in flight — blocks a
      *  second tap on the same row until the first Firebase write settles. */
     private final Set<String>     likeInFlight = new HashSet<>();
+    /** reelIds this user has saved/bookmarked — same source pattern as
+     *  likedIds (see loadSavedState()), used to render btn_post_save's
+     *  filled/outline state correctly on first bind. */
+    private final Set<String>     savedIds  = new HashSet<>();
 
     /** Lazily created, same singleton HomeFragment's "Save for offline"
      *  action uses — a reel saved from either screen is available offline
@@ -229,6 +234,7 @@ public class PostsFeedActivity extends AppCompatActivity {
             return;
         }
         loadLikedState();
+        loadSavedState();
 
         // ── Perf: windowed initial load ─────────────────────────────────
         // Instead of blocking first paint on ALL N posts' Firebase reads
@@ -305,6 +311,21 @@ public class PostsFeedActivity extends AppCompatActivity {
         FirebaseUtils.getReelLikedByUserRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 for (DataSnapshot c : snap.getChildren()) likedIds.add(c.getKey());
+                if (adapter != null) adapter.notifyDataSetChanged();
+            }
+            @Override public void onCancelled(@NonNull DatabaseError error) {}
+        });
+    }
+
+    /** Pre-fetch which of these posts the current user already saved, so
+     *  btn_post_save renders filled/outline correctly on first bind (same
+     *  pattern and reelSaves source as HomeFragment's savedIds). */
+    private void loadSavedState() {
+        String myUid = FirebaseUtils.getCurrentUid();
+        if (myUid == null) return;
+        FirebaseUtils.getReelSavesRef(myUid).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                for (DataSnapshot c : snap.getChildren()) savedIds.add(c.getKey());
                 if (adapter != null) adapter.notifyDataSetChanged();
             }
             @Override public void onCancelled(@NonNull DatabaseError error) {}
@@ -800,12 +821,43 @@ public class PostsFeedActivity extends AppCompatActivity {
                 .apply(thumbOpts)
                 .into(h.ivThumb);
 
+            // ── Carousel index badge — this card shows only the first
+            // photo statically (no swipe ViewPager here, unlike the
+            // immersive player's ReelPhotoSlideshowController), so this
+            // is a static "1/N" count badge, not a tracked swipe position.
+            // Same "position / total" text format as
+            // ReelPhotoSlideshowController.tvPhotoCounter. Hidden for
+            // single-photo posts.
+            if (h.tvCarouselIndex != null) {
+                int photoCount = r.photoUrls != null ? r.photoUrls.size() : 0;
+                if (photoCount > 1) {
+                    h.tvCarouselIndex.setText("1/" + photoCount);
+                    h.tvCarouselIndex.setVisibility(View.VISIBLE);
+                } else {
+                    h.tvCarouselIndex.setVisibility(View.GONE);
+                }
+            }
+
             h.tvOwner.setText(r.ownerName != null ? r.ownerName : "");
             Glide.with(h.ivAvatar.getContext())
                 .load(r.ownerPhoto)
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .circleCrop()
                 .into(h.ivAvatar);
+
+            // Avatar tap → open user's reel profile (same destination as
+            // HomeFragment's avatar.setOnClickListener()). Story ring sits
+            // visually around this same avatar, so this covers it too.
+            final String tapUid   = r.uid;
+            final String tapName  = r.ownerName;
+            final String tapPhoto = r.ownerPhoto;
+            h.ivAvatar.setOnClickListener(v -> {
+                Intent i = new Intent(v.getContext(), UserReelsActivity.class);
+                i.putExtra(UserReelsActivity.EXTRA_UID,   tapUid);
+                i.putExtra(UserReelsActivity.EXTRA_NAME,  tapName);
+                i.putExtra(UserReelsActivity.EXTRA_PHOTO, tapPhoto);
+                v.getContext().startActivity(i);
+            });
 
             // ── Story ring around the avatar — same StatusCacheManager-driven
             // behavior as HomeFragment's home feed (see addFeedPostCard()):
@@ -872,6 +924,15 @@ public class PostsFeedActivity extends AppCompatActivity {
                         .into(h.ivAvatar);
                 }
                 // Collab click → open initiator's profile (same destination HomeFragment uses).
+                // Overrides the default single-owner avatar listener set above,
+                // since a collab post's avatar shows the initiator, not r.uid.
+                h.ivAvatar.setOnClickListener(v -> {
+                    Intent i = new Intent(v.getContext(), UserReelsActivity.class);
+                    i.putExtra(UserReelsActivity.EXTRA_UID,   r.collabInitiatorUid);
+                    i.putExtra(UserReelsActivity.EXTRA_NAME,  r.collabInitiatorName);
+                    i.putExtra(UserReelsActivity.EXTRA_PHOTO, r.collabInitiatorPhoto);
+                    v.getContext().startActivity(i);
+                });
                 h.tvOwner.setOnClickListener(v -> {
                     Intent i = new Intent(v.getContext(), UserReelsActivity.class);
                     i.putExtra(UserReelsActivity.EXTRA_UID,   r.collabInitiatorUid);
@@ -881,11 +942,48 @@ public class PostsFeedActivity extends AppCompatActivity {
                 });
             } else {
                 if (h.collabAvatarContainer != null) h.collabAvatarContainer.setVisibility(View.GONE);
-                h.tvOwner.setOnClickListener(null);
+                // Name tap → same target as avatar tap (matches HomeFragment's
+                // tvOwner.setOnClickListener(x -> avatar.performClick())).
+                // Was setOnClickListener(null) — name click did nothing.
+                h.tvOwner.setOnClickListener(v -> h.ivAvatar.performClick());
             }
 
             h.tvCaption.setText(r.caption != null ? r.caption : "");
             h.tvCaption.setVisibility(r.caption != null && !r.caption.isEmpty() ? View.VISIBLE : View.GONE);
+
+            if (h.tvTime != null) h.tvTime.setText(formatAgo(r.timestamp));
+
+            // ── "...more" / "less" caption expand toggle — same
+            // 2-line-truncate-past-120-chars pattern as HomeFragment's
+            // btnReadMore. ──
+            final int CAPTION_MAX_LINES = 2;
+            final boolean[] captionExpanded = {false};
+            if (h.btnReadMore != null) {
+                String captionText = r.caption != null ? r.caption : "";
+                if (captionText.length() > 120) {
+                    h.tvCaption.setMaxLines(CAPTION_MAX_LINES);
+                    h.tvCaption.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    h.btnReadMore.setVisibility(View.VISIBLE);
+                    h.btnReadMore.setText("more");
+                    h.btnReadMore.setOnClickListener(rx -> {
+                        captionExpanded[0] = !captionExpanded[0];
+                        if (captionExpanded[0]) {
+                            h.tvCaption.setMaxLines(Integer.MAX_VALUE);
+                            h.tvCaption.setEllipsize(null);
+                            h.btnReadMore.setText("less");
+                        } else {
+                            h.tvCaption.setMaxLines(CAPTION_MAX_LINES);
+                            h.tvCaption.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                            h.btnReadMore.setText("more");
+                        }
+                    });
+                } else {
+                    h.tvCaption.setMaxLines(Integer.MAX_VALUE);
+                    h.tvCaption.setEllipsize(null);
+                    h.btnReadMore.setVisibility(View.GONE);
+                    h.btnReadMore.setOnClickListener(null);
+                }
+            }
             h.tvLikes.setText(String.valueOf(r.likesCount));
             h.tvComments.setText(String.valueOf(r.commentsCount));
 
@@ -915,12 +1013,136 @@ public class PostsFeedActivity extends AppCompatActivity {
             h.btnLike.setImageResource(liked ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
             h.btnLike.setOnClickListener(v -> toggleLike(r, h));
 
+            // ── Double-tap on the media to like — same Instagram-style
+            // GestureDetector pattern as the immersive Reels player
+            // (ReelUiController.setupClickListeners): single tap does
+            // nothing here (this screen has no play/pause toggle need),
+            // double-tap likes (if not already liked) + plays the heart-
+            // burst animation. Long-press left alone (no hold-to-pause
+            // gesture on this screen).
+            if (h.frameMedia != null) {
+                android.view.GestureDetector likeGesture = new android.view.GestureDetector(
+                    h.frameMedia.getContext(),
+                    new android.view.GestureDetector.SimpleOnGestureListener() {
+                        @Override public boolean onDown(android.view.MotionEvent e) { return true; }
+                        @Override public boolean onDoubleTap(android.view.MotionEvent e) {
+                            if (!likedIds.contains(r.reelId)) toggleLike(r, h);
+                            showLikeAnimation(h.ivLikeAnim);
+                            return true;
+                        }
+                    });
+                h.frameMedia.setOnTouchListener((v, event) -> {
+                    boolean handled = likeGesture.onTouchEvent(event);
+                    int action = event.getActionMasked();
+                    return action == android.view.MotionEvent.ACTION_DOWN || handled;
+                });
+            }
+
             h.btnComment.setOnClickListener(v -> {
                 Intent ci = new Intent(v.getContext(), ReelCommentActivity.class);
                 ci.putExtra(ReelCommentActivity.EXTRA_REEL_ID, r.reelId);
                 ci.putExtra(ReelCommentActivity.EXTRA_REEL_UID, r.uid != null ? r.uid : "");
                 startActivity(ci);
             });
+
+            // ── Repost button — show options (Repost / Quote Repost) ──
+            // Same pattern/destination as HomeFragment's btnRepost.
+            if (h.tvReposts != null) h.tvReposts.setText(formatCount(r.repostCount));
+            if (h.btnRepost != null) {
+                h.btnRepost.setOnClickListener(v -> {
+                    String myUid = FirebaseUtils.getCurrentUid();
+                    if (myUid == null || r.reelId == null) return;
+                    if (myUid.equals(r.uid)) {
+                        Toast.makeText(v.getContext(),
+                            "You can't repost your own reel", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    String[] options = {"Repost", "Quote Repost"};
+                    new androidx.appcompat.app.AlertDialog.Builder(v.getContext())
+                        .setTitle("Repost options")
+                        .setItems(options, (d, which) -> {
+                            if (which == 0) {
+                                performRepost(r, myUid, h.tvReposts);
+                            } else {
+                                try {
+                                    ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
+                                        r.reelId,
+                                        r.videoUrl   != null ? r.videoUrl   : (r.video480 != null ? r.video480 : ""),
+                                        r.thumbUrl   != null ? r.thumbUrl   : "",
+                                        r.caption    != null ? r.caption    : "",
+                                        r.uid        != null ? r.uid        : "",
+                                        r.ownerName  != null ? r.ownerName  : "",
+                                        r.ownerPhoto != null ? r.ownerPhoto : "",
+                                        true
+                                    );
+                                    sheet.show(getSupportFragmentManager(), "quote_sheet");
+                                } catch (Exception e) {
+                                    Intent share = new Intent(Intent.ACTION_SEND);
+                                    share.setType("text/plain");
+                                    String quote = "\"" + (r.caption != null ? r.caption : "Check this out")
+                                        + "\" — @" + r.ownerName + " https://callx.app/reel/" + r.reelId;
+                                    share.putExtra(Intent.EXTRA_TEXT, quote);
+                                    startActivity(Intent.createChooser(share, "Quote Repost"));
+                                }
+                            }
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show();
+                });
+            }
+
+            // ── Save button — same reelSaves Firebase write pattern as
+            // HomeFragment's btnSave. ──
+            final boolean[] isSaved = {r.reelId != null && savedIds.contains(r.reelId)};
+            if (h.btnSave != null) {
+                h.btnSave.setImageResource(isSaved[0]
+                    ? R.drawable.ic_bookmark_filled : R.drawable.ic_bookmark);
+                h.btnSave.setOnClickListener(v -> {
+                    String myUid = FirebaseUtils.getCurrentUid();
+                    if (myUid == null || r.reelId == null) return;
+                    isSaved[0] = !isSaved[0];
+                    if (isSaved[0]) {
+                        h.btnSave.setImageResource(R.drawable.ic_bookmark_filled);
+                        savedIds.add(r.reelId);
+                        FirebaseUtils.getReelSavesRef(myUid).child(r.reelId).setValue(true);
+                        FirebaseUtils.getReelSavesIndexRef(r.reelId).child(myUid).setValue(true);
+                        Toast.makeText(v.getContext(), "Saved!", Toast.LENGTH_SHORT).show();
+                    } else {
+                        h.btnSave.setImageResource(R.drawable.ic_bookmark);
+                        savedIds.remove(r.reelId);
+                        FirebaseUtils.getReelSavesRef(myUid).child(r.reelId).removeValue();
+                        FirebaseUtils.getReelSavesIndexRef(r.reelId).child(myUid).removeValue();
+                    }
+                });
+            }
+
+            // ── Send / Share button — open ReelShareSheetFragment, same
+            // destination as HomeFragment's btnSend. ──
+            if (h.tvSends != null) h.tvSends.setText(formatCount(r.sharesCount));
+            if (h.btnSend != null) {
+                h.btnSend.setOnClickListener(v -> {
+                    if (r.reelId == null) return;
+                    try {
+                        ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
+                            r.reelId,
+                            r.videoUrl   != null ? r.videoUrl   : (r.video480 != null ? r.video480 : ""),
+                            r.thumbUrl   != null ? r.thumbUrl   : "",
+                            r.caption    != null ? r.caption    : "",
+                            r.uid        != null ? r.uid        : "",
+                            r.ownerName  != null ? r.ownerName  : "",
+                            r.ownerPhoto != null ? r.ownerPhoto : "",
+                            true
+                        );
+                        sheet.show(getSupportFragmentManager(), "share_sheet");
+                    } catch (Exception e) {
+                        Intent share = new Intent(Intent.ACTION_SEND);
+                        share.setType("text/plain");
+                        share.putExtra(Intent.EXTRA_TEXT,
+                            "Check out this reel on CallX! @" + r.ownerName);
+                        startActivity(Intent.createChooser(share, "Share reel"));
+                    }
+                });
+            }
 
             // Suggested/follow-button rows aren't relevant on a
             // single-user filtered screen — keep them hidden.
@@ -1019,11 +1241,18 @@ public class PostsFeedActivity extends AppCompatActivity {
 
         class Holder extends RecyclerView.ViewHolder {
             View      pvVideo; // PlayerView — only ever hidden on this screen
-            ImageView ivThumb, ivAvatar, ivStoryRing;
+            ImageView ivThumb, ivAvatar, ivStoryRing, ivLikeAnim;
             TextView  tvOwner, tvCaption, tvLikes, tvComments, tvSuggested, tvAudio, btnFollow;
+            TextView  tvReposts, tvSends;
+            TextView  btnReadMore;
+            TextView  tvCarouselIndex;
+            TextView  tvTime;
             ImageButton btnLike, btnComment, btnMute, btnAudioCover;
+            ImageButton btnRepost, btnSave;
+            View        btnSend;
             View        btnMore;
             View        collabAvatarContainer;
+            View        frameMedia;
 
             Holder(@NonNull View itemView) {
                 super(itemView);
@@ -1031,6 +1260,10 @@ public class PostsFeedActivity extends AppCompatActivity {
                 ivThumb     = itemView.findViewById(R.id.iv_post_thumb);
                 ivAvatar    = itemView.findViewById(R.id.iv_post_avatar);
                 ivStoryRing = itemView.findViewById(R.id.iv_post_story_ring);
+                ivLikeAnim  = itemView.findViewById(R.id.iv_post_like_anim);
+                frameMedia  = itemView.findViewById(R.id.frame_video);
+                tvCarouselIndex = itemView.findViewById(R.id.tv_post_carousel_index);
+                tvTime      = itemView.findViewById(R.id.tv_post_time);
                 tvOwner     = itemView.findViewById(R.id.tv_post_owner);
                 tvSuggested = itemView.findViewById(R.id.tv_post_suggested);
                 tvAudio     = itemView.findViewById(R.id.tv_post_audio);
@@ -1044,6 +1277,12 @@ public class PostsFeedActivity extends AppCompatActivity {
                 btnAudioCover = itemView.findViewById(R.id.btn_post_audio_cover);
                 btnMore     = itemView.findViewById(R.id.btn_post_more);
                 collabAvatarContainer = itemView.findViewById(R.id.layout_collab_avatar);
+                btnRepost   = itemView.findViewById(R.id.btn_post_repost);
+                tvReposts   = itemView.findViewById(R.id.tv_post_reposts);
+                btnSave     = itemView.findViewById(R.id.btn_post_save);
+                btnSend     = itemView.findViewById(R.id.btn_post_send);
+                tvSends     = itemView.findViewById(R.id.tv_post_sends);
+                btnReadMore = itemView.findViewById(R.id.tv_post_read_more);
             }
         }
     }
@@ -1092,5 +1331,71 @@ public class PostsFeedActivity extends AppCompatActivity {
 
         h.btnLike.setImageResource(!currentlyLiked ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
         h.tvLikes.setText(String.valueOf(r.likesCount));
+    }
+
+    private String formatCount(int n) {
+        if (n >= 1_000_000) return String.format(java.util.Locale.US, "%.1fM", n / 1_000_000f);
+        if (n >= 1_000)     return String.format(java.util.Locale.US, "%.1fK", n / 1_000f);
+        return String.valueOf(n);
+    }
+
+    /** Same relative-time format as HomeFragment.formatAgo(). */
+    private String formatAgo(long ts) {
+        long diff = System.currentTimeMillis() - ts;
+        long secs = diff / 1000;
+        if (secs < 60)  return secs + "s";
+        long mins = secs / 60;
+        if (mins < 60)  return mins + "m";
+        long hours = mins / 60;
+        if (hours < 24) return hours + "h";
+        return (hours / 24) + "d";
+    }
+
+    /** Double-tap heart-burst — same scale/fade AnimatorSet as the immersive
+     *  player's ReelSocialController.showLikeAnimation(). */
+    private void showLikeAnimation(ImageView ivLikeAnim) {
+        if (ivLikeAnim == null) return;
+        ivLikeAnim.setVisibility(View.VISIBLE);
+        ivLikeAnim.setAlpha(1f);
+        ivLikeAnim.setScaleX(0.3f);
+        ivLikeAnim.setScaleY(0.3f);
+
+        android.animation.AnimatorSet set = new android.animation.AnimatorSet();
+        android.animation.ObjectAnimator scaleX =
+            android.animation.ObjectAnimator.ofFloat(ivLikeAnim, "scaleX", 0.3f, 1.2f, 1.0f);
+        android.animation.ObjectAnimator scaleY =
+            android.animation.ObjectAnimator.ofFloat(ivLikeAnim, "scaleY", 0.3f, 1.2f, 1.0f);
+        android.animation.ObjectAnimator alpha =
+            android.animation.ObjectAnimator.ofFloat(ivLikeAnim, "alpha", 1f, 1f, 0f);
+        alpha.setStartDelay(400);
+        set.playTogether(scaleX, scaleY, alpha);
+        set.setDuration(600);
+        set.start();
+    }
+
+    /** Same reelReposts/userReposts write + repostCount transaction pattern
+     *  as HomeFragment.performRepost(). */
+    private void performRepost(ReelModel r, String myUid, TextView tvReposts) {
+        long now = System.currentTimeMillis();
+        com.google.firebase.database.FirebaseDatabase db =
+            com.google.firebase.database.FirebaseDatabase.getInstance(
+                com.callx.app.utils.Constants.DB_URL);
+        db.getReference("reelReposts").child(r.reelId).child(myUid).setValue(now);
+        db.getReference("userReposts").child(myUid).child(r.reelId).setValue(now);
+        db.getReference("reels").child(r.reelId).child("repostCount")
+            .runTransaction(new Transaction.Handler() {
+                @NonNull @Override
+                public Transaction.Result doTransaction(@NonNull MutableData d) {
+                    Integer c = d.getValue(Integer.class);
+                    d.setValue(c != null ? c + 1 : 1);
+                    return Transaction.success(d);
+                }
+                @Override public void onComplete(DatabaseError e, boolean committed, DataSnapshot s) {}
+            });
+        com.callx.app.workers.ReelRepostWorker.enqueue(this, r.reelId, myUid,
+            FirebaseUtils.getCurrentName(), r.uid, r.ownerName, r.thumbUrl);
+        Toast.makeText(this, "Reposted!", Toast.LENGTH_SHORT).show();
+        r.repostCount = r.repostCount + 1;
+        if (tvReposts != null) tvReposts.setText(formatCount(r.repostCount));
     }
 }
