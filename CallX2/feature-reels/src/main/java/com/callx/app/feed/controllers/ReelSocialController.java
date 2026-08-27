@@ -16,6 +16,8 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import com.bumptech.glide.Glide;
+import com.callx.app.cache.ReelMetadataCache;
+import com.callx.app.feed.ReelsFeedScrollStateManager;
 import com.callx.app.models.ReelModel;
 import com.callx.app.profile.UserReelsActivity;
 import com.callx.app.reels.R;
@@ -99,6 +101,15 @@ public class ReelSocialController {
     private boolean isReposted        = false;
     private boolean reactionsVisible  = false;
     private long    lastRepostActionMs = 0L;
+
+    // PERF: last-known counts, kept purely so the current in-memory state
+    // can be snapshotted into ReelMetadataCache on every listener update
+    // (see syncMetadataCache()) — the TextViews themselves were previously
+    // the only place these numbers lived.
+    private int lastKnownLikeCount    = 0;
+    private int lastKnownCommentCount = 0;
+    private int lastKnownSharesCount  = 0;
+    private int lastKnownRepostCount  = 0;
 
     // FIX: Guard — double-start aur double-remove se bachao.
     // startFirebaseListeners() ab applyVisibleState(true) se call hota hai.
@@ -651,6 +662,11 @@ public class ReelSocialController {
         ReelModel reel = delegate.getReel();
         if (myUid == null || reel == null || reel.reelId == null) return;
 
+        // PERF: cache-hit-instant — paint the last-known snapshot right
+        // away (no zero-count/default flash) before the fresh listeners
+        // below have had a chance to resolve. See ReelMetadataCache.
+        applyCachedSnapshotIfAvailable(reel.reelId);
+
         likeListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot s) {
                 if (!delegate.isAdded() || delegate.getContext() == null) return;
@@ -661,6 +677,7 @@ public class ReelSocialController {
                     btnLike.setImageTintList(ColorStateList.valueOf(
                         isLiked ? Color.parseColor("#FF416C") : Color.WHITE));
                 }
+                syncMetadataCache();
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
@@ -672,6 +689,7 @@ public class ReelSocialController {
                 isSaved = s.exists();
                 if (btnSave != null) btnSave.setImageResource(
                     isSaved ? R.drawable.ic_bookmark_filled : R.drawable.ic_bookmark);
+                syncMetadataCache();
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
@@ -683,6 +701,7 @@ public class ReelSocialController {
                 isFollowing       = s.exists();
                 followCheckLoaded = true;
                 delegate.updateFollowUI(isFollowing);
+                syncMetadataCache();
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {
                 followCheckLoaded = true;
@@ -705,6 +724,7 @@ public class ReelSocialController {
                         btnRepost.setColorFilter(null);
                     }
                 }
+                syncMetadataCache();
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
@@ -719,17 +739,104 @@ public class ReelSocialController {
                 Long comments = s.child("commentsCount").getValue(Long.class);
                 Long shares   = s.child("sharesCount").getValue(Long.class);
                 Long reposts  = s.child("repostCount").getValue(Long.class);
-                if (likes    != null && tvLikesCount    != null) tvLikesCount.setText(delegate.formatCount(likes.intValue()));
-                if (comments != null && tvCommentsCount != null) tvCommentsCount.setText(delegate.formatCount(comments.intValue()));
-                if (shares   != null && tvSharesCount   != null) tvSharesCount.setText(delegate.formatCount(shares.intValue()));
-                if (reposts  != null && tvRepostCount   != null) tvRepostCount.setText(delegate.formatCount(reposts.intValue()));
+                if (likes    != null) lastKnownLikeCount    = likes.intValue();
+                if (comments != null) lastKnownCommentCount = comments.intValue();
+                if (shares   != null) lastKnownSharesCount  = shares.intValue();
+                if (reposts  != null) lastKnownRepostCount  = reposts.intValue();
+                if (likes    != null && tvLikesCount    != null) tvLikesCount.setText(delegate.formatCount(lastKnownLikeCount));
+                if (comments != null && tvCommentsCount != null) tvCommentsCount.setText(delegate.formatCount(lastKnownCommentCount));
+                if (shares   != null && tvSharesCount   != null) tvSharesCount.setText(delegate.formatCount(lastKnownSharesCount));
+                if (reposts  != null && tvRepostCount   != null) tvRepostCount.setText(delegate.formatCount(lastKnownRepostCount));
+                syncMetadataCache();
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         FirebaseUtils.getReelsRef().child(reel.reelId).addValueEventListener(countListener);
 
-        fetchLikerAvatars();
-        loadReelMutualFollowers();
+        // PERF: liker-avatar row and mutual-followers row are pure
+        // decoration (windowed Firebase query + Glide decodes / chained
+        // MutualFollowersCache reads) — NOT counts/likes state. On a fast
+        // swipe these are exactly the kind of work that should yield to the
+        // fling instead of racing it. Gated via ReelsFeedScrollStateManager,
+        // which runs them immediately when not flinging and queues them to
+        // fire once the swipe settles otherwise.
+        //
+        // Deliberately NOT gated the same way: the like/save/follow/repost/
+        // count listeners just above, and recordView()/markReelNotifications
+        // Read() below — those are the actual counts/likes reads and must
+        // fire the instant the reel becomes visible, fling or not.
+        final int startGeneration = fetchGeneration;
+        ReelsFeedScrollStateManager.get().runNowOrWhenSettled(() -> {
+            // listenersActive guards against this firing after the reel was
+            // swiped away and removeFirebaseListeners() already ran; the
+            // fetchGeneration check guards against it firing after a newer
+            // startFirebaseListeners() call already superseded this one.
+            if (!listenersActive || startGeneration != fetchGeneration) return;
+            fetchLikerAvatars();
+            loadReelMutualFollowers();
+        });
+    }
+
+    /**
+     * Paints the last-known Firebase snapshot for this reel (if any)
+     * immediately, before the fresh addValueEventListener calls in
+     * startFirebaseListeners() have a chance to resolve. Purely cosmetic —
+     * the live listeners attached right after this still own correctness
+     * and will overwrite these values the instant they fire.
+     */
+    private void applyCachedSnapshotIfAvailable(String reelId) {
+        ReelMetadataCache.Snapshot cached = ReelMetadataCache.getInstance().get(reelId);
+        if (cached == null || !delegate.isAdded() || delegate.getContext() == null) return;
+
+        isLiked              = cached.isLiked;
+        isSaved              = cached.isSaved;
+        isFollowing          = cached.isFollowing;
+        followCheckLoaded    = cached.followCheckLoaded;
+        isReposted           = cached.isReposted;
+        lastKnownLikeCount    = cached.likeCount;
+        lastKnownCommentCount = cached.commentCount;
+        lastKnownSharesCount  = cached.sharesCount;
+        lastKnownRepostCount  = cached.repostCount;
+
+        if (btnLike != null) {
+            btnLike.setImageResource(isLiked ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
+            btnLike.setImageTintList(ColorStateList.valueOf(
+                isLiked ? Color.parseColor("#FF416C") : Color.WHITE));
+        }
+        if (btnSave != null) btnSave.setImageResource(
+            isSaved ? R.drawable.ic_bookmark_filled : R.drawable.ic_bookmark);
+        if (btnRepost != null) {
+            if (isReposted) {
+                btnRepost.setColorFilter(Color.parseColor("#4CAF50"), android.graphics.PorterDuff.Mode.SRC_IN);
+            } else {
+                btnRepost.setColorFilter(null);
+            }
+        }
+        if (followCheckLoaded) delegate.updateFollowUI(isFollowing);
+        if (tvLikesCount    != null) tvLikesCount.setText(delegate.formatCount(lastKnownLikeCount));
+        if (tvCommentsCount != null) tvCommentsCount.setText(delegate.formatCount(lastKnownCommentCount));
+        if (tvSharesCount   != null) tvSharesCount.setText(delegate.formatCount(lastKnownSharesCount));
+        if (tvRepostCount   != null) tvRepostCount.setText(delegate.formatCount(lastKnownRepostCount));
+    }
+
+    /** Snapshots current in-memory social state into ReelMetadataCache so the
+     *  next time this reel becomes visible, applyCachedSnapshotIfAvailable()
+     *  has something fresh to paint instantly. Cheap — small flat POJO,
+     *  called from each listener's onDataChange. */
+    private void syncMetadataCache() {
+        ReelModel reel = delegate.getReel();
+        if (reel == null || reel.reelId == null) return;
+        ReelMetadataCache.Snapshot snap = new ReelMetadataCache.Snapshot(reel.reelId);
+        snap.isLiked           = isLiked;
+        snap.isSaved           = isSaved;
+        snap.isFollowing       = isFollowing;
+        snap.followCheckLoaded = followCheckLoaded;
+        snap.isReposted        = isReposted;
+        snap.likeCount         = lastKnownLikeCount;
+        snap.commentCount      = lastKnownCommentCount;
+        snap.sharesCount       = lastKnownSharesCount;
+        snap.repostCount       = lastKnownRepostCount;
+        ReelMetadataCache.getInstance().put(reel.reelId, snap);
     }
 
     public void removeFirebaseListeners() {

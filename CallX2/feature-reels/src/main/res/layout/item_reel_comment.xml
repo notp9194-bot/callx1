@@ -57,7 +57,7 @@
                 android:layout_height="36dp"
                 android:layout_gravity="center"
                 android:scaleType="centerCrop"
-                android:background="@drawable/bg_reel_grid_cell"
+                android:background="@drawable/bg_comment_avatar_circle"
                 android:clipToOutline="true"
                 android:src="@drawable/ic_person"/>
 

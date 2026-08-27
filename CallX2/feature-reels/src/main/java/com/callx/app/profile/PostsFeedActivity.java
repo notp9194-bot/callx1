@@ -34,6 +34,7 @@ import com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.comments.ReelCommentActivity;
+import com.callx.app.feed.PostFeedUltraOptimizer;
 import com.callx.app.models.ReelModel;
 import com.callx.app.player.ReelOfflineManager;
 import com.callx.app.player.SingleReelPlayerActivity;
@@ -99,6 +100,12 @@ import java.util.Set;
  *     chained one-by-one), single UI update once every slot resolves.
  *  ✅ Like-button debounce — guards against rapid double-taps firing
  *     duplicate Firebase writes/transactions before the first completes.
+ *  ✅ PostFeedUltraOptimizer (v287) — HomeFeedUltraOptimizer's coordinator
+ *     pattern, scoped for this photo-only feed: gates window-reload work
+ *     behind scroll-settled (was firing mid-fling before), coalesces
+ *     per-post reads through PostFeedNetworkBatcher (was one uncoalesced
+ *     read per id), and skips the v284 standing live-count listener in
+ *     favor of a one-time read when ReelThermalManager reports HOT.
  */
 public class PostsFeedActivity extends AppCompatActivity {
 
@@ -133,6 +140,23 @@ public class PostsFeedActivity extends AppCompatActivity {
     private Runnable      audioLoopRunnable;
 
     private final List<ReelModel> posts    = new ArrayList<>();
+    // ── v285: list cap / windowing (same idea as HomeFragment's v280) ───
+    // originalReelIds is the FULL id list this screen was launched with
+    // (order preserved); posts is only ever a WINDOW of it. windowStartOffset
+    // is the index into originalReelIds that posts.get(0) currently
+    // corresponds to, so trimmed rows can be re-fetched by id if the user
+    // scrolls back to them.
+    private List<String>          originalReelIds = new ArrayList<>();
+    private int                   windowStartOffset = 0;
+    private static final int      POST_WINDOW_BEHIND = 15;
+    private static final int      POST_WINDOW_AHEAD  = 30;
+    private static final int      POST_TRIM_SLACK    = 10;
+    // v286: cap on how many Firebase reads the initial open fires in
+    // parallel — same size as the steady-state window, so first paint
+    // fetches "enough to fill the window" instead of "every post from the
+    // tap onward" (which on a 100+ photo profile meant 100 parallel reads).
+    private static final int      POST_INITIAL_BATCH = POST_WINDOW_BEHIND + POST_WINDOW_AHEAD;
+    private boolean                trimInFlight = false;
     private final Set<String>     likedIds  = new HashSet<>();
     /** reelIds with a like/unlike write currently in flight — blocks a
      *  second tap on the same row until the first Firebase write settles. */
@@ -146,6 +170,10 @@ public class PostsFeedActivity extends AppCompatActivity {
      *  action uses — a reel saved from either screen is available offline
      *  in both. */
     private ReelOfflineManager offlineManager;
+
+    /** v287: scroll-state gating + network batching + thermal awareness
+     *  for this screen — see PostFeedUltraOptimizer's class doc. */
+    private final PostFeedUltraOptimizer feedOptimizer = new PostFeedUltraOptimizer();
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -214,11 +242,20 @@ public class PostsFeedActivity extends AppCompatActivity {
         // active background-audio track (same "most visible card wins" idea
         // HomeFragment uses for its shared ExoPlayer, just driving a
         // MediaPlayer here since this screen is photo-only).
+        // v287: initialize the scroll-gating/batching/thermal coordinator
+        // before the scroll listener that drives it. onScrollSettled is the
+        // re-trigger for any window reload that got deferred mid-fling below.
+        feedOptimizer.initialize(this, FirebaseUtils.getReelsRef(), mainHandler,
+            this::maybeTrimOrReloadPostWindow);
+
         recyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                feedOptimizer.onRecyclerScrolled(dx, dy);
                 updateActiveAudioForVisibleItem();
+                maybeTrimOrReloadPostWindow();
             }
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                feedOptimizer.onRecyclerScrollStateChanged(newState);
                 if (newState == RecyclerView.SCROLL_STATE_IDLE) updateActiveAudioForVisibleItem();
             }
         });
@@ -233,6 +270,7 @@ public class PostsFeedActivity extends AppCompatActivity {
             finish();
             return;
         }
+        originalReelIds = new ArrayList<>(reelIds); // v285: full-list reference for windowing/reload
         loadLikedState();
         loadSavedState();
 
@@ -247,12 +285,28 @@ public class PostsFeedActivity extends AppCompatActivity {
         // in the background and get prepended once ready — see
         // prependBeforeBatch(). Net effect: tap-to-first-frame latency now
         // scales with "posts after the tap", not "posts in the whole grid".
+        //
+        // v286: that still fired every id in "after" (and, once backgrounded,
+        // every id in "before") as parallel reads in one shot — bounded to
+        // POST_INITIAL_BATCH each on both sides now. Whatever's past that
+        // isn't fetched at all up front; it streams in lazily via v285's
+        // reloadPostsAfter()/reloadPostsBefore() only once the user actually
+        // scrolls that far, so parallel-read count no longer scales with
+        // profile size at all.
         int safeStart = Math.max(0, Math.min(startPosition, reelIds.size() - 1));
-        List<String> afterIds  = reelIds.subList(safeStart, reelIds.size());
-        List<String> beforeIds = reelIds.subList(0, safeStart);
+        List<String> fullAfterIds  = reelIds.subList(safeStart, reelIds.size());
+        List<String> fullBeforeIds = reelIds.subList(0, safeStart);
         startPosition = 0; // tapped post is now index 0 of the first-loaded batch
 
+        int afterBatch = Math.min(fullAfterIds.size(), POST_INITIAL_BATCH);
+        List<String> afterIds = fullAfterIds.subList(0, afterBatch);
+        // Closest-to-tap slice of "before" — contiguous with the window so
+        // windowStartOffset still lines up exactly after prependBeforeBatch.
+        int beforeBatch = Math.min(fullBeforeIds.size(), POST_INITIAL_BATCH);
+        List<String> beforeIds = fullBeforeIds.subList(fullBeforeIds.size() - beforeBatch, fullBeforeIds.size());
+
         loadPosts(afterIds, slots -> {
+            windowStartOffset = safeStart; // v285: posts[0] currently maps to originalReelIds[safeStart]
             finishInitialLoad(slots);
             if (!beforeIds.isEmpty()) loadPosts(beforeIds, this::prependBeforeBatch);
         });
@@ -294,6 +348,93 @@ public class PostsFeedActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         releaseActiveAudio();
+        detachAllCountListeners();
+        feedOptimizer.shutdown();
+    }
+
+    // ── Live likes/comments/reposts (v284) ──────────────────────────────
+    // loadPosts() above is still a one-time snapshot (correct for the
+    // initial batch fetch), but until now nothing kept those three counts
+    // fresh afterwards — if someone else liked/commented/reposted while
+    // this screen was open, the numbers only updated on next reopen.
+    // Fix: attach a real addValueEventListener per currently-bound row
+    // (same live-count pattern already used for other counters elsewhere
+    // in the app), scoped to exactly what's on screen — attach in
+    // onBindViewHolder, detach in onViewRecycled so scrolled-off rows
+    // don't leave listeners running, plus a full sweep in onDestroy as a
+    // safety net for any rows that never got an onViewRecycled call.
+    private final Map<String, ValueEventListener> activeCountListeners = new HashMap<>();
+
+    private void attachCountListener(ReelModel r, PostsAdapter.Holder h) {
+        if (r == null || r.reelId == null) return;
+        detachCountListener(h); // in case this Holder is being rebound to a new row
+
+        // v287: under thermal HOT, skip the standing listener and settle
+        // for a one-time read — a persistent addValueEventListener per
+        // visible row is exactly the kind of background work to shed under
+        // thermal pressure (same principle Home's prefetch manager applies).
+        if (!feedOptimizer.canAttachLiveCountListener()) {
+            FirebaseUtils.getReelsRef().child(r.reelId).addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (isFinishing() || isDestroyed()) return;
+                    Long likes = snap.child("likesCount").getValue(Long.class);
+                    Long comments = snap.child("commentsCount").getValue(Long.class);
+                    Long reposts = snap.child("repostCount").getValue(Long.class);
+                    if (likes != null) r.likesCount = likes.intValue();
+                    if (comments != null) r.commentsCount = comments.intValue();
+                    if (reposts != null) r.repostCount = reposts.intValue();
+                    if (h.tvLikes != null && r.reelId.equals(h.boundReelId)) {
+                        h.tvLikes.setText(String.valueOf(r.likesCount));
+                        h.tvComments.setText(String.valueOf(r.commentsCount));
+                        if (h.tvReposts != null) h.tvReposts.setText(formatCount(r.repostCount));
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError error) { }
+            });
+            return;
+        }
+
+        ValueEventListener l = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                if (isFinishing() || isDestroyed()) return;
+                Long likes = snap.child("likesCount").getValue(Long.class);
+                Long comments = snap.child("commentsCount").getValue(Long.class);
+                Long reposts = snap.child("repostCount").getValue(Long.class);
+                if (likes != null) r.likesCount = likes.intValue();
+                if (comments != null) r.commentsCount = comments.intValue();
+                if (reposts != null) r.repostCount = reposts.intValue();
+                // Holder may have been recycled onto a different row by the
+                // time this async callback lands — only touch the views if
+                // it's still bound to this reel.
+                if (h.tvLikes != null && r.reelId.equals(h.boundReelId)) {
+                    h.tvLikes.setText(String.valueOf(r.likesCount));
+                    h.tvComments.setText(String.valueOf(r.commentsCount));
+                    if (h.tvReposts != null) h.tvReposts.setText(formatCount(r.repostCount));
+                }
+            }
+            @Override public void onCancelled(@NonNull DatabaseError error) { }
+        };
+        FirebaseUtils.getReelsRef().child(r.reelId).addValueEventListener(l);
+        h.countListener = l;
+        h.countListenerReelId = r.reelId;
+        activeCountListeners.put(r.reelId + "#" + System.identityHashCode(h), l);
+    }
+
+    private void detachCountListener(PostsAdapter.Holder h) {
+        if (h.countListener != null && h.countListenerReelId != null) {
+            FirebaseUtils.getReelsRef().child(h.countListenerReelId).removeEventListener(h.countListener);
+            activeCountListeners.remove(h.countListenerReelId + "#" + System.identityHashCode(h));
+            h.countListener = null;
+            h.countListenerReelId = null;
+        }
+    }
+
+    private void detachAllCountListeners() {
+        for (Map.Entry<String, ValueEventListener> e : activeCountListeners.entrySet()) {
+            String reelId = e.getKey().substring(0, e.getKey().indexOf('#'));
+            FirebaseUtils.getReelsRef().child(reelId).removeEventListener(e.getValue());
+        }
+        activeCountListeners.clear();
     }
 
     /** Callback for a fetched, order-preserved batch. */
@@ -336,29 +477,11 @@ public class PostsFeedActivity extends AppCompatActivity {
      *  order preserved, all reads fired in parallel, results collected before
      *  the batch's callback fires. Used for both the initial (after) window
      *  and the background (before) batch. */
+    /** v287: routed through PostFeedUltraOptimizer's batcher instead of
+     *  firing one raw, uncoalesced addListenerForSingleValueEvent per id —
+     *  see PostFeedNetworkBatcher's class doc for why that mattered. */
     private void loadPosts(List<String> reelIds, BatchCallback callback) {
-        ReelModel[] slots = new ReelModel[reelIds.size()];
-        final int total = reelIds.size();
-        if (total == 0) { callback.onLoaded(slots); return; }
-        final int[] remaining = { total };
-
-        for (int i = 0; i < total; i++) {
-            final int idx = i;
-            FirebaseUtils.getReelsRef().child(reelIds.get(i))
-                .addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                        ReelModel r = snap.getValue(ReelModel.class);
-                        if (r != null) { r.reelId = snap.getKey(); slots[idx] = r; }
-                        onSlotDone();
-                    }
-                    @Override public void onCancelled(@NonNull DatabaseError error) { onSlotDone(); }
-
-                    private void onSlotDone() {
-                        remaining[0]--;
-                        if (remaining[0] == 0) callback.onLoaded(slots);
-                    }
-                });
-        }
+        feedOptimizer.batchFetchReels(reelIds, callback::onLoaded);
     }
 
     private void finishInitialLoad(ReelModel[] slots) {
@@ -404,11 +527,127 @@ public class PostsFeedActivity extends AppCompatActivity {
 
         posts.addAll(0, toPrepend);
         adapter.notifyItemRangeInserted(0, toPrepend.size());
+        windowStartOffset = Math.max(0, windowStartOffset - toPrepend.size()); // v285
 
         // Keep the same row at the same on-screen position — without this,
         // inserting rows above the viewport would push the user's current
         // scroll position down by toPrepend.size() rows on screen.
         if (lm != null) lm.scrollToPositionWithOffset(anchorPos + toPrepend.size(), anchorOffset);
+    }
+
+    // ── v285: window trim / reload (mirrors HomeFragment's v280 fix) ────
+    // posts only ever grew before this (prependBeforeBatch adds, nothing
+    // ever removed) — on a 100+ photo profile every ReelModel + its live
+    // Firebase count-listener (v284) stayed resident for the whole scroll
+    // session. Now the list is kept to a window around the visible
+    // position; rows scrolled well past get trimmed (and their v284 count
+    // listeners detached), and re-fetched by id from originalReelIds if
+    // the user scrolls back to them.
+    private void maybeTrimOrReloadPostWindow() {
+        if (trimInFlight || adapter == null || recyclerView == null) return;
+        if (posts.size() < POST_WINDOW_BEHIND + POST_WINDOW_AHEAD + POST_TRIM_SLACK) return;
+        LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
+        if (lm == null) return;
+        int first = lm.findFirstVisibleItemPosition();
+        int last  = lm.findLastVisibleItemPosition();
+        if (first == RecyclerView.NO_POSITION || last == RecyclerView.NO_POSITION) return;
+
+        // Trim front — rows scrolled well past (already viewed, above screen).
+        if (first > POST_WINDOW_BEHIND + POST_TRIM_SLACK) {
+            trimPostFront(first - POST_WINDOW_BEHIND);
+            return; // re-measure next scroll tick rather than trim both ends at once
+        }
+        // Trim back — rows not yet reached, far below the visible window.
+        int aheadCount = posts.size() - 1 - last;
+        if (aheadCount > POST_WINDOW_AHEAD + POST_TRIM_SLACK) {
+            trimPostBack(aheadCount - POST_WINDOW_AHEAD);
+            return;
+        }
+
+        // Reload — user scrolled back up near the trimmed front edge.
+        // v287: deferred while flinging — HomeFeedScrollStateManager's
+        // settle callback (wired to this same method) re-checks once the
+        // scroll stops, so a fast fling right past the trimmed edge no
+        // longer fires a Firebase read mid-fling for nothing.
+        if (windowStartOffset > 0 && first < POST_TRIM_SLACK) {
+            if (feedOptimizer.isFlinging()) return;
+            reloadPostsBefore();
+            return;
+        }
+        // Reload — user scrolled back down toward the trimmed tail edge.
+        int windowEndOffset = windowStartOffset + posts.size(); // exclusive
+        if (windowEndOffset < originalReelIds.size() && (posts.size() - 1 - last) < POST_TRIM_SLACK) {
+            if (feedOptimizer.isFlinging()) return;
+            reloadPostsAfter();
+        }
+    }
+
+    private void trimPostFront(int count) {
+        count = Math.min(count, posts.size() - POST_WINDOW_BEHIND);
+        if (count <= 0) return;
+        for (int i = 0; i < count; i++) {
+            PostsAdapter.Holder h = holderBoundTo(posts.get(i));
+            if (h != null) detachCountListener(h);
+        }
+        posts.subList(0, count).clear();
+        windowStartOffset += count;
+        adapter.notifyItemRangeRemoved(0, count);
+    }
+
+    private void trimPostBack(int count) {
+        int start = posts.size() - count;
+        if (start < 0 || count <= 0) return;
+        for (int i = start; i < posts.size(); i++) {
+            PostsAdapter.Holder h = holderBoundTo(posts.get(i));
+            if (h != null) detachCountListener(h);
+        }
+        posts.subList(start, posts.size()).clear();
+        adapter.notifyItemRangeRemoved(start, count);
+    }
+
+    /** Finds the currently-bound ViewHolder for a given post, if any is
+     *  attached right now — used so a row being trimmed the instant it's
+     *  still attached gets its v284 live listener detached cleanly rather
+     *  than relying solely on the eventual onViewRecycled call. */
+    @Nullable
+    private PostsAdapter.Holder holderBoundTo(ReelModel r) {
+        if (r == null || r.reelId == null || recyclerView == null) return null;
+        RecyclerView.ViewHolder vh = recyclerView.findViewHolderForAdapterPosition(posts.indexOf(r));
+        if (vh instanceof PostsAdapter.Holder) {
+            PostsAdapter.Holder h = (PostsAdapter.Holder) vh;
+            if (r.reelId.equals(h.boundReelId)) return h;
+        }
+        return null;
+    }
+
+    private void reloadPostsBefore() {
+        int batch = Math.min(POST_WINDOW_BEHIND, windowStartOffset);
+        if (batch <= 0) return;
+        int from = windowStartOffset - batch;
+        List<String> ids = originalReelIds.subList(from, windowStartOffset);
+        trimInFlight = true;
+        loadPosts(ids, slots -> {
+            trimInFlight = false;
+            prependBeforeBatch(slots); // already decrements windowStartOffset by however many actually loaded
+        });
+    }
+
+    private void reloadPostsAfter() {
+        int windowEndOffset = windowStartOffset + posts.size();
+        int batch = Math.min(POST_WINDOW_AHEAD, originalReelIds.size() - windowEndOffset);
+        if (batch <= 0) return;
+        List<String> ids = originalReelIds.subList(windowEndOffset, windowEndOffset + batch);
+        trimInFlight = true;
+        loadPosts(ids, slots -> {
+            trimInFlight = false;
+            if (isFinishing() || isDestroyed()) return;
+            int insertAt = posts.size();
+            int added = 0;
+            for (ReelModel r : slots) {
+                if (r != null) { posts.add(r); added++; }
+            }
+            if (added > 0) adapter.notifyItemRangeInserted(insertAt, added);
+        });
     }
 
     /** Cheap id/content diff — reelId is the identity, likesCount/commentsCount
@@ -986,6 +1225,8 @@ public class PostsFeedActivity extends AppCompatActivity {
             }
             h.tvLikes.setText(String.valueOf(r.likesCount));
             h.tvComments.setText(String.valueOf(r.commentsCount));
+            h.boundReelId = r.reelId;
+            attachCountListener(r, h); // v284: keep likes/comments/reposts live while this row is on screen
 
             // ── Audio track label (avatar/name ke niche) — same as HomeFragment's
             // header row: song name if set, else "artist · Original audio",
@@ -1044,6 +1285,17 @@ public class PostsFeedActivity extends AppCompatActivity {
                 ci.putExtra(ReelCommentActivity.EXTRA_REEL_UID, r.uid != null ? r.uid : "");
                 startActivity(ci);
             });
+            // Comment COUNT tap → same destination as btnComment. Reuses
+            // the immersive player's pattern (tvCommentsCount click →
+            // comments sheet), so tapping the number opens comments too.
+            if (h.tvComments != null) {
+                h.tvComments.setOnClickListener(v -> {
+                    Intent ci = new Intent(v.getContext(), ReelCommentActivity.class);
+                    ci.putExtra(ReelCommentActivity.EXTRA_REEL_ID, r.reelId);
+                    ci.putExtra(ReelCommentActivity.EXTRA_REEL_UID, r.uid != null ? r.uid : "");
+                    startActivity(ci);
+                });
+            }
 
             // ── Repost button — show options (Repost / Quote Repost) ──
             // Same pattern/destination as HomeFragment's btnRepost.
@@ -1218,6 +1470,8 @@ public class PostsFeedActivity extends AppCompatActivity {
                 CircleImageView av2 = ((LinearLayout) h.collabAvatarContainer).findViewWithTag("collab_av2");
                 if (av2 != null) Glide.with(av2.getContext()).clear(av2);
             }
+            detachCountListener(h); // v284: row is off-screen, stop listening for its live counts
+            h.boundReelId = null;
         }
 
         // ── ListPreloader.PreloadModelProvider ──────────────────────────
@@ -1253,6 +1507,10 @@ public class PostsFeedActivity extends AppCompatActivity {
             View        btnMore;
             View        collabAvatarContainer;
             View        frameMedia;
+            // v284 — live likes/comments/reposts bookkeeping for this row
+            String              boundReelId;
+            String              countListenerReelId;
+            ValueEventListener  countListener;
 
             Holder(@NonNull View itemView) {
                 super(itemView);

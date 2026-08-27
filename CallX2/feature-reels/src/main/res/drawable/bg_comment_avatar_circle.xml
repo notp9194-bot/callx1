@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    bg_comment_avatar_circle.xml
+    Circular background for reel comment avatars (item_reel_comment.xml).
+
+    PERF NOTE: this is used purely as an outline-clip mask via
+    android:clipToOutline="true" on the ImageView — NOT as a Glide
+    .circleCrop() bitmap transform. circleCrop() allocates and draws a new
+    bitmap on every decode (extra CPU + memory per row, repeated on every
+    RecyclerView rebind during fast scroll/fling). An oval outline clip
+    costs nothing extra at draw time: the GPU/view layer just masks the
+    already-decoded (and already size-capped, see AVATAR_SIZE_DP +
+    AvatarUrlBuilder in ReelCommentsAdapter) bitmap to a circle. Same trick
+    already used for the rounded-square variant (bg_reel_grid_cell) this
+    replaces — only the shape changes from rounded-rect to oval.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#000000" />
+</shape>

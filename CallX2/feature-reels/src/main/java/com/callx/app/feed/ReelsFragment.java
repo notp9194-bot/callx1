@@ -32,6 +32,7 @@ import com.callx.app.notifications.ReelNotificationsActivity;
 import com.callx.app.upload.ReelUploadActivity;
 import com.callx.app.explore.ReelSearchActivity;
 import com.callx.app.cache.ReelCacheManager;
+import com.callx.app.cache.ReelMetadataPrefetcher;
 import com.callx.app.cache.ReelPredictivePreloader;
 import com.callx.app.cache.ReelVideoPreloader;
 import com.callx.app.cache.ReelThumbnailPreloader;
@@ -323,6 +324,13 @@ public class ReelsFragment extends Fragment {
 
             @Override
             public void onPageScrollStateChanged(int state) {
+                // PERF: feed scroll-state signal — gates ONLY decorative
+                // per-reel work (liker avatars, mutual-followers row) so a
+                // fast swipe doesn't pay for their Glide/Firebase cost mid-
+                // fling. Counts/likes/follow/save reads are never gated by
+                // this — see ReelsFeedScrollStateManager's class doc.
+                ReelsFeedScrollStateManager.get().onScrollStateChanged(state);
+
                 // Water-flow settle wobble (ReelLiquidScrollEffect): fires
                 // once, only after ViewPager2's own native snap has fully
                 // finished — never during the drag itself — so it adds no
@@ -366,6 +374,15 @@ public class ReelsFragment extends Fragment {
                     predictivePreloader.preloadSmartFrom(cur, reelIndex, lastScrollVelocity);
                     android.util.Log.d("ReelsFragment", "Predictive preload from pos=" + reelIndex
                         + " vel=" + lastScrollVelocity + "px/ms");
+                }
+                // PERF: warm the NEXT reel's social metadata (like/save/follow/
+                // repost/counts) while this one is still on screen, so its
+                // first-ever visit doesn't show a zero-count flash — mirrors
+                // what videoPreloader/thumbPreloader already do for media.
+                // See ReelMetadataPrefetcher's class doc.
+                int nextReelIndex = reelIndex + 1;
+                if (nextReelIndex < cur.size()) {
+                    ReelMetadataPrefetcher.getInstance().prefetch(cur.get(nextReelIndex));
                 }
             }
         });

@@ -4142,6 +4142,19 @@ public class HomeFragment extends Fragment {
                 startActivity(ci);
             });
         }
+        // ── Comment COUNT tap → same destination as btnComment. Reuses
+        // the immersive player's pattern (ReelSocialController's
+        // tvCommentsCount.setOnClickListener → openCommentsSheet()) so
+        // tapping the number, not just the icon, opens comments here too.
+        if (tvComments != null) {
+            tvComments.setOnClickListener(x -> {
+                if (!isAdded() || getContext() == null || reelId == null) return;
+                Intent ci = new Intent(getContext(), ReelCommentActivity.class);
+                ci.putExtra(ReelCommentActivity.EXTRA_REEL_ID,  reelId);
+                ci.putExtra(ReelCommentActivity.EXTRA_REEL_UID, ownerUid != null ? ownerUid : "");
+                startActivity(ci);
+            });
+        }
 
         // ── Repost button — show options (Repost / Quote Repost / Undo) ──
         if (btnRepost != null) {

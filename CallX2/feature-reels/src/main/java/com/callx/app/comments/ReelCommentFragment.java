@@ -14,6 +14,7 @@ import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.text.format.DateUtils;
+import android.util.LruCache;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -133,8 +134,8 @@ public class ReelCommentFragment extends Fragment {
     private LinearLayout   layoutSearch;
     private EditText       etSearch;
     private ImageButton    btnCloseSearch;
-    private View           layoutMentionSuggestions;
-    private LinearLayout   containerMentionSuggestions;
+    private RecyclerView   rvMentionSuggestions;
+    private MentionSuggestionAdapter mentionAdapter;
     private TextView       pillNewComments;
     private LinearLayout   layoutSwipeHint;
     private LinearLayout   containerQuickEmojis;
@@ -174,13 +175,24 @@ public class ReelCommentFragment extends Fragment {
     private ReelReply   replyingToReplyMention = null;
 
     // ── @mention autocomplete state ─────────────────────────────────────────
-    /** lowercase display-name → uid, built from everyone visible in this
-     *  thread so far (commenters + repliers) — the tag source. */
-    private final Map<String, String> mentionNameToUid = new HashMap<>();
+    /** lowercase display-name → full candidate (uid + name + avatar url),
+     *  built from everyone visible in this thread so far (commenters +
+     *  repliers) — the tag source. Replaces the old bare
+     *  Map<String,String> name→uid, which had no avatar and forced a
+     *  linear re-scan of allComments to recover display-name casing on
+     *  every suggestion render (see MentionCandidate's class doc). */
+    private final Map<String, MentionCandidate> mentionCandidates = new HashMap<>();
     /** uid → display name for every user tagged during THIS compose session
      *  (cleared on send/cancel) — attached to the comment/reply on submit. */
     private final Map<String, String> pendingMentions = new HashMap<>();
     private boolean suppressTextWatcher = false;
+    // Snapshot of where the in-progress "@token" starts/ends in the input,
+    // captured each time the suggestion list is (re)shown — read by the
+    // adapter's click callback (see setupAdapter... rvMentionSuggestions
+    // wiring in bindViews) since the tap arrives asynchronously relative to
+    // whatever the cursor position is at click time.
+    private int pendingMentionAt = -1;
+    private int pendingMentionCursor = -1;
 
     // ── "New comments" pill state ───────────────────────────────────────────
     private int  pendingNewComments = 0;
@@ -287,7 +299,7 @@ public class ReelCommentFragment extends Fragment {
                     ReelComment c = safeParseComment(child);
                     if (c == null || TextUtils.isEmpty(c.text)) continue;
                     if (!loadedCommentIds.add(c.commentId)) continue; // dup guard
-                    registerMentionCandidate(c.uid, c.ownerName);
+                    registerMentionCandidate(c.uid, c.ownerName, c.ownerPhoto);
                     older.add(c);
                 }
                 if (!older.isEmpty()) {
@@ -467,8 +479,15 @@ public class ReelCommentFragment extends Fragment {
         layoutSearch    = root.findViewById(R.id.layout_search);
         etSearch        = root.findViewById(R.id.et_search);
         btnCloseSearch  = root.findViewById(R.id.btn_close_search);
-        layoutMentionSuggestions    = root.findViewById(R.id.layout_mention_suggestions);
-        containerMentionSuggestions = root.findViewById(R.id.container_mention_suggestions);
+        rvMentionSuggestions = root.findViewById(R.id.rv_mention_suggestions);
+        if (rvMentionSuggestions != null) {
+            mentionAdapter = new MentionSuggestionAdapter();
+            mentionAdapter.setListener(candidate ->
+                insertMention(candidate.uid, candidate.name, pendingMentionAt, pendingMentionCursor));
+            rvMentionSuggestions.setLayoutManager(
+                new LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false));
+            rvMentionSuggestions.setAdapter(mentionAdapter);
+        }
         pillNewComments = root.findViewById(R.id.pill_new_comments);
         layoutSwipeHint = root.findViewById(R.id.layout_swipe_hint);
         containerQuickEmojis = root.findViewById(R.id.container_quick_emojis);
@@ -579,6 +598,11 @@ public class ReelCommentFragment extends Fragment {
             @Override
             public void onReactComment(ReelComment comment, @Nullable String emoji, int position) {
                 postReaction(comment, emoji, position);
+            }
+
+            @Override
+            public void onRetryComment(ReelComment comment) {
+                retryComment(comment);
             }
         });
 
@@ -897,10 +921,11 @@ public class ReelCommentFragment extends Fragment {
 
     // ── @mention candidate registry ─────────────────────────────────────────
 
-    private void registerMentionCandidate(@Nullable String uid, @Nullable String name) {
+    private void registerMentionCandidate(@Nullable String uid, @Nullable String name, @Nullable String photoUrl) {
         if (uid == null || uid.isEmpty() || name == null || name.isEmpty()) return;
         if (uid.equals(myUid)) return; // can't tag yourself
-        mentionNameToUid.put(name.toLowerCase(java.util.Locale.ROOT), uid);
+        mentionCandidates.put(name.toLowerCase(java.util.Locale.ROOT),
+            new MentionCandidate(uid, name, photoUrl));
     }
 
     // ── @mention autocomplete UI ─────────────────────────────────────────────
@@ -936,53 +961,29 @@ public class ReelCommentFragment extends Fragment {
     }
 
     private void showMentionSuggestions(String query, int atIndex, int cursor) {
-        if (containerMentionSuggestions == null || layoutMentionSuggestions == null) return;
+        if (rvMentionSuggestions == null || mentionAdapter == null) return;
 
-        List<Map.Entry<String, String>> matches = new ArrayList<>();
-        for (Map.Entry<String, String> e : mentionNameToUid.entrySet()) {
-            if (e.getKey().startsWith(query)) matches.add(e);
+        List<MentionCandidate> matches = new ArrayList<>();
+        for (MentionCandidate c : mentionCandidates.values()) {
+            if (c.name.toLowerCase(java.util.Locale.ROOT).startsWith(query)) matches.add(c);
             if (matches.size() >= 8) break;
         }
 
         if (matches.isEmpty()) { hideMentionSuggestions(); return; }
 
-        containerMentionSuggestions.removeAllViews();
-        int dp6 = dpToPx(6), dp10 = dpToPx(10);
-        for (Map.Entry<String, String> e : matches) {
-            String uid  = e.getValue();
-            // Recover original-case display name from the candidate we stored it under.
-            String name = capitalizeFromCandidate(e.getKey());
+        // Captured here so the adapter's click callback (fired later, async
+        // relative to typing) knows exactly which "@token" span to replace —
+        // see insertMention() and the listener wired in bindViews().
+        pendingMentionAt     = atIndex;
+        pendingMentionCursor = cursor;
 
-            TextView chip = new TextView(requireContext());
-            chip.setText("@" + name);
-            chip.setTextSize(13f);
-            chip.setTextColor(getResources().getColor(R.color.brand_primary));
-            chip.setBackgroundResource(R.drawable.bg_sort_chip);
-            chip.setPadding(dp10, dp6, dp10, dp6);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.setMarginEnd(dpToPx(8));
-            chip.setLayoutParams(lp);
-            chip.setOnClickListener(v -> insertMention(uid, name, atIndex, cursor));
-            containerMentionSuggestions.addView(chip);
-        }
-        layoutMentionSuggestions.setVisibility(View.VISIBLE);
-    }
-
-    private String capitalizeFromCandidate(String lowerName) {
-        // We only stored the lowercase key; look up the matching original
-        // name from whatever's currently rendered so the chip shows proper
-        // casing (fall back to the lowercase form if not found).
-        for (ReelComment c : allComments) {
-            if (c.ownerName != null && c.ownerName.toLowerCase(java.util.Locale.ROOT).equals(lowerName))
-                return c.ownerName;
-        }
-        return lowerName;
+        mentionAdapter.submitList(matches);
+        rvMentionSuggestions.setVisibility(View.VISIBLE);
     }
 
     private void hideMentionSuggestions() {
-        if (layoutMentionSuggestions != null) layoutMentionSuggestions.setVisibility(View.GONE);
-        if (containerMentionSuggestions != null) containerMentionSuggestions.removeAllViews();
+        if (rvMentionSuggestions != null) rvMentionSuggestions.setVisibility(View.GONE);
+        if (mentionAdapter != null) mentionAdapter.submitList(null);
     }
 
     private void insertMention(String uid, String name, int atIndex, int cursor) {
@@ -1297,7 +1298,7 @@ public class ReelCommentFragment extends Fragment {
                 if (oldestLoadedKey == null || c.commentId.compareTo(oldestLoadedKey) < 0) {
                     oldestLoadedKey = c.commentId;
                 }
-                registerMentionCandidate(c.uid, c.ownerName);
+                registerMentionCandidate(c.uid, c.ownerName, c.ownerPhoto);
                 boolean wasNearTop = isNearTop();
                 allComments.add(c);
                 if (!initialLoadSettled || wasNearTop) {
@@ -1315,7 +1316,7 @@ public class ReelCommentFragment extends Fragment {
             public void onChildChanged(@NonNull DataSnapshot s, @Nullable String prev) {
                 ReelComment updated = safeParseComment(s);
                 if (updated == null) return;
-                registerMentionCandidate(updated.uid, updated.ownerName);
+                registerMentionCandidate(updated.uid, updated.ownerName, updated.ownerPhoto);
                 for (int i = 0; i < allComments.size(); i++) {
                     if (allComments.get(i).commentId != null
                         && allComments.get(i).commentId.equals(updated.commentId)) {
@@ -1500,51 +1501,107 @@ public class ReelCommentFragment extends Fragment {
         String text = getInputText();
         if (text == null) return;
 
-        try {
-            DatabaseReference ref = commentsRef != null
-                ? commentsRef
-                : FirebaseUtils.getReelCommentsRef(reelId);
-            String key = ref.push().getKey();
-            if (key == null) return;
+        DatabaseReference ref = commentsRef != null
+            ? commentsRef
+            : FirebaseUtils.getReelCommentsRef(reelId);
+        String key = ref.push().getKey();
+        if (key == null) return;
 
-            Map<String, Object> data = new HashMap<>();
-            data.put("commentId",  key);
-            data.put("uid",        myUid);
-            data.put("ownerName",  myName);
-            data.put("ownerPhoto", myPhoto);
-            data.put("text",       text);
-            data.put("timestamp",  System.currentTimeMillis());
-            data.put("likesCount", 0);
-            data.put("replyCount", 0);
-            data.put("isPinned",   false);
-            data.put("isEdited",   false);
-            if (uploadedImageUrl != null && !uploadedImageUrl.isEmpty()) {
-                data.put("imageUrl", uploadedImageUrl);
-            }
-
-            Map<String, String> mentions = resolveMentionsInText(text);
-            if (!mentions.isEmpty()) data.put("mentions", mentions);
-
-            ref.child(key).setValue(data);
-
-            incrementCommentsCount(+1);
-            clearInput();
-            clearDraft();
-            clearPickedImage();
-
-            ReelCommentNotifWorker.enqueue(
-                requireContext(), reelId, reelUid, myUid, myName, key, text);
-
-            for (Map.Entry<String, String> e : mentions.entrySet()) {
-                if (e.getKey().equals(myUid) || e.getKey().equals(reelUid)) continue;
-                ReelCommentNotifWorker.enqueueMention(
-                    requireContext(), reelId, e.getKey(), myUid, myName, key, text);
-            }
-            pendingMentions.clear();
-
-        } catch (Exception e) {
-            Toast.makeText(requireContext(), "Failed to post comment", Toast.LENGTH_SHORT).show();
+        // ── Local-first: build the comment object and show it immediately.
+        // Chat's postComment previously called ref.child(key).setValue(data)
+        // fire-and-forget with no success/failure listener at all — if the
+        // write failed (offline, blocked, permission denied) the comment
+        // silently never appeared and the user only saw a one-off Toast
+        // with nothing left in the list to act on. Now the bubble shows
+        // instantly (like WhatsApp's local-first media send flow) and
+        // reconciles once Firebase actually confirms the write.
+        long timestamp = System.currentTimeMillis();
+        ReelComment local = new ReelComment(key, myUid, myName, myPhoto, text, timestamp);
+        if (uploadedImageUrl != null && !uploadedImageUrl.isEmpty()) {
+            local.imageUrl = uploadedImageUrl;
         }
+        Map<String, String> mentions = resolveMentionsInText(text);
+        if (!mentions.isEmpty()) local.mentions = mentions;
+        local.sendState = ReelComment.SEND_STATE_SENDING;
+
+        loadedCommentIds.add(key); // dup guard: our own onChildAdded echo will skip this id
+        allComments.add(local);
+        pendingAutoScroll = true;
+        applyFilterAndSort();
+
+        clearInput();
+        clearDraft();
+        clearPickedImage();
+        pendingMentions.clear();
+
+        sendCommentToFirebase(ref, key, local);
+    }
+
+    /** Builds the Firebase write payload for a local ReelComment and fires
+     *  it off, flipping the row's sendState based on the real result
+     *  instead of assuming success the moment setValue() is called. */
+    private void sendCommentToFirebase(DatabaseReference ref, String key, ReelComment local) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("commentId",  key);
+        data.put("uid",        local.uid);
+        data.put("ownerName",  local.ownerName);
+        data.put("ownerPhoto", local.ownerPhoto);
+        data.put("text",       local.text);
+        data.put("timestamp",  local.timestamp);
+        data.put("likesCount", 0);
+        data.put("replyCount", 0);
+        data.put("isPinned",   false);
+        data.put("isEdited",   false);
+        if (local.imageUrl != null && !local.imageUrl.isEmpty()) {
+            data.put("imageUrl", local.imageUrl);
+        }
+        if (local.mentions != null && !local.mentions.isEmpty()) {
+            data.put("mentions", local.mentions);
+        }
+
+        try {
+            ref.child(key).setValue(data)
+                .addOnSuccessListener(a -> {
+                    if (!isAdded()) return;
+                    local.sendState = null; // back to normal — confirmed sent
+                    incrementCommentsCount(+1);
+                    applyFilterAndSort();
+
+                    ReelCommentNotifWorker.enqueue(
+                        requireContext(), reelId, reelUid, myUid, myName, key, local.text);
+                    if (local.mentions != null) {
+                        for (Map.Entry<String, String> e : local.mentions.entrySet()) {
+                            if (e.getKey().equals(myUid) || e.getKey().equals(reelUid)) continue;
+                            ReelCommentNotifWorker.enqueueMention(
+                                requireContext(), reelId, e.getKey(), myUid, myName, key, local.text);
+                        }
+                    }
+                })
+                .addOnFailureListener(e -> {
+                    if (!isAdded()) return;
+                    local.sendState = ReelComment.SEND_STATE_FAILED;
+                    applyFilterAndSort();
+                    Toast.makeText(requireContext(),
+                        "Comment not sent — check your connection", Toast.LENGTH_SHORT).show();
+                });
+        } catch (Exception e) {
+            local.sendState = ReelComment.SEND_STATE_FAILED;
+            applyFilterAndSort();
+        }
+    }
+
+    /** Tap-to-retry on a failed comment row: re-sends with the SAME push
+     *  key (no duplicate comment created) and flips it back to "sending". */
+    private void retryComment(ReelComment comment) {
+        if (comment == null || comment.commentId == null) return;
+        if (!ReelComment.SEND_STATE_FAILED.equals(comment.sendState)) return;
+        comment.sendState = ReelComment.SEND_STATE_SENDING;
+        applyFilterAndSort();
+
+        DatabaseReference ref = commentsRef != null
+            ? commentsRef
+            : FirebaseUtils.getReelCommentsRef(reelId);
+        sendCommentToFirebase(ref, comment.commentId, comment);
     }
 
     private void postReply() {
@@ -1849,7 +1906,7 @@ public class ReelCommentFragment extends Fragment {
                             if (r == null || TextUtils.isEmpty(r.text)) continue;
                             if (r.uid != null && blockedUids.contains(r.uid)) continue; // blocked user's reply, hide it
                             if (r.replyId == null) r.replyId = s.getKey();
-                            registerMentionCandidate(r.uid, r.ownerName);
+                            registerMentionCandidate(r.uid, r.ownerName, r.ownerPhoto);
                             View row = buildReplyRow(r, parent, container, tvToggle);
                             if (row != null) { container.addView(row); count++; }
                         } catch (Exception ignored) {}
@@ -1936,33 +1993,75 @@ public class ReelCommentFragment extends Fragment {
         }
     }
 
+    // Reply avatar cache (uid → photoUrl) — mirrors ReelCommentsAdapter's
+    // avatarCache. Without this every "View replies" toggle re-hit
+    // Firebase for a uid we may have already resolved seconds ago (e.g.
+    // collapse/expand, or the same commenter replying in multiple threads
+    // on this reel).
+    private static final LruCache<String, String> replyAvatarCache = new LruCache<>(200);
+
+    private static final int REPLY_AVATAR_SIZE_DP = 26;
+
     private void bindReplyAvatar(android.widget.ImageView iv, @Nullable String uid, @Nullable String photoUrl) {
+        // CORRECTNESS: unlike top-level comment rows (managed by
+        // ReelCommentsAdapter's RecyclerView, which tags each row with the
+        // uid its avatar is currently FOR before an async fallback lookup),
+        // reply rows here are plain inflated Views inside a LinearLayout
+        // that lives inside a RecyclerView-recycled comment row. If the
+        // outer comment row scrolls off and gets recycled/rebound to a
+        // DIFFERENT comment while a reply avatar's async Firebase lookup is
+        // still in flight, the old callback could land on an ImageView that
+        // (visually or literally) now belongs to different content. Tagging
+        // it the same way as the top-level avatar binder closes that gap.
+        iv.setTag(R.id.tag_avatar_uid, uid);
         iv.setImageResource(R.drawable.ic_person);
-        String url = photoUrl;
-        if ((url == null || url.isEmpty()) && uid != null && !uid.isEmpty()) {
-            FirebaseDatabase.getInstance()
-                .getReference("reels/users").child(uid)
-                .addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(@NonNull DataSnapshot s) {
-                        if (!isAdded()) return;
-                        String thumb = s.child("thumbUrl").getValue(String.class);
-                        String photo = s.child("photoUrl").getValue(String.class);
-                        String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-                        if (p != null && !p.isEmpty()) loadReplyAvatarInto(iv, p);
-                    }
-                    @Override public void onCancelled(@NonNull DatabaseError e) {}
-                });
+
+        if (photoUrl != null && !photoUrl.isEmpty()) {
+            if (uid != null) replyAvatarCache.put(uid, photoUrl);
+            loadReplyAvatarInto(iv, photoUrl);
             return;
         }
-        if (url != null && !url.isEmpty()) loadReplyAvatarInto(iv, url);
+
+        String cached = uid != null ? replyAvatarCache.get(uid) : null;
+        if (cached != null && !cached.isEmpty()) {
+            loadReplyAvatarInto(iv, cached);
+            return;
+        }
+
+        if (uid == null || uid.isEmpty()) return;
+        FirebaseDatabase.getInstance()
+            .getReference("reels/users").child(uid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot s) {
+                    if (!isAdded()) return;
+                    String thumb = s.child("thumbUrl").getValue(String.class);
+                    String photo = s.child("photoUrl").getValue(String.class);
+                    String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                    if (p == null || p.isEmpty()) return;
+                    replyAvatarCache.put(uid, p);
+                    // Stale-callback guard: only apply if this exact
+                    // ImageView is still showing an avatar for this uid.
+                    if (uid.equals(iv.getTag(R.id.tag_avatar_uid))) {
+                        loadReplyAvatarInto(iv, p);
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
     }
 
     private void loadReplyAvatarInto(android.widget.ImageView iv, String url) {
+        if (!isAdded()) return;
         try {
-            // Rounded-square tile (same @drawable/bg_reel_grid_cell +
-            // clipToOutline as the profile reel grid) — no .circleCrop()
-            // here, the View itself provides the corner clip.
-            Glide.with(requireContext()).load(url)
+            // Circular avatar (see item_reel_reply.xml's
+            // bg_comment_avatar_circle + clipToOutline) — no .circleCrop()
+            // transform needed, the outline clip handles the shape for
+            // free. Routed through AvatarUrlBuilder so a 26dp reply avatar
+            // decodes at ~52px instead of whatever full resolution the
+            // source photo happens to be — same size-capping already used
+            // for top-level comment avatars.
+            String resizedUrl = com.callx.app.utils.AvatarUrlBuilder
+                .build(requireContext(), url, REPLY_AVATAR_SIZE_DP);
+            Glide.with(requireContext()).load(resizedUrl)
                 .placeholder(R.drawable.ic_person)
                 .error(R.drawable.ic_person)
                 .into(iv);

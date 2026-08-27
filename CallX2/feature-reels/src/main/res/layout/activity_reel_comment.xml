@@ -241,23 +241,23 @@
         android:visibility="gone"/>
 
     <!-- ── @mention autocomplete strip (shown while typing "@name") ── -->
-    <HorizontalScrollView
-        android:id="@+id/layout_mention_suggestions"
+    <!-- PERF: was a HorizontalScrollView + LinearLayout that had plain
+         TextView chips manually inflated/removed on every keystroke (see
+         MentionSuggestionAdapter). Now a real RecyclerView with a small
+         dedicated adapter — recycles its (max ~8) rows and renders an
+         avatar per suggestion instead of name-only text. -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_mention_suggestions"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:orientation="horizontal"
         android:scrollbars="none"
         android:background="?attr/colorSurface"
         android:paddingStart="12dp"
         android:paddingTop="6dp"
         android:paddingBottom="6dp"
-        android:visibility="gone">
-
-        <LinearLayout
-            android:id="@+id/container_mention_suggestions"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"/>
-    </HorizontalScrollView>
+        android:clipToPadding="false"
+        android:visibility="gone"/>
 
     <!-- ── Replying-to bar ── -->
     <LinearLayout

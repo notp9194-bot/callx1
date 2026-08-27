@@ -34,6 +34,22 @@ public class ReelComment {
      *  (captured from the mention-autocomplete strip when composing). */
     public Map<String, String> mentions;
 
+    // ── Local-first send state (NOT written to Firebase) ────────────────
+    // Mirrors the chat module's "pending"/"failed" pattern (see
+    // ChatMessageSender): set client-side only when a comment is composed
+    // locally, so the bubble can show instantly instead of waiting on the
+    // Firebase round trip, and can flip to a tap-to-retry state on
+    // failure/offline instead of silently vanishing. Firebase never has
+    // this field (it's excluded from the data map built in postComment()),
+    // and @IgnoreExtraProperties means it's simply left null/absent when
+    // ReelComment.class is deserialized from a real Firebase snapshot.
+    public static final String SEND_STATE_SENDING = "sending";
+    public static final String SEND_STATE_FAILED  = "failed";
+    /** null = normal/confirmed-sent comment (the default for anything that
+     *  came from Firebase). Only set locally while a comment is in flight
+     *  or has failed to send. */
+    public transient String sendState;
+
     public ReelComment() {}
 
     public ReelComment(String commentId, String uid, String ownerName,

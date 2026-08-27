@@ -57,18 +57,22 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     private static final LruCache<String, String> avatarCache = new LruCache<>(200);
 
     // Avatar decode/target size in px — comment avatar is a fixed 36dp
-    // rounded-square tile (matches UserReelsActivity's grid cell corner
-    // style — see item_reel_comment.xml), we request 2x for retina sharpness.
+    // circular tile (see item_reel_comment.xml), we request 2x for retina
+    // sharpness and Cloudinary-side downscale so we never decode more
+    // pixels than the view can show (see AvatarUrlBuilder.build below).
     private static final int AVATAR_SIZE_DP = 36;
 
     // PERF: RequestOptions was rebuilt with `new RequestOptions().circleCrop()
     // .override(...)` on EVERY avatar bind. Since the target size is fixed
     // for every comment row, build it once lazily and reuse the same
     // instance for every Glide.load() call instead.
-    // NOTE: no .circleCrop() here — the avatar is now clipped to a rounded
-    // SQUARE (same @drawable/bg_reel_grid_cell + clipToOutline used by the
-    // profile reel grid, see item_reel_comment.xml) via the ImageView itself,
-    // not via a Glide bitmap transform, so plain centerCrop is correct here.
+    // NOTE: no .circleCrop() here — the avatar is clipped to a CIRCLE via
+    // @drawable/bg_comment_avatar_circle + android:clipToOutline="true" on
+    // the ImageView itself (item_reel_comment.xml), not via a Glide bitmap
+    // transform. circleCrop() would allocate + draw a fresh bitmap on every
+    // decode/rebind; an outline clip is a free draw-time mask over the
+    // already size-capped bitmap, so plain centerCrop here is both correct
+    // and the fastest path.
     private static volatile RequestOptions avatarRequestOptions;
 
     private static RequestOptions avatarRequestOptions(Context ctx) {
@@ -92,6 +96,9 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         void onPinComment(ReelComment comment);
         void onReportComment(ReelComment comment);
         void onReactComment(ReelComment comment, String emoji, int position);
+        /** Fired when the user taps a comment that's in the "failed" send
+         *  state — re-attempt the same Firebase write with the same key. */
+        void onRetryComment(ReelComment comment);
     }
 
     // ── State ─────────────────────────────────────────────────────────────
@@ -115,6 +122,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
                     && a.replyCount == b.replyCount
                     && a.isPinned   == b.isPinned
                     && a.isEdited   == b.isEdited
+                    && java.util.Objects.equals(a.sendState, b.sendState)
                     && java.util.Objects.equals(a.text, b.text)
                     && java.util.Objects.equals(a.imageUrl, b.imageUrl)
                     && java.util.Objects.equals(a.ownerName, b.ownerName)
@@ -318,10 +326,38 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         h.tvName.setText(c.ownerName != null && !c.ownerName.isEmpty()
             ? c.ownerName : "User");
 
-        // ── Time + Edited ───────────────────────────────────────────────
-        h.tvTime.setText(DateUtils.getRelativeTimeSpanString(
-            c.timestamp, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS,
-            DateUtils.FORMAT_ABBREV_RELATIVE));
+        // ── Time + Edited (+ local-first send state) ─────────────────────
+        // Offline/retry: a comment created locally (see
+        // ReelCommentFragment#postComment) shows "Sending…" the instant
+        // it's typed, then either settles back to the normal relative-time
+        // text on success or flips to a tap-to-retry affordance if the
+        // Firebase write failed (offline, permission denied, etc.) — same
+        // pattern as the chat module's pending/failed message bubbles,
+        // instead of the comment silently vanishing or the input just
+        // showing a one-off Toast with nothing left in the list to retry.
+        if (ReelComment.SEND_STATE_SENDING.equals(c.sendState)) {
+            h.tvTime.setText("Sending…");
+            h.tvTime.setTextColor(ctx.getResources().getColor(R.color.text_muted));
+            h.tvTime.setOnClickListener(null);
+            h.tvTime.setClickable(false);
+            h.itemView.setAlpha(0.6f);
+        } else if (ReelComment.SEND_STATE_FAILED.equals(c.sendState)) {
+            h.tvTime.setText("⚠ Failed — tap to retry");
+            h.tvTime.setTextColor(0xFFFF3B5C);
+            h.itemView.setAlpha(1f);
+            h.tvTime.setClickable(true);
+            h.tvTime.setOnClickListener(v -> {
+                if (listener != null) listener.onRetryComment(c);
+            });
+        } else {
+            h.tvTime.setText(DateUtils.getRelativeTimeSpanString(
+                c.timestamp, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS,
+                DateUtils.FORMAT_ABBREV_RELATIVE));
+            h.tvTime.setTextColor(ctx.getResources().getColor(R.color.text_muted));
+            h.tvTime.setOnClickListener(null);
+            h.tvTime.setClickable(false);
+            h.itemView.setAlpha(1f);
+        }
 
         if (h.tvEdited != null) {
             h.tvEdited.setVisibility(c.isEdited ? View.VISIBLE : View.GONE);
