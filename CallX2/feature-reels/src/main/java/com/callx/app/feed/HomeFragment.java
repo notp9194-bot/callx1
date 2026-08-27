@@ -4035,11 +4035,13 @@ public class HomeFragment extends Fragment {
                             showHeartAnimation(frameVideo);
                             return true;
                         }
-                        /** Single tap (not part of a double-tap) toggles play/pause
-                         *  — and is the only way to start a card when the user's
-                         *  autoplay setting is "Off" / off-Wi-Fi. */
+                        /** Single tap (not part of a double-tap) opens this reel in the
+                         *  fullscreen immersive player — same behaviour as tapping the
+                         *  thumbnail (ivThumb) before playback starts. Inline play/pause
+                         *  is no longer reachable via a plain tap; the card still
+                         *  autoplays on its own per the feed's autoplay setting. */
                         @Override public boolean onSingleTapConfirmed(MotionEvent e) {
-                            toggleCardPlayback(cardIndex);
+                            openReelWithContext(currentFeedPosts, reelId, reel.ownerName);
                             return true;
                         }
                         /** Press-and-hold = temporary 2x fast-forward. */
@@ -4060,8 +4062,11 @@ public class HomeFragment extends Fragment {
                     return handled || action == MotionEvent.ACTION_DOWN;
                 });
             }
+            // Play overlay only shows when autoplay is off — tapping it now also
+            // jumps straight to the fullscreen player (consistent with the video
+            // area itself) instead of starting inline playback.
             if (playOverlay != null) {
-                playOverlay.setOnClickListener(x -> toggleCardPlayback(cardIndex));
+                playOverlay.setOnClickListener(x -> openReelWithContext(currentFeedPosts, reelId, reel.ownerName));
             }
         }
 
@@ -4095,7 +4100,7 @@ public class HomeFragment extends Fragment {
         final String ownerUid = reel.uid;
 
         // Tap thumbnail → open this specific reel in the player
-        ivThumb.setOnClickListener(x -> openReelById(reelId, reel.ownerName));
+        ivThumb.setOnClickListener(x -> openReelWithContext(currentFeedPosts, reelId, reel.ownerName));
 
         // Avatar tap → open user's reel profile
         avatar.setOnClickListener(x -> {
@@ -4349,7 +4354,7 @@ public class HomeFragment extends Fragment {
                             }
                             return true;
                         case 6: // Open original
-                            openReelById(reelId, reel.ownerName);
+                            openReelWithContext(currentFeedPosts, reelId, reel.ownerName);
                             return true;
                         case 7: // Save for offline
                             saveHomeReelOffline(reel);
@@ -4531,14 +4536,58 @@ public class HomeFragment extends Fragment {
         startActivity(i);
     }
 
-    /** Opens SingleReelPlayerActivity by reel ID directly */
+    /** Opens SingleReelPlayerActivity by reel ID directly — no scroll context,
+     *  falls back to a single-item list. Kept only for call sites that truly
+     *  have no surrounding row/feed (e.g. a deep link to one reel). Prefer
+     *  {@link #openReelWithContext(List, String, String)} everywhere the reel
+     *  came from a visible list, so scrolling past it in the fullscreen
+     *  player continues into the next reels — Instagram/TikTok style —
+     *  instead of dead-ending on that one reel. */
     private void openReelById(String reelId, String ownerName) {
+        openReelWithContext(null, reelId, ownerName);
+    }
+
+    /** Opens SingleReelPlayerActivity with the full ordered list of reel IDs
+     *  the tapped reel was part of (contextList), starting at that reel's
+     *  position — so scrolling down in the fullscreen player keeps advancing
+     *  through the SAME list (home feed, trending row, continue-watching
+     *  row, etc.) instead of dead-ending after one reel.
+     *  @param contextList the list currently backing the row/feed the user
+     *                     tapped from; pass null (or empty) to fall back to
+     *                     a single-item list when no such list exists. */
+    private void openReelWithContext(List<ReelModel> contextList, String reelId, String ownerName) {
         if (!isAdded() || getContext() == null || reelId == null) return;
-        Intent i = new Intent(getContext(), SingleReelPlayerActivity.class);
+
+        // PERF: prime the shared in-memory ReelModelCache with every
+        // ReelModel we already have in hand right now — HomeFragment fetched
+        // all of these once already (feed page load / trending / continue-
+        // watching), so SingleReelPlayerActivity shouldn't have to hit
+        // Firebase again for a single one of them. Only the intent-safe
+        // reelId strings cross the activity boundary (see ids below); the
+        // actual objects travel via this process-wide cache instead, so
+        // there's no Binder transaction size concern even for a long feed.
+        com.callx.app.cache.ReelModelCache.getInstance().putAll(contextList);
+
         ArrayList<String> ids = new ArrayList<>();
-        ids.add(reelId);
+        int startPos = 0;
+        if (contextList != null && !contextList.isEmpty()) {
+            for (ReelModel r : contextList) {
+                if (r != null && r.reelId != null && !r.reelId.isEmpty()) {
+                    if (r.reelId.equals(reelId)) startPos = ids.size();
+                    ids.add(r.reelId);
+                }
+            }
+        }
+        if (ids.isEmpty()) {
+            // No usable context (or the tapped reel wasn't in it) — same
+            // single-item behaviour as before.
+            ids.add(reelId);
+            startPos = 0;
+        }
+
+        Intent i = new Intent(getContext(), SingleReelPlayerActivity.class);
         i.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
-        i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, 0);
+        i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, startPos);
         i.putExtra(SingleReelPlayerActivity.EXTRA_TITLE,
             ownerName != null ? ownerName + "'s Reel" : "Reel");
         startActivity(i);
@@ -4598,7 +4647,7 @@ public class HomeFragment extends Fragment {
                 // ✅ Open specific reel in the player (not just showReelFeed)
                 final String reelId = reel.reelId;
                 final String name   = reel.ownerName;
-                card.setOnClickListener(v -> openReelById(reelId, name));
+                card.setOnClickListener(v -> openReelWithContext(reels, reelId, name));
 
                 containerTrending.addView(card);
             }
@@ -4832,12 +4881,19 @@ public class HomeFragment extends Fragment {
         remaining[0]--;
         if (remaining[0] != 0) return;
         if (!isAdded() || getContext() == null) return;
+        // Build the surviving (non-deleted) list once so every card in this
+        // row can be opened with the WHOLE row as scroll context, not just
+        // itself — same fix as the main feed / trending rows.
+        List<ReelModel> watched = new ArrayList<>();
         for (ReelModel r : slots) {
-            if (r != null) addContinueWatchingCard(r);
+            if (r != null) watched.add(r);
+        }
+        for (ReelModel r : watched) {
+            addContinueWatchingCard(r, watched);
         }
     }
 
-    private void addContinueWatchingCard(ReelModel reel) {
+    private void addContinueWatchingCard(ReelModel reel, List<ReelModel> rowContext) {
         if (!isAdded() || getContext() == null || containerContinueWatching == null) return;
         requireActivity().runOnUiThread(() -> {
             if (!isAdded() || getContext() == null) return;
@@ -4874,7 +4930,7 @@ public class HomeFragment extends Fragment {
                     });
             }
 
-            card.setOnClickListener(v -> openReelById(reelId, name));
+            card.setOnClickListener(v -> openReelWithContext(rowContext, reelId, name));
             containerContinueWatching.addView(card);
         });
     }

@@ -345,92 +345,124 @@
     </FrameLayout>
     <!-- ═══ End video block ═══ -->
 
-    <!-- ══════════ ACTION BAR ══════════ -->
+    <!-- ══════════ ACTION BAR — Instagram-style spacing ══════════ -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="48dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="6dp"
-        android:paddingEnd="6dp">
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp">
 
-        <!-- ❤ Like -->
-        <ImageButton
-            android:id="@+id/btn_post_like"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:src="@drawable/ic_heart"
-            android:tint="@color/text_primary"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Like"/>
-
-        <TextView
-            android:id="@+id/tv_post_likes"
+        <!-- ❤ Like + count group -->
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="0"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp"
-            android:layout_marginEnd="6dp"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginEnd="14dp">
 
-        <!-- 💬 Comment -->
-        <ImageButton
-            android:id="@+id/btn_post_comment"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:src="@drawable/ic_comment_reel"
-            android:tint="@color/text_primary"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Comment"/>
+            <ImageButton
+                android:id="@+id/btn_post_like"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_heart"
+                android:tint="@color/text_primary"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Like"/>
 
-        <TextView
-            android:id="@+id/tv_post_comments"
+            <TextView
+                android:id="@+id/tv_post_likes"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:layout_marginStart="4dp"/>
+        </LinearLayout>
+
+        <!-- 💬 Comment + count group -->
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="0"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp"
-            android:layout_marginEnd="6dp"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginEnd="14dp">
 
-        <!-- 🔄 Repost -->
-        <ImageButton
-            android:id="@+id/btn_post_repost"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:src="@drawable/ic_repost"
-            android:tint="@color/text_primary"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Repost"/>
+            <ImageButton
+                android:id="@+id/btn_post_comment"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_comment_reel"
+                android:tint="@color/text_primary"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Comment"/>
 
-        <TextView
-            android:id="@+id/tv_post_reposts"
+            <TextView
+                android:id="@+id/tv_post_comments"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:layout_marginStart="4dp"/>
+        </LinearLayout>
+
+        <!-- 🔄 Repost + count group -->
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="0"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp"
-            android:layout_marginEnd="6dp"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginEnd="14dp">
 
-        <!-- ▷ Send / Share -->
-        <ImageButton
-            android:id="@+id/btn_post_send"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:src="@drawable/ic_share_reel"
-            android:tint="@color/text_primary"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Send"/>
+            <ImageButton
+                android:id="@+id/btn_post_repost"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_repost"
+                android:tint="@color/text_primary"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Repost"/>
 
-        <TextView
-            android:id="@+id/tv_post_sends"
-            android:layout_width="0dp"
+            <TextView
+                android:id="@+id/tv_post_reposts"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:layout_marginStart="4dp"/>
+        </LinearLayout>
+
+        <!-- ▷ Send / Share + count group -->
+        <LinearLayout
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="0"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_weight="1">
 
-        <!-- 🔖 Save -->
+            <ImageButton
+                android:id="@+id/btn_post_send"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_share_reel"
+                android:tint="@color/text_primary"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Send"/>
+
+            <TextView
+                android:id="@+id/tv_post_sends"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:layout_marginStart="4dp"/>
+        </LinearLayout>
+
+        <!-- 🔖 Save — right-aligned spacer -->
         <ImageButton
             android:id="@+id/btn_post_save"
             android:layout_width="36dp"

@@ -30,6 +30,7 @@ import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -203,15 +204,54 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
             .addListenerForSingleValueEvent(reelsListener);
     }
 
+    /**
+     * PERF (Instagram-style instant open): resolves every reelId against the
+     * shared {@link com.callx.app.cache.ReelModelCache} FIRST — HomeFragment
+     * primes that cache with the exact objects backing whatever row/feed the
+     * user tapped from (see {@code openReelWithContext()}), so in the common
+     * case ("tap a reel I'm already looking at in a feed") every single id
+     * is a cache hit and this method never touches the network at all: no
+     * spinner, no round-trip, {@link #onReelsLoaded()} runs on the very next
+     * frame. Only ids that genuinely miss the cache (deep links, cold start,
+     * a reel that scrolled out of the feed's own trim window — see
+     * ReelModelCache's size cap) fall back to a Firebase read, and those are
+     * fired in "closest-to-start-position-first" order so if the user is
+     * impatient and the miss count is small, the reel they're about to look
+     * at resolves before the ones at the far edges of the list.
+     */
     private void loadByReelIds(List<String> reelIds) {
-        progressBar.setVisibility(View.VISIBLE);
-        final int[] loaded = {0};
         final int total = reelIds.size();
         final ReelModel[] tempReels = new ReelModel[total];
+        com.callx.app.cache.ReelModelCache modelCache =
+            com.callx.app.cache.ReelModelCache.getInstance();
 
+        List<Integer> missIndices = new ArrayList<>();
         for (int i = 0; i < total; i++) {
-            final int idx = i;
-            String reelId = reelIds.get(i);
+            ReelModel cached = modelCache.get(reelIds.get(i));
+            if (cached != null) {
+                tempReels[i] = cached;
+            } else {
+                missIndices.add(i);
+            }
+        }
+
+        if (missIndices.isEmpty()) {
+            // 100% cache hit — no network, no spinner. Instant.
+            reels.clear();
+            for (ReelModel r : tempReels) if (r != null) reels.add(r);
+            onReelsLoaded();
+            return;
+        }
+
+        // Partial/no hit — fetch only the misses, closest to startPosition first.
+        progressBar.setVisibility(View.VISIBLE);
+        Collections.sort(missIndices, (a, b) ->
+            Integer.compare(Math.abs(a - startPosition), Math.abs(b - startPosition)));
+
+        final int missTotal = missIndices.size();
+        final int[] loaded = {0};
+        for (int idx : missIndices) {
+            String reelId = reelIds.get(idx);
             FirebaseUtils.getReelsRef().child(reelId)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override
@@ -221,9 +261,10 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
                         if (reel != null) {
                             if (reel.reelId == null) reel.reelId = snap.getKey();
                             tempReels[idx] = reel;
+                            modelCache.put(reel); // ✅ fill the cache so next time this is a hit too
                         }
                         loaded[0]++;
-                        if (loaded[0] >= total) {
+                        if (loaded[0] >= missTotal) {
                             reels.clear();
                             for (ReelModel r : tempReels) {
                                 if (r != null) reels.add(r);
@@ -233,7 +274,13 @@ public class SingleReelPlayerActivity extends AppCompatActivity {
                     }
                     @Override public void onCancelled(@NonNull DatabaseError e) {
                         loaded[0]++;
-                        if (loaded[0] >= total) onReelsLoaded();
+                        if (loaded[0] >= missTotal) {
+                            reels.clear();
+                            for (ReelModel r : tempReels) {
+                                if (r != null) reels.add(r);
+                            }
+                            onReelsLoaded();
+                        }
                     }
                 });
         }
