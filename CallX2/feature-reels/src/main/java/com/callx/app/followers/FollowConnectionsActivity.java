@@ -864,6 +864,16 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                         styleBtn(h.btnAction, "Follow Back", true);
                     }
                     break;
+
+                case TAB_SUGGESTED:
+                    // Suggested candidates are always users I don't yet follow.
+                    if (u.uid.equals(myUid)) {
+                        h.btnAction.setVisibility(View.GONE);
+                    } else {
+                        h.btnAction.setVisibility(View.VISIBLE);
+                        styleBtn(h.btnAction, "Follow", true);
+                    }
+                    break;
             }
         }
 
@@ -879,7 +889,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         // fixes above target.
         private void styleBtn(Button btn, String text, boolean filled) {
             btn.setText(text);
-            float r = 17f * btn.getResources().getDisplayMetrics().density; // pill: half of 34dp height
+            float r = 8f * btn.getResources().getDisplayMetrics().density; // rounded-rect, not a full pill
             android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
             bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
             bg.setCornerRadius(r);
@@ -887,7 +897,15 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                 bg.setColor(getResources().getColor(R.color.brand_primary, null));
                 btn.setTextColor(0xFFFFFFFF);
             } else {
+                // In light mode colorSurfaceVariant is forced to pure white
+                // (same as the row/window background — see app's
+                // Theme.CallX), so a plain fill-only pill was invisible
+                // here, just floating text with no visible button. A
+                // divider-colored stroke keeps it visible in both modes
+                // (divider is off-white in light, dark gray in night).
                 bg.setColor(resolveAttrColor(com.google.android.material.R.attr.colorSurfaceVariant));
+                bg.setStroke((int) (1 * btn.getResources().getDisplayMetrics().density),
+                        getResources().getColor(com.callx.app.core.R.color.divider, null));
                 btn.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
             }
             btn.setBackground(bg);
@@ -949,6 +967,9 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                             break;
                         case TAB_FOLLOWING:
                             unfollowUser(boundItem, pos);
+                            break;
+                        case TAB_SUGGESTED:
+                            toggleFollowFromBtn(boundItem, this, pos, false);
                             break;
                     }
                 });

@@ -190,6 +190,43 @@ public class ReelVideoExportEngine {
         return result;
     }
 
+    /**
+     * Same as {@link #parseOverlayJsonArray} but keeps only "type":"text" entries —
+     * used by ReelShareController's download/share-out path. A reel's sticker_json
+     * can hold a mix of text (never baked into the stored video's pixels — see
+     * ReelPlayerFragment/ReelTextOverlayRenderer for why) and non-text stickers
+     * (which, if they exist, already got baked in at upload time — see
+     * ReelEditorActivity#stripTextOverlayEntries). Re-baking the whole array here
+     * would draw those non-text ones a second time; only the text needs baking
+     * for a file leaving the app (WhatsApp, gallery, etc. can't render the live
+     * in-app overlay layer).
+     */
+    public static List<OverlayItem> parseTextOnlyOverlays(@Nullable String json) {
+        List<OverlayItem> result = new ArrayList<>();
+        if (json == null || json.length() < 2) return result;
+        String inner = json.trim();
+        if (inner.startsWith("[")) inner = inner.substring(1, inner.length() - 1);
+
+        int depth = 0, start = 0;
+        for (int i = 0; i < inner.length(); i++) {
+            char c = inner.charAt(i);
+            if (c == '{') depth++;
+            else if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    String obj = inner.substring(start, i + 1);
+                    if (obj.contains("\"type\":\"text\"")) {
+                        OverlayItem item = parseOverlayObject(obj);
+                        if (item != null) result.add(item);
+                    }
+                    start = i + 1;
+                    while (start < inner.length() && inner.charAt(start) == ',') start++;
+                }
+            }
+        }
+        return result;
+    }
+
     private static OverlayItem parseOverlayObject(String obj) {
         try {
             String value = extractJsonString(obj, "value");
@@ -491,8 +528,11 @@ public class ReelVideoExportEngine {
         return bitmap;
     }
 
-    /** Returns how much of item.text should be visible at presentationTimeUs given its animKey. */
-    private static String revealedText(OverlayItem item, long presentationTimeUs) {
+    /** Returns how much of item.text should be visible at presentationTimeUs given its animKey.
+     *  Package-private (not private) so ReelTextOverlayRenderer can reuse the exact same
+     *  reveal curve for the live playback replay (see playAnimation there) — keeping the
+     *  baked-export timing and the live-overlay timing identical. */
+    static String revealedText(OverlayItem item, long presentationTimeUs) {
         if ("none".equals(item.animKey) || item.animDurationMs <= 0L) return item.text;
         float progress = Math.min(1f, (presentationTimeUs / 1000f) / item.animDurationMs);
         if ("word".equals(item.animKey)) {

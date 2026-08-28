@@ -60,5 +60,11 @@
 
     <Button android:id="@+id/btn_audio_use" android:layout_width="52dp"
         android:layout_height="34dp" android:text="Use" android:textColor="#FFFFFF"
-        android:backgroundTint="#FF3B5C" android:textSize="12sp"/>
+        android:backgroundTint="#FF3B5C" android:textSize="12sp"
+        android:textAllCaps="false"
+        android:minWidth="0dp" android:minHeight="0dp"
+        android:insetTop="0dp" android:insetBottom="0dp"
+        android:paddingStart="0dp" android:paddingEnd="0dp"
+        android:paddingTop="0dp" android:paddingBottom="0dp"
+        android:stateListAnimator="@null"/>
 </LinearLayout>

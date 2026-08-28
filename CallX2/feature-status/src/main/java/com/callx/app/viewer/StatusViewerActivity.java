@@ -448,7 +448,7 @@ import com.callx.app.utils.AlertDialogStyler;
                       flReshare.setVisibility(android.view.View.VISIBLE);
                       android.widget.ImageView ivThumb = flReshare.findViewById(R.id.iv_reshare_thumb);
                       if (ivThumb != null && s.resharedThumbnailUrl != null && !s.resharedThumbnailUrl.isEmpty())
-                          com.bumptech.glide.Glide.with(this).load(s.resharedThumbnailUrl).centerCrop().into(ivThumb);
+                          loadReshareThumbOptimized(ivThumb, s.resharedThumbnailUrl);
                       android.widget.TextView tvOwner = flReshare.findViewById(R.id.tv_reshare_original_owner);
                       if (tvOwner != null) tvOwner.setText("@" + s.resharedFromOwnerName);
                       android.widget.TextView tvBadge = flReshare.findViewById(R.id.tv_reshare_type_badge);
@@ -462,6 +462,16 @@ import com.callx.app.utils.AlertDialogStyler;
                           final String fi = s.resharedFromId   != null ? s.resharedFromId   : "";
                           final String fu = s.resharedFromOwnerUid != null ? s.resharedFromOwnerUid : "";
                           tvView.setOnClickListener(v -> openOriginalContent(ft, fi, fu));
+                      }
+                      // Tapping the card itself (thumb / badge / owner name —
+                      // anything except the "View Original →" sub-text above,
+                      // which keeps its own listener) opens the ORIGINAL
+                      // CREATOR's profile, not the reshared content.
+                      android.view.View cardRoot = flReshare.findViewById(R.id.ll_reshare_attribution_card);
+                      if (cardRoot != null) {
+                          final String creatorUid  = s.resharedFromOwnerUid   != null ? s.resharedFromOwnerUid   : "";
+                          final String creatorName = s.resharedFromOwnerName  != null ? s.resharedFromOwnerName  : "";
+                          cardRoot.setOnClickListener(v -> openOriginalCreatorProfile(creatorUid, creatorName));
                       }
                   } else {
                       flReshare.setVisibility(android.view.View.GONE);
@@ -477,6 +487,67 @@ import com.callx.app.utils.AlertDialogStyler;
           } catch (Exception e) {
               CrashReporter.report(this, "StatusViewer.reshareAttributionCard", e);
           }
+      }
+
+      /** Cached target decode size (px) for the reshare attribution thumb —
+       *  computed once per process, not per bind. Layout uses 56dp, but we
+       *  resolve it from the ImageView's own declared LayoutParams so this
+       *  stays correct even if the layout later changes the dp value. */
+      private static volatile int sReshareThumbPx = 0;
+
+      /** Ultra-optimized, size-aware decode for the reshare attribution card
+       *  thumbnail. The card is tiny (56dp) but source images/video-frame
+       *  thumbnails coming from Cloudinary/Firebase can be arbitrarily large,
+       *  so a plain Glide.load()+centerCrop() (previous code) still decodes
+       *  a full-resolution bitmap into memory before downscaling for
+       *  display — wasteful on a list of reshared statuses swiped quickly.
+       *
+       *  This instead:
+       *   - Resolves the exact target pixel size from the ImageView's own
+       *     layout params (falls back to 56dp) and decodes AT that size via
+       *     Glide's override(), so the hardware bitmap allocated is only
+       *     ever thumb-sized — no oversized intermediate bitmap, no jank.
+       *   - Uses RGB_565 instead of ARGB_8888: these are opaque photo/video
+       *     thumbnails (no alpha channel needed), which halves per-pixel
+       *     memory (2 bytes vs 4) for identical visual result at this size.
+       *   - DownsampleStrategy.CENTER_OUTSIDE mirrors centerCrop's crop
+       *     behavior but tells Glide's decoder to downsample during decode
+       *     (inSampleSize), not after — the expensive part of "size k
+       *     hisab se decode" happens on the decoder thread, not via a
+       *     later Bitmap.createScaledBitmap() pass.
+       *   - DiskCacheStrategy.RESOURCE caches the already-transformed
+       *     (already downsampled+cropped) bitmap on disk, so repeat views
+       *     of the same reshared status (re-swiping) skip re-decoding and
+       *     re-downsampling entirely, not just skip the network hit.
+       *   - Fixed-size override() also means Glide can serve from its
+       *     bitmap pool instead of allocating fresh, and
+       *     dontAnimate()+dontTransform() variance-free requests coalesce
+       *     Glide's internal engine key, so rapid rebind while swiping
+       *     between statuses reuses in-flight/completed loads instead of
+       *     starting duplicate decodes for the same URL+size.
+       *   - Priority.IMMEDIATE since this is on-screen, above-the-fold
+       *     content the user is looking at right now. */
+      private void loadReshareThumbOptimized(android.widget.ImageView ivThumb, String url) {
+          int px = sReshareThumbPx;
+          if (px <= 0) {
+              int lw = ivThumb.getLayoutParams() != null ? ivThumb.getLayoutParams().width : 0;
+              px = lw > 0
+                  ? lw
+                  : Math.round(56 * getResources().getDisplayMetrics().density);
+              sReshareThumbPx = px;
+          }
+          com.bumptech.glide.request.RequestOptions opts = new com.bumptech.glide.request.RequestOptions()
+              .override(px, px)
+              .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
+              .downsample(com.bumptech.glide.load.resource.bitmap.DownsampleStrategy.CENTER_OUTSIDE)
+              .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.RESOURCE)
+              .centerCrop()
+              .dontAnimate();
+          com.bumptech.glide.Glide.with(this)
+              .load(url)
+              .apply(opts)
+              .priority(com.bumptech.glide.Priority.IMMEDIATE)
+              .into(ivThumb);
       }
 
       /** Navigate to the original reel or post that was reshared. */
@@ -495,6 +566,27 @@ import com.callx.app.utils.AlertDialogStyler;
               startActivity(i);
           } catch (Exception e) {
               android.widget.Toast.makeText(this, "Could not open original post",
+                  android.widget.Toast.LENGTH_SHORT).show();
+          }
+      }
+
+      /** Tapping the reshare attribution card (anywhere except the explicit
+       *  "View Original →" sub-text) opens the ORIGINAL CREATOR's reels
+       *  profile screen — same UserReelsActivity used everywhere else in the
+       *  app as the generic profile screen. feature-status has no compile-time
+       *  dependency on feature-reels, so this reflects the class by name,
+       *  same pattern as openOriginalContent() above. */
+      private void openOriginalCreatorProfile(String uid, String name) {
+          if (uid == null || uid.isEmpty()) return;
+          try {
+              android.content.Intent i;
+              try { i = new android.content.Intent(this, Class.forName("com.callx.app.profile.UserReelsActivity")); }
+              catch (ClassNotFoundException _e) { return; }
+              i.putExtra("uid",  uid);
+              i.putExtra("name", name != null ? name : "");
+              startActivity(i);
+          } catch (Exception e) {
+              android.widget.Toast.makeText(this, "Could not open profile",
                   android.widget.Toast.LENGTH_SHORT).show();
           }
       }

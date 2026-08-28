@@ -90,6 +90,40 @@ public final class ReelTextOverlayRenderer {
         return tv;
     }
 
+    /**
+     * ✅ NEW: replays the text-in animation (typewriter / word-by-word reveal) picked
+     * in the editor when this overlay first appears on the PLAYBACK surface — it used
+     * to only ever play once, live, in the editor's own preview; every other viewer
+     * just saw the finished text sitting there statically. Uses the exact same
+     * reveal curve/duration as the editor preview and the hard-bake exporter (see
+     * ReelVideoExportEngine#revealedText / #computeAnimDurationMs) so it looks
+     * identical everywhere. No-op for {@code animKey == "none"}.
+     *
+     * Ticks via {@code tv.postDelayed}, which Android automatically stops calling
+     * once the view is detached from its window (e.g. the reel is swiped away),
+     * so no separate cleanup/cancel call is required from the caller.
+     */
+    public static void playAnimation(TextView tv, ReelVideoExportEngine.OverlayItem item) {
+        if (tv == null || item == null) return;
+        if ("none".equals(item.animKey) || item.animDurationMs <= 0L || item.text == null || item.text.isEmpty()) {
+            tv.setText(item != null ? item.text : "");
+            return;
+        }
+        tv.setText("");
+        final long startUptime = android.os.SystemClock.uptimeMillis();
+        Runnable ticker = new Runnable() {
+            @Override public void run() {
+                if (!tv.isAttachedToWindow()) return;
+                long elapsedUs = (android.os.SystemClock.uptimeMillis() - startUptime) * 1000L;
+                tv.setText(ReelVideoExportEngine.revealedText(item, elapsedUs));
+                if (elapsedUs < item.animDurationMs * 1000L) {
+                    tv.postDelayed(this, 33L); // ~30fps reveal, matches typing feel
+                }
+            }
+        };
+        tv.post(ticker);
+    }
+
     private static Typeface resolveTypeface(String fontKey, boolean bold, boolean italic) {
         Typeface base;
         if ("serif".equals(fontKey)) base = Typeface.SERIF;

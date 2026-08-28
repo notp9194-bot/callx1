@@ -425,9 +425,9 @@ public final class DialogFullscreenHelper {
         return row;
     }
 
-    /** Same pill look FollowConnectionsActivity's styleBtn() uses: filled brand color for "Follow", translucent white for "Following". */
+    /** Same look FollowConnectionsActivity's styleBtn() uses: filled brand color for "Follow", translucent white for "Following". */
     private static void styleFollowButton(Context ctx, Button btn, boolean following, int brandColorArgb) {
-        float r = 17f * ctx.getResources().getDisplayMetrics().density; // pill: half of 34dp-equivalent height
+        float r = 8f * ctx.getResources().getDisplayMetrics().density; // rounded-rect, not a full pill — matches styleBtn()
         GradientDrawable bg = new GradientDrawable();
         bg.setShape(GradientDrawable.RECTANGLE);
         bg.setCornerRadius(r);

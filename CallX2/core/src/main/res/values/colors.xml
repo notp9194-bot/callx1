@@ -9,6 +9,11 @@
     <color name="surface_card">#FFFFFF</color>
     <color name="surface_chat_bg">#ECE5DD</color>
     <color name="surface_input">#F1F3F8</color>
+    <!-- Skeleton/shimmer loading placeholders (e.g. reel comments list before
+         first page loads). Distinct from surface_input so the placeholder is
+         visible against a white/near-white surface. -->
+    <color name="skeleton_base">#E4E7EC</color>
+    <color name="skeleton_highlight">#F4F5F8</color>
     <!-- FIX (green colour htao) — kept in sync with app/values/colors.xml. -->
     <color name="bar_background">#1E2530</color>
     <color name="bar_on_background">#FFFFFF</color>

@@ -95,6 +95,18 @@
             android:padding="6dp"/>
     </LinearLayout>
 
+    <!-- ── Reel caption/description row (Instagram-style: shown only when
+         the comments sheet was opened by tapping the reel's caption/name,
+         not when opened via the comment icon/count). ViewStub — costs
+         nothing to inflate/measure until explicitly inflated from Java, so
+         the far more common comment-icon/count sheet open never pays for
+         this block's avatar view/text views/Glide setup at all. ── -->
+    <ViewStub
+        android:id="@+id/stub_reel_caption_header"
+        android:layout="@layout/view_reel_caption_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"/>
+
     <!-- ── Sort chips row ── -->
     <HorizontalScrollView
         android:layout_width="match_parent"
@@ -151,6 +163,18 @@
             android:layout_height="match_parent"
             android:clipToPadding="false"
             android:paddingBottom="8dp"/>
+
+        <!-- Skeleton — shown only while the FIRST page of comments is
+             loading (never for "load older" pagination, that's
+             tv_loading_older below). Single canvas-drawn View instead of a
+             ShimmerFrameLayout + N inflated rows — see CommentSkeletonView
+             for why. Hidden the moment the first page (or the empty state)
+             resolves. -->
+        <com.callx.app.comments.CommentSkeletonView
+            android:id="@+id/skeleton_comments"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"/>
 
         <!-- Shown briefly while an older comments page is being fetched
              (triggered by scrolling near the BOTTOM of the list — newest

@@ -9,6 +9,11 @@
     <color name="surface_card">#000000</color>
     <color name="surface_chat_bg">#0B141A</color>
     <color name="surface_input">#1A1A1A</color>
+    <!-- Skeleton/shimmer loading placeholders — dark counterpart of
+         values/colors.xml's skeleton_base/skeleton_highlight, visible
+         against the true-black dark surfaces. -->
+    <color name="skeleton_base">#262626</color>
+    <color name="skeleton_highlight">#3A3A3A</color>
     <!-- FIX (green colour htao) — kept in sync with app/values/colors.xml. -->
     <color name="bar_background">#1E2530</color>
     <color name="bar_on_background">#FFFFFF</color>

@@ -2,10 +2,10 @@
 <!-- Fallback background for item_follow_user.xml's btn_follow_action —
      the real per-state (Follow/Following/Follow Back) color is applied at
      bind time in FollowConnectionsActivity$UserListAdapter#styleBtn(), this
-     is just what's visible before the first bind / while GONE. Pill radius
-     (17dp) matches half the button's 34dp height, same as styleBtn(). -->
+     is just what's visible before the first bind / while GONE. Corner
+     radius (8dp) matches styleBtn() — rounded-rect, not a full pill. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <solid android:color="@color/brand_primary"/>
-    <corners android:radius="17dp"/>
+    <corners android:radius="8dp"/>
 </shape>

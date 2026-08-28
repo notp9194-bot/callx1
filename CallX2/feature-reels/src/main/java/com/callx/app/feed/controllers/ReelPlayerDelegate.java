@@ -96,6 +96,7 @@ public interface ReelPlayerDelegate {
     void openLikesSheet();
     void openSharesSheet();
     void openCommentsSheet();
+    void openCommentsSheetWithCaption();
     void showMoreOptions();
     void copyReelLink();
     void markNotInterested();

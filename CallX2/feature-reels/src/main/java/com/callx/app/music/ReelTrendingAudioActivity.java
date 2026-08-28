@@ -213,9 +213,105 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
                     }
                     adapter.setSavedIds(savedIds);
                     adapter.notifyDataSetChanged();
+                    resolveSavedTracks();
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
+    }
+
+    /**
+     * BUG FIX: a sound saved from SoundDetail (opened from reels/status/many
+     * entry points, not just this screen's own "Trending"/"Sounds" tabs)
+     * could be saved before its full track data was ever loaded into either
+     * allTracks (musicLibrary/) or allSoundsTracks (sounds/) here — the old
+     * "Saved" tab only matched savedIds against allTracks, so anything saved
+     * from a track this screen hadn't already loaded (e.g. an original
+     * sounds/ track, before the user ever opened the "Sounds" tab in this
+     * session) silently never appeared under Saved.
+     *
+     * This resolves every saved id not already present in allTracks or
+     * allSoundsTracks by a direct one-time Firebase read — musicLibrary/{id}
+     * first, then sounds/{id} — and caches the result so the Saved tab shows
+     * every saved sound regardless of which other tabs have loaded so far.
+     */
+    private final Map<String, Audio> resolvedSavedTracks = new HashMap<>();
+
+    private void resolveSavedTracks() {
+        for (String id : savedIds) {
+            if (id == null || id.isEmpty()) continue;
+            if (resolvedSavedTracks.containsKey(id)) continue;
+            boolean alreadyLoaded = false;
+            for (Audio a : allTracks)       if (id.equals(a.id)) { alreadyLoaded = true; break; }
+            if (!alreadyLoaded) for (Audio a : allSoundsTracks) if (id.equals(a.id)) { alreadyLoaded = true; break; }
+            if (alreadyLoaded) continue;
+
+            resolvedSavedTracks.put(id, null); // placeholder — prevents duplicate in-flight reads
+            FirebaseUtils.getMusicLibraryRef().child(id)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        if (snap.exists()) { onSavedTrackResolved(buildAudioFromMusicLibrarySnapshot(snap)); }
+                        else fetchFromSoundsNode(id);
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) { fetchFromSoundsNode(id); }
+                });
+        }
+    }
+
+    private void fetchFromSoundsNode(String id) {
+        FirebaseUtils.db().getReference("sounds").child(id)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    onSavedTrackResolved(snap.exists() ? buildAudioFromSoundsSnapshot(snap) : null);
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) { onSavedTrackResolved(null); }
+            });
+    }
+
+    private void onSavedTrackResolved(Audio audio) {
+        if (isFinishing() || isDestroyed()) return;
+        if (audio != null && audio.id != null) {
+            resolvedSavedTracks.put(audio.id, audio);
+            if ("saved".equals(currentTab)) {
+                filterDisplayed(etSearch != null && etSearch.getText() != null
+                    ? etSearch.getText().toString().trim() : "");
+            }
+        }
+        // null result (track deleted/unreadable) stays as a placeholder so we
+        // don't retry every time resolveSavedTracks() runs again.
+    }
+
+    private Audio buildAudioFromMusicLibrarySnapshot(DataSnapshot s) {
+        Audio a = new Audio();
+        a.id         = s.getKey();
+        a.title      = s.child("title").getValue(String.class);
+        if (a.title == null) a.title = s.child("name").getValue(String.class);
+        a.artist     = s.child("artist").getValue(String.class);
+        a.audioUrl   = s.child("audioUrl").getValue(String.class);
+        a.previewAudioUrl = s.child("previewAudioUrl").getValue(String.class);
+        a.coverUrl   = s.child("coverUrl").getValue(String.class);
+        a.genre      = s.child("genre").getValue(String.class);
+        a.mood       = s.child("mood").getValue(String.class);
+        Long uc      = s.child("usageCount").getValue(Long.class);
+        a.usageCount = uc != null ? uc : 0;
+        Long dur     = s.child("durationMs").getValue(Long.class);
+        a.durationMs = dur != null ? dur : 0;
+        Integer bpmV = s.child("bpm").getValue(Integer.class);
+        a.bpm        = bpmV != null ? bpmV : 0;
+        return a;
+    }
+
+    private Audio buildAudioFromSoundsSnapshot(DataSnapshot s) {
+        Audio a = new Audio();
+        a.id         = s.getKey();
+        a.title      = s.child("title").getValue(String.class);
+        a.artist     = s.child("artist").getValue(String.class);
+        a.audioUrl   = s.child("audioUrl").getValue(String.class);
+        a.previewAudioUrl = s.child("previewAudioUrl").getValue(String.class);
+        a.coverUrl   = s.child("coverUrl").getValue(String.class);
+        a.genre      = "Original";
+        Long rc      = s.child("reel_count").getValue(Long.class);
+        a.usageCount = rc != null ? rc : 0;
+        return a;
     }
 
     /**
@@ -346,6 +442,7 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
         if (indViral    != null) indViral.setVisibility("viral".equals(tab)        ? View.VISIBLE : View.GONE);
         if (indNew      != null) indNew.setVisibility("new".equals(tab)            ? View.VISIBLE : View.GONE);
         if (indSaved    != null) indSaved.setVisibility("saved".equals(tab)        ? View.VISIBLE : View.GONE);
+        if ("saved".equals(tab)) resolveSavedTracks();
         filterDisplayed(etSearch != null && etSearch.getText() != null
             ? etSearch.getText().toString().trim() : "");
     }
@@ -382,8 +479,20 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
                 break;
 
             case "saved":
+                // BUG FIX: previously only matched against allTracks
+                // (musicLibrary/), so a sound saved via SoundDetail whose
+                // full data lived in allSoundsTracks (sounds/) — or hadn't
+                // been loaded into either list at all yet — never showed up
+                // here even though it WAS saved. Now merges all three
+                // sources, keyed by id, so every saved sound resolves.
                 source = new ArrayList<>();
-                for (Audio a : allTracks) if (savedIds.contains(a.id)) source.add(a);
+                Set<String> addedIds = new HashSet<>();
+                for (Audio a : allTracks)
+                    if (savedIds.contains(a.id) && addedIds.add(a.id)) source.add(a);
+                for (Audio a : allSoundsTracks)
+                    if (savedIds.contains(a.id) && addedIds.add(a.id)) source.add(a);
+                for (Audio a : resolvedSavedTracks.values())
+                    if (a != null && savedIds.contains(a.id) && addedIds.add(a.id)) source.add(a);
                 break;
 
             case "sounds": // ✅ Feature 1: user-created original audio from sounds/ node

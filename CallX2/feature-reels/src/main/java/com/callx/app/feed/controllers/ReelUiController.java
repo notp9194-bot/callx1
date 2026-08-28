@@ -877,7 +877,11 @@ public class ReelUiController {
         if (ivMusicDisc != null) ivMusicDisc.setOnClickListener(v -> delegate.openSoundDetail());
         if (ivOwnerAvatar != null) ivOwnerAvatar.setOnClickListener(v -> delegate.openUserReels());
         if (tvOwnerName   != null) tvOwnerName.setOnClickListener(v -> delegate.openUserReels());
-        if (tvCaption     != null) tvCaption.setOnClickListener(v -> showReelDetailsCard());
+        // Instagram parity: tapping the caption/reel-name opens the same
+        // comments bottom sheet as tapping the comment count (docked-video
+        // sheet, video slides up) instead of the old standalone details
+        // card — with the caption/owner row shown at the top of that sheet.
+        if (tvCaption     != null) tvCaption.setOnClickListener(v -> delegate.openCommentsSheetWithCaption());
         if (ivOwnerStoryRing != null) ivOwnerStoryRing.setOnClickListener(v -> delegate.openOwnerStatus());
     }
 

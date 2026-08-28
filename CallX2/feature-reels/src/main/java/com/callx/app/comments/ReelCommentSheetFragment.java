@@ -53,13 +53,28 @@ public class ReelCommentSheetFragment extends BottomSheetDialogFragment {
 
     private static final String ARG_REEL_ID    = "reel_id";
     private static final String ARG_REEL_UID   = "reel_uid";
+    private static final String ARG_CAPTION       = "caption_text";
+    private static final String ARG_OWNER_NAME    = "caption_owner_name";
+    private static final String ARG_OWNER_AVATAR  = "caption_owner_avatar_url";
 
     // ── Factory (same shape as the old ReelCommentsBottomSheet.newInstance) ──
     public static ReelCommentSheetFragment newInstance(String reelId, String reelUid, int commentsCount) {
+        return newInstance(reelId, reelUid, commentsCount, null, null, null);
+    }
+
+    /** Used by the caption-tap entry point (see ReelUiController's tv_caption
+     *  click and ReelShareController.openCommentsSheetWithCaption()) so the
+     *  sheet opens with the reel's caption/owner row visible above the
+     *  comment list, Instagram-style. */
+    public static ReelCommentSheetFragment newInstance(String reelId, String reelUid, int commentsCount,
+                                                          String caption, String ownerName, String ownerAvatarUrl) {
         ReelCommentSheetFragment f = new ReelCommentSheetFragment();
         Bundle b = new Bundle();
         b.putString(ARG_REEL_ID,  reelId  != null ? reelId  : "");
         b.putString(ARG_REEL_UID, reelUid != null ? reelUid : "");
+        b.putString(ARG_CAPTION,      caption        != null ? caption        : "");
+        b.putString(ARG_OWNER_NAME,   ownerName      != null ? ownerName      : "");
+        b.putString(ARG_OWNER_AVATAR, ownerAvatarUrl != null ? ownerAvatarUrl : "");
         f.setArguments(b);
         return f;
     }
@@ -85,9 +100,13 @@ public class ReelCommentSheetFragment extends BottomSheetDialogFragment {
             Bundle b = getArguments() != null ? getArguments() : new Bundle();
             String reelId  = b.getString(ARG_REEL_ID,  "");
             String reelUid = b.getString(ARG_REEL_UID, "");
+            String caption      = b.getString(ARG_CAPTION,      "");
+            String ownerName    = b.getString(ARG_OWNER_NAME,   "");
+            String ownerAvatar  = b.getString(ARG_OWNER_AVATAR, "");
 
             ReelCommentFragment fragment = ReelCommentFragment.newInstance(
-                reelId, reelUid, null /* highlight */, true /* isSheet = true */);
+                reelId, reelUid, null /* highlight */, true /* isSheet = true */,
+                caption, ownerName, ownerAvatar);
             fragment.setOnCloseListener(this::dismiss);
 
             getChildFragmentManager()

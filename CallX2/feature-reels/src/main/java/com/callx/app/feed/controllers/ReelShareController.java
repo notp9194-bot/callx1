@@ -42,26 +42,132 @@ public class ReelShareController {
 
     // ── Download ──────────────────────────────────────────────────────────
 
+    /**
+     * ✅ FIX: text overlays now ride as a live in-app layer (see ReelPlayerFragment /
+     * ReelTextOverlayRenderer) instead of being burned into reel.videoUrl's pixels —
+     * that's what keeps them sharp in-app, but it also means the raw remote file this
+     * used to hand straight to DownloadManager has NO text on it at all. A file that
+     * leaves the app (saved to Gallery, then shared to WhatsApp etc.) can't render
+     * that live layer, so text has to be baked in once here, on the way out — the
+     * same "final bake for export" step Instagram does. Downloads a local copy of
+     * the video first (DownloadManager can't be post-processed), bakes any text
+     * overlays into it with ReelVideoExportEngine, then saves the result to the
+     * gallery. Falls back to the plain (text-less) file if either step fails,
+     * rather than losing the download entirely.
+     */
     public void downloadReel() {
         ReelModel reel = delegate.getReel();
         if (reel == null || reel.videoUrl == null || !delegate.isAdded() || delegate.getContext() == null) return;
-        try {
-            DownloadManager.Request req = new DownloadManager.Request(Uri.parse(reel.videoUrl));
-            req.setTitle("CallX Reel");
-            req.setDescription("Downloading reel…");
-            req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_MOVIES,
-                "callx_reel_" + reel.reelId + ".mp4");
-            req.allowScanningByMediaScanner();
-            DownloadManager dm = (DownloadManager) delegate.requireContext()
-                .getSystemService(Context.DOWNLOAD_SERVICE);
-            if (dm != null) {
-                dm.enqueue(req);
-                Toast.makeText(delegate.requireContext(), "Downloading reel…", Toast.LENGTH_SHORT).show();
+        Context appCtx = delegate.requireContext().getApplicationContext();
+        String reelId = reel.reelId != null ? reel.reelId : String.valueOf(System.currentTimeMillis());
+        String videoUrl = reel.videoUrl;
+        String stickerJson = reel.stickerJson;
+
+        Toast.makeText(delegate.requireContext(), "Preparing reel…", Toast.LENGTH_SHORT).show();
+        android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+
+        new Thread(() -> {
+            File downloaded;
+            try {
+                downloaded = downloadToCacheFile(appCtx, videoUrl, reelId);
+            } catch (Exception e) {
+                mainHandler.post(() -> Toast.makeText(appCtx,
+                    "Download failed: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                return;
             }
+            final File plainFile = downloaded;
+
+            java.util.List<com.callx.app.editor.ReelVideoExportEngine.OverlayItem> textOverlays =
+                com.callx.app.editor.ReelVideoExportEngine.parseTextOnlyOverlays(stickerJson);
+
+            if (textOverlays.isEmpty()) {
+                saveDownloadedFileToGallery(appCtx, plainFile, reelId, mainHandler);
+                return;
+            }
+
+            // Transformer needs a Looper thread — hop back to main to start the bake.
+            mainHandler.post(() -> com.callx.app.editor.ReelVideoExportEngine.export(
+                appCtx, plainFile.getAbsolutePath(), null, 0f, 1f, 1f, textOverlays,
+                new com.callx.app.editor.ReelVideoExportEngine.ExportCallback() {
+                    @Override public void onProgress(int percent) {}
+                    @Override public void onSuccess(String outputPath) {
+                        new Thread(() -> {
+                            saveDownloadedFileToGallery(appCtx, new File(outputPath), reelId, mainHandler);
+                            //noinspection ResultOfMethodCallIgnored
+                            plainFile.delete();
+                        }).start();
+                    }
+                    @Override public void onError(Exception e) {
+                        // Text bake failed — still save the plain download rather than
+                        // losing it entirely.
+                        saveDownloadedFileToGallery(appCtx, plainFile, reelId, mainHandler);
+                    }
+                }));
+        }).start();
+    }
+
+    /** Downloads {@code url} into the app's cache dir. Runs on a background thread. */
+    private File downloadToCacheFile(Context appCtx, String url, String reelId) throws Exception {
+        File outDir = new File(appCtx.getCacheDir(), "reel_downloads");
+        if (!outDir.exists()) //noinspection ResultOfMethodCallIgnored
+            outDir.mkdirs();
+        File out = new File(outDir, "callx_reel_src_" + reelId + "_" + System.currentTimeMillis() + ".mp4");
+        java.net.URL u = new java.net.URL(url);
+        java.net.HttpURLConnection conn = (java.net.HttpURLConnection) u.openConnection();
+        conn.setConnectTimeout(15000);
+        conn.setReadTimeout(30000);
+        try (java.io.InputStream in = conn.getInputStream();
+             java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
+        } finally {
+            conn.disconnect();
+        }
+        return out;
+    }
+
+    /** Copies a finished local video file into the public Gallery/Movies. Runs on a
+     *  background thread; posts the final toast back via {@code mainHandler}. */
+    private void saveDownloadedFileToGallery(Context appCtx, File src, String reelId, android.os.Handler mainHandler) {
+        try {
+            String displayName = "callx_reel_" + reelId + ".mp4";
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                android.content.ContentValues values = new android.content.ContentValues();
+                values.put(android.provider.MediaStore.Video.Media.DISPLAY_NAME, displayName);
+                values.put(android.provider.MediaStore.Video.Media.MIME_TYPE, "video/mp4");
+                values.put(android.provider.MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/CallX");
+                Uri collection = android.provider.MediaStore.Video.Media.getContentUri(
+                    android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY);
+                Uri itemUri = appCtx.getContentResolver().insert(collection, values);
+                if (itemUri == null) throw new java.io.IOException("MediaStore insert failed");
+                try (java.io.OutputStream out = appCtx.getContentResolver().openOutputStream(itemUri);
+                     java.io.FileInputStream in = new java.io.FileInputStream(src)) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                }
+            } else {
+                File moviesDir = new File(Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_MOVIES), "CallX");
+                if (!moviesDir.exists()) //noinspection ResultOfMethodCallIgnored
+                    moviesDir.mkdirs();
+                File dest = new File(moviesDir, displayName);
+                try (java.io.FileInputStream in = new java.io.FileInputStream(src);
+                     java.io.FileOutputStream out = new java.io.FileOutputStream(dest)) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                }
+                android.media.MediaScannerConnection.scanFile(
+                    appCtx, new String[]{dest.getAbsolutePath()}, null, null);
+            }
+            //noinspection ResultOfMethodCallIgnored
+            src.delete();
+            mainHandler.post(() -> Toast.makeText(appCtx, "Reel saved to Gallery", Toast.LENGTH_SHORT).show());
         } catch (Exception e) {
-            Toast.makeText(delegate.requireContext(),
-                "Download failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            mainHandler.post(() -> Toast.makeText(appCtx,
+                "Save failed: " + e.getMessage(), Toast.LENGTH_SHORT).show());
         }
     }
 
@@ -95,6 +201,36 @@ public class ReelShareController {
         if (reel == null || reel.reelId == null || !delegate.isAdded() || delegate.getActivity() == null) return;
         ReelCommentSheetFragment sheet = ReelCommentSheetFragment.newInstance(
             reel.reelId, reel.uid != null ? reel.uid : "", reel.commentsCount);
+        delegate.showBottomSheet(sheet, ReelCommentSheetFragment.TAG);
+    }
+
+    /**
+     * Same comments sheet as openCommentsSheet(), but opened from tapping the
+     * reel's caption/owner name text — the sheet renders with the caption +
+     * owner row visible above the comment list, and (via the existing
+     * ReelCommentSheetFragment video-dock chrome) the reel video docks
+     * upward, matching Instagram's caption-tap behavior.
+     *
+     * PERF: reuses the already-formatted caption string from
+     * ReelUiStateCache (the same cache ReelUiController's bind() reads —
+     * see precomputedCaption there) when available, instead of
+     * re-running ReelModel.safeCaption()'s truncation/sanitization work a
+     * second time for a string the fragment already computed once when it
+     * bound this reel. Falls back to computing it fresh only on a cache
+     * miss (e.g. reel bound before the precompute window reached it).
+     */
+    public void openCommentsSheetWithCaption() {
+        ReelModel reel = delegate.getReel();
+        if (reel == null || reel.reelId == null || !delegate.isAdded() || delegate.getActivity() == null) return;
+        com.callx.app.cache.ReelUiStateCache.State cached =
+            com.callx.app.cache.ReelUiStateCache.get(reel.reelId);
+        String caption = (cached != null && cached.captionText != null)
+            ? cached.captionText
+            : com.callx.app.models.ReelModel.safeCaption(reel.caption != null ? reel.caption : "");
+        ReelCommentSheetFragment sheet = ReelCommentSheetFragment.newInstance(
+            reel.reelId, reel.uid != null ? reel.uid : "", reel.commentsCount,
+            caption, reel.ownerName != null ? reel.ownerName : "",
+            reel.ownerPhoto != null ? reel.ownerPhoto : "");
         delegate.showBottomSheet(sheet, ReelCommentSheetFragment.TAG);
     }
 

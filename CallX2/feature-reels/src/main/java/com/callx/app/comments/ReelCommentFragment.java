@@ -89,6 +89,13 @@ public class ReelCommentFragment extends Fragment {
     private static final String ARG_REEL_UID   = "reel_uid";
     private static final String ARG_HIGHLIGHT  = "highlight_comment_id";
     private static final String ARG_IS_SHEET   = "is_sheet";
+    /** Instagram-style: caption/owner-name row shown above the comment list,
+     *  ONLY when this sheet was opened by tapping the reel's caption/name —
+     *  not when opened via the comment icon/count. Empty caption → header
+     *  stays hidden even if these args are present. */
+    private static final String ARG_CAPTION      = "caption_text";
+    private static final String ARG_OWNER_NAME   = "caption_owner_name";
+    private static final String ARG_OWNER_AVATAR = "caption_owner_avatar_url";
 
     private static final int MAX_COMMENT_LENGTH = 300;
     /** Min gap between two posted comments/replies from this device — blunt
@@ -105,18 +112,35 @@ public class ReelCommentFragment extends Fragment {
 
     public static ReelCommentFragment newInstance(String reelId, String reelUid,
                                                     String highlightCommentId, boolean isSheet) {
+        return newInstance(reelId, reelUid, highlightCommentId, isSheet, null, null, null);
+    }
+
+    /** Overload used when the sheet should open with the reel's
+     *  caption/owner row visible above the comment list (caption-tap entry
+     *  point). Pass null/empty caption for the normal comment-icon entry
+     *  point — the header simply won't render. */
+    public static ReelCommentFragment newInstance(String reelId, String reelUid,
+                                                    String highlightCommentId, boolean isSheet,
+                                                    String caption, String ownerName, String ownerAvatarUrl) {
         ReelCommentFragment f = new ReelCommentFragment();
         Bundle b = new Bundle();
         b.putString(ARG_REEL_ID,  reelId  != null ? reelId  : "");
         b.putString(ARG_REEL_UID, reelUid != null ? reelUid : "");
         b.putString(ARG_HIGHLIGHT, highlightCommentId != null ? highlightCommentId : "");
         b.putBoolean(ARG_IS_SHEET, isSheet);
+        b.putString(ARG_CAPTION,      caption        != null ? caption        : "");
+        b.putString(ARG_OWNER_NAME,   ownerName      != null ? ownerName      : "");
+        b.putString(ARG_OWNER_AVATAR, ownerAvatarUrl != null ? ownerAvatarUrl : "");
         f.setArguments(b);
         return f;
     }
 
     // ── Views ────────────────────────────────────────────────────────────────
     private RecyclerView   rvComments;
+    // Caption header (caption-tap entry point only — see bindCaptionHeader())
+    private String captionText;
+    private String captionOwnerName;
+    private String captionOwnerAvatar;
     private GifAwareCommentEditText etComment;
     private ImageButton    btnSend;
     private ImageButton    btnAttachPhoto;
@@ -125,6 +149,11 @@ public class ReelCommentFragment extends Fragment {
     private ImageButton    btnRemoveImage;
     private ProgressBar    progressImage;
     private TextView       tvEmpty;
+    private CommentSkeletonView skeletonComments;
+    // True once the first comments page (or the empty state) has actually
+    // resolved — used to dismiss skeletonComments exactly once, since
+    // showEmpty() itself keeps re-running on every later refresh.
+    private boolean firstCommentsPageResolved = false;
     private TextView       tvCommentCount;
     private LinearLayout   barReplyingTo;
     private TextView       tvReplyingTo;
@@ -373,9 +402,13 @@ public class ReelCommentFragment extends Fragment {
         reelUid = b.getString(ARG_REEL_UID, "");
         highlightCommentId = b.getString(ARG_HIGHLIGHT, "");
         isSheet = b.getBoolean(ARG_IS_SHEET, false);
+        captionText       = b.getString(ARG_CAPTION,      "");
+        captionOwnerName  = b.getString(ARG_OWNER_NAME,   "");
+        captionOwnerAvatar = b.getString(ARG_OWNER_AVATAR, "");
 
         readCurrentUser();
         bindViews(v);
+        bindCaptionHeader(v);
         setupAdapter();
         setupSortChips();
         setupSearch();
@@ -386,7 +419,7 @@ public class ReelCommentFragment extends Fragment {
         loadMyPhoto();
         restoreDraft();
 
-        if (!reelId.isEmpty()) { loadComments(); listenCommentsCount(); }
+        if (!reelId.isEmpty()) { showCommentsShimmer(); loadComments(); listenCommentsCount(); }
         else showEmpty(true);
         listenBlockedUsers();
 
@@ -411,11 +444,24 @@ public class ReelCommentFragment extends Fragment {
     public void onPause() {
         super.onPause();
         saveDraft();
+        // Stop burning frames on a shader-matrix animation while this
+        // fragment isn't visible (backgrounded app, or another sheet on
+        // top) — resumed in onResume() if the skeleton is still needed.
+        if (skeletonComments != null) skeletonComments.stop();
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (skeletonComments != null && skeletonComments.getVisibility() == View.VISIBLE) {
+            skeletonComments.start();
+        }
     }
 
     @Override
     public void onDestroyView() {
         saveDraft();
+        if (skeletonComments != null) skeletonComments.stop();
         refreshHandler.removeCallbacksAndMessages(null);
         try {
             if (commentsListener != null && commentsQuery != null)
@@ -463,9 +509,74 @@ public class ReelCommentFragment extends Fragment {
         } catch (Exception ignored) {}
     }
 
+    /** Cached target decode size (px) for the caption-header avatar (32dp) —
+     *  computed once per process, mirrors the reshare-thumb optimization
+     *  pattern used in StatusViewerActivity. */
+    private static volatile int sCaptionAvatarPx = 0;
+
+    /** Populates and reveals the caption/owner row above the sort chips —
+     *  only when this instance was opened via the caption-tap entry point
+     *  (non-empty captionText/captionOwnerName), matching Instagram: opening
+     *  the sheet from the comment icon/count never shows this row.
+     *
+     *  Ultra-optimized: the header lives behind a ViewStub in the layout, so
+     *  on the far more common comment-icon/count entry (no caption/owner
+     *  content) this method does a single null-content check and returns —
+     *  zero inflation, zero view lookups, zero Glide setup. The ViewStub is
+     *  only inflated (once — inflate() nulls the stub reference itself)
+     *  when there's actually something to show. */
+    private void bindCaptionHeader(View root) {
+        boolean hasContent = (captionText != null && !captionText.isEmpty())
+                           || (captionOwnerName != null && !captionOwnerName.isEmpty());
+        if (!hasContent) return; // stub never inflated — nothing to hide, nothing allocated
+
+        android.view.ViewStub stub = root.findViewById(R.id.stub_reel_caption_header);
+        View headerRoot = (stub != null) ? stub.inflate() : root.findViewById(R.id.layout_reel_caption_header);
+        if (headerRoot == null) return;
+
+        TextView tvOwner = headerRoot.findViewById(R.id.tv_caption_header_owner);
+        TextView tvText  = headerRoot.findViewById(R.id.tv_caption_header_text);
+        ImageView ivAvatar = headerRoot.findViewById(R.id.iv_caption_header_avatar);
+
+        if (tvOwner != null) tvOwner.setText(captionOwnerName != null ? captionOwnerName : "");
+        if (tvText != null) {
+            if (captionText != null && !captionText.isEmpty()) {
+                tvText.setText(captionText);
+                tvText.setVisibility(View.VISIBLE);
+            } else {
+                tvText.setVisibility(View.GONE);
+            }
+        }
+        if (ivAvatar != null && captionOwnerAvatar != null && !captionOwnerAvatar.isEmpty()) {
+            // Same size-aware decode strategy as StatusViewerActivity's
+            // reshare thumb: decode straight to the 32dp target instead of
+            // full-res, RGB_565 (opaque avatar, no alpha needed), downsample
+            // during decode (not after), and cache the transformed result on
+            // disk so repeat opens of the same reel's sheet skip re-decoding.
+            int px = sCaptionAvatarPx;
+            if (px <= 0) {
+                px = Math.round(32 * getResources().getDisplayMetrics().density);
+                sCaptionAvatarPx = px;
+            }
+            RequestOptions opts = new RequestOptions()
+                .override(px, px)
+                .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
+                .downsample(com.bumptech.glide.load.resource.bitmap.DownsampleStrategy.CENTER_OUTSIDE)
+                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.RESOURCE)
+                .centerCrop()
+                .dontAnimate();
+            Glide.with(this)
+                .load(captionOwnerAvatar)
+                .apply(opts)
+                .priority(com.bumptech.glide.Priority.IMMEDIATE)
+                .into(ivAvatar);
+        }
+    }
+
     private void bindViews(View root) {
         fragmentRoot    = root;
         rvComments      = root.findViewById(R.id.rv_comments);
+        skeletonComments = root.findViewById(R.id.skeleton_comments);
         etComment       = root.findViewById(R.id.et_comment);
         btnSend         = root.findViewById(R.id.btn_send);
         tvEmpty         = root.findViewById(R.id.tv_empty);
@@ -2312,6 +2423,33 @@ public class ReelCommentFragment extends Fragment {
     private void showEmpty(boolean empty) {
         if (rvComments != null) rvComments.setVisibility(empty ? View.GONE : View.VISIBLE);
         if (tvEmpty    != null) tvEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
+        hideCommentsShimmer();
+    }
+
+    /** Starts the skeleton — called once, right before the first Firebase
+     *  listener attaches (loadComments()/showEmpty(true) for a blank
+     *  reelId). Hides the real list/empty-state views underneath so they
+     *  don't show stale/blank content behind the skeleton. */
+    private void showCommentsShimmer() {
+        firstCommentsPageResolved = false;
+        if (skeletonComments != null) {
+            skeletonComments.setVisibility(View.VISIBLE);
+            skeletonComments.start();
+        }
+        if (rvComments != null) rvComments.setVisibility(View.GONE);
+        if (tvEmpty    != null) tvEmpty.setVisibility(View.GONE);
+    }
+
+    /** Stops + hides the skeleton the first time the comments list actually
+     *  resolves (empty or not) — a no-op on every call after that, so later
+     *  refreshes (new comment added, filter changed, etc.) don't re-touch it. */
+    private void hideCommentsShimmer() {
+        if (firstCommentsPageResolved) return;
+        firstCommentsPageResolved = true;
+        if (skeletonComments != null) {
+            skeletonComments.stop();
+            skeletonComments.setVisibility(View.GONE);
+        }
     }
 
     private void updateCountHeader() {

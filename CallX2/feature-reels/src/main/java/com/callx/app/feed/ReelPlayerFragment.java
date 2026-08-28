@@ -621,6 +621,7 @@ public class ReelPlayerFragment extends Fragment
     @Override public void openLikesSheet()      { shareController.openLikesSheet(); }
     @Override public void openSharesSheet()     { shareController.openSharesSheet(); }
     @Override public void openCommentsSheet()   { shareController.openCommentsSheet(); }
+    @Override public void openCommentsSheetWithCaption() { shareController.openCommentsSheetWithCaption(); }
     @Override public void showMoreOptions()     { shareController.showMoreOptions(); }
     @Override public void copyReelLink()        { shareController.copyReelLink(); }
     @Override public void markNotInterested()   { shareController.markNotInterested(); }
@@ -920,22 +921,49 @@ public class ReelPlayerFragment extends Fragment
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 android.view.Gravity.TOP | android.view.Gravity.START);
             tv.setLayoutParams(lp);
+
+            // ✅ Measure synchronously against the FULL text (before it's cleared for
+            // the animation replay below) so the position we compute uses the final
+            // width/height — not whatever a live layout pass would capture partway
+            // through a typewriter/word reveal, which would anchor the view off the
+            // near-empty starting text instead.
+            int wSpec = View.MeasureSpec.makeMeasureSpec(
+                layer.getWidth() > 0 ? layer.getWidth() : 2000, View.MeasureSpec.AT_MOST);
+            int hSpec = View.MeasureSpec.makeMeasureSpec(
+                layer.getHeight() > 0 ? layer.getHeight() : 2000, View.MeasureSpec.AT_MOST);
+            tv.measure(wSpec, hSpec);
+            final int measuredW = tv.getMeasuredWidth();
+            final int measuredH = tv.getMeasuredHeight();
+
             layer.addView(tv);
 
-            // x/y are the CENTER of the text block as a fraction of the layer's
-            // size (see ReelEditorActivity#mergeTextOverlaysIntoStickerJson) — a
-            // WRAP_CONTENT view has no measured size yet, so shift it into place
-            // via translationX/Y once its first layout pass reports one.
+            // x/y are the CENTER of the text block as a fraction of the layer's size
+            // (see ReelEditorActivity#mergeTextOverlaysIntoStickerJson).
             final float xFrac = item.x, yFrac = item.y;
-            tv.getViewTreeObserver().addOnGlobalLayoutListener(
-                new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
-                    @Override public void onGlobalLayout() {
-                        if (tv.getWidth() == 0 || layer.getWidth() == 0 || layer.getHeight() == 0) return;
-                        tv.setTranslationX(xFrac * layer.getWidth()  - tv.getWidth()  / 2f);
-                        tv.setTranslationY(yFrac * layer.getHeight() - tv.getHeight() / 2f);
-                        tv.getViewTreeObserver().removeOnGlobalLayoutListener(this);
-                    }
-                });
+            if (layer.getWidth() > 0 && layer.getHeight() > 0) {
+                tv.setTranslationX(xFrac * layer.getWidth()  - measuredW / 2f);
+                tv.setTranslationY(yFrac * layer.getHeight() - measuredH / 2f);
+            } else {
+                // Layer itself isn't measured yet (rare) — position once it is.
+                tv.getViewTreeObserver().addOnGlobalLayoutListener(
+                    new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                        @Override public void onGlobalLayout() {
+                            if (layer.getWidth() == 0 || layer.getHeight() == 0) return;
+                            tv.setTranslationX(xFrac * layer.getWidth()  - measuredW / 2f);
+                            tv.setTranslationY(yFrac * layer.getHeight() - measuredH / 2f);
+                            tv.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                        }
+                    });
+            }
+
+            // ✅ NEW: replay the typewriter/word-reveal text-in animation live at
+            // playback (previously only ever played once, in the editor's own
+            // preview — every viewer just saw static finished text). Position is
+            // already locked in above using the full-text measurement, so this is
+            // safe to clear/reveal without shifting anything.
+            if (tv instanceof android.widget.TextView) {
+                com.callx.app.editor.ReelTextOverlayRenderer.playAnimation((android.widget.TextView) tv, item);
+            }
         } catch (Exception ignored) {}
     }
 

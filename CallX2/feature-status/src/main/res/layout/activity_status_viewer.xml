@@ -76,7 +76,10 @@
               android:orientation="horizontal"
               android:background="@drawable/bg_reshare_card"
               android:padding="10dp"
-              android:gravity="center_vertical">
+              android:gravity="center_vertical"
+              android:clickable="true"
+              android:focusable="true"
+              android:foreground="?attr/selectableItemBackground">
 
               <ImageView
                   android:id="@+id/iv_reshare_thumb"
