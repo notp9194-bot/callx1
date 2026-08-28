@@ -753,71 +753,196 @@ package com.callx.app.profile;
           ReelModel r = displayList.get(idx);
 
           if (r.thumbUrl != null && !r.thumbUrl.isEmpty()) {
-              android.os.Trace.beginSection("ReelGridAdapter.glideRequestSetup");
-              try {
-                  String gridUrl = CloudinaryUploader.deriveThumbUrl(r.thumbUrl, gridThumbSize, "webp");
-                  String blurUrl = CloudinaryUploader.deriveThumbUrl(r.thumbUrl, BLUR_THUMB_SIZE, "webp");
-                  Drawable blurPlaceholder = blurHashPlaceholder(r.blurHash);
-                  glideRequests
-                          .load(gridUrl)
-                          .thumbnail(glideRequests.load(blurUrl).apply(GRID_OPTIONS))
-                          .apply(GRID_OPTIONS)
-                          .placeholder(blurPlaceholder != null ? blurPlaceholder : context.getDrawable(R.drawable.ic_reels))
-                          .into(h.ivThumb);
-              } finally {
-                  android.os.Trace.endSection();
+              // Ultra: the single biggest per-bind cost in this holder —
+              // two deriveThumbUrl() string builds plus the entire Glide
+              // .load().thumbnail().apply().placeholder().into() chain —
+              // was re-running on EVERY bind, including rebinds that have
+              // nothing to do with the image itself (like-count ticks,
+              // watched-state, selection-mode, DiffUtil payload updates).
+              // The thumbnail this holder's ImageView is already showing is
+              // still correct in all of those cases, since it was set by
+              // the last bind for this exact same thumbUrl and nothing
+              // clears it in between (onViewRecycled doesn't touch the
+              // image). So: skip the whole chain when this holder's
+              // last-loaded thumbUrl hasn't changed, and only pay for it
+              // again on a genuine recycle onto a different reel/image.
+              if (!r.thumbUrl.equals(h.lastThumbUrl)) {
+                  h.lastThumbUrl = r.thumbUrl;
+                  android.os.Trace.beginSection("ReelGridAdapter.glideRequestSetup");
+                  try {
+                      String gridUrl = CloudinaryUploader.deriveThumbUrl(r.thumbUrl, gridThumbSize, "webp");
+                      String blurUrl = CloudinaryUploader.deriveThumbUrl(r.thumbUrl, BLUR_THUMB_SIZE, "webp");
+                      Drawable blurPlaceholder = blurHashPlaceholderFor(h, r.blurHash);
+                      glideRequests
+                              .load(gridUrl)
+                              .thumbnail(glideRequests.load(blurUrl).apply(GRID_OPTIONS))
+                              .apply(GRID_OPTIONS)
+                              .placeholder(blurPlaceholder != null ? blurPlaceholder : context.getDrawable(R.drawable.ic_reels))
+                              .into(h.ivThumb);
+                  } finally {
+                      android.os.Trace.endSection();
+                  }
               }
-          } else h.ivThumb.setImageResource(R.drawable.ic_reels);
+          } else {
+              h.lastThumbUrl = null;
+              h.ivThumb.setImageResource(R.drawable.ic_reels);
+          }
 
-          if (h.tvCaption != null) {
-              boolean has = r.caption != null && !r.caption.trim().isEmpty();
-              h.tvCaption.setText(has ? r.caption.trim() : "");
-              h.tvCaption.setVisibility(has ? View.VISIBLE : View.GONE);
-          }
+          // Ultra: tv_caption doesn't exist in item_saved_reel.xml (only
+          // fragment_reel_player.xml has that id) — h.tvCaption was always
+          // null here, so this whole block was permanently dead code, not
+          // just a redundant call. Removed along with the field/lookup
+          // below (ReelVH.tvCaption / findViewById(R.id.tv_caption)).
           // Instagram-style: the Posts tab (photo-only, square grid) shows
-          // neither the play affordance nor the views-count pill — those are
-          // video-only signals and would sit oddly on a plain photo cell.
-          if (h.ivPlayOverlay != null) {
-              h.ivPlayOverlay.setVisibility(h.isPost ? View.GONE : View.VISIBLE);
-          }
-          if (h.tvViewsOverlay != null) {
-              if (h.isPost) {
-                  h.tvViewsOverlay.setVisibility(View.GONE);
-              } else {
-                  h.tvViewsOverlay.setText(formatCount(Math.max(r.viewsCount, 0)));
-                  h.tvViewsOverlay.setVisibility(View.VISIBLE);
+          // neither the play affordance nor the views-count pill — those
+          // are video-only signals and would sit oddly on a plain photo
+          // cell. Both ivPlayOverlay's and tvViewsOverlay's visibility are
+          // now set once in ReelVH's constructor instead of here (isPost is
+          // fixed per holder, so GONE-for-post/VISIBLE-for-reel never needs
+          // to be re-applied on later binds — only the views *text* below
+          // still needs a per-bind update, since the count itself changes).
+          if (h.tvViewsOverlay != null && !h.isPost) {
+              // Ultra: same rebind-skip pattern as the carousel badge —
+              // viewsCount rarely changes between rebinds (like/watch/
+              // selection updates don't touch it), so re-running
+              // formatCount() + setText() every time is wasted work.
+              int views = Math.max(r.viewsCount, 0);
+              if (h.lastViewsCount != views) {
+                  h.lastViewsCount = views;
+                  h.tvViewsOverlay.setText(formatCount(views));
               }
           }
+          // Ultra: same last-state-skip pattern as the selection overlays
+          // below — justWatched is derived from a Set#contains() check
+          // that resolves to the same VISIBLE/GONE result on almost every
+          // rebind of this holder, so only touch the two views when the
+          // resolved visibility actually flips.
           boolean justWatched = r.reelId != null && watchedReelIds.contains(r.reelId);
-          if (h.viewWatchedScrim != null) h.viewWatchedScrim.setVisibility(justWatched ? View.VISIBLE : View.GONE);
-          if (h.tvJustWatched != null)    h.tvJustWatched.setVisibility(justWatched ? View.VISIBLE : View.GONE);
-          // Carousel indicator — Instagram-style stack icon for reels backed
-          // by more than one photo/clip (r.photoUrls has 2+ entries).
-          if (h.ivStackIndicator != null) {
-              boolean isCarousel = r.photoUrls != null && r.photoUrls.size() > 1;
-              h.ivStackIndicator.setVisibility(isCarousel ? View.VISIBLE : View.GONE);
+          int watchedVis = justWatched ? View.VISIBLE : View.GONE;
+          if (h.viewWatchedScrim != null && h.lastWatchedScrimVis != watchedVis) {
+              h.viewWatchedScrim.setVisibility(watchedVis);
+              h.lastWatchedScrimVis = watchedVis;
+          }
+          if (h.tvJustWatched != null && h.lastJustWatchedVis != watchedVis) {
+              h.tvJustWatched.setVisibility(watchedVis);
+              h.lastJustWatchedVis = watchedVis;
+          }
+          // Carousel indicator — "+N" total-photo-count badge (Instagram-
+          // style, top-right) for reels backed by more than one photo/clip
+          // (r.photoUrls has 2+ entries). Same badge used on both the 9:16
+          // Reels cell and the square Posts cell now — the old plain stack
+          // icon (iv_stack_indicator) is retired in favor of this, since the
+          // count tells the viewer more than a generic "multiple items" glyph.
+          // Ultra: iv_stack_indicator is retired in favor of tv_carousel_count
+          // (below) and its layout default is already visibility="gone" —
+          // this used to force-set GONE on every single bind for no reason
+          // (the view is never set VISIBLE anywhere in this holder type).
+          // Removed entirely; ivStackIndicator itself is left wired in
+          // ReelVH only because bindPinned()'s separate PinnedVH type still
+          // uses its own iv_pinned_stack_indicator actively.
+          if (h.tvCarouselCount != null) {
+              // Ultra: this cell rebinds constantly for reasons that have
+              // nothing to do with the photo count (like-count ticks,
+              // watched-state toggles, selection-mode changes, DiffUtil
+              // payload updates) — most of those rebinds would otherwise
+              // redo a "+" + size() concat and a setText()/setVisibility()
+              // pass for a value that hasn't actually changed. Compare
+              // against what's already showing on this recycled holder and
+              // skip both calls entirely when nothing moved; when it did,
+              // pull the digit string from a precomputed small-int cache
+              // instead of concatenating a fresh String every time.
+              int count = (r.photoUrls != null && r.photoUrls.size() > 1) ? r.photoUrls.size() : 0;
+              if (h.lastCarouselCount != count) {
+                  h.lastCarouselCount = count;
+                  if (count > 0) {
+                      h.tvCarouselCount.setText(carouselCountText(count));
+                      h.tvCarouselCount.setVisibility(View.VISIBLE);
+                  } else {
+                      h.tvCarouselCount.setVisibility(View.GONE);
+                  }
+              }
           }
           // Shared-element transition name — lets UserReelsActivity open
           // SingleReelPlayerActivity with a scale-up "pinch zoom" reveal
-          // anchored to exactly this thumbnail (see openPlayerAt()).
-          if (r.reelId != null) {
+          // anchored to exactly this thumbnail (see openPlayerAt()). Ultra:
+          // reelId never changes across a holder's rebinds (only on real
+          // recycle onto a different reel), so gate both the "+" concat and
+          // the setTransitionName() call behind an equality check instead
+          // of redoing them on every single bind regardless of transitions
+          // even being in play for that bind.
+          if (r.reelId != null && !r.reelId.equals(h.lastTransitionReelId)) {
+              h.lastTransitionReelId = r.reelId;
               androidx.core.view.ViewCompat.setTransitionName(h.ivThumb, "reel_thumb_" + r.reelId);
           }
           if (h.tvDuration != null) {
-              if (r.duration > 0) {
-                  int s=(r.duration/1000)%60, m=r.duration/60000;
-                  h.tvDuration.setText(String.format(Locale.getDefault(),"%d:%02d",m,s));
-                  h.tvDuration.setVisibility(View.VISIBLE);
-              } else h.tvDuration.setVisibility(View.GONE);
+              // Ultra: same last-state-skip pattern as the selection/
+              // watched overlays — setText() was already gated above via
+              // lastDurationMs, but setVisibility(VISIBLE) still ran
+              // unconditionally on every bind of every video cell (the
+              // vast majority of cells) regardless of whether it was
+              // already VISIBLE. Gate it the same way.
+              int durationVis = r.duration > 0 ? View.VISIBLE : View.GONE;
+              if (durationVis == View.VISIBLE && h.lastDurationMs != r.duration) {
+                  h.lastDurationMs = r.duration;
+                  h.tvDuration.setText(formatDuration(r.duration));
+              } else if (durationVis == View.GONE) {
+                  h.lastDurationMs = -1;
+              }
+              if (h.lastDurationVis != durationVis) {
+                  h.lastDurationVis = durationVis;
+                  h.tvDuration.setVisibility(durationVis);
+              }
           }
 
+          // Ultra: GONE→GONE was already a cheap no-op inside Android's own
+          // View.setVisibility() (it early-exits when the flag doesn't
+          // change), but the VISIBLE↔INVISIBLE toggle here didn't have that
+          // for free — multiSelectMode/sel is recomputed and re-applied on
+          // every single bind of every cell even when nothing about this
+          // holder's selection state actually moved. Track what's already
+          // showing on this holder and only call setVisibility() when the
+          // resolved value differs from last time.
           boolean sel = multiSelectMode && Boolean.TRUE.equals(selectedPositions.get(position));
-          if (h.viewSelectOverlay != null) h.viewSelectOverlay.setVisibility(multiSelectMode ? (sel ? View.VISIBLE : View.INVISIBLE) : View.GONE);
-          if (h.ivCheckmark      != null) h.ivCheckmark.setVisibility(multiSelectMode ? (sel ? View.VISIBLE : View.INVISIBLE) : View.GONE);
-          if (h.viewDimOverlay   != null) h.viewDimOverlay.setVisibility(multiSelectMode ? View.VISIBLE : View.GONE);
+          int selectOverlayVis = multiSelectMode ? (sel ? View.VISIBLE : View.INVISIBLE) : View.GONE;
+          int checkmarkVis     = selectOverlayVis; // same tri-state resolution as the overlay
+          int dimOverlayVis    = multiSelectMode ? View.VISIBLE : View.GONE;
+          if (h.viewSelectOverlay != null && h.lastSelectOverlayVis != selectOverlayVis) {
+              h.viewSelectOverlay.setVisibility(selectOverlayVis);
+              h.lastSelectOverlayVis = selectOverlayVis;
+          }
+          if (h.ivCheckmark != null && h.lastCheckmarkVis != checkmarkVis) {
+              h.ivCheckmark.setVisibility(checkmarkVis);
+              h.lastCheckmarkVis = checkmarkVis;
+          }
+          if (h.viewDimOverlay != null && h.lastDimOverlayVis != dimOverlayVis) {
+              h.viewDimOverlay.setVisibility(dimOverlayVis);
+              h.lastDimOverlayVis = dimOverlayVis;
+          }
 
-          h.itemView.setOnClickListener(v -> { if (clickListener != null) clickListener.onItemClick(holder.getAdapterPosition()); });
-          wireItemInteractions(holder, h.ivDoubleTapHeart);
+          // Ultra: this listener's only job is to forward a click to
+          // clickListener.onItemClick(currentAdapterPosition) — it doesn't
+          // capture position at bind time, it reads getAdapterPosition()
+          // fresh at click time, so the same lambda instance stays correct
+          // across every future rebind of this holder no matter what
+          // position it gets recycled onto. Allocating a fresh lambda on
+          // every single bind (of every cell, every scroll frame) was pure
+          // waste; set it once per holder instead.
+          if (!h.clickListenerSet) {
+              h.clickListenerSet = true;
+              h.itemView.setOnClickListener(v -> { if (clickListener != null) clickListener.onItemClick(h.getAdapterPosition()); });
+          }
+          // Ultra: wireItemInteractions() below allocates a PeekState object
+          // AND an anonymous View.OnTouchListener instance, plus does a
+          // setTag() + setOnTouchListener() pair — the biggest per-bind
+          // allocation cost in this holder. Everything it captures (holder,
+          // itemView, heartOverlay) is the exact same object on every
+          // future rebind of this same recycled holder, so — like the
+          // click listener above — wiring it once per holder and never
+          // again is correct, not just faster.
+          if (!h.interactionsWired) {
+              h.interactionsWired = true;
+              wireItemInteractions(holder, h.ivDoubleTapHeart);
+          }
       }
 
       private void bindPinned(PinnedVH h) {
@@ -854,13 +979,54 @@ package com.callx.app.profile;
               h.tvJustWatched.setVisibility(justWatched ? View.VISIBLE : View.GONE);
           }
           h.itemView.setOnClickListener(v -> { if (clickListener != null) clickListener.onItemClick(0); });
-          wireItemInteractions(h, h.ivDoubleTapHeart);
+          if (!h.interactionsWired) {
+              h.interactionsWired = true;
+              wireItemInteractions(h, h.ivDoubleTapHeart);
+          }
       }
 
-      private String formatCount(int n) {
-          if (n>=1_000_000) return String.format(Locale.getDefault(),"%.1fM",n/1_000_000f);
-          if (n>=1_000)     return String.format(Locale.getDefault(),"%.1fK",n/1_000f);
+      // Ultra: precomputed "+N" text for the carousel badge (N = 1..99,
+      // realistically the entire real-world range for a photo carousel).
+      // Grid cells rebind far more often than the underlying photo count
+      // ever changes, so sharing one String per count instead of
+      // concatenating "+" + size() on every bind removes a per-bind
+      // allocation from the hot RecyclerView scroll path. Built once,
+      // statically, at class-load — not per-adapter-instance.
+      private static final int CAROUSEL_COUNT_CACHE_SIZE = 100;
+      private static final String[] CAROUSEL_COUNT_CACHE = new String[CAROUSEL_COUNT_CACHE_SIZE];
+      static {
+          for (int i = 0; i < CAROUSEL_COUNT_CACHE_SIZE; i++) CAROUSEL_COUNT_CACHE[i] = "+" + i;
+      }
+      private static String carouselCountText(int count) {
+          return (count > 0 && count < CAROUSEL_COUNT_CACHE_SIZE) ? CAROUSEL_COUNT_CACHE[count] : ("+" + count);
+      }
+
+      private static String formatCount(int n) {
+          // Ultra: avoids java.util.Formatter — String.format() parses the
+          // "%.1fK"-style pattern and does a Locale lookup on every single
+          // call, which is a lot of overhead for two decimal digits and a
+          // suffix char. Manual rounding + concat produces the identical
+          // output without any of that.
+          if (n >= 1_000_000) return formatScaled(n, 1_000_000, 'M');
+          if (n >= 1_000)     return formatScaled(n, 1_000, 'K');
           return String.valueOf(n);
+      }
+
+      private static String formatScaled(int n, int unit, char suffix) {
+          int tenths = Math.round(n * 10f / unit); // same rounding as the old "%.1f"
+          int whole = tenths / 10, frac = tenths % 10;
+          return whole + "." + frac + suffix;
+      }
+
+      private static String formatDuration(int durationMs) {
+          // Ultra: same reasoning as formatScaled() above — String.format
+          // with "%d:%02d" goes through Formatter/Locale for a fixed
+          // mm:ss shape that a plain StringBuilder can produce directly.
+          int totalSec = durationMs / 1000;
+          int m = totalSec / 60, s = totalSec % 60;
+          StringBuilder sb = new StringBuilder(5).append(m).append(':');
+          if (s < 10) sb.append('0');
+          return sb.append(s).toString();
       }
 
       /**
@@ -877,6 +1043,35 @@ package com.callx.app.profile;
               blurHashCache.put(blurHash, cached);
           }
           return new BitmapDrawable(context.getResources(), cached);
+      }
+
+      /**
+       * Ultra: per-holder wrapper around blurHashPlaceholder() above. The
+       * Bitmap itself was already cached (blurHashCache), but a fresh
+       * BitmapDrawable wrapper was still being allocated on every bind even
+       * when this exact holder was just showing the same blurHash a moment
+       * ago (e.g. rebound for a like/watched/selection change unrelated to
+       * the image). Reusing this holder's own previous Drawable instance
+       * across such consecutive binds is safe because it's confined to
+       * this one ImageView — never handed to a second View at the same
+       * time — unlike caching one shared Drawable instance across
+       * *different* holders, which would corrupt each other's bounds when
+       * drawn at different cell sizes (square Posts cell vs 9:16 Reels
+       * cell) since Drawable bounds are per-instance mutable state.
+       */
+      private Drawable blurHashPlaceholderFor(ReelVH h, String blurHash) {
+          if (blurHash == null || blurHash.isEmpty()) {
+              h.lastBlurHashKey = null;
+              h.lastBlurPlaceholder = null;
+              return null;
+          }
+          if (blurHash.equals(h.lastBlurHashKey) && h.lastBlurPlaceholder != null) {
+              return h.lastBlurPlaceholder;
+          }
+          Drawable d = blurHashPlaceholder(blurHash);
+          h.lastBlurHashKey = blurHash;
+          h.lastBlurPlaceholder = d;
+          return d;
       }
 
       @Override public void onViewAttachedToWindow(@NonNull RecyclerView.ViewHolder holder) {
@@ -939,19 +1134,57 @@ package com.callx.app.profile;
 
       static class ReelVH extends RecyclerView.ViewHolder {
           ImageView ivThumb, ivCheckmark, ivStackIndicator, ivDoubleTapHeart, ivPlayOverlay;
-          TextView tvDuration, tvViewsOverlay, tvCaption, tvJustWatched;
+          TextView tvDuration, tvViewsOverlay, tvJustWatched, tvCarouselCount;
           View viewSelectOverlay, viewDimOverlay, viewWatchedScrim;
           // true when this holder is currently bound as a square Posts-tab
           // cell (TYPE_POST) rather than the 9:16 Reels cell (TYPE_REEL) —
           // set once at creation since a holder never changes type without
           // being torn down/recreated by RecyclerView.
           final boolean isPost;
+          // Ultra: last thumbUrl this holder's Glide chain was actually
+          // issued for — see bindViewHolderInternal(). null means "never
+          // bound to an image yet".
+          String lastThumbUrl = null;
+          // Ultra: guards the one-time setOnClickListener() below — see
+          // bindViewHolderInternal().
+          boolean clickListenerSet = false;
+          // Ultra: guards the one-time wireItemInteractions() call — see
+          // bindViewHolderInternal(). Same holder = same PeekState +
+          // OnTouchListener forever.
+          boolean interactionsWired = false;
+          // Ultra: last-applied visibility for the "just watched" scrim +
+          // label — -1 sentinel means "never bound".
+          int lastWatchedScrimVis = -1;
+          int lastJustWatchedVis = -1;
+          // Ultra: last photo-count actually rendered into tvCarouselCount
+          // on this (recycled) holder — -1 means "never bound yet" so the
+          // very first bind always runs. See bindViewHolderInternal().
+          int lastCarouselCount = -1;
+          // Ultra: same rebind-skip idea for views-count and duration —
+          // -1 means "never bound", so the first real bind always runs.
+          int lastViewsCount = -1;
+          int lastDurationMs = -1;
+          // Ultra: last-applied visibility for tv_duration — see the
+          // gating block in bindViewHolderInternal().
+          int lastDurationVis = -1;
+          String lastTransitionReelId = null;
+          // Ultra: per-holder BlurHash placeholder cache — see
+          // blurHashPlaceholderFor(). Confined to this holder only, never
+          // shared across holders.
+          String lastBlurHashKey = null;
+          Drawable lastBlurPlaceholder = null;
+          // Ultra: last-applied visibility for the three selection-mode
+          // overlays — -1 sentinel means "never bound", so the first real
+          // bind always applies. See bindViewHolderInternal().
+          int lastSelectOverlayVis = -1;
+          int lastCheckmarkVis = -1;
+          int lastDimOverlayVis = -1;
           ReelVH(@NonNull View v) { this(v, false); }
           ReelVH(@NonNull View v, boolean isPost) {
               super(v);
               this.isPost = isPost;
               ivThumb=v.findViewById(R.id.iv_thumb); tvDuration=v.findViewById(R.id.tv_duration);
-              tvViewsOverlay=v.findViewById(R.id.tv_views_overlay); tvCaption=v.findViewById(R.id.tv_caption);
+              tvViewsOverlay=v.findViewById(R.id.tv_views_overlay);
               viewSelectOverlay=v.findViewById(R.id.view_select_overlay);
               viewDimOverlay=v.findViewById(R.id.view_dim_overlay);
               viewWatchedScrim=v.findViewById(R.id.view_watched_scrim);
@@ -960,10 +1193,31 @@ package com.callx.app.profile;
               ivStackIndicator=v.findViewById(R.id.iv_stack_indicator);
               ivDoubleTapHeart=v.findViewById(R.id.iv_double_tap_heart);
               ivPlayOverlay=v.findViewById(R.id.iv_play_overlay);
+              tvCarouselCount=v.findViewById(R.id.tv_carousel_count);
+              // Ultra: isPost never changes for the lifetime of this
+              // holder (a holder is never re-typed between Posts/Reels —
+              // see the isPost field doc above), so this visibility is a
+              // one-time constant, not something to redo on every bind.
+              // Was previously set unconditionally inside
+              // bindViewHolderInternal() on every single bind.
+              if (ivPlayOverlay != null) {
+                  ivPlayOverlay.setVisibility(isPost ? View.GONE : View.VISIBLE);
+              }
+              // Ultra: same reasoning as ivPlayOverlay above — the views
+              // pill is GONE for Posts cells / VISIBLE for Reels cells,
+              // period, for this holder's whole life. Only the *text*
+              // inside it still needs a per-bind update (see
+              // bindViewHolderInternal) since the view count itself
+              // changes; the show/hide state never does.
+              if (tvViewsOverlay != null) {
+                  tvViewsOverlay.setVisibility(isPost ? View.GONE : View.VISIBLE);
+              }
           }
       }
       static class PinnedVH extends RecyclerView.ViewHolder {
           ImageView ivThumb, ivStackIndicator, ivDoubleTapHeart; TextView tvDuration, tvCaption, tvLikes, tvComments, tvViews, tvJustWatched;
+          // Ultra: same one-time-wiring guard as ReelVH.interactionsWired.
+          boolean interactionsWired = false;
           PinnedVH(@NonNull View v) {
               super(v);
               ivThumb=v.findViewById(R.id.iv_pinned_thumb); tvDuration=v.findViewById(R.id.tv_pinned_duration);

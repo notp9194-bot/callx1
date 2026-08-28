@@ -91,13 +91,42 @@
           android:background="@drawable/circle_primary"
           android:padding="3dp" android:contentDescription="Selected" android:visibility="gone"/>
       <!-- Multi-image/clip carousel indicator (Instagram-style stack icon,
-           top-right) — shown when the reel has more than one photoUrls entry. -->
+           top-right) — shown when the reel has more than one photoUrls entry.
+           Used for the 9:16 Reels-tab cell. -->
       <ImageView android:id="@+id/iv_stack_indicator"
           android:layout_width="16dp" android:layout_height="16dp"
            android:layout_gravity="top|start"
            android:layout_marginTop="36dp" android:layout_marginStart="10dp"
           android:src="@drawable/ic_carousel_stack"
           android:contentDescription="Multiple items"
+          android:visibility="gone"/>
+      <!-- Photo-count badge ("+N", top-right) — Posts-tab (square) cell
+           equivalent of iv_stack_indicator above: shows the TOTAL number of
+           photos in a multi-photo post so the viewer knows how many there
+           are before opening it, instead of just a generic "multiple items"
+           icon. Only used when the bound cell is a square Posts cell (see
+           ReelGridAdapter#bindViewHolderInternal — h.isPost). -->
+      <TextView
+          android:id="@+id/tv_carousel_count"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:layout_gravity="top|end"
+          android:layout_marginTop="6dp"
+          android:layout_marginEnd="6dp"
+          android:background="@drawable/bg_reel_views_pill"
+          android:gravity="center"
+          android:minHeight="16dp"
+          android:paddingStart="5dp"
+          android:paddingEnd="5dp"
+          android:paddingTop="1.5dp"
+          android:paddingBottom="1.5dp"
+          android:singleLine="true"
+          android:includeFontPadding="false"
+          android:textColor="@color/reel_grid_views_text"
+          android:textSize="10sp"
+          android:textStyle="bold"
+          android:fontFamily="sans-serif-medium"
+          android:contentDescription="Photo count"
           android:visibility="gone"/>
       <!-- Double-tap-to-like burst — Instagram-style big heart, center of
            cell, hidden until ReelGridAdapter#playDoubleTapHeart() fires it. -->

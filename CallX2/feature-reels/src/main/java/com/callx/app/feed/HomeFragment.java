@@ -431,6 +431,24 @@ public class HomeFragment extends Fragment {
     private Set<String>      cachedSavedIds      = new HashSet<>();
     private String           cachedMyUidForFeed  = null;
     private final Set<String> renderedReelIds    = new HashSet<>();
+
+    /**
+     * PERF cache — built caption SpannableStrings (hashtag ClickableSpans
+     * already parsed/attached), keyed by reelId. See addFeedPostCard()'s
+     * caption block for why this exists: a plain field-read/reuse instead
+     * of re-running the hashtag regex + re-allocating a ClickableSpan per
+     * hashtag on every single bind. Bounded LRU (access-order) so a long
+     * scroll session across a big feed can't grow this unboundedly — same
+     * sizing/eviction pattern as ReelUiStateCache's own MAX_ENTRIES cap.
+     */
+    private static final int CAPTION_SPANNABLE_CACHE_MAX = 64;
+    private final LinkedHashMap<String, android.text.SpannableString> captionSpannableCache =
+        new LinkedHashMap<String, android.text.SpannableString>(CAPTION_SPANNABLE_CACHE_MAX, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, android.text.SpannableString> eldest) {
+                return size() > CAPTION_SPANNABLE_CACHE_MAX;
+            }
+        };
     private View             feedLoadMoreFooter  = null;
     private View             newPostsBanner      = null;
     private int               newPostsPending     = 0;
@@ -3940,7 +3958,39 @@ public class HomeFragment extends Fragment {
         // currentFeedPosts — kept as a local so every closure below (scrub
         // bar, tap/hold listeners, menu actions) needs no further changes.
         final int cardIndex = postIndex;
-        HomeFeedCard feedCard = new HomeFeedCard();
+        ensureFeedCardsCapacity(cardIndex + 1);
+        // ★ PERF: this used to be `new HomeFeedCard()` on every single bind —
+        // reuse the existing card object at this index when one's already
+        // there (the overwhelmingly common case: a rebind of the same slot,
+        // e.g. notifyItemChanged() after a like/follow tap, or the same row
+        // scrolling back into view) instead of throwing the old one away.
+        // Every field below is still explicitly reassigned exactly as
+        // before, so this is a pure allocation-avoidance change — nothing
+        // about what the card ends up holding is different. The playback
+        // -state fields (firstFrameRevealed, resumeSeekTargetMs, etc.) are
+        // reset to their fresh-card defaults explicitly, since a reused
+        // object could otherwise carry stale state left over from whichever
+        // reel previously occupied this slot.
+        HomeFeedCard feedCard = feedCards.get(cardIndex);
+        if (feedCard == null) {
+            feedCard = new HomeFeedCard();
+        } else if (!java.util.Objects.equals(feedCard.reelId, reel.reelId)) {
+            // Reused object is being repurposed for a DIFFERENT reel than
+            // whatever last occupied this slot — clear playback state so
+            // nothing stale (a PTS gate, a scrub-drag flag, a resume seek
+            // target) leaks from the old reel into the new one. If it's the
+            // SAME reel rebinding (e.g. notifyItemChanged() from a like tap
+            // while this card is actively playing), leave this state alone —
+            // resetting it here would reset an in-progress PTS gate or
+            // interrupt an active scrub for no reason.
+            feedCard.firstFrameRevealed = false;
+            feedCard.firstFramePtsGatePending = false;
+            feedCard.resumeSeekTargetMs = 0L;
+            feedCard.firstFrameGateStartMs = 0L;
+            feedCard.isScrubbing = false;
+            feedCard.resumePending = false;
+            feedCard.speedBoosted = false;
+        }
         feedCard.rootView   = card;
         feedCard.playerView = pvFeed;
         feedCard.thumbView  = ivThumb;
@@ -3953,7 +4003,6 @@ public class HomeFragment extends Fragment {
         feedCard.tvPosition  = tvPosition;
         feedCard.speedChip   = tvSpeedChip;
         feedCard.playOverlay = playOverlay;
-        ensureFeedCardsCapacity(cardIndex + 1);
         feedCards.set(cardIndex, feedCard);
 
         // Photo-only posts have no timeline to scrub and never autoplay, so
@@ -3967,16 +4016,27 @@ public class HomeFragment extends Fragment {
             setupCardScrubBar(feedCard, cardIndex);
         }
 
+        // ── Update this holder's bound state ─────────────────────────────────
+        // Read by the (registered-once, see below) click listeners on
+        // watchMore/watchAgain/btnMute/btnAudioCover/tvAudio/btnPostFollow —
+        // a cheap field write here instead of a fresh listener allocation
+        // per bind. See PostRowHolder's boundXxx fields doc.
+        holder.boundReel = reel;
+        holder.boundCardIndex = cardIndex;
+        holder.boundMyUid = myUid;
+
         // ── End-of-reel overlay buttons ──────────────────────────────────────
-        if (watchMore != null) {
+        if (watchMore != null && !holder.clickListenersBound) {
             watchMore.setOnClickListener(x -> {
                 if (!isAdded() || getContext() == null) return;
+                ReelModel currentReel = holder.boundReel;
+                if (currentReel == null) return;
                 // Instagram-level: "Watch more reels" after a Home Feed reel
                 // finishes drops the user into the actual Reels tab feed,
                 // landing on this exact reel — not a generic explore screen.
                 Fragment parent = getParentFragment();
                 if (parent instanceof ReelsFragment) {
-                    ((ReelsFragment) parent).openReelInFeed(reel);
+                    ((ReelsFragment) parent).openReelInFeed(currentReel);
                 } else {
                     // Defensive fallback if HomeFragment is ever hosted
                     // somewhere other than inside ReelsFragment.
@@ -3984,7 +4044,11 @@ public class HomeFragment extends Fragment {
                 }
             });
         }
-        if (watchAgain != null) {
+        if (watchAgain != null && !holder.clickListenersBound) {
+            // endOverlay/ivThumb/sbProgress are holder-cached views (stable
+            // for this physical holder's whole lifetime — see cacheViews()),
+            // safe to capture directly; only cardIndex changes bind-to-bind,
+            // so that one reads holder.boundCardIndex instead.
             watchAgain.setOnClickListener(x -> {
                 if (feedPlayer == null) return;
                 // Hide overlay, reset thumb visibility, seek to 0, replay
@@ -3992,13 +4056,16 @@ public class HomeFragment extends Fragment {
                 if (ivThumb != null) { ivThumb.setAlpha(0f); ivThumb.setVisibility(View.INVISIBLE); }
                 if (sbProgress != null) sbProgress.setProgress(0);
                 feedPlayer.seekTo(0);
-                currentPlayingIndex = cardIndex;
-                resumeActiveCard(cardIndex);
+                currentPlayingIndex = holder.boundCardIndex;
+                resumeActiveCard(holder.boundCardIndex);
             });
         }
 
         // ── Mute toggle ──────────────────────────────────────────────────────
-        if (btnMute != null) {
+        // Doesn't capture any per-reel state at all (isMuted/feedPlayer are
+        // fragment-level, btnMute is the holder's own stable view field) —
+        // safe to register exactly once, same as the others below.
+        if (btnMute != null && !holder.clickListenersBound) {
             btnMute.setOnClickListener(x -> {
                 isMuted = !isMuted;
                 if (feedPlayer != null) feedPlayer.setVolume(isMuted ? 0f : 1f);
@@ -4019,7 +4086,11 @@ public class HomeFragment extends Fragment {
                              || (reel.musicArtist != null && !reel.musicArtist.isEmpty());
             if (hasMusic) {
                 btnAudioCover.setVisibility(View.VISIBLE);
-                btnAudioCover.setOnClickListener(x -> openHomeCardSoundDetail(reel));
+                if (!holder.clickListenersBound) {
+                    btnAudioCover.setOnClickListener(x -> {
+                        if (holder.boundReel != null) openHomeCardSoundDetail(holder.boundReel);
+                    });
+                }
                 String coverUrl = !android.text.TextUtils.isEmpty(reel.musicCoverUrl)
                     ? reel.musicCoverUrl : reel.ownerPhoto;
                 if (isAdded() && getContext() != null && !android.text.TextUtils.isEmpty(coverUrl)) {
@@ -4045,7 +4116,9 @@ public class HomeFragment extends Fragment {
                 }
             } else {
                 btnAudioCover.setVisibility(View.GONE);
-                btnAudioCover.setOnClickListener(null);
+                // No need to null the listener anymore — it reads
+                // holder.boundReel dynamically (never stale) and the view
+                // is GONE so it can't receive clicks either way.
             }
         }
 
@@ -4062,14 +4135,17 @@ public class HomeFragment extends Fragment {
                 // Tap the song label → SoundDetailActivity, same "Use this
                 // sound" screen the immersive Reels player's audio-pill tap
                 // opens (ReelDuetController.openSoundDetail()).
-                tvAudio.setOnClickListener(x -> openHomeCardSoundDetail(reel));
-            } else {
-                tvAudio.setOnClickListener(null);
+                if (!holder.clickListenersBound) {
+                    tvAudio.setOnClickListener(x -> {
+                        if (holder.boundReel != null) openHomeCardSoundDetail(holder.boundReel);
+                    });
+                }
             }
         }
 
         // ── "Suggested for you" — shown for non-following posts (For You mode) ──
         final String ownerUidRef = reel.uid != null ? reel.uid : "";
+        holder.boundOwnerUidRef = ownerUidRef;
         if (!isFollowingMode && tvSuggested != null && !ownerUidRef.isEmpty()) {
             tvSuggested.setVisibility(android.view.View.VISIBLE);
             if (tvTime   != null) tvTime.setVisibility(android.view.View.GONE);
@@ -4078,17 +4154,30 @@ public class HomeFragment extends Fragment {
                 // (getReelFollowsRef(myUid).child(ownerUidRef)) — now a single
                 // pre-fetched Set lookup, since followedUids is fetched ONCE
                 // per feed render in loadFeed()/loadReelsForFeed().
-                final boolean[] isFollowed = {followedUids != null && followedUids.contains(ownerUidRef)};
-                btnPostFollow.setVisibility(isFollowed[0] ? android.view.View.GONE : android.view.View.VISIBLE);
-                btnPostFollow.setOnClickListener(x -> {
-                    if (myUid == null || ownerUidRef.isEmpty()) return;
-                    isFollowed[0] = true;
-                    btnPostFollow.setVisibility(android.view.View.GONE);
-                    FirebaseUtils.getReelFollowsRef(myUid).child(ownerUidRef).setValue(true);
-                    FirebaseUtils.getReelFollowersRef(ownerUidRef).child(myUid).setValue(true);
-                });
+                boolean isFollowedNow = followedUids != null && followedUids.contains(ownerUidRef);
+                holder.boundIsFollowed[0] = isFollowedNow;
+                btnPostFollow.setVisibility(isFollowedNow ? android.view.View.GONE : android.view.View.VISIBLE);
+                if (!holder.clickListenersBound) {
+                    btnPostFollow.setOnClickListener(x -> {
+                        String uid = holder.boundMyUid;
+                        String ownerUid = holder.boundOwnerUidRef;
+                        if (uid == null || ownerUid == null || ownerUid.isEmpty()) return;
+                        holder.boundIsFollowed[0] = true;
+                        btnPostFollow.setVisibility(android.view.View.GONE);
+                        FirebaseUtils.getReelFollowsRef(uid).child(ownerUid).setValue(true);
+                        FirebaseUtils.getReelFollowersRef(ownerUid).child(uid).setValue(true);
+                    });
+                }
             }
         }
+
+        // All the listeners above that check `!holder.clickListenersBound`
+        // have now been registered exactly once for this physical holder —
+        // every future bind (a different reel scrolling into this same
+        // recycled row) skips straight past them and just relies on the
+        // boundXxx field updates above to keep them pointed at the right
+        // reel/cardIndex/uid.
+        holder.clickListenersBound = true;
 
         // ── Collab / dual-author header ─────────────────────────────────────
         boolean isCollab = reel.collabInitiatorUid != null && !reel.collabInitiatorUid.isEmpty()
@@ -4163,7 +4252,23 @@ public class HomeFragment extends Fragment {
         View btnReadMore = holder.btnReadMore;
 
         // Apply hashtag spans
-        android.text.SpannableString captionSpannable = buildCaptionSpannable(captionText);
+        // ★ Instagram-level PERF: buildCaptionSpannable() re-runs the hashtag
+        // regex AND allocates a fresh ClickableSpan object per hashtag on
+        // EVERY bind — including the common "recompute for nothing" cases
+        // where the same reel rebinds to the same (or a different) holder
+        // with an unchanged caption: a scroll-back-and-forth over an already
+        // rendered card, or a plain notifyItemChanged(position) firing from
+        // a like/follow tap. likes/comments/repost text already skip this
+        // via ReelUiStateCache's precompute; caption spans didn't. Cache the
+        // built SpannableString per reelId (captions are immutable once a
+        // reel is published) so a rebind is a map lookup + field read
+        // instead of a regex pass + N span allocations.
+        android.text.SpannableString captionSpannable = reel.reelId != null
+            ? captionSpannableCache.get(reel.reelId) : null;
+        if (captionSpannable == null) {
+            captionSpannable = buildCaptionSpannable(captionText);
+            if (reel.reelId != null) captionSpannableCache.put(reel.reelId, captionSpannable);
+        }
         tvCaption.setText(captionSpannable);
         if (captionSpannable.length() > 0) {
             tvCaption.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
@@ -4212,80 +4317,123 @@ public class HomeFragment extends Fragment {
 
         // ── Photo slideshow support ─────────────────────────────────────────
         if (reel.isPhotoSlideshow() && reel.photoUrls != null && !reel.photoUrls.isEmpty()) {
-            // Hide the video player frame; show a photo-slideshow ViewPager2 instead
+            // Hide the video player frame; show the (reused) photo-slideshow
+            // ViewPager2 instead.
             if (pvFeed != null)     pvFeed.setVisibility(View.GONE);
             if (ivThumb != null)    ivThumb.setVisibility(View.GONE);
 
-            // Build a simple inline photo pager
-            ViewPager2 photoPager = new ViewPager2(requireContext());
-            photoPager.setOrientation(ViewPager2.ORIENTATION_HORIZONTAL);
-            int screenW  = getResources().getDisplayMetrics().widthPixels;
-            int photoH   = (int)(screenW * 16f / 9f);
-            FrameLayout.LayoutParams pagerLp = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, photoH);
-            photoPager.setLayoutParams(pagerLp);
-
+            // ★ Instagram-level PERF: photoPager / its adapter / the dots
+            // row are now created ONCE per physical holder (fields live on
+            // PostRowHolder, see its doc) and reused for every photo post
+            // that ever lands on this recycled row — no more
+            // new ViewPager2(...) / new RecyclerView.Adapter() /
+            // new LinearLayout() (each dragging its own measure+layout pass)
+            // on every single bind. Same "cache the view, refresh the data"
+            // rule cacheViews() already applies to every other view here.
             final List<String> photoList = reel.photoUrls;
-            photoPager.setAdapter(new RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-                @NonNull @Override
-                public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int vt) {
-                    ImageView iv = new ImageView(parent.getContext());
-                    iv.setLayoutParams(new ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-                    iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
-                    return new RecyclerView.ViewHolder(iv) {};
-                }
-                @Override public void onBindViewHolder(@NonNull RecyclerView.ViewHolder h, int pos) {
-                    Glide.with(requireContext())
-                        .load(photoList.get(pos))
-                        .centerCrop()
-                        .placeholder(R.drawable.ic_reels)
-                        .into((ImageView) h.itemView);
-                }
-                @Override public int getItemCount() { return photoList.size(); }
-            });
+            boolean firstTimeOnThisHolder = holder.photoPager == null;
+            if (firstTimeOnThisHolder) {
+                holder.photoPager = new ViewPager2(requireContext());
+                holder.photoPager.setOrientation(ViewPager2.ORIENTATION_HORIZONTAL);
+                int screenW  = getResources().getDisplayMetrics().widthPixels;
+                int photoH   = (int) (screenW * 16f / 9f);
+                FrameLayout.LayoutParams pagerLp = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, photoH);
+                holder.photoPager.setLayoutParams(pagerLp);
 
-            // Dot indicator below the pager
-            LinearLayout dots = new LinearLayout(requireContext());
-            dots.setOrientation(LinearLayout.HORIZONTAL);
-            dots.setGravity(android.view.Gravity.CENTER);
-            FrameLayout.LayoutParams dotsLp = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT);
-            dotsLp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL;
-            dotsLp.bottomMargin = dpToPx(8);
-            dots.setLayoutParams(dotsLp);
+                // Adapter reads holder.photoPagerData directly (not a
+                // per-bind captured list), so this ONE adapter instance
+                // stays correct for every future reel this holder shows —
+                // a rebind just mutates that list + notifyDataSetChanged().
+                holder.photoPagerAdapter = new RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+                    @NonNull @Override
+                    public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int vt) {
+                        ImageView iv = new ImageView(parent.getContext());
+                        iv.setLayoutParams(new ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                        iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                        return new RecyclerView.ViewHolder(iv) {};
+                    }
+                    @Override public void onBindViewHolder(@NonNull RecyclerView.ViewHolder h, int pos) {
+                        Glide.with(requireContext())
+                            .load(holder.photoPagerData.get(pos))
+                            .centerCrop()
+                            .placeholder(R.drawable.ic_reels)
+                            .into((ImageView) h.itemView);
+                    }
+                    @Override public int getItemCount() { return holder.photoPagerData.size(); }
+                };
+                holder.photoPager.setAdapter(holder.photoPagerAdapter);
 
-            final View[] dotViews = new View[photoList.size()];
-            for (int di = 0; di < photoList.size(); di++) {
-                View dot = new View(requireContext());
-                int dotSz = dpToPx(6);
-                LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dotSz, dotSz);
-                dotLp.setMargins(dpToPx(3), 0, dpToPx(3), 0);
-                dot.setLayoutParams(dotLp);
-                android.graphics.drawable.GradientDrawable dotBg =
-                    new android.graphics.drawable.GradientDrawable();
-                dotBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-                dotBg.setColor(di == 0 ? 0xFFFFFFFF : 0x66FFFFFF);
-                dot.setBackground(dotBg);
-                dots.addView(dot);
-                dotViews[di] = dot;
+                holder.photoDots = new LinearLayout(requireContext());
+                holder.photoDots.setOrientation(LinearLayout.HORIZONTAL);
+                holder.photoDots.setGravity(android.view.Gravity.CENTER);
+                FrameLayout.LayoutParams dotsLp = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT);
+                dotsLp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL;
+                dotsLp.bottomMargin = dpToPx(8);
+                holder.photoDots.setLayoutParams(dotsLp);
+
+                // Registered ONCE — reads holder.photoDotDrawables at
+                // fire-time (whatever the CURRENT reel's dots are), so it
+                // stays correct across every future rebind without ever
+                // needing to be re-registered.
+                holder.photoPager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
+                    @Override public void onPageSelected(int position) {
+                        if (holder.photoDotDrawables == null) return;
+                        for (int di = 0; di < holder.photoDotDrawables.length; di++) {
+                            // Mutate the existing Drawable instead of
+                            // allocating a fresh GradientDrawable per dot on
+                            // every page change.
+                            holder.photoDotDrawables[di].setColor(di == position ? 0xFFFFFFFF : 0x66FFFFFF);
+                        }
+                    }
+                });
             }
 
-            photoPager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
-                @Override public void onPageSelected(int position) {
-                    for (int di = 0; di < dotViews.length; di++) {
-                        android.graphics.drawable.GradientDrawable d =
-                            new android.graphics.drawable.GradientDrawable();
-                        d.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-                        d.setColor(di == position ? 0xFFFFFFFF : 0x66FFFFFF);
-                        dotViews[di].setBackground(d);
-                    }
-                }
-            });
+            // Swap the DATA only — same reused ViewPager2 + adapter instance.
+            holder.photoPagerData.clear();
+            holder.photoPagerData.addAll(photoList);
+            holder.photoPagerAdapter.notifyDataSetChanged();
+            holder.photoPager.setCurrentItem(0, false);
+            holder.photoPager.setVisibility(View.VISIBLE);
 
-            // Double-tap to like on slideshow
-            photoPager.setOnTouchListener(new View.OnTouchListener() {
+            // Dot Views themselves are only rebuilt when the photo COUNT
+            // differs from whatever this holder last showed (rare — most
+            // scrolling re-lands on the same 2-3 photo counts). Otherwise
+            // every dot's already-inflated GradientDrawable is reused,
+            // just reset to "page 0 active".
+            if (holder.photoDotCount != photoList.size()) {
+                holder.photoDots.removeAllViews();
+                holder.photoDotDrawables = new android.graphics.drawable.GradientDrawable[photoList.size()];
+                for (int di = 0; di < photoList.size(); di++) {
+                    View dot = new View(requireContext());
+                    int dotSz = dpToPx(6);
+                    LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dotSz, dotSz);
+                    dotLp.setMargins(dpToPx(3), 0, dpToPx(3), 0);
+                    dot.setLayoutParams(dotLp);
+                    android.graphics.drawable.GradientDrawable dotBg =
+                        new android.graphics.drawable.GradientDrawable();
+                    dotBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                    dotBg.setColor(di == 0 ? 0xFFFFFFFF : 0x66FFFFFF);
+                    dot.setBackground(dotBg);
+                    holder.photoDots.addView(dot);
+                    holder.photoDotDrawables[di] = dotBg;
+                }
+                holder.photoDotCount = photoList.size();
+            } else {
+                for (int di = 0; di < holder.photoDotDrawables.length; di++) {
+                    holder.photoDotDrawables[di].setColor(di == 0 ? 0xFFFFFFFF : 0x66FFFFFF);
+                }
+            }
+            holder.photoDots.setVisibility(View.VISIBLE);
+
+            // Double-tap to like on slideshow — kept per-bind since it must
+            // capture THIS reel's id/like-state/views (a single small
+            // listener object); the expensive part — view creation + the
+            // measure/layout pass that came with it — is what's cached above.
+            holder.photoPager.setOnTouchListener(new View.OnTouchListener() {
                 private float downX = 0f, downY = 0f;
                 private final GestureDetector gd = new GestureDetector(requireContext(),
                     new GestureDetector.SimpleOnGestureListener() {
@@ -4335,24 +4483,23 @@ public class HomeFragment extends Fragment {
                 }
             });
 
-            if (frameVideo != null) {
-                // FIX: addView() with no index appends to the END of
-                // frame_video's children — i.e. the TOP of the z-order in a
-                // FrameLayout. overlay_post_header (avatar, username, bio,
-                // follow button) is already a child of frame_video defined
-                // in the XML, so appending the photo pager + dots on top of
-                // it completely covered the header — that's why owner
-                // bio/details showed on video posts (where pv_feed_post /
-                // iv_post_thumb sit at the BOTTOM of frame_video, below the
-                // header) but not on photo posts. Insert at index 0/1
-                // instead so the photo pager + dots sit at the same
-                // bottom layer the video surface normally occupies, and
-                // every overlay defined after it in the XML (header, mute
-                // button, end-of-reel card, etc.) stays visible on top.
-                frameVideo.addView(photoPager, 0);
-                frameVideo.addView(dots, 1);
+            if (firstTimeOnThisHolder && frameVideo != null) {
+                // Same z-order fix as before — insert at the bottom of
+                // frame_video's children (index 0/1) so the header overlay
+                // (defined after it in XML) stays on top. Only ever added
+                // ONCE per holder now; later binds just toggle visibility
+                // (see above, and the video-branch below).
+                frameVideo.addView(holder.photoPager, 0);
+                frameVideo.addView(holder.photoDots, 1);
             }
         } else {
+            // This (recycled) holder previously showed a photo slideshow —
+            // hide its cached pager/dots rather than tearing them down, so
+            // they're ready to reuse instantly if this row later recycles
+            // back into a photo post.
+            if (holder.photoPager != null) holder.photoPager.setVisibility(View.GONE);
+            if (holder.photoDots  != null) holder.photoDots.setVisibility(View.GONE);
+
             // ── Video frame gestures: double-tap like, tap play/pause, hold 2x ──
             // All three live in ONE touch listener because a View has only one
             // OnTouchListener — a separate listener for the new gestures would
@@ -5699,10 +5846,18 @@ public class HomeFragment extends Fragment {
                     h.boundPostIndex = row.postIndex;
                     if (row.postIndex >= 0 && row.postIndex < currentFeedPosts.size()) {
                         ReelModel reel = currentFeedPosts.get(row.postIndex);
+                        // ★ PERF: was `cachedX != null ? cachedX : new HashSet<>()` —
+                        // allocating a fresh empty HashSet on every single bind
+                        // for as long as the real cached set stayed null (e.g.
+                        // before the first Firebase liked/saved/followed read
+                        // lands). Collections.emptySet() is a shared singleton —
+                        // zero allocation, and every caller downstream only
+                        // ever calls .contains()/.isEmpty() on it (read-only),
+                        // so the shared instance is safe to hand out repeatedly.
                         addFeedPostCard(h, row.postIndex, reel,
-                            cachedLikedIds != null ? cachedLikedIds : new HashSet<>(),
-                            cachedSavedIds != null ? cachedSavedIds : new HashSet<>(),
-                            cachedMyUidForFeed, cachedFollowedUids != null ? cachedFollowedUids : new HashSet<>());
+                            cachedLikedIds != null ? cachedLikedIds : java.util.Collections.emptySet(),
+                            cachedSavedIds != null ? cachedSavedIds : java.util.Collections.emptySet(),
+                            cachedMyUidForFeed, cachedFollowedUids != null ? cachedFollowedUids : java.util.Collections.emptySet());
                     }
                     return;
                 }
@@ -5891,6 +6046,45 @@ public class HomeFragment extends Fragment {
         View            btnSend;
         TextView        tvSends;
         View            btnMore;
+
+        // ── Photo-slideshow chrome (lazily created, reused across binds) ──
+        // ★ Instagram-level PERF: these used to be a brand-new ViewPager2 +
+        // brand-new anonymous RecyclerView.Adapter + brand-new dots
+        // LinearLayout allocated (and measured/laid-out) on EVERY single
+        // bind of a photo-slideshow card — paid again every time the same
+        // physical row view scrolled back into view. Now built ONCE per
+        // physical holder (first photo post it ever binds) and reused for
+        // every subsequent photo post that lands on this holder: rebinding
+        // just swaps photoPagerData's contents + notifyDataSetChanged(),
+        // exactly the same "cache the view, refresh the data" pattern
+        // cacheViews()/PostRowHolder already uses for every other view.
+        ViewPager2 photoPager;
+        LinearLayout photoDots;
+        final List<String> photoPagerData = new ArrayList<>();
+        RecyclerView.Adapter<RecyclerView.ViewHolder> photoPagerAdapter;
+        /** One reusable GradientDrawable per currently-inflated dot — mutated
+         *  (setColor) on page-select instead of allocating a new Drawable
+         *  per dot on every single page change. Rebuilt only when the dot
+         *  COUNT changes (i.e. a different photo post's photo count). */
+        android.graphics.drawable.GradientDrawable[] photoDotDrawables;
+        int photoDotCount = -1;
+
+        // ── Listener-reuse bound state ───────────────────────────────────
+        // ★ Instagram-level PERF: watchMore/watchAgain/btnMute/
+        // btnAudioCover/tvAudio/btnPostFollow's OnClickListeners used to be
+        // a fresh lambda object allocated on EVERY single bind, each one
+        // capturing that bind's `reel`/`cardIndex`/`myUid`/`ownerUidRef` via
+        // closure. Now registered ONCE per physical holder (see
+        // clickListenersBound below) — the shared listener reads whichever
+        // reel/cardIndex/uid is CURRENTLY bound off these fields, which are
+        // just a handful of cheap field writes on every bind instead of a
+        // fresh listener allocation.
+        ReelModel boundReel;
+        int boundCardIndex = -1;
+        String boundMyUid;
+        String boundOwnerUidRef;
+        final boolean[] boundIsFollowed = {false};
+        boolean clickListenersBound = false;
 
         PostRowHolder(@NonNull View itemView) { super(itemView); }
 
