@@ -1226,6 +1226,12 @@ public class UserReelsActivity extends AppCompatActivity
                     if (adapter.isLoadingFooterVisible()) adapter.resetLoadingFooterState();
                     footerPositionAtShow = -1;
                     if (!isSeries) {
+                        // Instagram-style: Posts tab (photo-only) renders a
+                        // square 1:1 grid instead of the 9:16 Reels grid —
+                        // set BEFORE setDataList() so the very first rebind
+                        // already uses the correct cell type/height instead
+                        // of flashing 9:16 cells for one frame.
+                        adapter.setSquareGridMode(isPostsTabActive());
                         adapter.setDataList(activeTabData());
                         // Posts tab (leftmost, Instagram-style): show photo
                         // posts only — filter on top of the just-set full list.
@@ -1275,9 +1281,26 @@ public class UserReelsActivity extends AppCompatActivity
         // first frame goes up sooner. The listeners are only needed once
         // the user can actually interact with the tabs, which is always
         // after that first frame anyway.
-        // Grid tab color picker moved to the 3-dot menu only (see
-        // setupMoreMenu() → "Grid Color", applies to the currently active
-        // tab) — no longer wired as a long-press here.
+        // Direct long-press (in addition to the 3-dot menu's "Grid Color",
+        // which still works and always targets whichever tab is active) —
+        // long-pressing a SPECIFIC tab opens the picker for THAT tab.
+        if (isSelf) {
+            runWhenMainThreadIdle(() -> {
+                if (tabLayout == null || isFinishing() || isDestroyed()) return;
+                for (int i = 0; i < tabLayout.getTabCount(); i++) {
+                    TabLayout.Tab t = tabLayout.getTabAt(i);
+                    if (t == null) continue;
+                    final int tabPos = i;
+                    android.view.View anchor = tabAnchorView(t);
+                    if (anchor != null) {
+                        anchor.setOnLongClickListener(v -> {
+                            openGridAccentColorPicker(tabPos);
+                            return true;
+                        });
+                    }
+                }
+            });
+        }
     }
 
     /**
@@ -5093,9 +5116,12 @@ public class UserReelsActivity extends AppCompatActivity
                             });
                             menu.show();
                         });
-                        // Strip color picker moved to the 3-dot menu only
-                        // (see setupMoreMenu()) — no longer a long-press here.
-                        layoutProfileSong.setOnLongClickListener(null);
+                        // Direct long-press (in addition to the 3-dot menu's
+                        // "Song Strip Color", which still works too).
+                        layoutProfileSong.setOnLongClickListener(v -> {
+                            openStripColorPicker();
+                            return true;
+                        });
                     } else {
                         layoutProfileSong.setOnClickListener(v -> openSoundDetail.run());
                         layoutProfileSong.setOnLongClickListener(null);
@@ -5113,8 +5139,12 @@ public class UserReelsActivity extends AppCompatActivity
                                     com.callx.app.music.ReelTrendingAudioActivity.class);
                                 startActivity(i);
                             });
-                            // Strip color picker moved to the 3-dot menu only.
-                            layoutAddSongStub.setOnLongClickListener(null);
+                            // Direct long-press (in addition to the 3-dot
+                            // menu's "Song Strip Color").
+                            layoutAddSongStub.setOnLongClickListener(v -> {
+                                openStripColorPicker();
+                                return true;
+                            });
                         }
                     }
                 }
@@ -5229,9 +5259,13 @@ public class UserReelsActivity extends AppCompatActivity
             }
             chip.setTag(typeKey);
             if (isSelf) {
-                // Strip color picker moved to the 3-dot menu only
-                // (see setupMoreMenu() → openBioStripColorMenuEntry()).
-                chip.setOnLongClickListener(null);
+                // Direct long-press on THIS chip (in addition to the 3-dot
+                // menu's "Bio Strip Color", which asks which chip to color
+                // when there's more than one — long-press skips that step).
+                chip.setOnLongClickListener(v -> {
+                    openBioStripColorPicker(typeKey, chip);
+                    return true;
+                });
             } else if (url != null && !url.isEmpty()) {
                 // Viewer: long-press still copies the link.
                 chip.setOnLongClickListener(v -> {

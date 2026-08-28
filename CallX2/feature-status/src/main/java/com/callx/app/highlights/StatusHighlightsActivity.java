@@ -7,6 +7,9 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.*;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.DecodeFormat;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.models.StatusItem;
 import com.callx.app.utils.*;
 import com.google.firebase.database.*;
@@ -128,11 +131,26 @@ public class StatusHighlightsActivity extends AppCompatActivity {
             });
     }
     class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.VH> {
+        // Instagram-style: same fixed 480x853 override bug as the picker
+        // grid (see CreateHighlightActivity) — every album-cover cell here
+        // decoded a full story-portrait-sized bitmap regardless of this
+        // grid cell's real (much smaller) on-screen size. Resolved once to
+        // the real cell width, then requested as a CDN-derived WebP thumb
+        // (+ tiny blur-up placeholder), same pipeline as everywhere else.
+        private int resolvedCellPx = 0;
+        private static final int BLUR_SIZE = 16;
+        private final RequestOptions gridOptions = new RequestOptions()
+                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                .format(DecodeFormat.PREFER_RGB_565)
+                .centerCrop()
+                .dontAnimate();
+
         @NonNull @Override
         public VH onCreateViewHolder(@NonNull ViewGroup parent, int vt) {
             LinearLayout card = new LinearLayout(parent.getContext());
             card.setOrientation(LinearLayout.VERTICAL);
             int w = parent.getWidth() / 3;
+            if (resolvedCellPx == 0) resolvedCellPx = w;
             card.setLayoutParams(new RecyclerView.LayoutParams(w, (int)(w * 1.3f)));
             return new VH(card);
         }
@@ -149,7 +167,17 @@ public class StatusHighlightsActivity extends AppCompatActivity {
             String url = albumCoverOverride.containsKey(albumId)
                     ? albumCoverOverride.get(albumId)
                     : (cover.thumbnailUrl != null ? cover.thumbnailUrl : cover.mediaUrl);
-            if (url != null && !url.isEmpty()) Glide.with(h.iv).load(url).centerCrop().override(480, 853).into(h.iv);
+            if (url != null && !url.isEmpty()) {
+                int cellPx = resolvedCellPx > 0 ? resolvedCellPx : h.itemView.getWidth();
+                if (cellPx <= 0) cellPx = 240; // safe fallback before first layout pass
+                String gridUrl = CloudinaryUploader.deriveThumbUrl(url, cellPx, "webp");
+                String blurUrl = CloudinaryUploader.deriveThumbUrl(url, BLUR_SIZE, "webp");
+                Glide.with(h.iv)
+                        .load(gridUrl)
+                        .thumbnail(Glide.with(h.iv).load(blurUrl).apply(gridOptions))
+                        .apply(gridOptions)
+                        .into(h.iv);
+            }
             else if (cover.bgColor != null) h.iv.setBackgroundColor(android.graphics.Color.parseColor(cover.bgColor));
             h.tvName.setText(albumName);
             h.tvCount.setText(list.size() + (list.size() == 1 ? " status" : " statuses"));

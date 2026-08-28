@@ -55,6 +55,12 @@ package com.callx.app.profile;
       // Instagram-style bottom spinner row shown during infinite-scroll
       // pagination — see setLoadingFooterVisible().
       public static final int TYPE_FOOTER_LOADING = 3;
+      // Instagram-style Posts tab: same cell layout, view-holder and Glide
+      // pipeline as TYPE_REEL, just a square (1:1) cell instead of 9:16 —
+      // kept as its own type (not a runtime height mutation on TYPE_REEL)
+      // so the shared RecycledViewPool never hands a square-sized cell back
+      // to the Reels tab or vice versa. See setSquareGridMode().
+      public static final int TYPE_POST     = 4;
       private static final int SKELETON_COUNT = 12;
 
       // Grid cells are ~1/3 screen width; pinned cell spans full width (3x wider).
@@ -178,6 +184,13 @@ package com.callx.app.profile;
       // post(), no re-measure, no per-attach layout pass.
       private static final int GRID_SPAN_COUNT = 3;
       private final int precomputedCellHeightPx;
+      // Square (1:1) cell height for the Posts tab — same cell width as the
+      // 9:16 Reels cell (same GRID_SPAN_COUNT columns), just height = width.
+      private final int precomputedSquareCellHeightPx;
+      // Instagram-style: Posts tab (photo-only) shows a square grid instead
+      // of the 9:16 Reels grid. Toggled by the host screen via
+      // setSquareGridMode() whenever the active tab changes.
+      private boolean squareGridMode = false;
 
       /**
        * Symmetric grid spacing (Instagram-style): equal gap between every
@@ -388,6 +401,7 @@ package com.callx.app.profile;
           this.pinnedThumbSize = resolveThumbSize(context, PINNED_THUMB_SIZE_WIFI, PINNED_THUMB_SIZE_CELLULAR);
           this.touchSlopPx     = ViewConfiguration.get(context).getScaledTouchSlop();
           this.precomputedCellHeightPx = computeCellHeightPx(context);
+          this.precomputedSquareCellHeightPx = computeCellWidthPx(context);
       }
 
       /**
@@ -414,16 +428,22 @@ package com.callx.app.profile;
           this.pinnedThumbSize = resolveThumbSize(context, PINNED_THUMB_SIZE_WIFI, PINNED_THUMB_SIZE_CELLULAR);
           this.touchSlopPx     = ViewConfiguration.get(context).getScaledTouchSlop();
           this.precomputedCellHeightPx = computeCellHeightPx(context);
+          this.precomputedSquareCellHeightPx = computeCellWidthPx(context);
       }
 
       /** Cell width = screen width split across GRID_SPAN_COUNT columns (matching
        *  WhiteGridDecoration's gutter), height = that width at a 16:9 ratio —
        *  computed once so every cell gets its final height at creation time. */
       private static int computeCellHeightPx(Context ctx) {
+          return Math.round(computeCellWidthPx(ctx) * 16f / 9f);
+      }
+
+      /** Cell width alone — shared by the 9:16 Reels cell and the 1:1 Posts
+       *  cell (square height == this same width). */
+      private static int computeCellWidthPx(Context ctx) {
           android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
           int spacingPx  = Math.round(2 * dm.density); // matches WhiteGridDecoration
-          int cellWidthPx = (dm.widthPixels - spacingPx * (GRID_SPAN_COUNT + 1)) / GRID_SPAN_COUNT;
-          return Math.round(cellWidthPx * 16f / 9f);
+          return (dm.widthPixels - spacingPx * (GRID_SPAN_COUNT + 1)) / GRID_SPAN_COUNT;
       }
 
       /** Optional — enables the long-press "peek" mini preview popup's dismiss callback. */
@@ -586,8 +606,25 @@ package com.callx.app.profile;
           if (skeletonMode) return TYPE_SKELETON;
           if (hasPinned() && pos == 0) return TYPE_PINNED;
           if (showLoadingFooter && pos == getItemCount() - 1) return TYPE_FOOTER_LOADING;
-          return TYPE_REEL;
+          return squareGridMode ? TYPE_POST : TYPE_REEL;
       }
+
+      /**
+       * Instagram-style Posts tab toggle: call whenever the host screen's
+       * active tab changes (see UserReelsActivity's tab-select listener).
+       * Switches ordinary reel cells between the 9:16 Reels layout and the
+       * 1:1 Posts layout. Cheap no-op if the mode isn't actually changing.
+       * notifyDataSetChanged() is correct (not wasteful) here — the item
+       * VIEW TYPE itself changes for every reel cell, so every visible
+       * holder needs a fresh onCreateViewHolder anyway; a diff wouldn't
+       * avoid that.
+       */
+      public void setSquareGridMode(boolean square) {
+          if (this.squareGridMode == square) return;
+          this.squareGridMode = square;
+          notifyDataSetChanged();
+      }
+      public boolean isSquareGridMode() { return squareGridMode; }
       @Override public int getItemCount() {
           if (skeletonMode) return SKELETON_COUNT;
           return displayList.size() + (hasPinned() ? 1 : 0) + (showLoadingFooter ? 1 : 0);
@@ -667,14 +704,20 @@ package com.callx.app.profile;
               if (type == TYPE_SKELETON) return new SkeletonVH(inf.inflate(R.layout.item_reel_skeleton, p, false));
               if (type == TYPE_PINNED)   return new PinnedVH(inf.inflate(R.layout.item_pinned_reel, p, false));
               if (type == TYPE_FOOTER_LOADING) return new FooterVH(inf.inflate(R.layout.item_reel_loading_footer, p, false));
+              boolean isPost = (type == TYPE_POST);
+              // Same cell XML/ids for both — only the target height differs,
+              // so the exact same Glide/optimization pipeline in bind() below
+              // applies unchanged to Posts cells.
               View reelView = inf.inflate(R.layout.item_saved_reel, p, false);
               // Height fixed here, once, instead of measured+applied on every
-              // onViewAttachedToWindow() — see precomputedCellHeightPx.
+              // onViewAttachedToWindow() — see precomputedCellHeightPx /
+              // precomputedSquareCellHeightPx.
+              int targetHeight = isPost ? precomputedSquareCellHeightPx : precomputedCellHeightPx;
               ViewGroup.LayoutParams lp = reelView.getLayoutParams();
-              if (lp == null) lp = new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, precomputedCellHeightPx);
-              else lp.height = precomputedCellHeightPx;
+              if (lp == null) lp = new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, targetHeight);
+              else lp.height = targetHeight;
               reelView.setLayoutParams(lp);
-              return new ReelVH(reelView);
+              return new ReelVH(reelView, isPost);
           } finally {
               android.os.Trace.endSection();
           }
@@ -731,9 +774,19 @@ package com.callx.app.profile;
               h.tvCaption.setText(has ? r.caption.trim() : "");
               h.tvCaption.setVisibility(has ? View.VISIBLE : View.GONE);
           }
+          // Instagram-style: the Posts tab (photo-only, square grid) shows
+          // neither the play affordance nor the views-count pill — those are
+          // video-only signals and would sit oddly on a plain photo cell.
+          if (h.ivPlayOverlay != null) {
+              h.ivPlayOverlay.setVisibility(h.isPost ? View.GONE : View.VISIBLE);
+          }
           if (h.tvViewsOverlay != null) {
-              h.tvViewsOverlay.setText(formatCount(Math.max(r.viewsCount, 0)));
-              h.tvViewsOverlay.setVisibility(View.VISIBLE);
+              if (h.isPost) {
+                  h.tvViewsOverlay.setVisibility(View.GONE);
+              } else {
+                  h.tvViewsOverlay.setText(formatCount(Math.max(r.viewsCount, 0)));
+                  h.tvViewsOverlay.setVisibility(View.VISIBLE);
+              }
           }
           boolean justWatched = r.reelId != null && watchedReelIds.contains(r.reelId);
           if (h.viewWatchedScrim != null) h.viewWatchedScrim.setVisibility(justWatched ? View.VISIBLE : View.GONE);
@@ -885,11 +938,18 @@ package com.callx.app.profile;
       }
 
       static class ReelVH extends RecyclerView.ViewHolder {
-          ImageView ivThumb, ivCheckmark, ivStackIndicator, ivDoubleTapHeart;
+          ImageView ivThumb, ivCheckmark, ivStackIndicator, ivDoubleTapHeart, ivPlayOverlay;
           TextView tvDuration, tvViewsOverlay, tvCaption, tvJustWatched;
           View viewSelectOverlay, viewDimOverlay, viewWatchedScrim;
-          ReelVH(@NonNull View v) {
+          // true when this holder is currently bound as a square Posts-tab
+          // cell (TYPE_POST) rather than the 9:16 Reels cell (TYPE_REEL) —
+          // set once at creation since a holder never changes type without
+          // being torn down/recreated by RecyclerView.
+          final boolean isPost;
+          ReelVH(@NonNull View v) { this(v, false); }
+          ReelVH(@NonNull View v, boolean isPost) {
               super(v);
+              this.isPost = isPost;
               ivThumb=v.findViewById(R.id.iv_thumb); tvDuration=v.findViewById(R.id.tv_duration);
               tvViewsOverlay=v.findViewById(R.id.tv_views_overlay); tvCaption=v.findViewById(R.id.tv_caption);
               viewSelectOverlay=v.findViewById(R.id.view_select_overlay);
@@ -899,6 +959,7 @@ package com.callx.app.profile;
               ivCheckmark=v.findViewById(R.id.iv_checkmark);
               ivStackIndicator=v.findViewById(R.id.iv_stack_indicator);
               ivDoubleTapHeart=v.findViewById(R.id.iv_double_tap_heart);
+              ivPlayOverlay=v.findViewById(R.id.iv_play_overlay);
           }
       }
       static class PinnedVH extends RecyclerView.ViewHolder {

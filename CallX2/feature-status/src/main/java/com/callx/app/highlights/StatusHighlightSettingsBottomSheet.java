@@ -7,9 +7,13 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.DecodeFormat;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.request.RequestOptions;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.callx.app.models.StatusItem;
 import com.callx.app.utils.AlertDialogStyler;
+import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.StatusHighlightManager;
 import java.util.List;
 
@@ -112,11 +116,24 @@ public class StatusHighlightSettingsBottomSheet {
         root.addView(title);
         RecyclerView rv = new RecyclerView(ctx);
         rv.setLayoutManager(new GridLayoutManager(ctx, 3));
+        // Instagram-style: same "load only what the cell can show" pipeline
+        // as the highlight picker grids — cell size resolved once, CDN-
+        // derived WebP thumb + tiny blur-up placeholder, instead of the old
+        // Glide.load(url).centerCrop().into(iv) with no size cap at all
+        // (a full-resolution network download for a ~100dp cover cell).
+        final int[] resolvedCellPx = {0};
+        final int blurSize = 16;
+        final RequestOptions coverGridOptions = new RequestOptions()
+                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                .format(DecodeFormat.PREFER_RGB_565)
+                .centerCrop()
+                .dontAnimate();
         rv.setAdapter(new RecyclerView.Adapter<RecyclerView.ViewHolder>() {
             @Override public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
                 ImageView iv = new ImageView(parent.getContext());
                 iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
                 int size = parent.getWidth() > 0 ? parent.getWidth() / 3 : dp(ctx, 100);
+                if (resolvedCellPx[0] == 0) resolvedCellPx[0] = size;
                 iv.setLayoutParams(new RecyclerView.LayoutParams(size, size));
                 iv.setPadding(dp(ctx, 2), dp(ctx, 2), dp(ctx, 2), dp(ctx, 2));
                 return new RecyclerView.ViewHolder(iv) {};
@@ -126,7 +143,14 @@ public class StatusHighlightSettingsBottomSheet {
                 ImageView iv = (ImageView) holder.itemView;
                 String url = item.thumbnailUrl != null ? item.thumbnailUrl : item.mediaUrl;
                 if (url != null && !url.isEmpty()) {
-                    Glide.with(iv).load(url).centerCrop().into(iv);
+                    int cellPx = resolvedCellPx[0] > 0 ? resolvedCellPx[0] : dp(ctx, 100);
+                    String gridUrl = CloudinaryUploader.deriveThumbUrl(url, cellPx, "webp");
+                    String blurUrl = CloudinaryUploader.deriveThumbUrl(url, blurSize, "webp");
+                    Glide.with(iv)
+                            .load(gridUrl)
+                            .thumbnail(Glide.with(iv).load(blurUrl).apply(coverGridOptions))
+                            .apply(coverGridOptions)
+                            .into(iv);
                 } else if (item.bgColor != null) {
                     iv.setImageDrawable(null);
                     iv.setBackgroundColor(Color.parseColor(item.bgColor));

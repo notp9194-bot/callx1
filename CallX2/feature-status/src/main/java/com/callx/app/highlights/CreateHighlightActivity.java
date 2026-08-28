@@ -24,12 +24,16 @@ import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.DecodeFormat;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.request.RequestOptions;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.ValueEventListener;
 
 import com.callx.app.models.StatusItem;
+import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.StatusHighlightManager;
 
@@ -395,11 +399,34 @@ public class CreateHighlightActivity extends AppCompatActivity {
     }
 
     // ── Grid adapter (multi-select) ────────────────────────────────────────
+    // Instagram-style "load only what the cell can actually show": the old
+    // code did Glide.load(url).override(480, 853) for EVERY cell — a fixed
+    // full-story-portrait decode target regardless of how small this 3-column
+    // picker cell actually is (~120-140dp on most phones, i.e. under half of
+    // 480px wide). That meant every grid cell was decoding/holding a bitmap
+    // several times larger than it could ever display — wasted memory and
+    // slower scroll on a picker that can hold dozens of statuses. Fixed to
+    // match ReelGridAdapter/HighlightsRowAdapter's pattern: CDN-derived
+    // thumbnail sized to the REAL cell pixel size, WebP, RGB_565 (opaque
+    // centerCrop cell, no alpha needed), a tiny blur-up placeholder while the
+    // real thumb loads, and disk caching so re-opening this picker is instant.
+    private static final int PICK_BLUR_SIZE = 16;
+    private static final RequestOptions PICK_GRID_OPTIONS = new RequestOptions()
+            .diskCacheStrategy(DiskCacheStrategy.ALL)
+            .format(DecodeFormat.PREFER_RGB_565)
+            .centerCrop()
+            .dontAnimate();
+
     private class PickAdapter extends RecyclerView.Adapter<PickAdapter.VH> {
+        // Resolved once (first bind pass) so every cell requests the same,
+        // correctly-sized derivative instead of recomputing per-bind.
+        private int resolvedCellPx = 0;
+
         @NonNull @Override
         public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             FrameLayout fl = new FrameLayout(parent.getContext());
             int size = parent.getWidth() > 0 ? parent.getWidth() / 3 : dp(120);
+            if (resolvedCellPx == 0) resolvedCellPx = size;
             fl.setLayoutParams(new RecyclerView.LayoutParams(size, size));
             return new VH(fl);
         }
@@ -440,7 +467,14 @@ public class CreateHighlightActivity extends AppCompatActivity {
                 String url = item.thumbnailUrl != null && !item.thumbnailUrl.isEmpty()
                         ? item.thumbnailUrl : item.mediaUrl;
                 if (url != null && !url.isEmpty()) {
-                    Glide.with(iv).load(url).centerCrop().override(480, 853).into(iv);
+                    int cellPx = resolvedCellPx > 0 ? resolvedCellPx : dp(120);
+                    String gridUrl = CloudinaryUploader.deriveThumbUrl(url, cellPx, "webp");
+                    String blurUrl = CloudinaryUploader.deriveThumbUrl(url, PICK_BLUR_SIZE, "webp");
+                    Glide.with(iv)
+                            .load(gridUrl)
+                            .thumbnail(Glide.with(iv).load(blurUrl).apply(PICK_GRID_OPTIONS))
+                            .apply(PICK_GRID_OPTIONS)
+                            .into(iv);
                     iv.setBackgroundColor(0);
                 } else {
                     iv.setImageDrawable(null);
