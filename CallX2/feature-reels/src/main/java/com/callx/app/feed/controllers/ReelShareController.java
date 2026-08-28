@@ -6,6 +6,7 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import java.io.File;
 import android.os.Environment;
 import android.view.View;
 import android.widget.Toast;
