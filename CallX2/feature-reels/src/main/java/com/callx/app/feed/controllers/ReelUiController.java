@@ -71,32 +71,16 @@ public class ReelUiController {
     private LinearLayout    layoutMusicTicker;
     private com.callx.app.views.ReelChipRowLayout containerHashtags;
     private HorizontalScrollView scrollHashtags;
-    private final View.OnClickListener hashtagClickListener = view -> {
-        Object tag = view.getTag();
-        if (!(tag instanceof String) || !delegate.isAdded()
-                || delegate.getContext() == null) return;
-        Intent intent = new Intent(delegate.requireContext(), HashtagReelsActivity.class);
-        intent.putExtra(HashtagReelsActivity.EXTRA_HASHTAG, (String) tag);
-        delegate.getFragment().startActivity(intent);
-    };
-    private final View.OnClickListener duetChipClickListener = view -> {
-        ReelModel reel = delegate.getReel();
-        if (reel == null || !delegate.isAdded() || delegate.getActivity() == null) return;
-        Intent intent = new Intent(delegate.getActivity(),
-            com.callx.app.social.DuetsByReelActivity.class);
-        intent.putExtra(com.callx.app.social.DuetsByReelActivity.EXTRA_REEL_ID, reel.reelId);
-        intent.putExtra(com.callx.app.social.DuetsByReelActivity.EXTRA_OWNER_NAME, reel.ownerName);
-        delegate.getFragment().startActivity(intent);
-    };
-    private final View.OnClickListener stitchChipClickListener = view -> {
-        ReelModel reel = delegate.getReel();
-        if (reel == null || !delegate.isAdded() || delegate.getActivity() == null) return;
-        Intent intent = new Intent(delegate.getActivity(),
-            com.callx.app.social.StitchesByReelActivity.class);
-        intent.putExtra(com.callx.app.social.StitchesByReelActivity.EXTRA_REEL_ID, reel.reelId);
-        intent.putExtra(com.callx.app.social.StitchesByReelActivity.EXTRA_OWNER_NAME, reel.ownerName);
-        delegate.getFragment().startActivity(intent);
-    };
+    // NOTE: these are assigned in the constructor (not inline here) because
+    // an inline field initializer runs as part of <init> BEFORE the
+    // constructor body's "this.delegate = delegate;" executes — javac then
+    // can't prove the blank final `delegate` is definitely assigned at the
+    // point these lambdas capture it, even though the lambda body itself
+    // only runs later, well after construction. Assigning in the
+    // constructor body avoids the definite-assignment error.
+    private final View.OnClickListener hashtagClickListener;
+    private final View.OnClickListener duetChipClickListener;
+    private final View.OnClickListener stitchChipClickListener;
     private LinearLayout    llSeriesChip;
     private TextView        tvSeriesChipLabel;
     private TextView        tvRepostAttribution;
@@ -130,6 +114,33 @@ public class ReelUiController {
 
     public ReelUiController(ReelPlayerDelegate delegate) {
         this.delegate = delegate;
+
+        this.hashtagClickListener = view -> {
+            Object tag = view.getTag();
+            if (!(tag instanceof String) || !this.delegate.isAdded()
+                    || this.delegate.getContext() == null) return;
+            Intent intent = new Intent(this.delegate.requireContext(), HashtagReelsActivity.class);
+            intent.putExtra(HashtagReelsActivity.EXTRA_HASHTAG, (String) tag);
+            this.delegate.getFragment().startActivity(intent);
+        };
+        this.duetChipClickListener = view -> {
+            ReelModel reel = this.delegate.getReel();
+            if (reel == null || !this.delegate.isAdded() || this.delegate.getActivity() == null) return;
+            Intent intent = new Intent(this.delegate.getActivity(),
+                com.callx.app.social.DuetsByReelActivity.class);
+            intent.putExtra(com.callx.app.social.DuetsByReelActivity.EXTRA_REEL_ID, reel.reelId);
+            intent.putExtra(com.callx.app.social.DuetsByReelActivity.EXTRA_OWNER_NAME, reel.ownerName);
+            this.delegate.getFragment().startActivity(intent);
+        };
+        this.stitchChipClickListener = view -> {
+            ReelModel reel = this.delegate.getReel();
+            if (reel == null || !this.delegate.isAdded() || this.delegate.getActivity() == null) return;
+            Intent intent = new Intent(this.delegate.getActivity(),
+                com.callx.app.social.StitchesByReelActivity.class);
+            intent.putExtra(com.callx.app.social.StitchesByReelActivity.EXTRA_REEL_ID, reel.reelId);
+            intent.putExtra(com.callx.app.social.StitchesByReelActivity.EXTRA_OWNER_NAME, reel.ownerName);
+            this.delegate.getFragment().startActivity(intent);
+        };
     }
 
     // ── View binding ──────────────────────────────────────────────────────
