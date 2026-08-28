@@ -93,6 +93,29 @@
         android:textColor="#555555" android:gravity="center" android:padding="32dp"
         android:visibility="gone"/>
 
-    <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_trending_audio"
-        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"/>
+    <!-- 🛡️ Network/offline error state — shown instead of silently falling
+         back to demo tracks when the Firebase load actually fails -->
+    <LinearLayout android:id="@+id/layout_trending_audio_error"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:gravity="center"
+        android:padding="32dp" android:visibility="gone">
+        <TextView android:id="@+id/tv_trending_audio_error"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Couldn't load audio. Check your connection."
+            android:textColor="#AAAAAA" android:textSize="14sp" android:gravity="center"/>
+        <Button android:id="@+id/btn_trending_audio_retry"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="12dp" android:text="Retry"
+            android:textColor="#FFFFFF" android:background="@drawable/bg_speed_chip_active"
+            android:paddingHorizontal="24dp" android:minHeight="48dp"/>
+    </LinearLayout>
+
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/swipe_refresh_trending_audio"
+        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_trending_audio"
+            android:layout_width="match_parent" android:layout_height="match_parent"/>
+
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 </LinearLayout>

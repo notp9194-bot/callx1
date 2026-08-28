@@ -9,7 +9,9 @@ import android.util.LruCache;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -69,7 +71,26 @@ public final class ReelFirstFrameCache {
 
     private final Context appCtx;
     private final LruCache<String, Bitmap> memCache = new LruCache<>(MAX_MEM_ENTRIES);
+    // ★ Perceptual-hash cache — parallel to memCache, keyed the same way.
+    // Lets revealCardThumbnailAfterFirstFrame()/revealThumbnailAfterFirstFrame()
+    // pick a similarity-adaptive crossfade duration without re-hashing the
+    // same decoded frame on every reveal.
+    private final LruCache<String, Long> hashCache = new LruCache<>(MAX_MEM_ENTRIES);
     private final Set<String> inFlight = new HashSet<>();
+    /** PERF advance — "bitmap downsample + reuse": inBitmap-backed buffer
+     *  pool for the disk-decode fallback in {@link #getCached(String)}. See
+     *  {@link ReusableThumbBitmapPool} class doc for the reuse-safety
+     *  argument (only fed by {@link #releaseIfEvicted}). */
+    private final ReusableThumbBitmapPool reusePool = new ReusableThumbBitmapPool(3);
+    /** Identity set of every bitmap THIS cache has ever produced (disk decode
+     *  or fresh MediaMetadataRetriever decode) — {@link #releaseIfEvicted}
+     *  consults this before ever handing a bitmap to {@link #reusePool}, so
+     *  a bitmap this cache never created (e.g. one still owned by Glide,
+     *  which manages its own bitmap pool) can never accidentally be reused/
+     *  recycled out from under it. Identity (==), not equals(), since two
+     *  different decodes could coincidentally be pixel-equal. */
+    private final Set<Bitmap> ownedBitmaps =
+        Collections.synchronizedSet(Collections.newSetFromMap(new IdentityHashMap<>()));
     private final ExecutorService executor = Executors.newFixedThreadPool(2, r -> {
         Thread t = new Thread(r, "first-frame-decode");
         t.setDaemon(true);
@@ -109,8 +130,9 @@ public final class ReelFirstFrameCache {
         File diskFile = diskFileFor(cacheKey);
         if (diskFile.exists()) {
             try {
-                Bitmap fromDisk = android.graphics.BitmapFactory.decodeFile(diskFile.getAbsolutePath());
+                Bitmap fromDisk = decodeDiskFileWithReuse(diskFile.getAbsolutePath());
                 if (fromDisk != null) {
+                    ownedBitmaps.add(fromDisk);
                     memCache.put(cacheKey, fromDisk);
                     return fromDisk;
                 }
@@ -119,6 +141,87 @@ public final class ReelFirstFrameCache {
             }
         }
         return null;
+    }
+
+    /**
+     * Decodes a persisted first-frame JPEG, reusing a pooled mutable buffer
+     * via {@code BitmapFactory.Options.inBitmap} when one of the right
+     * dimensions is available — these files are all downscaled to the same
+     * TARGET_WIDTH_PX-derived shape per reel aspect ratio, so repeat decodes
+     * of a same-shaped reel (the common case: portrait 9:16 content) hit the
+     * pool instead of allocating fresh. Falls back to a plain decode (no
+     * reuse) on ANY failure — inBitmap rejects a mismatched buffer with an
+     * IllegalArgumentException, which is expected whenever the pool only has
+     * a different-shaped buffer on hand, not a bug.
+     */
+    private Bitmap decodeDiskFileWithReuse(String path) {
+        android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        android.graphics.BitmapFactory.decodeFile(path, bounds);
+
+        Bitmap candidate = reusePool.obtain(bounds.outWidth, bounds.outHeight);
+        if (candidate != null) {
+            android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+            opts.inBitmap = candidate;
+            opts.inMutable = true;
+            try {
+                Bitmap decoded = android.graphics.BitmapFactory.decodeFile(path, opts);
+                if (decoded != null) return decoded;
+            } catch (IllegalArgumentException e) {
+                // Reused buffer didn't fit after all (config/allocation-size
+                // mismatch) — release it back and fall through to a plain
+                // decode below rather than fail the whole lookup.
+                Log.d(TAG, "decodeDiskFileWithReuse: inBitmap rejected, plain-decoding instead");
+            }
+            reusePool.release(candidate);
+        }
+        return android.graphics.BitmapFactory.decodeFile(path);
+    }
+
+    /**
+     * Returns a decoded frame's buffer to the reuse pool once it's certain
+     * to never be handed out again — call ONLY from the point a card's
+     * ViewHolder is being recycled for a different post (HomeFragment's
+     * FeedAdapter.onViewRecycled / ReelPlayerController's equivalent), never
+     * speculatively. The identity check against the live memCache entry is
+     * what makes this safe: if {@code bitmap} is still the current cached
+     * object for {@code cacheKey}, some OTHER card could still hand out /
+     * be displaying that exact object (e.g. the same reel appears twice in
+     * a "suggested" strip), so it's left alone; only a bitmap that has
+     * already fallen out of memCache — meaning this recycled View held the
+     * last reference to it — is safe to reuse.
+     */
+    public void releaseIfEvicted(String cacheKey, Bitmap bitmap) {
+        if (cacheKey == null || bitmap == null || bitmap.isRecycled()) return;
+        // Never touch a bitmap this cache didn't create itself — e.g. the
+        // Glide-loaded static thumbnail shown before a first-frame decode
+        // lands. Glide owns that bitmap's lifecycle (its own bitmap pool),
+        // so reusing/recycling it here would corrupt Glide's own cache.
+        if (!ownedBitmaps.contains(bitmap)) return;
+        if (memCache.get(cacheKey) == bitmap) return; // still the live entry — not safe to reuse
+        ownedBitmaps.remove(bitmap);
+        reusePool.release(bitmap);
+    }
+
+    /**
+     * ★ Perceptual-hash lookup for the decoded first frame — used to decide
+     * how short the reveal crossfade can safely be (see PerceptualHashUtil).
+     * Lazily computes + caches the hash from whatever getCached() returns
+     * (mem or disk) the first time it's asked for, so a disk-only hit after
+     * an app restart still works even though hashCache itself doesn't
+     * survive process death. Returns null only if the frame itself isn't
+     * decoded/cached yet — callers should treat that as "unknown similarity",
+     * not "no similarity".
+     */
+    public Long getFrameHash(String cacheKey) {
+        if (cacheKey == null) return null;
+        Long cached = hashCache.get(cacheKey);
+        if (cached != null) return cached;
+        Bitmap bmp = getCached(cacheKey);
+        if (bmp == null) return null;
+        long hash = PerceptualHashUtil.dHash(bmp);
+        hashCache.put(cacheKey, hash);
+        return hash;
     }
 
     /**
@@ -183,7 +286,12 @@ public final class ReelFirstFrameCache {
 
             if (frame != null) {
                 final Bitmap f = frame;
+                ownedBitmaps.add(f);
                 memCache.put(cacheKey, f);
+                // ★ hash it now, on this same background thread — a few
+                // microseconds here saves doing it later on the main thread
+                // inside revealThumbnailAfterFirstFrame()'s hot path
+                hashCache.put(cacheKey, PerceptualHashUtil.dHash(f));
                 persistToDisk(cacheKey, f);
                 if (callback != null) {
                     new android.os.Handler(android.os.Looper.getMainLooper())
@@ -258,9 +366,12 @@ public final class ReelFirstFrameCache {
      */
     public void trimMemory() {
         memCache.evictAll();
+        reusePool.trimMemory();
     }
 
     public void clear() {
         memCache.evictAll();
+        hashCache.evictAll();
+        reusePool.trimMemory();
     }
 }

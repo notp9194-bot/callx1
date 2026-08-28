@@ -66,7 +66,8 @@ import com.callx.app.utils.FirebaseUtils;
 public class ReelPlayerController {
 
     private static final String TAG = "ReelPlayerCtrl";
-    private static final long THUMB_CROSSFADE_MS = 80L;
+    private static final long THUMB_CROSSFADE_CLOSE_MATCH_MS = 100L;
+    private static final long THUMB_CROSSFADE_DEFAULT_MS     = 200L;
 
     private static final float[] SPEED_STEPS   = {0.5f, 1.0f, 1.5f, 2.0f};
     private static final String[] SPEED_LABELS = {"0.5×", "1×", "1.5×", "2×"};
@@ -954,6 +955,14 @@ public class ReelPlayerController {
      * Crossfades the decoded surface over the thumbnail. This is deliberately
      * driven by onRenderedFirstFrame(), not a buffering/playback state, so a
      * black ExoPlayer shutter can never be exposed for a frame.
+     *
+     * ★ Instagram-level polish: DecelerateInterpolator (ease-out reveal
+     * instead of a mechanical linear dissolve) + hardware-layer promotion
+     * for the animation's duration so the alpha blend is a single GPU
+     * texture composite instead of a full view redraw every frame.
+     * Duration itself is perceptual-hash-adaptive (see crossfadeDuration()):
+     * a close visual match between the shown thumbnail and the real decoded
+     * frame trims this to 100ms; a real mismatch keeps the full 200ms.
      */
     private void revealThumbnailAfterFirstFrame() {
         if (firstFrameRendered) return;
@@ -962,15 +971,56 @@ public class ReelPlayerController {
         ivThumb.animate().cancel();
         if (ivThumb.getVisibility() != View.VISIBLE) return;
         ivThumb.setAlpha(1f);
+        ivThumb.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         ivThumb.animate()
             .alpha(0f)
-            .setDuration(THUMB_CROSSFADE_MS)
+            .setDuration(crossfadeDuration())
+            .setInterpolator(new android.view.animation.DecelerateInterpolator())
             .withEndAction(() -> {
                 if (ivThumb == null) return;
                 ivThumb.setVisibility(View.GONE);
                 ivThumb.setAlpha(1f);
+                ivThumb.setLayerType(View.LAYER_TYPE_NONE, null);
             })
             .start();
+    }
+
+    /**
+     * ★ Perceptual-hash match: compares the bitmap ivThumb is currently
+     * showing (server thumbnail, or already the real decoded frame if
+     * preparePlayerSilently()'s speculative pre-decode landed first)
+     * against the video's actual decoded first frame via a cheap 8×8 luma
+     * difference-hash (dHash). Close match → nothing for the eye to catch
+     * mid-fade → 100ms crossfade; a real mismatch keeps the full 200ms so
+     * the swap still reads as smooth instead of a visible pop. Falls back
+     * to 200ms whenever either bitmap isn't available yet — "unknown
+     * similarity" is treated the same as "not close".
+     */
+    private long crossfadeDuration() {
+        if (ivThumb == null || !delegate.isAdded() || delegate.getContext() == null) return THUMB_CROSSFADE_DEFAULT_MS;
+        ReelModel reel = delegate.getReel();
+        if (reel == null || reel.reelId == null) return THUMB_CROSSFADE_DEFAULT_MS;
+        Bitmap shown = bitmapFromImageView(ivThumb);
+        if (shown == null) return THUMB_CROSSFADE_DEFAULT_MS;
+        Long frameHash = com.callx.app.cache.ReelFirstFrameCache.get(delegate.requireContext()).getFrameHash(reel.reelId);
+        if (frameHash == null) return THUMB_CROSSFADE_DEFAULT_MS;
+        long thumbHash = com.callx.app.cache.PerceptualHashUtil.dHash(shown);
+        int distance = com.callx.app.cache.PerceptualHashUtil.hammingDistance(thumbHash, frameHash);
+        return distance <= com.callx.app.cache.PerceptualHashUtil.SIMILAR_THRESHOLD
+            ? THUMB_CROSSFADE_CLOSE_MATCH_MS
+            : THUMB_CROSSFADE_DEFAULT_MS;
+    }
+
+    /** Pulls the currently-drawn Bitmap out of an ImageView, if any — null
+     *  for placeholders/vector drawables/not-yet-loaded. */
+    private static Bitmap bitmapFromImageView(ImageView iv) {
+        if (iv == null) return null;
+        android.graphics.drawable.Drawable d = iv.getDrawable();
+        if (d instanceof android.graphics.drawable.BitmapDrawable) {
+            Bitmap b = ((android.graphics.drawable.BitmapDrawable) d).getBitmap();
+            return (b != null && !b.isRecycled()) ? b : null;
+        }
+        return null;
     }
 
     public void togglePlayPause() {

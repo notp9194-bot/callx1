@@ -363,11 +363,15 @@
                          ReelSharesBottomSheet for visual consistency; style
                          applied programmatically in
                          SoundDetailFragment#styleFollowBtn(). Hidden for
-                         own sound (creator == current user). -->
+                         own sound (creator == current user). Height/text
+                         matched to UserReelsActivity's Follow/Message/Call
+                         row (layout_instagram_cta) for the same thin,
+                         Instagram-style pill look across the app. -->
                     <Button android:id="@+id/btn_follow_creator"
-                        android:layout_width="wrap_content" android:layout_height="32dp"
+                        android:layout_width="wrap_content" android:layout_height="30dp"
                         android:text="Follow" android:textSize="12sp"
                         android:paddingStart="14dp" android:paddingEnd="14dp"
+                        android:paddingTop="0dp" android:paddingBottom="0dp"
                         android:layout_marginEnd="8dp"
                         android:background="@drawable/bg_follow_action_btn"
                         android:textColor="@android:color/white"
@@ -390,44 +394,46 @@
                      a plain TextView's drawableStart docks to the view's edge
                      regardless of gravity="center" (Android quirk), which was
                      pushing the camera/video icon to the far left instead of
-                     sitting next to the text. -->
+                     sitting next to the text. Height/text/icon sized to match
+                     UserReelsActivity's Follow/Message/Call row (30dp, thin
+                     Instagram-style pills) instead of the previous 44dp boxes. -->
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:orientation="horizontal" android:layout_marginTop="16dp">
                     <FrameLayout android:id="@+id/btn_use_sound_camera"
-                        android:layout_width="0dp" android:layout_height="44dp" android:layout_weight="1"
+                        android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1"
                         android:background="@drawable/bg_sound_detail_box" android:layout_marginEnd="8dp">
                         <LinearLayout
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:layout_gravity="center"
                             android:orientation="horizontal" android:gravity="center_vertical">
                             <ImageView
-                                android:layout_width="18dp" android:layout_height="18dp"
+                                android:layout_width="14dp" android:layout_height="14dp"
                                 android:src="@drawable/ic_camera"
                                 android:tint="@color/sound_detail_text_light"
-                                android:layout_marginEnd="6dp"/>
+                                android:layout_marginEnd="5dp"/>
                             <TextView
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="Use in Camera"
-                                android:textColor="@color/sound_detail_text_light" android:textSize="14sp"
+                                android:textColor="@color/sound_detail_text_light" android:textSize="12sp"
                                 android:fontFamily="sans-serif-medium"/>
                         </LinearLayout>
                     </FrameLayout>
                     <FrameLayout android:id="@+id/btn_use_sound_gallery"
-                        android:layout_width="0dp" android:layout_height="44dp" android:layout_weight="1"
+                        android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1"
                         android:background="@drawable/bg_sound_detail_box">
                         <LinearLayout
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:layout_gravity="center"
                             android:orientation="horizontal" android:gravity="center_vertical">
                             <ImageView
-                                android:layout_width="18dp" android:layout_height="18dp"
+                                android:layout_width="14dp" android:layout_height="14dp"
                                 android:src="@drawable/ic_video"
                                 android:tint="@color/sound_detail_video_accent"
-                                android:layout_marginEnd="6dp"/>
+                                android:layout_marginEnd="5dp"/>
                             <TextView
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="Use with Video"
-                                android:textColor="@color/sound_detail_video_accent" android:textSize="14sp"
+                                android:textColor="@color/sound_detail_video_accent" android:textSize="12sp"
                                 android:fontFamily="sans-serif-medium"/>
                         </LinearLayout>
                     </FrameLayout>
@@ -438,9 +444,11 @@
                      drawableStart docks to the view's edge regardless of
                      gravity="center" (Android quirk), which is what was
                      pushing the plus icon to the far left; nesting icon+text
-                     in a wrap_content inner row centers them together. -->
+                     in a wrap_content inner row centers them together.
+                     30dp height to match the same thin pill row as the two
+                     boxes above and UserReelsActivity's CTA row. -->
                 <FrameLayout android:id="@+id/btn_add_to_profile"
-                    android:layout_width="match_parent" android:layout_height="44dp"
+                    android:layout_width="match_parent" android:layout_height="30dp"
                     android:background="@drawable/bg_btn_follow_pill"
                     android:layout_marginTop="10dp" android:visibility="gone">
                     <LinearLayout
@@ -448,13 +456,13 @@
                         android:layout_gravity="center"
                         android:orientation="horizontal" android:gravity="center_vertical">
                         <ImageView
-                            android:layout_width="16dp" android:layout_height="16dp"
+                            android:layout_width="14dp" android:layout_height="14dp"
                             android:src="@drawable/ic_add_reels"
-                            android:layout_marginEnd="6dp"/>
+                            android:layout_marginEnd="5dp"/>
                         <TextView android:id="@+id/tv_add_to_profile"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Add to profile"
-                            android:textColor="@color/white" android:textSize="14sp"
+                            android:textColor="@color/white" android:textSize="12sp"
                             android:fontFamily="sans-serif-medium"/>
                     </LinearLayout>
                 </FrameLayout>

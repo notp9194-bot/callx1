@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 🛡️ Pagination footer row — lives inside the RecyclerView as the last
+     row (Instagram-style) instead of a separate spinner bolted below the
+     list. Two mutually-exclusive states:
+       - layout_footer_loading: small spinner while a load-more page is in flight
+       - layout_footer_error:   "Couldn't load more" + inline Retry — tapping
+         it retries just the failed page, in place, no toast needed. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingVertical="16dp">
+
+    <LinearLayout
+        android:id="@+id/layout_footer_loading"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:visibility="gone">
+        <ProgressBar
+            style="?android:attr/progressBarStyleSmall"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/layout_footer_error"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackground"
+        android:paddingVertical="6dp"
+        android:visibility="gone">
+        <TextView
+            android:id="@+id/tv_footer_error"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Couldn't load more"
+            android:textColor="#AAAAAA"
+            android:textSize="13sp"/>
+        <TextView
+            android:id="@+id/tv_footer_retry"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Retry"
+            android:textColor="#FF3B5C"
+            android:textSize="13sp"
+            android:textStyle="bold"/>
+    </LinearLayout>
+
+</FrameLayout>

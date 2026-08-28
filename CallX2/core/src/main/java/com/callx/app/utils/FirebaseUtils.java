@@ -230,6 +230,14 @@ public class FirebaseUtils {
         return db().getReference("musicLibrary");
     }
 
+    /** Admin-configurable thresholds for the Reels "Viral" audio tab —
+     *  appConfig/reelsViral/{windowDays, minUses} — lets ops retune what
+     *  counts as viral (window + usage cutoff) without an app release.
+     *  See ReelTrendingAudioActivity#loadViralConfig(). */
+    public static DatabaseReference getReelsViralConfigRef() {
+        return db().getReference("appConfig").child("reelsViral");
+    }
+
     /** Per-user unpublished drafts: reelDrafts/{uid}/{draftId} */
     public static DatabaseReference getReelDraftsRef(String uid) {
         return db().getReference("reelDrafts").child(uid);

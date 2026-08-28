@@ -59,9 +59,12 @@ import com.callx.app.db.entity.*;
         PaymentPinEntity.class,
         // Local cache of the viewer's own reel-watch history (v49) —
         // powers the "Just watched" profile-grid overlay.
-        ReelWatchHistoryCacheEntity.class
+        ReelWatchHistoryCacheEntity.class,
+        // Offline cache for the Trending Audio browser (v50) — instant
+        // reopen instead of a fresh Firebase read every time.
+        TrendingAudioCacheEntity.class
     },
-    version = 49,
+    version = 50,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -102,6 +105,9 @@ public abstract class AppDatabase extends RoomDatabase {
     public abstract PaymentAccountDao          paymentAccountDao();
     public abstract PaymentPinDao              paymentPinDao();
     public abstract ReelWatchHistoryCacheDao   reelWatchHistoryCacheDao();
+
+    // Trending Audio browser offline cache (v50)
+    public abstract TrendingAudioCacheDao      trendingAudioCacheDao();
 
     // ─── Migrations ───────────────────────────────────────────────────────────
 
@@ -638,6 +644,36 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** v50: offline cache table for ReelTrendingAudioActivity — mirrors the
+     *  last-loaded "musicLibrary" and "sounds" pages so the Trending Audio
+     *  screen paints instantly on reopen instead of always waiting on a
+     *  fresh Firebase read. */
+    static final Migration MIGRATION_49_50 = new Migration(49, 50) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS trending_audio_cache (" +
+                    "audioId TEXT NOT NULL, " +
+                    "source TEXT NOT NULL, " +
+                    "title TEXT, " +
+                    "artist TEXT, " +
+                    "audioUrl TEXT, " +
+                    "previewAudioUrl TEXT, " +
+                    "coverUrl TEXT, " +
+                    "genre TEXT, " +
+                    "mood TEXT, " +
+                    "usageCount INTEGER NOT NULL DEFAULT 0, " +
+                    "durationMs INTEGER NOT NULL DEFAULT 0, " +
+                    "trendingRank INTEGER NOT NULL DEFAULT 0, " +
+                    "bpm INTEGER NOT NULL DEFAULT 0, " +
+                    "addedAt INTEGER NOT NULL DEFAULT 0, " +
+                    "sortOrder INTEGER NOT NULL DEFAULT 0, " +
+                    "cachedAt INTEGER NOT NULL DEFAULT 0, " +
+                    "PRIMARY KEY(audioId, source))");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_trending_audio_cache_source_sortOrder " +
+                    "ON trending_audio_cache (source, sortOrder)");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -695,7 +731,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_40_41, MIGRATION_41_42,
                                     MIGRATION_42_43, MIGRATION_43_44,
                                     MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47,
-                                    MIGRATION_47_48, MIGRATION_48_49)
+                                    MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

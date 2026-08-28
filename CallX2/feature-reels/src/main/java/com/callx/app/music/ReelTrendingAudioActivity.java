@@ -1,6 +1,7 @@
 package com.callx.app.music;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.media.MediaPlayer;
 import android.os.Bundle;
 import android.os.Handler;
@@ -37,6 +38,11 @@ import java.util.*;
  *  ✅ Search filter within loaded tracks
  *  ✅ Auto-stops any playing preview when another starts
  *  ✅ Empty state per tab
+ *  ✅ Viral tab's window/threshold is backend-configurable
+ *     (appConfig/reelsViral/{windowDays,minUses}), no longer hardcoded
+ *  ✅ Room-backed offline cache — reopening the screen paints instantly
+ *     from the last-loaded page instead of always waiting on Firebase
+ *  ✅ Selected genre chip auto-scrolls into view if it's off-screen
  */
 public class ReelTrendingAudioActivity extends AppCompatActivity {
 
@@ -52,9 +58,26 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
     // ✅ NEW: Request code for opening SoundDetailActivity
     private static final int REQ_SOUND_DETAIL = 901;
 
-    private static final long VIRAL_WINDOW_MS = 7L * 24 * 60 * 60 * 1000;
+    // 🛠️ CONFIGURABLE: these used to be hardcoded and required an app
+    // release to change. They're now defaults only — the real values are
+    // loaded (and can be overridden) from Firebase in loadViralConfig(),
+    // with the last-fetched values cached in SharedPreferences so the
+    // screen still reflects the last known server setting even before
+    // that read completes or if it fails offline.
+    private static final long DEFAULT_VIRAL_WINDOW_MS = 7L * 24 * 60 * 60 * 1000;
+    private static final long DEFAULT_VIRAL_MIN_USES  = 500L;
     private static final long NEW_WINDOW_MS   = 24L * 60 * 60 * 1000;
-    private static final long VIRAL_MIN_USES  = 500L;
+    private long viralWindowMs = DEFAULT_VIRAL_WINDOW_MS;
+    private long viralMinUses  = DEFAULT_VIRAL_MIN_USES;
+    private static final String VIRAL_CONFIG_PREFS    = "reel_trending_audio_config";
+    private static final String KEY_VIRAL_WINDOW_DAYS = "viral_window_days";
+    private static final String KEY_VIRAL_MIN_USES    = "viral_min_uses";
+
+    // 📴 OFFLINE CACHE: single background executor for Room reads/writes
+    // backing the Trending Audio browser's offline warm-start (see
+    // TrendingAudioCacheManager).
+    private final java.util.concurrent.ExecutorService dbExecutor =
+        java.util.concurrent.Executors.newSingleThreadExecutor();
 
     private ImageButton  btnBack;
     private EditText     etSearch;
@@ -64,12 +87,36 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
     private LinearLayout layoutGenreChips;
     private RecyclerView rv;
     private ProgressBar  progress;
+    private androidx.swiperefreshlayout.widget.SwipeRefreshLayout swipeRefresh;
     private TextView     tvEmpty;
+    // 🛡️ Network/offline error state
+    private View         layoutError;
+    private TextView     tvError;
+    private Button       btnRetry;
+
+    // Pagination — Firebase limitToLast is grown page-by-page as the user
+    // scrolls near the bottom, instead of a fixed one-shot top-100/top-80 cap.
+    private static final int TRENDING_PAGE_SIZE = 100;
+    private static final int SOUNDS_PAGE_SIZE   = 80;
+    private int  trendingLimit = TRENDING_PAGE_SIZE;
+    private int  soundsLimit   = SOUNDS_PAGE_SIZE;
+    private boolean hasMoreTrending   = true;
+    private boolean hasMoreSounds     = true;
+    private boolean loadingMoreTrending = false;
+    private boolean loadingMoreSounds   = false;
 
     private final List<Audio> allTracks       = new ArrayList<>();
     private final List<Audio> allSoundsTracks = new ArrayList<>(); // ✅ Feature 1: sounds/ node
     private final List<Audio> displayed       = new ArrayList<>();
     private final Set<String> savedIds        = new HashSet<>();
+    // 🔎 SEARCH FIX: tracks found via runServerSearch() that live outside the
+    // locally-loaded page (top 100 musicLibrary / top 80 sounds) — merged
+    // into the candidate pool in filterDisplayed() via withSearchExtras().
+    private final Map<String, Audio> extraLibraryMatches = new HashMap<>();
+    private final Map<String, Audio> extraSoundsMatches  = new HashMap<>();
+    private Query activeSearchQuery;
+    private ValueEventListener activeSearchListener;
+    private int searchGeneration = 0;
     private AudioAdapter adapter;
     private String  myUid;
     private String  currentTab   = "trending";
@@ -91,8 +138,94 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
         try { myUid = FirebaseUtils.getCurrentUid(); } catch (Exception e) { myUid = null; }
         bindViews();
         buildGenreChips();
+        loadViralConfig();
         loadSavedIds();
+        // 📴 OFFLINE CACHE: paint the last-loaded page from disk immediately
+        // (covers cold/offline opens) — loadTracks()'s fresh Firebase read
+        // below still runs right after and silently replaces it once it lands.
+        loadTracksFromCache();
         loadTracks();
+    }
+
+    /**
+     * 🛠️ CONFIGURABLE VIRAL THRESHOLD: reads appConfig/reelsViral/
+     * {windowDays, minUses} from Firebase so the "Viral" tab's cutoff can
+     * be retuned by ops without an app release. Falls back to (and caches
+     * in SharedPreferences) the last known value so a slow/offline read
+     * never regresses the tab back to a bare hardcoded default mid-session.
+     */
+    private void loadViralConfig() {
+        SharedPreferences prefs = getSharedPreferences(VIRAL_CONFIG_PREFS, MODE_PRIVATE);
+        long cachedWindowDays = prefs.getLong(KEY_VIRAL_WINDOW_DAYS, -1);
+        long cachedMinUses    = prefs.getLong(KEY_VIRAL_MIN_USES, -1);
+        if (cachedWindowDays > 0) viralWindowMs = cachedWindowDays * 24 * 60 * 60 * 1000;
+        if (cachedMinUses >= 0)   viralMinUses  = cachedMinUses;
+
+        FirebaseUtils.getReelsViralConfigRef()
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (!isAlive()) return;
+                    Long windowDays = snap.child("windowDays").getValue(Long.class);
+                    Long minUses    = snap.child("minUses").getValue(Long.class);
+                    boolean changed = false;
+                    if (windowDays != null && windowDays > 0) {
+                        long ms = windowDays * 24 * 60 * 60 * 1000;
+                        if (ms != viralWindowMs) changed = true;
+                        viralWindowMs = ms;
+                    }
+                    if (minUses != null && minUses >= 0) {
+                        if (minUses != viralMinUses) changed = true;
+                        viralMinUses = minUses;
+                    }
+                    if (windowDays != null || minUses != null) {
+                        SharedPreferences.Editor ed = prefs.edit();
+                        if (windowDays != null) ed.putLong(KEY_VIRAL_WINDOW_DAYS, windowDays);
+                        if (minUses    != null) ed.putLong(KEY_VIRAL_MIN_USES, minUses);
+                        ed.apply();
+                    }
+                    if (changed && "viral".equals(currentTab)) {
+                        filterDisplayed(etSearch != null && etSearch.getText() != null
+                            ? etSearch.getText().toString().trim() : "");
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    // 🛡️ non-critical — keep whatever default/cached value we already have
+                }
+            });
+    }
+
+    /** 📴 OFFLINE CACHE: cold-start read of the last-cached "library" page from Room. */
+    private void loadTracksFromCache() {
+        dbExecutor.execute(() -> {
+            List<Audio> cached = TrendingAudioCacheManager.loadPageBlocking(
+                getApplicationContext(), TrendingAudioCacheManager.SOURCE_LIBRARY, TRENDING_PAGE_SIZE);
+            if (cached.isEmpty()) return;
+            runOnUiThread(() -> {
+                if (!isAlive()) return;
+                if (!allTracks.isEmpty()) return; // Firebase already won the race — don't clobber
+                allTracks.addAll(cached);
+                filterDisplayed(etSearch != null && etSearch.getText() != null
+                    ? etSearch.getText().toString().trim() : "");
+            });
+        });
+    }
+
+    /** 📴 OFFLINE CACHE: cold-start read of the last-cached "sounds" page from Room. */
+    private void loadSoundsTabFromCache() {
+        dbExecutor.execute(() -> {
+            List<Audio> cached = TrendingAudioCacheManager.loadPageBlocking(
+                getApplicationContext(), TrendingAudioCacheManager.SOURCE_SOUNDS, SOUNDS_PAGE_SIZE);
+            if (cached.isEmpty()) return;
+            runOnUiThread(() -> {
+                if (!isAlive()) return;
+                if (!allSoundsTracks.isEmpty()) return; // Firebase already won the race
+                allSoundsTracks.addAll(cached);
+                if ("sounds".equals(currentTab)) {
+                    filterDisplayed(etSearch != null && etSearch.getText() != null
+                        ? etSearch.getText().toString().trim() : "");
+                }
+            });
+        });
     }
 
     private void bindViews() {
@@ -110,7 +243,15 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
         layoutGenreChips = findViewById(R.id.layout_genre_chips);
         rv               = findViewById(R.id.rv_trending_audio);
         progress         = findViewById(R.id.progress_trending_audio);
+        swipeRefresh     = findViewById(R.id.swipe_refresh_trending_audio);
         tvEmpty          = findViewById(R.id.tv_trending_audio_empty);
+        layoutError      = findViewById(R.id.layout_trending_audio_error);
+        tvError          = findViewById(R.id.tv_trending_audio_error);
+        btnRetry         = findViewById(R.id.btn_trending_audio_retry);
+        if (btnRetry != null) btnRetry.setOnClickListener(v -> {
+            hideError();
+            refreshCurrentTab();
+        });
 
         if (btnBack != null) btnBack.setOnClickListener(v -> finish());
 
@@ -130,19 +271,53 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
                 indSounds.setVisibility(View.VISIBLE);
             }
             currentTab = "sounds";
-            if (allSoundsTracks.isEmpty()) loadSoundsTab();
+            hideError();
+            if (adapter != null) adapter.setFooterState(AudioAdapter.FOOTER_NONE);
+            if (allSoundsTracks.isEmpty()) { loadSoundsTabFromCache(); loadSoundsTab(); }
             else filterDisplayed(etSearch != null && etSearch.getText() != null
                 ? etSearch.getText().toString().trim() : "");
+            String qNow = etSearch != null && etSearch.getText() != null
+                ? etSearch.getText().toString().trim() : "";
+            if (!qNow.isEmpty()) runServerSearch(qNow);
         });
 
-        adapter = new AudioAdapter(displayed,
+        adapter = new AudioAdapter(
             audio -> previewAudio(audio),
             audio -> saveToggle(audio),
             audio -> useAudio(audio),
             audio -> openSoundDetail(audio));   // ✅ NEW: item tap → SoundDetailActivity
+        // 🛡️ in-list retry — tapping the footer row re-fetches just the
+        // failed page in place, same as maybeLoadMore() but without
+        // growing the page size again
+        adapter.setOnRetryLoadMore(this::retryLoadMore);
         if (rv != null) {
-            rv.setLayoutManager(new LinearLayoutManager(this));
+            LinearLayoutManager lm = new LinearLayoutManager(this);
+            rv.setLayoutManager(lm);
             rv.setAdapter(adapter);
+            // ⚡ PERF: row size doesn't depend on adapter content → skip re-measure passes
+            rv.setHasFixedSize(true);
+            // ⚡ PERF: keep a few extra rows warm off-screen for smoother fling
+            rv.setItemViewCacheSize(16);
+            // ⚡ PERF: avoid image/text flicker on partial (payload) rebinds from DiffUtil
+            RecyclerView.ItemAnimator anim = rv.getItemAnimator();
+            if (anim instanceof SimpleItemAnimator) {
+                ((SimpleItemAnimator) anim).setSupportsChangeAnimations(false);
+            }
+            // 📜 PAGINATION: grow the Firebase page size as the user nears the
+            // bottom, instead of the old fixed top-100 (musicLibrary) / top-80
+            // (sounds) one-shot cap.
+            rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
+                @Override public void onScrolled(@NonNull RecyclerView v, int dx, int dy) {
+                    if (dy <= 0) return; // only trigger while scrolling down
+                    int lastVisible = lm.findLastVisibleItemPosition();
+                    int total = lm.getItemCount();
+                    if (total > 0 && lastVisible >= total - 5) maybeLoadMore();
+                }
+            });
+        }
+
+        if (swipeRefresh != null) {
+            swipeRefresh.setOnRefreshListener(this::refreshCurrentTab);
         }
 
         if (etSearch != null) {
@@ -150,11 +325,24 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
                 @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
                 @Override public void afterTextChanged(android.text.Editable s) {}
                 @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
-                    filterDisplayed(s.toString().trim());
+                    // ⚡ PERF: debounce keystrokes — avoids re-filtering/sorting on every
+                    // character while the user is still typing
+                    final String query = s.toString().trim();
+                    handler.removeCallbacks(searchRunnable);
+                    searchRunnable = () -> {
+                        filterDisplayed(query);
+                        // 🔎 SEARCH FIX: also query the full Firebase node
+                        // (not just the already-loaded page) so a track
+                        // outside the loaded top-100/top-80 can be found too
+                        runServerSearch(query);
+                    };
+                    handler.postDelayed(searchRunnable, 150);
                 }
             });
         }
     }
+
+    private Runnable searchRunnable = () -> {};
 
     private void buildGenreChips() {
         if (layoutGenreChips == null) return;
@@ -170,21 +358,44 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
             chip.setSingleLine(true);
             chip.setPadding(dp14, dp4, dp14, dp4);
             chip.setClickable(true);
-            chip.setFocusable(true);
+            // ♿/RTL: MarginLayoutParams.setMarginEnd() is direction-aware —
+            // in an RTL locale (app has android:supportsRtl="true") the chip
+            // row mirrors and this margin correctly ends up on the visual
+            // left, unlike the previous absolute setMargins(0,0,dp8,0) which
+            // always drew the gap on the physical right regardless of layout
+            // direction.
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.setMargins(0, 0, dp8, 0);
+            lp.setMarginEnd(dp8);
             chip.setLayoutParams(lp);
+
+            // ♿ ACCESSIBILITY: plain TextViews are announced as static text
+            // by TalkBack with no indication they're tappable filters or
+            // whether they're currently selected. Expose them as toggle
+            // buttons with a proper selected/checked state instead.
+            chip.setFocusable(true);
+            chip.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+            androidx.core.view.ViewCompat.setAccessibilityDelegate(chip,
+                new androidx.core.view.AccessibilityDelegateCompat() {
+                    @Override public void onInitializeAccessibilityNodeInfo(
+                            View host, androidx.core.view.accessibility.AccessibilityNodeInfoCompat info) {
+                        super.onInitializeAccessibilityNodeInfo(host, info);
+                        info.setClassName(Button.class.getName());
+                        info.setCheckable(true);
+                        info.setChecked(host.isSelected());
+                    }
+                });
 
             boolean active = g.equalsIgnoreCase("All");
             setChipStyle(chip, active);
 
             chip.setOnClickListener(v -> {
-                selectedGenre = g.equalsIgnoreCase("All") ? "all" : g.toLowerCase();
+                selectedGenre = g.equalsIgnoreCase("All") ? "all" : g.toLowerCase(Locale.US);
                 for (int i = 0; i < layoutGenreChips.getChildCount(); i++) {
                     View c = layoutGenreChips.getChildAt(i);
                     if (c instanceof TextView) setChipStyle((TextView)c, c == chip);
                 }
+                scrollChipIntoView(chip);
                 filterDisplayed(etSearch != null && etSearch.getText() != null
                     ? etSearch.getText().toString().trim() : "");
             });
@@ -193,6 +404,7 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
     }
 
     private void setChipStyle(TextView chip, boolean active) {
+        chip.setSelected(active); // ♿ backs the AccessibilityDelegate's checked state above
         if (active) {
             chip.setBackgroundResource(R.drawable.bg_speed_chip_active);
             chip.setTextColor(0xFFFFFFFF);
@@ -202,17 +414,63 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * 🐛 FIX: tapping a genre chip that's off-screen (list wider than the
+     * visible strip) never scrolled it into view — the selection state
+     * changed but the highlighted chip itself stayed hidden, so a user
+     * tapping near either edge couldn't see which genre was now active.
+     * Mirrors the tab-indicator auto-scroll pattern used elsewhere in the
+     * app: compute the chip's left/right edge relative to the scroll
+     * view's current viewport and nudge just enough to bring it fully
+     * into view, instead of a hard-centering scrollTo that would jump
+     * unrelated chips around too.
+     */
+    private void scrollChipIntoView(View chip) {
+        if (hsvGenreChips == null || chip == null) return;
+        hsvGenreChips.post(() -> {
+            int chipLeft   = chip.getLeft();
+            int chipRight  = chip.getRight();
+            int scrollX    = hsvGenreChips.getScrollX();
+            int viewportW  = hsvGenreChips.getWidth();
+            if (viewportW <= 0) return;
+            int edgePad = (int) (12 * getResources().getDisplayMetrics().density);
+            if (chipLeft - edgePad < scrollX) {
+                hsvGenreChips.smoothScrollTo(Math.max(0, chipLeft - edgePad), 0);
+            } else if (chipRight + edgePad > scrollX + viewportW) {
+                hsvGenreChips.smoothScrollTo(chipRight + edgePad - viewportW, 0);
+            }
+        });
+    }
+
+    /**
+     * 🐛 FIX: exact token match instead of substring contains(). The old
+     * `a.searchGenre.contains(selectedGenre)` false-matched any field that
+     * merely embeds the selected word — e.g. the "Chill" chip would also
+     * match a track tagged mood "chillout", and genre strings combined via
+     * comma ("Pop, Chillout") diluted matches further. Splitting on
+     * comma/slash/semicolon and comparing whole tokens keeps hyphenated
+     * genre names like "hip-hop" intact (so they're never split into
+     * separate "hip"/"hop" tokens) while requiring a full-word match.
+     */
+    private static boolean genreFieldMatches(String field, String genre) {
+        if (field == null || field.isEmpty()) return false;
+        for (String token : field.split("[,/;]+")) {
+            if (token.trim().equals(genre)) return true;
+        }
+        return false;
+    }
+
     private void loadSavedIds() {
         if (myUid == null) return;
         FirebaseUtils.getUserRef(myUid).child("saved_sounds")
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (!isAlive()) return;
                     for (DataSnapshot s : snap.getChildren()) {
                         String id = s.getKey();
                         if (id != null) savedIds.add(id);
                     }
                     adapter.setSavedIds(savedIds);
-                    adapter.notifyDataSetChanged();
                     resolveSavedTracks();
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
@@ -268,7 +526,7 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
     }
 
     private void onSavedTrackResolved(Audio audio) {
-        if (isFinishing() || isDestroyed()) return;
+        if (!isAlive()) return;
         if (audio != null && audio.id != null) {
             resolvedSavedTracks.put(audio.id, audio);
             if ("saved".equals(currentTab)) {
@@ -297,6 +555,7 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
         a.durationMs = dur != null ? dur : 0;
         Integer bpmV = s.child("bpm").getValue(Integer.class);
         a.bpm        = bpmV != null ? bpmV : 0;
+        a.buildSearchCache();
         return a;
     }
 
@@ -311,6 +570,7 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
         a.genre      = "Original";
         Long rc      = s.child("reel_count").getValue(Long.class);
         a.usageCount = rc != null ? rc : 0;
+        a.buildSearchCache();
         return a;
     }
 
@@ -320,13 +580,23 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
      * Applies dateFilter: "today" / "week" / "all".
      */
     private void loadSoundsTab() {
-        if (progress != null) progress.setVisibility(View.VISIBLE);
+        // ⚡ big centered spinner only for a true first load — not for
+        // pagination (small bottom spinner) or pull-to-refresh (its own spinner)
+        boolean isPagination = loadingMoreSounds;
+        boolean isRefresh = swipeRefresh != null && swipeRefresh.isRefreshing();
+        if (progress != null && !isPagination && !isRefresh) progress.setVisibility(View.VISIBLE);
+        hideError();
         FirebaseUtils.db().getReference("sounds")
-            .orderByChild("reel_count").limitToLast(80)
+            .orderByChild("reel_count").limitToLast(soundsLimit)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (isFinishing() || isDestroyed()) return;
+                    if (!isAlive()) return;
                     if (progress != null) progress.setVisibility(View.GONE);
+                    if (adapter != null) adapter.setFooterState(AudioAdapter.FOOTER_NONE);
+                    if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
+                    loadingMoreSounds = false;
+                    // 📜 fewer rows came back than we asked for → we've reached the end
+                    hasMoreSounds = snap.getChildrenCount() >= soundsLimit;
                     allSoundsTracks.clear();
                     long now = System.currentTimeMillis();
                     for (DataSnapshot s : snap.getChildren()) {
@@ -346,27 +616,54 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
                         a.bpm        = 0;
                         a.trendingRank = Boolean.TRUE.equals(
                             s.child("is_trending").getValue(Boolean.class)) ? 1L : 0L;
+                        a.buildSearchCache();
                         allSoundsTracks.add(a);
                     }
                     Collections.reverse(allSoundsTracks); // highest reel_count first
                     filterDisplayed(etSearch != null && etSearch.getText() != null
                         ? etSearch.getText().toString().trim() : "");
+                    // 📴 OFFLINE CACHE: persist for instant reopen next time
+                    TrendingAudioCacheManager.savePage(getApplicationContext(),
+                        TrendingAudioCacheManager.SOURCE_SOUNDS, allSoundsTracks);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
+                    if (!isAlive()) return;
                     if (progress != null) progress.setVisibility(View.GONE);
+                    if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
+                    loadingMoreSounds = false;
+                    // 🛡️ real load failure (network/permission) — show retry UI
+                    // instead of silently leaving/replacing content with nothing
+                    // to explain why. Pagination failures keep existing rows and
+                    // surface an in-list retry row instead of a one-shot Toast.
+                    if (allSoundsTracks.isEmpty() && !isPagination) {
+                        if (adapter != null) adapter.setFooterState(AudioAdapter.FOOTER_NONE);
+                        showError("Couldn't load sounds. Check your connection.");
+                    } else {
+                        if (adapter != null) adapter.setFooterState(AudioAdapter.FOOTER_ERROR);
+                    }
                     filterDisplayed("");
                 }
             });
     }
 
     private void loadTracks() {
-        if (progress != null) progress.setVisibility(View.VISIBLE);
+        // ⚡ big centered spinner only for a true first load — not for
+        // pagination (small bottom spinner) or pull-to-refresh (its own spinner)
+        boolean isPagination = loadingMoreTrending;
+        boolean isRefresh = swipeRefresh != null && swipeRefresh.isRefreshing();
+        if (progress != null && !isPagination && !isRefresh) progress.setVisibility(View.VISIBLE);
+        hideError();
         FirebaseUtils.getMusicLibraryRef()
-            .orderByChild("usageCount").limitToLast(100)
+            .orderByChild("usageCount").limitToLast(trendingLimit)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (isFinishing() || isDestroyed()) return;
+                    if (!isAlive()) return;
                     if (progress != null) progress.setVisibility(View.GONE);
+                    if (adapter != null) adapter.setFooterState(AudioAdapter.FOOTER_NONE);
+                    if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
+                    loadingMoreTrending = false;
+                    // 📜 fewer rows came back than we asked for → we've reached the end
+                    hasMoreTrending = snap.getChildrenCount() >= trendingLimit;
                     allTracks.clear();
                     long now = System.currentTimeMillis();
                     for (DataSnapshot s : snap.getChildren()) {
@@ -390,61 +687,206 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
                         a.bpm        = bpmV != null ? bpmV : 0;
                         Long addedAt = s.child("addedAt").getValue(Long.class);
                         a.addedAt    = addedAt != null ? addedAt : 0;
-                        if (a.title != null && !a.title.isEmpty()) allTracks.add(a);
+                        if (a.title != null && !a.title.isEmpty()) {
+                            a.buildSearchCache();
+                            allTracks.add(a);
+                        }
                     }
                     Collections.reverse(allTracks);
-                    if (allTracks.isEmpty()) addDemoTracks();
+                    hasMoreTrending = hasMoreTrending && !allTracks.isEmpty();
+                    if (!allTracks.isEmpty()) {
+                        // 📴 OFFLINE CACHE: persist for instant reopen
+                        TrendingAudioCacheManager.savePage(getApplicationContext(),
+                            TrendingAudioCacheManager.SOURCE_LIBRARY, allTracks);
+                    }
                     filterDisplayed("");
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
-                    if (!isFinishing() && progress != null) progress.setVisibility(View.GONE);
-                    addDemoTracks(); filterDisplayed("");
+                    if (!isAlive()) return;
+                    if (progress != null) progress.setVisibility(View.GONE);
+                    if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
+                    loadingMoreTrending = false;
+                    hasMoreTrending = false;
+                    // 🛡️ real load failure (network/permission) — show retry UI
+                    // instead of silently leaving/replacing content with nothing
+                    // to explain why. Pagination failures keep existing rows and
+                    // surface an in-list retry row instead of a one-shot Toast.
+                    if (allTracks.isEmpty() && !isPagination) {
+                        if (adapter != null) adapter.setFooterState(AudioAdapter.FOOTER_NONE);
+                        showError("Couldn't load trending audio. Check your connection.");
+                        filterDisplayed("");
+                    } else if (isPagination) {
+                        if (adapter != null) adapter.setFooterState(AudioAdapter.FOOTER_ERROR);
+                    } else {
+                        filterDisplayed("");
+                    }
                 }
             });
     }
 
-    private void addDemoTracks() {
-        long now = System.currentTimeMillis();
-        Object[][] demo = {
-            {"Blinding Lights (Remix)", "The Weeknd",         14200L, 200000L, 1L,  "Pop",    128, now - 3*86400000L},
-            {"As It Was",               "Harry Styles",        9800L, 180000L, 2L,  "Pop",    174, now - 5*86400000L},
-            {"Stay",                    "Kid Laroi & Bieber",  7300L, 195000L, 3L,  "Pop",    170, now - 2*86400000L},
-            {"Levitating",              "Dua Lipa",            6100L, 203000L, 4L,  "Pop",    103, now - 8*86400000L},
-            {"Good 4 U",                "Olivia Rodrigo",      5400L, 178000L, 5L,  "Pop",    166, now -12*86400000L},
-            {"Butter",                  "BTS",                 4800L, 185000L, 6L,  "Pop",    110, now -20*86400000L},
-            {"Montero",                 "Lil Nas X",           3900L, 170000L, 7L,  "Hip-Hop",136, now - 4*86400000L},
-            {"Peaches",                 "Justin Bieber",       3200L, 192000L, 8L,  "Pop",     98, now -15*86400000L},
-            {"Chill Vibes Mix",         "Lo-Fi Beats",         2800L, 185000L, 10L, "Chill",   72, now -  6*3600000L},
-            {"Hype Drop",               "EDM Nation",          6700L, 180000L, 9L,  "EDM",    138, now -  2*3600000L},
-            {"Romantic Evening",        "CallX Originals",     2100L, 200000L, 15L, "Romantic",80, now - 18*3600000L},
-            {"Desi Tadka",              "Bollywood Beats",     1900L, 195000L, 20L, "Bollywood",120, now - 8*3600000L},
-        };
-        for (Object[] row : demo) {
-            Audio a = new Audio();
-            a.id           = UUID.randomUUID().toString();
-            a.title        = (String) row[0];
-            a.artist       = (String) row[1];
-            a.usageCount   = (Long)   row[2];
-            a.durationMs   = (Long)   row[3];
-            a.trendingRank = (Long)   row[4];
-            a.genre        = (String) row[5];
-            a.bpm          = (Integer)row[6];
-            a.addedAt      = (Long)   row[7];
-            a.audioUrl     = "";
-            a.coverUrl     = "";
-            allTracks.add(a);
-        }
+    /** 🛡️ Shows the error state (message + retry button), hides list/empty state. */
+    private void showError(String message) {
+        if (tvError != null && message != null) tvError.setText(message);
+        if (layoutError != null) layoutError.setVisibility(View.VISIBLE);
+        if (tvEmpty != null) tvEmpty.setVisibility(View.GONE);
+    }
+
+    private void hideError() {
+        if (layoutError != null) layoutError.setVisibility(View.GONE);
     }
 
     private void switchTab(String tab) {
         currentTab = tab;
+        hideError();
+        // 🛡️ a failed-page retry row from the previous tab shouldn't dangle
+        // under a different tab's freshly-loaded rows
+        if (adapter != null) adapter.setFooterState(AudioAdapter.FOOTER_NONE);
         if (indTrending != null) indTrending.setVisibility("trending".equals(tab) ? View.VISIBLE : View.GONE);
         if (indViral    != null) indViral.setVisibility("viral".equals(tab)        ? View.VISIBLE : View.GONE);
         if (indNew      != null) indNew.setVisibility("new".equals(tab)            ? View.VISIBLE : View.GONE);
         if (indSaved    != null) indSaved.setVisibility("saved".equals(tab)        ? View.VISIBLE : View.GONE);
         if ("saved".equals(tab)) resolveSavedTracks();
-        filterDisplayed(etSearch != null && etSearch.getText() != null
-            ? etSearch.getText().toString().trim() : "");
+        String q = etSearch != null && etSearch.getText() != null
+            ? etSearch.getText().toString().trim() : "";
+        filterDisplayed(q);
+        // 🔎 the node searched depends on the tab (musicLibrary vs sounds) —
+        // re-run so a query typed before switching still covers the new tab
+        if (!q.isEmpty()) runServerSearch(q);
+    }
+
+    /**
+     * 🔎 SEARCH FIX: previously the search box only ever filtered whichever
+     * page was already loaded locally (top 100 musicLibrary / top 80
+     * sounds), so a real track outside that window could never be found no
+     * matter how exact the query. This runs the same titleLower-prefix
+     * query SoundSearchActivity already uses elsewhere, against the full
+     * node, and merges any newly-found tracks into the local candidate
+     * pool (extraLibraryMatches / extraSoundsMatches) so every tab's own
+     * filterDisplayed() logic can see them too — search now covers the
+     * entire library, not just what happened to already be paged in.
+     */
+    private void runServerSearch(String rawQuery) {
+        String lo = rawQuery.toLowerCase(Locale.US).trim();
+        cancelServerSearch();
+        if (lo.isEmpty() || "saved".equals(currentTab)) return;
+
+        // 🛡️ generation guard — if the user keeps typing or switches tabs
+        // before this one-shot query returns, a stale response can no
+        // longer clobber a newer/more-relevant search
+        final int myGen = ++searchGeneration;
+        final String hibound = lo + "\uf8ff";
+        final boolean wantSounds = "sounds".equals(currentTab);
+
+        Query q = wantSounds
+            ? FirebaseUtils.db().getReference("sounds")
+                .orderByChild("titleLower").startAt(lo).endAt(hibound).limitToFirst(50)
+            : FirebaseUtils.getMusicLibraryRef()
+                .orderByChild("titleLower").startAt(lo).endAt(hibound).limitToFirst(50);
+
+        activeSearchQuery = q;
+        activeSearchListener = new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                if (!isAlive() || myGen != searchGeneration) return;
+                Map<String, Audio> target = wantSounds ? extraSoundsMatches : extraLibraryMatches;
+                for (DataSnapshot s : snap.getChildren()) {
+                    Audio a = wantSounds ? buildAudioFromSoundsSnapshot(s) : buildAudioFromMusicLibrarySnapshot(s);
+                    if (a.id != null && a.title != null && !a.title.isEmpty()) target.put(a.id, a);
+                }
+                // only re-render if the box still holds this exact query —
+                // otherwise a newer keystroke/tab switch already owns the UI
+                String live = etSearch != null && etSearch.getText() != null
+                    ? etSearch.getText().toString().trim() : "";
+                if (live.equalsIgnoreCase(rawQuery)) filterDisplayed(live);
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {
+                // silent — the locally-loaded matches (if any) are already showing
+            }
+        };
+        activeSearchQuery.addListenerForSingleValueEvent(activeSearchListener);
+    }
+
+    private void cancelServerSearch() {
+        if (activeSearchQuery != null && activeSearchListener != null) {
+            activeSearchQuery.removeEventListener(activeSearchListener);
+        }
+        activeSearchQuery = null;
+        activeSearchListener = null;
+    }
+
+    /** Merges server-search matches into a fresh copy of the local list —
+     *  always returns a new List so callers can freely sort/subList it
+     *  without ever mutating allTracks/allSoundsTracks in place. */
+    private List<Audio> withSearchExtras(List<Audio> base, Map<String, Audio> extras, String q) {
+        List<Audio> merged = new ArrayList<>(base);
+        if (!q.isEmpty() && !extras.isEmpty()) {
+            Set<String> have = new HashSet<>();
+            for (Audio a : merged) have.add(a.id);
+            for (Audio a : extras.values()) {
+                if (a.id != null && have.add(a.id)) merged.add(a);
+            }
+        }
+        return merged;
+    }
+
+    /** 📜 Called near the bottom of the list — grows the relevant Firebase
+     *  page size and re-fetches. "saved" has no pagination (it's just the
+     *  user's own saved set, always small and fully resolved already). */
+    private void maybeLoadMore() {
+        if ("saved".equals(currentTab)) return;
+        if ("sounds".equals(currentTab)) {
+            if (!hasMoreSounds || loadingMoreSounds) return;
+            loadingMoreSounds = true;
+            soundsLimit += SOUNDS_PAGE_SIZE;
+            if (adapter != null) adapter.setFooterState(AudioAdapter.FOOTER_LOADING);
+            loadSoundsTab();
+        } else {
+            // trending / viral / new / default tabs all read from allTracks
+            if (!hasMoreTrending || loadingMoreTrending) return;
+            loadingMoreTrending = true;
+            trendingLimit += TRENDING_PAGE_SIZE;
+            if (adapter != null) adapter.setFooterState(AudioAdapter.FOOTER_LOADING);
+            loadTracks();
+        }
+    }
+
+    /** 🛡️ Tapped from the in-list footer row after a failed load-more page.
+     *  Re-requests the exact same page that just failed (the limit was
+     *  already grown by maybeLoadMore() before the failure) — doesn't grow
+     *  the page size again, unlike a fresh maybeLoadMore() call. */
+    private void retryLoadMore() {
+        if ("saved".equals(currentTab)) return;
+        if ("sounds".equals(currentTab)) {
+            if (loadingMoreSounds) return;
+            loadingMoreSounds = true;
+            if (adapter != null) adapter.setFooterState(AudioAdapter.FOOTER_LOADING);
+            loadSoundsTab();
+        } else {
+            if (loadingMoreTrending) return;
+            loadingMoreTrending = true;
+            if (adapter != null) adapter.setFooterState(AudioAdapter.FOOTER_LOADING);
+            loadTracks();
+        }
+    }
+
+    /** 🔄 Pull-to-refresh — resets pagination back to page 1 and forces a
+     *  fresh Firebase read for whichever tab is currently open. */
+    private void refreshCurrentTab() {
+        if (adapter != null) adapter.setFooterState(AudioAdapter.FOOTER_NONE);
+        if ("saved".equals(currentTab)) {
+            hideError();
+            loadSavedIds();
+            if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
+            return;
+        }
+        if ("sounds".equals(currentTab)) {
+            soundsLimit = SOUNDS_PAGE_SIZE;
+            hasMoreSounds = true;
+            loadSoundsTab();
+        } else {
+            trendingLimit = TRENDING_PAGE_SIZE;
+            hasMoreTrending = true;
+            loadTracks();
+        }
     }
 
     private void filterDisplayed(String q) {
@@ -455,9 +897,9 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
         switch (currentTab) {
             case "viral":
                 source = new ArrayList<>();
-                for (Audio a : allTracks) {
-                    boolean isRecent = (now - a.addedAt) <= VIRAL_WINDOW_MS;
-                    boolean isPopular = a.usageCount >= VIRAL_MIN_USES;
+                for (Audio a : withSearchExtras(allTracks, extraLibraryMatches, q)) {
+                    boolean isRecent = (now - a.addedAt) <= viralWindowMs;
+                    boolean isPopular = a.usageCount >= viralMinUses;
                     if (isRecent && isPopular) source.add(a);
                 }
                 source.sort((x, y) -> Double.compare(
@@ -466,15 +908,19 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
                 break;
 
             case "new":
+                List<Audio> newBase = withSearchExtras(allTracks, extraLibraryMatches, q);
                 source = new ArrayList<>();
-                for (Audio a : allTracks) {
+                for (Audio a : newBase) {
                     if ((now - a.addedAt) <= NEW_WINDOW_MS) source.add(a);
                 }
                 source.sort((x, y) -> Long.compare(y.addedAt, x.addedAt));
                 if (source.isEmpty()) {
-                    source = new ArrayList<>(allTracks);
+                    source = new ArrayList<>(newBase);
                     source.sort((x, y) -> Long.compare(y.addedAt, x.addedAt));
-                    if (source.size() > 20) source = source.subList(0, 20);
+                    // only cap the "no recent uploads" fallback when not
+                    // actively searching, so a real search match further
+                    // down the addedAt order still surfaces
+                    if (q.isEmpty() && source.size() > 20) source = source.subList(0, 20);
                 }
                 break;
 
@@ -496,7 +942,7 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
                 break;
 
             case "sounds": // ✅ Feature 1: user-created original audio from sounds/ node
-                source = new ArrayList<>(allSoundsTracks);
+                source = withSearchExtras(allSoundsTracks, extraSoundsMatches, q);
                 // Apply date filter
                 if ("today".equals(dateFilter)) {
                     long cutToday = now - 24L * 60 * 60 * 1000;
@@ -514,25 +960,31 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
                 break;
 
             default:
-                source = new ArrayList<>(allTracks);
+                source = withSearchExtras(allTracks, extraLibraryMatches, q);
                 source.sort((x, y) -> Long.compare(y.usageCount, x.usageCount));
                 break;
         }
 
+        // ⚡ PERF: lowercase the query once instead of on every item comparison
+        String qLower = q.toLowerCase(Locale.US);
         for (Audio a : source) {
+            // ⚡ PERF: uses pre-cached lowercase fields (built once when the
+            // track was loaded) instead of calling toLowerCase() per keystroke
             boolean matchesGenre = selectedGenre.equals("all")
-                || (a.genre != null && a.genre.toLowerCase().contains(selectedGenre))
-                || (a.mood  != null && a.mood.toLowerCase().contains(selectedGenre));
+                || genreFieldMatches(a.searchGenre, selectedGenre)
+                || genreFieldMatches(a.searchMood, selectedGenre);
 
-            boolean matchesQ = q.isEmpty()
-                || (a.title  != null && a.title.toLowerCase().contains(q.toLowerCase()))
-                || (a.artist != null && a.artist.toLowerCase().contains(q.toLowerCase()));
+            boolean matchesQ = qLower.isEmpty()
+                || a.searchTitle.contains(qLower)
+                || a.searchArtist.contains(qLower);
 
             if (matchesGenre && matchesQ) displayed.add(a);
         }
 
-        adapter.setPlayingId(playingId);
-        adapter.notifyDataSetChanged();
+        // ⚡ PERF: DiffUtil computes the minimal set of row changes instead of
+        // rebinding/redrawing every visible row on every filter/tab/search change
+        adapter.setPlayingIdQuiet(playingId);
+        adapter.submitList(displayed);
         if (tvEmpty != null)
             tvEmpty.setVisibility(displayed.isEmpty() ? View.VISIBLE : View.GONE);
     }
@@ -544,43 +996,115 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
             Toast.makeText(this, "Preview not available for this sound", Toast.LENGTH_SHORT).show(); return;
         }
         playingId = audio.id;
-        adapter.setPlayingId(playingId); adapter.notifyDataSetChanged();
+        // ⚡ PERF: only the previous row and the newly-playing row need a redraw
+        adapter.setPlayingId(playingId);
         try {
-            mediaPlayer = new MediaPlayer();
-            mediaPlayer.setDataSource(audio.previewAudioUrl);
-            mediaPlayer.prepareAsync();
-            mediaPlayer.setOnPreparedListener(mp -> mp.start());
-            mediaPlayer.setOnCompletionListener(mp -> stopPreview());
-            mediaPlayer.setOnErrorListener((mp, what, extra) -> { stopPreview(); return true; });
+            final MediaPlayer mp = new MediaPlayer();
+            mediaPlayer = mp;
+            // 🛡️ RACE FIX: guard every callback with "is this still the current
+            // player?" — if a fast tab switch/row tap already replaced
+            // `mediaPlayer` with a newer instance (or nulled it via
+            // stopPreview()) by the time this async callback fires, a stale
+            // callback on the OLD instance can no longer touch playback state.
+            // Listeners are attached before prepareAsync() so none can fire
+            // before the guard is in place.
+            mp.setOnPreparedListener(p -> {
+                if (mediaPlayer != mp) return;
+                p.start();
+                // 🎧 kick off the inline progress/timer ticker now that we
+                // actually know the real preview duration
+                int total = p.getDuration();
+                adapter.updateProgress(0, total > 0 ? total : 30000);
+                handler.removeCallbacks(progressTicker);
+                handler.post(progressTicker);
+            });
+            mp.setOnCompletionListener(p -> { if (mediaPlayer == mp) stopPreview(); });
+            mp.setOnErrorListener((p, what, extra) -> { if (mediaPlayer == mp) stopPreview(); return true; });
+            mp.setDataSource(audio.previewAudioUrl);
+            mp.prepareAsync();
         } catch (Exception e) { stopPreview(); }
+    }
+
+    /** 🎧 Polls MediaPlayer's playback position every ~200ms while a preview
+     *  is active and pushes it to the adapter's row-scoped progress bar/timer.
+     *  Self-terminates as soon as the player is gone/stopped/released. */
+    private final Runnable progressTicker = this::tickPreviewProgress;
+    private static final long PROGRESS_TICK_MS = 200L;
+
+    private void tickPreviewProgress() {
+        MediaPlayer mp = mediaPlayer;
+        if (mp == null || playingId == null) return;
+        try {
+            if (mp.isPlaying()) {
+                int cur = mp.getCurrentPosition();
+                int total = mp.getDuration();
+                adapter.updateProgress(cur, total > 0 ? total : 30000);
+            }
+        } catch (Exception ignored) {
+            return; // player was released mid-tick — just stop quietly
+        }
+        handler.postDelayed(progressTicker, PROGRESS_TICK_MS);
     }
 
     private void stopPreview() {
         playingId = null;
-        adapter.setPlayingId(null); adapter.notifyDataSetChanged();
-        if (mediaPlayer != null) {
-            try { mediaPlayer.stop(); mediaPlayer.release(); } catch (Exception ignored) {}
-            mediaPlayer = null;
+        adapter.setPlayingId(null);
+        handler.removeCallbacks(progressTicker);
+        MediaPlayer mp = mediaPlayer;
+        mediaPlayer = null;
+        if (mp != null) {
+            // 🛡️ LEAK FIX: stop() and release() are now in separate try/catch
+            // blocks. Previously both calls shared one try block — stop()
+            // throws IllegalStateException if the player is still mid-async
+            // prepare (not yet Started/Paused/Stopped), which aborted the
+            // block BEFORE release() ran, leaking the native MediaPlayer.
+            // release() is always safe to call regardless of player state,
+            // so it must not be skippable by an exception from stop().
+            try { mp.setOnPreparedListener(null); mp.setOnCompletionListener(null); mp.setOnErrorListener(null); } catch (Exception ignored) {}
+            try { mp.stop(); } catch (Exception ignored) {}
+            try { mp.release(); } catch (Exception ignored) {}
         }
     }
 
     private void saveToggle(Audio audio) {
         if (myUid == null || audio.id == null) return;
-        DatabaseReference ref = FirebaseUtils.getUserRef(myUid).child("saved_sounds").child(audio.id);
-        if (savedIds.contains(audio.id)) {
-            savedIds.remove(audio.id); ref.removeValue();
+        final String id = audio.id;
+        DatabaseReference ref = FirebaseUtils.getUserRef(myUid).child("saved_sounds").child(id);
+        if (savedIds.contains(id)) {
+            savedIds.remove(id);
+            // 🛡️ write listener guarded by isAlive() — if this activity is
+            // gone by the time Firebase replies, we just skip the UI update
+            // instead of touching a destroyed activity's views/adapter
+            ref.removeValue().addOnCompleteListener(task -> {
+                if (!isAlive()) return;
+                if (!task.isSuccessful()) {
+                    // roll back the optimistic removal — the write didn't happen
+                    savedIds.add(id);
+                    adapter.setSavedState(id, true);
+                    Toast.makeText(this, "Couldn't remove — try again", Toast.LENGTH_SHORT).show();
+                }
+            });
             Toast.makeText(this, "Removed from saved", Toast.LENGTH_SHORT).show();
         } else {
-            savedIds.add(audio.id);
+            savedIds.add(id);
             Map<String, Object> m = new HashMap<>();
             m.put("title",    audio.title);
             m.put("artist",   audio.artist != null ? audio.artist : "");
             m.put("audioUrl", audio.audioUrl != null ? audio.audioUrl : "");
             m.put("coverUrl", audio.coverUrl != null ? audio.coverUrl : "");
-            ref.setValue(m);
+            ref.setValue(m).addOnCompleteListener(task -> {
+                if (!isAlive()) return;
+                if (!task.isSuccessful()) {
+                    // roll back the optimistic save — the write didn't happen
+                    savedIds.remove(id);
+                    adapter.setSavedState(id, false);
+                    Toast.makeText(this, "Couldn't save — try again", Toast.LENGTH_SHORT).show();
+                }
+            });
             Toast.makeText(this, "Sound saved", Toast.LENGTH_SHORT).show();
         }
-        adapter.setSavedIds(savedIds); adapter.notifyDataSetChanged();
+        // ⚡ PERF: only the toggled row needs a redraw, not the entire list
+        adapter.setSavedState(id, savedIds.contains(id));
     }
 
     private void useAudio(Audio audio) {
@@ -623,39 +1147,198 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
 
     @Override protected void onDestroy() {
         stopPreview();
+        cancelServerSearch();
         handler.removeCallbacksAndMessages(null);
+        dbExecutor.shutdown(); // 📴 OFFLINE CACHE: avoid leaking this activity's background thread
         super.onDestroy();
     }
+
+    /** 🛡️ Firebase's addListenerForSingleValueEvent has no removeListener
+     *  equivalent — the callback WILL fire even if the activity is destroyed
+     *  mid-load. Every callback that touches views/adapter must check this
+     *  first so a late callback is a safe no-op instead of a crash/leak. */
+    private boolean isAlive() { return !isFinishing() && !isDestroyed(); }
 
     static class Audio {
         String id, title, artist, audioUrl, coverUrl, genre, mood, previewAudioUrl;
         long usageCount, durationMs, trendingRank, addedAt;
         int bpm;
+
+        // ⚡ PERF: lowercase copies computed once at load time, so search
+        // filtering never calls toLowerCase() per keystroke per track
+        String searchTitle = "", searchArtist = "", searchGenre = "", searchMood = "";
+
+        void buildSearchCache() {
+            searchTitle  = title  != null ? title.toLowerCase(Locale.US)  : "";
+            searchArtist = artist != null ? artist.toLowerCase(Locale.US) : "";
+            searchGenre  = genre  != null ? genre.toLowerCase(Locale.US)  : "";
+            searchMood   = mood   != null ? mood.toLowerCase(Locale.US)   : "";
+        }
     }
 
     interface AudioAction { void run(Audio a); }
 
-    static class AudioAdapter extends RecyclerView.Adapter<AudioAdapter.VH> {
-        private final List<Audio> items;
+    // ⚡ PERF: adapter now owns its own list + DiffUtil pipeline instead of
+    // sharing a mutable reference with the activity and doing full rebinds.
+    // 🛡️ Also owns an in-list pagination footer row (Instagram-style): a
+    // small spinner while a load-more page is in flight, replaced in place
+    // by a "Couldn't load more · Retry" row if that page fails — instead of
+    // a one-shot Toast that leaves no way to retry short of scrolling away
+    // and back.
+    static class AudioAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+        private static final Object PAYLOAD_PLAYING  = "payload_playing";
+        private static final Object PAYLOAD_SAVED    = "payload_saved";
+        private static final Object PAYLOAD_PROGRESS = "payload_progress";
+
+        private static final int VIEW_TYPE_ITEM   = 0;
+        private static final int VIEW_TYPE_FOOTER = 1;
+
+        static final int FOOTER_NONE    = 0;
+        static final int FOOTER_LOADING = 1;
+        static final int FOOTER_ERROR   = 2;
+
+        private final List<Audio> items = new ArrayList<>();
         private final AudioAction onPreview, onSave, onUse, onDetail;
         private Set<String> savedIds = new HashSet<>();
         private String playingId;
-        // ✅ NEW: 5th param onDetail — fires when user taps the row (not a button)
-        AudioAdapter(List<Audio> i, AudioAction p, AudioAction s, AudioAction u, AudioAction d) {
-            items = i; onPreview = p; onSave = s; onUse = u; onDetail = d;
+        // 🎧 Current preview playback position, pushed by tickPreviewProgress()
+        private int progressCurrentMs = 0;
+        private int progressTotalMs   = 0;
+
+        private int footerState = FOOTER_NONE;
+        private Runnable onRetryLoadMore;
+
+        // ✅ NEW: 4th param onDetail — fires when user taps the row (not a button)
+        AudioAdapter(AudioAction p, AudioAction s, AudioAction u, AudioAction d) {
+            onPreview = p; onSave = s; onUse = u; onDetail = d;
+            setHasStableIds(true);
         }
-        void setSavedIds(Set<String> ids) { savedIds = new HashSet<>(ids); }
-        void setPlayingId(String id) { playingId = id; }
+
+        void setOnRetryLoadMore(Runnable r) { onRetryLoadMore = r; }
+
+        /** 🛡️ Switches the footer row between hidden / loading-spinner /
+         *  retry-on-failure — called from maybeLoadMore()'s in-flight,
+         *  success and failure paths. */
+        void setFooterState(int state) {
+            if (footerState == state) {
+                if (state != FOOTER_NONE) notifyItemChanged(items.size());
+                return;
+            }
+            boolean hadFooter = footerState != FOOTER_NONE;
+            boolean hasFooter = state != FOOTER_NONE;
+            footerState = state;
+            if (hadFooter && hasFooter) {
+                notifyItemChanged(items.size());
+            } else if (hasFooter) {
+                notifyItemInserted(items.size());
+            } else {
+                notifyItemRemoved(items.size());
+            }
+        }
+
+        /** Full bulk sync (e.g. initial saved-ids load) — cheap, happens once. */
+        void setSavedIds(Set<String> ids) { savedIds = new HashSet<>(ids); notifyDataSetChanged(); }
+
+        /** Updates playingId without triggering any bind — caller (filterDisplayed)
+         *  is about to submitList anyway, so no extra work is needed here. */
+        void setPlayingIdQuiet(String id) { playingId = id; }
+
+        /** ⚡ Toggles the preview icon on just the old + new playing rows. */
+        void setPlayingId(String id) {
+            String old = playingId;
+            playingId = id;
+            progressCurrentMs = 0;
+            progressTotalMs   = 0;
+            notifyRowChangedForId(old, PAYLOAD_PLAYING);
+            notifyRowChangedForId(id, PAYLOAD_PLAYING);
+        }
+
+        /** 🎧 Pushes a fresh playback position for the currently-playing row.
+         *  Uses its own lightweight payload so only the thin progress bar +
+         *  timer text repaint — no icon flicker, no Glide re-run. */
+        void updateProgress(int currentMs, int totalMs) {
+            progressCurrentMs = currentMs;
+            progressTotalMs   = totalMs;
+            notifyRowChangedForId(playingId, PAYLOAD_PROGRESS);
+        }
+
+        /** ⚡ Toggles the bookmark icon on just the affected row. */
+        void setSavedState(String id, boolean saved) {
+            if (saved) savedIds.add(id); else savedIds.remove(id);
+            notifyRowChangedForId(id, PAYLOAD_SAVED);
+        }
+
+        private void notifyRowChangedForId(String id, Object payload) {
+            if (id == null) return;
+            for (int i = 0; i < items.size(); i++) {
+                if (id.equals(items.get(i).id)) { notifyItemChanged(i, payload); return; }
+            }
+        }
+
+        /** ⚡ PERF: diffs against the current list and dispatches only the
+         *  inserts/removes/moves/changes actually needed, instead of a full
+         *  notifyDataSetChanged() that redraws every visible row (and re-fires
+         *  every Glide load) on every tab switch, genre chip, or keystroke. */
+        void submitList(List<Audio> newList) {
+            List<Audio> oldList = new ArrayList<>(items);
+            DiffUtil.DiffResult result = DiffUtil.calculateDiff(new DiffUtil.Callback() {
+                @Override public int getOldListSize() { return oldList.size(); }
+                @Override public int getNewListSize() { return newList.size(); }
+                @Override public boolean areItemsTheSame(int oldPos, int newPos) {
+                    String a = oldList.get(oldPos).id, b = newList.get(newPos).id;
+                    return a != null && a.equals(b);
+                }
+                @Override public boolean areContentsTheSame(int oldPos, int newPos) {
+                    Audio x = oldList.get(oldPos), y = newList.get(newPos);
+                    return Objects.equals(x.title, y.title)
+                        && Objects.equals(x.artist, y.artist)
+                        && Objects.equals(x.coverUrl, y.coverUrl)
+                        && Objects.equals(x.previewAudioUrl, y.previewAudioUrl)
+                        && x.usageCount == y.usageCount
+                        && x.bpm == y.bpm
+                        && x.trendingRank == y.trendingRank;
+                }
+            });
+            items.clear();
+            items.addAll(newList);
+            result.dispatchUpdatesTo(this);
+        }
 
         @NonNull @Override
-        public VH onCreateViewHolder(@NonNull ViewGroup p, int vt) {
-            return new VH(LayoutInflater.from(p.getContext())
+        public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup p, int vt) {
+            if (vt == VIEW_TYPE_FOOTER) {
+                FooterVH fh = new FooterVH(LayoutInflater.from(p.getContext())
+                    .inflate(R.layout.item_trending_audio_footer, p, false));
+                fh.layoutError.setOnClickListener(v -> { if (onRetryLoadMore != null) onRetryLoadMore.run(); });
+                return fh;
+            }
+            VH h = new VH(LayoutInflater.from(p.getContext())
                 .inflate(R.layout.item_trending_audio, p, false));
+            // ⚡ PERF: listeners attached once per ViewHolder instead of a fresh
+            // lambda allocation on every single bind/scroll/rebind
+            h.btnPreview.setOnClickListener(v -> { if (h.current != null) onPreview.run(h.current); });
+            h.btnSave.setOnClickListener(v -> { if (h.current != null) onSave.run(h.current); });
+            h.btnUse.setOnClickListener(v -> { if (h.current != null) onUse.run(h.current); });
+            h.itemView.setOnClickListener(v -> { if (h.current != null && onDetail != null) onDetail.run(h.current); });
+            return h;
         }
 
         @Override
-        public void onBindViewHolder(@NonNull VH h, int pos) {
+        public int getItemViewType(int pos) {
+            return pos >= items.size() ? VIEW_TYPE_FOOTER : VIEW_TYPE_ITEM;
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull RecyclerView.ViewHolder vh, int pos) {
+            if (vh instanceof FooterVH) {
+                FooterVH fh = (FooterVH) vh;
+                fh.layoutLoading.setVisibility(footerState == FOOTER_LOADING ? View.VISIBLE : View.GONE);
+                fh.layoutError.setVisibility(footerState == FOOTER_ERROR ? View.VISIBLE : View.GONE);
+                return;
+            }
+            VH h = (VH) vh;
             Audio a = items.get(pos);
+            h.current = a;
             h.tvTitle.setText(a.title != null ? a.title : "Unknown");
             h.tvArtist.setText(a.artist != null ? a.artist : "Unknown Artist");
             h.tvUsage.setText(fmtCount(a.usageCount) + " reels");
@@ -680,32 +1363,83 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
 
             if (h.ivCover != null) {
                 if (a.coverUrl != null && !a.coverUrl.isEmpty()) {
+                    int radiusPx = (int) (8 * h.itemView.getResources().getDisplayMetrics().density);
                     com.bumptech.glide.Glide.with(h.ivCover)
                         .load(a.coverUrl)
                         .placeholder(R.drawable.ic_music_note)
-                        .centerCrop()
-                        .override(480, 853)
+                        // ⚡ PERF: cache the already-transformed bitmap, so scrolling
+                        // back to a previously-seen row skips re-decoding + re-cropping
+                        .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.RESOURCE)
+                        .transform(new com.bumptech.glide.load.resource.bitmap.CenterCrop(),
+                                   new com.bumptech.glide.load.resource.bitmap.RoundedCorners(radiusPx))
                         .into(h.ivCover);
                 } else {
                     h.ivCover.setImageResource(R.drawable.ic_music_note);
                 }
             }
 
+            bindPlaying(h, a);
+            bindSaved(h, a);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull RecyclerView.ViewHolder vh, int pos, @NonNull List<Object> payloads) {
+            if (payloads.isEmpty() || !(vh instanceof VH)) { super.onBindViewHolder(vh, pos, payloads); return; }
+            // ⚡ PERF: partial rebind — only touches the one icon that changed,
+            // skips re-running Glide, re-measuring text, etc. for the row
+            VH h = (VH) vh;
+            Audio a = items.get(pos);
+            h.current = a;
+            for (Object payload : payloads) {
+                if (payload == PAYLOAD_PLAYING) bindPlaying(h, a);
+                else if (payload == PAYLOAD_SAVED) bindSaved(h, a);
+                else if (payload == PAYLOAD_PROGRESS) bindProgress(h, a);
+            }
+        }
+
+        private void bindPlaying(VH h, Audio a) {
             boolean playing = a.id != null && a.id.equals(playingId);
             h.btnPreview.setImageResource(playing ? R.drawable.ic_pause : R.drawable.ic_play);
             boolean hasPreview = a.previewAudioUrl != null && !a.previewAudioUrl.isEmpty();
             h.btnPreview.setAlpha(hasPreview ? 1f : 0.4f);
-            boolean saved = a.id != null && savedIds.contains(a.id);
-            h.btnSave.setImageResource(saved ? R.drawable.ic_bookmark_filled : R.drawable.ic_bookmark);
-
-            h.btnPreview.setOnClickListener(v -> onPreview.run(a));
-            h.btnSave.setOnClickListener(v -> onSave.run(a));
-            h.btnUse.setOnClickListener(v -> onUse.run(a));
-            // ✅ NEW: tap anywhere on the row → open SoundDetailActivity
-            h.itemView.setOnClickListener(v -> { if (onDetail != null) onDetail.run(a); });
+            bindProgress(h, a);
         }
 
-        @Override public int getItemCount() { return items.size(); }
+        /** 🎧 Shows/hides the thin progress bar + "0:07 / 0:30" timer — only
+         *  ever visible on whichever row is currently playing. */
+        private void bindProgress(VH h, Audio a) {
+            boolean playing = a.id != null && a.id.equals(playingId);
+            if (h.layoutProgress == null) return;
+            if (!playing) { h.layoutProgress.setVisibility(View.GONE); return; }
+            h.layoutProgress.setVisibility(View.VISIBLE);
+            int total = progressTotalMs > 0 ? progressTotalMs : 30000;
+            int cur = Math.max(0, Math.min(progressCurrentMs, total));
+            if (h.progressPreview != null) {
+                h.progressPreview.setMax(1000);
+                h.progressPreview.setProgress((int) (1000L * cur / total));
+            }
+            if (h.tvTimer != null) h.tvTimer.setText(fmtTime(cur) + " / " + fmtTime(total));
+        }
+
+        static String fmtTime(int ms) {
+            int totalSec = Math.max(0, ms) / 1000;
+            return String.format(Locale.US, "%d:%02d", totalSec / 60, totalSec % 60);
+        }
+
+        private void bindSaved(VH h, Audio a) {
+            boolean saved = a.id != null && savedIds.contains(a.id);
+            h.btnSave.setImageResource(saved ? R.drawable.ic_bookmark_filled : R.drawable.ic_bookmark);
+        }
+
+        @Override public int getItemCount() { return items.size() + (footerState != FOOTER_NONE ? 1 : 0); }
+
+        // ⚡ PERF: stable ids let RecyclerView track rows across DiffUtil moves
+        // more cheaply and avoid unnecessary rebinds on reorder
+        @Override public long getItemId(int position) {
+            if (position >= items.size()) return RecyclerView.NO_ID;
+            String id = items.get(position).id;
+            return id != null ? id.hashCode() : RecyclerView.NO_ID;
+        }
 
         static String fmtCount(long n) {
             if (n >= 1_000_000) return String.format(Locale.US, "%.1fM", n/1_000_000.0);
@@ -715,9 +1449,12 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
 
         static class VH extends RecyclerView.ViewHolder {
             android.widget.ImageView ivCover;
-            TextView tvTitle, tvArtist, tvUsage, tvBpm, tvTrendingBadge;
+            TextView tvTitle, tvArtist, tvUsage, tvBpm, tvTrendingBadge, tvTimer;
             ImageButton btnPreview, btnSave;
             Button btnUse;
+            View layoutProgress;
+            ProgressBar progressPreview;
+            Audio current;
             VH(View v) {
                 super(v);
                 ivCover         = v.findViewById(R.id.iv_audio_cover);
@@ -729,6 +1466,21 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
                 btnPreview      = v.findViewById(R.id.btn_audio_preview);
                 btnSave         = v.findViewById(R.id.btn_audio_save);
                 btnUse          = v.findViewById(R.id.btn_audio_use);
+                layoutProgress  = v.findViewById(R.id.layout_audio_progress);
+                progressPreview = v.findViewById(R.id.progress_audio_preview);
+                tvTimer         = v.findViewById(R.id.tv_audio_timer);
+            }
+        }
+
+        /** 🛡️ Pagination footer row — see item_trending_audio_footer.xml.
+         *  layoutError itself is the tap target, so the whole "Couldn't
+         *  load more · Retry" row (not just the word "Retry") retries. */
+        static class FooterVH extends RecyclerView.ViewHolder {
+            View layoutLoading, layoutError;
+            FooterVH(View v) {
+                super(v);
+                layoutLoading = v.findViewById(R.id.layout_footer_loading);
+                layoutError   = v.findViewById(R.id.layout_footer_error);
             }
         }
     }
