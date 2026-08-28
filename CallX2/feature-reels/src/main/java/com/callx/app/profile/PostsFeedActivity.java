@@ -118,6 +118,11 @@ public class PostsFeedActivity extends AppCompatActivity {
     /** How many cards ahead (in scroll direction) Glide should pre-decode. */
     private static final int PRELOAD_AHEAD = 5;
 
+    /** Caption truncation — read by both onBindViewHolder (initial state)
+     *  and the once-registered "more"/"less" click listener in
+     *  setupClickListenersOnce(), which needs the same value the bind used. */
+    private static final int CAPTION_MAX_LINES = 2;
+
     private RecyclerView   recyclerView;
     private ProgressBar    progressBar;
     private PostsAdapter   adapter;
@@ -386,9 +391,9 @@ public class PostsFeedActivity extends AppCompatActivity {
                     if (comments != null) r.commentsCount = comments.intValue();
                     if (reposts != null) r.repostCount = reposts.intValue();
                     if (h.tvLikes != null && r.reelId.equals(h.boundReelId)) {
-                        h.tvLikes.setText(String.valueOf(r.likesCount));
-                        h.tvComments.setText(String.valueOf(r.commentsCount));
-                        if (h.tvReposts != null) h.tvReposts.setText(formatCount(r.repostCount));
+                        h.tvLikes.setText(cachedLikesStr(h, r.likesCount));
+                        h.tvComments.setText(cachedCommentsStr(h, r.commentsCount));
+                        if (h.tvReposts != null) h.tvReposts.setText(cachedRepostStr(h, r.repostCount));
                     }
                 }
                 @Override public void onCancelled(@NonNull DatabaseError error) { }
@@ -409,9 +414,9 @@ public class PostsFeedActivity extends AppCompatActivity {
                 // time this async callback lands — only touch the views if
                 // it's still bound to this reel.
                 if (h.tvLikes != null && r.reelId.equals(h.boundReelId)) {
-                    h.tvLikes.setText(String.valueOf(r.likesCount));
-                    h.tvComments.setText(String.valueOf(r.commentsCount));
-                    if (h.tvReposts != null) h.tvReposts.setText(formatCount(r.repostCount));
+                    h.tvLikes.setText(cachedLikesStr(h, r.likesCount));
+                    h.tvComments.setText(cachedCommentsStr(h, r.commentsCount));
+                    if (h.tvReposts != null) h.tvReposts.setText(cachedRepostStr(h, r.repostCount));
                 }
             }
             @Override public void onCancelled(@NonNull DatabaseError error) { }
@@ -1051,6 +1056,53 @@ public class PostsFeedActivity extends AppCompatActivity {
             .format(DecodeFormat.PREFER_RGB_565)
             .centerCrop();
 
+        // PERF: same reasoning as pagerPhotoOpts above — the single-photo
+        // thumb (h.ivThumb) was building a brand-new RequestOptions object
+        // on EVERY onBindViewHolder call. Screen width doesn't change
+        // mid-session, so this is built once per adapter instance and
+        // reused for every row/rebind, same as HomeFragment's static
+        // FEED_IMAGE_OPTS.
+        private final RequestOptions thumbOpts = new RequestOptions()
+            .diskCacheStrategy(DiskCacheStrategy.ALL)
+            .override(screenWidthPxOrFallback(), screenWidthPxOrFallback())
+            .centerCrop();
+
+        // PERF: owner-avatar circleCrop() — shorthand for
+        // .transform(new CircleCrop()), which was allocating a fresh
+        // CircleCrop instance on every single bind (every row has an
+        // avatar). Same fix as thumbOpts/pagerPhotoOpts: build the
+        // RequestOptions once and .apply() the cached instance instead.
+        private final RequestOptions avatarOpts = new RequestOptions()
+            .diskCacheStrategy(DiskCacheStrategy.ALL)
+            .circleCrop();
+
+        // PERF: collab dual-avatar row (initiator + collaborator) was
+        // calling the RequestOptions.circleCropTransform() static factory
+        // — which allocates a new RequestOptions + new CircleCrop — up to
+        // twice per bind, but only ever for collab posts. Same fixed
+        // transform every time, so cached once here instead.
+        private final RequestOptions collabAvatarOpts = RequestOptions.circleCropTransform();
+
+        // PERF: audio-cover tile (btnAudioCover) — was building a brand
+        // new RequestOptions + MultiTransformation(CenterCrop,
+        // RoundedCorners) object graph on EVERY bind of a row that has
+        // attached music (i.e. most rows in an audio-heavy feed), even
+        // though the target size and corner radius are fixed 28dp
+        // constants that never vary per-post. Built ONCE per adapter
+        // instance instead, same as pagerPhotoOpts/thumbOpts above — the
+        // single biggest remaining per-bind allocation on this screen.
+        private final int audioCoverSizePx =
+            com.callx.app.utils.AvatarUrlBuilder.dpToPx(PostsFeedActivity.this, 28) * 2;
+        private final RequestOptions audioCoverOpts = new RequestOptions()
+            .transform(new com.bumptech.glide.load.MultiTransformation<>(
+                new com.bumptech.glide.load.resource.bitmap.CenterCrop(),
+                new com.bumptech.glide.load.resource.bitmap.RoundedCorners(
+                    com.callx.app.utils.AvatarUrlBuilder.dpToPx(PostsFeedActivity.this, 4))))
+            .override(audioCoverSizePx, audioCoverSizePx)
+            .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
+            .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+            .placeholder(R.drawable.ic_audio);
+
         PostsAdapter() {
             // Stable ids (reelId hash) → RecyclerView can tell "same row,
             // different position" apart from "new row" during the DiffUtil
@@ -1132,14 +1184,29 @@ public class PostsFeedActivity extends AppCompatActivity {
             h.pvVideo.setVisibility(View.GONE);
             // Decode capped to screen width — avoids Glide decoding a full-
             // resolution source bitmap just to downscale it for display.
-            RequestOptions thumbOpts = new RequestOptions()
-                .diskCacheStrategy(DiskCacheStrategy.ALL)
-                .override(screenWidthPxOrFallback(), screenWidthPxOrFallback())
-                .centerCrop();
-            Glide.with(h.ivThumb.getContext())
-                .load(r.effectiveThumbUrl())
-                .apply(thumbOpts)
-                .into(h.ivThumb);
+            // thumbOpts is now the adapter-level cached instance above
+            // instead of a fresh RequestOptions allocated on every bind.
+            //
+            // PERF (Instagram-level pass, URL-skip): a rebind of this holder
+            // onto the SAME reel (DiffUtil landing on this row because
+            // likesCount/commentsCount/caption changed — see
+            // PostDiffCallback.areContentsTheSame, which never looks at the
+            // image URL at all) used to still run the full Glide
+            // load()/apply()/into() chain even though the exact same URL was
+            // already showing in ivThumb. Glide's own memory cache absorbs
+            // the decode cost, but building/dispatching the request
+            // (Engine key computation, Target attach/detach, the placeholder
+            // flash while it resolves) is real per-bind work that a same-URL
+            // rebind never needed to redo. Skip it when the URL hasn't
+            // actually changed since the last load onto this holder.
+            String thumbUrl = r.effectiveThumbUrl();
+            if (!java.util.Objects.equals(thumbUrl, h.lastThumbUrl)) {
+                h.lastThumbUrl = thumbUrl;
+                Glide.with(h.ivThumb.getContext())
+                    .load(thumbUrl)
+                    .apply(thumbOpts)
+                    .into(h.ivThumb);
+            }
 
             // ── Multi-photo carousel — Instagram-level approach: a real
             // swipeable ViewPager2 (was a static first-photo-only image +
@@ -1162,73 +1229,104 @@ public class PostsFeedActivity extends AppCompatActivity {
                 // whatever row it previously rendered — always reset.
                 h.photoPager.setCurrentItem(0, false);
 
-                // Dot indicator — rebuilt per bind (count varies per post)
+                // Dot indicator — ★ Instagram-level PERF: this used to
+                // removeAllViews() + allocate a brand-new View +
+                // LinearLayout.LayoutParams + GradientDrawable per dot on
+                // EVERY bind, even when the exact same reel rebinds onto
+                // this same holder. Now the View[]/GradientDrawable[]
+                // arrays are built ONCE per holder and reused; a rebind
+                // only rebuilds them if the photo COUNT actually changed
+                // (a different post landed on this row), and updating the
+                // active dot is just mutating each drawable's color
+                // in-place instead of swapping in a new Drawable object.
                 h.dotsContainer.setVisibility(View.VISIBLE);
-                h.dotsContainer.removeAllViews();
-                final View[] dotViews = new View[photoCount];
-                int dotSz = dp(6), dotMargin = dp(3);
-                for (int di = 0; di < photoCount; di++) {
-                    View dot = new View(h.dotsContainer.getContext());
-                    LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dotSz, dotSz);
-                    dlp.setMargins(dotMargin, 0, dotMargin, 0);
-                    dot.setLayoutParams(dlp);
-                    dot.setBackground(makeCarouselDot(di == 0));
-                    h.dotsContainer.addView(dot);
-                    dotViews[di] = dot;
-                }
-
-                h.tvCarouselIndex.setText("1/" + photoCount);
-                h.tvCarouselIndex.setVisibility(View.VISIBLE);
-
-                if (h.photoPagerCallback != null) {
-                    h.photoPager.unregisterOnPageChangeCallback(h.photoPagerCallback);
-                }
-                h.photoPagerCallback = new androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
-                    @Override public void onPageSelected(int position) {
-                        h.tvCarouselIndex.setText((position + 1) + "/" + photoCount);
-                        for (int di = 0; di < dotViews.length; di++) {
-                            dotViews[di].setBackground(makeCarouselDot(di == position));
-                        }
+                if (h.dotCount != photoCount) {
+                    h.dotsContainer.removeAllViews();
+                    h.dotViews = new View[photoCount];
+                    h.dotDrawables = new android.graphics.drawable.GradientDrawable[photoCount];
+                    int dotSz = dp(6), dotMargin = dp(3);
+                    for (int di = 0; di < photoCount; di++) {
+                        View dot = new View(h.dotsContainer.getContext());
+                        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dotSz, dotSz);
+                        dlp.setMargins(dotMargin, 0, dotMargin, 0);
+                        dot.setLayoutParams(dlp);
+                        android.graphics.drawable.GradientDrawable gd = makeCarouselDot(false);
+                        dot.setBackground(gd);
+                        h.dotsContainer.addView(dot);
+                        h.dotViews[di]      = dot;
+                        h.dotDrawables[di]  = gd;
                     }
-                };
-                h.photoPager.registerOnPageChangeCallback(h.photoPagerCallback);
+                    h.dotCount = photoCount;
+                }
+                // Always reset dot colors on bind (pager below is reset to
+                // page 0), even when the array itself was reused as-is.
+                for (int di = 0; di < photoCount; di++) {
+                    h.dotDrawables[di].setColor(di == 0 ? 0xFFFFFFFF : 0x66FFFFFF);
+                }
+
+                // PERF: "1/" + photoCount used to re-concatenate a fresh
+                // String on EVERY bind, even a same-post rebind onto this
+                // holder (dot rebuild above already skips that case via
+                // h.dotCount) — cache it the same way, keyed off the count.
+                if (h.lastCarouselCount != photoCount) {
+                    h.lastCarouselCount = photoCount;
+                    h.lastCarouselStr = "1/" + photoCount;
+                }
+                h.tvCarouselIndex.setText(h.lastCarouselStr);
+                h.tvCarouselIndex.setVisibility(View.VISIBLE);
+                // PERF: the OnPageChangeCallback used to be a brand-new
+                // anonymous class allocated on EVERY bind, plus an
+                // unregister-old/register-new pair of calls each time —
+                // pure churn even when the same reel rebinds onto this
+                // holder. It's now built ONCE per holder in
+                // setupPhotoPagerOnce() and stays registered permanently;
+                // it reads h.boundPhotoCount / h.dotDrawables live instead
+                // of capturing photoCount/dotDrawablesRef via closure, so
+                // all a bind needs to do is update that field.
+                h.boundPhotoCount = photoCount;
             } else {
                 if (h.photoPager != null) {
                     h.photoPager.setVisibility(View.GONE);
-                    if (h.photoPagerCallback != null) {
-                        h.photoPager.unregisterOnPageChangeCallback(h.photoPagerCallback);
-                        h.photoPagerCallback = null;
-                    }
                 }
                 h.photoPagerBoundReel = null;
+                h.boundPhotoCount = 0;
+                // Just hide — don't tear the cached dot views down. If a
+                // later post on this same holder has the same photo count,
+                // the cache above is reused as-is instead of rebuilding.
                 if (h.dotsContainer != null) {
                     h.dotsContainer.setVisibility(View.GONE);
-                    h.dotsContainer.removeAllViews();
                 }
                 h.ivThumb.setVisibility(View.VISIBLE);
                 if (h.tvCarouselIndex != null) h.tvCarouselIndex.setVisibility(View.GONE);
             }
 
             h.tvOwner.setText(r.ownerName != null ? r.ownerName : "");
-            Glide.with(h.ivAvatar.getContext())
-                .load(r.ownerPhoto)
-                .diskCacheStrategy(DiskCacheStrategy.ALL)
-                .circleCrop()
-                .into(h.ivAvatar);
+            // PERF: avatarOpts is the adapter-level cached instance above
+            // instead of a fresh .diskCacheStrategy()+.circleCrop() chain
+            // (which allocates a new CircleCrop transform) on every bind.
+            // PERF (URL-skip): same reasoning as the thumb load above — skip
+            // the Glide chain entirely when this holder is already showing
+            // the same avatar URL (e.g. a likesCount-only rebind of the same
+            // post). The collab branch below may still overwrite ivAvatar
+            // with the initiator's photo for a collab post; it keeps
+            // h.lastAvatarUrl in sync so this field always reflects whatever
+            // is ACTUALLY loaded into ivAvatar right now, not just the
+            // non-collab owner photo.
+            if (!java.util.Objects.equals(r.ownerPhoto, h.lastAvatarUrl)) {
+                h.lastAvatarUrl = r.ownerPhoto;
+                Glide.with(h.ivAvatar.getContext())
+                    .load(r.ownerPhoto)
+                    .apply(avatarOpts)
+                    .into(h.ivAvatar);
+            }
 
-            // Avatar tap → open user's reel profile (same destination as
-            // HomeFragment's avatar.setOnClickListener()). Story ring sits
-            // visually around this same avatar, so this covers it too.
-            final String tapUid   = r.uid;
-            final String tapName  = r.ownerName;
-            final String tapPhoto = r.ownerPhoto;
-            h.ivAvatar.setOnClickListener(v -> {
-                Intent i = new Intent(v.getContext(), UserReelsActivity.class);
-                i.putExtra(UserReelsActivity.EXTRA_UID,   tapUid);
-                i.putExtra(UserReelsActivity.EXTRA_NAME,  tapName);
-                i.putExtra(UserReelsActivity.EXTRA_PHOTO, tapPhoto);
-                v.getContext().startActivity(i);
-            });
+            // Avatar tap / owner-name tap → open the post owner's profile
+            // (or the collab initiator's, for a collab repost). The click
+            // listener itself is registered ONCE per holder in
+            // setupClickListenersOnce() (constructor) and reads whichever
+            // reel is currently bound off h.boundReel — this block just
+            // needs to keep that field pointed at the right reel, which
+            // happens once below (h.boundReel = r).
 
             // ── Story ring around the avatar — same StatusCacheManager-driven
             // behavior as HomeFragment's home feed (see addFeedPostCard()):
@@ -1263,9 +1361,21 @@ public class PostsFeedActivity extends AppCompatActivity {
             boolean isCollab = r.collabInitiatorUid != null && !r.collabInitiatorUid.isEmpty()
                              && r.collabColaboratorUid != null && !r.collabColaboratorUid.isEmpty();
             if (isCollab && h.collabAvatarContainer instanceof LinearLayout) {
-                String collabLabel = (r.collabInitiatorName != null ? r.collabInitiatorName : "User")
-                    + " \u2227 " + (r.collabCollaboratorName != null ? r.collabCollaboratorName : "User");
-                h.tvOwner.setText(collabLabel);
+                // PERF: this concat used to run fresh on EVERY bind, even a
+                // same-post rebind (live-count tick, like-tap
+                // notifyItemChanged) — cache per-holder, same
+                // lastOwnerNameSrc/lastOwnerLabel pattern as HomeFragment,
+                // and only rebuild when either name actually changed.
+                String initName = r.collabInitiatorName;
+                String collabName = r.collabCollaboratorName;
+                if (!java.util.Objects.equals(initName, h.lastCollabInitiatorName)
+                        || !java.util.Objects.equals(collabName, h.lastCollabCollaboratorName)) {
+                    h.lastCollabInitiatorName = initName;
+                    h.lastCollabCollaboratorName = collabName;
+                    h.lastCollabLabel = (initName != null ? initName : "User")
+                        + " \u2227 " + (collabName != null ? collabName : "User");
+                }
+                h.tvOwner.setText(h.lastCollabLabel);
 
                 LinearLayout collabRow = (LinearLayout) h.collabAvatarContainer;
                 collabRow.setVisibility(View.VISIBLE);
@@ -1282,53 +1392,69 @@ public class PostsFeedActivity extends AppCompatActivity {
                     av2.setBorderWidth(2);
                     collabRow.addView(av2);
                 }
+                // PERF (URL-skip): same as the owner-avatar/thumb loads above
+                // — a same-post rebind (live-count tick etc.) shouldn't
+                // re-run Glide for either collab avatar when the URL it
+                // already has loaded hasn't changed.
                 if (r.collabCollaboratorPhoto != null && !r.collabCollaboratorPhoto.isEmpty()) {
-                    Glide.with(av2.getContext()).load(r.collabCollaboratorPhoto)
-                        .apply(RequestOptions.circleCropTransform())
-                        .placeholder(com.callx.app.core.R.drawable.ic_person)
-                        .into(av2);
+                    if (!java.util.Objects.equals(r.collabCollaboratorPhoto, h.lastCollabAv2Url)) {
+                        h.lastCollabAv2Url = r.collabCollaboratorPhoto;
+                        Glide.with(av2.getContext()).load(r.collabCollaboratorPhoto)
+                            .apply(collabAvatarOpts)
+                            .placeholder(com.callx.app.core.R.drawable.ic_person)
+                            .into(av2);
+                    }
                 }
                 // Main avatar shows the initiator's photo for a collab post.
                 if (r.collabInitiatorPhoto != null && !r.collabInitiatorPhoto.isEmpty()) {
-                    Glide.with(h.ivAvatar.getContext()).load(r.collabInitiatorPhoto)
-                        .apply(RequestOptions.circleCropTransform())
-                        .into(h.ivAvatar);
+                    if (!java.util.Objects.equals(r.collabInitiatorPhoto, h.lastAvatarUrl)) {
+                        h.lastAvatarUrl = r.collabInitiatorPhoto;
+                        Glide.with(h.ivAvatar.getContext()).load(r.collabInitiatorPhoto)
+                            .apply(collabAvatarOpts)
+                            .into(h.ivAvatar);
+                    }
                 }
-                // Collab click → open initiator's profile (same destination HomeFragment uses).
-                // Overrides the default single-owner avatar listener set above,
-                // since a collab post's avatar shows the initiator, not r.uid.
-                h.ivAvatar.setOnClickListener(v -> {
-                    Intent i = new Intent(v.getContext(), UserReelsActivity.class);
-                    i.putExtra(UserReelsActivity.EXTRA_UID,   r.collabInitiatorUid);
-                    i.putExtra(UserReelsActivity.EXTRA_NAME,  r.collabInitiatorName);
-                    i.putExtra(UserReelsActivity.EXTRA_PHOTO, r.collabInitiatorPhoto);
-                    v.getContext().startActivity(i);
-                });
-                h.tvOwner.setOnClickListener(v -> {
-                    Intent i = new Intent(v.getContext(), UserReelsActivity.class);
-                    i.putExtra(UserReelsActivity.EXTRA_UID,   r.collabInitiatorUid);
-                    i.putExtra(UserReelsActivity.EXTRA_NAME,  r.collabInitiatorName);
-                    i.putExtra(UserReelsActivity.EXTRA_PHOTO, r.collabInitiatorPhoto);
-                    v.getContext().startActivity(i);
-                });
+                // Collab click → open initiator's profile: handled by the
+                // once-registered ivAvatar/tvOwner listeners in
+                // setupClickListenersOnce(), which already branch on
+                // whether the currently-bound reel is a collab post.
             } else {
                 if (h.collabAvatarContainer != null) h.collabAvatarContainer.setVisibility(View.GONE);
-                // Name tap → same target as avatar tap (matches HomeFragment's
-                // tvOwner.setOnClickListener(x -> avatar.performClick())).
-                // Was setOnClickListener(null) — name click did nothing.
-                h.tvOwner.setOnClickListener(v -> h.ivAvatar.performClick());
+                // Name tap / avatar tap: also handled by the once-registered
+                // listeners in setupClickListenersOnce().
             }
 
             h.tvCaption.setText(r.caption != null ? r.caption : "");
             h.tvCaption.setVisibility(r.caption != null && !r.caption.isEmpty() ? View.VISIBLE : View.GONE);
 
-            if (h.tvTime != null) h.tvTime.setText(formatAgo(r.timestamp));
+            if (h.tvTime != null) {
+                // PERF: formatAgo() used to recompute + re-allocate its
+                // result String on EVERY bind, including a same-second
+                // rebind of the exact same reel onto this holder (like-tap
+                // notifyItemChanged / live-count tick). Genuinely
+                // time-varying so it can't be cached forever, but a rebind
+                // within the same ~1s window would've produced the same
+                // output anyway — reuse it instead. Same pattern as
+                // HomeFragment.formatAgo() caching.
+                long now = System.currentTimeMillis();
+                if (r.timestamp != h.lastAgoTs
+                        || h.lastAgoComputedAtMs < 0
+                        || (now - h.lastAgoComputedAtMs) >= 1000) {
+                    h.lastAgoTs = r.timestamp;
+                    h.lastAgoStr = formatAgo(r.timestamp);
+                    h.lastAgoComputedAtMs = now;
+                }
+                h.tvTime.setText(h.lastAgoStr);
+            }
 
             // ── "...more" / "less" caption expand toggle — same
             // 2-line-truncate-past-120-chars pattern as HomeFragment's
-            // btnReadMore. ──
-            final int CAPTION_MAX_LINES = 2;
-            final boolean[] captionExpanded = {false};
+            // btnReadMore. Every new bind starts collapsed; the toggle
+            // click listener itself is registered ONCE in
+            // setupClickListenersOnce() and reads/writes h.captionExpanded
+            // instead of a fresh lambda capturing a local boolean[] on
+            // every single bind.
+            h.captionExpanded = false;
             if (h.btnReadMore != null) {
                 String captionText = r.caption != null ? r.caption : "";
                 if (captionText.length() > 120) {
@@ -1336,44 +1462,24 @@ public class PostsFeedActivity extends AppCompatActivity {
                     h.tvCaption.setEllipsize(android.text.TextUtils.TruncateAt.END);
                     h.btnReadMore.setVisibility(View.VISIBLE);
                     h.btnReadMore.setText("more");
-                    h.btnReadMore.setOnClickListener(rx -> {
-                        captionExpanded[0] = !captionExpanded[0];
-                        if (captionExpanded[0]) {
-                            h.tvCaption.setMaxLines(Integer.MAX_VALUE);
-                            h.tvCaption.setEllipsize(null);
-                            h.btnReadMore.setText("less");
-                        } else {
-                            h.tvCaption.setMaxLines(CAPTION_MAX_LINES);
-                            h.tvCaption.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                            h.btnReadMore.setText("more");
-                        }
-                    });
                 } else {
                     h.tvCaption.setMaxLines(Integer.MAX_VALUE);
                     h.tvCaption.setEllipsize(null);
                     h.btnReadMore.setVisibility(View.GONE);
-                    h.btnReadMore.setOnClickListener(null);
                 }
             }
-            h.tvLikes.setText(String.valueOf(r.likesCount));
-            h.tvComments.setText(String.valueOf(r.commentsCount));
+            h.tvLikes.setText(cachedLikesStr(h, r.likesCount));
+            h.tvComments.setText(cachedCommentsStr(h, r.commentsCount));
             h.boundReelId = r.reelId;
             attachCountListener(r, h); // v284: keep likes/comments/reposts live while this row is on screen
 
-            // Tap the like count → same ReelLikesBottomSheet the immersive
-            // Reels player opens (ReelShareController.openLikesSheet), so
-            // the likers list looks and behaves identically here.
-            h.tvLikes.setOnClickListener(v -> {
-                if (r.reelId == null || isFinishing() || isDestroyed()) return;
-                com.callx.app.comments.ReelLikesBottomSheet sheet =
-                    com.callx.app.comments.ReelLikesBottomSheet.newInstance(
-                        r.reelId, r.likesCount, r.viewsCount);
-                sheet.show(getSupportFragmentManager(), com.callx.app.comments.ReelLikesBottomSheet.TAG);
-            });
+            // Tap the like count → likes bottom sheet. Listener registered
+            // once in setupClickListenersOnce(), reads h.boundReel.
 
             // ── Audio track label (avatar/name ke niche) — same as HomeFragment's
             // header row: song name if set, else "artist · Original audio",
-            // else hidden entirely (no music attached to this post).
+            // else hidden entirely (no music attached to this post). Tap
+            // listener registered once in setupClickListenersOnce().
             if (h.tvAudio != null) {
                 String audioLabel = r.musicName != null && !r.musicName.isEmpty()
                     ? r.musicName
@@ -1383,172 +1489,46 @@ public class PostsFeedActivity extends AppCompatActivity {
                 if (audioLabel != null) {
                     h.tvAudio.setText(audioLabel);
                     h.tvAudio.setVisibility(View.VISIBLE);
-                    // Tap the song label → SoundDetailActivity, same
-                    // destination Home feed's audio label (and the
-                    // immersive Reels player's audio pill) opens.
-                    h.tvAudio.setOnClickListener(v -> openSoundDetail(r));
                 } else {
                     h.tvAudio.setVisibility(View.GONE);
-                    h.tvAudio.setOnClickListener(null);
                 }
             }
 
             boolean liked = likedIds.contains(r.reelId);
             h.btnLike.setImageResource(liked ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
-            h.btnLike.setOnClickListener(v -> toggleLike(r, h));
 
             // ── Double-tap on the media to like — same Instagram-style
-            // GestureDetector pattern as the immersive Reels player
-            // (ReelUiController.setupClickListeners): single tap does
-            // nothing here (this screen has no play/pause toggle need),
-            // double-tap likes (if not already liked) + plays the heart-
-            // burst animation. Long-press left alone (no hold-to-pause
-            // gesture on this screen).
-            if (h.frameMedia != null) {
-                android.view.GestureDetector likeGesture = new android.view.GestureDetector(
-                    h.frameMedia.getContext(),
-                    new android.view.GestureDetector.SimpleOnGestureListener() {
-                        @Override public boolean onDown(android.view.MotionEvent e) { return true; }
-                        @Override public boolean onDoubleTap(android.view.MotionEvent e) {
-                            if (!likedIds.contains(r.reelId)) toggleLike(r, h);
-                            showLikeAnimation(h.ivLikeAnim);
-                            return true;
-                        }
-                    });
-                h.frameMedia.setOnTouchListener((v, event) -> {
-                    boolean handled = likeGesture.onTouchEvent(event);
-                    int action = event.getActionMasked();
-                    return action == android.view.MotionEvent.ACTION_DOWN || handled;
-                });
-            }
+            // gesture as the immersive Reels player. The GestureDetector
+            // + OnTouchListener itself is built ONCE per holder in
+            // setupFrameMediaGestureOnce() (constructor); every bind just
+            // points it at the currently-bound reel via this field.
+            // btnLike/btnComment/tvComments' click listeners are likewise
+            // registered once in setupClickListenersOnce() and read this
+            // same field.
+            h.boundReel = r;
 
-            h.btnComment.setOnClickListener(v -> {
-                Intent ci = new Intent(v.getContext(), ReelCommentActivity.class);
-                ci.putExtra(ReelCommentActivity.EXTRA_REEL_ID, r.reelId);
-                ci.putExtra(ReelCommentActivity.EXTRA_REEL_UID, r.uid != null ? r.uid : "");
-                startActivity(ci);
-            });
-            // Comment COUNT tap → same destination as btnComment. Reuses
-            // the immersive player's pattern (tvCommentsCount click →
-            // comments sheet), so tapping the number opens comments too.
-            if (h.tvComments != null) {
-                h.tvComments.setOnClickListener(v -> {
-                    Intent ci = new Intent(v.getContext(), ReelCommentActivity.class);
-                    ci.putExtra(ReelCommentActivity.EXTRA_REEL_ID, r.reelId);
-                    ci.putExtra(ReelCommentActivity.EXTRA_REEL_UID, r.uid != null ? r.uid : "");
-                    startActivity(ci);
-                });
-            }
-
-            // ── Repost button — show options (Repost / Quote Repost) ──
-            // Same pattern/destination as HomeFragment's btnRepost.
-            if (h.tvReposts != null) h.tvReposts.setText(formatCount(r.repostCount));
-            if (h.btnRepost != null) {
-                h.btnRepost.setOnClickListener(v -> {
-                    String myUid = FirebaseUtils.getCurrentUid();
-                    if (myUid == null || r.reelId == null) return;
-                    if (myUid.equals(r.uid)) {
-                        Toast.makeText(v.getContext(),
-                            "You can't repost your own reel", Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    String[] options = {"Repost", "Quote Repost"};
-                    new androidx.appcompat.app.AlertDialog.Builder(v.getContext())
-                        .setTitle("Repost options")
-                        .setItems(options, (d, which) -> {
-                            if (which == 0) {
-                                performRepost(r, myUid, h.tvReposts);
-                            } else {
-                                try {
-                                    ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
-                                        r.reelId,
-                                        r.videoUrl   != null ? r.videoUrl   : (r.video480 != null ? r.video480 : ""),
-                                        r.thumbUrl   != null ? r.thumbUrl   : "",
-                                        r.caption    != null ? r.caption    : "",
-                                        r.uid        != null ? r.uid        : "",
-                                        r.ownerName  != null ? r.ownerName  : "",
-                                        r.ownerPhoto != null ? r.ownerPhoto : "",
-                                        true
-                                    );
-                                    sheet.show(getSupportFragmentManager(), "quote_sheet");
-                                } catch (Exception e) {
-                                    Intent share = new Intent(Intent.ACTION_SEND);
-                                    share.setType("text/plain");
-                                    String quote = "\"" + (r.caption != null ? r.caption : "Check this out")
-                                        + "\" — @" + r.ownerName + " https://callx.app/reel/" + r.reelId;
-                                    share.putExtra(Intent.EXTRA_TEXT, quote);
-                                    startActivity(Intent.createChooser(share, "Quote Repost"));
-                                }
-                            }
-                        })
-                        .setNegativeButton("Cancel", null)
-                        .show();
-                });
-            }
+            // ── Repost button — show options (Repost / Quote Repost).
+            // Click listener registered once in setupClickListenersOnce(),
+            // reads h.boundReel. ──
+            if (h.tvReposts != null) h.tvReposts.setText(cachedRepostStr(h, r.repostCount));
 
             // ── Save button — same reelSaves Firebase write pattern as
-            // HomeFragment's btnSave. ──
-            final boolean[] isSaved = {r.reelId != null && savedIds.contains(r.reelId)};
+            // HomeFragment's btnSave. Click listener registered once in
+            // setupClickListenersOnce(); it derives saved/not-saved live
+            // from `savedIds` at click time instead of a per-bind
+            // boolean[] captured via closure. ──
             if (h.btnSave != null) {
-                h.btnSave.setImageResource(isSaved[0]
+                boolean isSaved = r.reelId != null && savedIds.contains(r.reelId);
+                h.btnSave.setImageResource(isSaved
                     ? R.drawable.ic_bookmark_filled : R.drawable.ic_bookmark);
-                h.btnSave.setOnClickListener(v -> {
-                    String myUid = FirebaseUtils.getCurrentUid();
-                    if (myUid == null || r.reelId == null) return;
-                    isSaved[0] = !isSaved[0];
-                    if (isSaved[0]) {
-                        h.btnSave.setImageResource(R.drawable.ic_bookmark_filled);
-                        savedIds.add(r.reelId);
-                        FirebaseUtils.getReelSavesRef(myUid).child(r.reelId).setValue(true);
-                        FirebaseUtils.getReelSavesIndexRef(r.reelId).child(myUid).setValue(true);
-                        Toast.makeText(v.getContext(), "Saved!", Toast.LENGTH_SHORT).show();
-                    } else {
-                        h.btnSave.setImageResource(R.drawable.ic_bookmark);
-                        savedIds.remove(r.reelId);
-                        FirebaseUtils.getReelSavesRef(myUid).child(r.reelId).removeValue();
-                        FirebaseUtils.getReelSavesIndexRef(r.reelId).child(myUid).removeValue();
-                    }
-                });
             }
 
             // ── Send / Share button — open ReelShareSheetFragment, same
-            // destination as HomeFragment's btnSend. ──
+            // destination as HomeFragment's btnSend. Click listeners
+            // registered once in setupClickListenersOnce(), read
+            // h.boundReel. ──
             if (h.tvSends != null) {
-                h.tvSends.setText(formatCount(r.sharesCount));
-                // Shares COUNT tap → shares bottom sheet, reusing the
-                // immersive player's ReelSharesBottomSheet (same sheet
-                // ReelShareController.openSharesSheet() shows) instead of
-                // re-triggering the share/send sheet the icon opens.
-                h.tvSends.setOnClickListener(v -> {
-                    if (r.reelId == null) return;
-                    ReelSharesBottomSheet sheet = ReelSharesBottomSheet.newInstance(
-                        r.reelId, r.sharesCount, r.repostCount);
-                    sheet.show(getSupportFragmentManager(), ReelSharesBottomSheet.TAG);
-                });
-            }
-            if (h.btnSend != null) {
-                h.btnSend.setOnClickListener(v -> {
-                    if (r.reelId == null) return;
-                    try {
-                        ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
-                            r.reelId,
-                            r.videoUrl   != null ? r.videoUrl   : (r.video480 != null ? r.video480 : ""),
-                            r.thumbUrl   != null ? r.thumbUrl   : "",
-                            r.caption    != null ? r.caption    : "",
-                            r.uid        != null ? r.uid        : "",
-                            r.ownerName  != null ? r.ownerName  : "",
-                            r.ownerPhoto != null ? r.ownerPhoto : "",
-                            true
-                        );
-                        sheet.show(getSupportFragmentManager(), "share_sheet");
-                    } catch (Exception e) {
-                        Intent share = new Intent(Intent.ACTION_SEND);
-                        share.setType("text/plain");
-                        share.putExtra(Intent.EXTRA_TEXT,
-                            "Check out this reel on CallX! @" + r.ownerName);
-                        startActivity(Intent.createChooser(share, "Share reel"));
-                    }
-                });
+                h.tvSends.setText(cachedSharesStr(h, r.sharesCount));
             }
 
             // Suggested/follow-button rows aren't relevant on a
@@ -1556,14 +1536,15 @@ public class PostsFeedActivity extends AppCompatActivity {
             if (h.tvSuggested != null) h.tvSuggested.setVisibility(View.GONE);
             if (h.btnFollow   != null) h.btnFollow.setVisibility(View.GONE);
 
-            // ── Background audio mute toggle ────────────────────────────
+            // ── Background audio mute toggle — click listener registered
+            // once in setupClickListenersOnce() (it doesn't even depend on
+            // which reel is bound). ────────────────────────────────────
             // Only shown when this post actually has an attached music
             // track — nothing to mute/unmute otherwise.
             boolean hasAudio = r.musicUrl != null && !r.musicUrl.isEmpty();
             if (h.btnMute != null) {
                 h.btnMute.setVisibility(hasAudio ? View.VISIBLE : View.GONE);
                 h.btnMute.setImageResource(isMuted ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
-                h.btnMute.setOnClickListener(v -> toggleMute());
             }
 
             // ── Audio-cover tile — reused from the immersive Reels player's
@@ -1571,12 +1552,12 @@ public class PostsFeedActivity extends AppCompatActivity {
             // btn_create_audio / ReelUiController), same 28dp size as the
             // player and pinned to the image's bottom-right corner instead
             // of being the last item in a vertical rail. Same cover-
-            // resolution + click destination as the tv_post_audio label
-            // above (openSoundDetail()).
+            // resolution as the tv_post_audio label above; click listener
+            // (→ openSoundDetail) registered once in
+            // setupClickListenersOnce(), reads h.boundReel.
             if (h.btnAudioCover != null) {
                 if (hasAudio) {
                     h.btnAudioCover.setVisibility(View.VISIBLE);
-                    h.btnAudioCover.setOnClickListener(v -> openSoundDetail(r));
                     String coverUrl = !android.text.TextUtils.isEmpty(r.musicCoverUrl)
                         ? r.musicCoverUrl : r.ownerPhoto;
                     if (!android.text.TextUtils.isEmpty(coverUrl)) {
@@ -1585,32 +1566,35 @@ public class PostsFeedActivity extends AppCompatActivity {
                         // server-resize via AvatarUrlBuilder(..,28) AND pin Glide's
                         // decode with .override() to 28dp*2 (retina), so this never
                         // decodes more pixels than the 28dp tile actually shows.
-                        int sizePx = com.callx.app.utils.AvatarUrlBuilder.dpToPx(ctx, 28) * 2;
-                        int cornerRadiusPx = com.callx.app.utils.AvatarUrlBuilder.dpToPx(ctx, 4);
-                        Glide.with(ctx)
-                            .load(com.callx.app.utils.AvatarUrlBuilder.build(ctx, coverUrl, 28))
-                            .apply(new RequestOptions()
-                                .transform(new com.bumptech.glide.load.MultiTransformation<>(
-                                    new com.bumptech.glide.load.resource.bitmap.CenterCrop(),
-                                    new com.bumptech.glide.load.resource.bitmap.RoundedCorners(cornerRadiusPx)))
-                                .override(sizePx, sizePx)
-                                .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
-                                .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-                                .placeholder(R.drawable.ic_audio))
-                            .into(h.btnAudioCover);
+                        // The MultiTransformation + RequestOptions chain itself is
+                        // now the adapter-level cached audioCoverOpts (see field
+                        // above) instead of a fresh CenterCrop/RoundedCorners/
+                        // RequestOptions object graph built on every single bind —
+                        // this was the biggest allocation source on the scroll hot
+                        // path for any feed with music attached to most posts.
+                        // PERF (URL-skip): built resize URL is deterministic for a
+                        // given coverUrl, so compare against the raw coverUrl (not
+                        // the built one) to also skip the AvatarUrlBuilder.build()
+                        // call itself on a same-post rebind.
+                        if (!java.util.Objects.equals(coverUrl, h.lastAudioCoverSrcUrl)) {
+                            h.lastAudioCoverSrcUrl = coverUrl;
+                            Glide.with(ctx)
+                                .load(com.callx.app.utils.AvatarUrlBuilder.build(ctx, coverUrl, 28))
+                                .apply(audioCoverOpts)
+                                .into(h.btnAudioCover);
+                        }
                     } else {
+                        h.lastAudioCoverSrcUrl = null;
                         h.btnAudioCover.setImageResource(R.drawable.ic_audio);
                     }
                 } else {
                     h.btnAudioCover.setVisibility(View.GONE);
-                    h.btnAudioCover.setOnClickListener(null);
+                    h.lastAudioCoverSrcUrl = null;
                 }
             }
 
-            // ── ⋮ More menu — same options/behaviour as HomeFragment's ──
-            if (h.btnMore != null) {
-                h.btnMore.setOnClickListener(v -> showMoreMenu(r, h.btnMore));
-            }
+            // ── ⋮ More menu — click listener registered once in
+            // setupClickListenersOnce(), reads h.boundReel. ──
         }
 
         @Override
@@ -1625,6 +1609,14 @@ public class PostsFeedActivity extends AppCompatActivity {
                 CircleImageView av2 = ((LinearLayout) h.collabAvatarContainer).findViewWithTag("collab_av2");
                 if (av2 != null) Glide.with(av2.getContext()).clear(av2);
             }
+            // Glide.clear() above drops whatever bitmap was showing — the
+            // URL-skip caches (see field doc above the caches) must forget
+            // it too, or a future rebind to a post with the SAME image URL
+            // would wrongly skip reloading into a now-empty target.
+            h.lastThumbUrl = null;
+            h.lastAvatarUrl = null;
+            h.lastCollabAv2Url = null;
+            h.lastAudioCoverSrcUrl = null;
             detachCountListener(h); // v284: row is off-screen, stop listening for its live counts
             h.boundReelId = null;
             // Carousel pages recycle themselves via PhotoPagerAdapter's own
@@ -1632,6 +1624,7 @@ public class PostsFeedActivity extends AppCompatActivity {
             // the reel reference here just avoids a stale double-tap-like
             // target while this row sits recycled off-screen.
             h.photoPagerBoundReel = null;
+            h.boundReel = null;
         }
 
         // ── ListPreloader.PreloadModelProvider ──────────────────────────
@@ -1645,12 +1638,15 @@ public class PostsFeedActivity extends AppCompatActivity {
 
         @Nullable @Override
         public RequestBuilder<?> getPreloadRequestBuilder(@NonNull String url) {
+            // PERF: ListPreloader calls this repeatedly while scrolling
+            // (once per upcoming off-screen item), so it's squarely on the
+            // scroll hot path. Was building a brand-new RequestOptions
+            // identical to thumbOpts on every single call — reuse the
+            // adapter-level cached instance instead, same options as the
+            // actual bind above so the preloaded decode is cache-hit-able.
             return Glide.with(PostsFeedActivity.this)
                 .load(url)
-                .apply(new RequestOptions()
-                    .diskCacheStrategy(DiskCacheStrategy.ALL)
-                    .override(screenWidthPxOrFallback(), screenWidthPxOrFallback())
-                    .centerCrop());
+                .apply(thumbOpts);
         }
 
         class Holder extends RecyclerView.ViewHolder {
@@ -1662,7 +1658,17 @@ public class PostsFeedActivity extends AppCompatActivity {
             TextView  tvCarouselIndex;
             androidx.viewpager2.widget.ViewPager2 photoPager;
             LinearLayout dotsContainer;
-            androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback photoPagerCallback;
+            // ── Carousel dot cache (see the dot-rebuild comment above in
+            // onBindViewHolder) — built once per holder, rebuilt only when
+            // the photo count for this row actually changes. ──
+            View[] dotViews;
+            android.graphics.drawable.GradientDrawable[] dotDrawables;
+            int dotCount = -1;
+            // Mutable — read live by the long-lived OnPageChangeCallback
+            // installed once in setupPhotoPagerOnce() below, so a bind only
+            // needs to update this field instead of rebuilding + re-
+            // registering a fresh callback every time.
+            int boundPhotoCount = 0;
             PhotoPagerAdapter photoPagerAdapter;
             // Mutable — read by the long-lived gesture detector below so
             // double-tap-to-like always resolves against whichever post
@@ -1671,6 +1677,14 @@ public class PostsFeedActivity extends AppCompatActivity {
             // every single bind, which was the previous approach and the
             // biggest single allocation source on this carousel.
             ReelModel photoPagerBoundReel;
+            // Mutable — read by frameMedia's long-lived double-tap gesture
+            // detector (see setupFrameMediaGestureOnce()) so it always
+            // resolves against whichever post currently occupies this row,
+            // instead of rebuilding a whole GestureDetector object graph
+            // on every single bind (was the single biggest allocation on
+            // this screen — ViewConfiguration lookups + object graph, per
+            // row, per scroll).
+            ReelModel boundReel;
             TextView  tvTime;
             ImageButton btnLike, btnComment, btnMute, btnAudioCover;
             ImageButton btnRepost, btnSave;
@@ -1682,6 +1696,52 @@ public class PostsFeedActivity extends AppCompatActivity {
             String              boundReelId;
             String              countListenerReelId;
             ValueEventListener  countListener;
+            // Mutable — read/written by the once-registered btnReadMore
+            // click listener (see setupClickListenersOnce()) instead of a
+            // fresh boolean[] captured via closure on every bind. Reset to
+            // false at the top of every bind (a newly-bound post always
+            // starts collapsed).
+            boolean captionExpanded = false;
+
+            // ── PERF (Instagram-level pass): per-bind string-allocation
+            // caches, same pattern as HomeFragment's PostRowHolder
+            // (lastOwnerNameSrc/lastOwnerLabel/lastAgoTs/lastAgoStr) — a
+            // rebind that lands on this holder with the same source value
+            // (a live-count tick, a like tap's notifyItemChanged, or the
+            // same reel simply scrolling back into view) reuses the
+            // already-formatted String instead of re-running
+            // formatAgo()/formatCount()/String.valueOf()/concat and
+            // allocating a fresh one every single bind.
+            long   lastAgoTs = Long.MIN_VALUE;
+            long   lastAgoComputedAtMs = -1;
+            String lastAgoStr;
+            int    lastCarouselCount = -1;
+            String lastCarouselStr;
+            String lastCollabInitiatorName;
+            String lastCollabCollaboratorName;
+            String lastCollabLabel;
+            int    lastLikesCount = Integer.MIN_VALUE;
+            String lastLikesStr;
+            int    lastCommentsCount = Integer.MIN_VALUE;
+            String lastCommentsStr;
+            int    lastRepostCount = Integer.MIN_VALUE;
+            String lastRepostStr;
+            int    lastSharesCount = Integer.MIN_VALUE;
+            String lastSharesStr;
+
+            // ── PERF (Instagram-level pass): Glide URL-skip caches — a
+            // same-post rebind (DiffUtil landing here for a likesCount/
+            // commentsCount/caption-only change, see PostDiffCallback)
+            // used to re-run every image field's full Glide load()/
+            // apply()/into() chain even though the URL itself never
+            // changed. Track what's actually loaded into each target and
+            // skip the Glide call entirely when the incoming URL matches —
+            // same principle as the lastAgoStr/lastLikesStr text caches
+            // above, applied to the image loads instead of string builds. ──
+            String lastThumbUrl;
+            String lastAvatarUrl;
+            String lastCollabAv2Url;
+            String lastAudioCoverSrcUrl;
 
             Holder(@NonNull View itemView) {
                 super(itemView);
@@ -1695,6 +1755,7 @@ public class PostsFeedActivity extends AppCompatActivity {
                 photoPager  = itemView.findViewById(R.id.post_photo_pager);
                 dotsContainer = itemView.findViewById(R.id.post_photo_dots);
                 setupPhotoPagerOnce();
+                setupFrameMediaGestureOnce();
                 tvTime      = itemView.findViewById(R.id.tv_post_time);
                 tvOwner     = itemView.findViewById(R.id.tv_post_owner);
                 tvSuggested = itemView.findViewById(R.id.tv_post_suggested);
@@ -1715,6 +1776,7 @@ public class PostsFeedActivity extends AppCompatActivity {
                 btnSend     = itemView.findViewById(R.id.btn_post_send);
                 tvSends     = itemView.findViewById(R.id.tv_post_sends);
                 btnReadMore = itemView.findViewById(R.id.tv_post_read_more);
+                setupClickListenersOnce();
             }
 
             /** Runs once per Holder (constructor time), never per bind:
@@ -1741,6 +1803,23 @@ public class PostsFeedActivity extends AppCompatActivity {
                     // fighting the swipe gesture visually.
                     ((RecyclerView) innerRv).setItemAnimator(null);
                 }
+
+                // PERF: built + registered exactly ONCE here instead of a
+                // fresh OnPageChangeCallback object allocated (plus an
+                // unregister/register pair) on every single bind. Reads
+                // `boundPhotoCount` / `dotDrawables` live off the Holder at
+                // call-time, so it always reflects whichever post is
+                // currently bound without needing to be rebuilt for it.
+                photoPager.registerOnPageChangeCallback(
+                    new androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
+                        @Override public void onPageSelected(int position) {
+                            if (boundPhotoCount <= 1 || dotDrawables == null) return;
+                            tvCarouselIndex.setText((position + 1) + "/" + boundPhotoCount);
+                            for (int di = 0; di < dotDrawables.length; di++) {
+                                dotDrawables[di].setColor(di == position ? 0xFFFFFFFF : 0x66FFFFFF);
+                            }
+                        }
+                    });
 
                 final android.view.GestureDetector gestureDetector = new android.view.GestureDetector(
                     photoPager.getContext(),
@@ -1784,6 +1863,259 @@ public class PostsFeedActivity extends AppCompatActivity {
                         return gestureDetector.onTouchEvent(event);
                     }
                 });
+            }
+
+            /** Runs once per physical inflated Holder — NOT once per bind.
+             *  Mirrors setupPhotoPagerOnce()'s pattern above: build the
+             *  GestureDetector + OnTouchListener object graph exactly once
+             *  and have it read whichever reel is CURRENTLY bound (see
+             *  `boundReel`) instead of a fresh detector capturing that
+             *  bind's `r` via closure every single time this row rebinds. */
+            private void setupFrameMediaGestureOnce() {
+                if (frameMedia == null) return;
+                final android.view.GestureDetector likeGesture = new android.view.GestureDetector(
+                    frameMedia.getContext(),
+                    new android.view.GestureDetector.SimpleOnGestureListener() {
+                        @Override public boolean onDown(android.view.MotionEvent e) { return true; }
+                        @Override public boolean onDoubleTap(android.view.MotionEvent e) {
+                            ReelModel bound = boundReel;
+                            if (bound == null) return true;
+                            if (!likedIds.contains(bound.reelId)) toggleLike(bound, Holder.this);
+                            showLikeAnimation(ivLikeAnim);
+                            return true;
+                        }
+                    });
+                frameMedia.setOnTouchListener((v, event) -> {
+                    boolean handled = likeGesture.onTouchEvent(event);
+                    int action = event.getActionMasked();
+                    return action == android.view.MotionEvent.ACTION_DOWN || handled;
+                });
+            }
+
+            /** Runs once per physical Holder (constructor time), never per
+             *  bind. ★ Instagram-level PERF: avatar/tvOwner/tvLikes/
+             *  btnComment/tvComments/btnRepost/btnSave/tvSends/btnSend/
+             *  btnMute/btnAudioCover/btnMore/tvAudio/btnReadMore's
+             *  OnClickListeners used to be a fresh lambda object allocated
+             *  on EVERY single bind, each one capturing that bind's `r`
+             *  (and sometimes a local boolean[]) via closure — exactly the
+             *  pattern already fixed for HomeFragment's home feed. Every
+             *  listener here is now registered exactly once and reads
+             *  whichever reel is CURRENTLY bound off `boundReel` (or, for
+             *  the couple of listeners with no reel dependency at all —
+             *  btnMute, btnReadMore — off other Holder-level mutable
+             *  fields), so a bind is just a handful of field writes. */
+            private void setupClickListenersOnce() {
+                // Avatar tap: own profile, or the collab initiator's for a
+                // collab repost.
+                ivAvatar.setOnClickListener(v -> {
+                    ReelModel br = boundReel;
+                    if (br == null) return;
+                    boolean collab = br.collabInitiatorUid != null && !br.collabInitiatorUid.isEmpty()
+                                   && br.collabColaboratorUid != null && !br.collabColaboratorUid.isEmpty();
+                    Intent i = new Intent(v.getContext(), UserReelsActivity.class);
+                    if (collab) {
+                        i.putExtra(UserReelsActivity.EXTRA_UID,   br.collabInitiatorUid);
+                        i.putExtra(UserReelsActivity.EXTRA_NAME,  br.collabInitiatorName);
+                        i.putExtra(UserReelsActivity.EXTRA_PHOTO, br.collabInitiatorPhoto);
+                    } else {
+                        i.putExtra(UserReelsActivity.EXTRA_UID,   br.uid);
+                        i.putExtra(UserReelsActivity.EXTRA_NAME,  br.ownerName);
+                        i.putExtra(UserReelsActivity.EXTRA_PHOTO, br.ownerPhoto);
+                    }
+                    v.getContext().startActivity(i);
+                });
+                // Name tap → same target as avatar tap (also correctly
+                // covers the collab case, since avatar's own listener
+                // above already branches on it).
+                tvOwner.setOnClickListener(v -> ivAvatar.performClick());
+
+                // Like count tap → likes bottom sheet.
+                tvLikes.setOnClickListener(v -> {
+                    ReelModel br = boundReel;
+                    if (br == null || br.reelId == null || isFinishing() || isDestroyed()) return;
+                    com.callx.app.comments.ReelLikesBottomSheet sheet =
+                        com.callx.app.comments.ReelLikesBottomSheet.newInstance(
+                            br.reelId, br.likesCount, br.viewsCount);
+                    sheet.show(getSupportFragmentManager(), com.callx.app.comments.ReelLikesBottomSheet.TAG);
+                });
+
+                // Heart tap → like/unlike.
+                btnLike.setOnClickListener(v -> {
+                    ReelModel br = boundReel;
+                    if (br != null) toggleLike(br, Holder.this);
+                });
+
+                // Comment icon / comment count tap → ReelCommentActivity.
+                btnComment.setOnClickListener(v -> {
+                    ReelModel br = boundReel;
+                    if (br == null) return;
+                    Intent ci = new Intent(v.getContext(), ReelCommentActivity.class);
+                    ci.putExtra(ReelCommentActivity.EXTRA_REEL_ID, br.reelId);
+                    ci.putExtra(ReelCommentActivity.EXTRA_REEL_UID, br.uid != null ? br.uid : "");
+                    startActivity(ci);
+                });
+                if (tvComments != null) {
+                    tvComments.setOnClickListener(v -> {
+                        ReelModel br = boundReel;
+                        if (br == null) return;
+                        Intent ci = new Intent(v.getContext(), ReelCommentActivity.class);
+                        ci.putExtra(ReelCommentActivity.EXTRA_REEL_ID, br.reelId);
+                        ci.putExtra(ReelCommentActivity.EXTRA_REEL_UID, br.uid != null ? br.uid : "");
+                        startActivity(ci);
+                    });
+                }
+
+                // Repost button — show options (Repost / Quote Repost).
+                if (btnRepost != null) {
+                    btnRepost.setOnClickListener(v -> {
+                        ReelModel br = boundReel;
+                        if (br == null) return;
+                        String myUid = FirebaseUtils.getCurrentUid();
+                        if (myUid == null || br.reelId == null) return;
+                        if (myUid.equals(br.uid)) {
+                            Toast.makeText(v.getContext(),
+                                "You can't repost your own reel", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        String[] options = {"Repost", "Quote Repost"};
+                        new androidx.appcompat.app.AlertDialog.Builder(v.getContext())
+                            .setTitle("Repost options")
+                            .setItems(options, (d, which) -> {
+                                if (which == 0) {
+                                    performRepost(br, myUid, tvReposts);
+                                } else {
+                                    try {
+                                        ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
+                                            br.reelId,
+                                            br.videoUrl   != null ? br.videoUrl   : (br.video480 != null ? br.video480 : ""),
+                                            br.thumbUrl   != null ? br.thumbUrl   : "",
+                                            br.caption    != null ? br.caption    : "",
+                                            br.uid        != null ? br.uid        : "",
+                                            br.ownerName  != null ? br.ownerName  : "",
+                                            br.ownerPhoto != null ? br.ownerPhoto : "",
+                                            true
+                                        );
+                                        sheet.show(getSupportFragmentManager(), "quote_sheet");
+                                    } catch (Exception e) {
+                                        Intent share = new Intent(Intent.ACTION_SEND);
+                                        share.setType("text/plain");
+                                        String quote = "\"" + (br.caption != null ? br.caption : "Check this out")
+                                            + "\" — @" + br.ownerName + " https://callx.app/reel/" + br.reelId;
+                                        share.putExtra(Intent.EXTRA_TEXT, quote);
+                                        startActivity(Intent.createChooser(share, "Quote Repost"));
+                                    }
+                                }
+                            })
+                            .setNegativeButton("Cancel", null)
+                            .show();
+                    });
+                }
+
+                // Save button — toggles live off `savedIds` at click time
+                // instead of a per-bind boolean[] snapshot.
+                if (btnSave != null) {
+                    btnSave.setOnClickListener(v -> {
+                        ReelModel br = boundReel;
+                        if (br == null) return;
+                        String myUid = FirebaseUtils.getCurrentUid();
+                        if (myUid == null || br.reelId == null) return;
+                        boolean nowSaved = !savedIds.contains(br.reelId);
+                        if (nowSaved) {
+                            btnSave.setImageResource(R.drawable.ic_bookmark_filled);
+                            savedIds.add(br.reelId);
+                            FirebaseUtils.getReelSavesRef(myUid).child(br.reelId).setValue(true);
+                            FirebaseUtils.getReelSavesIndexRef(br.reelId).child(myUid).setValue(true);
+                            Toast.makeText(v.getContext(), "Saved!", Toast.LENGTH_SHORT).show();
+                        } else {
+                            btnSave.setImageResource(R.drawable.ic_bookmark);
+                            savedIds.remove(br.reelId);
+                            FirebaseUtils.getReelSavesRef(myUid).child(br.reelId).removeValue();
+                            FirebaseUtils.getReelSavesIndexRef(br.reelId).child(myUid).removeValue();
+                        }
+                    });
+                }
+
+                // Shares count tap → shares bottom sheet.
+                if (tvSends != null) {
+                    tvSends.setOnClickListener(v -> {
+                        ReelModel br = boundReel;
+                        if (br == null || br.reelId == null) return;
+                        ReelSharesBottomSheet sheet = ReelSharesBottomSheet.newInstance(
+                            br.reelId, br.sharesCount, br.repostCount);
+                        sheet.show(getSupportFragmentManager(), ReelSharesBottomSheet.TAG);
+                    });
+                }
+                // Send/share icon tap → share sheet.
+                if (btnSend != null) {
+                    btnSend.setOnClickListener(v -> {
+                        ReelModel br = boundReel;
+                        if (br == null || br.reelId == null) return;
+                        try {
+                            ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
+                                br.reelId,
+                                br.videoUrl   != null ? br.videoUrl   : (br.video480 != null ? br.video480 : ""),
+                                br.thumbUrl   != null ? br.thumbUrl   : "",
+                                br.caption    != null ? br.caption    : "",
+                                br.uid        != null ? br.uid        : "",
+                                br.ownerName  != null ? br.ownerName  : "",
+                                br.ownerPhoto != null ? br.ownerPhoto : "",
+                                true
+                            );
+                            sheet.show(getSupportFragmentManager(), "share_sheet");
+                        } catch (Exception e) {
+                            Intent share = new Intent(Intent.ACTION_SEND);
+                            share.setType("text/plain");
+                            share.putExtra(Intent.EXTRA_TEXT,
+                                "Check out this reel on CallX! @" + br.ownerName);
+                            startActivity(Intent.createChooser(share, "Share reel"));
+                        }
+                    });
+                }
+
+                // Mute toggle — doesn't even depend on which reel is bound.
+                if (btnMute != null) {
+                    btnMute.setOnClickListener(v -> toggleMute());
+                }
+
+                // Audio label / audio-cover tap → sound detail.
+                if (tvAudio != null) {
+                    tvAudio.setOnClickListener(v -> {
+                        ReelModel br = boundReel;
+                        if (br != null) openSoundDetail(br);
+                    });
+                }
+                if (btnAudioCover != null) {
+                    btnAudioCover.setOnClickListener(v -> {
+                        ReelModel br = boundReel;
+                        if (br != null) openSoundDetail(br);
+                    });
+                }
+
+                // ⋮ More menu.
+                if (btnMore != null) {
+                    btnMore.setOnClickListener(v -> {
+                        ReelModel br = boundReel;
+                        if (br != null) showMoreMenu(br, btnMore);
+                    });
+                }
+
+                // "...more" / "less" caption expand toggle — reads/writes
+                // captionExpanded instead of a per-bind boolean[].
+                if (btnReadMore != null) {
+                    btnReadMore.setOnClickListener(v -> {
+                        captionExpanded = !captionExpanded;
+                        if (captionExpanded) {
+                            tvCaption.setMaxLines(Integer.MAX_VALUE);
+                            tvCaption.setEllipsize(null);
+                            btnReadMore.setText("less");
+                        } else {
+                            tvCaption.setMaxLines(CAPTION_MAX_LINES);
+                            tvCaption.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                            btnReadMore.setText("more");
+                        }
+                    });
+                }
             }
         }
     }
@@ -1831,13 +2163,51 @@ public class PostsFeedActivity extends AppCompatActivity {
         });
 
         h.btnLike.setImageResource(!currentlyLiked ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
-        h.tvLikes.setText(String.valueOf(r.likesCount));
+        h.tvLikes.setText(cachedLikesStr(h, r.likesCount));
     }
 
     private String formatCount(int n) {
         if (n >= 1_000_000) return String.format(java.util.Locale.US, "%.1fM", n / 1_000_000f);
         if (n >= 1_000)     return String.format(java.util.Locale.US, "%.1fK", n / 1_000f);
         return String.valueOf(n);
+    }
+
+    // ── PERF (Instagram-level pass): cached String.valueOf()/formatCount()
+    // wrappers — the count itself only actually changes on a real Firebase
+    // update or a like tap, but onBindViewHolder/attachCountListener were
+    // reallocating a fresh String on every call regardless, including
+    // same-value rebinds. These check the holder's last-seen int first and
+    // only format again when it changed. ──
+    private String cachedLikesStr(PostsAdapter.Holder h, int likesCount) {
+        if (h.lastLikesCount != likesCount) {
+            h.lastLikesCount = likesCount;
+            h.lastLikesStr = String.valueOf(likesCount);
+        }
+        return h.lastLikesStr;
+    }
+
+    private String cachedCommentsStr(PostsAdapter.Holder h, int commentsCount) {
+        if (h.lastCommentsCount != commentsCount) {
+            h.lastCommentsCount = commentsCount;
+            h.lastCommentsStr = String.valueOf(commentsCount);
+        }
+        return h.lastCommentsStr;
+    }
+
+    private String cachedRepostStr(PostsAdapter.Holder h, int repostCount) {
+        if (h.lastRepostCount != repostCount) {
+            h.lastRepostCount = repostCount;
+            h.lastRepostStr = formatCount(repostCount);
+        }
+        return h.lastRepostStr;
+    }
+
+    private String cachedSharesStr(PostsAdapter.Holder h, int sharesCount) {
+        if (h.lastSharesCount != sharesCount) {
+            h.lastSharesCount = sharesCount;
+            h.lastSharesStr = formatCount(sharesCount);
+        }
+        return h.lastSharesStr;
     }
 
     /** Same relative-time format as HomeFragment.formatAgo(). */

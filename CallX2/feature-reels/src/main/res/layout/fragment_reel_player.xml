@@ -815,11 +815,11 @@
             app:layout_constraintTop_toBottomOf="@id/layout_reel_mutual_followers"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent">
-            <LinearLayout
+             <com.callx.app.views.ReelChipRowLayout
                 android:id="@+id/container_hashtags"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"/>
+                 android:orientation="horizontal"/>
         </HorizontalScrollView>
 
         <!-- Animated Music Ticker -->

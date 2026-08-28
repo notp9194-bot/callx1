@@ -4227,11 +4227,38 @@ public class HomeFragment extends Fragment {
                 startActivity(i);
             });
         } else {
-            tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
+            // PERF: "@" + name used to be re-concatenated (new String) on
+            // EVERY bind, even when the exact same reel rebinds onto this
+            // same holder (e.g. a like-tap's notifyItemChanged). Now cached
+            // per-holder and only recomputed when the owner name actually
+            // changes.
+            String ownerNameSrc = reel.ownerName;
+            if (!java.util.Objects.equals(ownerNameSrc, holder.lastOwnerNameSrc)) {
+                holder.lastOwnerNameSrc = ownerNameSrc;
+                holder.lastOwnerLabel = ownerNameSrc != null ? "@" + ownerNameSrc : "@user";
+            }
+            tvOwner.setText(holder.lastOwnerLabel);
             tvOwner.setOnClickListener(x -> avatar.performClick());
         }
 
-        if (tvTime != null) tvTime.setText(formatAgo(reel.timestamp));
+        if (tvTime != null) {
+            // PERF: formatAgo() used to recompute + re-allocate its result
+            // String on EVERY bind, including a same-second rebind of the
+            // exact same reel onto this holder (tap → notifyItemChanged).
+            // It's genuinely time-varying so it can't be cached forever,
+            // but a rebind of the same timestamp within the same ~1s
+            // window it would've produced the same output anyway — reuse
+            // that instead of recomputing.
+            long now = System.currentTimeMillis();
+            if (reel.timestamp != holder.lastAgoTs
+                    || holder.lastAgoComputedAtMs < 0
+                    || (now - holder.lastAgoComputedAtMs) >= 1000) {
+                holder.lastAgoTs = reel.timestamp;
+                holder.lastAgoStr = formatAgo(reel.timestamp);
+                holder.lastAgoComputedAtMs = now;
+            }
+            tvTime.setText(holder.lastAgoStr);
+        }
 
         // PERF advance — "precompute next reel's UI state": if this card's
         // formatted counts/caption were already computed ahead of time (see
@@ -4573,19 +4600,34 @@ public class HomeFragment extends Fragment {
             // square 720x720 and throwing away a third of it — ~44% less
             // bitmap memory per card, which is what bounds GC pressure while
             // flinging through a long feed.
-            Glide.with(requireContext()).load(reel.thumbUrl)
-                .apply(FEED_IMAGE_OPTS)
-                .override(THUMB_DECODE_W, THUMB_DECODE_H)
-                .centerCrop().placeholder(R.drawable.ic_reels).into(ivThumb);
+            //
+            // PERF: Glide already dedupes the actual decode/network work
+            // when the same URL is requested into a target it's already
+            // showing, but the RequestBuilder chain itself (load/apply/
+            // override/centerCrop/placeholder) was still a fresh object
+            // allocation on EVERY bind — including a same-reel rebind onto
+            // this same holder. Skip the whole chain when this holder is
+            // already showing this exact thumb URL.
+            if (!reel.thumbUrl.equals(holder.lastThumbUrl)) {
+                holder.lastThumbUrl = reel.thumbUrl;
+                Glide.with(requireContext()).load(reel.thumbUrl)
+                    .apply(FEED_IMAGE_OPTS)
+                    .override(THUMB_DECODE_W, THUMB_DECODE_H)
+                    .centerCrop().placeholder(R.drawable.ic_reels).into(ivThumb);
+            }
         }
         if (reel.ownerPhoto != null && !reel.ownerPhoto.isEmpty()) {
             // The avatar is 36dp; without an override Glide decoded the
-            // full-resolution profile photo for it.
-            Glide.with(requireContext()).load(reel.ownerPhoto)
-                .apply(RequestOptions.circleCropTransform())
-                .apply(FEED_IMAGE_OPTS)
-                .override(AVATAR_DECODE_PX, AVATAR_DECODE_PX)
-                .placeholder(R.drawable.ic_person).into(avatar);
+            // full-resolution profile photo for it. Same rebind-skip as
+            // the thumb above.
+            if (!reel.ownerPhoto.equals(holder.lastAvatarUrl)) {
+                holder.lastAvatarUrl = reel.ownerPhoto;
+                Glide.with(requireContext()).load(reel.ownerPhoto)
+                    .apply(RequestOptions.circleCropTransform())
+                    .apply(FEED_IMAGE_OPTS)
+                    .override(AVATAR_DECODE_PX, AVATAR_DECODE_PX)
+                    .placeholder(R.drawable.ic_person).into(avatar);
+            }
         }
 
         final String ownerUid = reel.uid;
@@ -6085,6 +6127,23 @@ public class HomeFragment extends Fragment {
         String boundOwnerUidRef;
         final boolean[] boundIsFollowed = {false};
         boolean clickListenersBound = false;
+
+        // ── Small per-bind allocation caches ──────────────────────────────
+        // ★ Instagram-level PERF (final pass): the three remaining
+        // per-bind allocations flagged in the review — owner-name concat,
+        // formatAgo() string churn, and thumb/avatar Glide RequestBuilder
+        // chains — all get skipped when a rebind lands on this holder with
+        // the same source values (e.g. a like-tap's notifyItemChanged
+        // rebinding the SAME reel to the SAME row, not a new reel scrolling
+        // in). Different reel / different URL / enough time elapsed still
+        // recompute exactly as before.
+        String lastOwnerNameSrc;
+        String lastOwnerLabel;
+        long   lastAgoTs = Long.MIN_VALUE;
+        long   lastAgoComputedAtMs = -1;
+        String lastAgoStr;
+        String lastThumbUrl;
+        String lastAvatarUrl;
 
         PostRowHolder(@NonNull View itemView) { super(itemView); }
 

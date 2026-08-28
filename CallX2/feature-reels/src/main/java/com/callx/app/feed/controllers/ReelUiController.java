@@ -69,8 +69,34 @@ public class ReelUiController {
     private ImageView       ivMusicDisc;
     private android.widget.ImageButton btnCreateAudio;
     private LinearLayout    layoutMusicTicker;
-    private LinearLayout    containerHashtags;
+    private com.callx.app.views.ReelChipRowLayout containerHashtags;
     private HorizontalScrollView scrollHashtags;
+    private final View.OnClickListener hashtagClickListener = view -> {
+        Object tag = view.getTag();
+        if (!(tag instanceof String) || !delegate.isAdded()
+                || delegate.getContext() == null) return;
+        Intent intent = new Intent(delegate.requireContext(), HashtagReelsActivity.class);
+        intent.putExtra(HashtagReelsActivity.EXTRA_HASHTAG, (String) tag);
+        delegate.getFragment().startActivity(intent);
+    };
+    private final View.OnClickListener duetChipClickListener = view -> {
+        ReelModel reel = delegate.getReel();
+        if (reel == null || !delegate.isAdded() || delegate.getActivity() == null) return;
+        Intent intent = new Intent(delegate.getActivity(),
+            com.callx.app.social.DuetsByReelActivity.class);
+        intent.putExtra(com.callx.app.social.DuetsByReelActivity.EXTRA_REEL_ID, reel.reelId);
+        intent.putExtra(com.callx.app.social.DuetsByReelActivity.EXTRA_OWNER_NAME, reel.ownerName);
+        delegate.getFragment().startActivity(intent);
+    };
+    private final View.OnClickListener stitchChipClickListener = view -> {
+        ReelModel reel = delegate.getReel();
+        if (reel == null || !delegate.isAdded() || delegate.getActivity() == null) return;
+        Intent intent = new Intent(delegate.getActivity(),
+            com.callx.app.social.StitchesByReelActivity.class);
+        intent.putExtra(com.callx.app.social.StitchesByReelActivity.EXTRA_REEL_ID, reel.reelId);
+        intent.putExtra(com.callx.app.social.StitchesByReelActivity.EXTRA_OWNER_NAME, reel.ownerName);
+        delegate.getFragment().startActivity(intent);
+    };
     private LinearLayout    llSeriesChip;
     private TextView        tvSeriesChipLabel;
     private TextView        tvRepostAttribution;
@@ -445,6 +471,12 @@ public class ReelUiController {
         // the swipe-completion frame.
         com.callx.app.cache.ReelUiStateCache.State precomputedCaption =
             com.callx.app.cache.ReelUiStateCache.get(reel.reelId);
+        if (precomputedCaption == null) {
+            // Correctness fallback for reels opened outside ReelsFragment
+            // (profile/deep-link entry). The feed precomputer normally makes
+            // this a cache hit before the page is selected.
+            precomputedCaption = com.callx.app.cache.ReelUiStateCache.compute(reel);
+        }
         String captionText;
         if (precomputedCaption != null) {
             captionText = precomputedCaption.captionText;
@@ -651,9 +683,7 @@ public class ReelUiController {
         }
 
         // Hashtags
-        renderHashtags();
-        addViewDuetButton();
-        addViewStitchesButton();
+        renderChipRow(precomputedCaption);
     }
 
     // ── Follow UI (called by SocialController) ────────────────────────────
@@ -665,116 +695,62 @@ public class ReelUiController {
 
     // ── Hashtag chips ─────────────────────────────────────────────────────
 
-    private void renderHashtags() {
-        ReelModel reel = delegate.getReel();
-        if (reel == null || reel.caption == null || reel.caption.isEmpty()) return;
-        List<String> tags = ReelModel.extractHashtags(reel.caption);
-        if (tags.isEmpty() || containerHashtags == null) return;
+    private void renderChipRow(com.callx.app.cache.ReelUiStateCache.State state) {
+        if (containerHashtags == null) return;
+        containerHashtags.beginBatchUpdate();
+        try {
+            containerHashtags.recycleChildren();
+            int visibleCount = state == null || state.hashtagLabels == null
+                ? 0 : Math.min(state.hashtagLabels.length,
+                    com.callx.app.cache.ReelUiStateCache.MAX_VISIBLE_HASHTAG_CHIPS);
+            boolean hasDuet = state != null && state.duetLabel != null;
+            boolean hasStitch = state != null && state.stitchLabel != null;
 
-        if (scrollHashtags != null) scrollHashtags.setVisibility(View.VISIBLE);
-        containerHashtags.removeAllViews();
-        int dp8 = delegate.dpToPx(8);
-        int dp4 = delegate.dpToPx(4);
-
-        for (String tag : tags) {
-            TextView chip = new TextView(delegate.requireContext());
-            chip.setText("#" + tag);
-            chip.setTextColor(0xFFFFFFFF);
-            chip.setTextSize(12f);
-            chip.setBackgroundResource(R.drawable.bg_speed_chip);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.setMargins(0, 0, dp8, 0);
-            chip.setLayoutParams(lp);
-            chip.setPadding(dp8, dp4, dp8, dp4);
-            chip.setClickable(true);
-            chip.setFocusable(true);
-            final String finalTag = tag;
-            chip.setOnClickListener(cv -> {
-                if (!delegate.isAdded() || delegate.getContext() == null) return;
-                Intent intent = new Intent(delegate.requireContext(), HashtagReelsActivity.class);
-                intent.putExtra(HashtagReelsActivity.EXTRA_HASHTAG, finalTag);
-                delegate.getFragment().startActivity(intent);
-            });
-            containerHashtags.addView(chip);
+            if (hasDuet) {
+                TextView chip = containerHashtags.obtainChip();
+                configureActionChip(chip, state.duetLabel, R.drawable.bg_reel_duet_chip,
+                    16, duetChipClickListener);
+            }
+            if (hasStitch) {
+                TextView chip = containerHashtags.obtainChip();
+                configureActionChip(chip, state.stitchLabel, R.drawable.bg_reel_stitch_chip,
+                    16, stitchChipClickListener);
+            }
+            for (int i = 0; i < visibleCount; i++) {
+                TextView chip = containerHashtags.obtainChip();
+                configureHashtagChip(chip, state.hashtagLabels[i], state.hashtagTags[i]);
+            }
+            boolean hasAnyChip = visibleCount > 0 || hasDuet || hasStitch;
+            if (scrollHashtags != null) scrollHashtags.setVisibility(
+                hasAnyChip ? View.VISIBLE : View.GONE);
+            if (hasAnyChip && scrollHashtags != null) scrollHashtags.scrollTo(0, 0);
+        } finally {
+            containerHashtags.endBatchUpdate();
         }
     }
 
-    private void addViewDuetButton() {
-        if (!delegate.isAdded() || delegate.getContext() == null || containerHashtags == null) return;
-        ReelModel reel = delegate.getReel();
-        if (reel == null) return;
-        int count = reel.duetCount;
-        if (count <= 0) return;
-
-        TextView duetBtn = new TextView(delegate.requireContext());
-        String label = "🔀 " + delegate.formatCount(count) + " Duet" + (count == 1 ? "" : "s") + "  ›";
-        duetBtn.setText(label);
-        duetBtn.setTextColor(android.graphics.Color.WHITE);
-        duetBtn.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
-        duetBtn.setAlpha(0.85f);
-        duetBtn.setPadding(20, 8, 20, 8);
-
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setCornerRadius(40f);
-        bg.setColor(0x33FFFFFF);
-        bg.setStroke(1, 0x66FFFFFF);
-        duetBtn.setBackground(bg);
-
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(0, 0, 16, 0);
-        duetBtn.setLayoutParams(lp);
-
-        duetBtn.setOnClickListener(v -> {
-            if (!delegate.isAdded() || delegate.getActivity() == null) return;
-            Intent i = new Intent(delegate.getActivity(), com.callx.app.social.DuetsByReelActivity.class);
-            i.putExtra(com.callx.app.social.DuetsByReelActivity.EXTRA_REEL_ID,    reel.reelId);
-            i.putExtra(com.callx.app.social.DuetsByReelActivity.EXTRA_OWNER_NAME, reel.ownerName);
-            delegate.getFragment().startActivity(i);
-        });
-
-        containerHashtags.addView(duetBtn, 0);
-        if (scrollHashtags != null) scrollHashtags.setVisibility(View.VISIBLE);
+    private void configureActionChip(TextView chip, String label, int backgroundRes,
+                                     int endMarginDp, View.OnClickListener listener) {
+        chip.setText(label);
+        chip.setTag(null);
+        chip.setBackgroundResource(backgroundRes);
+        chip.setPadding(delegate.dpToPx(20), delegate.dpToPx(8),
+            delegate.dpToPx(20), delegate.dpToPx(8));
+        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) chip.getLayoutParams();
+        lp.setMargins(0, 0, delegate.dpToPx(endMarginDp), 0);
+        chip.setOnClickListener(listener);
     }
 
-    private void addViewStitchesButton() {
-        if (!delegate.isAdded() || delegate.getContext() == null || containerHashtags == null) return;
-        ReelModel reel = delegate.getReel();
-        if (reel == null) return;
-        int count = reel.stitchCount;
-        if (count <= 0) return;
-
-        TextView stitchBtn = new TextView(delegate.requireContext());
-        String label = "✂️ " + delegate.formatCount(count) + " Stitch" + (count == 1 ? "" : "es") + "  ›";
-        stitchBtn.setText(label);
-        stitchBtn.setTextColor(android.graphics.Color.WHITE);
-        stitchBtn.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
-        stitchBtn.setAlpha(0.85f);
-        stitchBtn.setPadding(20, 8, 20, 8);
-
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setCornerRadius(40f);
-        bg.setColor(0x2200CFFF);
-        bg.setStroke(1, 0x6600CFFF);
-        stitchBtn.setBackground(bg);
-
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(0, 0, 16, 0);
-        stitchBtn.setLayoutParams(lp);
-
-        stitchBtn.setOnClickListener(v -> {
-            if (!delegate.isAdded() || delegate.getActivity() == null) return;
-            Intent i = new Intent(delegate.getActivity(), com.callx.app.social.StitchesByReelActivity.class);
-            i.putExtra(com.callx.app.social.StitchesByReelActivity.EXTRA_REEL_ID,    reel.reelId);
-            i.putExtra(com.callx.app.social.StitchesByReelActivity.EXTRA_OWNER_NAME, reel.ownerName);
-            delegate.getFragment().startActivity(i);
-        });
-
-        int insertAt = (containerHashtags.getChildCount() > 0) ? 1 : 0;
-        containerHashtags.addView(stitchBtn, insertAt);
-        if (scrollHashtags != null) scrollHashtags.setVisibility(View.VISIBLE);
+    private void configureHashtagChip(TextView chip, String label, String rawTag) {
+        chip.setText(label);
+        chip.setTag(rawTag);
+        chip.setBackgroundResource(R.drawable.bg_speed_chip);
+        int dp8 = delegate.dpToPx(8);
+        int dp4 = delegate.dpToPx(4);
+        chip.setPadding(dp8, dp4, dp8, dp4);
+        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) chip.getLayoutParams();
+        lp.setMargins(0, 0, dp8, 0);
+        chip.setOnClickListener(hashtagClickListener);
     }
 
     // ── Click listener wiring ─────────────────────────────────────────────
@@ -1257,6 +1233,7 @@ public class ReelUiController {
         if (discAnimator != null) { discAnimator.cancel(); discAnimator = null; } // triggers onAnimationCancel -> revertDiscLayerType()
         if (tvBioSongName != null) tvBioSongName.release();
         if (tvCollabSongName != null) tvCollabSongName.release();
+        if (containerHashtags != null) containerHashtags.recycleChildren();
     }
 
 }

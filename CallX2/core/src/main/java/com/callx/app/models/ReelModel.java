@@ -766,6 +766,7 @@ public class ReelModel {
      *  against a caption stuffed with thousands of "#tag" tokens spawning
      *  thousands of chip views in ReelUiController.renderHashtags(). */
     private static final int MAX_HASHTAGS = 30;
+    private static final Pattern HASHTAG_PATTERN = Pattern.compile("#(\\w+)");
 
     /** Truncates to MAX_CAPTION_CHARS, safe for null input. */
     public static String safeCaption(String text) {
@@ -775,9 +776,9 @@ public class ReelModel {
     }
 
     public static List<String> extractHashtags(String text) {
-        List<String> tags = new ArrayList<>();
-        if (text == null || text.isEmpty()) return tags;
-        Matcher m = Pattern.compile("#(\\w+)").matcher(text);
+        if (text == null || text.isEmpty()) return java.util.Collections.emptyList();
+        List<String> tags = new ArrayList<>(Math.min(8, MAX_HASHTAGS));
+        Matcher m = HASHTAG_PATTERN.matcher(text);
         while (m.find() && tags.size() < MAX_HASHTAGS) tags.add(m.group(1).toLowerCase());
         return tags;
     }
