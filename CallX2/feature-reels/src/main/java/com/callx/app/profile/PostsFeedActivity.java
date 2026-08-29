@@ -1092,7 +1092,8 @@ public class PostsFeedActivity extends AppCompatActivity {
         // instance instead, same as pagerPhotoOpts/thumbOpts above — the
         // single biggest remaining per-bind allocation on this screen.
         private final int audioCoverSizePx =
-            com.callx.app.utils.AvatarUrlBuilder.dpToPx(PostsFeedActivity.this, 28) * 2;
+            com.callx.app.utils.AvatarUrlBuilder.tierPx(
+                PostsFeedActivity.this, com.callx.app.utils.AvatarSizeTier.TINY); // 28dp view → shared TINY tier
         private final RequestOptions audioCoverOpts = new RequestOptions()
             .transform(new com.bumptech.glide.load.MultiTransformation<>(
                 new com.bumptech.glide.load.resource.bitmap.CenterCrop(),
@@ -1579,7 +1580,8 @@ public class PostsFeedActivity extends AppCompatActivity {
                         if (!java.util.Objects.equals(coverUrl, h.lastAudioCoverSrcUrl)) {
                             h.lastAudioCoverSrcUrl = coverUrl;
                             Glide.with(ctx)
-                                .load(com.callx.app.utils.AvatarUrlBuilder.build(ctx, coverUrl, 28))
+                                .load(com.callx.app.utils.AvatarUrlBuilder.build(
+                                    ctx, coverUrl, com.callx.app.utils.AvatarSizeTier.TINY))
                                 .apply(audioCoverOpts)
                                 .into(h.btnAudioCover);
                         }

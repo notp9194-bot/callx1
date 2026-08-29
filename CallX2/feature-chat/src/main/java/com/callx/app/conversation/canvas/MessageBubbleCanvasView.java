@@ -888,38 +888,6 @@ public class MessageBubbleCanvasView extends View {
     // measured this process.
     private static volatile int sLastKnownMaxTextWidth = -1;
 
-    // v47 PERF FIX: cold-open "list building" cause. precomputeTextLayoutIfPossible()
-    // above is a no-op until sLastKnownMaxTextWidth is known, and that field was
-    // ONLY ever set from a real onMeasure() call — i.e. only AFTER at least one
-    // bubble had already been measured on the UI thread this process. On the very
-    // first chat opened in a session (or after a cold app start), that's a
-    // chicken-and-egg gap: entityToModel() runs the background precompute for
-    // the whole first page on ioExecutor BEFORE any bubble exists to measure, so
-    // every one of those ~25 initial messages fell through to a synchronous
-    // StaticLayout.Builder...build() on the UI thread during onMeasure() — all in
-    // the same first-frame burst. That per-item text-shaping cost stacked up is
-    // exactly what reads as the chat "banti hui" instead of appearing ready
-    // instantly, even though nothing is actually animating.
-    //
-    // Fix: let a caller (ChatActivity, right after inflating its layout, well
-    // before the Pager/ioExecutor pipeline starts) seed an ESTIMATE of the
-    // target width from display metrics alone — same formula onMeasure() uses,
-    // just fed screen width instead of a real measured parentWidth. Only ever
-    // applied when nothing real has set the field yet (<= 0 check), so a
-    // legitimate onMeasure() value this process always wins and is never
-    // clobbered by the rough estimate. A slightly-off estimate is still just a
-    // cache miss per the safety note above — never wrong content, only "no
-    // speedup" in the worst case — so this is a pure win, not a correctness risk.
-    public static void seedMaxTextWidthEstimate(android.content.Context ctx) {
-        if (sLastKnownMaxTextWidth > 0 || ctx == null) return; // real value already known, or nothing to seed from
-        android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
-        float estDensity = dm.density;
-        int maxBubbleWidth = Math.round(dm.widthPixels * MAX_BUBBLE_WIDTH_FRACTION);
-        int hPad = Math.round(H_PADDING_DP * estDensity);
-        int estimate = Math.max(1, maxBubbleWidth - hPad * 2);
-        if (sLastKnownMaxTextWidth <= 0) sLastKnownMaxTextWidth = estimate;
-    }
-
     /**
      * Call off the UI thread — see the cache javadoc above. Safe to call
      * for every message unconditionally; it no-ops (and never throws
@@ -1129,7 +1097,7 @@ public class MessageBubbleCanvasView extends View {
     CharSequence messageTextSpanned = "";
     String footerTimeText = "";
     // PERF: footerTimeText gets measured with footerPaint up to 3-4 times
-    // in a single bind/measure/draw cycle (computeSizeSignatureHash's footer
+    // in a single bind/measure/draw cycle (computeSizeSignature's footer
     // reserve, the branch's own footerReserveWidth/captionFooterReserve,
     // and twice inside drawFooter). measureText() walks every glyph, so
     // this is real repeated cost — cache it per distinct string instance
@@ -1235,27 +1203,12 @@ public class MessageBubbleCanvasView extends View {
     // rarely changes). That forced a full RecyclerView measure/layout pass
     // on every single tick/rebind. lastSizeSignature caches a compact key
     // of exactly the inputs onMeasure() actually reads to size the bubble
-    // (see computeSizeSignatureHash()) so requestLayoutIfSizeChanged() can
+    // (see computeSizeSignature()) so requestLayoutIfSizeChanged() can
     // skip the requestLayout() call — and the measure pass it triggers —
     // whenever that key hasn't moved, while still always invalidate()-ing
-    // so the new content actually draws.
-    //
-    // v40 PERF: this used to be a String built fresh via StringBuilder(96)
-    // on EVERY bind*()/set*() call (25+ call sites — text, reply, reactions,
-    // group-sender, media, poll, etc.), purely so requestLayoutIfSizeChanged()
-    // could String.equals() it against the previous one. That's a
-    // StringBuilder + char[] + final String allocation, every bind, on the
-    // scroll hot path — for a comparison that only needs to know "same or
-    // different", never the actual text. Replaced with a rolling long hash
-    // built from the exact same fields in the exact same order (see
-    // computeSizeSignatureHash()): manual 31-multiplier accumulation over
-    // each field's .hashCode()/primitive value, no StringBuilder, no
-    // intermediate String, no autoboxing. hasSizeSignature=false means
-    // "never measured yet", which always forces the first layout pass
-    // (a bare 0L isn't a safe "unset" sentinel — a real signature can hash
-    // to 0 — so it gets its own flag instead).
-    long lastSizeSignature;
-    boolean hasSizeSignature = false;
+    // so the new content actually draws. null means "never measured yet",
+    // which always forces the first layout pass.
+    String lastSizeSignature = null;
 
     float density;
     int bubbleLeft, bubbleTop;
@@ -5410,49 +5363,26 @@ public class MessageBubbleCanvasView extends View {
      * tick and only actually changes (forcing a relayout) on the rarer
      * digit-count flip, e.g. "9:59" -> "10:00".
      */
-    // v40 PERF: rolling-hash replacement for the old StringBuilder-based
-    // computeSizeSignature(). Same field set, same order, same branch
-    // structure (every comment below documenting *why* a given field is
-    // in the key still applies unchanged) — only the accumulation
-    // mechanism changed, from string concatenation to a manual 31x long
-    // hash (the same technique Object[]/List hashCode() uses, just
-    // inlined so it doesn't allocate the varargs Object[] Objects.hash()
-    // would). Zero heap allocation: no StringBuilder, no intermediate or
-    // final String. String fields still call .hashCode(), but String
-    // caches that internally after the first call, so an unchanged
-    // String instance costs one field read, not a re-hash.
-    //
-    // Trade-off vs the old exact-String key: a hash collision could in
-    // theory make two *different* inputs produce the same signature and
-    // wrongly skip a needed relayout. This is the same trade-off
-    // WhatsApp/Telegram-style bind-diffing makes; a 64-bit rolling hash
-    // over a handful of fields makes an accidental collision astronomically
-    // unlikely in practice, and correctness-critical fields (mediaAspectRatio,
-    // isTextExpanded, isDeletedStyle) are still folded in explicitly per the
-    // BUG FIX notes below, same as before.
-    private static final long HSEED = 1_125_899_906_842_597L; // large odd seed, avoids an all-zero start state
-    private long computeSizeSignatureHash() {
+    private String computeSizeSignature() {
         float footerReserve = footerTimeTextWidth()
                 + (sent ? (TICK_SIZE_DP + TICK_GAP_DP) * density : 0)
                 + FOOTER_GAP_DP * density
                 + expiryReserveWidth();
 
-        long h = HSEED;
-        h = h * 31 + (sent ? 1 : 0);
-        h = h * 31 + (isPinned ? 1 : 0);
-        if (hasGroupSender) h = h * 31 + hash(groupSenderName);
-        if (hasForwarded) h = h * 31 + hash(forwardedText);
+        StringBuilder sb = new StringBuilder(96);
+        sb.append(sent ? '1' : '0').append(isPinned ? 'P' : '_');
+        if (hasGroupSender) sb.append("|G").append(groupSenderName);
+        if (hasForwarded) sb.append("|F").append(forwardedText);
         if (hasReply) {
-            h = h * 31 + hash(replySenderName);
-            h = h * 31 + hash(replyText);
-            h = h * 31 + (replyThumb != null ? 1 : 0);
+            sb.append("|R").append(replySenderName).append('\u0001').append(replyText)
+                    .append('\u0001').append(replyThumb != null ? '1' : '0');
         }
-        h = h * 31 + Math.round(footerReserve);
+        sb.append("|fr").append(Math.round(footerReserve));
         // Reaction badge floats past the bubble's bottom edge and grows
         // the view's total measured height to fit it (see the
         // "totalHeight"/setMeasuredDimension tail of onMeasure()) — not
         // just a draw-time overlay, so it must be part of the key.
-        if (hasReactions) h = h * 31 + hash(reactionsText);
+        if (hasReactions) sb.append("|X").append(reactionsText);
 
         if (isMedia) {
             // mediaAspectRatio must be part of the key: it starts at 0f
@@ -5462,84 +5392,70 @@ public class MessageBubbleCanvasView extends View {
             // make requestLayoutIfSizeChanged() wrongly think nothing
             // changed and skip the relayout that grows/shrinks the bubble
             // from the placeholder square to its real WhatsApp-style size.
-            h = h * 31 + hash(mediaHasCaption ? messageText : "");
-            h = h * 31 + Math.round(mediaAspectRatio * 1000);
+            sb.append("|M").append(mediaHasCaption ? messageText : "")
+                    .append('\u0001').append(Math.round(mediaAspectRatio * 1000));
             // BUG FIX: same "Read more" expand-state omission the plain-text
             // branch already guards against below — without this, tapping
             // Read more on a long image/video caption flips isTextExpanded
-            // but the signature doesn't change (caption text itself didn't
-            // change), so requestLayoutIfSizeChanged() thinks nothing
+            // but the signature string doesn't change (caption text itself
+            // didn't change), so requestLayoutIfSizeChanged() thinks nothing
             // happened and skips requestLayout() entirely. onMeasure() never
             // reruns, so the bubble never grows and textLayout never gets
             // rebuilt past the truncated collapsed version — the caption
             // visually stays cut off even though the "Read less ▲" label
             // now shows (that part redraws fine since it just reads the
             // isTextExpanded flag directly at draw time).
-            if (mediaHasCaption) h = h * 31 + (isTextExpanded ? 1 : 0);
+            if (mediaHasCaption) sb.append('|').append(isTextExpanded ? 'X' : 'x');
         } else if (isReelShare) {
-            h = h * 31 + hash(reelHasCaption ? reelCaptionText : "");
+            sb.append("|RE").append(reelHasCaption ? reelCaptionText : "");
         } else if (isContact) {
-            h = h * 31 + 7;
+            sb.append("|C");
         } else if (isLocation) {
-            h = h * 31 + hash(locationAddress);
+            sb.append("|L").append(locationAddress);
         } else if (isViewOnce) {
-            h = h * 31 + viewOnceVariant;
-            h = h * 31 + (viewOnceShowOpenedAt ? 1 : 0);
-            h = h * 31 + hash(viewOnceOpenedAtText);
+            sb.append("|V").append(viewOnceVariant).append('\u0001')
+                    .append(viewOnceShowOpenedAt ? '1' : '0').append('\u0001').append(viewOnceOpenedAtText);
         } else if (isSeenBubble) {
-            h = h * 31 + (seenHasThumb ? 1 : 0);
-            h = h * 31 + (seenHasName ? 1 : 0);
+            sb.append("|S").append(seenHasThumb ? '1' : '0').append(seenHasName ? '1' : '0');
         } else if (isCallEntry) {
-            h = h * 31 + hash(callEntryIcon);
-            h = h * 31 + hash(callEntryLabel);
-            h = h * 31 + hash(callEntryTime);
+            sb.append("|CE").append(callEntryIcon).append('\u0001')
+                    .append(callEntryLabel).append('\u0001').append(callEntryTime);
         } else if (isPoll) {
-            h = h * 31 + hash(pollQuestion);
+            sb.append("|PL").append(pollQuestion);
             if (pollOptions != null) {
-                for (String opt : pollOptions) h = h * 31 + hash(opt);
+                for (String opt : pollOptions) sb.append('\u0001').append(opt);
             }
         } else if (isMediaGroup) {
-            h = h * 31 + groupVisibleCount;
-            h = h * 31 + hash(groupHasCaption ? messageText : "");
+            sb.append("|MG").append(groupVisibleCount).append('\u0001')
+                    .append(groupHasCaption ? messageText : "");
             // Same fix as the isMedia branch above, for group captions.
-            if (groupHasCaption) h = h * 31 + (isTextExpanded ? 1 : 0);
+            if (groupHasCaption) sb.append('|').append(isTextExpanded ? 'X' : 'x');
         } else if (isFileBubble) {
-            h = h * 31 + 11;
+            sb.append("|FB");
         } else if (isAudio) {
-            h = h * 31 + 13;
+            sb.append("|A");
         } else {
             // isDeletedStyle switches textPaint to an italic typeface (see
             // setDeletedStyle()), which re-measures the same messageText
             // to a slightly different width, so it has to be part of the
             // key even though the string itself didn't change.
-            h = h * 31 + (isDeletedStyle ? 1 : 0);
-            h = h * 31 + hash(messageText);
+            sb.append("|T").append(isDeletedStyle ? '1' : '0').append(messageText);
             // Include expand state so toggling "Read more" triggers a re-measure.
-            h = h * 31 + (isTextExpanded ? 1 : 0);
+            sb.append('|').append(isTextExpanded ? 'X' : 'x');
             if (hasLinkPreview) {
-                h = h * 31 + hash(linkTitle);
-                h = h * 31 + hash(linkPreviewUrl);
-                h = h * 31 + hash(linkDomain);
-                h = h * 31 + (linkHasThumb ? 1 : 0);
+                sb.append("|LP").append(linkTitle).append('\u0001')
+                        .append(linkPreviewUrl).append('\u0001')
+                        .append(linkDomain).append('\u0001').append(linkHasThumb ? '1' : '0');
             }
         }
-        return h;
-    }
-
-    // String.hashCode() is cached on the String instance after the first
-    // call (the JDK/ART implementation memoizes it in a private field), so
-    // repeat calls here on an unchanged String — the common case every
-    // scroll rebind — are a field read, not a re-hash. No allocation either
-    // way; this exists only to keep the null-checks out of the line above.
-    private static int hash(String s) {
-        return s != null ? s.hashCode() : 0;
+        return sb.toString();
     }
 
     /**
      * Replaces a bare requestLayout() call in every bind()/set() method:
      * only actually requests a new measure/layout pass when the bubble's
      * size-relevant content has changed since the last one (see
-     * computeSizeSignatureHash()). Callers still invalidate() unconditionally
+     * computeSizeSignature()). Callers still invalidate() unconditionally
      * right after this so the new content — even content that doesn't
      * change the bubble's size, like a poll vote or a same-width expiry
      * tick — still gets drawn.
@@ -5553,13 +5469,12 @@ public class MessageBubbleCanvasView extends View {
      * messages intermittently rendering blank on a same-size rebind).
      */
     private boolean requestLayoutIfSizeChanged() {
-        long sig = computeSizeSignatureHash();
-        boolean changed = !hasSizeSignature || getMeasuredWidth() == 0 || lastSizeSignature != sig;
+        String sig = computeSizeSignature();
+        boolean changed = lastSizeSignature == null || getMeasuredWidth() == 0 || !lastSizeSignature.equals(sig);
         if (changed) {
             requestLayout();
         }
         lastSizeSignature = sig;
-        hasSizeSignature = true;
         return changed;
     }
 

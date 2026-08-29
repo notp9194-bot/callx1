@@ -4146,10 +4146,10 @@ public class HomeFragment extends Fragment {
                     // server-resize via AvatarUrlBuilder(..,28) AND pin Glide's
                     // decode with .override() to 28dp*2 (retina), so this never
                     // decodes more pixels than the 28dp tile actually shows.
-                    int sizePx = AvatarUrlBuilder.dpToPx(ctx, 28) * 2;
+                    int sizePx = AvatarUrlBuilder.tierPx(ctx, com.callx.app.utils.AvatarSizeTier.TINY);
                     int cornerRadiusPx = AvatarUrlBuilder.dpToPx(ctx, 4);
                     Glide.with(ctx)
-                        .load(AvatarUrlBuilder.build(ctx, coverUrl, 28))
+                        .load(AvatarUrlBuilder.build(ctx, coverUrl, com.callx.app.utils.AvatarSizeTier.TINY))
                         .apply(new RequestOptions()
                             .transform(new MultiTransformation<>(
                                 new CenterCrop(), new RoundedCorners(cornerRadiusPx)))

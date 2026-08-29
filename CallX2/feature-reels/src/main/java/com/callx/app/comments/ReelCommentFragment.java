@@ -2112,7 +2112,10 @@ public class ReelCommentFragment extends Fragment {
     // on this reel).
     private static final LruCache<String, String> replyAvatarCache = new LruCache<>(200);
 
-    private static final int REPLY_AVATAR_SIZE_DP = 26;
+    // 26dp reply avatar, bucketed to the shared TINY tier (32dp) so this
+    // reuses the same cached decode as other small avatars app-wide.
+    private static final com.callx.app.utils.AvatarSizeTier REPLY_AVATAR_TIER =
+        com.callx.app.utils.AvatarSizeTier.TINY;
 
     // PERF: same size-capped decode fix as ReelCommentsAdapter.avatarRequestOptions
     // — reply avatars were being loaded with a bare Glide.load().into(iv), no
@@ -2127,7 +2130,7 @@ public class ReelCommentFragment extends Fragment {
     private static RequestOptions replyAvatarRequestOptions(Context ctx) {
         RequestOptions opts = replyAvatarRequestOptions;
         if (opts == null) {
-            int sizePx = com.callx.app.utils.AvatarUrlBuilder.dpToPx(ctx, REPLY_AVATAR_SIZE_DP) * 2;
+            int sizePx = com.callx.app.utils.AvatarUrlBuilder.tierPx(ctx, REPLY_AVATAR_TIER);
             opts = new RequestOptions().override(sizePx, sizePx);
             replyAvatarRequestOptions = opts;
         }
@@ -2192,7 +2195,7 @@ public class ReelCommentFragment extends Fragment {
             // source photo happens to be — same size-capping already used
             // for top-level comment avatars.
             String resizedUrl = com.callx.app.utils.AvatarUrlBuilder
-                .build(requireContext(), url, REPLY_AVATAR_SIZE_DP);
+                .build(requireContext(), url, REPLY_AVATAR_TIER);
             Glide.with(requireContext()).load(resizedUrl)
                 .apply(replyAvatarRequestOptions(requireContext()))
                 .placeholder(R.drawable.ic_person)

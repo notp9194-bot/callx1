@@ -359,7 +359,10 @@ public class ReelsFragment extends Fragment {
                     ? thermalManager.getLevel() : ReelThermalManager.Level.SAFE;
                 boolean canPreload = thermalLevel != ReelThermalManager.Level.HOT;
                 if (canPreload) {
-                    if (videoPreloader != null) videoPreloader.preloadFrom(cur, reelIndex);
+                    // v7: pass current scroll velocity so AvatarPrefetcher's
+                    // lookahead depth adapts (skip on fast fling, go deeper
+                    // on a slow deliberate scroll) — see AvatarPrefetcher.
+                    if (videoPreloader != null) videoPreloader.preloadFrom(cur, reelIndex, lastScrollVelocity);
                 }
                 // Sync preloader to newly visible fragment
                 wirePreloaderToCurrentFragment(position);

@@ -35,6 +35,12 @@ public class ProfileActivity extends AppCompatActivity {
     private String viewUid;       // uid being viewed (may differ from currentUid)
     private boolean isOwnProfile;
     private String currentPhoto = "";
+    // Bumped locally + written to Firebase/Room on every successful avatar
+    // upload (see uploadAvatar()) — passed to AvatarUrlBuilder so the
+    // freshly-loaded avatar always gets a new Glide cache key, even before
+    // any other cached photoUrl/thumbUrl string catches up. See
+    // UserEntity#avatarVersion for the full rationale.
+    private long currentAvatarVersion = 0;
     private ActivityResultLauncher<String> imagePicker;
 
     @Override
@@ -88,11 +94,12 @@ public class ProfileActivity extends AppCompatActivity {
                         binding.tvCallxId.setText(orEmpty(cached.callxId));
                         binding.tvEmail.setText(orEmpty(cached.email));
                         currentPhoto = orEmpty(cached.photoUrl);
+                        currentAvatarVersion = cached.avatarVersion;
                         String cachedThumb = orEmpty(cached.thumbUrl);
                         String cacheDisplayUrl = !cachedThumb.isEmpty() ? cachedThumb : currentPhoto;
                         if (!cacheDisplayUrl.isEmpty()) {
                             Glide.with(ProfileActivity.this)
-                                .load(AvatarUrlBuilder.build(ProfileActivity.this, cacheDisplayUrl, 120))
+                                .load(AvatarUrlBuilder.build(ProfileActivity.this, cacheDisplayUrl, com.callx.app.utils.AvatarSizeTier.XLARGE, currentAvatarVersion))
                                 .into(binding.ivAvatar);
                         }
                     });
@@ -116,6 +123,7 @@ public class ProfileActivity extends AppCompatActivity {
                     String email     = isOwnProfile ? orEmpty(s.child("email").getValue(String.class)) : "";
                     String photo     = orEmpty(s.child("photoUrl").getValue(String.class));
                     String thumb     = orEmpty(s.child("thumbUrl").getValue(String.class));
+                    Long   avatarVer = s.child("avatarVersion").getValue(Long.class);
 
                     binding.etName.setText(name);
                     binding.etAbout.setText(about);
@@ -128,15 +136,17 @@ public class ProfileActivity extends AppCompatActivity {
                     binding.tvCallxId.setText(callxId);
                     if (isOwnProfile) binding.tvEmail.setText(email);
                     currentPhoto = photo;
+                    currentAvatarVersion = avatarVer != null ? avatarVer : 0;
                     String displayThumb = !thumb.isEmpty() ? thumb : photo;
                     if (!displayThumb.isEmpty()) {
                         Glide.with(ProfileActivity.this)
-                            .load(AvatarUrlBuilder.build(ProfileActivity.this, displayThumb, 120))
+                            .load(AvatarUrlBuilder.build(ProfileActivity.this, displayThumb, com.callx.app.utils.AvatarSizeTier.XLARGE, currentAvatarVersion))
                             .into(binding.ivAvatar);
                     }
 
                     // Room cache update — sirf apne profile ke liye
                     if (isOwnProfile) {
+                        long avatarVerToCache = currentAvatarVersion;
                         Executors.newSingleThreadExecutor().execute(() -> {
                             AppDatabase db = AppDatabase.getInstance(getApplicationContext());
                             UserEntity u = db.userDao().getUser(viewUid);
@@ -147,6 +157,7 @@ public class ProfileActivity extends AppCompatActivity {
                             u.callxId = callxId;
                             u.email   = email;
                             u.photoUrl = photo;
+                            u.avatarVersion = avatarVerToCache;
                             u.cachedAt = System.currentTimeMillis();
                             db.userDao().insertUser(u);
                         });
@@ -163,16 +174,28 @@ public class ProfileActivity extends AppCompatActivity {
 
                 // Step 1 done: thumbnail ready → Firebase thumbUrl save + UI
                 @Override public void onThumbReady(String thumbUrl) {
+                    // Bump once per upload (not once per step) — thumb and
+                    // full photo below are two steps of the SAME logical
+                    // avatar change, so they share one new version. Written
+                    // as a plain incremented literal (not ServerValue
+                    // .increment) since currentAvatarVersion was already
+                    // loaded from Firebase moments earlier in load() — this
+                    // device already knows the authoritative current value.
+                    currentAvatarVersion = currentAvatarVersion + 1;
                     FirebaseUtils.getUserRef(currentUid)
                         .child("thumbUrl").setValue(thumbUrl);
+                    FirebaseUtils.getUserRef(currentUid)
+                        .child("avatarVersion").setValue(currentAvatarVersion);
                     // Room cache update
+                    long newVersion = currentAvatarVersion;
                     Executors.newSingleThreadExecutor().execute(() -> {
                         AppDatabase db = AppDatabase.getInstance(getApplicationContext());
                         db.userDao().updateThumb(currentUid, thumbUrl);
+                        db.userDao().updateAvatarVersion(currentUid, newVersion);
                     });
                     // Profile screen mein bhi thumb dikhao (snap fast)
                     Glide.with(ProfileActivity.this)
-                        .load(AvatarUrlBuilder.build(ProfileActivity.this, thumbUrl, 120))
+                        .load(AvatarUrlBuilder.build(ProfileActivity.this, thumbUrl, com.callx.app.utils.AvatarSizeTier.XLARGE, currentAvatarVersion))
                         .into(binding.ivAvatar);
                 }
 
@@ -187,9 +210,11 @@ public class ProfileActivity extends AppCompatActivity {
                         AppDatabase db = AppDatabase.getInstance(getApplicationContext());
                         db.userDao().updatePhoto(currentUid, photoUrl);
                     });
-                    // Profile screen par full photo reload karo
+                    // Profile screen par full photo reload karo — same
+                    // currentAvatarVersion bumped in onThumbReady above,
+                    // since this is step 2 of the same upload.
                     Glide.with(ProfileActivity.this)
-                        .load(AvatarUrlBuilder.build(ProfileActivity.this, photoUrl, 120))
+                        .load(AvatarUrlBuilder.build(ProfileActivity.this, photoUrl, com.callx.app.utils.AvatarSizeTier.XLARGE, currentAvatarVersion))
                         .into(binding.ivAvatar);
                     Toast.makeText(ProfileActivity.this,
                         "Profile photo update ho gayi", Toast.LENGTH_SHORT).show();

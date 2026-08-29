@@ -33,9 +33,12 @@ public class SearchResultAdapter extends RecyclerView.Adapter<SearchResultAdapte
         }
     }
 
-    // Matches item_search_result.xml iv_avatar (52dp) — kept as one constant
-    // so the decode/download size always tracks the actual view size.
-    private static final int AVATAR_SIZE_DP = 52;
+    // Matches item_search_result.xml iv_avatar (52dp), bucketed to the shared
+    // MEDIUM tier (64dp) so this avatar reuses the same cached decode as any
+    // other 52-64dp avatar view elsewhere in the app instead of its own
+    // 52dp-only cache entry.
+    private static final com.callx.app.utils.AvatarSizeTier AVATAR_TIER =
+        com.callx.app.utils.AvatarSizeTier.MEDIUM;
 
     private final List<UserResult> list = new ArrayList<>();
     private OnUserClickListener listener;
@@ -69,12 +72,12 @@ public class SearchResultAdapter extends RecyclerView.Adapter<SearchResultAdapte
         // already-resized, low-data variant — for the thumb AND as a safety net when
         // only the full photo exists.
         String baseUrl = (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
-        String avatarUrl = AvatarUrlBuilder.build(h.ivAvatar.getContext(), baseUrl, AVATAR_SIZE_DP);
+        String avatarUrl = AvatarUrlBuilder.build(h.ivAvatar.getContext(), baseUrl, AVATAR_TIER);
         if (avatarUrl != null && !avatarUrl.isEmpty()) {
             Glide.with(h.ivAvatar.getContext()).load(avatarUrl)
                 .placeholder(R.drawable.ic_person).circleCrop()
                 .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-                .override(AvatarUrlBuilder.dpToPx(h.ivAvatar.getContext(), AVATAR_SIZE_DP) * 2)
+                .override(AvatarUrlBuilder.tierPx(h.ivAvatar.getContext(), AVATAR_TIER))
                 .into(h.ivAvatar);
         } else {
             h.ivAvatar.setImageResource(R.drawable.ic_person);

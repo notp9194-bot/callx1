@@ -432,6 +432,10 @@ public class ReelPlayerFragment extends Fragment
         if (visible) {
             playerController.startPlayback();
             uiController.startDiscAnimation();
+            // Fires the owner-avatar Glide load if populateStaticData() ran
+            // earlier while this reel was still offscreen and deferred it
+            // (see ReelUiController.bindOwnerAvatarGated / onBecameVisible).
+            uiController.onBecameVisible();
             // FIX: Firebase listeners sirf tab start honge jab reel VISIBLE ho.
             // Pehle onCreateView mein hote the → offscreen fragments ke bhi
             // listeners chal rahe the → wasted CPU + Firebase connections.
@@ -449,6 +453,9 @@ public class ReelPlayerFragment extends Fragment
             }
         } else {
             playerController.pausePlayback();
+            // FIX: cancel any in-flight owner-avatar fetch — see
+            // ReelUiController.onBecameInvisible() class doc.
+            uiController.onBecameInvisible();
             // FIX: Reel invisible hone par Firebase listeners turant remove karo.
             // Pehle sirf onDestroyView mein hata rahe the — tab tak offscreen
             // reel ke listeners ghante bhar chal sakte the. Ab swipe karte hi

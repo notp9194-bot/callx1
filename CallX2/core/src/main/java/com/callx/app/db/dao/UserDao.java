@@ -39,6 +39,9 @@ public interface UserDao {
     @Query("UPDATE users SET thumbUrl = :url WHERE uid = :uid")
     void updateThumb(String uid, String url);
 
+    @Query("UPDATE users SET avatarVersion = :version WHERE uid = :uid")
+    void updateAvatarVersion(String uid, long version);
+
     @Query("UPDATE users SET lastSeen = :ts WHERE uid = :uid")
     void updateLastSeen(String uid, long ts);
 

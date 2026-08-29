@@ -67,20 +67,6 @@ public class CallxApp extends Application {
     public void onCreate() {
         super.onCreate();
 
-        // v48 ULTRA PERF: earliest possible seed for MessageBubbleCanvasView's
-        // background text-layout precompute cache — see
-        // seedMaxTextWidthEstimate()'s doc in that class for the full
-        // "cold-open list building" root cause. Process-level Application
-        // context is available here before ANY Activity, so this covers not
-        // just "first chat opened this session" but also any speculative
-        // background work (chat-list prefetch, notification quick-reply
-        // preview, etc.) that might map message entities — and therefore
-        // trigger the precompute path — before ChatActivity/GroupChatActivity
-        // ever reach onCreate(). Their own seed calls remain in place as a
-        // no-op-if-already-set safety net for the (rare) case a process is
-        // resumed from a state where this line never ran.
-        com.callx.app.conversation.canvas.MessageBubbleCanvasView.seedMaxTextWidthEstimate(this);
-
         // "Just watched" reels-grid overlay is scoped to the CURRENT app
         // session (see AppSessionTracker + UserReelsActivity#loadWatchedReelIds
         // in feature-reels) — touching it here, first thing, forces its
@@ -397,8 +383,33 @@ public class CallxApp extends Application {
             if (level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
                 cache.evictLowPriority();
                 NetworkCacheHelper.evictConnectionPool(this);
+                com.callx.app.cache.AvatarHttpCache.evictConnectionPool();
                 Log.d(TAG, "onTrimMemory UI_HIDDEN — light cleanup only, video cache preserved");
                 return;
+            }
+
+            // FIX #5 (avatar versioning plan): previously called
+            // Glide.get(this).clearMemory() on every level >= MODERATE — but
+            // MODERATE fires constantly during normal use (any time Android
+            // wants some memory back, nowhere near "about to kill this
+            // process"), so it was wiping every decoded avatar bitmap on
+            // routine backgrounding and killing warm-restart speed for no
+            // real benefit. Now: MODERATE only lowers Glide's memory
+            // category (lets its LRU trim gradually as new requests come
+            // in, non-destructive) and the dedicated per-module L2 avatar
+            // caches (AvatarL2MemoryCache/ReelsAvatarL2Cache/ChatAvatarL2Cache,
+            // each registered independently via its own
+            // registerComponentCallbacks) are left completely untouched at
+            // this level by design. A full clearMemory() only happens at
+            // COMPLETE below, alongside those L2 caches' own COMPLETE-only
+            // eviction — the only level where trimming decoded bitmaps is
+            // actually justified.
+            if (level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
+                com.bumptech.glide.Glide.get(this).setMemoryCategory(
+                        com.bumptech.glide.MemoryCategory.LOW);
+            }
+            if (level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE) {
+                com.bumptech.glide.Glide.get(this).clearMemory();
             }
 
             // ✅ ROOT-CAUSE FIX #2: BACKGROUND(40) fires as soon as the

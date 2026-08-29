@@ -14,6 +14,7 @@ import androidx.annotation.Nullable;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
+import com.callx.app.cache.ChatAvatarL2Cache;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -79,8 +80,20 @@ public class CommunityMemberAvatarStackView extends View {
         for (int i = 0; i < visible; i++) {
             String url = photoUrls.get(i);
             if (url == null || url.isEmpty()) { mBitmaps.add(null); continue; }
-            mBitmaps.add(null); // placeholder slot, filled in asynchronously below
             final int index = i;
+
+            // FIX #5 (onTrimMemory / L2 cache): per-module cache that
+            // survives TRIM_MEMORY_MODERATE (see ChatAvatarL2Cache) — a
+            // warm restart right after routine backgrounding often still
+            // hits here even when Glide's own memory cache was trimmed,
+            // so the stack repaints instantly with no Glide round-trip.
+            Bitmap l2Hit = ChatAvatarL2Cache.get(getContext()).get(url);
+            if (l2Hit != null) {
+                mBitmaps.add(l2Hit);
+                continue;
+            }
+
+            mBitmaps.add(null); // placeholder slot, filled in asynchronously below
             Glide.with(getContext()).asBitmap().load(url).circleCrop()
                     .override(96, 96)
                     .into(new CustomTarget<Bitmap>(size, size) {
@@ -89,6 +102,7 @@ public class CommunityMemberAvatarStackView extends View {
                                                      @Nullable Transition<? super Bitmap> transition) {
                             while (mBitmaps.size() <= index) mBitmaps.add(null);
                             mBitmaps.set(index, resource);
+                            ChatAvatarL2Cache.get(getContext()).put(url, resource);
                             invalidate();
                         }
                         @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}

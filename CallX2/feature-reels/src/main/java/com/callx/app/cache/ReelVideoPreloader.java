@@ -108,7 +108,23 @@ public class ReelVideoPreloader {
      * @param position Current visible position (jo reel ab dekhi ja rahi hai)
      */
     public void preloadFrom(List<ReelModel> reels, int position) {
+        preloadFrom(reels, position, -1f);
+    }
+
+    /**
+     * @param scrollVelocityPxPerMs current ViewPager2 scroll velocity (see
+     *                              ReelsFragment#lastScrollVelocity), used to
+     *                              size the AvatarPrefetcher lookahead depth.
+     *                              Pass -1 (or use the 2-arg overload) if unknown.
+     */
+    public void preloadFrom(List<ReelModel> reels, int position, float scrollVelocityPxPerMs) {
         if (reels == null || reels.isEmpty()) return;
+
+        // Owner-avatar prefetch — velocity-aware depth (fast fling skips
+        // entirely, slow scroll goes deeper than the video byte-preload
+        // window below since a cached avatar bitmap is orders of magnitude
+        // cheaper than a video byte-range). See AvatarPrefetcher class doc.
+        AvatarPrefetcher.prefetch(mContext, reels, position + 1, scrollVelocityPxPerMs);
 
         // ── Instagram-level thermal gate ──────────────────────────────────────
         // If device is HOT (severe thermal / low battery / power-save), skip byte

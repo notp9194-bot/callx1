@@ -6,14 +6,23 @@ import android.os.Build;
 
 import androidx.annotation.NonNull;
 
+import com.bumptech.glide.Glide;
 import com.bumptech.glide.GlideBuilder;
+import com.bumptech.glide.Registry;
 import com.bumptech.glide.annotation.GlideModule;
+import com.bumptech.glide.integration.okhttp3.OkHttpUrlLoader;
 import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.bitmap_recycle.LruBitmapPool;
 import com.bumptech.glide.load.engine.cache.InternalCacheDiskCacheFactory;
 import com.bumptech.glide.load.engine.cache.LruResourceCache;
+import com.bumptech.glide.load.model.GlideUrl;
 import com.bumptech.glide.module.AppGlideModule;
 import com.bumptech.glide.request.RequestOptions;
+import com.callx.app.cache.AvatarHttpCache;
+
+import java.io.InputStream;
+
+import okhttp3.OkHttpClient;
 
 /**
  * CallxGlideModule — app-wide Glide configuration.
@@ -127,5 +136,21 @@ public final class CallxGlideModule extends AppGlideModule {
         // Disable legacy Glide-v3 manifest meta-data scanning.
         // Speeds up Glide init; we configure everything above.
         return false;
+    }
+
+    /**
+     * FIX (ETag/Last-Modified conditional requests): routes ALL of Glide's
+     * HTTP image fetches — avatars included — through an OkHttpClient backed
+     * by a disk Cache (AvatarHttpCache), replacing Glide's default bare
+     * HttpURLConnection loader. See AvatarHttpCache's class doc for the full
+     * "combines with the ?v= version param" rationale: version param handles
+     * "did the avatar actually change", this handles "the URL is unchanged
+     * but Glide's own resource cache doesn't have it anymore" — a CDN 304 in
+     * that case means only headers cross the wire, not the image body.
+     */
+    @Override
+    public void registerComponents(@NonNull Context context, @NonNull Glide glide, @NonNull Registry registry) {
+        OkHttpClient client = AvatarHttpCache.getClient(context);
+        registry.replace(GlideUrl.class, InputStream.class, new OkHttpUrlLoader.Factory(client));
     }
 }

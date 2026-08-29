@@ -246,6 +246,14 @@ dependencies {
 
     implementation 'com.github.bumptech.glide:glide:4.16.0'
     annotationProcessor 'com.github.bumptech.glide:compiler:4.16.0'
+    // OkHttp integration — lets Glide's HTTP loader run through an OkHttpClient
+    // backed by a Cache, so ETag/Last-Modified conditional requests (304 Not
+    // Modified) work for avatar fetches instead of Glide's default HttpURLConnection
+    // stack, which never does conditional GETs. See CallxGlideModule#registerComponents
+    // and AvatarHttpCache. Excludes the transitive okhttp — app already pins 4.12.0.
+    implementation('com.github.bumptech.glide:okhttp3-integration:4.16.0') {
+        exclude group: 'com.squareup.okhttp3', module: 'okhttp'
+    }
     implementation 'de.hdodenhof:circleimageview:3.1.0'
 
     implementation 'com.google.guava:guava:31.1-android'

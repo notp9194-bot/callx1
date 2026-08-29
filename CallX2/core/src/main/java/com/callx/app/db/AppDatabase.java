@@ -64,7 +64,7 @@ import com.callx.app.db.entity.*;
         // reopen instead of a fresh Firebase read every time.
         TrendingAudioCacheEntity.class
     },
-    version = 50,
+    version = 51,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -674,6 +674,17 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** v51: users table gets avatarVersion — bumped on every avatar upload so
+     *  AvatarUrlBuilder can append a cache-busting ?v= param even when a
+     *  locally cached photoUrl/thumbUrl string is momentarily stale (see
+     *  UserEntity#avatarVersion / ProfileActivity#uploadAvatar). */
+    static final Migration MIGRATION_50_51 = new Migration(50, 51) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE users ADD COLUMN avatarVersion INTEGER NOT NULL DEFAULT 0");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -731,7 +742,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_40_41, MIGRATION_41_42,
                                     MIGRATION_42_43, MIGRATION_43_44,
                                     MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47,
-                                    MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50)
+                                    MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50,
+                                    MIGRATION_50_51)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

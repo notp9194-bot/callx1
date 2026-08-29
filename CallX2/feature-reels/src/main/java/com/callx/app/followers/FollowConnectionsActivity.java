@@ -18,6 +18,7 @@ import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.profile.ReelUserProfileSheet;
 import com.callx.app.profile.UserReelsActivity;
 import com.callx.app.reels.R;
+import com.callx.app.utils.AvatarSizeTier;
 import com.callx.app.utils.AvatarUrlBuilder;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.android.material.tabs.TabLayout;
@@ -516,7 +517,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         int avSz = (int) (52 * density);
         iv.setImageResource(R.drawable.ic_person);
         if (user.photo != null && !user.photo.isEmpty()) {
-            String resizedUrl = AvatarUrlBuilder.build(ctx, user.photo, 52);
+            String resizedUrl = AvatarUrlBuilder.build(ctx, user.photo, AvatarSizeTier.MEDIUM);
             Glide.with(ctx).load(resizedUrl)
                 .placeholder(R.drawable.ic_person)
                 .into(iv);
@@ -668,7 +669,8 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         // AvatarUrlBuilder so Cloudinary returns an already-downscaled 2x
         // variant and Glide never decodes more pixels than the row can
         // show — same fix applied to the reel comment list.
-        private static final int AVATAR_SIZE_DP = 46;
+        // 46dp row avatar, bucketed to the shared SMALL tier (48dp).
+        private static final AvatarSizeTier AVATAR_TIER = AvatarSizeTier.SMALL;
 
         // PERF: RequestOptions was rebuilt with `new RequestOptions()
         // .override(96, 96)` on EVERY avatar bind. The target size is fixed
@@ -683,7 +685,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         private RequestOptions avatarRequestOptions(Context ctx) {
             RequestOptions opts = avatarRequestOptions;
             if (opts == null) {
-                int sizePx = AvatarUrlBuilder.dpToPx(ctx, AVATAR_SIZE_DP) * 2;
+                int sizePx = AvatarUrlBuilder.tierPx(ctx, AVATAR_TIER);
                 opts = new RequestOptions().override(sizePx, sizePx);
                 avatarRequestOptions = opts;
             }
@@ -813,7 +815,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             iv.setTag(R.id.tag_avatar_url, photo);
 
             iv.setImageResource(R.drawable.ic_person);
-            String resizedUrl = AvatarUrlBuilder.build(ctx, photo, AVATAR_SIZE_DP);
+            String resizedUrl = AvatarUrlBuilder.build(ctx, photo, AVATAR_TIER);
             Glide.with(ctx)
                 .load(resizedUrl)
                 .apply(avatarRequestOptions(ctx))

@@ -16,6 +16,7 @@ import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.reels.R;
 import com.callx.app.models.ReelComment;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.AvatarSizeTier;
 import com.callx.app.utils.AvatarUrlBuilder;
 import android.util.LruCache;
 import android.content.Intent;
@@ -56,11 +57,10 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     // least-recently-used entries automatically.
     private static final LruCache<String, String> avatarCache = new LruCache<>(200);
 
-    // Avatar decode/target size in px — comment avatar is a fixed 36dp
-    // circular tile (see item_reel_comment.xml), we request 2x for retina
-    // sharpness and Cloudinary-side downscale so we never decode more
-    // pixels than the view can show (see AvatarUrlBuilder.build below).
-    private static final int AVATAR_SIZE_DP = 36;
+    // Comment avatar is a fixed 36dp circular tile (see item_reel_comment.xml),
+    // bucketed to the shared SMALL tier (48dp) so this decode is reused across
+    // any other 36-48dp avatar view in the app instead of caching separately.
+    private static final AvatarSizeTier AVATAR_TIER = AvatarSizeTier.SMALL;
 
     // Comment photo attachment decode size — iv_comment_image in
     // item_reel_comment.xml is a fixed 150dp square. Same reasoning as the
@@ -96,7 +96,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     private static RequestOptions avatarRequestOptions(Context ctx) {
         RequestOptions opts = avatarRequestOptions;
         if (opts == null) {
-            int sizePx = AvatarUrlBuilder.dpToPx(ctx, AVATAR_SIZE_DP) * 2;
+            int sizePx = AvatarUrlBuilder.tierPx(ctx, AVATAR_TIER);
             opts = new RequestOptions().override(sizePx, sizePx);
             avatarRequestOptions = opts;
         }
@@ -556,7 +556,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             // (via the shared, cached RequestOptions) pins the Glide decode
             // size so RecyclerView recycling never decodes larger than the
             // 36dp circle needs.
-            String resizedUrl = AvatarUrlBuilder.build(ctx, url, AVATAR_SIZE_DP);
+            String resizedUrl = AvatarUrlBuilder.build(ctx, url, AVATAR_TIER);
             Glide.with(ctx).load(resizedUrl)
                 .apply(avatarRequestOptions(ctx))
                 .placeholder(R.drawable.ic_person)

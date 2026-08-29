@@ -13,6 +13,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.reels.R;
+import com.callx.app.utils.AvatarSizeTier;
 import com.callx.app.utils.AvatarUrlBuilder;
 
 import java.util.ArrayList;
@@ -47,7 +48,9 @@ public class MentionSuggestionAdapter extends RecyclerView.Adapter<MentionSugges
         void onMentionPicked(MentionCandidate candidate);
     }
 
-    private static final int AVATAR_SIZE_DP = 22;
+    // 22dp view, bucketed to the shared TINY tier (32dp) so this avatar reuses
+    // the same cached decode as other small avatar/cover tiles across the app.
+    private static final AvatarSizeTier AVATAR_TIER = AvatarSizeTier.TINY;
 
     // Same lazy-cached-RequestOptions trick used by ReelCommentsAdapter's
     // avatar loading — the target size is fixed for every row, so build the
@@ -57,7 +60,7 @@ public class MentionSuggestionAdapter extends RecyclerView.Adapter<MentionSugges
     private static RequestOptions avatarRequestOptions(Context ctx) {
         RequestOptions opts = avatarRequestOptions;
         if (opts == null) {
-            int sizePx = AvatarUrlBuilder.dpToPx(ctx, AVATAR_SIZE_DP) * 2;
+            int sizePx = AvatarUrlBuilder.tierPx(ctx, AVATAR_TIER);
             opts = new RequestOptions().override(sizePx, sizePx);
             avatarRequestOptions = opts;
         }
@@ -104,7 +107,7 @@ public class MentionSuggestionAdapter extends RecyclerView.Adapter<MentionSugges
 
         h.ivAvatar.setImageResource(R.drawable.ic_person);
         if (c.avatarUrl != null && !c.avatarUrl.isEmpty()) {
-            String resizedUrl = AvatarUrlBuilder.build(ctx, c.avatarUrl, AVATAR_SIZE_DP);
+            String resizedUrl = AvatarUrlBuilder.build(ctx, c.avatarUrl, AVATAR_TIER);
             Glide.with(ctx).load(resizedUrl)
                 .apply(avatarRequestOptions(ctx))
                 .placeholder(R.drawable.ic_person)
