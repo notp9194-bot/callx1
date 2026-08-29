@@ -225,9 +225,18 @@ public class HomeFeedWatchTracker {
     private void recordView(String reelId) {
         if (myUid == null || viewCounted.contains(reelId)) return;
         viewCounted.add(reelId);
+
+        // Fast path: a process-wide LRU (session-local, not authoritative)
+        // already confirmed this reel this session — e.g. the Reels tab was
+        // recreated and this tracker's own viewCounted Set came back empty.
+        // Skip the Firebase round-trip entirely; the permanent record was
+        // already written the first time this reelId was seen.
+        if (com.callx.app.utils.SeenReelsLruCache.getInstance().isSeen(reelId)) return;
+
         DatabaseReference viewRef = FirebaseUtils.getReelViewsRef(reelId).child(myUid);
         viewRef.addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                com.callx.app.utils.SeenReelsLruCache.getInstance().markSeen(reelId);
                 if (snap.exists()) return;
                 viewRef.setValue(true);
                 FirebaseUtils.getReelsRef().child(reelId).child("viewsCount")
