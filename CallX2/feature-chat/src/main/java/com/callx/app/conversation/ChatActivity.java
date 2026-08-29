@@ -154,6 +154,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private static final int    PAGE_SIZE     = 15;
     private static final int    PREFETCH_DIST = 30;
     private static final int    INITIAL_LOAD  = 25;
+    // v49 ULTRA PERF: rough count of messages that actually fit one screen
+    // at open — used only to size the parallel-precompute tail in onDbReady()
+    // (see its doc). Deliberately generous (most bubbles are shorter than a
+    // full-width line), so it's fine if this over-covers the true viewport by
+    // a few items; it's never used for anything layout-affecting.
+    private static final int    VISIBLE_ON_OPEN_ESTIMATE = 14;
     private static final int    MAX_MESSAGE_LENGTH = 4000;
     // Threshold above which the send button shows a "Send as Text / Send as
     // .txt file" choice instead of immediately pushing the message — mirrors
@@ -499,6 +505,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
+        // v47 PERF FIX: seed MessageBubbleCanvasView's background-precompute
+        // width estimate as early as possible — see that method's doc for the
+        // full "cold-open list building" root cause. Must run before
+        // observePagedMessages()/attachPagerWithKey() starts mapping entities
+        // on ioExecutor further down, or the very first page's precompute
+        // window is wasted same as before.
+        com.callx.app.conversation.canvas.MessageBubbleCanvasView.seedMaxTextWidthEstimate(this);
+
         // Left/right screen-edge se swipe karke back jaane ke liye
         // (RecyclerView ke andar "swipe to reply" se clash nahi karta —
         // sirf edge se shuru hone wala swipe hi back trigger karta hai).
@@ -739,6 +753,52 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             // reconciliation is a true no-op in the common case — exactly
             // one render pass instead of two.
             java.util.List<MessageEntity> entities = db.messageDao().getLastMessagesAsc(chatId, INITIAL_LOAD);
+
+            // v48 ULTRA PERF: viewport-priority text-layout pre-warm.
+            // entities is ASC (oldest→newest) because that's the order the
+            // adapter/models list needs, but the chat opens scrolled to the
+            // BOTTOM — the newest messages here are exactly what's on screen
+            // the instant the chat appears, while the oldest ones (index 0)
+            // may never even get scrolled to this session. entityToModel()
+            // below already precomputes each message's StaticLayout as a
+            // side effect (see its own doc), but it runs forward, so the
+            // off-screen-at-open oldest messages would get first claim on
+            // the warm cache while the actually-visible newest ones wait
+            // their turn — backwards priority for what the user sees first.
+            // Walking back-to-front here, purely for that precompute side
+            // effect, means the visible-on-open tail is warm before the
+            // off-screen head even starts. entityToModel()'s own precompute
+            // call is containsKey-guarded (see MessageBubbleCanvasView's
+            // cache doc), so re-running it in the forward pass below to
+            // build `models` costs a cheap cache-hit lookup for anything
+            // this pass already filled — never duplicated StaticLayout work.
+            //
+            // v49 ULTRA PERF: fan the VISIBLE_ON_OPEN_ESTIMATE tail out across
+            // ChatIoExecutor's full 6-thread pool instead of precomputing it
+            // sequentially on this one background thread. Those 6 threads sit
+            // mostly idle during the first few hundred ms of a cold chat open
+            // (this whole block, flushPendingRoomWrites, and the real Pager's
+            // own mapping are the only other tenants right now) — StaticLayout
+            // building for the handful of messages actually on screen is
+            // fully independent per-message work, so splitting it across
+            // threads shrinks the WALL-CLOCK time until the viewport is warm
+            // by roughly the pool's parallelism, not just the total CPU cost.
+            // Bounded to just the visible tail (not all INITIAL_LOAD=25) —
+            // fanning out every message would spam 20+ Runnables across a
+            // shared pool for zero extra benefit, since only the tail is
+            // racing the UI thread's first bind. sTextLayoutCache is a plain
+            // synchronized containsKey-guarded map (see its doc), so
+            // concurrent precompute calls from multiple threads are safe by
+            // construction — no new locking needed here.
+            final int visibleTail = Math.min(entities.size(), VISIBLE_ON_OPEN_ESTIMATE);
+            for (int i = entities.size() - 1; i >= entities.size() - visibleTail; i--) {
+                MessageEntity e = entities.get(i);
+                ioExecutor.execute(() -> entityToModel(e));
+            }
+            for (int i = entities.size() - visibleTail - 1; i >= 0; i--) {
+                entityToModel(entities.get(i));
+            }
+
             java.util.List<Message> models = new java.util.ArrayList<>(entities.size());
             for (MessageEntity e : entities) models.add(entityToModel(e));
             LastMessagesCache.getInstance().seed(chatId, models);

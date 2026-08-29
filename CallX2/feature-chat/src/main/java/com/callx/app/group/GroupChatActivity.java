@@ -313,6 +313,12 @@ public class GroupChatActivity extends AppCompatActivity
         super.onCreate(savedInstanceState);
         binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        // v47 PERF FIX: same cold-open seed as 1:1 ChatActivity — see
+        // MessageBubbleCanvasView.seedMaxTextWidthEstimate()'s doc. The
+        // background-precompute width cache is a process-wide static, so
+        // whichever chat screen (1:1 or group) opens first this session is
+        // the one that needs to seed it before its own Pager pipeline starts.
+        com.callx.app.conversation.canvas.MessageBubbleCanvasView.seedMaxTextWidthEstimate(this);
         // PERF: same overdraw fix as 1:1 ChatActivity — this screen reuses
         // activity_chat.xml, whose root already has an opaque background,
         // so the theme's windowBackground underneath is dead weight drawn

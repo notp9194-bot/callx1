@@ -41,6 +41,22 @@ import androidx.annotation.Nullable;
  */
 public final class StoryRingGradientDrawable extends Drawable {
 
+    // ── v42 PERF PASS: shared instance cache ──────────────────────────────
+    // withStrokeDp() used to be `new StoryRingGradientDrawable(...)` on
+    // EVERY call — e.g. ReelCommentsAdapter.onBindViewHolder() calls it for
+    // every row with an unseen story, so fast comment-sheet scrolling was
+    // allocating a fresh Drawable + 2 fresh Paint objects per bind, purely
+    // to redraw a ring whose underlying bitmap (see StoryRingBitmapCache)
+    // was ALREADY cached and reused. Cache the wrapper Drawable itself, keyed
+    // by stroke width in px — safe because every caller of a given stroke
+    // width always sizes its ImageView identically (the ring's on-screen
+    // size is a fixed dp constant per screen, e.g. comments/chat-list avatar
+    // rings), so onBoundsChange() below always receives the same w/h for a
+    // shared instance. This mirrors the same sharing assumption the bitmap
+    // cache already relies on.
+    private static final java.util.concurrent.ConcurrentHashMap<Float, StoryRingGradientDrawable>
+            SHARED = new java.util.concurrent.ConcurrentHashMap<>();
+
     // Only used as an instant fallback color before the bitmap is ready.
     private final Paint fallbackPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     // Paint used purely for the bitmap blit (carries alpha/colorFilter).
@@ -56,9 +72,14 @@ public final class StoryRingGradientDrawable extends Drawable {
         fallbackPaint.setColor(0xFFFF1493); // fallback before bounds/bitmap are ready (pink/magenta — ring start color)
     }
 
-    /** Convenience factory: pass a dp value + the view's display density. */
+    /**
+     * Convenience factory: pass a dp value + the view's display density.
+     * Returns a SHARED instance for this exact stroke width — does not
+     * allocate on repeat calls (see v42 PERF PASS above).
+     */
     public static StoryRingGradientDrawable withStrokeDp(float strokeWidthDp, float density) {
-        return new StoryRingGradientDrawable(strokeWidthDp * density);
+        float strokePx = strokeWidthDp * density;
+        return SHARED.computeIfAbsent(strokePx, StoryRingGradientDrawable::new);
     }
 
     @Override

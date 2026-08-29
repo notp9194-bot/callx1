@@ -2680,7 +2680,31 @@ public class HomeFragment extends Fragment {
                                             cachedRankingProfile = profile;
                                             List<ReelModel> ranked =
                                                     FeedRankingEngine.buildRankedFeed(posts, profile);
-                                            renderFeedPosts(ranked, uid, followedUids);
+
+                                            // Server-side pass (index.js: POST /reels/rank) —
+                                            // reads the PERMANENT seen record
+                                            // (reelWatchHistory/{uid}) plus live engagement
+                                            // counts and returns a seen-aware reorder. This
+                                            // runs AFTER FeedRankingEngine, as a second opinion
+                                            // using server-durable data, not a replacement for
+                                            // it. Any network failure/timeout falls back to
+                                            // FeedRankingEngine's order unchanged — ranking
+                                            // never blocks or breaks on this call.
+                                            List<String> candidateIds = new ArrayList<>();
+                                            for (ReelModel r : ranked) candidateIds.add(r.reelId);
+                                            ReelFeedRankingClient.rank(uid, candidateIds,
+                                                new ReelFeedRankingClient.RankCallback() {
+                                                    @Override public void onRanked(List<String> serverOrder) {
+                                                        if (!isAdded() || getContext() == null) return;
+                                                        renderFeedPosts(
+                                                            applyServerOrder(ranked, serverOrder),
+                                                            uid, followedUids);
+                                                    }
+                                                    @Override public void onFailed() {
+                                                        if (!isAdded() || getContext() == null) return;
+                                                        renderFeedPosts(ranked, uid, followedUids);
+                                                    }
+                                                });
                                         });
                                     }
                                     @Override public void onCancelled(@NonNull DatabaseError e) {
@@ -2717,6 +2741,29 @@ public class HomeFragment extends Fragment {
     /** Tracks the newest/oldest timestamp seen so far so pagination
      *  (older posts) and the real-time listener (newer posts) both know
      *  where the currently-rendered window starts and ends. */
+    /**
+     * Reorders {@code clientRanked} (FeedRankingEngine's output) to follow
+     * {@code serverOrder} (reelIds from POST /reels/rank), preserving every
+     * ReelModel object — only the ORDER changes, no data is refetched.
+     * Any reelId the server didn't return (e.g. it errored on one lookup)
+     * keeps its original relative position by being appended at the end.
+     */
+    private List<ReelModel> applyServerOrder(List<ReelModel> clientRanked, List<String> serverOrder) {
+        Map<String, ReelModel> byId = new HashMap<>();
+        for (ReelModel r : clientRanked) if (r.reelId != null) byId.put(r.reelId, r);
+
+        List<ReelModel> result = new ArrayList<>(clientRanked.size());
+        Set<String> used = new HashSet<>();
+        for (String id : serverOrder) {
+            ReelModel r = byId.get(id);
+            if (r != null && used.add(id)) result.add(r);
+        }
+        for (ReelModel r : clientRanked) {
+            if (r.reelId == null || !used.contains(r.reelId)) result.add(r);
+        }
+        return result;
+    }
+
     private void updateFeedTimestampBounds(List<ReelModel> posts) {
         for (ReelModel r : posts) {
             if (oldestFeedTimestamp == null || r.timestamp < oldestFeedTimestamp) oldestFeedTimestamp = r.timestamp;

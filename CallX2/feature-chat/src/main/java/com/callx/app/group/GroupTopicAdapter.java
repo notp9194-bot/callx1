@@ -30,6 +30,12 @@ public class GroupTopicAdapter extends ListAdapter<GroupTopic, GroupTopicAdapter
     private final Listener listener;
     private final String currentUid;
 
+    // PERF: cached, shared across all bound holders — was `new SimpleDateFormat(...)`
+    // built fresh on every single onBindViewHolder() via formatTime() below.
+    private static final SimpleDateFormat TIME_FMT   = new SimpleDateFormat("h:mm a", Locale.getDefault());
+    private static final SimpleDateFormat WEEKDAY_FMT = new SimpleDateFormat("EEE", Locale.getDefault());
+    private static final SimpleDateFormat SHORT_DATE_FMT = new SimpleDateFormat("dd/MM/yy", Locale.getDefault());
+
     public GroupTopicAdapter(Listener listener, String currentUid) {
         super(DIFF);
         this.listener = listener;
@@ -111,11 +117,11 @@ public class GroupTopicAdapter extends ListAdapter<GroupTopic, GroupTopicAdapter
             long now = System.currentTimeMillis();
             long diff = now - ms;
             if (diff < 86400_000L) {
-                return new SimpleDateFormat("h:mm a", Locale.getDefault()).format(new Date(ms));
+                return TIME_FMT.format(new Date(ms));
             } else if (diff < 7 * 86400_000L) {
-                return new SimpleDateFormat("EEE", Locale.getDefault()).format(new Date(ms));
+                return WEEKDAY_FMT.format(new Date(ms));
             } else {
-                return new SimpleDateFormat("dd/MM/yy", Locale.getDefault()).format(new Date(ms));
+                return SHORT_DATE_FMT.format(new Date(ms));
             }
         }
     }

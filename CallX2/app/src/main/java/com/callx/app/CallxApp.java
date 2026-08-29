@@ -67,6 +67,20 @@ public class CallxApp extends Application {
     public void onCreate() {
         super.onCreate();
 
+        // v48 ULTRA PERF: earliest possible seed for MessageBubbleCanvasView's
+        // background text-layout precompute cache — see
+        // seedMaxTextWidthEstimate()'s doc in that class for the full
+        // "cold-open list building" root cause. Process-level Application
+        // context is available here before ANY Activity, so this covers not
+        // just "first chat opened this session" but also any speculative
+        // background work (chat-list prefetch, notification quick-reply
+        // preview, etc.) that might map message entities — and therefore
+        // trigger the precompute path — before ChatActivity/GroupChatActivity
+        // ever reach onCreate(). Their own seed calls remain in place as a
+        // no-op-if-already-set safety net for the (rare) case a process is
+        // resumed from a state where this line never ran.
+        com.callx.app.conversation.canvas.MessageBubbleCanvasView.seedMaxTextWidthEstimate(this);
+
         // "Just watched" reels-grid overlay is scoped to the CURRENT app
         // session (see AppSessionTracker + UserReelsActivity#loadWatchedReelIds
         // in feature-reels) — touching it here, first thing, forces its

@@ -40,6 +40,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import com.callx.app.conversation.ChatActivity;
 import com.callx.app.utils.AppBgExecutor;
 import com.callx.app.utils.UiCriticalReadExecutor;
+import com.callx.app.utils.AppThermalManager;
 
 /**
  * ChatsFragment v21 — Delete / Delete-All System
@@ -684,6 +685,13 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
      */
     private void preloadAvatarsForPage(Context appCtx, List<User> page) {
         if (page.isEmpty()) return;
+        // Thermal guard: this fires a Glide request per row in the page —
+        // fine normally, but on a hot/low-battery device it's exactly the
+        // kind of non-essential background decode work Reels already skips
+        // (see AppThermalManager / ReelThermalManager). Real bind-time
+        // loading in onBindViewHolderTimed() still happens either way —
+        // this only skips the AHEAD-of-time warming.
+        if (!AppThermalManager.get(appCtx).canBackgroundPreload()) return;
         int px = ChatListAdapter.getAvatarSizePx(appCtx);
         for (User u : page) {
             String url = ChatListAdapter.resolveListAvatarUrl(u);
@@ -782,6 +790,10 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
      */
     private void preloadAvatarsInRange(int start, int end) {
         if (getContext() == null) return;
+        // Same thermal guard as preloadAvatarsForPage() — this one fires
+        // repeatedly DURING fast scroll (range shifts every scroll event),
+        // so it's actually the hotter of the two paths on a warm device.
+        if (!AppThermalManager.get(requireContext()).canBackgroundPreload()) return;
         int size = ChatListAdapter.getAvatarSizePx(requireContext());
         com.bumptech.glide.RequestManager glide =
                 Glide.with(requireContext().getApplicationContext());

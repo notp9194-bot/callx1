@@ -910,6 +910,11 @@ public class MessagePagingAdapter
     // the displayed text is byte-identical to before this change.
     private final SimpleDateFormat viewOnceTimeFmt =
             new SimpleDateFormat("h:mm a", Locale.getDefault());
+    // PERF: cached formatter for the "different year" date-label branch —
+    // was `new SimpleDateFormat("d MMM yyyy", ...)` built fresh every single
+    // bind for any message not from today/yesterday/this-year.
+    private final SimpleDateFormat dateLabelOtherYearFmt =
+            new SimpleDateFormat("d MMM yyyy", Locale.getDefault());
     private final android.util.LongSparseArray<String> viewOnceTimeCache =
             new android.util.LongSparseArray<>(64);
     private final java.util.Date reuseDateViewOnce = new java.util.Date();
@@ -2288,7 +2293,7 @@ public class MessagePagingAdapter
         } else {
             boolean sameYear = msgCal.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR);
             reuseDate.setTime(timestamp);
-            label = (sameYear ? dateLabelFmt : new java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault()))
+            label = (sameYear ? dateLabelFmt : dateLabelOtherYearFmt)
                     .format(reuseDate);
         }
         // Don't cache "Today" / "Yesterday" — they become stale at midnight.
@@ -5609,30 +5614,33 @@ public class MessagePagingAdapter
                 int footerReservePx = computeFooterReservePx(h, m, isSentMsg, footerTimeStr);
                 CharSequence displaySpanned = appendFooterReserve(spanned, footerReservePx);
 
-                // Set message text directly. (An earlier "precompute"
-                // path here called TextViewCompat.setTextFuture(), which
-                // does not exist on TextViewCompat and never compiled as
-                // written — removed. See v45-4 bug-fix note above: a single
-                // plain setText() call is the only thing that should ever
-                // set tv_message's content, so there is only ever ONE
-                // measurement of it.)
-                h.tvMessage.setText(displaySpanned);
-                h.textBindToken++;
-
                 // ── @mention blue highlight + search yellow highlight ─────────
-                // Applied AFTER the single setText() so the underlying linkified
-                // spans are already in place. We read the TextView's current text
-                // into a SpannableStringBuilder (preserving link spans), append
-                // our extra spans on top, then do one final setText(). This is
-                // safe because we only reach this branch for text/emoji messages
-                // whose content was just set a line above — no stale state risk.
+                // v46 PERF (WhatsApp/Telegram-style single-pass bind): this used
+                // to run AFTER setText(), wrapping the just-set text in a fresh
+                // SpannableStringBuilder and calling setText() a SECOND time —
+                // i.e. every message containing "@" (the common case in any
+                // group chat with @mentions) paid for TWO TextView measure/
+                // layout passes per bind, on top of the extra
+                // SpannableStringBuilder(CharSequence) copy allocation.
+                // appendFooterReserve() above already hands back a freshly
+                // built SpannableStringBuilder (never the shared
+                // linkifiedTextCache entry), so it's safe to set these spans
+                // directly onto `displaySpanned` — same object, no extra copy —
+                // and let the single setText() below do the only layout pass.
+                // Index math is unaffected: appendFooterReserve only appends
+                // characters after `txt`, so offsets found in `txt` are still
+                // valid positions in `displaySpanned`.
                 boolean hasMention = txt.contains("@");
-                boolean hasSearch  = activeSearchQuery != null && !activeSearchQuery.isEmpty()
-                                     && txt.toLowerCase(java.util.Locale.getDefault())
-                                            .contains(activeSearchQuery.toLowerCase(java.util.Locale.getDefault()));
-                if (hasMention || hasSearch) {
-                    android.text.SpannableStringBuilder overlay =
-                            new android.text.SpannableStringBuilder(h.tvMessage.getText());
+                String searchQ = activeSearchQuery;
+                boolean searchActive = searchQ != null && !searchQ.isEmpty();
+                // Lowercase each string at most once (was lowercased twice
+                // before: once to test "does this match at all", again to
+                // walk the match offsets) and reuse the result below.
+                String lt = searchActive ? txt.toLowerCase(java.util.Locale.getDefault()) : null;
+                String lq = searchActive ? searchQ.toLowerCase(java.util.Locale.getDefault()) : null;
+                boolean hasSearch = searchActive && lt.contains(lq);
+                if ((hasMention || hasSearch) && displaySpanned instanceof android.text.Spannable) {
+                    android.text.Spannable overlay = (android.text.Spannable) displaySpanned;
                     // @mention — blue foreground
                     if (hasMention) {
                         java.util.regex.Matcher mm = MENTION_PATTERN.matcher(txt);
@@ -5648,8 +5656,6 @@ public class MessagePagingAdapter
                     }
                     // Search — yellow background
                     if (hasSearch) {
-                        String lq = activeSearchQuery.toLowerCase(java.util.Locale.getDefault());
-                        String lt = txt.toLowerCase(java.util.Locale.getDefault());
                         int si = 0;
                         while ((si = lt.indexOf(lq, si)) != -1) {
                             int se = si + lq.length();
@@ -5662,9 +5668,18 @@ public class MessagePagingAdapter
                             si = se;
                         }
                     }
-                    h.tvMessage.setText(overlay);
                 }
                 // ── end mention/search overlay ─────────────────────────────────
+
+                // Set message text directly — the ONE setText()/measure pass
+                // for tv_message, now inclusive of any mention/search spans
+                // applied above. (An earlier "precompute" path here called
+                // TextViewCompat.setTextFuture(), which does not exist on
+                // TextViewCompat and never compiled as written — removed. See
+                // v45-4 bug-fix note above: a single plain setText() call is
+                // the only thing that should ever set tv_message's content.)
+                h.tvMessage.setText(displaySpanned);
+                h.textBindToken++;
 
                 // ── Link preview (ViewStub lazy inflate) ─────────────────────
                 // BUG FIX (cold-open big bubble / "shrinks on selection"):
