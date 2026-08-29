@@ -307,8 +307,8 @@
     </LinearLayout>
 
     <!-- Right action bar: Avatar · Like · Comment · Share · More
-         paddingBottom is set in code to bottomNavHeight + navBarHeight so actions
-         stay above the bottom navigation bar on edge-to-edge screens.
+         paddingBottom is set in code from the stable navigation-bar inset so
+         actions keep one bottom anchor across playback chrome transitions.
     -->
     <!-- PERF: flattened from a nested vertical LinearLayout to a single-level
          ConstraintLayout (same pattern as the chat-bubble ConstraintLayout
@@ -317,7 +317,7 @@
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/right_actions"
         android:layout_width="68dp"
-        android:layout_height="wrap_content"
+         android:layout_height="wrap_content"
         android:layout_gravity="end|bottom"
         android:paddingBottom="8dp"
         android:paddingEnd="8dp"
@@ -815,11 +815,11 @@
             app:layout_constraintTop_toBottomOf="@id/layout_reel_mutual_followers"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent">
-            <LinearLayout
+             <com.callx.app.views.ReelChipRowLayout
                 android:id="@+id/container_hashtags"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"/>
+                 android:orientation="horizontal"/>
         </HorizontalScrollView>
 
         <!-- Animated Music Ticker -->

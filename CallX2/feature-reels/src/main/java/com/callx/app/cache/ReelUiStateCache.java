@@ -40,16 +40,34 @@ public final class ReelUiStateCache {
         public final String sharesText;
         public final String repostText;
         public final String captionText;
+        /** Ready-to-bind hashtag strings; built before the reel reaches the swipe frame. */
+        public final String[] hashtagLabels;
+        /** Raw hashtag values used as click payloads without substring allocations. */
+        public final String[] hashtagTags;
+        public final String duetLabel;
+        public final String stitchLabel;
 
         State(String likesText, String commentsText, String sharesText,
-              String repostText, String captionText) {
+              String repostText, String captionText, String[] hashtagLabels,
+              String[] hashtagTags, String duetLabel, String stitchLabel) {
             this.likesText = likesText;
             this.commentsText = commentsText;
             this.sharesText = sharesText;
             this.repostText = repostText;
             this.captionText = captionText;
+            this.hashtagLabels = hashtagLabels;
+            this.hashtagTags = hashtagTags;
+            this.duetLabel = duetLabel;
+            this.stitchLabel = stitchLabel;
         }
     }
+
+    /**
+     * Match ReelModel's existing rendering limit. Keeping this value aligned
+     * preserves every currently visible hashtag and click target while the
+     * row's views/layout params are reused.
+     */
+    public static final int MAX_VISIBLE_HASHTAG_CHIPS = 30;
 
     /** Bound on entry count. The comment above (kept for history) argued this
      *  didn't need an LRU because the prewarm window is "a handful at a
@@ -97,7 +115,37 @@ public final class ReelUiStateCache {
             captionText = "\uD83D\uDD00 Duet \u00B7 " + captionText;
         }
 
-        State state = new State(likes, comments, shares, repost, captionText);
+        java.util.List<String> sourceTags = reel.hashtags;
+        if (sourceTags == null || sourceTags.isEmpty()) {
+            sourceTags = ReelModel.extractHashtags(reel.caption);
+        }
+        int visibleTagCount = Math.min(MAX_VISIBLE_HASHTAG_CHIPS, sourceTags.size());
+        String[] hashtagLabels = new String[visibleTagCount];
+        String[] hashtagTags = new String[visibleTagCount];
+        int tagIndex = 0;
+        for (int i = 0; i < sourceTags.size() && tagIndex < visibleTagCount; i++) {
+            String tag = sourceTags.get(i);
+            if (tag == null || tag.isEmpty()) continue;
+            hashtagTags[tagIndex] = tag;
+            hashtagLabels[tagIndex] = "#" + tag;
+            tagIndex++;
+        }
+        if (tagIndex != visibleTagCount) {
+            hashtagLabels = java.util.Arrays.copyOf(hashtagLabels, tagIndex);
+            hashtagTags = java.util.Arrays.copyOf(hashtagTags, tagIndex);
+        }
+
+        String duetLabel = reel.duetCount > 0
+            ? "\uD83D\uDD00 " + formatCount(reel.duetCount) + " Duet"
+                + (reel.duetCount == 1 ? "" : "s") + "  \u203A"
+            : null;
+        String stitchLabel = reel.stitchCount > 0
+            ? "\u2702\uFE0F " + formatCount(reel.stitchCount) + " Stitch"
+                + (reel.stitchCount == 1 ? "" : "es") + "  \u203A"
+            : null;
+
+        State state = new State(likes, comments, shares, repost, captionText,
+            hashtagLabels, hashtagTags, duetLabel, stitchLabel);
         if (reel.reelId != null) {
             synchronized (lock) {
                 cache.put(reel.reelId, state);
