@@ -304,7 +304,14 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private LinearLayout layoutCreator;
     private ImageView    ivCreatorAvatar;
     private TextView     tvCreatorName;
+    private TextView     tvCreatorFollowers;
     private android.widget.Button btnFollowCreator;
+    // Play-button gradient ring + faded cover-photo glow behind it
+    // (screenshot-matching vibrant ring). Ring itself is a shared
+    // StoryRingGradientDrawable — same pink→red→orange→yellow sweep used
+    // app-wide for story rings — set once in bindViews(), never reallocated.
+    private View         viewPlayRing;
+    private ImageView    ivPlayRingPhoto;
     private SwipeAwareFrameLayout layoutMiniPlayer;
     private ImageView    ivMiniCover;
     private TextView     tvMiniTitle;
@@ -806,7 +813,11 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         layoutCreator     = binding.layoutSoundCreator;
         ivCreatorAvatar   = binding.ivCreatorAvatar;
         tvCreatorName     = binding.tvCreatorName;
+        tvCreatorFollowers = binding.tvCreatorFollowers;
         btnFollowCreator  = binding.btnFollowCreator;
+        viewPlayRing      = binding.viewPlayRing;
+        ivPlayRingPhoto   = binding.ivPlayRingPhoto;
+        setupPlayRingGradient();
         layoutMiniPlayer  = binding.layoutMiniPlayer;
         ivMiniCover       = binding.ivMiniCover;
         tvMiniTitle       = binding.tvMiniTitle;
@@ -1019,6 +1030,20 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         return Math.round(48 * getResources().getDisplayMetrics().density);
     }
 
+    /**
+     * Applies the shared brand gradient ring (same SweepGradient every story
+     * ring in the app uses) as the play button's ring background. Called
+     * once from bindViews() — the underlying drawable/bitmap is cached by
+     * size+stroke via StoryRingGradientDrawable/StoryRingShaderCache, so
+     * this is a cheap lookup, not a fresh allocation.
+     */
+    private void setupPlayRingGradient() {
+        if (viewPlayRing == null || isGone()) return;
+        float density = getResources().getDisplayMetrics().density;
+        viewPlayRing.setBackground(
+            com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3.5f, density));
+    }
+
     private void loadCoverImage(String url) {
         if (ivSoundCover == null || isGone()) return;
         // Rounded-square crop now that the cover is a larger, static
@@ -1043,10 +1068,32 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             Glide.with(requireContext()).load(url)
                 .transform(new CenterCrop(), new RoundedCorners(radiusPx))
                 .placeholder(R.drawable.ic_music_note)
-                .override(360, 432) // matches the 99:119 view aspect ratio
+                .override(360, 495) // matches the 99:136 view aspect ratio
                 .into(ivSoundCover);
         } else {
             ivSoundCover.setImageResource(R.drawable.ic_music_note);
+        }
+        loadPlayRingPhoto(url);
+    }
+
+    /**
+     * Faded, low-res copy of the same cover art behind the play button's
+     * gradient ring (screenshot's glow-with-photo-behind-it look).
+     * Downsampled hard (32x32) and let the 76dp ImageView upscale it — a
+     * cheap stand-in for a real Gaussian blur that needs no extra library
+     * or API-31 RenderEffect, since the low alpha + heavy upscale already
+     * reads as a soft glow rather than a sharp thumbnail.
+     */
+    private void loadPlayRingPhoto(String url) {
+        if (ivPlayRingPhoto == null || isGone()) return;
+        if (url != null && !url.isEmpty()) {
+            Glide.with(requireContext()).load(url)
+                .transform(new CircleCrop())
+                .override(32, 32)
+                .placeholder((android.graphics.drawable.Drawable) null)
+                .into(ivPlayRingPhoto);
+        } else {
+            ivPlayRingPhoto.setImageDrawable(null);
         }
     }
 
@@ -1919,6 +1966,31 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         // boxed card (bg_sound_detail_box), so no separate hairline needed.
         layoutCreator.setOnClickListener(v -> openUserProfile(uid, name, photo));
         bindFollowCreatorBtn(uid);
+        loadCreatorFollowerCount(uid);
+    }
+
+    /**
+     * One-time read (not through SoundDetailCache — follower counts drift
+     * often enough that a short-lived per-open read is simpler than adding
+     * another TTL'd cache entry for a single line of text) of the creator's
+     * follower count for the "@username · N followers" line under their
+     * name, same users/{uid}/followersCount path FollowingListActivity reads.
+     */
+    private void loadCreatorFollowerCount(String uid) {
+        if (tvCreatorFollowers == null || uid == null || uid.isEmpty()) return;
+        FirebaseUtils.getUserRef(uid).child("followersCount")
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (isGone() || tvCreatorFollowers == null) return;
+                    Long count = snap.getValue(Long.class);
+                    long c = count != null ? count : 0L;
+                    tvCreatorFollowers.setText(formatCount(c) + " followers");
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    if (isGone() || tvCreatorFollowers == null) return;
+                    tvCreatorFollowers.setText("0 followers");
+                }
+            });
     }
 
     /**

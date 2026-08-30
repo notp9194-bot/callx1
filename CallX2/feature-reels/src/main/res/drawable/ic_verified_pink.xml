@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    ic_verified_pink.xml — screenshot-matching verified badge (UI only, no
+    verification logic attached).
+
+    Reuses ic_verified's scalloped rosette path data, but unlike ic_verified
+    (single #FFFFFFFF fill meant to be tinted via android:tint, which paints
+    the checkmark the exact same color as the badge and makes it disappear)
+    this bakes BOTH colors directly into the vector: pink/magenta rosette
+    (#FF1493 — same pink used by the story-ring gradient's 0% stop) with a
+    white checkmark stroke on top, so it always renders as a two-tone badge
+    regardless of any tint callers might apply elsewhere.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF1493"
+        android:pathData="M12,1l2.09,2.26l3.02,-0.65l0.6,3.03l3.03,0.6l-0.65,3.02L22,12l-2.26,2.09l0.65,3.02l-3.03,0.6l-0.6,3.03l-3.02,-0.65L12,22l-2.09,-2.26l-3.02,0.65l-0.6,-3.03l-3.03,-0.6l0.65,-3.02L1,12l2.26,-2.09l-0.65,-3.02l3.03,-0.6l0.6,-3.03l3.02,0.65z"/>
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M8.5,12.5l2.5,2.5l4.5,-5"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.1"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+</vector>

@@ -190,9 +190,9 @@
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:orientation="horizontal" android:gravity="center_vertical">
 
-                    <FrameLayout android:layout_width="99dp" android:layout_height="119dp">
+                    <FrameLayout android:layout_width="99dp" android:layout_height="136dp">
                         <ImageView android:id="@+id/iv_sound_cover"
-                            android:layout_width="99dp" android:layout_height="119dp"
+                            android:layout_width="99dp" android:layout_height="136dp"
                             android:layout_gravity="center"
                             android:scaleType="centerCrop"
                             android:src="@drawable/ic_music_note"/>
@@ -208,7 +208,7 @@
                              its rotation) is gone in favor of a plain,
                              larger static thumbnail (screenshot-style). -->
                         <ImageView android:id="@+id/iv_disc_ring"
-                            android:layout_width="99dp" android:layout_height="119dp"
+                            android:layout_width="99dp" android:layout_height="136dp"
                             android:layout_gravity="center"
                             android:src="@drawable/ic_music_disc"
                             android:tint="@color/sound_detail_button_light"
@@ -220,12 +220,23 @@
                         android:layout_weight="1" android:orientation="vertical"
                         android:layout_marginStart="16dp">
 
-                        <TextView android:id="@+id/tv_sound_title"
-                            android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Sound Title"
-                            android:textColor="@color/sound_detail_text_light"
-                            android:textSize="16sp" android:fontFamily="sans-serif-medium"
-                            android:maxLines="2" android:ellipsize="end"/>
+                        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:orientation="horizontal" android:gravity="center_vertical">
+                            <TextView android:id="@+id/tv_sound_title"
+                                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="Sound Title"
+                                android:textColor="@color/sound_detail_text_light"
+                                android:textSize="20sp" android:fontFamily="sans-serif-bold"
+                                android:maxLines="2" android:ellipsize="end"/>
+                            <!-- Verified badge — UI only, always shown next to the
+                                 title (no real verification-status logic wired up),
+                                 matching the pink checkmark badge from the screenshot. -->
+                            <ImageView android:id="@+id/iv_sound_title_verified"
+                                android:layout_width="16dp" android:layout_height="16dp"
+                                android:layout_marginStart="4dp"
+                                android:src="@drawable/ic_verified_pink"
+                                android:contentDescription="Verified"/>
+                        </LinearLayout>
 
                         <TextView android:id="@+id/tv_sound_artist"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -292,11 +303,48 @@
                         </LinearLayout>
                     </LinearLayout>
 
-                    <ImageButton android:id="@+id/btn_sound_play_pause"
-                        android:layout_width="52dp" android:layout_height="52dp"
-                        android:src="@drawable/ic_play" android:tint="@color/brand_primary"
-                        android:background="@drawable/bg_play_pause_btn"
-                        android:padding="14dp" android:contentDescription="Play preview"/>
+                    <!-- Play/pause control — glow + gradient ring + faded cover
+                         photo bleeding through behind it, matching the
+                         screenshot's vibrant ring with the photo glowing
+                         behind it. Ring itself is set programmatically in
+                         SoundDetailFragment (shared StoryRingGradientDrawable,
+                         same pink→red→orange→yellow sweep used app-wide for
+                         story rings) so it never goes out of sync with the
+                         brand palette. -->
+                    <FrameLayout android:id="@+id/layout_play_ring_container"
+                        android:layout_width="76dp" android:layout_height="76dp"
+                        android:layout_gravity="center_vertical">
+
+                        <!-- Faded cover photo "glow" — same sound cover,
+                             downsampled by Glide for a cheap blur-like look,
+                             clipped to a circle, low alpha so it reads as a
+                             soft backdrop rather than a sharp thumbnail. -->
+                        <ImageView android:id="@+id/iv_play_ring_photo"
+                            android:layout_width="76dp" android:layout_height="76dp"
+                            android:layout_gravity="center"
+                            android:scaleType="centerCrop"
+                            android:alpha="0.5"
+                            android:contentDescription="@null"/>
+
+                        <!-- Colour bloom on top of the photo so the glow
+                             reads as vibrant ring-colour light, not just a
+                             dim photo. -->
+                        <View android:layout_width="76dp" android:layout_height="76dp"
+                            android:layout_gravity="center"
+                            android:background="@drawable/bg_play_ring_glow"/>
+
+                        <!-- Gradient ring itself — background set in code. -->
+                        <View android:id="@+id/view_play_ring"
+                            android:layout_width="60dp" android:layout_height="60dp"
+                            android:layout_gravity="center"/>
+
+                        <ImageButton android:id="@+id/btn_sound_play_pause"
+                            android:layout_width="52dp" android:layout_height="52dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_play" android:tint="@color/sound_detail_text_light"
+                            android:background="@android:color/transparent"
+                            android:padding="14dp" android:contentDescription="Play preview"/>
+                    </FrameLayout>
                 </LinearLayout>
 
                 <!-- Waveform + progress card — single rounded box using this
@@ -371,11 +419,29 @@
                             android:textColor="@color/sound_detail_subtext_light"
                             android:textSize="10sp" android:fontFamily="sans-serif-medium"
                             android:textAllCaps="true" android:letterSpacing="0.06"/>
-                        <TextView android:id="@+id/tv_creator_name"
+                        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:orientation="horizontal" android:gravity="center_vertical"
+                            android:layout_marginTop="1dp">
+                            <TextView android:id="@+id/tv_creator_name"
+                                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="@username"
+                                android:textColor="@color/sound_detail_text_light"
+                                android:textSize="15sp" android:fontFamily="sans-serif-bold"
+                                android:maxLines="1" android:ellipsize="end"/>
+                            <!-- Verified badge — UI only, always shown next to the
+                                 creator username (no real verification-status
+                                 logic wired up), matching the screenshot. -->
+                            <ImageView android:id="@+id/iv_creator_verified"
+                                android:layout_width="13dp" android:layout_height="13dp"
+                                android:layout_marginStart="3dp"
+                                android:src="@drawable/ic_verified_pink"
+                                android:contentDescription="Verified"/>
+                        </LinearLayout>
+                        <TextView android:id="@+id/tv_creator_followers"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="@username"
-                            android:textColor="@color/sound_detail_text_light"
-                            android:textSize="14sp" android:fontFamily="sans-serif-medium"
+                            android:text="0 followers"
+                            android:textColor="@color/sound_detail_subtext_light"
+                            android:textSize="12sp"
                             android:maxLines="1" android:ellipsize="end" android:layout_marginTop="1dp"/>
                     </LinearLayout>
                     <!-- Follow/Following pill button — reused from
