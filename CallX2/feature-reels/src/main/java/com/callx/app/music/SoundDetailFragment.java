@@ -157,7 +157,6 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private TextView     tvCurrentTime, tvTotalTime;
     private ShimmerFrameLayout shimmerLayout;
     private LinearLayout layoutCreator;
-    private View         dividerCreator;
     private ImageView    ivCreatorAvatar;
     private TextView     tvCreatorName;
     private android.widget.Button btnFollowCreator;
@@ -427,7 +426,6 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         shimmerLayout     = v.findViewById(R.id.shimmer_sound_detail);
         layoutReelsHeader = v.findViewById(R.id.layout_reels_header);
         layoutCreator     = v.findViewById(R.id.layout_sound_creator);
-        dividerCreator    = v.findViewById(R.id.divider_creator);
         ivCreatorAvatar   = v.findViewById(R.id.iv_creator_avatar);
         tvCreatorName     = v.findViewById(R.id.tv_creator_name);
         btnFollowCreator  = v.findViewById(R.id.btn_follow_creator);

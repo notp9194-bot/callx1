@@ -52,3 +52,9 @@ background use karta hai — light aur dark dono mode mein exact match.
 ## Files changed
 - `feature-reels/src/main/res/layout/fragment_sound_detail.xml`
 - `feature-reels/src/main/java/com/callx/app/music/SoundDetailFragment.java`
+
+## v293 hotfix
+v292 mein `divider_creator` View ko layout se hata diya tha lekin
+`SoundDetailFragment.java` mein uska `findViewById(R.id.divider_creator)` aur
+field declaration reh gaya tha — CI build compile error de raha tha
+(`cannot find symbol: variable divider_creator`). Dono lines hata di gayi hain.
