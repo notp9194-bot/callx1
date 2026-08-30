@@ -84,7 +84,7 @@ public class GlobalSavedMessagesActivity extends AppCompatActivity {
         // as ChatAvatarBinder/AvatarPrefetcher/FollowAvatarBinder.
         rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
             private long lastTimeMs = 0L;
-            @Override public void onScrolled(androidx.annotation.NonNull RecyclerView recyclerView, int dx, int dy) {
+            @Override public void onScrolled(@androidx.annotation.NonNull RecyclerView recyclerView, int dx, int dy) {
                 LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
                 if (lm == null) return;
                 int lastVisible = lm.findLastVisibleItemPosition();
