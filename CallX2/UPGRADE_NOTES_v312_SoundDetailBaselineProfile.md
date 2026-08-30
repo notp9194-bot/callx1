@@ -84,3 +84,28 @@ only ever depended on `Constants` (already in core) and the Firebase SDK
 (already a `:core` dependency via `FirebaseUtils`).
 
 Files touched: `core/src/main/java/com/callx/app/utils/ReelFirebaseUtils.java` (moved here), `feature-reels/src/main/java/com/callx/app/utils/ReelFirebaseUtils.java` (removed).
+
+---
+
+# Build fix — long→int lossy conversion in SoundDetailViewModel
+
+`:feature-reels:compileDebugJavaWithJavac` failed:
+```
+SoundDetailFragment.java:1212: error: incompatible types: possible lossy conversion from long to int
+    vm.reelCount  = snap.reelCount  != null ? snap.reelCount  : 0;
+SoundDetailFragment.java:1213: error: incompatible types: possible lossy conversion from long to int
+    vm.totalSaves = snap.totalSaves != null ? snap.totalSaves : 0;
+```
+`SoundDetailCache.SoundNodeEntry.reelCount`/`.totalSaves` are `Long` (read
+straight off Firebase's `reel_count`/`total_saves` nodes via
+`getValue(Long.class)`), but `SoundDetailViewModel.reelCount`/`.totalSaves`
+were declared `int` — an unboxed `Long` ternary narrows to `long`, and
+`long → int` needs an explicit cast Java won't do implicitly.
+
+**Fix:** changed both fields to `long` in `SoundDetailViewModel` (matching
+the source they're snapshotted from). No other change needed —
+`formatCount(long)` already took a `long` parameter, so both call sites in
+`restoreFromViewModel()` were already correct; only the field declaration
+was wrong.
+
+Files touched: `feature-reels/src/main/java/com/callx/app/music/SoundDetailViewModel.java`

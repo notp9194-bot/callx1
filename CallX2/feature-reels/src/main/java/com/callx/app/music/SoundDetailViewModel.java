@@ -50,7 +50,11 @@ public class SoundDetailViewModel extends ViewModel {
     public boolean fromMusicLibrary = false;
     public String  soundUrl, previewAudioUrl, coverUrl;
     public int     durationMs;
-    public int     reelCount, totalSaves;
+    // long, not int: mirrors SoundDetailCache.SoundNodeEntry's reelCount/
+    // totalSaves fields (Long, read straight off Firebase's reel_count/
+    // total_saves nodes) — an int here was the "possible lossy conversion
+    // from long to int" build break.
+    public long    reelCount, totalSaves;
     public Long    trendingRank;
     public boolean isTrending, isOriginal, isVerified;
 
