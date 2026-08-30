@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Soft glow behind the sound cover (replaces a hard-edge card shadow).
+    A gentle radial fade from a low-alpha brand tint to transparent —
+    sits centered behind the rounded cover, larger than it, so the cover
+    reads as "floating on a glow" instead of framed by a drop shadow.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <gradient
+        android:type="radial"
+        android:gradientRadius="60dp"
+        android:startColor="#3D5B5BF6"
+        android:centerColor="#1A5B5BF6"
+        android:endColor="#005B5BF6"/>
+</shape>

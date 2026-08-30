@@ -1,15 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    "Camera" / "Video" / "Add to profile" pill buttons — fill matches the
-    panel background (?attr/colorSurface), same as bg_sound_detail_box,
-    with an 8dp corner radius to match bg_sound_stat_chip's. A faint
-    stroke (sound_detail_box_border) stands in for the subtle drop-shadow
-    that separates each pill from the panel behind it, so all three
-    buttons in the row read as one consistent family.
--->
+<!-- "Camera" / "Video" / "Add to profile" pills — flat tinted fill, no
+     stroke, no shadow. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="?attr/colorSurface"/>
-    <stroke android:width="1dp" android:color="@color/sound_detail_box_border"/>
-    <corners android:radius="8dp"/>
+    <solid android:color="@color/sound_detail_box_tint"/>
+    <corners android:radius="10dp"/>
 </shape>

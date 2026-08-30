@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Thin, minimal seekbar — 3dp track (was the default ~4-5dp chunky
+     Material track), flat tinted background + brand-colored progress. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@android:id/background">
+        <shape android:shape="rectangle">
+            <corners android:radius="1.5dp"/>
+            <solid android:color="@color/sound_detail_box_tint"/>
+            <size android:height="3dp"/>
+        </shape>
+    </item>
+    <item android:id="@android:id/progress">
+        <clip>
+            <shape android:shape="rectangle">
+                <corners android:radius="1.5dp"/>
+                <solid android:color="@color/brand_primary"/>
+                <size android:height="3dp"/>
+            </shape>
+        </clip>
+    </item>
+</layer-list>

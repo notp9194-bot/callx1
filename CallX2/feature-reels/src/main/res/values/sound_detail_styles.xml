@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Cover corner rounding for the Sound Detail screen — a touch more
+         rounded than the app's usual card radius, paired with a soft glow
+         (bg_sound_cover_glow) instead of a hard-edge shadow. -->
+    <style name="ShapeAppearance.SoundDetail.Cover" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">18dp</item>
+    </style>
+</resources>

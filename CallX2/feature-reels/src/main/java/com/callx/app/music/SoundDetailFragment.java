@@ -306,12 +306,12 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private TextView     tvCreatorName;
     private TextView     tvCreatorFollowers;
     private android.widget.Button btnFollowCreator;
-    // Play-button gradient ring + faded cover-photo glow behind it
-    // (screenshot-matching vibrant ring). Ring itself is a shared
-    // StoryRingGradientDrawable — same pink→red→orange→yellow sweep used
-    // app-wide for story rings — set once in bindViews(), never reallocated.
+    // Play-button gradient ring (screenshot-matching vibrant ring). Ring
+    // itself is a shared StoryRingGradientDrawable — same pink→red→orange→
+    // yellow sweep used app-wide for story rings — set once in bindViews(),
+    // never reallocated.
     private View         viewPlayRing;
-    private ImageView    ivPlayRingPhoto;
+    private View         viewPlayRingGlow;
     private SwipeAwareFrameLayout layoutMiniPlayer;
     private ImageView    ivMiniCover;
     private TextView     tvMiniTitle;
@@ -816,7 +816,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         tvCreatorFollowers = binding.tvCreatorFollowers;
         btnFollowCreator  = binding.btnFollowCreator;
         viewPlayRing      = binding.viewPlayRing;
-        ivPlayRingPhoto   = binding.ivPlayRingPhoto;
+        viewPlayRingGlow  = binding.viewPlayRingGlow;
         setupPlayRingGradient();
         layoutMiniPlayer  = binding.layoutMiniPlayer;
         ivMiniCover       = binding.ivMiniCover;
@@ -1032,16 +1032,23 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
 
     /**
      * Applies the shared brand gradient ring (same SweepGradient every story
-     * ring in the app uses) as the play button's ring background. Called
-     * once from bindViews() — the underlying drawable/bitmap is cached by
-     * size+stroke via StoryRingGradientDrawable/StoryRingShaderCache, so
-     * this is a cheap lookup, not a fresh allocation.
+     * ring in the app uses) as the play button's ring background, plus the
+     * shared pre-rasterized glow bitmap behind it. Called once from
+     * bindViews() — both drawables are cached by size (+stroke for the
+     * ring), so this is a cheap lookup, not a fresh allocation, even across
+     * every related-sound hop that replaces this fragment instance.
      */
     private void setupPlayRingGradient() {
-        if (viewPlayRing == null || isGone()) return;
+        if (isGone()) return;
         float density = getResources().getDisplayMetrics().density;
-        viewPlayRing.setBackground(
-            com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3.5f, density));
+        if (viewPlayRing != null) {
+            viewPlayRing.setBackground(
+                com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3.5f, density));
+        }
+        if (viewPlayRingGlow != null) {
+            viewPlayRingGlow.setBackground(
+                com.callx.app.utils.PlayRingGlowDrawable.withSizeDp(76f, density));
+        }
     }
 
     private void loadCoverImage(String url) {
@@ -1072,28 +1079,6 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                 .into(ivSoundCover);
         } else {
             ivSoundCover.setImageResource(R.drawable.ic_music_note);
-        }
-        loadPlayRingPhoto(url);
-    }
-
-    /**
-     * Faded, low-res copy of the same cover art behind the play button's
-     * gradient ring (screenshot's glow-with-photo-behind-it look).
-     * Downsampled hard (32x32) and let the 76dp ImageView upscale it — a
-     * cheap stand-in for a real Gaussian blur that needs no extra library
-     * or API-31 RenderEffect, since the low alpha + heavy upscale already
-     * reads as a soft glow rather than a sharp thumbnail.
-     */
-    private void loadPlayRingPhoto(String url) {
-        if (ivPlayRingPhoto == null || isGone()) return;
-        if (url != null && !url.isEmpty()) {
-            Glide.with(requireContext()).load(url)
-                .transform(new CircleCrop())
-                .override(32, 32)
-                .placeholder((android.graphics.drawable.Drawable) null)
-                .into(ivPlayRingPhoto);
-        } else {
-            ivPlayRingPhoto.setImageDrawable(null);
         }
     }
 
@@ -1970,27 +1955,19 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     }
 
     /**
-     * One-time read (not through SoundDetailCache — follower counts drift
-     * often enough that a short-lived per-open read is simpler than adding
-     * another TTL'd cache entry for a single line of text) of the creator's
-     * follower count for the "@username · N followers" line under their
-     * name, same users/{uid}/followersCount path FollowingListActivity reads.
+     * PERF: routed through SoundDetailCache#getFollowerCount(), same
+     * short-TTL cache pattern as getCreatorProfile()/getFollowStatus() —
+     * a creator's follower count is now read from Firebase at most once per
+     * TTL window and reused across every sound of theirs opened this
+     * session (including related-sound hops, which replace this fragment
+     * instance entirely), instead of a fresh read on every bindCreatorRow().
      */
     private void loadCreatorFollowerCount(String uid) {
         if (tvCreatorFollowers == null || uid == null || uid.isEmpty()) return;
-        FirebaseUtils.getUserRef(uid).child("followersCount")
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (isGone() || tvCreatorFollowers == null) return;
-                    Long count = snap.getValue(Long.class);
-                    long c = count != null ? count : 0L;
-                    tvCreatorFollowers.setText(formatCount(c) + " followers");
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {
-                    if (isGone() || tvCreatorFollowers == null) return;
-                    tvCreatorFollowers.setText("0 followers");
-                }
-            });
+        SoundDetailCache.getInstance().getFollowerCount(uid, count -> {
+            if (isGone() || tvCreatorFollowers == null) return;
+            tvCreatorFollowers.setText(formatCount(count) + " followers");
+        });
     }
 
     /**
@@ -2037,16 +2014,18 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             if (following[0]) ref.setValue(true);
             else              ref.removeValue();
             styleFollowBtn(btnFollowCreator, following[0]);
+            bounceView(btnFollowCreator);
         });
     }
 
     /**
-     * Pill-shaped follow button styling — reused from
-     * FollowConnectionsActivity$UserListAdapter#styleBtn() (already reused
-     * in ReelLikesBottomSheet and ReelSharesBottomSheet): filled
-     * brand_primary for "Follow", outline colorSurfaceVariant for
-     * "Following ✓". A fresh GradientDrawable is built per call (not
-     * cached/shared) since this row's button width changes with the text.
+     * Pill-shaped follow button styling — premium redesign: outline by
+     * default ("Follow" — not yet actively followed), filled brand_primary
+     * only once actively followed ("Following ✓"), per the brief ("outline
+     * instead of solid fill, until actively pressed"). Previously the
+     * opposite (filled=Follow, outline=Following). A fresh GradientDrawable
+     * is built per call (not cached/shared) since this row's button width
+     * changes with the text.
      */
     private void styleFollowBtn(android.widget.Button btn, boolean isFollowing) {
         btn.setText(isFollowing ? "Following ✓" : "Follow");
@@ -2054,22 +2033,32 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
         bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
         bg.setCornerRadius(r);
+        int brand = getResources().getColor(R.color.brand_primary, null);
         if (isFollowing) {
-            bg.setColor(resolveAttrColor(com.google.android.material.R.attr.colorSurfaceVariant));
-            btn.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
-        } else {
-            bg.setColor(getResources().getColor(R.color.brand_primary, null));
+            bg.setColor(brand);
+            bg.setStroke(0, brand);
             btn.setTextColor(0xFFFFFFFF);
+        } else {
+            bg.setColor(android.graphics.Color.TRANSPARENT);
+            bg.setStroke((int) (1.5f * btn.getResources().getDisplayMetrics().density), brand);
+            btn.setTextColor(brand);
         }
         btn.setBackground(bg);
     }
 
-    /** Resolves a theme attribute (e.g. colorSurfaceVariant) to its current
-     *  color, so the outline "Following" state follows light/dark mode. */
-    private int resolveAttrColor(int attrResId) {
-        android.util.TypedValue tv = new android.util.TypedValue();
-        requireContext().getTheme().resolveAttribute(attrResId, tv, true);
-        return tv.data;
+    /**
+     * Subtle scale-bounce micro-animation — used on play/pause and the
+     * follow toggle so state changes feel like a deliberate tap rather than
+     * an instant flat swap, per the "micro-animations" brief.
+     */
+    private void bounceView(View v) {
+        if (v == null) return;
+        v.animate().cancel();
+        v.setScaleX(0.85f);
+        v.setScaleY(0.85f);
+        v.animate().scaleX(1f).scaleY(1f).setDuration(220)
+            .setInterpolator(new android.view.animation.OvershootInterpolator(3f))
+            .start();
     }
 
     private void openUserProfile(String uid, String name, String photo) {
@@ -2112,7 +2101,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         }
         if (btnFloatingSave     != null) btnFloatingSave.setOnClickListener(v -> toggleSave());
         if (btnFloatingUseAudio != null) btnFloatingUseAudio.setOnClickListener(v -> showUseAudioDialog());
-        if (btnPlayPause        != null) btnPlayPause.setOnClickListener(v -> togglePlayPause());
+        if (btnPlayPause        != null) btnPlayPause.setOnClickListener(v -> { bounceView(btnPlayPause); togglePlayPause(); });
 
         // ✅ FIX Bug 2: show "Full Audio / Trim Audio" dialog before opening camera
         if (btnUseSoundCamera != null) btnUseSoundCamera.setOnClickListener(v -> {
@@ -2496,6 +2485,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         try { uid = FirebaseUtils.getCurrentUid(); } catch (Exception ignored) {}
         if (uid == null || soundId.isEmpty()) return;
         isSaved = !isSaved; updateSaveButton();
+        bounceView(btnSaveSound);
         SoundDetailCache.getInstance().setSavedStatus(uid, soundId, isSaved); // write-through — instant, no waiting on TTL
         DatabaseReference ref = FirebaseUtils.getUserRef(uid).child("saved_sounds").child(soundId);
         if (isSaved) { ref.setValue(soundTitle); incrementSoundSaves(1); if (isAdded()) Toast.makeText(requireContext(), "Sound saved", Toast.LENGTH_SHORT).show(); }

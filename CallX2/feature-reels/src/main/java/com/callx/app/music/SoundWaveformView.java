@@ -46,8 +46,11 @@ public class SoundWaveformView extends View {
 
     private static final int BAR_COUNT = 36;
 
-    private static final int COLOR_IDLE    = 0x44FFFFFF;
-    private static final int COLOR_PLAYING = 0xFFFF3B5C;
+    // Premium refine: idle bars dimmer (0x44→0x30) and the playing color
+    // pulled back from a loud neon red to the app's own brand tone, so the
+    // waveform reads as a quiet, minimal accent instead of a bold highlight.
+    private static final int COLOR_IDLE    = 0x30FFFFFF;
+    private static final int COLOR_PLAYING = 0xFF5B5BF6;
 
     /**
      * PERF (ULTRA): per-bar animation constants, precomputed ONCE.
@@ -271,9 +274,13 @@ public class SoundWaveformView extends View {
 
         float dp = getResources().getDisplayMetrics().density;
         float slot = w / (float) BAR_COUNT;
-        float barWidth = Math.max(1f, slot * 0.4f); // ~4dp bar in a ~10dp slot, same proportions as the old 4dp bar / 3dp+3dp margin
+        // Premium refine: thinner bar-to-slot ratio (0.4→0.28) for a
+        // minimal look, and maxHPx brought down to actually fit inside
+        // this view's own height (was 38dp against a 26dp-tall container —
+        // bars were clipping) instead of just looking "less bold".
+        float barWidth = Math.max(1f, slot * 0.28f);
         float cornerRadius = barWidth / 2f;
-        float minHPx = 8 * dp, maxHPx = 38 * dp;
+        float minHPx = 6 * dp, maxHPx = 20 * dp;
         ensureTargetPxCached(dp, minHPx, maxHPx);
 
         boolean animateNow = playing && !forceStatic;
@@ -301,7 +308,11 @@ public class SoundWaveformView extends View {
                 // bar's target height instead of freezing mid-swing or going idle-dim.
                 barHPx = targetPxByIndex[i];
             } else {
-                barHPx = staticHeightDp[i] * dp;
+                // Clamp: staticHeightDp values (10..39dp, seeded in
+                // seedStatic()) predate the thinner maxHPx above and can
+                // exceed this view's own height — cap so idle bars never
+                // clip past the container.
+                barHPx = Math.min(staticHeightDp[i] * dp, maxHPx);
             }
 
             float cx  = slot * i + slot / 2f;

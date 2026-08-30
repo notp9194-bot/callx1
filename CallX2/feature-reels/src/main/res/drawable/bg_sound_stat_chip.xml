@@ -1,10 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- "Original" / "Trending" chips — same panel-matching fill + faint
-     shadow-edge stroke as bg_sound_detail_box / bg_sound_detail_action_btn,
-     so every box on this screen shares one consistent look. -->
+<!-- "Original" / "Trending" chips — flat tinted fill, no stroke/shadow,
+     matching bg_sound_detail_box's premium flat treatment. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="?attr/colorSurface"/>
-    <stroke android:width="1dp" android:color="@color/sound_detail_box_border"/>
-    <corners android:radius="8dp"/>
+    <solid android:color="@color/sound_detail_box_tint"/>
+    <corners android:radius="10dp"/>
 </shape>

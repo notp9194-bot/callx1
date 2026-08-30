@@ -331,6 +331,49 @@ public final class SoundDetailCache {
         followCache.put(followKey(myUid, targetUid), new Entry<>(following));
     }
 
+    // ── Creator follower count ───────────────────────────────────────────────
+    // PERF: SoundDetailFragment's "@username · N followers" line used to fire
+    // a fresh users/{uid}/followersCount read on every bindCreatorRow() call —
+    // i.e. every single sound-detail open, even for the same creator seen
+    // seconds earlier via a related-sound hop (which replaces the fragment
+    // instance, see class doc above). Same TTL as the creator profile itself:
+    // a follower count a few minutes stale is invisible, and it's shared
+    // across every sound by that creator this session, not just the current one.
+
+    private final Map<String, Entry<Long>> followerCountCache = new HashMap<>();
+    private final Map<String, List<LongCallback>> inFlightFollowerCount = new HashMap<>();
+
+    public interface LongCallback { void onReady(long value); }
+
+    public void getFollowerCount(@NonNull String uid, @NonNull LongCallback callback) {
+        Entry<Long> cached = followerCountCache.get(uid);
+        if (cached != null && cached.isFresh(CREATOR_PROFILE_TTL_MS)) { callback.onReady(cached.value); return; }
+
+        List<LongCallback> waiters = inFlightFollowerCount.get(uid);
+        if (waiters != null) { waiters.add(callback); return; }
+        waiters = new ArrayList<>();
+        waiters.add(callback);
+        inFlightFollowerCount.put(uid, waiters);
+
+        FirebaseUtils.getUserRef(uid).child("followersCount")
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    Long count = snap.getValue(Long.class);
+                    long value = count != null ? count : 0L;
+                    followerCountCache.put(uid, new Entry<>(value));
+                    List<LongCallback> pending = inFlightFollowerCount.remove(uid);
+                    if (pending != null) for (LongCallback cb : pending) cb.onReady(value);
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    inFlightFollowerCount.remove(uid);
+                    callback.onReady(0L); // don't cache a failed read — next bind should retry
+                }
+            });
+    }
+
+    /** Write-through — call after a follow/unfollow toggle changes the target's own count locally, if that ever gets tracked client-side. Not currently called (server-authoritative counter), kept for parity with the other write-through setters. */
+    public void invalidateFollowerCount(String uid) { followerCountCache.remove(uid); }
+
     // ── Pinned reel id ────────────────────────────────────────────────────────
 
     private final Map<String, Entry<String>> pinnedReelCache = new HashMap<>();
