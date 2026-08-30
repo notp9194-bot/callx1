@@ -419,12 +419,8 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         if (exoPlayer != null && !userSeeking) {
             long pos = exoPlayer.getCurrentPosition();
             long dur = exoPlayer.getDuration();
-            if (dur > 0) {
-                if (seekBar != null) seekBar.setProgress((int)(100L * pos / dur));
-                // Screenshot-match: keep the waveform's played/unplayed
-                // split point in sync with actual playback position.
-                if (waveformView != null) waveformView.setProgress(pos / (float) dur);
-            }
+            if (dur > 0 && seekBar != null)
+                seekBar.setProgress((int)(100L * pos / dur));
             if (tvCurrentTime != null) tvCurrentTime.setText(formatMs((int) pos));
         }
     }
@@ -890,9 +886,6 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                         long dur = exoPlayer.getDuration();
                         if (dur > 0) tvCurrentTime.setText(formatMs((int)(dur * p / 100L)));
                     }
-                    // Screenshot-match: while the user scrubs, move the
-                    // waveform's played/unplayed split with the thumb too.
-                    if (fromUser && waveformView != null) waveformView.setProgress(p / 100f);
                 }
                 @Override public void onStartTrackingTouch(SeekBar sb) { userSeeking = true; }
                 @Override public void onStopTrackingTouch(SeekBar sb) {
@@ -1986,22 +1979,15 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private void styleFollowBtn(android.widget.Button btn, boolean isFollowing) {
         btn.setText(isFollowing ? "Following ✓" : "Follow");
         float r = 16f * btn.getResources().getDisplayMetrics().density; // pill: half of 32dp height
-        float strokeW = 1.5f * btn.getResources().getDisplayMetrics().density;
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
         bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
         bg.setCornerRadius(r);
-        // Screenshot-match: thin outlined green pill for "Follow" (instead
-        // of a solid brand-purple fill) so it reads the same as the
-        // screenshot's Follow button next to the creator row.
-        int green = getResources().getColor(R.color.green_accent, null);
         if (isFollowing) {
-            bg.setColor(android.graphics.Color.TRANSPARENT);
-            bg.setStroke((int) strokeW, resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            bg.setColor(resolveAttrColor(com.google.android.material.R.attr.colorSurfaceVariant));
             btn.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
         } else {
-            bg.setColor(android.graphics.Color.TRANSPARENT);
-            bg.setStroke((int) strokeW, green);
-            btn.setTextColor(green);
+            bg.setColor(getResources().getColor(R.color.brand_primary, null));
+            btn.setTextColor(0xFFFFFFFF);
         }
         btn.setBackground(bg);
     }
@@ -2368,7 +2354,6 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         } else if (state == Player.STATE_ENDED) {
             pausePlayback();
             if (seekBar != null) seekBar.setProgress(0);
-            if (waveformView != null) waveformView.setProgress(0f);
             if (tvCurrentTime != null) tvCurrentTime.setText("0:00");
         }
     }
