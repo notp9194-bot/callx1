@@ -178,7 +178,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="@color/sound_detail_panel_bg"
+                android:background="?attr/colorSurface"
                 android:paddingHorizontal="20dp"
                 android:paddingTop="20dp"
                 android:paddingBottom="8dp"
@@ -303,42 +303,51 @@
                     android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:background="@drawable/bg_sound_detail_box"
-                    android:padding="14dp"
-                    android:layout_marginTop="16dp">
+                    android:padding="10dp"
+                    android:layout_marginTop="14dp">
 
-                    <!-- Seekbar + time -->
+                    <!-- Seekbar + time — box chota kiya gaya: seekbar/waveform
+                         height aur paddings ghatai gayi hain (28dp->20dp,
+                         40dp->26dp) taaki poora card compact dikhe. -->
                     <SeekBar android:id="@+id/seekbar_sound"
-                        android:layout_width="match_parent" android:layout_height="28dp"
+                        android:layout_width="match_parent" android:layout_height="20dp"
                         android:progressTint="@color/brand_primary"
                         android:thumbTint="@color/brand_primary"
                         android:progressBackgroundTint="@color/gray_light"
                         android:max="100"/>
                     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:orientation="horizontal" android:layout_marginTop="2dp">
+                        android:orientation="horizontal" android:layout_marginTop="1dp">
                         <TextView android:id="@+id/tv_sound_current_time"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="0:00" android:textColor="@color/sound_detail_subtext_light"
-                            android:textSize="11sp"/>
+                            android:textSize="10sp"/>
                         <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
                         <TextView android:id="@+id/tv_sound_total_time"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="0:00" android:textColor="@color/sound_detail_subtext_light"
-                            android:textSize="11sp"/>
+                            android:textSize="10sp"/>
                     </LinearLayout>
 
                     <!-- Waveform -->
                     <LinearLayout android:id="@+id/layout_sound_waveform"
-                        android:layout_width="match_parent" android:layout_height="40dp"
+                        android:layout_width="match_parent" android:layout_height="26dp"
                         android:orientation="horizontal" android:gravity="bottom|center_horizontal"
-                        android:layout_marginTop="12dp"/>
+                        android:layout_marginTop="8dp"/>
                 </LinearLayout>
 
-                <!-- Creator row -->
+                <!-- Creator row — now boxed, reusing the same
+                     bg_sound_detail_box drawable as the waveform card and
+                     the use-sound buttons below, so it reads as one
+                     consistent "box" style across the panel instead of a
+                     bare selectable row. Ripple kept via android:foreground
+                     since the background slot is now taken by the box. -->
                 <LinearLayout android:id="@+id/layout_sound_creator"
-                    android:layout_width="match_parent" android:layout_height="56dp"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:minHeight="56dp"
                     android:orientation="horizontal" android:gravity="center_vertical"
-                    android:background="?attr/selectableItemBackground"
-                    android:layout_marginTop="12dp" android:paddingHorizontal="2dp"
+                    android:background="@drawable/bg_sound_detail_box"
+                    android:foreground="?attr/selectableItemBackground"
+                    android:layout_marginTop="12dp" android:paddingHorizontal="12dp"
                     android:visibility="gone">
                     <ImageView android:id="@+id/iv_creator_avatar"
                         android:layout_width="38dp" android:layout_height="38dp"
@@ -383,25 +392,22 @@
                         android:tint="@color/text_secondary" android:scaleType="fitCenter"/>
                 </LinearLayout>
 
-                <View android:id="@+id/divider_creator"
-                    android:layout_width="match_parent" android:layout_height="1dp"
-                    android:background="@color/divider"
-                    android:layout_marginTop="4dp" android:layout_marginBottom="4dp"
-                    android:visibility="gone"/>
+                <!-- divider_creator removed — the creator row is now its own
+                     boxed card (see layout_sound_creator above), so a hairline
+                     divider right under it is redundant and was left over from
+                     when the row was a bare selectable list item. -->
 
-                <!-- Use sound buttons — icon+text wrapped as one centered group
-                     inside each button (same fix as btn_add_to_profile below):
-                     a plain TextView's drawableStart docks to the view's edge
-                     regardless of gravity="center" (Android quirk), which was
-                     pushing the camera/video icon to the far left instead of
-                     sitting next to the text. Height/text/icon sized to match
-                     UserReelsActivity's Follow/Message/Call row (30dp, thin
-                     Instagram-style pills) instead of the previous 44dp boxes. -->
+                <!-- Use in Camera / Use with Video / Add to profile — all
+                     three in ONE row now (previously 2 + a separate
+                     full-width row below). Same icon+text-wrapped-as-one-
+                     centered-group pattern for all three so the plus icon
+                     doesn't dock to the edge (Android drawableStart quirk).
+                     30dp height, equal weight, thin Instagram-style pills. -->
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:orientation="horizontal" android:layout_marginTop="16dp">
                     <FrameLayout android:id="@+id/btn_use_sound_camera"
                         android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1"
-                        android:background="@drawable/bg_sound_detail_box" android:layout_marginEnd="8dp">
+                        android:background="@drawable/bg_sound_detail_box" android:layout_marginEnd="6dp">
                         <LinearLayout
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:layout_gravity="center"
@@ -410,17 +416,17 @@
                                 android:layout_width="14dp" android:layout_height="14dp"
                                 android:src="@drawable/ic_camera"
                                 android:tint="@color/sound_detail_text_light"
-                                android:layout_marginEnd="5dp"/>
+                                android:layout_marginEnd="4dp"/>
                             <TextView
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="Use in Camera"
-                                android:textColor="@color/sound_detail_text_light" android:textSize="12sp"
+                                android:text="Camera"
+                                android:textColor="@color/sound_detail_text_light" android:textSize="11sp"
                                 android:fontFamily="sans-serif-medium"/>
                         </LinearLayout>
                     </FrameLayout>
                     <FrameLayout android:id="@+id/btn_use_sound_gallery"
                         android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1"
-                        android:background="@drawable/bg_sound_detail_box">
+                        android:background="@drawable/bg_sound_detail_box" android:layout_marginEnd="6dp">
                         <LinearLayout
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:layout_gravity="center"
@@ -429,43 +435,34 @@
                                 android:layout_width="14dp" android:layout_height="14dp"
                                 android:src="@drawable/ic_video"
                                 android:tint="@color/sound_detail_video_accent"
-                                android:layout_marginEnd="5dp"/>
+                                android:layout_marginEnd="4dp"/>
                             <TextView
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="Use with Video"
-                                android:textColor="@color/sound_detail_video_accent" android:textSize="12sp"
+                                android:text="Video"
+                                android:textColor="@color/sound_detail_video_accent" android:textSize="11sp"
+                                android:fontFamily="sans-serif-medium"/>
+                        </LinearLayout>
+                    </FrameLayout>
+                    <FrameLayout android:id="@+id/btn_add_to_profile"
+                        android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1"
+                        android:background="@drawable/bg_btn_follow_pill"
+                        android:visibility="gone">
+                        <LinearLayout
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:layout_gravity="center"
+                            android:orientation="horizontal" android:gravity="center_vertical">
+                            <ImageView
+                                android:layout_width="14dp" android:layout_height="14dp"
+                                android:src="@drawable/ic_add_reels"
+                                android:layout_marginEnd="4dp"/>
+                            <TextView android:id="@+id/tv_add_to_profile"
+                                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="Add"
+                                android:textColor="@color/white" android:textSize="11sp"
                                 android:fontFamily="sans-serif-medium"/>
                         </LinearLayout>
                     </FrameLayout>
                 </LinearLayout>
-
-                <!-- Add to profile — icon+text wrapped as one centered group
-                     inside the full-width pill. A plain TextView's
-                     drawableStart docks to the view's edge regardless of
-                     gravity="center" (Android quirk), which is what was
-                     pushing the plus icon to the far left; nesting icon+text
-                     in a wrap_content inner row centers them together.
-                     30dp height to match the same thin pill row as the two
-                     boxes above and UserReelsActivity's CTA row. -->
-                <FrameLayout android:id="@+id/btn_add_to_profile"
-                    android:layout_width="match_parent" android:layout_height="30dp"
-                    android:background="@drawable/bg_btn_follow_pill"
-                    android:layout_marginTop="10dp" android:visibility="gone">
-                    <LinearLayout
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:layout_gravity="center"
-                        android:orientation="horizontal" android:gravity="center_vertical">
-                        <ImageView
-                            android:layout_width="14dp" android:layout_height="14dp"
-                            android:src="@drawable/ic_add_reels"
-                            android:layout_marginEnd="5dp"/>
-                        <TextView android:id="@+id/tv_add_to_profile"
-                            android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Add to profile"
-                            android:textColor="@color/white" android:textSize="12sp"
-                            android:fontFamily="sans-serif-medium"/>
-                    </LinearLayout>
-                </FrameLayout>
 
             </LinearLayout>
 

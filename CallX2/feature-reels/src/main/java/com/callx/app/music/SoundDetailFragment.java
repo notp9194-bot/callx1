@@ -616,7 +616,9 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         // RoundedCorners() so Glide crops to the view's aspect ratio FIRST,
         // then rounds the corners of that already-cropped shape — and match
         // the override() size to the view's real aspect instead of a square.
-        int radiusPx = Math.round(28 * getResources().getDisplayMetrics().density);
+        // Corner radius dialed back down (28dp was too rounded per feedback,
+        // almost circular on the 99dp-wide cover) to a more subtle rounded-square.
+        int radiusPx = Math.round(16 * getResources().getDisplayMetrics().density);
         if (url != null && !url.isEmpty()) {
             Glide.with(requireContext()).load(url)
                 .transform(new CenterCrop(), new RoundedCorners(radiusPx))
@@ -827,6 +829,28 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                         }
                     }
                     if (tvReelCount != null) tvReelCount.setText("0 Reels");
+
+                    // ✅ FIX: creator/Follow row + follow button used to only
+                    // ever populate when opened as a bottom sheet from an
+                    // actual reel (creatorUid comes straight from reel.uid
+                    // there). Opened full-screen (SoundDetailActivity) from
+                    // MusicPicker/SoundSearch/TrendingAudio/etc, the track
+                    // lives under musicLibrary/ (not sounds/), so the
+                    // "sounds/{id}/creatorUid" fallback in loadCreatorProfile()
+                    // found nothing and the row + Follow button never showed.
+                    // musicLibrary tracks denormalize the uploader as
+                    // uploadedByUid/uploadedByName (see MusicTrack model) —
+                    // resolve creator from there too so it shows regardless
+                    // of sheet vs full-screen entry point.
+                    if (creatorUid.isEmpty()) {
+                        String uUid = snap.child("uploadedByUid").getValue(String.class);
+                        if (uUid != null && !uUid.isEmpty()) {
+                            creatorUid = uUid;
+                            String uName = snap.child("uploadedByName").getValue(String.class);
+                            if (uName != null && !uName.isEmpty()) creatorName = uName;
+                            fetchCreatorUserData(creatorUid);
+                        }
+                    }
 
                     showShimmer(false);
                     updatePlayButtonState();
@@ -1323,7 +1347,8 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             else ivCreatorAvatar.setImageResource(R.drawable.ic_person);
         }
         layoutCreator.setVisibility(View.VISIBLE);
-        if (dividerCreator != null) dividerCreator.setVisibility(View.VISIBLE);
+        // divider_creator removed from layout — creator row is now its own
+        // boxed card (bg_sound_detail_box), so no separate hairline needed.
         layoutCreator.setOnClickListener(v -> openUserProfile(uid, name, photo));
         bindFollowCreatorBtn(uid);
     }
