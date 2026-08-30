@@ -51,6 +51,7 @@ public class SearchActivity extends AppCompatActivity {
         adapter = new SearchResultAdapter();
         binding.rvResults.setLayoutManager(new LinearLayoutManager(this));
         binding.rvResults.setAdapter(adapter);
+        attachVelocityPrefetch(); // v19: deep avatar pipeline — velocity-based prefetch ahead of the last visible row
         adapter.setListener((uid, name, photo, thumb, callxId) -> {
             // Save selection and show detail card
             foundUid   = uid;
@@ -96,6 +97,34 @@ public class SearchActivity extends AppCompatActivity {
         binding.btnOpenChat.setOnClickListener(v -> openChat());
         binding.btnAudioCall.setOnClickListener(v -> startCall(false));
         binding.btnVideoCall.setOnClickListener(v -> startCall(true));
+    }
+
+    /**
+     * v19 (velocity-based prefetch): measures scroll speed the same way
+     * FollowersListActivity/ChatsFragment do (px moved / ms elapsed since
+     * the last scroll callback) and hands it to
+     * SearchResultAdapter#prefetchAvatarsFrom for the rows just past the
+     * last visible one — fast fling skips prefetch entirely, slow scroll
+     * warms several rows ahead.
+     */
+    private void attachVelocityPrefetch() {
+        binding.rvResults.addOnScrollListener(new androidx.recyclerview.widget.RecyclerView.OnScrollListener() {
+            private long lastTimeMs = 0L;
+
+            @Override public void onScrolled(@androidx.annotation.NonNull androidx.recyclerview.widget.RecyclerView recyclerView, int dx, int dy) {
+                long now = android.os.SystemClock.elapsedRealtime();
+                long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
+                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                lastTimeMs = now;
+
+                LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
+                if (lm == null) return;
+                int lastVisible = lm.findLastVisibleItemPosition();
+                if (lastVisible < 0) return;
+
+                adapter.prefetchAvatarsFrom(SearchActivity.this, lastVisible + 1, velocity);
+            }
+        });
     }
 
     private boolean isOnline() {
@@ -232,8 +261,12 @@ public class SearchActivity extends AppCompatActivity {
         String cxId  = c.child("callxId").getValue(String.class);
         String photo = c.child("photoUrl").getValue(String.class);
         String thumb = c.child("thumbUrl").getValue(String.class);
+        // v19: needed for SearchAvatarBinder's ?v= cache-bust param — same
+        // field ProfileActivity/UserProfileActivity/FollowersListActivity/
+        // GroupInfoActivity already read off this same users/{uid} snapshot.
+        Long avatarVer = c.child("avatarVersion").getValue(Long.class);
         if (uid == null) return null;
-        return new SearchResultAdapter.UserResult(uid, name, cxId, photo, thumb);
+        return new SearchResultAdapter.UserResult(uid, name, cxId, photo, thumb, avatarVer != null ? avatarVer : 0L);
     }
 
     private boolean containsUid(List<SearchResultAdapter.UserResult> list, String uid) {
@@ -265,7 +298,7 @@ public class SearchActivity extends AppCompatActivity {
                 for (UserEntity u : entities) {
                     if (!u.uid.equals(myUid))
                         results.add(new SearchResultAdapter.UserResult(
-                            u.uid, u.name, u.callxId, u.photoUrl, u.thumbUrl));
+                            u.uid, u.name, u.callxId, u.photoUrl, u.thumbUrl, u.avatarVersion));
                 }
             }
             runOnUiThread(() -> showResults(results));

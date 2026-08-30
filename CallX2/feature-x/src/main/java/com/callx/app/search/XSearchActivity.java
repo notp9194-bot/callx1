@@ -13,6 +13,7 @@ import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.*;
 import com.bumptech.glide.Glide;
+import com.callx.app.cache.XAvatarBinder;
 import com.callx.app.feed.XTweetAdapter;
 import com.callx.app.models.XTweet;
 import com.callx.app.models.XUser;
@@ -138,10 +139,10 @@ public class XSearchActivity extends AppCompatActivity {
                     ImageView iv = row.findViewById(R.id.iv_x_user_avatar);
                     TextView tvName   = row.findViewById(R.id.tv_x_user_name);
                     TextView tvHandle = row.findViewById(R.id.tv_x_user_handle);
-                    Glide.with(this).load(
-                        (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl
-                    ).circleCrop()
-                        .placeholder(R.drawable.ic_person).override(96, 96).into(iv);
+                    // FIX (deep avatar pipeline): now XAvatarBinder.bind() — tiered
+                    // + versioned CDN url, L2/L3 reuse. See class doc.
+                    String url = (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
+                    XAvatarBinder.bind(this, iv, url, 0, R.drawable.ic_person);
                     tvName.setText(u.name);
                     tvHandle.setText("@" + u.handle);
                     String uid = u.uid;

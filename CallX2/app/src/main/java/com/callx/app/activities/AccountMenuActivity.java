@@ -13,6 +13,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
+import com.callx.app.cache.MiscAvatarBinder;
 import com.callx.app.R;
 import com.callx.app.databinding.ActivityAccountMenuBinding;
 import com.callx.app.utils.BiometricLoginManager;
@@ -44,6 +45,15 @@ public class AccountMenuActivity extends AppCompatActivity {
 
     @Override protected void onResume() { super.onResume(); loadProfile(); }
 
+    @Override
+    protected void onDestroy() {
+        // FIX (Lifecycle-aware cancel): stop any in-flight hero-avatar
+        // request now that this screen is going away for good.
+        MiscAvatarBinder.cancel(this, binding.ivProfileAvatar);
+        MiscAvatarBinder.cancel(this, binding.ivHeaderAvatar);
+        super.onDestroy();
+    }
+
     private void loadProfile() {
         String uid = FirebaseAuth.getInstance().getCurrentUser() == null
             ? null : FirebaseUtils.getCurrentUid();
@@ -55,6 +65,8 @@ public class AccountMenuActivity extends AppCompatActivity {
                 String about = orEmpty(snap.child("about").getValue(String.class));
                 String photo = orEmpty(snap.child("photoUrl").getValue(String.class));
                 String thumb = orEmpty(snap.child("thumbUrl").getValue(String.class));
+                Long   avatarVerVal = snap.child("avatarVersion").getValue(Long.class);
+                long   avatarVer = avatarVerVal == null ? 0L : avatarVerVal;
                 myCallxId = orEmpty(snap.child("callxId").getValue(String.class));
                 myName = name; myPhoto = photo;
                 AccountSessionStore.remember(
@@ -70,14 +82,15 @@ public class AccountMenuActivity extends AppCompatActivity {
                 binding.tvProfileName.setText(name.isEmpty() ? "User" : name);
                 binding.tvProfileAbout.setText(about.isEmpty() ? "Hey there! I am using CallX" : about);
                 binding.tvCallxId.setText("ID: " + (myCallxId.isEmpty() ? "—" : myCallxId));
+                // FIX (deep avatar pipeline): was a flat Glide.load().override(240,240)
+                // with no shared tier bucket, no L2/L3 reuse, no lifecycle-aware
+                // cancel — see MiscAvatarBinder for the full rationale.
                 String profileAvatar = thumb.isEmpty() ? photo : thumb;
-                if (!profileAvatar.isEmpty()) Glide.with(AccountMenuActivity.this).load(profileAvatar).circleCrop()
-                    .placeholder(R.drawable.ic_person)
-                    .override(240, 240).into(binding.ivProfileAvatar);
+                MiscAvatarBinder.bind(AccountMenuActivity.this, binding.ivProfileAvatar,
+                    profileAvatar, avatarVer, MiscAvatarBinder.HERO_TIER, R.drawable.ic_person);
                 String headerImg = thumb.isEmpty() ? photo : thumb;
-                if (!headerImg.isEmpty()) Glide.with(AccountMenuActivity.this).load(headerImg).circleCrop()
-                    .placeholder(R.drawable.ic_person)
-                    .override(240, 240).into(binding.ivHeaderAvatar);
+                MiscAvatarBinder.bind(AccountMenuActivity.this, binding.ivHeaderAvatar,
+                    headerImg, avatarVer, MiscAvatarBinder.HERO_TIER, R.drawable.ic_person);
             }
             @Override public void onCancelled(DatabaseError e) {}
         });

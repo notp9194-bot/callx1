@@ -147,7 +147,10 @@ public class ChannelViewerActivity extends AppCompatActivity
         if (channelName != null && tvChannelName != null) tvChannelName.setText(channelName);
         String channelIcon = getIntent().getStringExtra(EXTRA_CHANNEL_ICON);
         if (channelIcon != null && !channelIcon.isEmpty() && ivChannelIcon != null) {
-            Glide.with(this).load(channelIcon).circleCrop().into(ivChannelIcon);
+            // FIX (avatar pipeline parity): was a plain Glide.load with no
+            // override() at all — see ChannelAvatarBinder class doc.
+            com.callx.app.cache.ChannelAvatarBinder.bind(this, ivChannelIcon, channelIcon,
+                    com.callx.app.cache.ChannelAvatarBinder.TIER_VIEWER, R.drawable.bg_channel_avatar_default);
         }
         long followers = getIntent().getLongExtra(EXTRA_CHANNEL_FOLLOWERS, 0);
         if (tvChannelFollowers != null) tvChannelFollowers.setText(formatFollowers(followers));
@@ -223,7 +226,10 @@ public class ChannelViewerActivity extends AppCompatActivity
             if (tvChannelVerified != null)
                 tvChannelVerified.setVisibility(ch.verified ? View.VISIBLE : View.GONE);
             if (ch.iconUrl != null && !ch.iconUrl.isEmpty() && ivChannelIcon != null) {
-                Glide.with(this).load(ch.iconUrl).circleCrop().into(ivChannelIcon);
+                // FIX (avatar pipeline parity): was a plain Glide.load with
+                // no override() at all — see ChannelAvatarBinder class doc.
+                com.callx.app.cache.ChannelAvatarBinder.bind(this, ivChannelIcon, ch.iconUrl,
+                        com.callx.app.cache.ChannelAvatarBinder.TIER_VIEWER, R.drawable.bg_channel_avatar_default);
             }
 
             // Follow button
@@ -1059,6 +1065,9 @@ public class ChannelViewerActivity extends AppCompatActivity
         super.onDestroy();
         ChannelPostAdapter.stopAudio();
         viewModel.stopSyncingPosts(channelId);
+        // FIX (avatar pipeline parity): stop the header channel-icon request
+        // from ChannelAvatarBinder.bind() if it's still in flight.
+        if (ivChannelIcon != null) com.callx.app.cache.ChannelAvatarBinder.cancel(this, ivChannelIcon);
         if (layoutPrewarmer != null) {
             layoutPrewarmer.shutdown();
             layoutPrewarmer = null;

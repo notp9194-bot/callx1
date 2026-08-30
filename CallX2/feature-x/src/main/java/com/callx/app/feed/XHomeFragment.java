@@ -16,6 +16,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import com.callx.app.compose.XComposeActivity;
+import com.callx.app.cache.XAvatarBinder;
 import com.callx.app.cache.XTweetCacheManager;
 import com.callx.app.cache.XTweetImagePreloader;
 import com.callx.app.cache.XTweetMediaPreloader;
@@ -100,7 +101,15 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
         imagePreloader = new XTweetImagePreloader(requireContext());
 
         // Infinite scroll + media preload
+        // FIX (velocity-based prefetch): avatar warm-ahead is now
+        // XAvatarBinder.prefetch() — fast fling past the feed skips
+        // prefetch entirely, slow/deliberate scroll warms several rows
+        // ahead, using DiskCacheStrategy.DATA so a row flung past without
+        // ever binding never pays a speculative decode. Same velocity
+        // measurement + depth thresholds as ChatsFragment/AvatarPrefetcher/
+        // YouTubeShortsFragment. See XAvatarBinder.prefetch()'s doc.
         recyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private long lastScrollTime = 0;
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
                 if (dy <= 0) return;
                 LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
@@ -110,6 +119,13 @@ public class XHomeFragment extends Fragment implements XTweetAdapter.OnTweetActi
                 imagePreloader.preloadFrom(adapter.getTweets(), firstVisible);
                 int lastVisible = lm.findLastVisibleItemPosition();
                 int total = adapter.getItemCount();
+
+                long now = android.os.SystemClock.elapsedRealtime();
+                long dt = lastScrollTime == 0 ? 0 : now - lastScrollTime;
+                lastScrollTime = now;
+                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                XAvatarBinder.prefetch(requireContext(), adapter.avatarSource(), lastVisible + 1, velocity);
+
                 if (!isLoadingMore && hasMorePages && lastVisible >= total - 5) {
                     loadMoreFeed();
                 }

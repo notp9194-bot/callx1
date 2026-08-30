@@ -8,8 +8,8 @@ import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.request.RequestOptions;
+import com.callx.app.followers.AvatarScrollPrefetchHelper;
+import com.callx.app.followers.FollowAvatarBinder;
 import com.callx.app.models.ReelModel;
 import com.callx.app.profile.UserReelsActivity;
 import com.callx.app.reels.R;
@@ -105,8 +105,15 @@ public class CollaboratorsBottomSheet extends BottomSheetDialogFragment {
         tvEmpty     = v.findViewById(R.id.tv_empty);
 
         adapter = new RowAdapter(rows);
-        rv.setLayoutManager(new LinearLayoutManager(requireContext()));
+        LinearLayoutManager lm = new LinearLayoutManager(requireContext());
+        rv.setLayoutManager(lm);
         rv.setAdapter(adapter);
+        // FIX (velocity-based prefetch): fast dismiss-scroll skips ahead, slow scroll warms rows — see FollowAvatarBinder.
+        AvatarScrollPrefetchHelper.attach(rv, lm, new FollowAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) { return rows.get(index).photo; }
+            @Override public long avatarVersion(int index) { return 0L; }
+            @Override public int size() { return rows.size(); }
+        });
 
         if (reelId == null) { showEmpty(); return; }
         loadMyFollowing();
@@ -232,15 +239,8 @@ public class CollaboratorsBottomSheet extends BottomSheetDialogFragment {
                 h.tvTimestamp.setVisibility(View.GONE);
             }
 
-            if (!r.photo.isEmpty()) {
-                Glide.with(requireContext()).load(r.photo)
-                    .apply(RequestOptions.circleCropTransform())
-                    .placeholder(R.drawable.ic_person)
-                    .override(96, 96)
-                    .into(h.ivAvatar);
-            } else {
-                h.ivAvatar.setImageResource(R.drawable.ic_person);
-            }
+            // FIX (avatar pipeline parity): shared L2/L3 cache + density-aware tier decode instead of a flat Glide load — see FollowAvatarBinder.
+            FollowAvatarBinder.bind(requireContext(), h.ivAvatar, r.photo, 0L, R.drawable.ic_person);
 
             h.ivVerified.setVisibility(View.GONE);
             h.btnMessage.setVisibility(View.GONE);
@@ -267,6 +267,11 @@ public class CollaboratorsBottomSheet extends BottomSheetDialogFragment {
         }
 
         @Override public int getItemCount() { return data.size(); }
+
+        // FIX (lifecycle-aware cancel): stop an in-flight request for a row that just scrolled off screen.
+        @Override public void onViewRecycled(@NonNull VH h) {
+            FollowAvatarBinder.cancel(requireContext(), h.ivAvatar);
+        }
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;

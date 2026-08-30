@@ -74,6 +74,27 @@ public class YouTubeCommentsActivity extends AppCompatActivity {
         rvComments.setLayoutManager(new LinearLayoutManager(this));
         rvComments.setAdapter(adapter);
 
+        // PERF (deep avatar pipeline parity — see YouTubeAvatarBinder):
+        // velocity-based avatar prefetch, same technique/thresholds
+        // CallsFragment/ChatsFragment use.
+        rvComments.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private long lastTimeMs = 0L;
+
+            @Override public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
+                if (lm == null) return;
+                int lastVisible = lm.findLastVisibleItemPosition();
+                if (lastVisible < 0) return;
+
+                long now = android.os.SystemClock.elapsedRealtime();
+                long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
+                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                lastTimeMs = now;
+
+                adapter.prefetchAvatars(YouTubeCommentsActivity.this, lastVisible + 1, velocity);
+            }
+        });
+
         loadComments();
 
         if (btnSend != null)

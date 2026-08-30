@@ -20,7 +20,6 @@ import com.callx.app.databinding.ActivityProfileBinding;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.UserEntity;
 import com.callx.app.utils.CloudinaryUploader;
-import com.callx.app.utils.AvatarUrlBuilder;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.UserProfileChangeRequest;
@@ -41,6 +40,11 @@ public class ProfileActivity extends AppCompatActivity {
     // any other cached photoUrl/thumbUrl string catches up. See
     // UserEntity#avatarVersion for the full rationale.
     private long currentAvatarVersion = 0;
+    // Tracks the avatar URLs currently on Firebase/Room BEFORE a new upload
+    // overwrites currentPhoto/uploadAvatar()'s state — needed at the end of
+    // uploadAvatar() to tell CloudinaryUploader.invalidateAvatarEdgeCache()
+    // which old CDN variants to purge server-side. See that method's doc.
+    private String currentThumbUrl = "";
     private ActivityResultLauncher<String> imagePicker;
 
     @Override
@@ -96,11 +100,15 @@ public class ProfileActivity extends AppCompatActivity {
                         currentPhoto = orEmpty(cached.photoUrl);
                         currentAvatarVersion = cached.avatarVersion;
                         String cachedThumb = orEmpty(cached.thumbUrl);
+                        currentThumbUrl = cachedThumb;
                         String cacheDisplayUrl = !cachedThumb.isEmpty() ? cachedThumb : currentPhoto;
                         if (!cacheDisplayUrl.isEmpty()) {
-                            Glide.with(ProfileActivity.this)
-                                .load(AvatarUrlBuilder.build(ProfileActivity.this, cacheDisplayUrl, com.callx.app.utils.AvatarSizeTier.XLARGE, currentAvatarVersion))
-                                .into(binding.ivAvatar);
+                            // PERF (deep avatar pipeline parity — see ProfileAvatarBinder):
+                            // L2/L3 fast-path + blur-up thumbnail chain, instead of a bare
+                            // analytics-only Glide load.
+                            com.callx.app.cache.ProfileAvatarBinder.bind(ProfileActivity.this, binding.ivAvatar,
+                                cacheDisplayUrl, currentAvatarVersion,
+                                com.callx.app.cache.ProfileAvatarBinder.HERO_TIER, R.drawable.ic_person);
                         }
                     });
                 }
@@ -136,12 +144,14 @@ public class ProfileActivity extends AppCompatActivity {
                     binding.tvCallxId.setText(callxId);
                     if (isOwnProfile) binding.tvEmail.setText(email);
                     currentPhoto = photo;
+                    currentThumbUrl = thumb;
                     currentAvatarVersion = avatarVer != null ? avatarVer : 0;
                     String displayThumb = !thumb.isEmpty() ? thumb : photo;
                     if (!displayThumb.isEmpty()) {
-                        Glide.with(ProfileActivity.this)
-                            .load(AvatarUrlBuilder.build(ProfileActivity.this, displayThumb, com.callx.app.utils.AvatarSizeTier.XLARGE, currentAvatarVersion))
-                            .into(binding.ivAvatar);
+                        // PERF (deep avatar pipeline parity — see ProfileAvatarBinder)
+                        com.callx.app.cache.ProfileAvatarBinder.bind(ProfileActivity.this, binding.ivAvatar,
+                            displayThumb, currentAvatarVersion,
+                            com.callx.app.cache.ProfileAvatarBinder.HERO_TIER, R.drawable.ic_person);
                     }
 
                     // Room cache update — sirf apne profile ke liye
@@ -167,8 +177,43 @@ public class ProfileActivity extends AppCompatActivity {
             });
     }
     private String orEmpty(String s) { return s == null ? "" : s; }
+
+    /**
+     * See the call site in onThumbReady above. Derives a tiny 32px Cloudinary
+     * variant of the just-uploaded avatar thumbnail, decodes it, encodes a
+     * BlurHash string, and patches it onto both Firebase copies of this
+     * user's profile.
+     */
+    private static void generateAndAttachAvatarBlurHash(android.content.Context appCtx, String uid, String thumbUrl) {
+        if (uid == null || uid.isEmpty() || thumbUrl == null || thumbUrl.isEmpty()) return;
+        new Thread(() -> {
+            try {
+                String tinyUrl = CloudinaryUploader.deriveThumbUrl(thumbUrl, 32, "webp");
+                android.graphics.Bitmap bmp = Glide.with(appCtx)
+                        .asBitmap()
+                        .load(tinyUrl)
+                        .submit(32, 32)
+                        .get();
+                if (bmp == null) return;
+                String hash = com.callx.app.utils.BlurHash.encode(bmp, 4, 3);
+                if (hash == null || hash.isEmpty()) return;
+                FirebaseUtils.getUserRef(uid).child("avatarBlurHash").setValue(hash);
+                com.google.firebase.database.FirebaseDatabase.getInstance()
+                    .getReference("reels/users").child(uid).child("avatarBlurHash").setValue(hash);
+            } catch (Exception ignored) {
+                // Non-critical — avatar already uploaded/saved successfully either way.
+            }
+        }).start();
+    }
+
     private void uploadAvatar(Uri uri) {
         binding.avatarProgress.setVisibility(View.VISIBLE);
+        // Captured BEFORE the new upload overwrites currentPhoto/
+        // currentThumbUrl below — these are what's live at Cloudinary's CDN
+        // edge right now, and what invalidateAvatarEdgeCache() needs once
+        // the new avatar is confirmed. See that method's doc.
+        final String oldPhotoUrl = currentPhoto;
+        final String oldThumbUrl = currentThumbUrl;
         CloudinaryUploader.uploadAvatar(this, uri,
             new CloudinaryUploader.AvatarUploadCallback() {
 
@@ -182,6 +227,7 @@ public class ProfileActivity extends AppCompatActivity {
                     // loaded from Firebase moments earlier in load() — this
                     // device already knows the authoritative current value.
                     currentAvatarVersion = currentAvatarVersion + 1;
+                    currentThumbUrl = thumbUrl;
                     FirebaseUtils.getUserRef(currentUid)
                         .child("thumbUrl").setValue(thumbUrl);
                     FirebaseUtils.getUserRef(currentUid)
@@ -194,9 +240,22 @@ public class ProfileActivity extends AppCompatActivity {
                         db.userDao().updateAvatarVersion(currentUid, newVersion);
                     });
                     // Profile screen mein bhi thumb dikhao (snap fast)
-                    Glide.with(ProfileActivity.this)
-                        .load(AvatarUrlBuilder.build(ProfileActivity.this, thumbUrl, com.callx.app.utils.AvatarSizeTier.XLARGE, currentAvatarVersion))
-                        .into(binding.ivAvatar);
+                    // PERF (deep avatar pipeline parity — see ProfileAvatarBinder)
+                    com.callx.app.cache.ProfileAvatarBinder.bind(ProfileActivity.this, binding.ivAvatar,
+                        thumbUrl, currentAvatarVersion,
+                        com.callx.app.cache.ProfileAvatarBinder.HERO_TIER, R.drawable.ic_person);
+
+                    // LQIP: fire-and-forget BlurHash of the new avatar, same
+                    // pattern as ReelUploadActivity#generateAndAttachBlurHash
+                    // for reel thumbnails — lets ReelUiController show an
+                    // instant blurred owner-avatar placeholder instead of a
+                    // flat icon, no network needed to decode it. Written to
+                    // BOTH users/{uid} (source of truth) and reels/users/{uid}
+                    // (denormalized copy reels are posted with — see
+                    // ReelUploadActivity/ReelModel#ownerAvatarBlurHash),
+                    // mirroring how photoUrl/thumbUrl already live in both
+                    // places. Never blocks/fails the avatar upload itself.
+                    generateAndAttachAvatarBlurHash(getApplicationContext(), currentUid, thumbUrl);
                 }
 
                 // Step 2 done: full photo ready → Firebase photoUrl save
@@ -213,11 +272,26 @@ public class ProfileActivity extends AppCompatActivity {
                     // Profile screen par full photo reload karo — same
                     // currentAvatarVersion bumped in onThumbReady above,
                     // since this is step 2 of the same upload.
-                    Glide.with(ProfileActivity.this)
-                        .load(AvatarUrlBuilder.build(ProfileActivity.this, photoUrl, com.callx.app.utils.AvatarSizeTier.XLARGE, currentAvatarVersion))
-                        .into(binding.ivAvatar);
+                    // PERF (deep avatar pipeline parity — see ProfileAvatarBinder)
+                    com.callx.app.cache.ProfileAvatarBinder.bind(ProfileActivity.this, binding.ivAvatar,
+                        photoUrl, currentAvatarVersion,
+                        com.callx.app.cache.ProfileAvatarBinder.HERO_TIER, R.drawable.ic_person);
                     Toast.makeText(ProfileActivity.this,
                         "Profile photo update ho gayi", Toast.LENGTH_SHORT).show();
+
+                    // FIX (CDN edge-side invalidation): both halves of this
+                    // upload (thumb + full) are now confirmed live, so the
+                    // OLD avatar's URLs are safe to purge from Cloudinary's
+                    // edge cache — fire-and-forget, never blocks/fails the
+                    // avatar change itself. See CloudinaryUploader
+                    // .invalidateAvatarEdgeCache's doc.
+                    java.util.List<String> oldUrls = new java.util.ArrayList<>();
+                    if (oldPhotoUrl != null && !oldPhotoUrl.isEmpty()) oldUrls.add(oldPhotoUrl);
+                    if (oldThumbUrl != null && !oldThumbUrl.isEmpty()) oldUrls.add(oldThumbUrl);
+                    if (!oldUrls.isEmpty()) {
+                        CloudinaryUploader.invalidateAvatarEdgeCache(
+                            ProfileActivity.this, oldUrls.toArray(new String[0]));
+                    }
                 }
 
                 @Override public void onError(String err) {
@@ -258,6 +332,16 @@ public class ProfileActivity extends AppCompatActivity {
                 .setDisplayName(name).build());
         Toast.makeText(this, "Profile saved", Toast.LENGTH_SHORT).show();
         finish();
+    }
+
+    // FIX (Lifecycle-aware cancel — see ProfileAvatarBinder#cancel): stops
+    // any in-flight avatar request and releases the L3 tag once this screen
+    // is genuinely going away, instead of leaving it to keep decoding
+    // toward a destroyed view.
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        com.callx.app.cache.ProfileAvatarBinder.cancel(this, binding.ivAvatar);
     }
 
     private void showAvatarZoom(View sourceView, String photoUrl) {

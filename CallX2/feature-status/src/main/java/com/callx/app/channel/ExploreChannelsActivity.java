@@ -12,7 +12,6 @@ import androidx.appcompat.widget.Toolbar;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-import com.bumptech.glide.Glide;
 import com.callx.app.db.entity.ChannelEntity;
 import com.callx.app.status.R;
 import com.callx.app.viewmodel.ChannelViewModel;
@@ -231,7 +230,10 @@ public class ExploreChannelsActivity extends AppCompatActivity {
             // Verified badge (NEW)
             if (h.ivVerified != null) h.ivVerified.setVisibility(ch.isVerified ? View.VISIBLE : View.GONE);
             if (h.ivIcon != null && ch.iconUrl != null && !ch.iconUrl.isEmpty())
-                Glide.with(h.ivIcon.getContext()).load(ch.iconUrl).circleCrop().into(h.ivIcon);
+                // FIX (avatar pipeline parity): was a plain Glide.load with
+                // no override() at all — see ChannelAvatarBinder class doc.
+                com.callx.app.cache.ChannelAvatarBinder.bind(h.ivIcon.getContext(), h.ivIcon, ch.iconUrl,
+                        com.callx.app.cache.ChannelAvatarBinder.TIER_EXPLORE_ROW, R.drawable.bg_channel_avatar_default);
 
             if (h.btnFollow != null) {
                 h.btnFollow.setText(ch.isFollowing ? "Following" : "Follow");
@@ -252,6 +254,11 @@ public class ExploreChannelsActivity extends AppCompatActivity {
         }
 
         @Override public int getItemCount() { return data.size(); }
+
+        @Override public void onViewRecycled(@NonNull VH h) {
+            super.onViewRecycled(h);
+            if (h.ivIcon != null) com.callx.app.cache.ChannelAvatarBinder.cancel(h.ivIcon.getContext(), h.ivIcon);
+        }
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivIcon;

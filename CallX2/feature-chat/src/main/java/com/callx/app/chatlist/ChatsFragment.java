@@ -19,6 +19,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.chat.R;
 import com.callx.app.chatlist.ChatListAdapter;
+import com.callx.app.cache.ChatAvatarBinder;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.ChatEntity;
 import com.callx.app.db.entity.ChatFolderEntity;
@@ -197,10 +198,12 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     private boolean showingInstantSnapshotOnly = false;
 
     // v93: scroll-ahead avatar preloading — warms Glide's disk cache for rows
-    // just below the visible window (same override/format/transform signature
-    // ChatListAdapter actually binds with) so avatars are already cached by
-    // the time the user scrolls to them. WhatsApp/Telegram-style smooth scroll.
-    private static final int AVATAR_PRELOAD_AHEAD = 12; // ~1 screenful of rows
+    // just below the visible window so avatars are already cached by the
+    // time the user scrolls to them. WhatsApp/Telegram-style smooth scroll.
+    // FIX (velocity-based prefetch): the flat "always 12 rows ahead" depth
+    // this constant used to drive is now ChatAvatarBinder's velocity-scaled
+    // depth (DEPTH_SLOW/DEPTH_DEFAULT/DEPTH_FAST) — see the scroll listener
+    // in onCreateView and ChatAvatarBinder.prefetch()'s doc.
 
     // v93: debounce bursty Firebase snapshots (e.g. multiple tick flips /
     // typing updates arriving within milliseconds of each other during an
@@ -288,29 +291,40 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         //
         // v93: also preloads avatars for the next screenful of rows just below
         // the visible window — by the time the user scrolls to them, Glide's
-        // disk cache already has the exact (size+format+circleCrop) resource
+        // disk cache already has the exact (tier+version+circleCrop) resource
         // ready, so the avatar appears instantly instead of popping in after a
         // network fetch. Same technique WhatsApp/Telegram use for smooth scroll.
+        //
+        // FIX (velocity-based prefetch): was a flat "always AVATAR_PRELOAD_AHEAD
+        // (12) rows ahead" window regardless of scroll speed — wasted work
+        // during a fast fling (rows the thumb blows straight past before the
+        // avatar even finishes its disk fetch) and left free bandwidth on the
+        // table during a slow, deliberate scroll. Now routed through
+        // ChatAvatarBinder.prefetch() — same velocity measurement + depth
+        // thresholds as AvatarPrefetcher (reels) / FollowAvatarBinder (follow
+        // lists): fast fling skips prefetch entirely, slow scroll warms
+        // several rows ahead, using DiskCacheStrategy.DATA (bytes only, no
+        // speculative decode) until a row actually becomes visible.
         rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            private int lastPreloadedEnd = -1;
+            private long lastTimeMs = 0L;
 
             @Override public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
-                if (dy <= 0) return;
                 LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
                 if (lm == null || adapter == null) return;
                 int lastVisible = lm.findLastVisibleItemPosition();
                 int total = adapter.getItemCount();
                 if (lastVisible < 0 || total == 0) return;
 
-                if (selectedFolderId == -1 && lastVisible >= total - 5) {
+                if (dy > 0 && selectedFolderId == -1 && lastVisible >= total - 5) {
                     loadMoreOlderContacts();
                 }
 
-                int preloadEnd = Math.min(total - 1, lastVisible + AVATAR_PRELOAD_AHEAD);
-                if (preloadEnd > lastPreloadedEnd) {
-                    preloadAvatarsInRange(Math.max(lastVisible + 1, lastPreloadedEnd + 1), preloadEnd);
-                    lastPreloadedEnd = preloadEnd;
-                }
+                long now = android.os.SystemClock.elapsedRealtime();
+                long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
+                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                lastTimeMs = now;
+
+                ChatAvatarBinder.prefetch(requireContext(), chatAvatarSource(), lastVisible + 1, velocity);
             }
         });
 
@@ -692,17 +706,22 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // loading in onBindViewHolderTimed() still happens either way —
         // this only skips the AHEAD-of-time warming.
         if (!AppThermalManager.get(appCtx).canBackgroundPreload()) return;
-        int px = ChatListAdapter.getAvatarSizePx(appCtx);
         for (User u : page) {
-            String url = ChatListAdapter.resolveListAvatarUrl(u);
+            // FIX: was ChatListAdapter.resolveListAvatarUrl() + a flat raw-dp
+            // override() — now ChatAvatarBinder.url(), the SAME tiered +
+            // density-bucketed + WebP/AVIF + ?v=<avatarVersion> URL
+            // ChatAvatarBinder.bind() resolves at real bind time, so this
+            // warming produces the exact cache key the row bind will look
+            // for instead of a near-miss.
+            String url = ChatAvatarBinder.url(appCtx, u.thumbUrl, u.avatarVersion);
             if (url == null || url.isEmpty()) continue;
             Glide.with(appCtx)
+                    .asBitmap()
                     .load(url)
-                    .override(px, px)
-                    .format(ChatListAdapter.AVATAR_FORMAT)
-                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-                    .apply(RequestOptions.circleCropTransform())
-                    .preload(px, px);
+                    .apply(RequestOptions.circleCropTransform()
+                            .format(ChatAvatarBinder.AVATAR_FORMAT)
+                            .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
+                    .preload();
         }
     }
 
@@ -781,43 +800,13 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         });
     }
 
-    /**
-     * v93: fires off Glide preload() requests (no ImageView target — just
-     * warms the disk cache) for rows just below the currently visible window.
-     * Uses the EXACT same override size / decode format / circleCrop transform
-     * as ChatListAdapter's real bind-time load, so the resource cache key
-     * matches and this isn't wasted work.
-     */
-    private void preloadAvatarsInRange(int start, int end) {
-        if (getContext() == null) return;
-        // Same thermal guard as preloadAvatarsForPage() — this one fires
-        // repeatedly DURING fast scroll (range shifts every scroll event),
-        // so it's actually the hotter of the two paths on a warm device.
-        if (!AppThermalManager.get(requireContext()).canBackgroundPreload()) return;
-        int size = ChatListAdapter.getAvatarSizePx(requireContext());
-        com.bumptech.glide.RequestManager glide =
-                Glide.with(requireContext().getApplicationContext());
-        for (int i = start; i <= end && i >= 0 && i < contacts.size(); i++) {
-            User u = contacts.get(i);
-            if (u == null) continue;
-            // v244: was falling back to full-res photoUrl here when thumbUrl
-            // was missing — but ChatListAdapter.resolveListAvatarUrl() (the
-            // ACTUAL row-bind call) never does that fallback; it shows the
-            // placeholder icon instead (see v208 comment there). So this
-            // preload was silently downloading + disk-caching a full-res
-            // photo that the row bind was never going to display — pure
-            // wasted network + data usage on every such row. Match the bind
-            // path exactly: thumbUrl only, skip the row entirely if absent.
-            String url = ChatListAdapter.resolveListAvatarUrl(u);
-            if (url == null || url.isEmpty()) continue;
-            glide.load(url)
-                    .dontAnimate()
-                    .override(size, size)
-                    .format(ChatListAdapter.AVATAR_FORMAT)
-                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-                    .apply(RequestOptions.circleCropTransform())
-                    .preload();
-        }
+    /** AvatarSource view over `contacts` for ChatAvatarBinder.prefetch() — mirrors FollowersListActivity#followAvatarSource(). */
+    private ChatAvatarBinder.AvatarSource chatAvatarSource() {
+        return new ChatAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) { return contacts.get(index).thumbUrl; }
+            @Override public long avatarVersion(int index) { return contacts.get(index).avatarVersion; }
+            @Override public int size() { return contacts.size(); }
+        };
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -1224,6 +1213,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         entity.partnerName  = u.name;
         entity.partnerPhoto = u.photoUrl;
         entity.partnerThumb = u.thumbUrl;
+        entity.partnerAvatarVersion = u.avatarVersion;
         entity.lastMessage  = u.lastMessage;
         entity.lastMessageAt = u.lastMessageAt;
         entity.unread       = u.unread;
@@ -1243,6 +1233,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         u.name     = e.partnerName;
         u.photoUrl = e.partnerPhoto;
         u.thumbUrl = e.partnerThumb;
+        u.avatarVersion = e.partnerAvatarVersion;
         u.lastMessageAt = e.lastMessageAt;
         u.unread   = e.unread;
         u.lastMessage           = e.lastMessage;

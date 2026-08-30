@@ -81,6 +81,7 @@ public final class ChatSnapshotCache {
                 u.name                  = o.optString("name", null);
                 u.thumbUrl              = o.optString("thumbUrl", null);
                 u.photoUrl              = o.optString("photoUrl", null);
+                u.avatarVersion         = o.optLong("avatarVersion", 0L);
                 u.lastMessage           = o.optString("lastMessage", null);
                 u.lastMessageAt         = o.has("lastMessageAt") ? o.optLong("lastMessageAt") : null;
                 u.unread                = o.has("unread") ? o.optLong("unread") : null;
@@ -122,6 +123,7 @@ public final class ChatSnapshotCache {
                     if (u.name != null) o.put("name", u.name);
                     if (u.thumbUrl != null) o.put("thumbUrl", u.thumbUrl);
                     if (u.photoUrl != null) o.put("photoUrl", u.photoUrl);
+                    if (u.avatarVersion > 0) o.put("avatarVersion", u.avatarVersion);
                     if (u.lastMessage != null) o.put("lastMessage", u.lastMessage);
                     if (u.lastMessageAt != null) o.put("lastMessageAt", u.lastMessageAt);
                     if (u.unread != null) o.put("unread", u.unread);

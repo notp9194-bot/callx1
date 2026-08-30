@@ -7,7 +7,6 @@ import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.*;
-import com.bumptech.glide.Glide;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
@@ -67,12 +66,25 @@ public class ReelCloseFriendsActivity extends AppCompatActivity {
         btnBack.setOnClickListener(v -> finish());
 
         cfAdapter = new CloseFriendAdapter(new ArrayList<>(closeFriendsMap.values()), this::removeFriend);
-        rvCloseFriends.setLayoutManager(new LinearLayoutManager(this));
+        LinearLayoutManager cfLm = new LinearLayoutManager(this);
+        rvCloseFriends.setLayoutManager(cfLm);
         rvCloseFriends.setAdapter(cfAdapter);
+        // FIX (velocity-based prefetch): fast fling skips ahead, slow scroll warms rows — see FollowAvatarBinder.
+        AvatarScrollPrefetchHelper.attach(rvCloseFriends, cfLm, new FollowAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) { return cfAdapter.items.get(index).photo; }
+            @Override public long avatarVersion(int index) { return 0L; }
+            @Override public int size() { return cfAdapter.items.size(); }
+        });
 
         searchAdapter = new SearchAdapter(searchResults, this::addFriend);
-        rvSearchResults.setLayoutManager(new LinearLayoutManager(this));
+        LinearLayoutManager searchLm = new LinearLayoutManager(this);
+        rvSearchResults.setLayoutManager(searchLm);
         rvSearchResults.setAdapter(searchAdapter);
+        AvatarScrollPrefetchHelper.attach(rvSearchResults, searchLm, new FollowAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) { return searchResults.get(index).photo; }
+            @Override public long avatarVersion(int index) { return 0L; }
+            @Override public int size() { return searchResults.size(); }
+        });
 
         etSearch.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -192,10 +204,13 @@ public class ReelCloseFriendsActivity extends AppCompatActivity {
         @Override public void onBindViewHolder(@NonNull VH h, int pos) {
             Friend f = items.get(pos);
             h.tvName.setText(f.name);
-            if (f.photo != null && !f.photo.isEmpty()) Glide.with(h.iv).load(f.photo).circleCrop().placeholder(R.drawable.ic_person).override(96, 96).into(h.iv);
+            // FIX (avatar pipeline parity): shared L2/L3 cache + density-aware tier decode instead of a flat Glide load — see FollowAvatarBinder.
+            FollowAvatarBinder.bind(h.itemView.getContext(), h.iv, f.photo, 0L, R.drawable.ic_person);
             h.btnRemove.setOnClickListener(v -> onRemove.accept(f));
         }
         @Override public int getItemCount() { return items.size(); }
+        // FIX (lifecycle-aware cancel): stop an in-flight request for a row that just scrolled off screen.
+        @Override public void onViewRecycled(@NonNull VH h) { FollowAvatarBinder.cancel(h.itemView.getContext(), h.iv); }
         static class VH extends RecyclerView.ViewHolder {
             CircleImageView iv; TextView tvName; ImageButton btnRemove;
             VH(View v) { super(v); iv = v.findViewById(R.id.iv_cf_avatar); tvName = v.findViewById(R.id.tv_cf_name); btnRemove = v.findViewById(R.id.btn_cf_remove); }
@@ -214,13 +229,16 @@ public class ReelCloseFriendsActivity extends AppCompatActivity {
         @Override public void onBindViewHolder(@NonNull VH h, int pos) {
             Friend f = items.get(pos);
             h.tvName.setText(f.name);
-            if (f.photo != null && !f.photo.isEmpty()) Glide.with(h.iv).load(f.photo).circleCrop().placeholder(R.drawable.ic_person).override(96, 96).into(h.iv);
+            // FIX (avatar pipeline parity): shared L2/L3 cache + density-aware tier decode instead of a flat Glide load — see FollowAvatarBinder.
+            FollowAvatarBinder.bind(h.itemView.getContext(), h.iv, f.photo, 0L, R.drawable.ic_person);
             boolean isCf = cfIds.contains(f.uid);
             h.btnRemove.setImageResource(isCf ? R.drawable.ic_close : R.drawable.ic_person_add);
             h.btnRemove.setEnabled(!isCf);
             h.btnRemove.setOnClickListener(v -> { if (!isCf) onAdd.accept(f); });
         }
         @Override public int getItemCount() { return items.size(); }
+        // FIX (lifecycle-aware cancel): stop an in-flight request for a row that just scrolled off screen.
+        @Override public void onViewRecycled(@NonNull VH h) { FollowAvatarBinder.cancel(h.itemView.getContext(), h.iv); }
         static class VH extends RecyclerView.ViewHolder {
             CircleImageView iv; TextView tvName; ImageButton btnRemove;
             VH(View v) { super(v); iv = v.findViewById(R.id.iv_cf_avatar); tvName = v.findViewById(R.id.tv_cf_name); btnRemove = v.findViewById(R.id.btn_cf_remove); }

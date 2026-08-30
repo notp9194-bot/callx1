@@ -26,6 +26,8 @@ import com.callx.app.player.YouTubeCommentsActivity;
 import com.callx.app.models.YouTubeVideo;
 import com.callx.app.utils.YouTubeFirebaseUtils;
 import com.callx.app.youtube.R;
+// PERF (deep avatar pipeline parity — see YouTubeAvatarBinder)
+import com.callx.app.cache.YouTubeAvatarBinder;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
@@ -72,6 +74,9 @@ public class YouTubeShortsFragment extends Fragment {
                         currentPlayingPos = pos;
                         adapter.playPlayer(currentPlayingPos);
                     }
+                    // PERF (deep avatar pipeline parity — see YouTubeAvatarBinder):
+                    // warm the next short's uploader avatar once scroll settles.
+                    if (pos >= 0) adapter.prefetchNextAvatar(requireContext(), pos + 1);
                 }
             }
         });
@@ -159,8 +164,10 @@ public class YouTubeShortsFragment extends Fragment {
             h.tvChannel.setText("@" + (video.uploaderName != null ? video.uploaderName : ""));
             h.tvLikes.setText(formatCount(video.likeCount));
 
+            // PERF (deep avatar pipeline parity — see YouTubeAvatarBinder)
             if (video.uploaderPhotoUrl != null && !video.uploaderPhotoUrl.isEmpty())
-                Glide.with(ctx).load(video.uploaderPhotoUrl).circleCrop().override(96, 96).into(h.ivAvatar);
+                YouTubeAvatarBinder.bind(ctx, h.ivAvatar, video.uploaderPhotoUrl, 0,
+                    YouTubeAvatarBinder.SHORTS_TIER, R.drawable.ic_person);
 
             String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
                 ? FirebaseUtils.getCurrentUid() : "";
@@ -293,6 +300,31 @@ public class YouTubeShortsFragment extends Fragment {
             super.onViewRecycled(h);
             int pos = h.getAdapterPosition();
             if (pos != RecyclerView.NO_ID) { ExoPlayer p = players.get(pos); if (p != null) p.pause(); }
+            // PERF (deep avatar pipeline parity — see YouTubeAvatarBinder)
+            if (h.ivAvatar != null) {
+                YouTubeAvatarBinder.cancel(h.ivAvatar.getContext(), h.ivAvatar);
+            }
+        }
+
+        /** Read-only view over `data` for {@link YouTubeAvatarBinder#prefetch}. */
+        private YouTubeAvatarBinder.AvatarSource avatarSource() {
+            return new YouTubeAvatarBinder.AvatarSource() {
+                @Override public String photo(int index) { return data.get(index).uploaderPhotoUrl; }
+                @Override public long avatarVersion(int index) { return 0; } // no version field today
+                @Override public int size() { return data.size(); }
+            };
+        }
+
+        /**
+         * FIX (velocity-based prefetch): called once scroll settles on a
+         * new short — with a one-per-screen vertical feed there's no real
+         * "fling velocity" to measure between rows (PagerSnapHelper always
+         * lands on IDLE), so this always warms just the next short's avatar
+         * (depth 1, DEPTH_DEFAULT), same DiskCacheStrategy.DATA bytes-only
+         * gate every other list uses.
+         */
+        void prefetchNextAvatar(android.content.Context ctx, int fromIndex) {
+            YouTubeAvatarBinder.prefetch(ctx, avatarSource(), fromIndex, 0f, YouTubeAvatarBinder.SHORTS_TIER);
         }
 
         @Override public int getItemCount() { return data == null ? 0 : data.size(); }

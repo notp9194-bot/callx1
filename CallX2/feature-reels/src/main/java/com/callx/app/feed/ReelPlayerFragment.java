@@ -375,6 +375,17 @@ public class ReelPlayerFragment extends Fragment
      * guaranteed to be watched, so it shouldn't spend a slow/limited
      * connection's budget on a reel the user might swipe past.
      */
+    /**
+     * See {@link ReelUiController#promotePendingAvatarIfSlow}. Called from
+     * ReelsFragment#onPageScrolled while this fragment's page is still
+     * offscreen but the drag has slowed enough to read as "settling here" —
+     * promotes the owner avatar off the disk-cache-only visibility gate
+     * early, instead of waiting for applyVisibleState(true).
+     */
+    public void promotePendingAvatarIfSlow() {
+        if (uiController != null) uiController.promotePendingAvatarIfSlow();
+    }
+
     public void prewarmPlayer() {
         if (isVisible) return;              // already the active reel — nothing to prewarm
         if (!isAdded() || getContext() == null) return;

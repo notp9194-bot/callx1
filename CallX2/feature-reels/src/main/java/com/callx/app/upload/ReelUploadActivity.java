@@ -2644,6 +2644,10 @@ public class ReelUploadActivity extends AppCompatActivity {
                     String photo = snap.child("photoUrl").getValue(String.class);
                     String thumb = snap.child("thumbUrl").getValue(String.class);
                     String safePhoto = (thumb != null && !thumb.isEmpty()) ? thumb : (photo != null ? photo : "");
+                    // LQIP: denormalize the owner's current avatar BlurHash onto
+                    // the reel too, same as safePhoto above — see
+                    // ReelModel#ownerAvatarBlurHash.
+                    String ownerAvatarHash = snap.child("avatarBlurHash").getValue(String.class);
 
                     // Use cover photo (creator-selected or first) as thumbnail
                     int safeCover = (a.coverPhotoIndex >= 0 && a.coverPhotoIndex < photoUrls.size())
@@ -2687,6 +2691,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                     reel.photoDurationList = hasAnyDurOverride ? durOverrides : null;
                     reel.audienceType    = audienceType;
                     reel.thumbUrl        = thumbUrl;
+                    reel.ownerAvatarBlurHash = ownerAvatarHash != null ? ownerAvatarHash : "";
 
                     // Duet / Stitch permissions
                     String duetLevel   = a.getDuetLevel();
@@ -2791,6 +2796,9 @@ public class ReelUploadActivity extends AppCompatActivity {
                 String thumb = snap.child("thumbUrl").getValue(String.class);
                 // Reels thumbUrl use karo — saves data for all viewers
                 String safePhoto = (thumb != null && !thumb.isEmpty()) ? thumb : (photo != null ? photo : "");
+                // LQIP: denormalize the owner's current avatar BlurHash onto
+                // the reel too — see ReelModel#ownerAvatarBlurHash.
+                String ownerAvatarHash = snap.child("avatarBlurHash").getValue(String.class);
 
                 ReelModel reel = new ReelModel(
                     finalReelId, myUid, myName, safePhoto,
@@ -2798,6 +2806,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                     System.currentTimeMillis(), durationMs, width, height);
 
                 reel.audienceType = audienceType;
+                reel.ownerAvatarBlurHash = ownerAvatarHash != null ? ownerAvatarHash : "";
                 // ✅ FIX: sync both thumbnail fields so Firebase has "thumbUrl" AND "thumbnailUrl"
                 if (reel.thumbnailUrl == null || reel.thumbnailUrl.isEmpty()) {
                     reel.thumbnailUrl = reel.thumbUrl != null ? reel.thumbUrl : "";

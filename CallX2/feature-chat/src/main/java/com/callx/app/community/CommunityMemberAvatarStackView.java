@@ -43,6 +43,10 @@ public class CommunityMemberAvatarStackView extends View {
     private final List<Bitmap> mBitmaps = new ArrayList<>();
     private int mTotalCount = 0;
     private float mDensity;
+    // Bumped on every bind() — lets async L3-disk / Glide callbacks from a
+    // PREVIOUS bind() detect the view has since been rebound (recycled row)
+    // and drop their stale result instead of overwriting a newer bind's data.
+    private int mBindGeneration = 0;
 
     public CommunityMemberAvatarStackView(Context context) {
         this(context, null);
@@ -74,6 +78,7 @@ public class CommunityMemberAvatarStackView extends View {
         mTotalCount = totalCount;
         mBitmaps.clear();
         invalidate();
+        final int generation = ++mBindGeneration;
 
         int visible = Math.min(photoUrls.size(), MAX_VISIBLE);
         int size = (int) (AVATAR_SIZE_DP * mDensity);
@@ -94,15 +99,32 @@ public class CommunityMemberAvatarStackView extends View {
             }
 
             mBitmaps.add(null); // placeholder slot, filled in asynchronously below
+
+            // FIX (L3 disk tier): covers process death, which L2 (in-memory)
+            // can't. Fired in parallel with the Glide load below — if the
+            // disk read wins the race AND this row hasn't been recycled to
+            // a different bind() since, paint it immediately; Glide is
+            // still the source of truth and will simply overwrite it when
+            // it resolves (a no-op visually if the bytes match).
+            ChatAvatarL2Cache.l3(getContext()).getAsync(url, l3Bmp -> {
+                if (l3Bmp == null || generation != mBindGeneration) return;
+                while (mBitmaps.size() <= index) mBitmaps.add(null);
+                mBitmaps.set(index, l3Bmp);
+                ChatAvatarL2Cache.get(getContext()).put(url, l3Bmp); // warm L2 too
+                invalidate();
+            });
+
             Glide.with(getContext()).asBitmap().load(url).circleCrop()
                     .override(96, 96)
                     .into(new CustomTarget<Bitmap>(size, size) {
                         @Override
                         public void onResourceReady(@androidx.annotation.NonNull Bitmap resource,
                                                      @Nullable Transition<? super Bitmap> transition) {
+                            if (generation != mBindGeneration) return; // recycled to a different bind() since
                             while (mBitmaps.size() <= index) mBitmaps.add(null);
                             mBitmaps.set(index, resource);
                             ChatAvatarL2Cache.get(getContext()).put(url, resource);
+                            ChatAvatarL2Cache.l3(getContext()).put(url, resource); // persist for next cold start
                             invalidate();
                         }
                         @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}

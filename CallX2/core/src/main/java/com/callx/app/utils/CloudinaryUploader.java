@@ -451,6 +451,105 @@ public class CloudinaryUploader {
         }
     }
 
+    /**
+     * FIX (CDN edge-side invalidation — AvatarUrlBuilder version-param
+     * upgrade #4): the client-side {@code &v=<avatarVersion>} query param
+     * (see AvatarUrlBuilder's class doc) only ever fixes a STALE CACHE-KEY
+     * collision on THIS device — it changes what Glide asks for, it can
+     * never reach into Cloudinary and purge what's already sitting at the
+     * CDN edge under the OLD avatar's URL. Every avatar upload gets a
+     * brand-new Cloudinary public_id (see uploadAvatar above), so the new
+     * URL never collides with the old one at the CDN either — but the OLD
+     * public_id's transformed variants (every AvatarSizeTier × density-
+     * bucket × AVIF/WebP combination anyone ever requested — see
+     * AvatarUrlBuilder) stay live at the edge indefinitely with no TTL,
+     * still fully servable to anyone still holding that URL: a stale Room
+     * row on a device that hasn't synced the new avatarVersion yet, an open
+     * share link, a scraped profile page, etc.
+     *
+     * FIX (batched invalidation): a single avatar change touches at LEAST
+     * two public_ids (thumb + full — see uploadAvatar's dual-upload), and
+     * Cloudinary's own Admin API — e.g. api.delete_resources(publicIds[],
+     * {invalidate: true}) — natively accepts an ARRAY of up to 100
+     * public_ids per call and invalidates every transformed size/format
+     * variant of each in that one request. Previously this fired one
+     * /cloudinary/invalidate POST per URL (2 round trips for thumb+full,
+     * more if a caller ever passed additional old sizes) — now every
+     * public_id from this call is collected first and sent as ONE POST with
+     * a "public_ids" array, so the backend makes exactly one Admin API call
+     * no matter how many old avatar variants need purging. Duplicate
+     * public_ids (defensive — thumb/full should never actually collide) are
+     * deduped via the LinkedHashSet below before the request goes out.
+     *
+     * Fire-and-forget POST to the same backend that already signs uploads
+     * (see uploadBytes above — /cloudinary/sign). The Admin API secret can
+     * only live on the server, which is why this is a request TO the
+     * backend rather than a direct Cloudinary call from the app (same
+     * reason /cloudinary/sign exists instead of signing uploads on-device).
+     *
+     * Best-effort only, called AFTER the new avatar has already fully
+     * uploaded and saved — a failure here never blocks or fails the avatar
+     * change itself, it just means the old variants linger at the edge
+     * until their eventual TTL/LRU eviction instead of purging immediately.
+     */
+    public static void invalidateAvatarEdgeCache(Context ctx, String... oldSecureUrls) {
+        if (oldSecureUrls == null || oldSecureUrls.length == 0) return;
+        new Thread(() -> {
+            // LinkedHashSet: dedupes AND keeps a stable order for logging —
+            // not that order matters to Cloudinary, which invalidates the
+            // whole batch atomically regardless of array order.
+            java.util.LinkedHashSet<String> publicIds = new java.util.LinkedHashSet<>();
+            for (String oldUrl : oldSecureUrls) {
+                String publicId = publicIdFromUrl(oldUrl);
+                if (publicId != null) publicIds.add(publicId);
+            }
+            if (publicIds.isEmpty()) return;
+
+            try {
+                org.json.JSONArray idsArray = new org.json.JSONArray(publicIds);
+                JSONObject payload = new JSONObject()
+                    .put("public_ids", idsArray)   // array → ONE Admin API call server-side, not one per id
+                    .put("resource_type", "image")
+                    .put("invalidate", true);
+                Request req = new Request.Builder()
+                    .url(Constants.SERVER_URL + "/cloudinary/invalidate")
+                    .post(RequestBody.create(payload.toString(),
+                        MediaType.parse("application/json")))
+                    .build();
+                Response res = client.newCall(req).execute();
+                if (!res.isSuccessful()) {
+                    Log.w(TAG, "Batch edge invalidate failed (" + res.code() + ") for "
+                        + publicIds.size() + " id(s): " + publicIds);
+                }
+                res.close();
+            } catch (Exception e) {
+                // Best-effort — old variants just age out at the edge naturally instead.
+                Log.w(TAG, "Batch edge invalidate error for " + publicIds.size()
+                    + " id(s): " + e.getMessage());
+            }
+        }).start();
+    }
+
+    /**
+     * Extracts a Cloudinary public_id (folder/name, no extension, no
+     * "v<timestamp>/" version segment) from a delivery URL — the identifier
+     * the Admin API needs, as opposed to the delivery URL AvatarUrlBuilder
+     * builds transforms on top of. Returns null for anything that doesn't
+     * look like a Cloudinary "/upload/" URL.
+     */
+    private static String publicIdFromUrl(String secureUrl) {
+        if (secureUrl == null || secureUrl.isEmpty()) return null;
+        String marker = "/upload/";
+        int idx = secureUrl.indexOf(marker);
+        if (idx < 0) return null;
+        String rest = secureUrl.substring(idx + marker.length());
+        if (rest.matches("^v\\d+/.*")) {
+            rest = rest.substring(rest.indexOf('/') + 1); // strip Cloudinary's auto version segment
+        }
+        int dot = rest.lastIndexOf('.');
+        return dot > 0 ? rest.substring(0, dot) : rest;
+    }
+
     private static void post(AvatarUploadCallback cb, String thumbUrl,
                              String photoUrl, String err) {
         new Handler(Looper.getMainLooper()).post(() -> {

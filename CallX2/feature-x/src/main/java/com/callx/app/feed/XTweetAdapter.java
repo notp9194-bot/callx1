@@ -38,6 +38,7 @@ import com.callx.app.player.XImageViewerActivity;
 import com.callx.app.profile.XProfileSheet;
 import com.callx.app.tweet.XTweetDetailActivity;
 import com.callx.app.player.XVideoPlayerActivity;
+import com.callx.app.cache.XAvatarBinder;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.MutableData;
 import com.google.firebase.database.Transaction;
@@ -139,6 +140,35 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
     @Override public void onBindViewHolder(@NonNull TweetVH h, int pos) { h.bind(tweets.get(pos)); }
     @Override public int getItemCount() { return tweets.size(); }
 
+    /**
+     * FIX (lifecycle-aware cancel): a row's avatar request is stopped the
+     * moment it scrolls off screen instead of continuing to compete with
+     * whatever's now actually visible. See XAvatarBinder#cancel.
+     */
+    @Override public void onViewRecycled(@NonNull TweetVH h) {
+        super.onViewRecycled(h);
+        if (h.ivAvatar != null) XAvatarBinder.cancel(ctx, h.ivAvatar);
+    }
+
+    /**
+     * FIX (velocity-based prefetch): AvatarSource view over `tweets` for
+     * XAvatarBinder.prefetch() — mirrors ChatsFragment#chatAvatarSource() /
+     * FollowersListActivity#followAvatarSource() for this module's feed
+     * (used from XHomeFragment and XExploreFragment's trending/search
+     * results).
+     */
+    public XAvatarBinder.AvatarSource avatarSource() {
+        return new XAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) {
+                XTweet t = tweets.get(index);
+                return (t.authorThumbUrl != null && !t.authorThumbUrl.isEmpty())
+                    ? t.authorThumbUrl : t.authorPhotoUrl;
+            }
+            @Override public long avatarVersion(int index) { return 0; }
+            @Override public int size() { return tweets.size(); }
+        };
+    }
+
     // ── ViewHolder ──────────────────────────────────────────────────────────
 
     class TweetVH extends RecyclerView.ViewHolder {
@@ -205,11 +235,12 @@ public class XTweetAdapter extends RecyclerView.Adapter<XTweetAdapter.TweetVH> {
 
         void bind(XTweet tweet) {
             // Avatar
+            // FIX (deep avatar pipeline): flat Glide.load (un-tiered, no CDN
+            // transform/format param, no L2/L3 reuse) is now XAvatarBinder.bind()
+            // — same shared tiered+versioned pipeline as reels/chat/calls/status/
+            // profile/search/YouTube. See XAvatarBinder class doc.
             String avatarUrl = pick(tweet.authorThumbUrl, tweet.authorPhotoUrl);
-            Glide.with(ctx).load(avatarUrl)
-                .apply(new RequestOptions().circleCrop().diskCacheStrategy(DiskCacheStrategy.ALL)
-                    .placeholder(R.drawable.ic_person))
-                .into(ivAvatar);
+            XAvatarBinder.bind(ctx, ivAvatar, avatarUrl, 0, R.drawable.ic_person);
             ivAvatar.setOnClickListener(v -> {
                 if (ctx instanceof FragmentActivity)
                     XProfileSheet.showProfile(

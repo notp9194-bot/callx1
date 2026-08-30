@@ -38,4 +38,23 @@ public final class ChatAvatarL2Cache {
         }
         return instance;
     }
+
+    // ── L3 (disk, survives process death) — separate folder + instance
+    // from ReelsAvatarL2Cache's L3, same independent-per-module reasoning.
+    private static final long L3_MAX_BYTES = 1L * 1024 * 1024; // 1 MB — a handful of tiny member tiles
+    private static volatile AvatarL3DiskCache sL3;
+
+    public static AvatarL3DiskCache l3(Context ctx) {
+        AvatarL3DiskCache instance = sL3;
+        if (instance == null) {
+            synchronized (ChatAvatarL2Cache.class) {
+                instance = sL3;
+                if (instance == null) {
+                    instance = new AvatarL3DiskCache(ctx, "chat", L3_MAX_BYTES);
+                    sL3 = instance;
+                }
+            }
+        }
+        return instance;
+    }
 }

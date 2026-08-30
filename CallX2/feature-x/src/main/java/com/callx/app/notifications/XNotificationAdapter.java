@@ -9,6 +9,7 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import androidx.fragment.app.FragmentActivity;
+import com.callx.app.cache.XAvatarBinder;
 import com.callx.app.profile.XProfileSheet;
 import com.callx.app.tweet.XTweetDetailActivity;
 import com.callx.app.models.XNotification;
@@ -36,6 +37,24 @@ public class XNotificationAdapter extends RecyclerView.Adapter<XNotificationAdap
 
     @Override public void onBindViewHolder(@NonNull VH h, int pos) { h.bind(items.get(pos)); }
     @Override public int getItemCount() { return items.size(); }
+
+    /** FIX (lifecycle-aware cancel): see XAvatarBinder#cancel. */
+    @Override public void onViewRecycled(@NonNull VH h) {
+        super.onViewRecycled(h);
+        if (h.ivAvatar != null) XAvatarBinder.cancel(ctx, h.ivAvatar);
+    }
+
+    /** FIX (velocity-based prefetch): AvatarSource over `items` for XNotificationsFragment's scroll listener. */
+    public XAvatarBinder.AvatarSource avatarSource() {
+        return new XAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) {
+                XNotification n = items.get(index);
+                return (n.fromThumbUrl != null && !n.fromThumbUrl.isEmpty()) ? n.fromThumbUrl : n.fromPhotoUrl;
+            }
+            @Override public long avatarVersion(int index) { return 0; }
+            @Override public int size() { return items.size(); }
+        };
+    }
 
     class VH extends RecyclerView.ViewHolder {
         LinearLayout llRoot;
@@ -66,11 +85,12 @@ public class XNotificationAdapter extends RecyclerView.Adapter<XNotificationAdap
             }
 
             // Avatar — prefer thumb for small circular avatars
+            // FIX (deep avatar pipeline): now XAvatarBinder.bind() — tiered +
+            // versioned CDN url, L2/L3 reuse with the feed/DM/profile-sheet
+            // pipeline. See XAvatarBinder class doc.
             String avatarUrl = (n.fromThumbUrl != null && !n.fromThumbUrl.isEmpty())
                 ? n.fromThumbUrl : n.fromPhotoUrl;
-            Glide.with(ctx).load(avatarUrl).circleCrop()
-                .override(96, 96)
-                .placeholder(R.drawable.ic_person).into(ivAvatar);
+            XAvatarBinder.bind(ctx, ivAvatar, avatarUrl, 0, R.drawable.ic_person);
 
             // Type icon + tint
             ivType.setImageResource(iconForType(n.type));

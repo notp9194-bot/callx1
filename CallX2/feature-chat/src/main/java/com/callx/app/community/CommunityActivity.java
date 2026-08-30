@@ -256,9 +256,12 @@ public class CommunityActivity extends AppCompatActivity {
         if (tvName != null) tvName.setText(c.name != null ? c.name : "");
         if (tvMemberCount != null)
             tvMemberCount.setText(c.memberCount + " members");
+        // FIX (avatar pipeline parity): was a plain Glide.load with no
+        // override() at all (full-resolution decode for a 36dp circle) —
+        // see CommunityAvatarBinder class doc.
         if (ivIcon != null && c.iconUrl != null && !c.iconUrl.isEmpty())
-            Glide.with(this).load(c.iconUrl).circleCrop()
-                    .placeholder(R.drawable.ic_group).into(ivIcon);
+            com.callx.app.cache.CommunityAvatarBinder.bindIcon(this, ivIcon, c.iconUrl,
+                    com.callx.app.cache.CommunityAvatarBinder.TIER_TOOLBAR, R.drawable.ic_group);
     }
 
     private void loadBanner(CommunityEntity c) {
@@ -280,7 +283,8 @@ public class CommunityActivity extends AppCompatActivity {
 
         if (currentCommunity != null) {
             if (ivGateIcon != null && currentCommunity.iconUrl != null)
-                Glide.with(this).load(currentCommunity.iconUrl).circleCrop().into(ivGateIcon);
+                com.callx.app.cache.CommunityAvatarBinder.bindIcon(this, ivGateIcon, currentCommunity.iconUrl,
+                        com.callx.app.cache.CommunityAvatarBinder.TIER_GATE, R.drawable.ic_group);
             if (tvGateName != null) tvGateName.setText(currentCommunity.name);
             if (tvGateDescription != null) tvGateDescription.setText(currentCommunity.description);
             if (tvGateMemberCount != null)

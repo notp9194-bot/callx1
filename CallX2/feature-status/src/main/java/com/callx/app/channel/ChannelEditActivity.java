@@ -158,7 +158,10 @@ public class ChannelEditActivity extends AppCompatActivity {
         if (etDesc != null && desc  != null) etDesc.setText(desc);
         if (switchPrivate != null) switchPrivate.setChecked(isPrivate);
         if (currentIconUrl != null && !currentIconUrl.isEmpty() && ivIcon != null)
-            Glide.with(this).load(currentIconUrl).circleCrop().into(ivIcon);
+            // FIX (avatar pipeline parity): was a plain Glide.load with no
+            // override() at all — see ChannelAvatarBinder class doc.
+            com.callx.app.cache.ChannelAvatarBinder.bind(this, ivIcon, currentIconUrl,
+                    com.callx.app.cache.ChannelAvatarBinder.TIER_EDIT, 0);
         if (btnSave != null) btnSave.setText("Save changes");
 
         // Icon picker

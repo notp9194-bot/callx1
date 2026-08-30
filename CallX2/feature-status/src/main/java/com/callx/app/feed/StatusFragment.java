@@ -212,6 +212,33 @@ public class StatusFragment extends BaseFragment {
             });
         }
 
+        // FIX (velocity-based avatar prefetch): brings the same
+        // AvatarPrefetcher (reels) / ChatAvatarBinder (chat) scroll-speed-
+        // aware prefetch to the Status contact list — was previously the
+        // one list screen with NO prefetch at all (every avatar bind waited
+        // for onBindViewHolder). Fast fling skips prefetch entirely; slow,
+        // deliberate scroll warms several rows ahead via
+        // StatusAvatarBinder.prefetch() (disk-bytes-only, decode deferred to
+        // a real bind — see that method's doc).
+        rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private long lastTimeMs = 0L;
+
+            @Override public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
+                if (lm == null || statusAdapter == null) return;
+                int lastVisible = lm.findLastVisibleItemPosition();
+                if (lastVisible < 0) return;
+
+                long now = android.os.SystemClock.elapsedRealtime();
+                long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
+                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                lastTimeMs = now;
+
+                com.callx.app.cache.StatusAvatarBinder.prefetch(requireContext(),
+                        statusAdapter.contactAvatarSource(), lastVisible + 1, velocity);
+            }
+        });
+
         View btnArchive = v.findViewById(R.id.btn_status_archive);
         if (btnArchive != null)
             btnArchive.setOnClickListener(x ->

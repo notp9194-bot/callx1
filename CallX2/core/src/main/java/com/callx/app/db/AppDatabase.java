@@ -64,7 +64,7 @@ import com.callx.app.db.entity.*;
         // reopen instead of a fresh Firebase read every time.
         TrendingAudioCacheEntity.class
     },
-    version = 51,
+    version = 52,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -685,6 +685,16 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** v52: chats table gets partnerAvatarVersion — chat list's version of
+     *  the same ?v= cache-busting fix MIGRATION_50_51 gave the users table
+     *  (see ChatEntity#partnerAvatarVersion / ChatAvatarBinder). */
+    static final Migration MIGRATION_51_52 = new Migration(51, 52) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE chats ADD COLUMN partnerAvatarVersion INTEGER NOT NULL DEFAULT 0");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -743,7 +753,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_42_43, MIGRATION_43_44,
                                     MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47,
                                     MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50,
-                                    MIGRATION_50_51)
+                                    MIGRATION_50_51, MIGRATION_51_52)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

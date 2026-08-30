@@ -23,6 +23,7 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.callx.app.R;
+import com.callx.app.cache.MiscAvatarBinder;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.UserEntity;
 import com.callx.app.models.User;
@@ -185,6 +186,24 @@ public class ContactsActivity extends AppCompatActivity {
         rv.setLayoutManager(new LinearLayoutManager(this));
         adapter = new ContactsAdapter(filtered, selectedUids, this::onTargetToggled);
         rv.setAdapter(adapter);
+        // FIX (velocity-based prefetch): fast fling skips prefetch entirely,
+        // slow/deliberate scroll warms several rows ahead — same thresholds
+        // as ChatAvatarBinder/AvatarPrefetcher/FollowAvatarBinder.
+        rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private long lastTimeMs = 0L;
+            @Override public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
+                if (lm == null) return;
+                int lastVisible = lm.findLastVisibleItemPosition();
+                if (lastVisible < 0) return;
+                long now = android.os.SystemClock.elapsedRealtime();
+                long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
+                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                lastTimeMs = now;
+                MiscAvatarBinder.prefetch(ContactsActivity.this, contactsAvatarSource(filtered),
+                    lastVisible + 1, velocity, MiscAvatarBinder.ROW_TIER);
+            }
+        });
 
         etSearch.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -480,6 +499,23 @@ public class ContactsActivity extends AppCompatActivity {
         rv.setVisibility(filtered.isEmpty() ? View.GONE : View.VISIBLE);
     }
 
+    /** Read-only view over a mixed User/Group list for {@link MiscAvatarBinder#prefetch}. */
+    private static MiscAvatarBinder.AvatarSource contactsAvatarSource(List<Object> list) {
+        return new MiscAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) {
+                Object t = list.get(index);
+                if (t instanceof Group) return ((Group) t).iconUrl;
+                User u = (User) t;
+                return (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
+            }
+            @Override public long avatarVersion(int index) {
+                Object t = list.get(index);
+                return t instanceof Group ? 0L : ((User) t).avatarVersion;
+            }
+            @Override public int size() { return list.size(); }
+        };
+    }
+
     // ── Inline RecyclerView Adapter ───────────────────────────────────────
     private static class ContactsAdapter
             extends RecyclerView.Adapter<ContactsAdapter.VH> {
@@ -511,6 +547,7 @@ public class ContactsActivity extends AppCompatActivity {
             String avatarUrl = isGroup ? ((Group) t).iconUrl
                               : (((User) t).thumbUrl != null && !((User) t).thumbUrl.isEmpty()
                                       ? ((User) t).thumbUrl : ((User) t).photoUrl);
+            long avatarVersion = isGroup ? 0L : ((User) t).avatarVersion;
             String key = keyOf(t);
 
             h.tvName.setText(isGroup ? ("\uD83D\uDC65 " + (name != null ? name : "Group"))
@@ -524,23 +561,23 @@ public class ContactsActivity extends AppCompatActivity {
                     ? android.R.color.holo_blue_light
                     : android.R.color.transparent);
 
-            // thumbUrl → 100px WebP, fast load in contact list
-            if (avatarUrl != null && !avatarUrl.isEmpty()) {
-                Glide.with(h.ivAvatar.getContext())
-                    .load(avatarUrl)
-                    .placeholder(isGroup ? R.drawable.ic_person : R.drawable.ic_person)
-                    .circleCrop()
-                    .override(96, 96)
-                    .into(h.ivAvatar);
-            } else {
-                h.ivAvatar.setImageResource(R.drawable.ic_person);
-            }
+            // FIX (deep avatar pipeline): was Glide.load().override(96,96) with
+            // no shared tier, no L2/L3, no recycle-aware cancel — see MiscAvatarBinder.
+            MiscAvatarBinder.bind(h.ivAvatar.getContext(), h.ivAvatar,
+                avatarUrl, avatarVersion, MiscAvatarBinder.ROW_TIER, R.drawable.ic_person);
 
             h.itemView.setOnClickListener(v -> cb.on(t));
             h.cbSelect.setOnClickListener(v -> cb.on(t));
         }
 
         @Override public int getItemCount() { return list.size(); }
+
+        @Override
+        public void onViewRecycled(@NonNull VH h) {
+            // FIX (Lifecycle-aware cancel): stop an in-flight request for a
+            // row that just scrolled off screen.
+            MiscAvatarBinder.cancel(h.ivAvatar.getContext(), h.ivAvatar);
+        }
 
         static class VH extends RecyclerView.ViewHolder {
             ImageView ivAvatar;

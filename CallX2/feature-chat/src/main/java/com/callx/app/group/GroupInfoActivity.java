@@ -67,6 +67,7 @@ public class GroupInfoActivity extends AppCompatActivity {
     private View btnSaveDesc;
     private RecyclerView rvMembers, rvMedia;
     private TabLayout tabMedia;
+    private androidx.core.widget.NestedScrollView nestedScrollContent;
 
     // Admin-only views
     private View btnAddMember, btnResetLink, btnDeleteGroup;
@@ -123,6 +124,9 @@ public class GroupInfoActivity extends AppCompatActivity {
         if (groupListener  != null) FirebaseUtils.getGroupsRef().child(groupId).removeEventListener(groupListener);
         if (membersListener != null) FirebaseUtils.getGroupMembersRef(groupId).removeEventListener(membersListener);
         if (mediaListener  != null) FirebaseUtils.getGroupMessagesRef(groupId).removeEventListener(mediaListener);
+        // FIX (avatar pipeline parity): stop the header group-icon request
+        // from GroupAvatarBinder.bind() if it's still in flight.
+        if (ivGroupIcon != null) com.callx.app.cache.GroupAvatarBinder.cancel(this, ivGroupIcon);
         super.onDestroy();
     }
 
@@ -141,6 +145,7 @@ public class GroupInfoActivity extends AppCompatActivity {
         btnSaveDesc     = findViewById(R.id.btn_save_desc);
         rvMembers       = findViewById(R.id.rv_members);
         rvMedia         = findViewById(R.id.rv_media);
+        nestedScrollContent = findViewById(R.id.nested_scroll_content);
         tabMedia        = findViewById(R.id.tab_media);
         btnAddMember    = findViewById(R.id.btn_add_member);
         btnResetLink    = findViewById(R.id.btn_reset_link);
@@ -185,6 +190,60 @@ public class GroupInfoActivity extends AppCompatActivity {
         rvMembers.setLayoutManager(new LinearLayoutManager(this));
         rvMembers.setNestedScrollingEnabled(false);
         rvMembers.setAdapter(memberAdapter);
+        setupMembersAvatarPrefetch();
+    }
+
+    /**
+     * v3 (velocity-based avatar prefetch): rvMembers has nested scrolling
+     * disabled and lives inside {@code nestedScrollContent} (see
+     * activity_group_info.xml) — the actual scroll events land on the
+     * NestedScrollView, never on rvMembers itself, so
+     * RecyclerView.OnScrollListener (what ChatsFragment/FollowersListActivity
+     * use) would never fire here. This tracks the NestedScrollView's own
+     * scroll-change deltas instead, translates the scroll position into
+     * "which member row just became newly visible" using each row's
+     * measured height, and forwards both into
+     * GroupMemberAdapter#prefetchAvatarsFrom — same velocity thresholds and
+     * DiskCacheStrategy.DATA-only depth as every other avatar list (see
+     * ChatAvatarBinder#prefetch).
+     */
+    private void setupMembersAvatarPrefetch() {
+        if (nestedScrollContent == null) return;
+        nestedScrollContent.setOnScrollChangeListener(
+                new androidx.core.widget.NestedScrollView.OnScrollChangeListener() {
+            private long lastTimeMs = 0L;
+
+            @Override
+            public void onScrollChange(androidx.core.widget.NestedScrollView sv, int scrollX, int scrollY,
+                                        int oldScrollX, int oldScrollY) {
+                if (memberAdapter == null || rvMembers.getChildCount() == 0 || members.isEmpty()) return;
+
+                int dy = scrollY - oldScrollY;
+                long now = android.os.SystemClock.elapsedRealtime();
+                long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
+                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                lastTimeMs = now;
+                if (dy <= 0) return; // only look ahead while scrolling down toward more members
+
+                int rowHeight = rvMembers.getChildAt(0).getHeight();
+                if (rowHeight <= 0) return;
+
+                // rvMembers' absolute top within the NestedScrollView's scrollable
+                // content — walked via screen coordinates since rvMembers can sit
+                // arbitrarily deep under nestedScrollContent's single direct child.
+                int[] rvLoc = new int[2];
+                int[] svLoc = new int[2];
+                rvMembers.getLocationOnScreen(rvLoc);
+                sv.getLocationOnScreen(svLoc);
+                int rvTopAbsolute = (rvLoc[1] - svLoc[1]) + scrollY;
+
+                int firstVisibleRow = Math.max(0, (scrollY - rvTopAbsolute) / rowHeight);
+                int visibleRowSpan = (sv.getHeight() / rowHeight) + 1;
+                int fromIndex = firstVisibleRow + visibleRowSpan;
+
+                memberAdapter.prefetchAvatarsFrom(GroupInfoActivity.this, fromIndex, velocity);
+            }
+        });
     }
 
     private void setupMediaRecycler() {
@@ -317,11 +376,10 @@ public class GroupInfoActivity extends AppCompatActivity {
                     }
                     currentIconUrl = cached.iconUrl;
                     if (currentIconUrl != null && !currentIconUrl.isEmpty()) {
-                        Glide.with(GroupInfoActivity.this)
-                                .load(currentIconUrl)
-                                .placeholder(R.drawable.ic_group)
-                                .override(720, 720)
-                                .into(ivGroupIcon);
+                        // FIX (avatar pipeline parity): was a flat
+                        // .override(720, 720) — see GroupAvatarBinder class doc.
+                        com.callx.app.cache.GroupAvatarBinder.bind(GroupInfoActivity.this, ivGroupIcon,
+                                currentIconUrl, com.callx.app.cache.GroupAvatarBinder.TIER_HEADER, R.drawable.ic_group);
                     }
                     tvInviteLink.setText(com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/join/" + groupId);
                 });
@@ -354,13 +412,12 @@ public class GroupInfoActivity extends AppCompatActivity {
                 }
 
                 // Load group icon
+                // FIX (avatar pipeline parity): was a flat .override(720, 720)
+                // — see GroupAvatarBinder class doc.
                 currentIconUrl = g.iconUrl;
                 if (currentIconUrl != null && !currentIconUrl.isEmpty()) {
-                    Glide.with(GroupInfoActivity.this)
-                            .load(currentIconUrl)
-                            .placeholder(R.drawable.ic_group)
-                            .override(720, 720)
-                            .into(ivGroupIcon);
+                    com.callx.app.cache.GroupAvatarBinder.bind(GroupInfoActivity.this, ivGroupIcon,
+                            currentIconUrl, com.callx.app.cache.GroupAvatarBinder.TIER_HEADER, R.drawable.ic_group);
                 }
 
                 // Invite link
@@ -432,15 +489,21 @@ public class GroupInfoActivity extends AppCompatActivity {
                             if (userSnap.exists()) {
                                 String photo = userSnap.child("photoUrl").getValue(String.class);
                                 String thumb = userSnap.child("thumbUrl").getValue(String.class);
-                                
+                                Long avatarVer = userSnap.child("avatarVersion").getValue(Long.class);
+
                                 // Remove old entry if exists
                                 members.removeIf(m -> m.uid.equals(uid));
                                 
                                 // Add with user's photo data
+                                // v3 (avatar pipeline parity): avatarVersion passed through so
+                                // GroupMemberAdapter's ChatAvatarBinder.bind() gets the same
+                                // ?v= cache-bust every other avatar screen relies on — see
+                                // AvatarUrlBuilder's class doc for why this matters.
                                 members.add(new GroupMemberAdapter.MemberItem(
                                         uid, name != null ? name : "Member",
                                         role != null ? role : "member",
-                                        photo, thumb, online, lastSeen));
+                                        photo, thumb, online, lastSeen,
+                                        avatarVer != null ? avatarVer : 0L));
                                 
                                 // Re-sort and notify
                                 sortAndUpdateMembers();

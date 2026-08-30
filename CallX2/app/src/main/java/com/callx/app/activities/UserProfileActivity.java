@@ -20,9 +20,7 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.FragmentManager;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.engine.DiskCacheStrategy;
-import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
+
 import com.callx.app.R;
 import com.callx.app.databinding.ActivityUserProfileBinding;
 import com.callx.app.utils.FirebaseUtils;
@@ -38,6 +36,8 @@ import java.util.concurrent.Executors;
 import com.callx.app.profile.ReelUserProfileSheet;
 import com.callx.app.profile.UserReelsActivity;
 import com.callx.app.conversation.ChatActivity;
+import com.callx.app.cache.AvatarVersionSyncManager;
+import com.callx.app.cache.ProfileAvatarBinder;
 
 /**
  * UserProfileActivity — Chat header avatar click ya 3-dot "View Profile" se open hoti hai.
@@ -54,6 +54,37 @@ public class UserProfileActivity extends AppCompatActivity {
 
     // Partner data
     private String partnerUid;
+    // Bumped by AvatarVersionSyncManager whenever partnerUid's avatarVersion
+    // changes — fed into AvatarUrlBuilder (via ProfileAvatarBinder) so every
+    // bind below shares one cache key with every OTHER screen showing this
+    // same user (reel player, chat list, comments...), and so a genuinely
+    // new avatar is never served a stale CDN-edge 304 by mistake. See
+    // UserEntity#avatarVersion for the full rationale.
+    private long partnerAvatarVersion = 0;
+    // FIX (isVisible gate, screen-scoped — see ProfileAvatarBinder): true
+    // only between onResume()/onPause(). partnerAvatarVersionListener's
+    // watch() stays alive across pause/resume (unwatched only in
+    // onDestroy()), so a fresh avatarVersion push can land while this
+    // screen is sitting paused underneath something else — bindGated()
+    // uses this flag to skip the network in that case.
+    private boolean screenVisible = false;
+
+    // Delta-sync (see AvatarVersionSyncManager): live avatarVersion watch for
+    // the profile being VIEWED — so if the partner uploads a new avatar
+    // while this screen is open, ivAvatarLarge refreshes without the viewer
+    // needing to back out and reopen the screen.
+    private final AvatarVersionSyncManager.Listener partnerAvatarVersionListener = (uid, newVersion) -> {
+        if (isFinishing() || isDestroyed() || !uid.equals(partnerUid)) return;
+        partnerAvatarVersion = newVersion;
+        String url = (partnerPhoto != null && !partnerPhoto.isEmpty()) ? partnerPhoto : null;
+        if (url == null) return;
+        // PERF (deep avatar pipeline parity — see ProfileAvatarBinder#bindGated):
+        // this listener can fire while the screen is paused in the back
+        // stack — gate the real network fetch behind screenVisible so a
+        // push landing while backgrounded only warms the disk tier.
+        ProfileAvatarBinder.bindGated(UserProfileActivity.this, binding.ivAvatarLarge,
+            url, partnerAvatarVersion, ProfileAvatarBinder.LARGE_TIER, R.drawable.ic_person, screenVisible);
+    };
     private String partnerName;
     private String partnerPhoto;
     private String chatId;
@@ -103,13 +134,12 @@ public class UserProfileActivity extends AppCompatActivity {
         }
 
         // ── Avatar: fast load from intent photo ────────────────────────
+        // PERF (deep avatar pipeline parity — see ProfileAvatarBinder):
+        // shared-tier URL + L2/L3 fast-path + blur-up thumbnail, instead of
+        // a flat un-tiered ".override(720,720)".
         if (partnerPhoto != null && !partnerPhoto.isEmpty()) {
-            Glide.with(this)
-                .load(partnerPhoto)
-                .placeholder(R.drawable.ic_person)
-                .error(R.drawable.ic_person)
-                    .override(720, 720)
-                .into(binding.ivAvatarLarge);
+            ProfileAvatarBinder.bind(this, binding.ivAvatarLarge,
+                partnerPhoto, partnerAvatarVersion, ProfileAvatarBinder.LARGE_TIER, R.drawable.ic_person);
         }
 
         // Avatar click → fullscreen zoom
@@ -141,6 +171,9 @@ public class UserProfileActivity extends AppCompatActivity {
         loadMuteState();
         loadBlockState();
         loadAvatarAndStartAnimation();
+        if (partnerUid != null && !partnerUid.isEmpty()) {
+            AvatarVersionSyncManager.getInstance(this).watch(partnerUid, partnerAvatarVersionListener);
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -190,12 +223,10 @@ public class UserProfileActivity extends AppCompatActivity {
                 }
                 if (avatarUrl != null) {
                     partnerPhoto = avatarUrl;
-                    Glide.with(UserProfileActivity.this)
-                        .load(avatarUrl)
-                        .placeholder(R.drawable.ic_person)
-                        .error(R.drawable.ic_person)
-                    .override(720, 720)
-                        .into(binding.ivAvatarLarge);
+                    partnerAvatarVersion = cached.avatarVersion;
+                    // PERF (deep avatar pipeline parity — see ProfileAvatarBinder)
+                    ProfileAvatarBinder.bind(UserProfileActivity.this, binding.ivAvatarLarge,
+                        avatarUrl, partnerAvatarVersion, ProfileAvatarBinder.LARGE_TIER, R.drawable.ic_person);
                 }
             });
         });
@@ -272,10 +303,12 @@ public class UserProfileActivity extends AppCompatActivity {
                     String callxId   = orEmpty(s.child("callxId").getValue(String.class));
                     String photo     = orEmpty(s.child("photoUrl").getValue(String.class));
                     String thumb     = orEmpty(s.child("thumbUrl").getValue(String.class));
+                    Long   avatarVer = s.child("avatarVersion").getValue(Long.class);
 
                     // Update stored photo
                     if (!photo.isEmpty()) partnerPhoto = photo;
                     if (!name.isEmpty())  partnerName  = name;
+                    if (avatarVer != null) partnerAvatarVersion = avatarVer;
 
                     // Name + collapsing title
                     binding.tvName.setText(name.isEmpty() ? orEmpty(partnerName) : name);
@@ -329,12 +362,9 @@ public class UserProfileActivity extends AppCompatActivity {
                     // Avatar — prefer full photo, fallback thumb
                     String displayUrl = !photo.isEmpty() ? photo : (!thumb.isEmpty() ? thumb : "");
                     if (!displayUrl.isEmpty()) {
-                        Glide.with(UserProfileActivity.this)
-                            .load(displayUrl)
-                            .placeholder(R.drawable.ic_person)
-                            .error(R.drawable.ic_person)
-                    .override(720, 720)
-                            .into(binding.ivAvatarLarge);
+                        // PERF (deep avatar pipeline parity — see ProfileAvatarBinder)
+                        ProfileAvatarBinder.bind(UserProfileActivity.this, binding.ivAvatarLarge,
+                            displayUrl, partnerAvatarVersion, ProfileAvatarBinder.LARGE_TIER, R.drawable.ic_person);
                     }
 
                     // Mute state from Firebase (same path as ChatActivity: /muted/{myUid}/{partnerUid})
@@ -630,9 +660,13 @@ public class UserProfileActivity extends AppCompatActivity {
                                : (photo != null && !photo.isEmpty()) ? photo : null;
                     if (ivAnimReel == null) { startAvatarPeekLoop(); return; }
                     if (url != null) {
-                        Glide.with(UserProfileActivity.this).load(url).circleCrop()
-                            .placeholder(R.drawable.ic_person)
-                    .override(240, 240).into(ivAnimReel);
+                        // PERF (deep avatar pipeline parity — see ProfileAvatarBinder):
+                        // shared-tier URL + L2/L3 reuse + blur-up thumbnail chain,
+                        // instead of a flat un-tiered ".override(240,240)". No
+                        // avatarVersion known for this denormalized reels/users
+                        // node, so 0 (unversioned — same as before this existed).
+                        ProfileAvatarBinder.bind(UserProfileActivity.this, ivAnimReel,
+                            url, 0, ProfileAvatarBinder.PEEK_TIER, R.drawable.ic_person);
                     }
                     startAvatarPeekLoop();
                 }
@@ -651,9 +685,9 @@ public class UserProfileActivity extends AppCompatActivity {
                     String url = (thumb != null && !thumb.isEmpty()) ? thumb
                                : (photo != null && !photo.isEmpty()) ? photo : null;
                     if (ivAnimX == null || url == null) return;
-                    Glide.with(UserProfileActivity.this).load(url).circleCrop()
-                        .placeholder(R.drawable.ic_person)
-                    .override(240, 240).into(ivAnimX);
+                    // PERF (deep avatar pipeline parity — see ProfileAvatarBinder)
+                    ProfileAvatarBinder.bind(UserProfileActivity.this, ivAnimX,
+                        url, 0, ProfileAvatarBinder.PEEK_TIER, R.drawable.ic_person);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
@@ -668,9 +702,9 @@ public class UserProfileActivity extends AppCompatActivity {
                     String url = (thumb != null && !thumb.isEmpty()) ? thumb
                                : (photo != null && !photo.isEmpty()) ? photo : null;
                     if (ivAnimYoutube == null || url == null) return;
-                    Glide.with(UserProfileActivity.this).load(url).circleCrop()
-                        .placeholder(R.drawable.ic_person)
-                    .override(240, 240).into(ivAnimYoutube);
+                    // PERF (deep avatar pipeline parity — see ProfileAvatarBinder)
+                    ProfileAvatarBinder.bind(UserProfileActivity.this, ivAnimYoutube,
+                        url, 0, ProfileAvatarBinder.PEEK_TIER, R.drawable.ic_person);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
             });
@@ -771,9 +805,44 @@ public class UserProfileActivity extends AppCompatActivity {
         }
     }
 
-    @Override protected void onPause()   { super.onPause();   stopAvatarAnimation(); }
-    @Override protected void onResume()  { super.onResume();  if (partnerUid != null) loadAvatarAndStartAnimation(); }
-    @Override protected void onDestroy() { super.onDestroy(); stopAvatarAnimation(); dbExecutor.shutdown(); }
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // FIX (isVisible gate, screen-scoped — see ProfileAvatarBinder): the
+        // version-sync watch stays alive while paused, so any push that
+        // lands from here on is gated to disk-cache-only until onResume.
+        screenVisible = false;
+        stopAvatarAnimation();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        screenVisible = true;
+        // FIX (isVisible gate, screen-scoped): upgrade whatever the gated
+        // avatarVersion listener may have only disk-warmed while this
+        // screen was paused to a real network-capable load now that it's
+        // confirmed back on screen. No-op if nothing was pending.
+        if (partnerPhoto != null && !partnerPhoto.isEmpty()) {
+            ProfileAvatarBinder.promote(this, binding.ivAvatarLarge,
+                partnerPhoto, partnerAvatarVersion, ProfileAvatarBinder.LARGE_TIER, R.drawable.ic_person);
+        }
+        if (partnerUid != null) loadAvatarAndStartAnimation();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        stopAvatarAnimation();
+        dbExecutor.shutdown();
+        // FIX (Lifecycle-aware cancel — see ProfileAvatarBinder#cancel):
+        // stops any in-flight avatar request now that this screen is going
+        // away for good.
+        ProfileAvatarBinder.cancel(this, binding.ivAvatarLarge);
+        if (partnerUid != null && !partnerUid.isEmpty()) {
+            AvatarVersionSyncManager.getInstance(this).unwatch(partnerUid, partnerAvatarVersionListener);
+        }
+    }
 
     // ─── 3-dot overflow menu ─────────────────────────────────────
     @Override

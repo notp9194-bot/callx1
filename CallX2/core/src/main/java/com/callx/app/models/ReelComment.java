@@ -20,6 +20,14 @@ public class ReelComment {
     public int    replyCount;
     /** uid → true for every user who liked this comment. */
     public Map<String, Boolean> likedBy;
+    /** Denormalized copy of users/{uid}/avatarVersion at the moment this
+     *  comment was posted — lets ReelCommentAvatarBinder append the same
+     *  &v=&lt;avatarVersion&gt; cache-bust param AvatarUrlBuilder gives every
+     *  other avatar in the app (see AvatarUrlBuilder class doc). Firebase
+     *  simply leaves this 0 for older comments written before this field
+     *  existed; 0 is already AvatarUrlBuilder's documented "omit the param"
+     *  value, so old comments keep working exactly as before. */
+    public long avatarVersion;
 
     // ── Advanced fields ──────────────────────────────────────────────────
     /** True when the reel owner has pinned this comment to the top. */

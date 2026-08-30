@@ -37,7 +37,10 @@ import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.AvatarSizeTier;
 import com.callx.app.utils.AvatarUrlBuilder;
+import com.callx.app.utils.BlurHashPlaceholder;
 import com.callx.app.cache.ReelsAvatarL2Cache;
+import com.callx.app.cache.AvatarVersionSyncManager;
+import com.callx.app.cache.AvatarCacheAnalytics;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ServerValue;
 import de.hdodenhof.circleimageview.CircleImageView;
@@ -73,6 +76,13 @@ public class ReelUiController {
     // fails. Lets onBecameInvisible() cancel ONLY a still-running fetch
     // instead of clearing an avatar that already finished loading.
     private boolean avatarLoadInFlight = false;
+    // Delta-sync (see AvatarVersionSyncManager): the uid we're currently
+    // holding a targeted "avatarVersion" watch for, or null if none. Only
+    // ever the CURRENTLY VISIBLE reel's owner is watched — attached in
+    // onBecameVisible(), detached in onBecameInvisible() — so this never
+    // accumulates one live listener per reel the user has ever scrolled past.
+    private String watchedAvatarUid;
+    private final AvatarVersionSyncManager.Listener avatarVersionListener = this::onAvatarVersionChanged;
     private ImageView       ivOwnerStoryRing;
     private TextView        tvOwnerName;
     private TextView        tvCaption;
@@ -267,6 +277,30 @@ public class ReelUiController {
     }
 
     /**
+     * LQIP: returns a Drawable wrapping the decoded BlurHash bitmap for this
+     * reel's owner avatar (see ReelModel#ownerAvatarBlurHash), or null if the
+     * reel has none — callers fall back to the plain ic_person placeholder in
+     * that case, same as before this feature shipped. Decode is fully
+     * offline (BlurHashPlaceholder decodes-then-caches by hash string), so
+     * this never costs a network request even on a first-ever cold view of
+     * this reel — unlike the disk-cache-only / network Glide requests below,
+     * which is exactly the gap this closes: an instant, color-accurate
+     * preview instead of a flat icon while those are still in flight.
+     */
+    private Drawable ownerAvatarBlurPlaceholder(android.content.Context ctx) {
+        ReelModel reel = delegate.getReel();
+        if (reel == null || reel.ownerAvatarBlurHash == null || reel.ownerAvatarBlurHash.isEmpty()) return null;
+        Bitmap blur = BlurHashPlaceholder.get(reel.ownerAvatarBlurHash, 32, 32);
+        return blur != null ? new android.graphics.drawable.BitmapDrawable(ctx.getResources(), blur) : null;
+    }
+
+    /** Same as {@link #ownerAvatarBlurPlaceholder}, falling back to a plain drawable resource when there's no BlurHash. */
+    private Drawable ownerAvatarBlurPlaceholderOr(android.content.Context ctx, int fallbackResId) {
+        Drawable blur = ownerAvatarBlurPlaceholder(ctx);
+        return blur != null ? blur : androidx.core.content.ContextCompat.getDrawable(ctx, fallbackResId);
+    }
+
+    /**
      * FIX (disk-cache-only offscreen load): previously an offscreen reel did
      * a hard skip — placeholder only, zero Glide work — until it actually
      * became visible. Correct for avoiding network, but it also meant a
@@ -286,8 +320,12 @@ public class ReelUiController {
             return;
         }
         android.content.Context avatarCtx = delegate.requireContext();
+        ReelModel reelForVersion = delegate.getReel();
+        long avatarVersion = reelForVersion != null ? reelForVersion.avatarVersion : 0L;
         int sizePx = AvatarUrlBuilder.tierPx(avatarCtx, AvatarSizeTier.SMALL);
-        String resizedUrl = AvatarUrlBuilder.build(avatarCtx, photoUrl, AvatarSizeTier.SMALL);
+        String resizedUrl = AvatarUrlBuilder.buildResponsive(avatarCtx, photoUrl, AvatarSizeTier.SMALL, avatarVersion);
+
+        Drawable fallback = ownerAvatarBlurPlaceholderOr(avatarCtx, R.drawable.ic_person); // LQIP
 
         Glide.with(avatarCtx)
             .load(resizedUrl)
@@ -296,20 +334,49 @@ public class ReelUiController {
                 .format(DecodeFormat.PREFER_RGB_565)
                 .diskCacheStrategy(DiskCacheStrategy.DATA) // disk-only tier — no client-side resize to cache, so DATA (raw bytes) is what a cache hit here needs
                 .onlyRetrieveFromCache(true)               // never touches the network — a miss just falls through to .error()
-                .placeholder(R.drawable.ic_person)
-                .error(R.drawable.ic_person))
+                .priority(com.bumptech.glide.Priority.LOW) // PERF: this reel is still offscreen — never contend with a visible reel's IMMEDIATE avatar request
+                .placeholder(fallback)
+                .error(fallback))
             .into(ivOwnerAvatar);
     }
 
     private void loadOwnerAvatarNow(String photoUrl) {
+        loadOwnerAvatarNow(photoUrl, com.bumptech.glide.Priority.IMMEDIATE);
+    }
+
+    /**
+     * FIX (priority-based Glide queue): Glide runs a single shared executor
+     * per priority bucket, so if a background prefetch (AvatarPrefetcher) and
+     * the CURRENTLY VISIBLE reel's avatar both land in the queue around the
+     * same time, a same-priority FIFO queue can make the user wait behind
+     * work for a reel they haven't even scrolled to yet. Making priority an
+     * explicit parameter (instead of always IMMEDIATE) lets each caller say
+     * how urgent ITS avatar actually is:
+     *   - onBecameVisible()            → IMMEDIATE (this is what's on screen right now)
+     *   - promotePendingAvatarIfSlow() → HIGH      (very likely about to be on screen, but not confirmed yet — see its own doc)
+     *   - AvatarPrefetcher             → LOW       (speculative; never allowed to starve either of the above)
+     * See loadOwnerAvatarDiskCacheOnly for the offscreen-gate side of this —
+     * that one stays LOW/disk-only regardless of caller, since it never
+     * touches the network anyway.
+     */
+    private void loadOwnerAvatarNow(String photoUrl, com.bumptech.glide.Priority priority) {
         if (ivOwnerAvatar == null || !delegate.isAdded() || delegate.getContext() == null) return;
         if (photoUrl == null || photoUrl.isEmpty()) {
             ivOwnerAvatar.setImageResource(R.drawable.ic_person);
             return;
         }
         android.content.Context avatarCtx = delegate.requireContext();
+        ReelModel currentReel = delegate.getReel();
+        long avatarVersion = currentReel != null ? currentReel.avatarVersion : 0L;
         int sizePx = AvatarUrlBuilder.tierPx(avatarCtx, AvatarSizeTier.SMALL); // 36dp view → shared SMALL tier
-        String resizedUrl = AvatarUrlBuilder.build(avatarCtx, photoUrl, AvatarSizeTier.SMALL);
+        // FIX (server-side responsive srcset): buildResponsive() sends
+        // Cloudinary a plain CSS-like tier size + a separate dpr_ param
+        // instead of pre-multiplying retina pixels client-side (see
+        // AvatarUrlBuilder's doc) — the CDN does that math and caches the
+        // (tier, dpr bucket) combination once for every device that shares
+        // it. Still exactly one request for exactly the pixels this view
+        // needs, same as before.
+        String resizedUrl = AvatarUrlBuilder.buildResponsive(avatarCtx, photoUrl, AvatarSizeTier.SMALL, avatarVersion);
 
         // FIX (blur-up thumbnail): chain the TINY tier as a .thumbnail()
         // request — same tier AvatarPrefetcher.THUMBNAIL_TIER warms ahead of
@@ -317,7 +384,7 @@ public class ReelUiController {
         // frame is already a cache hit and paints instantly instead of
         // showing ic_person until the full SMALL-tier decode lands.
         int thumbPx = AvatarUrlBuilder.tierPx(avatarCtx, AvatarSizeTier.TINY);
-        String thumbUrl = AvatarUrlBuilder.build(avatarCtx, photoUrl, AvatarSizeTier.TINY);
+        String thumbUrl = AvatarUrlBuilder.buildResponsive(avatarCtx, photoUrl, AvatarSizeTier.TINY, avatarVersion);
 
         // FIX #5 (onTrimMemory / L2 cache): a per-module WeakReference bitmap
         // cache that deliberately SURVIVES TRIM_MEMORY_MODERATE (only cleared
@@ -329,8 +396,31 @@ public class ReelUiController {
         Bitmap l2Hit = ReelsAvatarL2Cache.get(avatarCtx).get(resizedUrl);
         if (l2Hit != null) {
             ivOwnerAvatar.setImageBitmap(l2Hit);
+            AvatarCacheAnalytics.getInstance(avatarCtx).record(AvatarCacheAnalytics.Tier.L2_MEMORY);
             return;
         }
+
+        // FIX (L3 disk tier): covers the one gap L2 can't — process death.
+        // L2 is in-process memory only, so a fresh cold start after the
+        // process was killed has nothing there either. Tag the view with
+        // the URL this bind is for and fire the disk read in parallel with
+        // the Glide request below (not instead of it — Glide is still the
+        // source of truth and will normally win the race on a warm cache).
+        // If the async disk read lands first AND this exact bind is still
+        // the current one (tag still matches, request still in flight),
+        // paint it immediately; if Glide already resolved by then, the
+        // stale disk hit is simply dropped so it can never flicker over a
+        // newer image.
+        ivOwnerAvatar.setTag(resizedUrl);
+        ReelsAvatarL2Cache.l3(avatarCtx).getAsync(resizedUrl, l3Bmp -> {
+            if (l3Bmp == null) return;
+            if (!delegate.isAdded() || ivOwnerAvatar == null) return;
+            if (!resizedUrl.equals(ivOwnerAvatar.getTag())) return; // rebound to a different reel since
+            if (!avatarLoadInFlight) return; // Glide already resolved this bind — don't flicker over it
+            ivOwnerAvatar.setImageBitmap(l3Bmp);
+            ReelsAvatarL2Cache.get(avatarCtx).put(resizedUrl, l3Bmp); // warm L2 too
+            AvatarCacheAnalytics.getInstance(avatarCtx).record(AvatarCacheAnalytics.Tier.L3_DISK);
+        });
 
         // v44 PERF: dropped .circleCrop(). ivOwnerAvatar is a
         // de.hdodenhof CircleImageView, which ALWAYS circular-clips
@@ -347,7 +437,8 @@ public class ReelUiController {
             .override(sizePx, sizePx)
             .format(DecodeFormat.PREFER_RGB_565) // opaque avatar, no alpha needed — now actually honored
             .diskCacheStrategy(DiskCacheStrategy.RESOURCE) // PERF: cache resized variant on disk — re-scroll won't re-download
-            .placeholder(R.drawable.ic_person);
+            .priority(priority) // PERF: visible reel jumps the queue ahead of any queued prefetch — see this method's doc
+            .placeholder(ownerAvatarBlurPlaceholderOr(avatarCtx, R.drawable.ic_person)); // LQIP
 
         avatarLoadInFlight = true;
         Glide.with(avatarCtx)
@@ -359,7 +450,8 @@ public class ReelUiController {
                     .apply(new RequestOptions()
                         .override(thumbPx, thumbPx)
                         .format(DecodeFormat.PREFER_RGB_565)
-                        .diskCacheStrategy(DiskCacheStrategy.RESOURCE)))
+                        .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+                        .priority(priority))) // PERF: blur-up frame inherits the same urgency as the main request
             // FIX (Job-cancel equivalent, see onBecameInvisible): tracks
             // whether this specific request is still running so an
             // invisible-transition mid-flight can cancel it without
@@ -374,11 +466,20 @@ public class ReelUiController {
                 @Override
                 public boolean onResourceReady(Drawable resource, Object model, Target<Drawable> target, DataSource dataSource, boolean isFirstResource) {
                     avatarLoadInFlight = false;
-                    // Feed the L2 cache so the NEXT bind of this same reel
-                    // (re-scroll, warm restart) can skip Glide entirely.
+                    // CDN/cache split monitoring — funnel Glide's own
+                    // DataSource straight through the shared mapping so this
+                    // stays consistent with every other module recording
+                    // into the same AvatarCacheAnalytics instance.
+                    AvatarCacheAnalytics.getInstance(avatarCtx)
+                        .record(AvatarCacheAnalytics.fromGlideDataSource(dataSource));
+                    // Feed L2 (memory, survives MODERATE) and L3 (disk,
+                    // survives process death) so a future bind of this same
+                    // reel — re-scroll, warm restart, OR a fresh cold start —
+                    // can skip Glide's request pipeline entirely.
                     if (resource instanceof android.graphics.drawable.BitmapDrawable) {
                         Bitmap bmp = ((android.graphics.drawable.BitmapDrawable) resource).getBitmap();
                         ReelsAvatarL2Cache.get(avatarCtx).put(resizedUrl, bmp);
+                        ReelsAvatarL2Cache.l3(avatarCtx).put(resizedUrl, bmp);
                     }
                     return false;
                 }
@@ -399,6 +500,81 @@ public class ReelUiController {
             pendingOwnerAvatarUrl = null;
             loadOwnerAvatarNow(url);
         }
+        attachAvatarVersionWatch();
+    }
+
+    /**
+     * FIX (avatar delta-sync): attach a TARGETED "avatarVersion" watch (see
+     * AvatarVersionSyncManager) for this reel's owner, ONLY while their reel
+     * is the visible one — so if the owner uploads a new avatar while the
+     * viewer is sitting on this exact reel, it refreshes live instead of
+     * waiting for the next full app restart or an unrelated Firebase read to
+     * happen to refetch photoUrl. Deliberately not attached for every reel
+     * in the adapter at once — see onBecameInvisible for the matching
+     * detach, keeping exactly one live listener outstanding at a time
+     * (matches "sirf changed users ka avatarVersion listen karo").
+     */
+    private void attachAvatarVersionWatch() {
+        ReelModel reel = delegate.getReel();
+        if (reel == null || reel.uid == null || reel.uid.isEmpty()) return;
+        if (reel.uid.equals(watchedAvatarUid)) return; // already watching this exact owner
+        detachAvatarVersionWatch();
+        watchedAvatarUid = reel.uid;
+        AvatarVersionSyncManager.getInstance(fragmentView.getContext()).watch(reel.uid, avatarVersionListener);
+    }
+
+    private void detachAvatarVersionWatch() {
+        if (watchedAvatarUid == null) return;
+        AvatarVersionSyncManager.getInstance(fragmentView.getContext()).unwatch(watchedAvatarUid, avatarVersionListener);
+        watchedAvatarUid = null;
+    }
+
+    /**
+     * Fires (main thread) whenever the watched owner's avatarVersion changes
+     * for real. AvatarUrlBuilder already bakes &v=<avatarVersion> into the
+     * resolved URL, so bumping the version alone guarantees the next
+     * loadOwnerAvatarNow() call produces a brand-new Glide/CDN cache key —
+     * this just needs to trigger that reload while the reel is still on
+     * screen, instead of waiting for the next cold bind.
+     */
+    private void onAvatarVersionChanged(String uid, long newVersion) {
+        ReelModel reel = delegate.getReel();
+        if (reel == null || !uid.equals(reel.uid) || !uid.equals(watchedAvatarUid)) return;
+        if (!delegate.isAdded() || delegate.getContext() == null || ivOwnerAvatar == null) return;
+        loadOwnerAvatarNow(reel.ownerPhoto, com.bumptech.glide.Priority.HIGH);
+    }
+
+    /**
+     * FIX (proactive promotion on slow-scroll): previously a disk-cache-only
+     * offscreen avatar (see bindOwnerAvatarGated/loadOwnerAvatarDiskCacheOnly)
+     * only ever got promoted to the real network-capable load in
+     * onBecameVisible() — i.e. only once ViewPager2 fully snapped onto this
+     * page. On a slow, deliberate drag the adjacent page can sit mid-scroll
+     * for a while before that snap fires, and if AvatarPrefetcher hasn't
+     * already warmed this particular reel's disk cache, the user just watches
+     * a bare placeholder the whole time even though the drag clearly shows
+     * they're headed here.
+     *
+     * Called from ReelsFragment#onPageScrolled (via ReelPlayerFragment) once
+     * scroll velocity drops low enough to read as "settling here" rather than
+     * "flying past" — same visibility gate, just triggered earlier, off the
+     * scroll signal instead of the eventual full-visibility callback. Shares
+     * pendingOwnerAvatarUrl with onBecameVisible(), so it's naturally
+     * idempotent: once either one consumes it (or the reel never needed the
+     * gate to begin with), repeated calls while the drag lingers cost
+     * nothing.
+     */
+    public void promotePendingAvatarIfSlow() {
+        if (pendingOwnerAvatarUrl != null) {
+            String url = pendingOwnerAvatarUrl;
+            pendingOwnerAvatarUrl = null;
+            // HIGH, not IMMEDIATE: this reel is very likely about to be the
+            // visible one, but isn't confirmed yet (the drag could still
+            // reverse) — it should jump ahead of any LOW-priority
+            // AvatarPrefetcher work, but never contend with the CURRENTLY
+            // visible reel's own IMMEDIATE request. See loadOwnerAvatarNow's doc.
+            loadOwnerAvatarNow(url, com.bumptech.glide.Priority.HIGH);
+        }
     }
 
     /**
@@ -418,6 +594,7 @@ public class ReelUiController {
      * of flickering back to the placeholder.
      */
     public void onBecameInvisible() {
+        detachAvatarVersionWatch();
         if (avatarLoadInFlight && ivOwnerAvatar != null && delegate.isAdded() && delegate.getContext() != null) {
             Glide.with(delegate.requireContext()).clear(ivOwnerAvatar);
             avatarLoadInFlight = false;
@@ -1424,6 +1601,7 @@ public class ReelUiController {
             Glide.with(delegate.requireContext())
                 .load(reel.pinnedCommentAuthorAvatar)
                 .apply(new RequestOptions().circleCrop().placeholder(R.drawable.ic_person))
+                .listener(AvatarCacheAnalytics.glideListener(delegate.requireContext())) // CDN/cache-tier split — same analytics as owner avatar
                 .into(ivPinnedAvatar);
         }
     }
@@ -1434,6 +1612,7 @@ public class ReelUiController {
         pausedByLongPress = false;
         pendingOwnerAvatarUrl = null; // don't let a deferred load leak into the next recycled reel
         avatarLoadInFlight = false;   // don't let a stale in-flight flag leak into the next recycled reel
+        detachAvatarVersionWatch();   // safety net — onBecameInvisible should already have done this, but a recycled ViewHolder must never carry a live listener into its next bind
         if (discAnimator != null) { discAnimator.cancel(); discAnimator = null; } // triggers onAnimationCancel -> revertDiscLayerType()
         if (tvBioSongName != null) tvBioSongName.release();
         if (tvCollabSongName != null) tvCollabSongName.release();

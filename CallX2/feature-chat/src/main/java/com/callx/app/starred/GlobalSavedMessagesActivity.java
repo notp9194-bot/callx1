@@ -12,6 +12,7 @@ import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
+import com.callx.app.cache.MiscAvatarBinder;
 import com.callx.app.chat.R;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.dao.SavedMessageDao;
@@ -78,6 +79,24 @@ public class GlobalSavedMessagesActivity extends AppCompatActivity {
         rv.setLayoutManager(new LinearLayoutManager(this));
         adapter = new SavedAdapter();
         rv.setAdapter(adapter);
+        // FIX (velocity-based prefetch): fast fling skips prefetch entirely,
+        // slow/deliberate scroll warms several rows ahead — same thresholds
+        // as ChatAvatarBinder/AvatarPrefetcher/FollowAvatarBinder.
+        rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private long lastTimeMs = 0L;
+            @Override public void onScrolled(androidx.annotation.NonNull RecyclerView recyclerView, int dx, int dy) {
+                LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
+                if (lm == null) return;
+                int lastVisible = lm.findLastVisibleItemPosition();
+                if (lastVisible < 0) return;
+                long now = android.os.SystemClock.elapsedRealtime();
+                long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
+                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                lastTimeMs = now;
+                MiscAvatarBinder.prefetch(GlobalSavedMessagesActivity.this, savedAvatarSource(),
+                    lastVisible + 1, velocity, MiscAvatarBinder.ROW_TIER);
+            }
+        });
 
         // ── Search ────────────────────────────────────────────────────────────
         etSearch.addTextChangedListener(new TextWatcher() {
@@ -187,6 +206,15 @@ public class GlobalSavedMessagesActivity extends AppCompatActivity {
 
     // ─── Adapter ──────────────────────────────────────────────────────────────
 
+    /** Read-only view over `filtered` for {@link MiscAvatarBinder#prefetch}. */
+    private MiscAvatarBinder.AvatarSource savedAvatarSource() {
+        return new MiscAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) { return filtered.get(index).senderPhoto; }
+            @Override public long avatarVersion(int index) { return 0L; } // no per-item avatarVersion tracked here
+            @Override public int size() { return filtered.size(); }
+        };
+    }
+
     private class SavedAdapter extends RecyclerView.Adapter<SavedAdapter.VH> {
 
         @Override
@@ -208,15 +236,11 @@ public class GlobalSavedMessagesActivity extends AppCompatActivity {
             h.tvSenderName.setText(item.senderName != null ? item.senderName : "");
 
             // Avatar
-            if (item.senderPhoto != null && !item.senderPhoto.isEmpty()) {
-                Glide.with(h.ivAvatar.getContext())
-                    .load(item.senderPhoto)
-                    .placeholder(R.drawable.ic_person)
-                    .circleCrop()
-                    .into(h.ivAvatar);
-            } else {
-                h.ivAvatar.setImageResource(R.drawable.ic_person);
-            }
+            // FIX (deep avatar pipeline): was a bare Glide.load() with no
+            // shared tier, no L2/L3, no recycle-aware cancel — see MiscAvatarBinder.
+            // applyCircleCrop=false: h.ivAvatar is already a CircleImageView.
+            MiscAvatarBinder.bind(h.ivAvatar.getContext(), h.ivAvatar,
+                item.senderPhoto, 0L, MiscAvatarBinder.ROW_TIER, R.drawable.ic_person, false);
 
             // Message content
             String preview = buildPreview(item);
@@ -263,6 +287,13 @@ public class GlobalSavedMessagesActivity extends AppCompatActivity {
         }
 
         @Override public int getItemCount() { return filtered.size(); }
+
+        @Override
+        public void onViewRecycled(VH h) {
+            // FIX (Lifecycle-aware cancel): stop an in-flight request for a
+            // row that just scrolled off screen.
+            MiscAvatarBinder.cancel(h.ivAvatar.getContext(), h.ivAvatar);
+        }
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;

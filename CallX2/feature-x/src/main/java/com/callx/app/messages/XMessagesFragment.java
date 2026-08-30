@@ -12,6 +12,7 @@ import com.callx.app.utils.FirebaseUtils;
   import androidx.recyclerview.widget.LinearLayoutManager;
   import androidx.recyclerview.widget.RecyclerView;
   import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+  import com.callx.app.cache.XAvatarBinder;
   import com.callx.app.utils.XFirebaseUtils;
   import com.callx.app.x.R;
   import com.google.firebase.auth.FirebaseAuth;
@@ -47,6 +48,23 @@ import com.callx.app.search.XSearchActivity;
           adapter = new XMessagePreviewAdapter(requireContext());
           recyclerView.setLayoutManager(new LinearLayoutManager(requireContext()));
           recyclerView.setAdapter(adapter);
+
+          // FIX (velocity-based prefetch): same measurement + depth thresholds
+          // as XHomeFragment/XNotificationsFragment — see XAvatarBinder.prefetch()'s doc.
+          recyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
+              private long lastScrollTime = 0;
+              @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                  if (dy <= 0) return;
+                  LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
+                  if (lm == null) return;
+                  int lastVisible = lm.findLastVisibleItemPosition();
+                  long now = android.os.SystemClock.elapsedRealtime();
+                  long dt = lastScrollTime == 0 ? 0 : now - lastScrollTime;
+                  lastScrollTime = now;
+                  float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                  XAvatarBinder.prefetch(requireContext(), adapter.avatarSource(), lastVisible + 1, velocity);
+              }
+          });
 
           view.findViewById(R.id.btn_x_new_dm).setOnClickListener(v ->
               startActivity(new Intent(requireContext(), XSearchActivity.class)

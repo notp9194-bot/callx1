@@ -14,6 +14,38 @@ public class ReelModel {
     public String  uid;
     public String  ownerName;
     public String  ownerPhoto;
+
+    /**
+     * BlurHash string for the OWNER's avatar (as opposed to {@link #blurHash}
+     * below, which is the reel's own thumbnail) — denormalized onto the reel
+     * at post time from reels/users/{uid}/avatarBlurHash, the same way
+     * ownerPhoto itself is denormalized from that node (see
+     * ReelUploadActivity's post flow). Generated once per avatar change (see
+     * ProfileActivity#uploadAvatar / CloudinaryUploader), reused by every
+     * reel posted after that until the next avatar change.
+     *
+     * Lets ReelUiController show an instant, color-accurate blurred owner
+     * avatar (LQIP, same idea as Instagram's own avatar/photo placeholders)
+     * the moment a reel is bound — decoded fully offline via
+     * BlurHashPlaceholder, no network round trip — instead of a flat
+     * ic_person icon while the real Glide request (network or disk-cache)
+     * is still in flight. Null/empty for reels posted before this feature
+     * shipped, or whose owner has never set an avatar — UI falls back to
+     * the previous ic_person placeholder in that case.
+     */
+    public String  ownerAvatarBlurHash;
+
+    /**
+     * Denormalized copy of the owner's users/{uid}/avatarVersion at reel-load
+     * time (see AvatarVersionSyncManager, which keeps this current live while
+     * the reel is the visible one). Passed into
+     * AvatarUrlBuilder.buildResponsive(...,avatarVersion) so a fresher
+     * version bump immediately produces a different Glide/CDN cache key
+     * instead of waiting on ownerPhoto itself to be refetched. 0 (default)
+     * means "unknown/never set" — AvatarUrlBuilder treats <= 0 as a no-op.
+     */
+    public long    avatarVersion;
+
     public String  videoUrl;
     public String  video480;
     public String  video720;

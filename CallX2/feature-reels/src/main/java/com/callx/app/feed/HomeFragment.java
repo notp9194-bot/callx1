@@ -47,6 +47,8 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.load.resource.bitmap.CenterCrop;
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.callx.app.utils.AvatarUrlBuilder;
+import com.callx.app.utils.AvatarSizeTier;
+import com.callx.app.cache.HomeStoryAvatarBinder;
 import com.callx.app.reels.R;
 import com.callx.app.camera.ReelCameraActivity;
 import com.callx.app.comments.ReelCommentActivity;
@@ -99,6 +101,31 @@ public class HomeFragment extends Fragment {
 
     private SwipeRefreshLayout swipeRefresh;
     private LinearLayout       containerStories;
+    // FIX (Stories tray deep avatar pipeline): the HorizontalScrollView
+    // wrapping containerStories — needed to compute which story rows are
+    // inside the initial visible viewport (HomeStoryAvatarBinder#bind) vs.
+    // outside it (HomeStoryAvatarBinder#bindGated), and to drive
+    // promote()/prefetch() as the user scrolls the tray. See
+    // bindHeaderViews() and attachStoriesScrollListener().
+    private HorizontalScrollView scrollStories;
+    // Rows currently in containerStories, in tray order — index 0 is
+    // always the "Add Story" button (never gated/tracked here, it has its
+    // own ivMyStoryAvatar handled by loadMyAvatar()). Rebuilt every
+    // loadStories()/clearStoriesKeepAddButton() cycle.
+    private final List<StoryRow> storyRows = new ArrayList<>();
+    // Last-seen scrollX + timestamp on scroll_stories, for the same
+    // velocity-based prefetch depth every other avatar list in the app uses.
+    private int lastStoriesScrollX = 0;
+    private long lastStoriesScrollTimeMs = 0L;
+    private boolean storiesScrollListenerAttached = false;
+
+    /** One inflated Stories-tray row plus the data its avatar bind needs — tracked so the scroll listener can gate/promote/prefetch by tray position. */
+    private static class StoryRow {
+        final View rowView;   // direct child of containerStories — its getLeft() is in the same coordinate space scrollX uses
+        final ImageView avatar;
+        final StoryEntry entry;
+        StoryRow(View rowView, ImageView avatar, StoryEntry entry) { this.rowView = rowView; this.avatar = avatar; this.entry = entry; }
+    }
     private LinearLayout       containerTrending;
     private LinearLayout       containerFriendsActivity;
     private LinearLayout       containerContinueWatching;
@@ -575,8 +602,11 @@ public class HomeFragment extends Fragment {
         boolean hasUnseen;
         /** True when contact has at least one reel_story type — shows gradient ring */
         boolean hasReelStory;
-        StoryEntry(String u, String n, String p, boolean unseen, boolean reelStory) {
+        /** Mirrors users/{uid}/avatarVersion — see HomeStoryAvatarBinder#url. 0 = unversioned. */
+        long avatarVersion;
+        StoryEntry(String u, String n, String p, boolean unseen, boolean reelStory, long avatarVersion) {
             uid = u; name = n; photo = p; hasUnseen = unseen; hasReelStory = reelStory;
+            this.avatarVersion = avatarVersion;
         }
     }
 
@@ -863,6 +893,7 @@ public class HomeFragment extends Fragment {
      *  showFeedFilterDropdown, loadMyAvatar, ...) is unchanged. */
     private void bindHeaderViews(View v) {
         containerStories   = v.findViewById(R.id.container_stories);
+        scrollStories      = v.findViewById(R.id.scroll_stories);
         btnHomeFollowing   = v.findViewById(R.id.btn_home_following);
         btnHomeForYou      = v.findViewById(R.id.btn_home_for_you);
         vFeedIndicator     = v.findViewById(R.id.v_feed_indicator);
@@ -2356,9 +2387,25 @@ public class HomeFragment extends Fragment {
         }
     }
 
-    /** Remove story avatars but keep the "Add Story" button at index 0 */
+    /**
+     * Remove story avatars but keep the "Add Story" button at index 0.
+     *
+     * FIX (Lifecycle-aware cancel): each removed row's in-flight avatar
+     * request is cancelled first via HomeStoryAvatarBinder#cancel — without
+     * this, a still-resolving load for a row about to be torn down (e.g. a
+     * gated row whose promote() never got the chance to finish before the
+     * next pull-to-refresh rebuilt the tray) could otherwise keep running
+     * for a view nobody holds a reference to anymore. storyRows/scroll
+     * tracking state is reset here too, so the next loadStories() build
+     * starts from a clean isVisible-gate baseline instead of promoting
+     * against stale rows from the previous tray.
+     */
     private void clearStoriesKeepAddButton() {
         if (containerStories == null) return;
+        if (getContext() != null) {
+            for (StoryRow row : storyRows) HomeStoryAvatarBinder.cancel(requireContext(), row.avatar);
+        }
+        storyRows.clear();
         for (int i = containerStories.getChildCount() - 1; i >= 1; i--) {
             containerStories.removeViewAt(i);
         }
@@ -2469,6 +2516,7 @@ public class HomeFragment extends Fragment {
             final String uid = uids.get(idx);
             final String[] nameHolder  = new String[1];
             final String[] photoHolder = new String[1];
+            final long[] avatarVersionHolder = { 0L };
             final DataSnapshot[] statusHolder = new DataSnapshot[1];
             final boolean[] userDone   = { false };
             final boolean[] statusDone = { false };
@@ -2491,14 +2539,15 @@ public class HomeFragment extends Fragment {
                 if (hasActive) {
                     // ★ INSTAGRAM FIX: gradient ring is driven purely by
                     // "has this been seen" (see original note this replaces).
-                    slots[slot] = new StoryEntry(uid, nameHolder[0], photoHolder[0], !allSeen, false);
+                    slots[slot] = new StoryEntry(uid, nameHolder[0], photoHolder[0], !allSeen, false, avatarVersionHolder[0]);
                 }
                 contactsRemaining[0]--;
                 if (contactsRemaining[0] == 0) {
                     if (!isAdded() || getContext() == null) return;
                     for (StoryEntry e : slots) if (e != null) collected.add(e);
                     collected.sort((a, b) -> Boolean.compare(!a.hasUnseen, !b.hasUnseen));
-                    for (StoryEntry entry : collected) addStoryView(entry);
+                    for (int i = 0; i < collected.size(); i++) addStoryView(collected.get(i), i);
+                    attachStoriesScrollListener();
                 }
             };
 
@@ -2509,6 +2558,8 @@ public class HomeFragment extends Fragment {
                     String _photo = snap.child("photoUrl").getValue(String.class);
                     String _thumb = snap.child("thumbUrl").getValue(String.class);
                     photoHolder[0] = (_thumb != null && !_thumb.isEmpty()) ? _thumb : _photo;
+                    Long _ver = snap.child("avatarVersion").getValue(Long.class);
+                    avatarVersionHolder[0] = _ver != null ? _ver : 0L;
                     userDone[0] = true;
                     maybeFinishContact.run();
                 }
@@ -2533,7 +2584,19 @@ public class HomeFragment extends Fragment {
         }
     }
 
-    private void addStoryView(StoryEntry entry) {
+    /**
+     * FIX (Stories tray deep avatar pipeline / isVisible gate): rows within
+     * {@link #STORIES_EAGER_COUNT} of the tray start are bound for real
+     * immediately (HomeStoryAvatarBinder#bind, IMMEDIATE priority) — that's
+     * the initial visible viewport before any horizontal scroll happens.
+     * Rows past that are bound gated (disk-cache-only, never touches the
+     * network) and get upgraded to a real load by
+     * attachStoriesScrollListener()'s OnScrollChangeListener once the user
+     * actually scrolls them into view — same "bind cheap now, promote once
+     * truly visible" shape StatusAvatarBinder uses for a real RecyclerView,
+     * adapted to this tray's plain-LinearLayout/no-recycling shape.
+     */
+    private void addStoryView(StoryEntry entry, int index) {
         if (!isAdded() || getContext() == null || containerStories == null) return;
         requireActivity().runOnUiThread(() -> {
             if (!isAdded() || getContext() == null) return;
@@ -2574,19 +2637,81 @@ public class HomeFragment extends Fragment {
                 }
             }
 
-            if (entry.photo != null && !entry.photo.isEmpty()) {
-                Glide.with(requireContext()).load(entry.photo)
-                    .apply(RequestOptions.circleCropTransform())
-                    .placeholder(R.drawable.ic_person)
-                    .override(96, 96)
-                    .into(avatar);
+            // FIX (deep avatar pipeline): shared AvatarSizeTier + density-aware
+            // WebP/AVIF URL, L2/L3 bitmap reuse, blur-up thumbnail, and an
+            // isVisible gate for rows outside the tray's initial viewport —
+            // see HomeStoryAvatarBinder's class doc.
+            if (index < STORIES_EAGER_COUNT) {
+                HomeStoryAvatarBinder.bind(requireContext(), avatar, entry.photo, entry.avatarVersion, R.drawable.ic_person);
+            } else {
+                HomeStoryAvatarBinder.bindGated(requireContext(), avatar, entry.photo, entry.avatarVersion, R.drawable.ic_person);
             }
+            storyRows.add(new StoryRow(storyView, avatar, entry));
 
             // ✅ Open StatusViewerActivity (cross-module via Class.forName)
             storyView.setOnClickListener(v -> openStatusViewer(entry.uid, entry.name));
 
             containerStories.addView(storyView);
         });
+    }
+
+    /** Rows inside this many tray positions of the start are assumed to be
+     *  in the initial visible viewport (scroll_stories is roughly
+     *  screen-width wide, each row ~96dp incl. the leading "Add Story"
+     *  button) — see addStoryView()'s isVisible-gate doc. */
+    private static final int STORIES_EAGER_COUNT = 4;
+
+    /**
+     * FIX (Stories tray deep avatar pipeline): drives HomeStoryAvatarBinder's
+     * isVisible gate off real scroll position instead of the
+     * attach/recycle callbacks a RecyclerView would give for free — every
+     * row here is already attached to the window (see addStoryView), so the
+     * signal StatusAvatarBinder/ChatAvatarBinder normally use isn't
+     * available. Promotes any gated row whose bounds now intersect the
+     * visible viewport, and forwards scroll velocity into
+     * HomeStoryAvatarBinder#prefetch for the rows just past what's visible —
+     * same "fast fling skips, slow scroll warms ahead" behavior every other
+     * avatar list in the app already has.
+     */
+    private void attachStoriesScrollListener() {
+        if (scrollStories == null || storiesScrollListenerAttached) return;
+        storiesScrollListenerAttached = true;
+        lastStoriesScrollX = scrollStories.getScrollX();
+        lastStoriesScrollTimeMs = System.currentTimeMillis();
+        scrollStories.setOnScrollChangeListener((View v, int scrollX, int scrollY, int oldScrollX, int oldScrollY) -> {
+            long now = System.currentTimeMillis();
+            long dt = now - lastStoriesScrollTimeMs;
+            float velocity = dt > 0 ? Math.abs(scrollX - oldScrollX) / (float) dt : 0f;
+            lastStoriesScrollX = scrollX;
+            lastStoriesScrollTimeMs = now;
+
+            int viewportLeft = scrollX;
+            int viewportRight = scrollX + scrollStories.getWidth();
+            int firstOffscreenIndex = -1;
+            for (int i = 0; i < storyRows.size(); i++) {
+                StoryRow row = storyRows.get(i);
+                int left = row.rowView.getLeft();
+                int right = row.rowView.getRight();
+                boolean visible = right >= viewportLeft && left <= viewportRight;
+                if (visible) {
+                    HomeStoryAvatarBinder.promote(requireContext(), row.avatar, row.entry.photo, row.entry.avatarVersion, R.drawable.ic_person);
+                } else if (left > viewportRight && firstOffscreenIndex < 0) {
+                    firstOffscreenIndex = i;
+                }
+            }
+            if (firstOffscreenIndex >= 0) {
+                HomeStoryAvatarBinder.prefetch(requireContext(), storyRowsAvatarSource(), firstOffscreenIndex, velocity);
+            }
+        });
+    }
+
+    /** Read-only view over {@link #storyRows} for {@link HomeStoryAvatarBinder#prefetch}. */
+    private HomeStoryAvatarBinder.AvatarSource storyRowsAvatarSource() {
+        return new HomeStoryAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) { return storyRows.get(index).entry.photo; }
+            @Override public long avatarVersion(int index) { return storyRows.get(index).entry.avatarVersion; }
+            @Override public int size() { return storyRows.size(); }
+        };
     }
 
     /**
@@ -5729,13 +5854,13 @@ public class HomeFragment extends Fragment {
                 String thumb = snap.child("thumbUrl").getValue(String.class);
                 String photo = snap.child("photoUrl").getValue(String.class);
                 String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-                if (url != null && !url.isEmpty()) {
-                    Glide.with(requireContext()).load(url)
-                        .apply(RequestOptions.circleCropTransform())
-                        .placeholder(R.drawable.ic_person)
-                        .override(96, 96)
-                        .into(ivMyStoryAvatar);
-                }
+                Long ver = snap.child("avatarVersion").getValue(Long.class);
+                // FIX (deep avatar pipeline): always inside the tray's initial
+                // viewport (it's the very first row) — real IMMEDIATE bind via
+                // HomeStoryAvatarBinder, same tier/L2/L3/blur-up as every other
+                // Stories-tray row instead of the old flat override(96,96).
+                HomeStoryAvatarBinder.bind(requireContext(), ivMyStoryAvatar, url,
+                        ver != null ? ver : 0L, R.drawable.ic_person);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });

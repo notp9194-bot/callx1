@@ -16,6 +16,7 @@ import androidx.fragment.app.FragmentManager;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
+import com.callx.app.cache.XAvatarBinder;
 import com.callx.app.models.XNotification;
 import com.callx.app.models.XProfile;
 import com.callx.app.utils.XFirebaseUtils;
@@ -133,11 +134,12 @@ public class XProfileSheet extends BottomSheetDialogFragment {
         // Avatar
         CircleImageView ivAvatar = root.findViewById(R.id.iv_xps_avatar);
         String av = xProfile.avatarForList();
+        // FIX (deep avatar pipeline): now XAvatarBinder.bind() at HEADER_TIER
+        // (68dp sheet avatar → LARGE/96 tier) — tiered + versioned CDN url,
+        // L2/L3 reuse shared with the feed/notif/DM pipeline. Banner stays
+        // on plain Glide (not a shared small circular avatar). See class doc.
         if (ivAvatar != null && av != null && !av.isEmpty())
-            Glide.with(this).load(av)
-                .apply(new RequestOptions().circleCrop().diskCacheStrategy(DiskCacheStrategy.ALL)
-                    .placeholder(R.drawable.ic_person))
-                .into(ivAvatar);
+            XAvatarBinder.bind(requireContext(), ivAvatar, av, 0, XAvatarBinder.HEADER_TIER, R.drawable.ic_person);
 
         // Name
         TextView tvName = root.findViewById(R.id.tv_xps_name);

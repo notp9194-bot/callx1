@@ -78,6 +78,7 @@ public class FollowingListActivity extends AppCompatActivity {
         adapter = new FollowingAdapter(filteredItems);
         rv.setLayoutManager(new LinearLayoutManager(this));
         rv.setAdapter(adapter);
+        attachVelocityPrefetch();
 
         if (etSearch != null) {
             etSearch.addTextChangedListener(new TextWatcher() {
@@ -110,10 +111,12 @@ public class FollowingListActivity extends AppCompatActivity {
                                     String thumb = us.child("thumbUrl").getValue(String.class);
                                     photo = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
                                     String bio   = us.child("bio").getValue(String.class);
+                                    Long avatarVer = us.child("avatarVersion").getValue(Long.class);
                                     allItems.add(new FollowersListActivity.UserItem(uid,
                                         name  != null ? name  : "User",
                                         photo != null ? photo : "",
-                                        bio   != null ? bio   : ""));
+                                        bio   != null ? bio   : "",
+                                        avatarVer != null ? avatarVer : 0L));
                                     count[0]++;
                                     if (count[0] >= total) finishLoad();
                                 }
@@ -149,6 +152,39 @@ public class FollowingListActivity extends AppCompatActivity {
         adapter.notifyDataSetChanged();
         if (layoutEmpty != null)
             layoutEmpty.setVisibility(filteredItems.isEmpty() ? View.VISIBLE : View.GONE);
+    }
+
+    /**
+     * FIX (velocity-based prefetch): same measurement ReelsFragment uses for
+     * reels (px moved / ms since last callback) — fast fling skips prefetch,
+     * slow scroll warms several rows ahead via FollowAvatarBinder.prefetch().
+     */
+    private void attachVelocityPrefetch() {
+        rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private long lastTimeMs = 0L;
+
+            @Override public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                long now = android.os.SystemClock.elapsedRealtime();
+                long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
+                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                lastTimeMs = now;
+
+                LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
+                if (lm == null) return;
+                int lastVisible = lm.findLastVisibleItemPosition();
+                if (lastVisible < 0) return;
+
+                FollowAvatarBinder.prefetch(FollowingListActivity.this, followAvatarSource(), lastVisible + 1, velocity);
+            }
+        });
+    }
+
+    private FollowAvatarBinder.AvatarSource followAvatarSource() {
+        return new FollowAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) { return filteredItems.get(index).photo; }
+            @Override public long avatarVersion(int index) { return filteredItems.get(index).avatarVersion; }
+            @Override public int size() { return filteredItems.size(); }
+        };
     }
 
     private void unfollowUser(FollowersListActivity.UserItem u, int pos) {
@@ -200,9 +236,7 @@ public class FollowingListActivity extends AppCompatActivity {
             else { h.tvBio.setText(u.bio); h.tvBio.setVisibility(View.VISIBLE); }
 
             if (!u.photo.isEmpty())
-                Glide.with(FollowingListActivity.this).load(u.photo)
-                    .apply(RequestOptions.circleCropTransform())
-                    .placeholder(R.drawable.ic_person).into(h.ivAvatar);
+                FollowAvatarBinder.bind(FollowingListActivity.this, h.ivAvatar, u.photo, u.avatarVersion, R.drawable.ic_person);
             else h.ivAvatar.setImageResource(R.drawable.ic_person);
 
             // Unfollow button — only for own profile
@@ -234,6 +268,13 @@ public class FollowingListActivity extends AppCompatActivity {
         }
 
         @Override public int getItemCount() { return data.size(); }
+
+        @Override public void onViewRecycled(@NonNull VH h) {
+            // FIX (lifecycle-aware cancel): row went off screen — stop its
+            // in-flight avatar request instead of letting it keep running
+            // for a view the user can no longer see.
+            FollowAvatarBinder.cancel(FollowingListActivity.this, h.ivAvatar);
+        }
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;

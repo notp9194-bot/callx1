@@ -31,6 +31,15 @@ public class ChatEntity {
     public String partnerPhoto;
     public String partnerThumb;  // 100×100 WebP — chat list fast avatar
 
+    /** v52: mirrors users/{partnerUid}/avatarVersion at the moment this row
+     *  was last synced (see AppDatabase.MIGRATION_51_52). Feeds
+     *  ChatAvatarBinder's AvatarUrlBuilder#buildResponsive ?v= param so a
+     *  stale cached partnerPhoto string doesn't also mean a stale Glide/L2/L3
+     *  cache key — same reasoning as UserEntity#avatarVersion / ReelModel's
+     *  denormalized copy. 0 = unversioned (param omitted), matches existing
+     *  rows synced before this column existed. */
+    public long partnerAvatarVersion;
+
     public String lastMessage;
     public Long   lastMessageAt;
     public Long   unread;

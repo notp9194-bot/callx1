@@ -19,6 +19,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
+import com.callx.app.cache.XAvatarBinder;
 import com.callx.app.models.XDMMessage;
 import com.callx.app.utils.ImageCompressor;
 import com.callx.app.utils.PushNotify;
@@ -154,7 +155,9 @@ public class XDMConversationActivity extends AppCompatActivity {
         if (tvHandle != null && otherHandle != null) tvHandle.setText("@" + otherHandle);
         if (ivAvatar != null) {
             String url = (otherThumb != null && !otherThumb.isEmpty()) ? otherThumb : otherPhoto;
-            if (url != null) Glide.with(this).load(url).circleCrop().override(96, 96).into(ivAvatar);
+            // FIX (deep avatar pipeline): now XAvatarBinder.bind() — tiered +
+            // versioned CDN url, L2/L3 reuse. See class doc.
+            if (url != null) XAvatarBinder.bind(this, ivAvatar, url, 0, R.drawable.ic_person);
             if (otherUid != null)
                 ivAvatar.setOnClickListener(v ->
                     XProfileSheet.showProfile(getSupportFragmentManager(), otherUid));

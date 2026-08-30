@@ -26,6 +26,10 @@ import com.google.firebase.database.*;
 import com.google.firebase.auth.FirebaseAuth;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.history.ContactCallHistoryAdapter;
+// PERF (deep avatar pipeline parity — see CallAvatarBinder): tiered/
+// versioned URL + L2/L3 reuse, same shape as CallHistoryAdapter's rows so a
+// partner's avatar decoded there is reused instantly here.
+import com.callx.app.cache.CallAvatarBinder;
 import android.widget.Button;
 import android.os.Handler;
 import android.os.Looper;
@@ -90,6 +94,31 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         rv.setLayoutManager(new LinearLayoutManager(getContext()));
         adapter = new CallHistoryAdapter(logs, this);
         rv.setAdapter(adapter);
+
+        // PERF (deep avatar pipeline parity — see CallAvatarBinder): velocity-
+        // based avatar prefetch, same technique/thresholds ChatsFragment uses
+        // for ChatAvatarBinder.prefetch() — fast fling skips prefetch
+        // entirely, slow/deliberate scroll warms several rows ahead via
+        // DiskCacheStrategy.DATA (bytes only, no speculative decode) until a
+        // row actually becomes visible and CallHistoryAdapter#onBindViewHolder
+        // calls the real CallAvatarBinder.bind().
+        rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private long lastTimeMs = 0L;
+
+            @Override public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
+                if (lm == null || getContext() == null) return;
+                int lastVisible = lm.findLastVisibleItemPosition();
+                if (lastVisible < 0) return;
+
+                long now = android.os.SystemClock.elapsedRealtime();
+                long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
+                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                lastTimeMs = now;
+
+                adapter.prefetchAvatars(getContext(), lastVisible + 1, velocity);
+            }
+        });
 
         // ── Contact click → BottomSheet (Reels-profile style) ──
         adapter.setOnContactClickListener((log, resolvedPhoto) ->
@@ -181,12 +210,10 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         tvName.setText(log.partnerName != null ? log.partnerName : "Unknown");
 
         // Load avatar (use resolved photo if already cached, else load from Firebase)
+        // PERF (deep avatar pipeline parity — see CallAvatarBinder)
         if (resolvedPhoto != null && !resolvedPhoto.isEmpty()) {
-            Glide.with(getContext()).load(resolvedPhoto)
-                .apply(RequestOptions.circleCropTransform())
-                .placeholder(R.drawable.ic_person)
-                .override(96, 96)
-                .into(ivAvatar);
+            CallAvatarBinder.bind(getContext(), ivAvatar, resolvedPhoto, 0,
+                CallAvatarBinder.SHEET_TIER, R.drawable.ic_person);
         }
 
         // Check online status + fetch latest photo in one go
@@ -214,12 +241,10 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
                         String photo = snap.child("photoUrl").getValue(String.class);
                         String thumb = snap.child("thumbUrl").getValue(String.class);
                         String url   = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                        // PERF (deep avatar pipeline parity — see CallAvatarBinder)
                         if (url != null && !url.isEmpty() && getContext() != null && ivAvatar != null)
-                            Glide.with(getContext()).load(url)
-                                .apply(RequestOptions.circleCropTransform())
-                                .placeholder(R.drawable.ic_person)
-                                .override(96, 96)
-                                .into(ivAvatar);
+                            CallAvatarBinder.bind(getContext(), ivAvatar, url, 0,
+                                CallAvatarBinder.SHEET_TIER, R.drawable.ic_person);
                     }
                     @Override public void onCancelled(DatabaseError e) {}
                 });
@@ -799,10 +824,10 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             TextView tv = item.findViewById(R.id.tv_online_name);
             tv.setText(u.name != null ? u.name : "User");
             String onlineAvatar = (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
+            // PERF (deep avatar pipeline parity — see CallAvatarBinder)
             if (onlineAvatar != null && !onlineAvatar.isEmpty()) {
-                Glide.with(getContext()).load(onlineAvatar)
-                    .apply(RequestOptions.circleCropTransform())
-                    .placeholder(R.drawable.ic_person).into(iv);
+                CallAvatarBinder.bind(getContext(), iv, onlineAvatar, 0,
+                    CallAvatarBinder.SHEET_TIER, R.drawable.ic_person);
             }
             // Online avatar tap → open bottom sheet for quick call
             final User finalU = u;
@@ -983,12 +1008,10 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         tvCount.setText(total + " call" + (total != 1 ? "s" : ""));
 
         // Avatar
+        // PERF (deep avatar pipeline parity — see CallAvatarBinder)
         if (resolvedPhoto != null && !resolvedPhoto.isEmpty()) {
-            Glide.with(getContext()).load(resolvedPhoto)
-                .apply(RequestOptions.circleCropTransform())
-                .placeholder(R.drawable.ic_person)
-                .override(96, 96)
-                .into(ivAvatar);
+            CallAvatarBinder.bind(getContext(), ivAvatar, resolvedPhoto, 0,
+                CallAvatarBinder.SHEET_TIER, R.drawable.ic_person);
         }
 
         // Avatar in history sheet → same full-photo zoom

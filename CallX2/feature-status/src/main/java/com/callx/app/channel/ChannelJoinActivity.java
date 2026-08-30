@@ -209,7 +209,10 @@ public class ChannelJoinActivity extends AppCompatActivity {
             tvDescription.setText(desc != null ? desc : "");
 
         if (ivChannelIcon != null && iconUrl != null && !iconUrl.isEmpty()) {
-            Glide.with(this).load(iconUrl).circleCrop().into(ivChannelIcon);
+            // FIX (avatar pipeline parity): was a plain Glide.load with no
+            // override() at all — see ChannelAvatarBinder class doc.
+            com.callx.app.cache.ChannelAvatarBinder.bind(this, ivChannelIcon, iconUrl,
+                    com.callx.app.cache.ChannelAvatarBinder.TIER_JOIN, 0);
         }
 
         if (btnJoin != null) btnJoin.setOnClickListener(v -> joinChannel());

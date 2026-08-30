@@ -27,12 +27,15 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
-import com.bumptech.glide.Glide;
 import com.callx.app.calls.databinding.ActivityCallBinding;
 import com.callx.app.services.CallForegroundService;
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.PushNotify;
+// PERF (deep avatar pipeline parity — see CallAvatarBinder): tiered/
+// versioned URL + L2/L3 reuse, so a partner's avatar already decoded in the
+// call history list is reused instantly on this screen too.
+import com.callx.app.cache.CallAvatarBinder;
 import com.google.firebase.database.ChildEventListener;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
@@ -218,12 +221,13 @@ public class CallActivity extends AppCompatActivity {
 
         String callAvatarUrl = (partnerThumb != null && !partnerThumb.isEmpty())
             ? partnerThumb : partnerPhoto;
+        // PERF (deep avatar pipeline parity — see CallAvatarBinder)
         if (callAvatarUrl != null && !callAvatarUrl.isEmpty()) {
-            Glide.with(this).load(callAvatarUrl).circleCrop().override(96, 96).into(binding.ivCallAvatar);
+            CallAvatarBinder.bind(this, binding.ivCallAvatar, callAvatarUrl, 0,
+                CallAvatarBinder.CALL_TIER, com.callx.app.calls.R.drawable.ic_person);
             if (binding.ivRemoteCamOffAvatar != null)
-                Glide.with(this).load(callAvatarUrl).circleCrop()
-                    .override(96, 96)
-                    .into(binding.ivRemoteCamOffAvatar);
+                CallAvatarBinder.bind(this, binding.ivRemoteCamOffAvatar, callAvatarUrl, 0,
+                    CallAvatarBinder.CALL_TIER, com.callx.app.calls.R.drawable.ic_person);
         }
 
         binding.btnEndCall.setOnClickListener(v -> endCall());

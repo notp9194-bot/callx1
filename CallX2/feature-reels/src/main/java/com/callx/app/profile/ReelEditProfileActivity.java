@@ -9,7 +9,6 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.bumptech.glide.Glide;
 import com.callx.app.reels.R;
 import com.callx.app.utils.ReelCloudinaryUtils;
 import com.callx.app.utils.ReelFirebaseUtils;
@@ -135,14 +134,14 @@ public class ReelEditProfileActivity extends AppCompatActivity {
                     if (etTwitter     != null) etTwitter.setText(twitter);
                     if (etYoutube     != null) etYoutube.setText(youtube);
 
-                    // Avatar load
+                    // Avatar load — FIX (avatar pipeline parity): shared L2/L3 cache + density-aware tier decode instead of a flat override(480,853) — see ProfilePreviewAvatarBinder.
                     String displayUrl = !thumb.isEmpty() ? thumb : photo;
                     if (!displayUrl.isEmpty() && ivAvatar != null)
-                        Glide.with(ReelEditProfileActivity.this).load(displayUrl).override(480, 853).into(ivAvatar);
+                        ProfilePreviewAvatarBinder.bindAvatar(ReelEditProfileActivity.this, ivAvatar, displayUrl);
 
-                    // Banner load
+                    // Banner load — FIX (oversized-decode fix): real pixel footprint instead of a flat 480x853.
                     if (!banner.isEmpty() && ivBanner != null)
-                        Glide.with(ReelEditProfileActivity.this).load(banner).override(480, 853).into(ivBanner);
+                        ProfilePreviewAvatarBinder.bindBanner(ReelEditProfileActivity.this, ivBanner, banner);
                 }
                 @Override
                 public void onCancelled(@NonNull DatabaseError e) {
@@ -164,7 +163,7 @@ public class ReelEditProfileActivity extends AppCompatActivity {
                     // Firebase mein turant thumb save karo
                     ReelFirebaseUtils.reelUserRef(myUid).child("thumbUrl").setValue(thumbUrl);
                     if (ivAvatar != null)
-                        Glide.with(ReelEditProfileActivity.this).load(thumbUrl).override(480, 853).into(ivAvatar);
+                        ProfilePreviewAvatarBinder.bindAvatar(ReelEditProfileActivity.this, ivAvatar, thumbUrl);
                 }
                 @Override public void onFullReady(String photoUrl) {
                     pendingPhoto = photoUrl;
@@ -174,7 +173,7 @@ public class ReelEditProfileActivity extends AppCompatActivity {
                     // Firebase mein full photo save karo
                     ReelFirebaseUtils.reelUserRef(myUid).child("photoUrl").setValue(photoUrl);
                     if (ivAvatar != null)
-                        Glide.with(ReelEditProfileActivity.this).load(photoUrl).override(480, 853).into(ivAvatar);
+                        ProfilePreviewAvatarBinder.bindAvatar(ReelEditProfileActivity.this, ivAvatar, photoUrl);
                     Toast.makeText(ReelEditProfileActivity.this,
                         "Avatar updated!", Toast.LENGTH_SHORT).show();
                 }
@@ -203,7 +202,7 @@ public class ReelEditProfileActivity extends AppCompatActivity {
                     // Firebase mein banner save karo
                     ReelFirebaseUtils.reelUserRef(myUid).child("bannerUrl").setValue(url);
                     if (ivBanner != null)
-                        Glide.with(ReelEditProfileActivity.this).load(url).override(480, 853).into(ivBanner);
+                        ProfilePreviewAvatarBinder.bindBanner(ReelEditProfileActivity.this, ivBanner, url);
                 }
                 @Override public void onError(String msg) {
                     if (pbBanner != null) pbBanner.setVisibility(View.GONE);
@@ -325,4 +324,12 @@ public class ReelEditProfileActivity extends AppCompatActivity {
     }
 
     private String orEmpty(String s) { return s == null ? "" : s; }
+
+    // FIX (lifecycle-aware cancel): stop any in-flight avatar/banner decode once this screen is gone.
+    @Override
+    protected void onDestroy() {
+        if (ivAvatar != null) ProfilePreviewAvatarBinder.cancel(this, ivAvatar);
+        if (ivBanner != null) ProfilePreviewAvatarBinder.cancel(this, ivBanner);
+        super.onDestroy();
+    }
 }

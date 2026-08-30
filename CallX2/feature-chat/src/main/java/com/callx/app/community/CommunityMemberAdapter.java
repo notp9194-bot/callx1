@@ -8,13 +8,7 @@ import androidx.recyclerview.widget.AsyncListDiffer;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.DecodeFormat;
-import com.bumptech.glide.load.engine.DiskCacheStrategy;
-import com.bumptech.glide.request.RequestOptions;
-import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.target.Target;
-import com.bumptech.glide.request.transition.Transition;
 import com.callx.app.community.canvas.CommunityMemberCanvasView;
 import com.callx.app.db.entity.CommunityMemberEntity;
 
@@ -51,8 +45,6 @@ public class CommunityMemberAdapter extends RecyclerView.Adapter<CommunityMember
     private final String currentUid;
     private String myRole = CommunityRole.MEMBER;
     private OnMemberLongPressListener longPressListener;
-    private RequestOptions avatarOptions;
-
     public CommunityMemberAdapter(String currentUid) {
         this.currentUid = currentUid;
     }
@@ -67,17 +59,6 @@ public class CommunityMemberAdapter extends RecyclerView.Adapter<CommunityMember
 
     public void submitList(List<CommunityMemberEntity> list) {
         differ.submitList(list == null ? Collections.emptyList() : list);
-    }
-
-    private RequestOptions avatarOptions(android.content.Context ctx) {
-        if (avatarOptions == null) {
-            int px = Math.round(44 * ctx.getResources().getDisplayMetrics().density);
-            avatarOptions = RequestOptions.circleCropTransform()
-                    .override(px, px)
-                    .format(DecodeFormat.PREFER_RGB_565)
-                    .diskCacheStrategy(DiskCacheStrategy.ALL);
-        }
-        return avatarOptions;
     }
 
     @NonNull
@@ -102,31 +83,22 @@ public class CommunityMemberAdapter extends RecyclerView.Adapter<CommunityMember
             }
         });
 
-        if (h.avatarTarget != null) Glide.with(h.canvasView.getContext()).clear(h.avatarTarget);
+        if (h.avatarTarget != null) com.callx.app.cache.CommunityAvatarBinder.cancelBitmap(h.canvasView.getContext(), h.avatarTarget);
 
-        if (m.photoUrl != null && !m.photoUrl.isEmpty()) {
-            h.avatarTarget = new CustomTarget<Bitmap>() {
-                @Override public void onResourceReady(@NonNull Bitmap bmp, Transition<? super Bitmap> t) {
-                    h.canvasView.setAvatarBitmap(bmp);
-                }
-                @Override public void onLoadCleared(android.graphics.drawable.Drawable p) {
-                    h.canvasView.setAvatarBitmap(null);
-                }
-            };
-            Glide.with(h.canvasView.getContext()).asBitmap()
-                    .load(m.photoUrl)
-                    .apply(avatarOptions(h.canvasView.getContext()))
-                    .into(h.avatarTarget);
-        } else {
-            h.avatarTarget = null;
-        }
+        // FIX (avatar pipeline parity): was a hand-rolled 44dp*density
+        // override with no tier bucketing — see CommunityAvatarBinder class
+        // doc (same member's photo shown as a post author elsewhere now
+        // shares the SMALL tier's cached decode instead of a distinct one).
+        h.avatarTarget = com.callx.app.cache.CommunityAvatarBinder.bindBitmap(
+                h.canvasView.getContext(), m.photoUrl, com.callx.app.cache.CommunityAvatarBinder.TIER_MEMBER,
+                bmp -> h.canvasView.setAvatarBitmap(bmp));
     }
 
     @Override
     public void onViewRecycled(@NonNull VH h) {
         super.onViewRecycled(h);
         if (h.avatarTarget != null) {
-            Glide.with(h.canvasView.getContext()).clear(h.avatarTarget);
+            com.callx.app.cache.CommunityAvatarBinder.cancelBitmap(h.canvasView.getContext(), h.avatarTarget);
             h.avatarTarget = null;
         }
     }

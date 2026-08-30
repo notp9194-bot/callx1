@@ -12,7 +12,6 @@ import androidx.recyclerview.widget.AsyncListDiffer;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
 import com.callx.app.db.entity.GroupEntity;
 import com.callx.app.group.GroupChatActivity;
@@ -105,14 +104,15 @@ public class CommunityGroupAdapter extends RecyclerView.Adapter<CommunityGroupAd
         h.tvLastMessage.setText(preview);
 
         // Avatar
+        // FIX (avatar pipeline parity): this is a GROUP's own icon (just
+        // surfaced inside a community list), so it goes through
+        // GroupAvatarBinder — same class GroupChatActivity/GroupInfoActivity
+        // use — instead of GroupAdapter's own flat .override(96, 96), which
+        // decoded the exact same icon at a different fixed size than every
+        // other screen and never reused the shared L2/L3 tier cache.
         if (g.iconUrl != null && !g.iconUrl.isEmpty()) {
-            Glide.with(ctx)
-                    .load(g.iconUrl)
-                    .circleCrop()
-                    .placeholder(R.drawable.ic_group)
-                    .error(R.drawable.ic_group)
-                    .override(96, 96)
-                    .into(h.ivGroupIcon);
+            com.callx.app.cache.GroupAvatarBinder.bind(ctx, h.ivGroupIcon, g.iconUrl,
+                    com.callx.app.cache.GroupAvatarBinder.TIER_LIST_ROW, R.drawable.ic_group);
             h.ivGroupIcon.setPadding(0, 0, 0, 0);
         } else {
             h.ivGroupIcon.setImageResource(R.drawable.ic_group);
@@ -147,9 +147,7 @@ public class CommunityGroupAdapter extends RecyclerView.Adapter<CommunityGroupAd
     @Override
     public void onViewRecycled(@NonNull VH h) {
         super.onViewRecycled(h);
-        try {
-            Glide.with(h.ivGroupIcon.getContext()).clear(h.ivGroupIcon);
-        } catch (Exception ignored) {}
+        com.callx.app.cache.GroupAvatarBinder.cancel(h.ivGroupIcon.getContext(), h.ivGroupIcon);
     }
 
     @Override

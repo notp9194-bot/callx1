@@ -32,6 +32,11 @@ import com.callx.app.youtube.R;
 import com.callx.app.player.YouTubeVideoOptionsSheet;
 import com.callx.app.downloads.YouTubeDownloadManager;
 import com.callx.app.utils.YouTubePrefs;
+// PERF (deep avatar pipeline parity — see YouTubeAvatarBinder): tiered/
+// versioned URL + L2/L3 reuse for THIS module's own channel/uploader
+// avatars — cross-platform social-card avatars stay on plain Glide (see
+// class doc's NOTE).
+import com.callx.app.cache.YouTubeAvatarBinder;
 import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.common.TrackSelectionParameters;
 import android.os.Build;
@@ -314,8 +319,9 @@ public class YouTubePlayerActivity extends AppCompatActivity {
                     }
                 }
 
-                Glide.with(YouTubePlayerActivity.this)
-                    .load(v.uploaderPhotoUrl).circleCrop().override(96, 96).into(ivChannelAvatar);
+                // PERF (deep avatar pipeline parity — see YouTubeAvatarBinder)
+                YouTubeAvatarBinder.bind(YouTubePlayerActivity.this, ivChannelAvatar,
+                    v.uploaderPhotoUrl, 0, YouTubeAvatarBinder.CHANNEL_TIER, R.drawable.ic_person);
 
                 // Pre-load all 3 avatar URLs for social profile animation
                 uploaderYtPhotoUrl   = v.uploaderPhotoUrl;
@@ -1011,7 +1017,12 @@ public class YouTubePlayerActivity extends AppCompatActivity {
         if (tvSocialName != null)
             tvSocialName.setText(currentVideo.uploaderName != null ? currentVideo.uploaderName : "");
         if (socialAvatar != null && currentVideo.uploaderPhotoUrl != null)
-            Glide.with(this).load(currentVideo.uploaderPhotoUrl).circleCrop().override(96, 96).into(socialAvatar);
+            // PERF (deep avatar pipeline parity — see YouTubeAvatarBinder):
+            // initial paint uses this module's own uploaderPhotoUrl; the
+            // refresh below (Firebase "users" node) is the cross-platform
+            // chat-profile photo and stays on plain Glide (see class doc).
+            YouTubeAvatarBinder.bind(this, socialAvatar, currentVideo.uploaderPhotoUrl, 0,
+                YouTubeAvatarBinder.CHANNEL_TIER, R.drawable.ic_person);
 
         FirebaseDatabase db = FirebaseDatabase.getInstance(
             "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app");
@@ -1246,7 +1257,9 @@ public class YouTubePlayerActivity extends AppCompatActivity {
             view.findViewById(R.id.iv_desc_sheet_avatar);
         if (sheetChannelName != null) sheetChannelName.setText(currentVideo.uploaderName);
         if (sheetAvatar != null) {
-            Glide.with(this).load(currentVideo.uploaderPhotoUrl).circleCrop().override(96, 96).into(sheetAvatar);
+            // PERF (deep avatar pipeline parity — see YouTubeAvatarBinder)
+            YouTubeAvatarBinder.bind(this, sheetAvatar, currentVideo.uploaderPhotoUrl, 0,
+                YouTubeAvatarBinder.CHANNEL_TIER, R.drawable.ic_person);
         }
         if (sheetSubs != null && uploaderUid != null) {
             db.getReference("youtube/channels").child(uploaderUid).child("subscriberCount")

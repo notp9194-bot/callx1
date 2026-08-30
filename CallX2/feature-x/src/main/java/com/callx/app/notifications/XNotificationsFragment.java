@@ -9,6 +9,7 @@ import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+import com.callx.app.cache.XAvatarBinder;
 import com.callx.app.models.XNotification;
 import com.callx.app.utils.XFirebaseUtils;
 import com.callx.app.x.R;
@@ -58,6 +59,23 @@ public class XNotificationsFragment extends Fragment {
 
         swipeRefresh.setColorSchemeColors(requireContext().getColor(R.color.x_accent));
         swipeRefresh.setOnRefreshListener(this::load);
+
+        // FIX (velocity-based prefetch): same measurement + depth thresholds
+        // as XHomeFragment/ChatsFragment — see XAvatarBinder.prefetch()'s doc.
+        recyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private long lastScrollTime = 0;
+            @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                if (dy <= 0) return;
+                LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
+                if (lm == null) return;
+                int lastVisible = lm.findLastVisibleItemPosition();
+                long now = android.os.SystemClock.elapsedRealtime();
+                long dt = lastScrollTime == 0 ? 0 : now - lastScrollTime;
+                lastScrollTime = now;
+                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                XAvatarBinder.prefetch(requireContext(), adapter.avatarSource(), lastVisible + 1, velocity);
+            }
+        });
 
         buildTabs(view);
         load();

@@ -14,6 +14,7 @@ import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.chat.R;
+import com.callx.app.cache.ChatAvatarBinder;
 
 import com.callx.app.chatlist.canvas.ChatListCallButtonsView;
 import com.callx.app.chatlist.canvas.ChatListLastMessageView;
@@ -526,22 +527,15 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         // placeholder, not a promotion to full-res. Full photoUrl is loaded
         // ONLY where it's actually needed at full size — profile open,
         // avatar zoom (see showAvatarZoom below) — never in this row bind.
-        String avatarUrl = resolveListAvatarUrl(u);
-        int avatarPx = getAvatarSizePx(ctx);
-        if (avatarUrl != null && !avatarUrl.isEmpty()) {
-            Glide.with(ctx)
-                    .load(avatarUrl)
-                    .dontAnimate()
-                    .override(avatarPx, avatarPx)
-                    .format(AVATAR_FORMAT)
-                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-                    .apply(RequestOptions.circleCropTransform())
-                    .placeholder(R.drawable.ic_person)
-                    .error(R.drawable.ic_person)
-                    .into(h.ivAvatar);
-        } else {
-            h.ivAvatar.setImageResource(R.drawable.ic_person);
-        }
+        //
+        // FIX (deep avatar pipeline): the manual per-field Glide chain here
+        // (raw flat-dp override, no tier bucketing, no CDN transform/format
+        // param, no L2/L3 reuse) is now ChatAvatarBinder.bind() — same
+        // AvatarSizeTier + density-bucketed WebP/AVIF CDN URL, L2-memory
+        // fast path (survives TRIM_MEMORY_MODERATE), and L2/L3 write-through
+        // on a real decode that AvatarPrefetcher/FollowAvatarBinder already
+        // give reels and the follow lists. See ChatAvatarBinder class doc.
+        ChatAvatarBinder.bind(ctx, h.ivAvatar, u.thumbUrl, u.avatarVersion, R.drawable.ic_person);
         // v85: pre-warm Glide decode for next contact — DEFERRED below along
         // with the typing listener (see BIND_SETTLE_DELAY_MS comment) instead
         // of firing synchronously on every bind. Building a second Glide
@@ -812,19 +806,22 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
      * v208: uses resolveListAvatarUrl() — thumb-only, same as the actual
      * bind — so this never wastefully preloads a full-res photo that
      * onBindViewHolderTimed() was never going to load anyway.
+     *
+     * FIX (deep avatar pipeline): now delegates to ChatAvatarBinder's
+     * tiered/versioned URL + DiskCacheStrategy.DATA (bytes only, no
+     * speculative decode) — same shape as ChatAvatarBinder.prefetch()'s
+     * per-row loop, so this one-ahead warm and the velocity-based window
+     * prefetch (see ChatsFragment's scroll listener) never produce
+     * mismatched cache keys for the same row.
      */
     private void preloadAdjacentAvatar(Context ctx, User adj) {
         if (adj == null) return;
-        String url = resolveListAvatarUrl(adj);
+        String url = ChatAvatarBinder.url(ctx, adj.thumbUrl, adj.avatarVersion);
         if (url == null || url.isEmpty()) return;
-        int px = getAvatarSizePx(ctx);
         Glide.with(ctx)
                 .load(url)
-                .override(px, px)
-                .format(AVATAR_FORMAT)
-                .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-                .apply(RequestOptions.circleCropTransform())
-                .preload(px, px);
+                .diskCacheStrategy(DiskCacheStrategy.DATA)
+                .preload();
     }
 
     /**
@@ -849,8 +846,11 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     public void onViewRecycled(@NonNull VH h) {
         super.onViewRecycled(h);
         if (h.ivAvatar != null) {
-            try { Glide.with(h.ivAvatar.getContext()).clear(h.ivAvatar); }
-            catch (Exception ignored) {}
+            // FIX (deep avatar pipeline): ChatAvatarBinder.cancel() —
+            // same Glide.clear() this already did, now the shared choke
+            // point every avatar list in the app uses (see
+            // FollowAvatarBinder#cancel for the reels equivalent).
+            ChatAvatarBinder.cancel(h.ivAvatar.getContext(), h.ivAvatar);
         }
         // Row never settled long enough to attach in the first place —
         // drop the pending work instead of letting it fire against a VH

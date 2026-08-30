@@ -15,6 +15,7 @@ import androidx.core.widget.NestedScrollView;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.*;
 import com.bumptech.glide.Glide;
+import com.callx.app.cache.XAvatarBinder;
 import com.callx.app.profile.XProfileSheet;
 import com.callx.app.compose.XComposeActivity;
 import com.callx.app.feed.XTweetAdapter;
@@ -150,12 +151,11 @@ public class XExploreFragment extends Fragment implements XTweetAdapter.OnTweetA
 
             String wtfAvatarUrl = (su.user.thumbUrl != null && !su.user.thumbUrl.isEmpty())
                 ? su.user.thumbUrl : su.user.photoUrl;
-            Glide.with(requireContext())
-                .load(wtfAvatarUrl)
-                .circleCrop()
-                .placeholder(R.drawable.ic_person)
-                .override(96, 96)
-                .into(ivAvatar);
+            // FIX (deep avatar pipeline): now XAvatarBinder.bind() at SUGGESTION_TIER
+            // (56dp card → MEDIUM/64 tier) — tiered + versioned CDN url, L2/L3 reuse
+            // with the feed/notif/DM pipeline. See XAvatarBinder class doc.
+            XAvatarBinder.bind(requireContext(), ivAvatar, wtfAvatarUrl, 0,
+                XAvatarBinder.SUGGESTION_TIER, R.drawable.ic_person);
 
             tvName.setText(su.user.name != null ? su.user.name : "User");
             tvHandle.setText("@" + (su.user.handle != null ? su.user.handle : ""));
@@ -373,10 +373,11 @@ public class XExploreFragment extends Fragment implements XTweetAdapter.OnTweetA
                     View row = LayoutInflater.from(requireContext())
                         .inflate(R.layout.item_x_user_row, llUserResults, false);
                     String srchAvatarUrl = (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
-                    Glide.with(requireContext()).load(srchAvatarUrl).circleCrop()
-                        .placeholder(R.drawable.ic_person)
-                        .override(96, 96)
-                        .into((android.widget.ImageView) row.findViewById(R.id.iv_x_user_avatar));
+                    // FIX (deep avatar pipeline): now XAvatarBinder.bind() — tiered +
+                    // versioned CDN url, L2/L3 reuse. See class doc.
+                    XAvatarBinder.bind(requireContext(),
+                        (android.widget.ImageView) row.findViewById(R.id.iv_x_user_avatar),
+                        srchAvatarUrl, 0, R.drawable.ic_person);
                     ((TextView) row.findViewById(R.id.tv_x_user_name)).setText(u.name);
                     ((TextView) row.findViewById(R.id.tv_x_user_handle)).setText("@" + u.handle);
                     String uid = u.uid;

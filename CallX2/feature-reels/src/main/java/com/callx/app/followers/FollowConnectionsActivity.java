@@ -14,7 +14,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.*;
 import androidx.viewpager2.widget.ViewPager2;
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.profile.ReelUserProfileSheet;
 import com.callx.app.profile.UserReelsActivity;
 import com.callx.app.reels.R;
@@ -207,6 +206,32 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         UserListAdapter adapter = new UserListAdapter(filteredItems[tabIdx], tabIdx);
         adapters[tabIdx] = adapter;
         rv.setAdapter(adapter);
+
+        // FIX (velocity-based prefetch): was missing entirely on this
+        // consolidated screen (the old per-tab FollowersListActivity/
+        // FollowingListActivity had it — see FollowAvatarBinder's class
+        // doc). Same velocity measurement + depth thresholds as every
+        // other avatar list in the app: fast fling skips prefetch
+        // entirely, slow/deliberate scroll warms several rows ahead via
+        // DiskCacheStrategy.DATA (bytes only, decode deferred to a real
+        // bind once the row is actually visible).
+        rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private long lastTimeMs = 0L;
+
+            @Override public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
+                if (lm == null) return;
+                int lastVisible = lm.findLastVisibleItemPosition();
+                if (lastVisible < 0) return;
+
+                long now = android.os.SystemClock.elapsedRealtime();
+                long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
+                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                lastTimeMs = now;
+
+                FollowAvatarBinder.prefetch(FollowConnectionsActivity.this, followAvatarSource(tabIdx), lastVisible + 1, velocity);
+            }
+        });
 
         // ProgressBar
         ProgressBar pb = new ProgressBar(ctx);
@@ -664,34 +689,6 @@ public class FollowConnectionsActivity extends AppCompatActivity {
      */
     private class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.VH> {
 
-        // Avatar decode/target size in px — row avatar is a fixed 46dp
-        // circle (see item_follow_user.xml). Route every load through
-        // AvatarUrlBuilder so Cloudinary returns an already-downscaled 2x
-        // variant and Glide never decodes more pixels than the row can
-        // show — same fix applied to the reel comment list.
-        // 46dp row avatar, bucketed to the shared SMALL tier (48dp).
-        private static final AvatarSizeTier AVATAR_TIER = AvatarSizeTier.SMALL;
-
-        // PERF: RequestOptions was rebuilt with `new RequestOptions()
-        // .override(96, 96)` on EVERY avatar bind. The target size is fixed
-        // for every row, so build it once lazily and reuse the same
-        // instance for every Glide.load() call instead.
-        // NOTE: no circleCropTransform() — ivAvatar is a real
-        // CircleImageView, which already clips to a circle at draw time.
-        // Applying circleCrop() on top would allocate + draw a second,
-        // redundant bitmap on every decode for no visual difference.
-        private volatile RequestOptions avatarRequestOptions;
-
-        private RequestOptions avatarRequestOptions(Context ctx) {
-            RequestOptions opts = avatarRequestOptions;
-            if (opts == null) {
-                int sizePx = AvatarUrlBuilder.tierPx(ctx, AVATAR_TIER);
-                opts = new RequestOptions().override(sizePx, sizePx);
-                avatarRequestOptions = opts;
-            }
-            return opts;
-        }
-
         /** Payload marker for a "follow-state only" partial rebind. */
         private static final String PAYLOAD_FOLLOW_STATE = "follow_state";
 
@@ -711,7 +708,8 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                 public boolean areContentsTheSame(@NonNull UserItem a, @NonNull UserItem b) {
                     return Objects.equals(a.name, b.name)
                         && Objects.equals(a.photo, b.photo)
-                        && Objects.equals(a.bio, b.bio);
+                        && Objects.equals(a.bio, b.bio)
+                        && a.avatarVersion == b.avatarVersion;
                 }
             });
         private final int tabIdx;
@@ -783,8 +781,15 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             UserItem u = getItem(pos);
             h.boundItem = u;
 
-            // Avatar
-            bindAvatar(h.ivAvatar, u.photo);
+            // FIX (deep avatar pipeline): flat AvatarUrlBuilder.build() +
+            // manual URL-tag dedupe replaced with FollowAvatarBinder.bind()
+            // — the SAME shared pipeline the reel owner avatar, comment
+            // sheet, Home Stories tray, chat list, search, profile, and
+            // status tray already use: density-aware tier sizing, L2/L3
+            // bitmap reuse (survives TRIM_MEMORY_MODERATE), and analytics
+            // wiring. See FollowAvatarBinder's own dedupe-by-URL-tag inside
+            // bind() for why the redundant-load guard moved there.
+            FollowAvatarBinder.bind(FollowConnectionsActivity.this, h.ivAvatar, u.photo, u.avatarVersion, R.drawable.ic_person);
 
             // Name + bio
             h.tvName.setText(u.name != null ? u.name : u.uid);
@@ -799,29 +804,17 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             bindActionButton(h, u, pos);
         }
 
-        private void bindAvatar(CircleImageView iv, String photo) {
-            if (photo == null || photo.isEmpty()) {
-                iv.setTag(R.id.tag_avatar_url, null);
-                iv.setImageResource(R.drawable.ic_person);
-                return;
-            }
-            // PERF: skip the Glide call entirely if this exact URL is
-            // already what's loaded/loading into this recycled row — avoids
-            // redundant request-building work on rebinds where the avatar
-            // didn't actually change (e.g. a follow-state-only refresh).
-            Context ctx = FollowConnectionsActivity.this;
-            Object lastUrl = iv.getTag(R.id.tag_avatar_url);
-            if (photo.equals(lastUrl)) return;
-            iv.setTag(R.id.tag_avatar_url, photo);
-
-            iv.setImageResource(R.drawable.ic_person);
-            String resizedUrl = AvatarUrlBuilder.build(ctx, photo, AVATAR_TIER);
-            Glide.with(ctx)
-                .load(resizedUrl)
-                .apply(avatarRequestOptions(ctx))
-                .placeholder(R.drawable.ic_person)
-                .error(R.drawable.ic_person)
-                .into(iv);
+        /**
+         * FIX (Lifecycle-aware cancel): call from onViewRecycled() below.
+         * Stops an in-flight request for a row that just scrolled off
+         * screen instead of letting it keep competing for bandwidth/decode
+         * time against whatever's now actually visible — same as
+         * ChatListAdapter/StatusAvatarBinder consumers already do.
+         */
+        @Override
+        public void onViewRecycled(@NonNull VH h) {
+            super.onViewRecycled(h);
+            FollowAvatarBinder.cancel(FollowConnectionsActivity.this, h.ivAvatar);
         }
 
         /** Sets visibility/text/style only — click behavior for btnAction is
@@ -1069,12 +1062,27 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         String thumb = snap.child("thumbUrl").getValue(String.class);
         String photo = snap.child("photoUrl").getValue(String.class);
         String bio   = snap.child("bio").getValue(String.class);
+        // FIX (deep avatar pipeline): denormalized for FollowAvatarBinder.url()'s
+        // responsive/version-tagged URL — same field every other avatar-bearing
+        // screen (chat list, profile, search, status) already reads.
+        Long avatarVer = snap.child("avatarVersion").getValue(Long.class);
         String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-        return new UserItem(uid, name != null ? name : uid, p != null ? p : "", bio != null ? bio : "");
+        return new UserItem(uid, name != null ? name : uid, p != null ? p : "", bio != null ? bio : "",
+                avatarVer != null ? avatarVer : 0L);
     }
 
     private String safeMyUid() {
         try { return FirebaseUtils.getCurrentUid(); } catch (Exception e) { return null; }
+    }
+
+    /** AvatarSource view over a single tab's currently-filtered list, for FollowAvatarBinder.prefetch(). Mirrors the old FollowersListActivity#followAvatarSource(). */
+    private FollowAvatarBinder.AvatarSource followAvatarSource(int tabIdx) {
+        List<UserItem> items = filteredItems[tabIdx];
+        return new FollowAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) { return items.get(index).photo; }
+            @Override public long avatarVersion(int index) { return items.get(index).avatarVersion; }
+            @Override public int size() { return items.size(); }
+        };
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -1083,8 +1091,10 @@ public class FollowConnectionsActivity extends AppCompatActivity {
 
     static class UserItem {
         String uid, name, photo, bio;
-        UserItem(String uid, String name, String photo, String bio) {
+        long avatarVersion; // FIX: denormalized for FollowAvatarBinder.url()'s responsive/version-tagged URL
+        UserItem(String uid, String name, String photo, String bio, long avatarVersion) {
             this.uid = uid; this.name = name; this.photo = photo; this.bio = bio;
+            this.avatarVersion = avatarVersion;
         }
     }
 

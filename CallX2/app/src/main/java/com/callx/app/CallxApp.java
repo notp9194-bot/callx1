@@ -247,6 +247,10 @@ public class CallxApp extends Application {
         // ✅ FIX: Trending Sound worker was built but never scheduled anywhere,
         // so it never actually ran. Enqueue it here alongside the other workers.
         com.callx.app.workers.TrendingSoundWorker.scheduleIfNeeded(this);
+        // Reels avatar background pre-warm — charging+WiFi(+idle) only, see
+        // AvatarPreWarmWorker's own doc. One-line enqueue, same as every
+        // other WorkManager schedule() call on this thread.
+        com.callx.app.workers.AvatarPreWarmWorker.schedule(this);
         // ✅ Channel scheduled posts: auto-publish overdue posts every 15 min.
         // Must run at startup so posts scheduled before the last app kill are
         // published promptly — not just when the user opens the composer.

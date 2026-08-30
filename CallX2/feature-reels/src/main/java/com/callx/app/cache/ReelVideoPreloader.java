@@ -118,13 +118,26 @@ public class ReelVideoPreloader {
      *                              Pass -1 (or use the 2-arg overload) if unknown.
      */
     public void preloadFrom(List<ReelModel> reels, int position, float scrollVelocityPxPerMs) {
+        preloadFrom(reels, position, scrollVelocityPxPerMs, -1);
+    }
+
+    /**
+     * @param estimatedLandingReels see ReelsFragment#lastFlingLandingReels /
+     *                              FlingLandingEstimator — a physics-based
+     *                              predicted landing reel when available (-1
+     *                              otherwise), passed straight through to
+     *                              AvatarPrefetcher.
+     */
+    public void preloadFrom(List<ReelModel> reels, int position, float scrollVelocityPxPerMs, int estimatedLandingReels) {
         if (reels == null || reels.isEmpty()) return;
 
         // Owner-avatar prefetch — velocity-aware depth (fast fling skips
         // entirely, slow scroll goes deeper than the video byte-preload
         // window below since a cached avatar bitmap is orders of magnitude
-        // cheaper than a video byte-range). See AvatarPrefetcher class doc.
-        AvatarPrefetcher.prefetch(mContext, reels, position + 1, scrollVelocityPxPerMs);
+        // cheaper than a video byte-range), upgraded to a precise predicted
+        // landing reel when a fling deceleration estimate is available. See
+        // AvatarPrefetcher / FlingLandingEstimator class docs.
+        AvatarPrefetcher.prefetch(mContext, reels, position + 1, scrollVelocityPxPerMs, estimatedLandingReels);
 
         // ── Instagram-level thermal gate ──────────────────────────────────────
         // If device is HOT (severe thermal / low battery / power-save), skip byte

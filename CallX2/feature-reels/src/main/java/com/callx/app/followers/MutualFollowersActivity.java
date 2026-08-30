@@ -13,8 +13,7 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.*;
 
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.request.RequestOptions;
+import com.callx.app.followers.AvatarScrollPrefetchHelper;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
@@ -77,8 +76,15 @@ public class MutualFollowersActivity extends AppCompatActivity {
         if (btnBack != null) btnBack.setOnClickListener(v -> finish());
 
         adapter = new MutualAdapter(filteredItems);
-        rv.setLayoutManager(new LinearLayoutManager(this));
+        LinearLayoutManager mutualLm = new LinearLayoutManager(this);
+        rv.setLayoutManager(mutualLm);
         rv.setAdapter(adapter);
+        // FIX (velocity-based prefetch): fast fling skips ahead, slow scroll warms rows — see FollowAvatarBinder.
+        AvatarScrollPrefetchHelper.attach(rv, mutualLm, new FollowAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) { return filteredItems.get(index).photo; }
+            @Override public long avatarVersion(int index) { return 0L; }
+            @Override public int size() { return filteredItems.size(); }
+        });
 
         if (etSearch != null) {
             etSearch.addTextChangedListener(new TextWatcher() {
@@ -190,11 +196,8 @@ public class MutualFollowersActivity extends AppCompatActivity {
             if (u.bio.isEmpty()) { h.tvBio.setVisibility(View.GONE); }
             else { h.tvBio.setText(u.bio); h.tvBio.setVisibility(View.VISIBLE); }
 
-            if (!u.photo.isEmpty())
-                Glide.with(MutualFollowersActivity.this).load(u.photo)
-                        .apply(RequestOptions.circleCropTransform())
-                        .placeholder(R.drawable.ic_person).into(h.ivAvatar);
-            else h.ivAvatar.setImageResource(R.drawable.ic_person);
+            // FIX (avatar pipeline parity): shared L2/L3 cache + density-aware tier decode instead of a flat Glide load — see FollowAvatarBinder.
+            FollowAvatarBinder.bind(MutualFollowersActivity.this, h.ivAvatar, u.photo, 0L, R.drawable.ic_person);
 
             String myUid = safeMyUid();
             if (myUid != null && !myUid.equals(u.uid)) {
@@ -244,6 +247,11 @@ public class MutualFollowersActivity extends AppCompatActivity {
         }
 
         @Override public int getItemCount() { return data.size(); }
+
+        // FIX (lifecycle-aware cancel): stop an in-flight request for a row that just scrolled off screen.
+        @Override public void onViewRecycled(@NonNull VH h) {
+            FollowAvatarBinder.cancel(MutualFollowersActivity.this, h.ivAvatar);
+        }
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;

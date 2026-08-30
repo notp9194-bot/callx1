@@ -10,7 +10,6 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.bumptech.glide.Glide;
 import com.callx.app.models.ReelProfile;
 import com.callx.app.reels.R;
 import com.callx.app.utils.ReelCloudinaryUtils;
@@ -136,14 +135,15 @@ public class ReelProfileSetupActivity extends AppCompatActivity {
             new ReelCloudinaryUtils.AvatarUploadCallback() {
                 @Override public void onThumbReady(String thumbUrl) {
                     pendingThumb = thumbUrl;
-                    Glide.with(ReelProfileSetupActivity.this).load(thumbUrl).override(480, 853).into(ivAvatar);
+                    // FIX (avatar pipeline parity + oversized-decode fix): was override(480,853) for an 80dp circle — see ProfilePreviewAvatarBinder.
+                    ProfilePreviewAvatarBinder.bindAvatar(ReelProfileSetupActivity.this, ivAvatar, thumbUrl);
                 }
                 @Override public void onFullReady(String photoUrl) {
                     pendingPhoto = photoUrl;
                     if (pbAvatar != null) pbAvatar.setVisibility(View.GONE);
                     avatarUploading = false;
                     updateSaveBtn();
-                    Glide.with(ReelProfileSetupActivity.this).load(photoUrl).override(480, 853).into(ivAvatar);
+                    ProfilePreviewAvatarBinder.bindAvatar(ReelProfileSetupActivity.this, ivAvatar, photoUrl);
                 }
                 @Override public void onError(String msg) {
                     if (pbAvatar != null) pbAvatar.setVisibility(View.GONE);
@@ -167,7 +167,8 @@ public class ReelProfileSetupActivity extends AppCompatActivity {
                     if (pbBanner != null) pbBanner.setVisibility(View.GONE);
                     bannerUploading = false;
                     updateSaveBtn();
-                    Glide.with(ReelProfileSetupActivity.this).load(url).override(480, 853).into(ivBanner);
+                    // FIX (oversized-decode fix): decode at the banner's real pixel footprint instead of a flat 480x853 — see ProfilePreviewAvatarBinder.
+                    ProfilePreviewAvatarBinder.bindBanner(ReelProfileSetupActivity.this, ivBanner, url);
                 }
                 @Override public void onError(String msg) {
                     if (pbBanner != null) pbBanner.setVisibility(View.GONE);
@@ -279,5 +280,13 @@ public class ReelProfileSetupActivity extends AppCompatActivity {
                 Toast.makeText(this, "Save failed: " + e.getMessage(),
                     Toast.LENGTH_LONG).show();
             });
+    }
+
+    // FIX (lifecycle-aware cancel): stop any in-flight avatar/banner decode once this screen is gone.
+    @Override
+    protected void onDestroy() {
+        if (ivAvatar != null) ProfilePreviewAvatarBinder.cancel(this, ivAvatar);
+        if (ivBanner != null) ProfilePreviewAvatarBinder.cancel(this, ivBanner);
+        super.onDestroy();
     }
 }

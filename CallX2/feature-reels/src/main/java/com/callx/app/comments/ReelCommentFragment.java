@@ -761,6 +761,34 @@ public class ReelCommentFragment extends Fragment {
                 }
             });
 
+            // v2 (velocity-based avatar prefetch): measures scroll speed the
+            // same way FollowersListActivity/ChatsFragment do (px moved / ms
+            // elapsed since the last scroll callback) and hands it to
+            // ReelCommentsAdapter#prefetchAvatarsFrom for the rows just past
+            // the last visible one — fast fling skips prefetch entirely,
+            // slow scroll warms several rows ahead. Separate listener from
+            // the pagination one above so a change to either never risks
+            // breaking the other.
+            rvComments.addOnScrollListener(new RecyclerView.OnScrollListener() {
+                private long lastTimeMs = 0L;
+
+                @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                    long now = android.os.SystemClock.elapsedRealtime();
+                    long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
+                    float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                    lastTimeMs = now;
+
+                    LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
+                    if (lm == null || adapter == null) return;
+                    int lastVisible = dy >= 0
+                        ? lm.findLastVisibleItemPosition()
+                        : lm.findFirstVisibleItemPosition();
+                    if (lastVisible < 0) return;
+
+                    adapter.prefetchAvatarsFrom(requireContext(), lastVisible + 1, velocity);
+                }
+            });
+
             attachSwipeToReply(rvComments);
         }
     }

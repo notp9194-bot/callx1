@@ -32,6 +32,7 @@ import com.callx.app.notifications.ReelNotificationsActivity;
 import com.callx.app.upload.ReelUploadActivity;
 import com.callx.app.explore.ReelSearchActivity;
 import com.callx.app.cache.ReelCacheManager;
+import com.callx.app.cache.FlingLandingEstimator;
 import com.callx.app.cache.ReelMetadataPrefetcher;
 import com.callx.app.cache.ReelPredictivePreloader;
 import com.callx.app.cache.ReelVideoPreloader;
@@ -182,6 +183,15 @@ public class ReelsFragment extends Fragment {
     // v5: Predictive preloader + offline manager
     private ReelPredictivePreloader predictivePreloader;
     private float lastScrollVelocity = 0f; // v6: px/ms, feeds adaptive preload window
+    private int lastFlingLandingReels = -1; // FIX: physics-based predicted landing reel, -1 = not yet trustworthy
+
+    // FIX (proactive avatar promotion, isVisible gate): deliberately slower
+    // than AvatarPrefetcher's own SLOW_SCROLL_THRESHOLD (1.0f) — that one
+    // decides "how deep to warm the disk cache", this one decides "the user
+    // is basically about to land here, stop waiting for the official
+    // onPageSelected snap and start the real network-capable avatar fetch
+    // now". See ReelUiController#promotePendingAvatarIfSlow.
+    private static final float PROMOTE_AVATAR_VELOCITY_THRESHOLD = 0.5f; // px/ms
     private ReelOfflineManager      offlineManager;
 
     @Nullable
@@ -305,6 +315,12 @@ public class ReelsFragment extends Fragment {
             private long lastScrollNs = 0;
             private int  lastOffsetPx = 0;
             private float scrollVelocityPxPerMs = 0f;
+            // FIX (fling deceleration curve): previous velocity sample +
+            // its timestamp, so consecutive onPageScrolled calls can derive
+            // a real deceleration rate (not just a single point-in-time
+            // velocity) — see FlingLandingEstimator.
+            private float prevVelocityForAccel = 0f;
+            private long  prevVelocityNs = 0L;
 
             @Override
             public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) {
@@ -320,6 +336,38 @@ public class ReelsFragment extends Fragment {
                 lastScrollNs = nowNs;
                 lastOffsetPx = positionOffsetPixels;
                 ReelsFragment.this.lastScrollVelocity = scrollVelocityPxPerMs;
+
+                // FIX (proactive avatar promotion, isVisible gate): once the
+                // drag is slow enough to read as "settling here" rather than
+                // "flying past", promote whichever adjacent page(s) are
+                // currently under the finger — position and position+1 are
+                // the only ones ViewPager2 can have instantiated anyway
+                // (offscreenPageLimit=1) — from a disk-cache-only load to
+                // the real fetch, instead of waiting for the drag to fully
+                // settle into onPageSelected(). Idempotent per-reel (see
+                // ReelUiController#promotePendingAvatarIfSlow), so calling
+                // this on every low-velocity onPageScrolled tick is free.
+                if (scrollVelocityPxPerMs > 0f && scrollVelocityPxPerMs <= PROMOTE_AVATAR_VELOCITY_THRESHOLD) {
+                    promotePendingAvatarAt(position);
+                    promotePendingAvatarAt(position + 1);
+                }
+
+                // FIX (fling deceleration curve): two consecutive velocity
+                // samples give a real deceleration rate — from there,
+                // kinematics (v²=u²+2as solved for s at v=0) gives the
+                // remaining fling distance, converted to "how many more
+                // reels will this fling actually travel" instead of just
+                // reading fast-vs-slow off the single sample above.
+                if (prevVelocityNs != 0) {
+                    long accelDtMs = (nowNs - prevVelocityNs) / 1_000_000L;
+                    if (accelDtMs > 0) {
+                        float accelPxPerMs2 = (scrollVelocityPxPerMs - prevVelocityForAccel) / accelDtMs;
+                        ReelsFragment.this.lastFlingLandingReels = FlingLandingEstimator.estimateLandingReels(
+                            scrollVelocityPxPerMs, accelPxPerMs2, vpReels.getHeight());
+                    }
+                }
+                prevVelocityForAccel = scrollVelocityPxPerMs;
+                prevVelocityNs = nowNs;
             }
 
             @Override
@@ -362,7 +410,10 @@ public class ReelsFragment extends Fragment {
                     // v7: pass current scroll velocity so AvatarPrefetcher's
                     // lookahead depth adapts (skip on fast fling, go deeper
                     // on a slow deliberate scroll) — see AvatarPrefetcher.
-                    if (videoPreloader != null) videoPreloader.preloadFrom(cur, reelIndex, lastScrollVelocity);
+                    // FIX: also pass the fling-deceleration landing estimate
+                    // (see FlingLandingEstimator) when available — takes
+                    // priority over the velocity-threshold depth above.
+                    if (videoPreloader != null) videoPreloader.preloadFrom(cur, reelIndex, lastScrollVelocity, lastFlingLandingReels);
                 }
                 // Sync preloader to newly visible fragment
                 wirePreloaderToCurrentFragment(position);
@@ -804,6 +855,27 @@ public class ReelsFragment extends Fragment {
     private void wirePreloaderToVisibleFragment() {
         if (vpReels == null) return;
         wirePreloaderToCurrentFragment(vpReels.getCurrentItem());
+    }
+
+    /**
+     * FIX (proactive avatar promotion, isVisible gate): looks up a
+     * ViewPager2 page position's live fragment — only ever {@code position}
+     * and {@code position±1} can exist given offscreenPageLimit=1, so an
+     * out-of-range or not-yet-instantiated position is expected and just
+     * no-ops — and promotes its owner avatar off the disk-cache-only gate
+     * to a real network-capable fetch. Called from onPageScrolled() once
+     * scroll velocity reads as "settling here". See
+     * ReelUiController#promotePendingAvatarIfSlow.
+     */
+    private void promotePendingAvatarAt(int position) {
+        if (adapter == null || position < 0 || position >= adapter.getItemCount()) return;
+        try {
+            androidx.fragment.app.Fragment f = getChildFragmentManager()
+                .findFragmentByTag("f" + adapter.getItemId(position));
+            if (f instanceof com.callx.app.feed.ReelPlayerFragment) {
+                ((com.callx.app.feed.ReelPlayerFragment) f).promotePendingAvatarIfSlow();
+            }
+        } catch (Exception ignored) {}
     }
 
     @Override

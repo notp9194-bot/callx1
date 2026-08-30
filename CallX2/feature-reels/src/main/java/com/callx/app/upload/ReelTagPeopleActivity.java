@@ -8,7 +8,8 @@ import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.*;
-import com.bumptech.glide.Glide;
+import com.callx.app.followers.AvatarScrollPrefetchHelper;
+import com.callx.app.followers.FollowAvatarBinder;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
@@ -45,7 +46,14 @@ public class ReelTagPeopleActivity extends AppCompatActivity {
         layoutSelected=findViewById(R.id.layout_tag_selected); tvSelectedCount=findViewById(R.id.tv_tag_count);
         btnDone=findViewById(R.id.btn_tag_done); progressSearch=findViewById(R.id.progress_tag_search);
         adapter=new ContactAdapter(filtered,this::toggleSelect);
-        rvContacts.setLayoutManager(new LinearLayoutManager(this)); rvContacts.setAdapter(adapter);
+        LinearLayoutManager tagLm = new LinearLayoutManager(this);
+        rvContacts.setLayoutManager(tagLm); rvContacts.setAdapter(adapter);
+        // FIX (velocity-based prefetch): fast fling past contacts skips ahead, slow scroll warms rows — see FollowAvatarBinder.
+        AvatarScrollPrefetchHelper.attach(rvContacts, tagLm, new FollowAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) { return filtered.get(index).photo; }
+            @Override public long avatarVersion(int index) { return 0L; }
+            @Override public int size() { return filtered.size(); }
+        });
         etSearch.addTextChangedListener(new TextWatcher(){
             @Override public void beforeTextChanged(CharSequence s,int st,int c,int a){}
             @Override public void afterTextChanged(Editable s){}
@@ -146,10 +154,13 @@ public class ReelTagPeopleActivity extends AppCompatActivity {
             Contact c=items.get(pos); h.tvName.setText(c.name);
             h.tvUsername.setText(c.username.isEmpty()?"":"@"+c.username);
             h.cbTag.setChecked(sel.contains(c.uid));
-            if(!c.photo.isEmpty()) Glide.with(h.ivAvatar).load(c.photo).circleCrop().placeholder(R.drawable.ic_person).override(96, 96).into(h.ivAvatar);
+            // FIX (avatar pipeline parity): shared L2/L3 cache + density-aware tier decode instead of a flat Glide load — see FollowAvatarBinder.
+            FollowAvatarBinder.bind(h.itemView.getContext(), h.ivAvatar, c.photo, 0L, R.drawable.ic_person);
             h.itemView.setOnClickListener(v->toggle.accept(c));
         }
         @Override public int getItemCount(){return items.size();}
+        // FIX (lifecycle-aware cancel): stop an in-flight request for a row that just scrolled off screen.
+        @Override public void onViewRecycled(@NonNull VH h){ FollowAvatarBinder.cancel(h.itemView.getContext(), h.ivAvatar); }
         static class VH extends RecyclerView.ViewHolder{
             CircleImageView ivAvatar; TextView tvName,tvUsername; CheckBox cbTag;
             VH(View v){super(v);ivAvatar=v.findViewById(R.id.iv_tag_avatar);tvName=v.findViewById(R.id.tv_tag_name);tvUsername=v.findViewById(R.id.tv_tag_username);cbTag=v.findViewById(R.id.cb_tag_check);}

@@ -23,6 +23,10 @@ import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.profile.ReelUserProfileSheet;
+// PERF (deep avatar pipeline parity — see YouTubeAvatarBinder): tiered/
+// versioned URL + L2/L3 reuse, same shape as CallAvatarBinder/ChatAvatarBinder
+// elsewhere in the app.
+import com.callx.app.cache.YouTubeAvatarBinder;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -179,7 +183,12 @@ public class YouTubeChannelActivity extends AppCompatActivity {
                 tvSubs.setText(formatCount(subscriberCount) + " subscribers");
                 tvVideoCount.setText((vids != null ? vids : 0) + " videos");
 
-                Glide.with(YouTubeChannelActivity.this).load(photo).circleCrop().override(96, 96).into(ivAvatar);
+                // PERF (deep avatar pipeline parity — see YouTubeAvatarBinder):
+                // channel's own avatar (uses this module's photoUrl, not a
+                // cross-platform card avatar — see class doc's NOTE) —
+                // reel/X/chat card avatars below stay on plain Glide.
+                YouTubeAvatarBinder.bind(YouTubeChannelActivity.this, ivAvatar, photo, 0,
+                    YouTubeAvatarBinder.CHANNEL_TIER, com.callx.app.youtube.R.drawable.ic_person);
                 if (banner != null && !banner.isEmpty())
                     Glide.with(YouTubeChannelActivity.this).load(banner)
                         .override(720, 720)

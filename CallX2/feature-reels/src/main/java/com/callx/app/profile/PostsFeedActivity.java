@@ -35,6 +35,7 @@ import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.comments.ReelCommentActivity;
+import com.callx.app.cache.PostFeedAvatarBinder;
 import com.callx.app.feed.PostFeedUltraOptimizer;
 import com.callx.app.models.ReelModel;
 import com.callx.app.player.ReelOfflineManager;
@@ -256,10 +257,32 @@ public class PostsFeedActivity extends AppCompatActivity {
             this::maybeTrimOrReloadPostWindow);
 
         recyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private long lastTimeMs = 0L;
+
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
                 feedOptimizer.onRecyclerScrolled(dx, dy);
                 updateActiveAudioForVisibleItem();
                 maybeTrimOrReloadPostWindow();
+
+                // FIX (velocity-based prefetch): route through
+                // PostFeedAvatarBinder.prefetch() — same velocity
+                // measurement + depth thresholds as every other avatar
+                // list in the app (fast fling skips prefetch entirely,
+                // slow scroll warms several rows ahead). Mostly a no-op
+                // hit for the repeated single-owner avatar, but pays off
+                // for the varying collab-post avatars scattered through
+                // this feed.
+                LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
+                if (lm != null) {
+                    int lastVisible = lm.findLastVisibleItemPosition();
+                    if (lastVisible >= 0) {
+                        long now = android.os.SystemClock.elapsedRealtime();
+                        long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
+                        float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                        lastTimeMs = now;
+                        PostFeedAvatarBinder.prefetch(PostsFeedActivity.this, postFeedAvatarSource(), lastVisible + 1, velocity);
+                    }
+                }
             }
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
                 feedOptimizer.onRecyclerScrollStateChanged(newState);
@@ -449,6 +472,33 @@ public class PostsFeedActivity extends AppCompatActivity {
 
     private int dp(int v) {
         return (int) (v * getResources().getDisplayMetrics().density);
+    }
+
+    /**
+     * AvatarSource view over `posts` for PostFeedAvatarBinder.prefetch() —
+     * resolves each index to whichever avatar that row would ACTUALLY
+     * render: the collab initiator's photo for a collab repost, plain
+     * ownerPhoto otherwise (mirrors PostsAdapter#onBindViewHolder's own
+     * collab-vs-plain avatar branch). Collab photos have no dedicated
+     * avatarVersion field on ReelModel, so they fall back to 0 (still a
+     * valid, just non-cache-busted, buildResponsive() URL).
+     */
+    private PostFeedAvatarBinder.AvatarSource postFeedAvatarSource() {
+        return new PostFeedAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) {
+                ReelModel r = posts.get(index);
+                boolean isCollab = r.collabInitiatorUid != null && !r.collabInitiatorUid.isEmpty()
+                                 && r.collabColaboratorUid != null && !r.collabColaboratorUid.isEmpty();
+                return isCollab ? r.collabInitiatorPhoto : r.ownerPhoto;
+            }
+            @Override public long avatarVersion(int index) {
+                ReelModel r = posts.get(index);
+                boolean isCollab = r.collabInitiatorUid != null && !r.collabInitiatorUid.isEmpty()
+                                 && r.collabColaboratorUid != null && !r.collabColaboratorUid.isEmpty();
+                return isCollab ? 0L : r.avatarVersion;
+            }
+            @Override public int size() { return posts.size(); }
+        };
     }
 
     /** Solid white when active, translucent white otherwise — same dot
@@ -1072,16 +1122,11 @@ public class PostsFeedActivity extends AppCompatActivity {
         // CircleCrop instance on every single bind (every row has an
         // avatar). Same fix as thumbOpts/pagerPhotoOpts: build the
         // RequestOptions once and .apply() the cached instance instead.
-        private final RequestOptions avatarOpts = new RequestOptions()
-            .diskCacheStrategy(DiskCacheStrategy.ALL)
-            .circleCrop();
-
-        // PERF: collab dual-avatar row (initiator + collaborator) was
-        // calling the RequestOptions.circleCropTransform() static factory
-        // — which allocates a new RequestOptions + new CircleCrop — up to
-        // twice per bind, but only ever for collab posts. Same fixed
-        // transform every time, so cached once here instead.
-        private final RequestOptions collabAvatarOpts = RequestOptions.circleCropTransform();
+        // PERF: avatarOpts / collabAvatarOpts (cached per-adapter
+        // RequestOptions instances) were replaced by PostFeedAvatarBinder,
+        // which builds its own tier-sized, L2/L3-aware options per bind —
+        // removed here to avoid two competing avatar pipelines existing
+        // side by side in this class.
 
         // PERF: audio-cover tile (btnAudioCover) — was building a brand
         // new RequestOptions + MultiTransformation(CenterCrop,
@@ -1302,23 +1347,27 @@ public class PostsFeedActivity extends AppCompatActivity {
             }
 
             h.tvOwner.setText(r.ownerName != null ? r.ownerName : "");
-            // PERF: avatarOpts is the adapter-level cached instance above
-            // instead of a fresh .diskCacheStrategy()+.circleCrop() chain
-            // (which allocates a new CircleCrop transform) on every bind.
-            // PERF (URL-skip): same reasoning as the thumb load above — skip
-            // the Glide chain entirely when this holder is already showing
-            // the same avatar URL (e.g. a likesCount-only rebind of the same
-            // post). The collab branch below may still overwrite ivAvatar
-            // with the initiator's photo for a collab post; it keeps
-            // h.lastAvatarUrl in sync so this field always reflects whatever
-            // is ACTUALLY loaded into ivAvatar right now, not just the
-            // non-collab owner photo.
+            // PERF (URL-skip): skip the Glide chain entirely when this
+            // holder is already showing the same avatar URL (e.g. a
+            // likesCount-only rebind of the same post). The collab branch
+            // below may still overwrite ivAvatar with the initiator's
+            // photo for a collab post; it keeps h.lastAvatarUrl in sync so
+            // this field always reflects whatever is ACTUALLY loaded into
+            // ivAvatar right now, not just the non-collab owner photo.
+            // FIX (deep avatar pipeline): flat Glide.load(r.ownerPhoto) +
+            // fixed circleCrop-only RequestOptions replaced with
+            // PostFeedAvatarBinder.bind() — the SAME shared pipeline the
+            // reel owner avatar, comment sheet, Home Stories tray, and
+            // Follow lists already use: density-aware tier sizing +
+            // WebP/AVIF CDN param + ?v=avatarVersion cache-bust, and L2/L3
+            // bitmap reuse (survives TRIM_MEMORY_MODERATE) instead of only
+            // Glide's own disk cache. The URL-skip dedupe above (lastAvatarUrl)
+            // is unchanged — it still avoids rebuilding the request at all
+            // on a same-post rebind.
             if (!java.util.Objects.equals(r.ownerPhoto, h.lastAvatarUrl)) {
                 h.lastAvatarUrl = r.ownerPhoto;
-                Glide.with(h.ivAvatar.getContext())
-                    .load(r.ownerPhoto)
-                    .apply(avatarOpts)
-                    .into(h.ivAvatar);
+                PostFeedAvatarBinder.bind(h.ivAvatar.getContext(), h.ivAvatar, r.ownerPhoto, r.avatarVersion,
+                        com.callx.app.core.R.drawable.ic_person, /* circleCrop= */ true);
             }
 
             // Avatar tap / owner-name tap → open the post owner's profile
@@ -1397,22 +1446,25 @@ public class PostsFeedActivity extends AppCompatActivity {
                 // — a same-post rebind (live-count tick etc.) shouldn't
                 // re-run Glide for either collab avatar when the URL it
                 // already has loaded hasn't changed.
+                // FIX (deep avatar pipeline): same PostFeedAvatarBinder
+                // upgrade as the plain owner avatar above — collab photos
+                // have no dedicated avatarVersion field on ReelModel, so
+                // this passes 0 (still a valid, just non-cache-busted, URL).
+                // av2 is a real CircleImageView (already clips to a circle
+                // at draw time), so circleCrop=false here.
                 if (r.collabCollaboratorPhoto != null && !r.collabCollaboratorPhoto.isEmpty()) {
                     if (!java.util.Objects.equals(r.collabCollaboratorPhoto, h.lastCollabAv2Url)) {
                         h.lastCollabAv2Url = r.collabCollaboratorPhoto;
-                        Glide.with(av2.getContext()).load(r.collabCollaboratorPhoto)
-                            .apply(collabAvatarOpts)
-                            .placeholder(com.callx.app.core.R.drawable.ic_person)
-                            .into(av2);
+                        PostFeedAvatarBinder.bind(av2.getContext(), av2, r.collabCollaboratorPhoto, 0L,
+                                com.callx.app.core.R.drawable.ic_person, /* circleCrop= */ false);
                     }
                 }
                 // Main avatar shows the initiator's photo for a collab post.
                 if (r.collabInitiatorPhoto != null && !r.collabInitiatorPhoto.isEmpty()) {
                     if (!java.util.Objects.equals(r.collabInitiatorPhoto, h.lastAvatarUrl)) {
                         h.lastAvatarUrl = r.collabInitiatorPhoto;
-                        Glide.with(h.ivAvatar.getContext()).load(r.collabInitiatorPhoto)
-                            .apply(collabAvatarOpts)
-                            .into(h.ivAvatar);
+                        PostFeedAvatarBinder.bind(h.ivAvatar.getContext(), h.ivAvatar, r.collabInitiatorPhoto, 0L,
+                                com.callx.app.core.R.drawable.ic_person, /* circleCrop= */ true);
                     }
                 }
                 // Collab click → open initiator's profile: handled by the
@@ -1605,11 +1657,11 @@ public class PostsFeedActivity extends AppCompatActivity {
             // off-screen instead of leaving it referenced until the next bind
             // — keeps peak memory down on long scroll sessions.
             Glide.with(h.ivThumb.getContext()).clear(h.ivThumb);
-            Glide.with(h.ivAvatar.getContext()).clear(h.ivAvatar);
+            PostFeedAvatarBinder.cancel(h.ivAvatar.getContext(), h.ivAvatar);
             if (h.btnAudioCover != null) Glide.with(h.btnAudioCover.getContext()).clear(h.btnAudioCover);
             if (h.collabAvatarContainer instanceof LinearLayout) {
                 CircleImageView av2 = ((LinearLayout) h.collabAvatarContainer).findViewWithTag("collab_av2");
-                if (av2 != null) Glide.with(av2.getContext()).clear(av2);
+                if (av2 != null) PostFeedAvatarBinder.cancel(av2.getContext(), av2);
             }
             // Glide.clear() above drops whatever bitmap was showing — the
             // URL-skip caches (see field doc above the caches) must forget

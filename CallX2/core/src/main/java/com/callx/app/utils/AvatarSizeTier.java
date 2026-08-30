@@ -1,5 +1,8 @@
 package com.callx.app.utils;
 
+import android.app.ActivityManager;
+import android.content.Context;
+
 /**
  * Fixed avatar/cover size tiers (Instagram-style bucketing).
  *
@@ -38,5 +41,48 @@ public enum AvatarSizeTier {
             if (tier.dp >= viewSizeDp) return tier;
         }
         return XLARGE;
+    }
+
+    /** One step smaller, or itself if already the smallest tier (TINY). */
+    public AvatarSizeTier downgraded() {
+        AvatarSizeTier[] vals = values();
+        int idx = ordinal();
+        return idx > 0 ? vals[idx - 1] : this;
+    }
+
+    /**
+     * FIX (device-memory-class multiplier): on a low-RAM device, resolve
+     * one tier smaller than what the view asked for — e.g. a MEDIUM (64dp)
+     * request decodes/holds SMALL (48dp) pixels instead. This is separate
+     * from AvatarUrlBuilder's density bucketing (which controls sharpness
+     * per screen density) — this controls the raw pixel BUDGET per avatar
+     * bitmap, cut for devices where memory pressure and eviction churn
+     * already dominate and an extra tier of resolution is wasted cost
+     * more often than it's a visible improvement. Never below TINY.
+     *
+     * ALWAYS route requested tiers through this before building a URL or
+     * an override() size — see AvatarUrlBuilder#tierPx, the single choke
+     * point both build() overloads funnel through, so the CDN-requested
+     * size and the Glide decode size can never drift apart.
+     */
+    public static AvatarSizeTier effectiveTier(Context ctx, AvatarSizeTier requested) {
+        return isLowRamDevice(ctx) ? requested.downgraded() : requested;
+    }
+
+    // ActivityManager#isLowRamDevice() is a cheap call but there's no reason
+    // to repeat it on every single avatar bind — it can't change mid-process.
+    private static volatile Boolean sIsLowRam;
+
+    private static boolean isLowRamDevice(Context ctx) {
+        Boolean cached = sIsLowRam;
+        if (cached != null) return cached;
+        boolean result = false;
+        try {
+            ActivityManager am = (ActivityManager) ctx.getApplicationContext()
+                    .getSystemService(Context.ACTIVITY_SERVICE);
+            if (am != null) result = am.isLowRamDevice();
+        } catch (Exception ignored) {}
+        sIsLowRam = result;
+        return result;
     }
 }

@@ -10,6 +10,12 @@ public class User {
     public String phone;         // Phone / WhatsApp number
     public String photoUrl;
     public String thumbUrl;      // 100×100 WebP — chat list / notification avatars
+    /** Mirrors users/{uid}/avatarVersion — auto-populated by Firebase's
+     *  reflection-based getValue(User.class) deserialization since the field
+     *  name matches the Firebase child exactly. See AvatarUrlBuilder#build /
+     *  buildResponsive (appends this as a cache-busting ?v= param) and
+     *  AvatarVersionSyncManager (targeted live watch on this same child). */
+    public long avatarVersion;
     public String fcmToken;
     public Long lastSeen;
     // WhatsApp style chat list metadata

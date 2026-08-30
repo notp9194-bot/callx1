@@ -94,7 +94,8 @@ public final class AvatarUrlBuilder {
      * being visually sharp on every density class.
      */
     public static int tierPx(Context ctx, AvatarSizeTier tier) {
-        return Math.round(dpToPx(ctx, tier.dp) * densityMultiplier(ctx));
+        AvatarSizeTier effective = AvatarSizeTier.effectiveTier(ctx, tier); // FIX: low-RAM devices drop one tier
+        return Math.round(dpToPx(ctx, effective.dp) * densityMultiplier(ctx));
     }
 
     /**
@@ -133,17 +134,82 @@ public final class AvatarUrlBuilder {
         int idx = baseUrl.indexOf(marker);
         if (idx < 0) return baseUrl; // not a Cloudinary delivery URL — return as-is, no-op
 
-        // f_auto = Cloudinary content-negotiates the best format per request
-        // (WebP/AVIF on clients that support it, falls back to JPEG) purely
-        // from the Accept header — no separate URL/param needed on our side,
-        // and it composes with the density-bucketed sizePx above so each
-        // (tier × density-bucket) combination still resolves to exactly one
-        // cached CDN variant instead of fragmenting further.
+        // FIX (AVIF fallback detection): was f_auto (Cloudinary content-
+        // negotiates the format from the request's Accept header) — but
+        // Glide's OkHttp client doesn't send an image-format Accept header
+        // the way a browser does, so f_auto had nothing real to negotiate
+        // against here. Now picks the format explicitly from the device's
+        // actual decode capability instead: platform AVIF decode
+        // (BitmapFactory/ImageDecoder) landed at API 31 (Android 12) — below
+        // that there's no native AVIF path, so WebP (universally decodable
+        // since API 14) is requested instead. Still composes with the
+        // (tier × density-bucket) split above, so each combination resolves
+        // to exactly one cached CDN variant, now also split by this
+        // OS-version format bucket.
         String transform = "w_" + sizePx + ",h_" + sizePx
-                + ",c_fill,g_face,q_auto,f_auto/";
+                + ",c_fill,g_face,q_auto," + bestFormatParam() + "/";
         return baseUrl.substring(0, idx + marker.length())
                 + transform
                 + baseUrl.substring(idx + marker.length());
+    }
+
+    /** AVIF where the platform can actually decode it (API 31+), WebP everywhere else. */
+    private static String bestFormatParam() {
+        return android.os.Build.VERSION.SDK_INT >= 31 ? "f_avif" : "f_webp";
+    }
+
+    // ── Responsive srcset (server-side, DPR-aware) ──────────────────────────
+    //
+    // build()/buildPx() above compute the FINAL retina pixel count on the
+    // client (tier.dp * densityMultiplier) and bake that raw number into
+    // w_/h_ — Cloudinary just delivers whatever exact pixel size it's told.
+    // That's correct, but it means all the "how sharp should this be for
+    // THIS device" math happens client-side, and two devices in the same
+    // density bucket that ended up with a slightly different computed px
+    // value would fragment the CDN cache further than necessary.
+    //
+    // buildResponsive() instead asks Cloudinary to do that math server-side:
+    // it sends the tier's plain CSS-like size (w_<tier.dp>, h_<tier.dp>) and
+    // a SEPARATE dpr_<bucket> parameter, and Cloudinary itself multiplies
+    // them into the delivered pixel size at the edge. The client still only
+    // ever issues ONE request for exactly the pixels it needs — same "one
+    // smart URL" outcome as build()/buildPx() — but the retina computation
+    // is now the CDN's job, and every device in the same (tier, dpr bucket)
+    // pair is guaranteed to hit the exact same cached CDN variant, since the
+    // two dimensions (logical size vs. density) are expressed as Cloudinary's
+    // own independent transform params instead of pre-multiplied by hand.
+
+    /** Responsive variant of {@link #build(Context, String, AvatarSizeTier, long)} — see class doc above. */
+    public static String buildResponsive(Context ctx, String baseUrl, AvatarSizeTier tier, long avatarVersion) {
+        return appendVersion(buildResponsive(ctx, baseUrl, tier), avatarVersion);
+    }
+
+    /** Responsive variant of {@link #build(Context, String, AvatarSizeTier)} — see class doc above. */
+    public static String buildResponsive(Context ctx, String baseUrl, AvatarSizeTier tier) {
+        if (baseUrl == null || baseUrl.isEmpty()) return baseUrl;
+        String marker = "/upload/";
+        int idx = baseUrl.indexOf(marker);
+        if (idx < 0) return baseUrl; // not a Cloudinary delivery URL — return as-is, no-op
+
+        AvatarSizeTier effective = AvatarSizeTier.effectiveTier(ctx, tier); // same low-RAM downgrade as tierPx()
+        String transform = "w_" + effective.dp + ",h_" + effective.dp
+                + ",c_fill,g_face,dpr_" + dprBucket(ctx) + ",q_auto," + bestFormatParam() + "/";
+        return baseUrl.substring(0, idx + marker.length())
+                + transform
+                + baseUrl.substring(idx + marker.length());
+    }
+
+    /**
+     * Same 3-bucket split as {@link #densityMultiplier}, expressed as a
+     * Cloudinary dpr_ transform value instead of a client-multiplied pixel
+     * count — kept as its own bucketing (not a raw density passthrough) for
+     * the identical cache-fragmentation reason densityMultiplier documents.
+     */
+    private static String dprBucket(Context ctx) {
+        float density = ctx.getResources().getDisplayMetrics().density;
+        if (density <= 1.0f) return "1.5";
+        if (density <= 2.0f) return "2.0";
+        return "3.0";
     }
 
     public static int dpToPx(Context ctx, int dp) {

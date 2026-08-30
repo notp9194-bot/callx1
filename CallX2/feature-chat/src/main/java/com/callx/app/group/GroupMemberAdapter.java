@@ -6,7 +6,7 @@ import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.recyclerview.widget.RecyclerView;
-import com.bumptech.glide.Glide;
+import com.callx.app.cache.ChatAvatarBinder;
 import com.callx.app.chat.R;
 import com.callx.app.group.canvas.MemberIdentityCanvasView;
 import com.callx.app.utils.Constants;
@@ -25,6 +25,23 @@ import java.util.*;
  * single MemberIdentityCanvasView — see its class doc. Matters here because
  * this list can run to hundreds of rows and re-binds on every
  * online-status/last-seen update.
+ *
+ * v3 — Deep avatar pipeline parity (was the one screen still on a flat
+ * {@code Glide.load(avatarUrl).override(96,96)} while reels/chat-list/follow
+ * lists had all moved to the shared {@link ChatAvatarBinder} pipeline — see
+ * that class's doc for the full "density-aware tier + WebP/AVIF + L2/L3 +
+ * version/ETag combine + per-module onTrimMemory" picture, all of which
+ * this now gets for free by routing through it instead of raw Glide:
+ *   • bind()     — server-side responsive AvatarSizeTier URL (SMALL, rounds
+ *                  up from this row's 46dp view), L2 memory fast-path,
+ *                  L2/L3 write-through on decode.
+ *   • cancel()   — onViewRecycled() below stops an in-flight request for a
+ *                  row that just scrolled off (or got re-diffed away).
+ *   • prefetch() — velocity-based window, called from GroupInfoActivity's
+ *                  NestedScrollView scroll listener via
+ *                  {@link #prefetchAvatarsFrom} (see that method's doc for
+ *                  why this list needs its own scroll-velocity source
+ *                  instead of RecyclerView's own OnScrollListener).
  */
 public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.VH> {
 
@@ -40,16 +57,23 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
         public final String thumbUrl;
         public final boolean online;
         public final Long   lastSeen;
+        public final long   avatarVersion; // mirrors users/{uid}/avatarVersion — see AvatarUrlBuilder/ChatAvatarBinder
 
         public MemberItem(String uid, String name, String role,
                           String photoUrl, String thumbUrl, boolean online, Long lastSeen) {
-            this.uid      = uid;
-            this.name     = name;
-            this.role     = role;
-            this.photoUrl = photoUrl;
-            this.thumbUrl = thumbUrl;
-            this.online   = online;
-            this.lastSeen = lastSeen;
+            this(uid, name, role, photoUrl, thumbUrl, online, lastSeen, 0L);
+        }
+
+        public MemberItem(String uid, String name, String role, String photoUrl, String thumbUrl,
+                          boolean online, Long lastSeen, long avatarVersion) {
+            this.uid           = uid;
+            this.name          = name;
+            this.role          = role;
+            this.photoUrl      = photoUrl;
+            this.thumbUrl      = thumbUrl;
+            this.online        = online;
+            this.lastSeen      = lastSeen;
+            this.avatarVersion = avatarVersion;
         }
     }
 
@@ -93,20 +117,16 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
         // Online dot
         h.onlineDot.setVisibility(m.online ? View.VISIBLE : View.GONE);
 
-        // Avatar
-        // thumbUrl → small WebP, fast in group list. Fallback: photoUrl
+        // Avatar — thumbUrl preferred (small, fast in a group list), falls back to photoUrl.
+        // v3: routed through ChatAvatarBinder — same tiered/versioned URL +
+        // L2/L3 pipeline every other avatar list in the app uses now (see
+        // this class's v3 doc above). Replaces the old flat
+        // Glide.load(avatarUrl).override(96,96) with no tier, no version
+        // param, and no L2/L3 reuse.
         String avatarUrl = (m.thumbUrl != null && !m.thumbUrl.isEmpty())
             ? m.thumbUrl
             : (m.photoUrl != null && !m.photoUrl.isEmpty() ? m.photoUrl : null);
-        if (avatarUrl != null && !avatarUrl.isEmpty()) {
-            Glide.with(ctx).load(avatarUrl)
-                    .placeholder(R.drawable.ic_person)
-                    .circleCrop()
-                    .override(96, 96)
-                    .into(h.ivAvatar);
-        } else {
-            h.ivAvatar.setImageResource(R.drawable.ic_person);
-        }
+        ChatAvatarBinder.bind(ctx, h.ivAvatar, avatarUrl, m.avatarVersion, R.drawable.ic_person);
 
         // Last seen / status
         if (m.online) {
@@ -156,6 +176,50 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
     }
 
     @Override public int getItemCount() { return items.size(); }
+
+    /**
+     * v3: cancels an in-flight avatar request for a row leaving the pool —
+     * without this, a request still resolving after the row was recycled
+     * (re-diff, admin-status refresh triggers notifyDataSetChanged) could
+     * land its bitmap into a VH now showing a different member. Mirrors
+     * ChatListAdapter#onViewRecycled's identical fix for the chat list.
+     */
+    @Override
+    public void onViewRecycled(@NonNull VH h) {
+        super.onViewRecycled(h);
+        if (h.ivAvatar != null) {
+            ChatAvatarBinder.cancel(h.ivAvatar.getContext(), h.ivAvatar);
+        }
+    }
+
+    /** Read-only view over `items` for {@link ChatAvatarBinder#prefetch}. */
+    private ChatAvatarBinder.AvatarSource avatarSource() {
+        return new ChatAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) {
+                MemberItem m = items.get(index);
+                return (m.thumbUrl != null && !m.thumbUrl.isEmpty()) ? m.thumbUrl : m.photoUrl;
+            }
+            @Override public long avatarVersion(int index) { return items.get(index).avatarVersion; }
+            @Override public int size() { return items.size(); }
+        };
+    }
+
+    /**
+     * v3 (velocity-based prefetch): call from GroupInfoActivity's scroll
+     * listener. Unlike ChatsFragment/FollowersListActivity, this adapter's
+     * RecyclerView sits inside a NestedScrollView with nested scrolling
+     * disabled (see activity_group_info.xml) — it never receives its own
+     * OnScrollListener callbacks, since the outer NestedScrollView does the
+     * actual scrolling. GroupInfoActivity is therefore the one computing
+     * scroll velocity (from the NestedScrollView's scroll-change deltas)
+     * and the newly-visible member index, and this method just forwards
+     * both into the SAME ChatAvatarBinder.prefetch() every other avatar
+     * list in the app uses — fast fling skips prefetch entirely, slow
+     * scroll warms several members ahead via DiskCacheStrategy.DATA.
+     */
+    public void prefetchAvatarsFrom(Context ctx, int fromIndex, float velocityPxPerMs) {
+        ChatAvatarBinder.prefetch(ctx, avatarSource(), fromIndex, velocityPxPerMs);
+    }
 
     private static String formatLastSeen(long ts) {
         long diff = System.currentTimeMillis() - ts;

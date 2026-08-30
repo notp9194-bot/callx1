@@ -13,8 +13,9 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-import com.bumptech.glide.Glide;
 import com.callx.app.utils.YouTubeFirebaseUtils;
+// PERF (deep avatar pipeline parity — see YouTubeAvatarBinder)
+import com.callx.app.cache.YouTubeAvatarBinder;
 import com.callx.app.youtube.R;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.*;
@@ -53,6 +54,31 @@ public class YouTubeSubscribersActivity extends AppCompatActivity {
         adapter = new SubscriberAdapter(myUid);
         rvSubscribers.setLayoutManager(new LinearLayoutManager(this));
         rvSubscribers.setAdapter(adapter);
+
+        // PERF (deep avatar pipeline parity — see YouTubeAvatarBinder):
+        // velocity-based avatar prefetch, same technique/thresholds
+        // CallsFragment/ChatsFragment use — fast fling skips prefetch
+        // entirely, slow/deliberate scroll warms several rows ahead via
+        // DiskCacheStrategy.DATA (bytes only, no speculative decode) until
+        // a row actually becomes visible and onBindViewHolder calls the
+        // real YouTubeAvatarBinder.bind().
+        rvSubscribers.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private long lastTimeMs = 0L;
+
+            @Override public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
+                if (lm == null) return;
+                int lastVisible = lm.findLastVisibleItemPosition();
+                if (lastVisible < 0) return;
+
+                long now = android.os.SystemClock.elapsedRealtime();
+                long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
+                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                lastTimeMs = now;
+
+                adapter.prefetchAvatars(YouTubeSubscribersActivity.this, lastVisible + 1, velocity);
+            }
+        });
 
         loadSubscriberCount();
         loadSubscribers();
@@ -170,8 +196,9 @@ public class YouTubeSubscribersActivity extends AppCompatActivity {
             h.tvMeta.setText(meta);
             h.tvMeta.setVisibility(meta.isEmpty() ? View.GONE : View.VISIBLE);
 
-            Glide.with(h.ivAvatar.getContext()).load(item.photoUrl).circleCrop()
-                .placeholder(R.drawable.ic_person).override(96, 96).into(h.ivAvatar);
+            // PERF (deep avatar pipeline parity — see YouTubeAvatarBinder)
+            YouTubeAvatarBinder.bind(h.ivAvatar.getContext(), h.ivAvatar, item.photoUrl, 0,
+                YouTubeAvatarBinder.LIST_TIER, R.drawable.ic_person);
 
             // Check subscription status
             if (!myUid.isEmpty()) {
@@ -226,6 +253,31 @@ public class YouTubeSubscribersActivity extends AppCompatActivity {
         }
 
         @Override public int getItemCount() { return data.size(); }
+
+        /**
+         * FIX (lifecycle-aware cancel): stops a row's in-flight avatar
+         * request the moment it's recycled off screen.
+         */
+        @Override public void onViewRecycled(@NonNull VH h) {
+            super.onViewRecycled(h);
+            if (h.ivAvatar != null) {
+                YouTubeAvatarBinder.cancel(h.ivAvatar.getContext(), h.ivAvatar);
+            }
+        }
+
+        /** Read-only view over `data` for {@link YouTubeAvatarBinder#prefetch}. */
+        private YouTubeAvatarBinder.AvatarSource avatarSource() {
+            return new YouTubeAvatarBinder.AvatarSource() {
+                @Override public String photo(int index) { return data.get(index).photoUrl; }
+                @Override public long avatarVersion(int index) { return 0; } // no version field today
+                @Override public int size() { return data.size(); }
+            };
+        }
+
+        /** FIX (velocity-based prefetch): called from the RecyclerView scroll listener above. */
+        void prefetchAvatars(android.content.Context ctx, int fromIndex, float velocityPxPerMs) {
+            YouTubeAvatarBinder.prefetch(ctx, avatarSource(), fromIndex, velocityPxPerMs);
+        }
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;

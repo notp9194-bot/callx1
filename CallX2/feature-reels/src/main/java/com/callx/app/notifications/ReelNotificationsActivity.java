@@ -14,7 +14,6 @@ import com.callx.app.profile.UserReelsActivity;
   import androidx.recyclerview.widget.ItemTouchHelper;
   import androidx.recyclerview.widget.LinearLayoutManager;
   import androidx.recyclerview.widget.RecyclerView;
-  import com.bumptech.glide.Glide;
   import com.callx.app.reels.R;
   import com.callx.app.notifications.ReelNotificationHelper;
   import com.callx.app.utils.FirebaseUtils;
@@ -227,9 +226,17 @@ import com.callx.app.profile.UserReelsActivity;
 
           // RecyclerView
           rv = new RecyclerView(this);
-          rv.setLayoutManager(new LinearLayoutManager(this));
+          LinearLayoutManager notifLm = new LinearLayoutManager(this);
+          rv.setLayoutManager(notifLm);
           adapter = new ReelNotifAdapter();
           rv.setAdapter(adapter);
+          // FIX (velocity-based prefetch): fast fling past notifications skips ahead, slow scroll warms sender avatars — see FollowAvatarBinder.
+          com.callx.app.followers.AvatarScrollPrefetchHelper.attach(rv, notifLm,
+              new com.callx.app.followers.FollowAvatarBinder.AvatarSource() {
+                  @Override public String photo(int index) { return filteredItems.get(index).senderPhoto; }
+                  @Override public long avatarVersion(int index) { return 0L; }
+                  @Override public int size() { return filteredItems.size(); }
+              });
 
           // Swipe-to-delete
           new ItemTouchHelper(new ItemTouchHelper.SimpleCallback(0,
@@ -472,12 +479,11 @@ import com.callx.app.profile.UserReelsActivity;
               // Unread dot
               h.dot.setVisibility(item.read ? View.INVISIBLE : View.VISIBLE);
 
-              // Avatar — use senderPhoto if available, else fetch thumbUrl from Firebase
+              // Avatar — use senderPhoto if available, else fetch thumbUrl from Firebase.
+              // FIX (avatar pipeline parity): shared L2/L3 cache + density-aware tier decode instead of a flat Glide load — see FollowAvatarBinder.
               if (item.senderPhoto != null && !item.senderPhoto.isEmpty()) {
-                  Glide.with(ReelNotificationsActivity.this).load(item.senderPhoto)
-                      .circleCrop()
-                      .override(96, 96)
-                      .placeholder(R.drawable.ic_person).into(h.ivAvatar);
+                  com.callx.app.followers.FollowAvatarBinder.bind(
+                      ReelNotificationsActivity.this, h.ivAvatar, item.senderPhoto, 0L, R.drawable.ic_person);
               } else if (item.senderUid != null && !item.senderUid.isEmpty()) {
                   h.ivAvatar.setImageResource(R.drawable.ic_person);
                   // Sender ka Reels profile avatar load karo (reels/users/{uid})
@@ -489,10 +495,8 @@ import com.callx.app.profile.UserReelsActivity;
                           String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
                           if (url != null && !url.isEmpty() && !isFinishing()) {
                               item.senderPhoto = url;
-                              Glide.with(ReelNotificationsActivity.this).load(url)
-                                  .circleCrop()
-                                  .override(96, 96)
-                                  .placeholder(R.drawable.ic_person).into(h.ivAvatar);
+                              com.callx.app.followers.FollowAvatarBinder.bind(
+                                  ReelNotificationsActivity.this, h.ivAvatar, url, 0L, R.drawable.ic_person);
                           }
                       });
               } else {
@@ -535,6 +539,11 @@ import com.callx.app.profile.UserReelsActivity;
           }
 
           @Override public int getItemCount() { return filteredItems.size(); }
+
+          // FIX (lifecycle-aware cancel): stop an in-flight request for a row that just scrolled off screen.
+          @Override public void onViewRecycled(VH h) {
+              com.callx.app.followers.FollowAvatarBinder.cancel(ReelNotificationsActivity.this, h.ivAvatar);
+          }
       }
 
       private String relativeTime(long ts) {

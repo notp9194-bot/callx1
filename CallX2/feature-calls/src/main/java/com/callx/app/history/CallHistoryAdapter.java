@@ -9,8 +9,6 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.calls.R;
 import com.callx.app.call.CallActivity;
 
@@ -20,6 +18,10 @@ import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
 import de.hdodenhof.circleimageview.CircleImageView;
 import com.callx.app.cache.StatusCacheManager;
+// PERF (deep avatar pipeline parity — see CallAvatarBinder): tiered/
+// versioned URL + L2/L3 reuse + lifecycle-aware cancel + velocity prefetch,
+// same shape as ChatAvatarBinder/FollowAvatarBinder elsewhere in the app.
+import com.callx.app.cache.CallAvatarBinder;
 
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -125,24 +127,23 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
 
         // Load avatar — also cache resolved URL for bottom sheet
         // FIX #1: Room se partnerPhoto pehle use karo — Firebase query sirf tab jab nahi hai
+        // PERF (deep avatar pipeline parity — see CallAvatarBinder): every
+        // path below now routes through CallAvatarBinder.bind() instead of
+        // a flat Glide.load().override(96,96) — L2 instant-paint fast path,
+        // tiered+versioned+CDN-format URL, and analytics-wired decode, all
+        // shared with the rest of the module (CallsFragment/CallActivity/
+        // IncomingGroupCallActivity) so the SAME partner's avatar decoded
+        // once here is reused instantly everywhere else it's shown.
         if (l.partnerUid != null && !l.partnerUid.isEmpty() && h.ivAvatar != null) {
             // Priority 1: in-memory photoCache (same session)
             if (photoCache.containsKey(l.partnerUid)) {
                 String cached = photoCache.get(l.partnerUid);
                 if (cached != null && !cached.isEmpty())
-                    Glide.with(ctx).load(cached)
-                        .apply(RequestOptions.circleCropTransform())
-                        .placeholder(R.drawable.ic_person)
-                        .override(96, 96)
-                        .into(h.ivAvatar);
+                    CallAvatarBinder.bind(ctx, h.ivAvatar, cached, 0, R.drawable.ic_person);
             } else if (l.partnerPhoto != null && !l.partnerPhoto.isEmpty()) {
                 // Priority 2: Room cache se photo — instant, no network needed
                 photoCache.put(l.partnerUid, l.partnerPhoto);
-                Glide.with(ctx).load(l.partnerPhoto)
-                    .apply(RequestOptions.circleCropTransform())
-                    .placeholder(R.drawable.ic_person)
-                    .override(96, 96)
-                    .into(h.ivAvatar);
+                CallAvatarBinder.bind(ctx, h.ivAvatar, l.partnerPhoto, 0, R.drawable.ic_person);
             } else {
                 // Priority 3: Firebase se fetch (sirf tab jab Room mein bhi nahi)
                 FirebaseUtils.getUserRef(l.partnerUid)
@@ -156,11 +157,7 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
                             // Also update partnerPhoto so next bind uses Room cache
                             l.partnerPhoto = callAvatar;
                             if (callAvatar != null && !callAvatar.isEmpty() && ctx != null)
-                                Glide.with(ctx).load(callAvatar)
-                                    .apply(RequestOptions.circleCropTransform())
-                                    .placeholder(R.drawable.ic_person)
-                                    .override(96, 96)
-                                    .into(h.ivAvatar);
+                                CallAvatarBinder.bind(ctx, h.ivAvatar, callAvatar, 0, R.drawable.ic_person);
                         }
                         @Override public void onCancelled(DatabaseError e) {}
                     });
@@ -311,6 +308,42 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
     }
 
     @Override public int getItemCount() { return logs.size(); }
+
+    /**
+     * FIX (lifecycle-aware cancel): stops a row's in-flight avatar request
+     * the moment it's recycled off screen, instead of letting it keep
+     * competing for bandwidth/decode time against whatever's now visible.
+     */
+    @Override public void onViewRecycled(@NonNull VH h) {
+        super.onViewRecycled(h);
+        if (h.ivAvatar != null) {
+            CallAvatarBinder.cancel(h.ivAvatar.getContext(), h.ivAvatar);
+        }
+    }
+
+    /** Read-only view over `logs` for {@link CallAvatarBinder#prefetch}. */
+    private CallAvatarBinder.AvatarSource avatarSource() {
+        return new CallAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) {
+                CallLog l = logs.get(index);
+                if (l.partnerPhoto != null && !l.partnerPhoto.isEmpty()) return l.partnerPhoto;
+                return l.partnerUid != null ? photoCache.get(l.partnerUid) : null;
+            }
+            @Override public long avatarVersion(int index) { return 0; } // CallLog carries no avatarVersion today
+            @Override public int size() { return logs.size(); }
+        };
+    }
+
+    /**
+     * FIX (velocity-based prefetch): call from CallsFragment's RecyclerView
+     * scroll listener with the first visible row index and the current
+     * fling velocity (px/ms) — fast fling skips prefetch entirely, slow
+     * scroll warms several rows ahead, both into the SAME
+     * CallAvatarBinder.prefetch() every other avatar list in the app uses.
+     */
+    public void prefetchAvatars(Context ctx, int fromIndex, float velocityPxPerMs) {
+        CallAvatarBinder.prefetch(ctx, avatarSource(), fromIndex, velocityPxPerMs);
+    }
 
     static class VH extends RecyclerView.ViewHolder {
         TextView tvName, tvMeta;

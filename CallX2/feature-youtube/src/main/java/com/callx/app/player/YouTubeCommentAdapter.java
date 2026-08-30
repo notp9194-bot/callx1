@@ -13,6 +13,8 @@ import com.bumptech.glide.Glide;
 import com.callx.app.models.YouTubeComment;
 import com.callx.app.player.YouTubeCommentOptionsSheet;
 import com.callx.app.youtube.R;
+// PERF (deep avatar pipeline parity — see YouTubeAvatarBinder)
+import com.callx.app.cache.YouTubeAvatarBinder;
 import de.hdodenhof.circleimageview.CircleImageView;
 import java.util.ArrayList;
 import java.util.List;
@@ -56,9 +58,9 @@ public class YouTubeCommentAdapter
         h.tvLikes.setText(c.likeCount > 0 ? String.valueOf(c.likeCount) : "");
         h.tvPinned.setVisibility(c.isPinned ? View.VISIBLE : View.GONE);
 
-        Glide.with(ctx).load(c.authorPhotoUrl).circleCrop()
-            .override(96, 96)
-            .placeholder(R.drawable.ic_person).into(h.ivAvatar);
+        // PERF (deep avatar pipeline parity — see YouTubeAvatarBinder)
+        YouTubeAvatarBinder.bind(ctx, h.ivAvatar, c.authorPhotoUrl, 0,
+            YouTubeAvatarBinder.LIST_TIER, R.drawable.ic_person);
 
         // 3-dot comment options
         if (h.btnMore != null) {
@@ -80,6 +82,35 @@ public class YouTubeCommentAdapter
     }
 
     @Override public int getItemCount() { return data == null ? 0 : data.size(); }
+
+    /**
+     * FIX (lifecycle-aware cancel): stops a row's in-flight avatar request
+     * the moment it's recycled off screen.
+     */
+    @Override public void onViewRecycled(@NonNull VH h) {
+        super.onViewRecycled(h);
+        if (h.ivAvatar != null) {
+            YouTubeAvatarBinder.cancel(h.ivAvatar.getContext(), h.ivAvatar);
+        }
+    }
+
+    /** Read-only view over `data` for {@link YouTubeAvatarBinder#prefetch}. */
+    private YouTubeAvatarBinder.AvatarSource avatarSource() {
+        return new YouTubeAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) { return data.get(index).authorPhotoUrl; }
+            @Override public long avatarVersion(int index) { return 0; } // no version field today
+            @Override public int size() { return data.size(); }
+        };
+    }
+
+    /**
+     * FIX (velocity-based prefetch): call from YouTubeCommentsActivity's
+     * RecyclerView scroll listener with the first visible row index and the
+     * current fling velocity (px/ms).
+     */
+    public void prefetchAvatars(Context ctx, int fromIndex, float velocityPxPerMs) {
+        YouTubeAvatarBinder.prefetch(ctx, avatarSource(), fromIndex, velocityPxPerMs);
+    }
 
     private void showCommentOptions(YouTubeComment comment, int position) {
         if (!(ctx instanceof FragmentActivity)) return;

@@ -13,6 +13,7 @@ import androidx.fragment.app.FragmentActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
+import com.callx.app.cache.XAvatarBinder;
 import com.callx.app.models.XUser;
 import com.callx.app.utils.XFirebaseUtils;
 import com.callx.app.x.R;
@@ -127,6 +128,12 @@ public class XBlockedUsersActivity extends AppCompatActivity {
         @Override public void onBindViewHolder(@NonNull UVH h, int pos) { h.bind(users.get(pos)); }
         @Override public int getItemCount() { return users.size(); }
 
+        /** FIX (lifecycle-aware cancel): see XAvatarBinder#cancel. */
+        @Override public void onViewRecycled(@NonNull UVH h) {
+            super.onViewRecycled(h);
+            if (h.ivAvatar != null) XAvatarBinder.cancel(h.ivAvatar.getContext(), h.ivAvatar);
+        }
+
         class UVH extends RecyclerView.ViewHolder {
             ImageView ivAvatar;
             TextView tvName, tvHandle;
@@ -144,10 +151,10 @@ public class XBlockedUsersActivity extends AppCompatActivity {
                 if (tvName   != null) tvName.setText(user.name != null ? user.name : "User");
                 if (tvHandle != null) tvHandle.setText("@" + (user.handle != null ? user.handle : ""));
                 if (ivAvatar != null) {
+                    // FIX (deep avatar pipeline): now XAvatarBinder.bind() —
+                    // tiered + versioned CDN url, L2/L3 reuse. See class doc.
                     String url = (user.thumbUrl != null && !user.thumbUrl.isEmpty()) ? user.thumbUrl : user.photoUrl;
-                    Glide.with(ivAvatar.getContext()).load(url).circleCrop()
-                        .override(96, 96)
-                        .placeholder(R.drawable.ic_person).into(ivAvatar);
+                    XAvatarBinder.bind(ivAvatar.getContext(), ivAvatar, url, 0, R.drawable.ic_person);
                 }
                 if (btnAction != null) {
                     btnAction.setText(actionLabel);

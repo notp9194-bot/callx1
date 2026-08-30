@@ -75,6 +75,7 @@ public class FollowersListActivity extends AppCompatActivity {
         adapter = new FollowersAdapter(filteredItems, true);
         rv.setLayoutManager(new LinearLayoutManager(this));
         rv.setAdapter(adapter);
+        attachVelocityPrefetch();
 
         if (etSearch != null) {
             etSearch.addTextChangedListener(new TextWatcher() {
@@ -121,10 +122,12 @@ public class FollowersListActivity extends AppCompatActivity {
                                     String thumb = us.child("thumbUrl").getValue(String.class);
                                     photo = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
                                     String bio   = us.child("bio").getValue(String.class);
+                                    Long avatarVer = us.child("avatarVersion").getValue(Long.class);
                                     allItems.add(new UserItem(uid,
                                         name  != null ? name  : "User",
                                         photo != null ? photo : "",
-                                        bio   != null ? bio   : ""));
+                                        bio   != null ? bio   : "",
+                                        avatarVer != null ? avatarVer : 0L));
                                     count[0]++;
                                     if (count[0] >= total) finishLoad();
                                 }
@@ -166,6 +169,41 @@ public class FollowersListActivity extends AppCompatActivity {
         try { return FirebaseUtils.getCurrentUid(); } catch (Exception e) { return null; }
     }
 
+    /**
+     * FIX (velocity-based prefetch): measures scroll speed the same way
+     * ReelsFragment does for reels (px moved / ms elapsed since the last
+     * scroll callback) and hands it to FollowAvatarBinder.prefetch() for
+     * the rows just past the last visible one — fast fling skips prefetch
+     * entirely, slow scroll warms several rows ahead.
+     */
+    private void attachVelocityPrefetch() {
+        rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private long lastTimeMs = 0L;
+
+            @Override public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                long now = android.os.SystemClock.elapsedRealtime();
+                long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
+                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                lastTimeMs = now;
+
+                LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
+                if (lm == null) return;
+                int lastVisible = lm.findLastVisibleItemPosition();
+                if (lastVisible < 0) return;
+
+                FollowAvatarBinder.prefetch(FollowersListActivity.this, followAvatarSource(), lastVisible + 1, velocity);
+            }
+        });
+    }
+
+    private FollowAvatarBinder.AvatarSource followAvatarSource() {
+        return new FollowAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) { return filteredItems.get(index).photo; }
+            @Override public long avatarVersion(int index) { return filteredItems.get(index).avatarVersion; }
+            @Override public int size() { return filteredItems.size(); }
+        };
+    }
+
     // ── Adapter ───────────────────────────────────────────────────────────
 
     class FollowersAdapter extends RecyclerView.Adapter<FollowersAdapter.VH> {
@@ -189,9 +227,7 @@ public class FollowersListActivity extends AppCompatActivity {
             else { h.tvBio.setText(u.bio); h.tvBio.setVisibility(View.VISIBLE); }
 
             if (!u.photo.isEmpty())
-                Glide.with(FollowersListActivity.this).load(u.photo)
-                    .apply(RequestOptions.circleCropTransform())
-                    .placeholder(R.drawable.ic_person).into(h.ivAvatar);
+                FollowAvatarBinder.bind(FollowersListActivity.this, h.ivAvatar, u.photo, u.avatarVersion, R.drawable.ic_person);
             else h.ivAvatar.setImageResource(R.drawable.ic_person);
 
             String myUid = safeMyUid();
@@ -244,6 +280,13 @@ public class FollowersListActivity extends AppCompatActivity {
 
         @Override public int getItemCount() { return data.size(); }
 
+        @Override public void onViewRecycled(@NonNull VH h) {
+            // FIX (lifecycle-aware cancel): row went off screen — stop its
+            // in-flight avatar request instead of letting it keep running
+            // for a view the user can no longer see.
+            FollowAvatarBinder.cancel(FollowersListActivity.this, h.ivAvatar);
+        }
+
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;
             TextView tvName, tvBio;
@@ -261,8 +304,13 @@ public class FollowersListActivity extends AppCompatActivity {
     // ── Data class ────────────────────────────────────────────────────────
     static class UserItem {
         String uid, name, photo, bio;
+        long avatarVersion; // FIX: denormalized for FollowAvatarBinder.url()'s responsive/version-tagged URL
         UserItem(String uid, String name, String photo, String bio) {
+            this(uid, name, photo, bio, 0L);
+        }
+        UserItem(String uid, String name, String photo, String bio, long avatarVersion) {
             this.uid = uid; this.name = name; this.photo = photo; this.bio = bio;
+            this.avatarVersion = avatarVersion;
         }
     }
 }

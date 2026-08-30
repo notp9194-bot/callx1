@@ -18,6 +18,7 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.R;
+import com.callx.app.cache.MiscAvatarBinder;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.*;
 
@@ -96,6 +97,47 @@ public class NotificationCenterActivity extends AppCompatActivity {
         adapter = new NotifAdapter();
         rvNotifs.setLayoutManager(new LinearLayoutManager(this));
         rvNotifs.setAdapter(adapter);
+        // FIX (velocity-based prefetch): fast fling skips prefetch entirely,
+        // slow/deliberate scroll warms several rows ahead — same thresholds
+        // as ChatAvatarBinder/AvatarPrefetcher/FollowAvatarBinder.
+        rvNotifs.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private long lastTimeMs = 0L;
+            @Override public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
+                if (lm == null) return;
+                int lastVisible = lm.findLastVisibleItemPosition();
+                if (lastVisible < 0) return;
+                long now = android.os.SystemClock.elapsedRealtime();
+                long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
+                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                lastTimeMs = now;
+                MiscAvatarBinder.prefetch(NotificationCenterActivity.this, notifCenterAvatarSource(),
+                    lastVisible + 1, velocity, MiscAvatarBinder.ROW_TIER);
+            }
+        });
+    }
+
+    /** Same resolution logic as onBindViewHolder's inline block — thumbUrl > photoUrl, cache-aware. */
+    private String resolveAvatarUrl(NotifEntry e) {
+        String resolvedPhoto = e.fromPhoto;
+        String resolvedThumb = null;
+        if (e.fromUid != null && userCache.containsKey(e.fromUid)) {
+            UserInfo ui = userCache.get(e.fromUid);
+            if (ui != null) {
+                if (ui.photoUrl != null) resolvedPhoto = ui.photoUrl;
+                if (ui.thumbUrl != null) resolvedThumb = ui.thumbUrl;
+            }
+        }
+        return (resolvedThumb != null && !resolvedThumb.isEmpty()) ? resolvedThumb : resolvedPhoto;
+    }
+
+    /** Read-only view over `filtered` for {@link MiscAvatarBinder#prefetch}. */
+    private MiscAvatarBinder.AvatarSource notifCenterAvatarSource() {
+        return new MiscAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) { return resolveAvatarUrl(filtered.get(index)); }
+            @Override public long avatarVersion(int index) { return 0L; } // no per-item avatarVersion tracked here
+            @Override public int size() { return filtered.size(); }
+        };
     }
 
     private void buildTabs() {
@@ -383,32 +425,18 @@ public class NotificationCenterActivity extends AppCompatActivity {
 
             // Resolve user info
             String resolvedName  = e.fromName;
-            String resolvedPhoto = e.fromPhoto;
-            String resolvedThumb = null;
             if (e.fromUid != null && userCache.containsKey(e.fromUid)) {
                 UserInfo ui = userCache.get(e.fromUid);
-                if (ui != null) {
-                    if (ui.name != null)     resolvedName  = ui.name;
-                    if (ui.photoUrl != null) resolvedPhoto = ui.photoUrl;
-                    if (ui.thumbUrl != null) resolvedThumb = ui.thumbUrl;
-                }
+                if (ui != null && ui.name != null) resolvedName = ui.name;
             }
-            // thumbUrl → small, fast; fallback photoUrl
-            String avatarUrl = (resolvedThumb != null && !resolvedThumb.isEmpty())
-                ? resolvedThumb : resolvedPhoto;
+            String avatarUrl = resolveAvatarUrl(e);
 
             // Avatar
             if (h.ivAvatar != null) {
-                if (avatarUrl != null && !avatarUrl.isEmpty()) {
-                    Glide.with(h.ivAvatar.getContext())
-                        .load(avatarUrl)
-                        .apply(RequestOptions.circleCropTransform()
-                            .placeholder(R.drawable.circle_avatar_bg)
-                            .error(R.drawable.circle_avatar_bg))
-                        .into(h.ivAvatar);
-                } else {
-                    h.ivAvatar.setImageResource(R.drawable.circle_avatar_bg);
-                }
+                // FIX (deep avatar pipeline): was a bare Glide.load() with no
+                // shared tier, no L2/L3, no recycle-aware cancel — see MiscAvatarBinder.
+                MiscAvatarBinder.bind(h.ivAvatar.getContext(), h.ivAvatar,
+                    avatarUrl, 0L, MiscAvatarBinder.ROW_TIER, R.drawable.circle_avatar_bg);
             }
 
             // User name
@@ -447,6 +475,13 @@ public class NotificationCenterActivity extends AppCompatActivity {
         }
 
         @Override public int getItemCount() { return filtered.size(); }
+
+        @Override
+        public void onViewRecycled(@NonNull VH h) {
+            // FIX (Lifecycle-aware cancel): stop an in-flight request for a
+            // row that just scrolled off screen.
+            if (h.ivAvatar != null) MiscAvatarBinder.cancel(h.ivAvatar.getContext(), h.ivAvatar);
+        }
     }
 
     // ── Helpers ────────────────────────────────────────────────────────

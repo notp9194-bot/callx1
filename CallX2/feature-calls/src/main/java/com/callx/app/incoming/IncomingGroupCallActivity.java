@@ -10,8 +10,9 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
-import com.bumptech.glide.Glide;
 import com.callx.app.calls.R;
+// PERF (deep avatar pipeline parity — see CallAvatarBinder)
+import com.callx.app.cache.CallAvatarBinder;
 import com.callx.app.services.GroupCallRingService;
 import com.callx.app.utils.Constants;
 import android.animation.AnimatorSet;
@@ -100,8 +101,10 @@ public class IncomingGroupCallActivity extends AppCompatActivity {
         ImageView ivGroupIcon = findViewById(R.id.ivIncomingGroupIcon);
         if (ivGroupIcon != null) {
             String avatarUrl = (groupIcon != null && !groupIcon.isEmpty()) ? groupIcon : callerPhoto;
+            // PERF (deep avatar pipeline parity — see CallAvatarBinder)
             if (!avatarUrl.isEmpty()) {
-                Glide.with(this).load(avatarUrl).circleCrop().override(96, 96).into(ivGroupIcon);
+                CallAvatarBinder.bind(this, ivGroupIcon, avatarUrl, 0,
+                    CallAvatarBinder.CALL_TIER, R.drawable.ic_person);
             }
         }
 

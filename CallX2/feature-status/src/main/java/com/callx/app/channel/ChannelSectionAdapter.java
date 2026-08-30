@@ -7,7 +7,6 @@ import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
-import com.bumptech.glide.Glide;
 import com.callx.app.db.entity.ChannelEntity;
 import com.callx.app.status.R;
 import de.hdodenhof.circleimageview.CircleImageView;
@@ -264,12 +263,20 @@ public class ChannelSectionAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     }
 
     private void loadIcon(Context ctx, String iconUrl, CircleImageView iv) {
-        if (iconUrl != null && !iconUrl.isEmpty()) {
-            Glide.with(ctx).load(iconUrl)
-                .placeholder(R.drawable.bg_channel_avatar_default)
-                .circleCrop().override(96, 96).into(iv);
-        } else {
-            iv.setImageResource(R.drawable.bg_channel_avatar_default);
+        // FIX (avatar pipeline parity): was a fixed .override(96, 96)
+        // regardless of the row's actual ~50dp size — see
+        // ChannelAvatarBinder class doc.
+        com.callx.app.cache.ChannelAvatarBinder.bind(ctx, iv, iconUrl,
+                com.callx.app.cache.ChannelAvatarBinder.TIER_SECTION_ROW, R.drawable.bg_channel_avatar_default);
+    }
+
+    @Override
+    public void onViewRecycled(@NonNull RecyclerView.ViewHolder holder) {
+        super.onViewRecycled(holder);
+        if (holder instanceof FollowedVH) {
+            com.callx.app.cache.ChannelAvatarBinder.cancel(holder.itemView.getContext(), ((FollowedVH) holder).ivIcon);
+        } else if (holder instanceof SuggestedVH) {
+            com.callx.app.cache.ChannelAvatarBinder.cancel(holder.itemView.getContext(), ((SuggestedVH) holder).ivIcon);
         }
     }
 

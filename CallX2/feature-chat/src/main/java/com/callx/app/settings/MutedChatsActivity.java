@@ -9,6 +9,7 @@ package com.callx.app.settings;
   import androidx.recyclerview.widget.LinearLayoutManager;
   import androidx.recyclerview.widget.RecyclerView;
   import com.bumptech.glide.Glide;
+  import com.callx.app.cache.MiscAvatarBinder;
   import com.callx.app.chat.R;
   import com.callx.app.utils.FirebaseUtils;
   import com.google.firebase.database.*;
@@ -112,6 +113,24 @@ import com.callx.app.conversation.ChatActivity;
           adapter = new MutedAdapter();
           rv.setLayoutManager(new LinearLayoutManager(this));
           rv.setAdapter(adapter);
+          // FIX (velocity-based prefetch): fast fling skips prefetch entirely,
+          // slow/deliberate scroll warms several rows ahead — same thresholds
+          // as ChatAvatarBinder/AvatarPrefetcher/FollowAvatarBinder.
+          rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
+              private long lastTimeMs = 0L;
+              @Override public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                  LinearLayoutManager lm = (LinearLayoutManager) recyclerView.getLayoutManager();
+                  if (lm == null) return;
+                  int lastVisible = lm.findLastVisibleItemPosition();
+                  if (lastVisible < 0) return;
+                  long now = android.os.SystemClock.elapsedRealtime();
+                  long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
+                  float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                  lastTimeMs = now;
+                  MiscAvatarBinder.prefetch(MutedChatsActivity.this, mutedAvatarSource(),
+                      lastVisible + 1, velocity, MiscAvatarBinder.ROW_TIER);
+              }
+          });
           root.addView(rv, new LinearLayout.LayoutParams(
               ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
@@ -184,6 +203,15 @@ import com.callx.app.conversation.ChatActivity;
 
       static class MutedContact { String uid, name, photo; }
 
+      /** Read-only view over `items` for {@link MiscAvatarBinder#prefetch}. */
+      private MiscAvatarBinder.AvatarSource mutedAvatarSource() {
+          return new MiscAvatarBinder.AvatarSource() {
+              @Override public String photo(int index) { return items.get(index).photo; }
+              @Override public long avatarVersion(int index) { return 0L; } // no per-item avatarVersion tracked here
+              @Override public int size() { return items.size(); }
+          };
+      }
+
       class MutedAdapter extends RecyclerView.Adapter<MutedAdapter.VH> {
           class VH extends RecyclerView.ViewHolder {
               CircleImageView avatar;
@@ -234,11 +262,11 @@ import com.callx.app.conversation.ChatActivity;
           @Override public void onBindViewHolder(VH h, int pos) {
               MutedContact mc = items.get(pos);
               h.tvName.setText(mc.name);
-              if (mc.photo != null && !mc.photo.isEmpty())
-                  Glide.with(MutedChatsActivity.this).load(mc.photo)
-                      .override(720, 720)
-                      .placeholder(R.drawable.ic_person).into(h.avatar);
-              else h.avatar.setImageResource(R.drawable.ic_person);
+              // FIX (deep avatar pipeline): was Glide.load().override(720,720) with
+              // no shared tier, no L2/L3, no recycle-aware cancel — see MiscAvatarBinder.
+              // applyCircleCrop=false: h.avatar is already a CircleImageView.
+              MiscAvatarBinder.bind(MutedChatsActivity.this, h.avatar,
+                  mc.photo, 0L, MiscAvatarBinder.ROW_TIER, R.drawable.ic_person, false);
               h.btnUnmute.setOnClickListener(v -> unmute(mc.uid));
               h.itemView.setOnClickListener(v -> {
                   Intent i = new Intent(MutedChatsActivity.this, ChatActivity.class);
@@ -247,6 +275,13 @@ import com.callx.app.conversation.ChatActivity;
               });
           }
           @Override public int getItemCount() { return items.size(); }
+
+          @Override
+          public void onViewRecycled(VH h) {
+              // FIX (Lifecycle-aware cancel): stop an in-flight request for a
+              // row that just scrolled off screen.
+              MiscAvatarBinder.cancel(MutedChatsActivity.this, h.avatar);
+          }
       }
 
       private int dp(int v) {

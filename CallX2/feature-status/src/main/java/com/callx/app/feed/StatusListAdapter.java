@@ -13,6 +13,8 @@ package com.callx.app.feed;
   import com.callx.app.utils.StatusCloseFriendsManager;
   import com.callx.app.utils.StatusMuteManager;
   import com.callx.app.utils.HighlightRingDrawable;
+  import com.callx.app.cache.StatusAvatarBinder;
+  import com.callx.app.cache.AvatarVersionSyncManager;
   import de.hdodenhof.circleimageview.CircleImageView;
   import java.text.SimpleDateFormat;
   import java.util.*;
@@ -78,6 +80,8 @@ package com.callx.app.feed;
            *  carousel when the user has 1+ hidden contacts. Every other field
            *  is unused/blank on that tile — StatusCardAdapter special-cases it. */
           public final boolean isHiddenTile;
+          /** See {@link Entry#avatarVersion} — same "0 = unversioned, no-op" contract. */
+          public final long avatarVersion;
           public CardItem(boolean isMine, boolean hasStatus, String ownerUid, String ownerName,
                           String ownerPhoto, String thumbUrl, String bgColor,
                           boolean unseen, boolean isMuted) {
@@ -94,6 +98,13 @@ package com.callx.app.feed;
                           String ownerPhoto, String thumbUrl, String bgColor,
                           boolean unseen, boolean isMuted, String ringColor, String ringMode,
                           boolean isHiddenTile) {
+              this(isMine, hasStatus, ownerUid, ownerName, ownerPhoto, thumbUrl, bgColor,
+                      unseen, isMuted, ringColor, ringMode, isHiddenTile, 0L);
+          }
+          public CardItem(boolean isMine, boolean hasStatus, String ownerUid, String ownerName,
+                          String ownerPhoto, String thumbUrl, String bgColor,
+                          boolean unseen, boolean isMuted, String ringColor, String ringMode,
+                          boolean isHiddenTile, long avatarVersion) {
               this.isMine       = isMine;
               this.hasStatus    = hasStatus;
               this.ownerUid     = ownerUid;
@@ -106,6 +117,7 @@ package com.callx.app.feed;
               this.ringColor    = ringColor;
               this.ringMode     = ringMode;
               this.isHiddenTile = isHiddenTile;
+              this.avatarVersion = avatarVersion;
           }
           /** v236: factory for the trailing "Hidden" tile. */
           public static CardItem hiddenTile() {
@@ -126,10 +138,21 @@ package com.callx.app.feed;
           public final boolean    isMuted;
           public final String     latestReaction;
           public final boolean    isCloseFriend; // FIX: new field
+          /**
+           * FIX (version param combined with cache tier): 0 when the caller
+           * doesn't have it handy — AvatarUrlBuilder omits the &v= param
+           * entirely in that case, same unversioned behavior as before this
+           * field existed. When the data layer does supply a real avatarVersion
+           * (e.g. from Room's UserEntity or a live AvatarVersionSyncManager
+           * watch), passing it here means a fresh profile-photo upload
+           * invalidates this row's Glide/CDN cache key immediately instead of
+           * waiting for ownerPhoto's URL string itself to change.
+           */
+          public final long avatarVersion;
           public Entry(String ownerUid, String ownerName, String ownerPhoto,
                        Long latestTimestamp, int totalCount, int unseenCount,
                        StatusItem latestItem, boolean isMuted, String latestReaction,
-                       boolean isCloseFriend) {
+                       boolean isCloseFriend, long avatarVersion) {
               this.ownerUid        = ownerUid;
               this.ownerName       = ownerName;
               this.ownerPhoto      = ownerPhoto;
@@ -140,13 +163,22 @@ package com.callx.app.feed;
               this.isMuted         = isMuted;
               this.latestReaction  = latestReaction;
               this.isCloseFriend   = isCloseFriend;
+              this.avatarVersion   = avatarVersion;
           }
-          // Backward compat: no isCloseFriend
+          // Backward compat: no avatarVersion
+          public Entry(String ownerUid, String ownerName, String ownerPhoto,
+                       Long latestTimestamp, int totalCount, int unseenCount,
+                       StatusItem latestItem, boolean isMuted, String latestReaction,
+                       boolean isCloseFriend) {
+              this(ownerUid, ownerName, ownerPhoto, latestTimestamp, totalCount, unseenCount,
+                   latestItem, isMuted, latestReaction, isCloseFriend, 0L);
+          }
+          // Backward compat: no isCloseFriend, no avatarVersion
           public Entry(String ownerUid, String ownerName, String ownerPhoto,
                        Long latestTimestamp, int totalCount, int unseenCount,
                        StatusItem latestItem, boolean isMuted, String latestReaction) {
               this(ownerUid, ownerName, ownerPhoto, latestTimestamp, totalCount, unseenCount,
-                   latestItem, isMuted, latestReaction, false);
+                   latestItem, isMuted, latestReaction, false, 0L);
           }
       }
 
@@ -274,7 +306,21 @@ package com.callx.app.feed;
           String ringColor = latest != null ? latest.ringColor : null;
           String ringMode  = latest != null ? latest.ringMode  : null;
           return new CardItem(false, true, e.ownerUid, e.ownerName, e.ownerPhoto, thumb, bg,
-                  unseen, e.isMuted, ringColor, ringMode);
+                  unseen, e.isMuted, ringColor, ringMode, false, e.avatarVersion);
+      }
+
+      /**
+       * FIX (version param combined with cache tier): prefers whatever
+       * version the Entry/CardItem itself carries (0 if the data layer
+       * hasn't been wired to supply one yet — see Entry#avatarVersion),
+       * falling back to AvatarVersionSyncManager's cached best-known value
+       * for this uid so a live avatar-version bump observed by ANY screen
+       * (reel player, follow list...) still invalidates this row's cache
+       * key without Status needing its own per-row Firebase listener.
+       */
+      private static long resolveAvatarVersion(Context ctx, String ownerUid, long modelVersion) {
+          if (modelVersion > 0) return modelVersion;
+          return AvatarVersionSyncManager.getInstance(ctx).getCachedVersion(ownerUid);
       }
 
       private List<FlatItem> buildFlatItems(List<Entry> unseen, List<Entry> seen, List<Entry> muted, int hiddenCount) {
@@ -354,6 +400,64 @@ package com.callx.app.feed;
           }
       }
       @Override public int getItemCount() { return items.size(); }
+
+      // FIX (isVisible gate — attach-time promotion / detach-time cancel):
+      // ContactVH's avatar is bound via StatusAvatarBinder#bindGated, which
+      // only issues a disk-cache-only load when the row isn't attached to
+      // the window yet (a RecyclerView layout-prefetch bind ahead of
+      // scroll). onViewAttachedToWindow promotes that pending gated bind to
+      // a real HIGH-priority request the moment the row is confirmed
+      // visible; onViewRecycled cancels an in-flight request outright for a
+      // row that just scrolled off screen — the Java equivalent of
+      // cancelling a coroutine Job on scope-exit (see
+      // ReelUiController#onBecameInvisible for the same fix in Reels).
+      @Override
+      public void onViewAttachedToWindow(@NonNull RecyclerView.ViewHolder holder) {
+          super.onViewAttachedToWindow(holder);
+          if (!(holder instanceof ContactVH)) return;
+          int pos = holder.getBindingAdapterPosition();
+          if (pos < 0 || pos >= items.size()) return;
+          FlatItem fi = items.get(pos);
+          if (fi.entry == null) return;
+          Context ctx = holder.itemView.getContext();
+          StatusAvatarBinder.promote(ctx, ((ContactVH) holder).ivAvatar, fi.entry.ownerPhoto,
+                  resolveAvatarVersion(ctx, fi.entry.ownerUid, fi.entry.avatarVersion), R.drawable.ic_person);
+      }
+
+      @Override
+      public void onViewRecycled(@NonNull RecyclerView.ViewHolder holder) {
+          super.onViewRecycled(holder);
+          if (holder instanceof ContactVH) {
+              StatusAvatarBinder.cancel(holder.itemView.getContext(), ((ContactVH) holder).ivAvatar);
+          }
+      }
+
+      /**
+       * AvatarSource view over the currently-flattened contact rows, for
+       * StatusAvatarBinder#prefetch() — see StatusFragment's scroll
+       * listener. fromPosition is the OUTER (this adapter's own) adapter
+       * position; entries at a non-contact-row position (headers, the
+       * carousel, muted header) are simply skipped, same as a null/empty
+       * photo would be.
+       */
+      public StatusAvatarBinder.AvatarSource contactAvatarSource() {
+          return new StatusAvatarBinder.AvatarSource() {
+              @Override public String photo(int index) {
+                  Entry e = entryAt(index);
+                  return e != null ? e.ownerPhoto : null;
+              }
+              @Override public long avatarVersion(int index) {
+                  Entry e = entryAt(index);
+                  return e != null ? e.avatarVersion : 0L;
+              }
+              @Override public int size() { return items.size(); }
+          };
+      }
+
+      private Entry entryAt(int position) {
+          if (position < 0 || position >= items.size()) return null;
+          return items.get(position).entry;
+      }
 
       @NonNull
       @Override
@@ -450,10 +554,14 @@ package com.callx.app.feed;
               String timeSub = timeFmt.format(new java.util.Date(latest.timestamp != null ? latest.timestamp : 0));
               h.tvSub.setText(timeSub + " \u00B7 " + myStatuses.size() + " update"
                       + (myStatuses.size() > 1 ? "s" : "") + " \u00B7 " + latest.getExpiryLabel());
-              if (latest.ownerPhoto != null && !latest.ownerPhoto.isEmpty())
-                  Glide.with(ctx).load(latest.ownerPhoto).placeholder(R.drawable.ic_person).override(480, 853).into(h.ivAvatar);
-              else
-                  h.ivAvatar.setImageResource(R.drawable.ic_person);
+              // FIX (deep avatar pipeline): shared AvatarSizeTier + density/
+              // WebP-AVIF aware URL, L2/L3 reuse, and blur-up thumbnail —
+              // see StatusAvatarBinder class doc. This row is always bound
+              // while visible (it's the very first row), so the plain
+              // bind() entry point is enough; bindGated() below is for the
+              // scrollable contact rows/carousel where offscreen binds happen.
+              StatusAvatarBinder.bind(ctx, h.ivAvatar, latest.ownerPhoto,
+                      resolveAvatarVersion(ctx, myUid, 0L), R.drawable.ic_person);
               if (h.ivThumb != null) {
                   String thumbUrl = latest.thumbnailUrl != null ? latest.thumbnailUrl : latest.mediaUrl;
                   if (thumbUrl != null && !thumbUrl.isEmpty()) {
@@ -499,10 +607,14 @@ package com.callx.app.feed;
           h.tvName.setText(e.ownerName != null ? e.ownerName : "");
           h.tvTime.setText(e.latestTimestamp != null
                   ? timeFmt.format(new java.util.Date(e.latestTimestamp)) : "");
-          if (e.ownerPhoto != null && !e.ownerPhoto.isEmpty())
-              Glide.with(ctx).load(e.ownerPhoto).placeholder(R.drawable.ic_person).override(480, 853).into(h.ivAvatar);
-          else
-              h.ivAvatar.setImageResource(R.drawable.ic_person);
+          // FIX (deep avatar pipeline + isVisible gate): bindGated() only
+          // fires a real network-capable request while this row is actually
+          // attached to the window — a RecyclerView layout-prefetch bind
+          // ahead of scroll gets a disk-cache-only load instead (see
+          // StatusAvatarBinder#bindGated). onViewAttachedToWindow (below)
+          // promotes it once the row genuinely becomes visible.
+          StatusAvatarBinder.bindGated(ctx, h.ivAvatar, e.ownerPhoto,
+                  resolveAvatarVersion(ctx, e.ownerUid, e.avatarVersion), R.drawable.ic_person);
 
           // BUG FIX: same src-vs-background layering issue as applyRingStyle() —
           // the ring ImageView's default state is an android:src drawable, which
@@ -742,10 +854,13 @@ package com.callx.app.feed;
                   h.ivBg.setImageResource(R.drawable.ic_person);
               }
 
-              if (c.ownerPhoto != null && !c.ownerPhoto.isEmpty())
-                  Glide.with(ctx).load(c.ownerPhoto).placeholder(R.drawable.ic_person).override(480, 853).into(h.ivAvatar);
-              else
-                  h.ivAvatar.setImageResource(R.drawable.ic_person);
+              // FIX (deep avatar pipeline + isVisible gate) — same
+              // StatusAvatarBinder pipeline as the vertical contact rows;
+              // this carousel is its own nested RecyclerView so its rows get
+              // the identical offscreen-bind gate + attach-time promotion
+              // (see onViewAttachedToWindow/onViewRecycled below).
+              StatusAvatarBinder.bindGated(ctx, h.ivAvatar, c.ownerPhoto,
+                      resolveAvatarVersion(ctx, c.ownerUid, c.avatarVersion), R.drawable.ic_person);
 
               if (c.isMine && !c.hasStatus) {
                   // "Add status" tile — grey ring, plus badge, no status yet
@@ -808,6 +923,26 @@ package com.callx.app.feed;
           }
 
           @Override public int getItemCount() { return cards.size(); }
+
+          // FIX (isVisible gate) — same attach-promote/recycle-cancel pair as
+          // the outer StatusListAdapter, scoped to this nested carousel RV.
+          @Override
+          public void onViewAttachedToWindow(@NonNull VH holder) {
+              super.onViewAttachedToWindow(holder);
+              int pos = holder.getBindingAdapterPosition();
+              if (pos < 0 || pos >= cards.size()) return;
+              CardItem c = cards.get(pos);
+              if (c.isHiddenTile || c.ownerPhoto == null || c.ownerPhoto.isEmpty()) return;
+              Context ctx = holder.itemView.getContext();
+              StatusAvatarBinder.promote(ctx, holder.ivAvatar, c.ownerPhoto,
+                      resolveAvatarVersion(ctx, c.ownerUid, c.avatarVersion), R.drawable.ic_person);
+          }
+
+          @Override
+          public void onViewRecycled(@NonNull VH holder) {
+              super.onViewRecycled(holder);
+              StatusAvatarBinder.cancel(holder.itemView.getContext(), holder.ivAvatar);
+          }
 
           static class VH extends RecyclerView.ViewHolder {
               ImageView ivBg, ring, ivAddBadge;

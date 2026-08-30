@@ -17,7 +17,7 @@ import com.callx.app.reels.R;
 import com.callx.app.models.ReelComment;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.AvatarSizeTier;
-import com.callx.app.utils.AvatarUrlBuilder;
+import com.callx.app.cache.ReelCommentAvatarBinder;
 import android.util.LruCache;
 import android.content.Intent;
 import com.google.firebase.database.DataSnapshot;
@@ -56,11 +56,20 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     // amount of memory. Bounded LruCache caps it at 200 uids and evicts the
     // least-recently-used entries automatically.
     private static final LruCache<String, String> avatarCache = new LruCache<>(200);
+    // Companion to avatarCache — uid → avatarVersion, filled from the same
+    // reels/users/{uid} fallback snapshot avatarCache's fallback path reads.
+    // ReelComment itself already carries avatarVersion for the common case
+    // (ownerPhoto present at comment-post time); this only matters for the
+    // ownerPhoto-missing fallback path below, so a version bump surfacing
+    // after a comment was posted still busts ReelCommentAvatarBinder's cache
+    // key instead of the fallback photo silently reusing a stale one.
+    private static final LruCache<String, Long> avatarVersionCache = new LruCache<>(200);
 
     // Comment avatar is a fixed 36dp circular tile (see item_reel_comment.xml),
     // bucketed to the shared SMALL tier (48dp) so this decode is reused across
     // any other 36-48dp avatar view in the app instead of caching separately.
-    private static final AvatarSizeTier AVATAR_TIER = AvatarSizeTier.SMALL;
+    // Kept in sync with ReelCommentAvatarBinder.TIER — see that class.
+    private static final AvatarSizeTier AVATAR_TIER = ReelCommentAvatarBinder.TIER;
 
     // Comment photo attachment decode size — iv_comment_image in
     // item_reel_comment.xml is a fixed 150dp square. Same reasoning as the
@@ -80,28 +89,15 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         return commentImageRequestOptions;
     }
 
-    // PERF: RequestOptions was rebuilt with `new RequestOptions().circleCrop()
-    // .override(...)` on EVERY avatar bind. Since the target size is fixed
-    // for every comment row, build it once lazily and reuse the same
-    // instance for every Glide.load() call instead.
-    // NOTE: no .circleCrop() here — the avatar is clipped to a CIRCLE via
+    // v2 (deep avatar pipeline): the old cached-RequestOptions/raw-Glide load
+    // this comment used to hold (circleCrop-free .override() built once and
+    // reused — the avatar is clipped to a CIRCLE via
     // @drawable/bg_comment_avatar_circle + android:clipToOutline="true" on
-    // the ImageView itself (item_reel_comment.xml), not via a Glide bitmap
-    // transform. circleCrop() would allocate + draw a fresh bitmap on every
-    // decode/rebind; an outline clip is a free draw-time mask over the
-    // already size-capped bitmap, so plain centerCrop here is both correct
-    // and the fastest path.
-    private static volatile RequestOptions avatarRequestOptions;
-
-    private static RequestOptions avatarRequestOptions(Context ctx) {
-        RequestOptions opts = avatarRequestOptions;
-        if (opts == null) {
-            int sizePx = AvatarUrlBuilder.tierPx(ctx, AVATAR_TIER);
-            opts = new RequestOptions().override(sizePx, sizePx);
-            avatarRequestOptions = opts;
-        }
-        return opts;
-    }
+    // the ImageView itself, not a Glide transform) is now
+    // ReelCommentAvatarBinder.bind()'s job — see that class for the full
+    // L2/L3 + thumbnail-blur-up + isVisible-gate + prefetch picture. Kept
+    // here only as a note since loadAvatarInto() below no longer builds its
+    // own RequestOptions.
 
     // ── Listener ──────────────────────────────────────────────────────────
     public interface OnCommentActionListener {
@@ -308,7 +304,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         }
 
         // ── Avatar ──────────────────────────────────────────────────────
-        bindAvatar(ctx, h.ivAvatar, c.uid, c.ownerPhoto);
+        bindAvatar(ctx, h.ivAvatar, c.uid, c.ownerPhoto, c.avatarVersion);
 
         // ── Story ring (unseen status indicator) ─────────────────────
         StatusCacheManager scm = StatusCacheManager.getInstance(ctx);
@@ -477,6 +473,55 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     @Override
     public int getItemCount() { return items().size(); }
 
+    /**
+     * v2 (isVisible gate): cancels an in-flight avatar request for a row
+     * leaving the pool — without this, a request still resolving after the
+     * row was recycled (fast fling, or a live Firebase update re-diffing
+     * the list) could land its bitmap into a VH now showing a different
+     * comment. Mirrors ChatListAdapter#onViewRecycled/
+     * GroupMemberAdapter#onViewRecycled's identical fix for their lists.
+     */
+    @Override
+    public void onViewRecycled(@NonNull VH h) {
+        super.onViewRecycled(h);
+        if (h.ivAvatar != null) {
+            ReelCommentAvatarBinder.cancel(h.ivAvatar.getContext(), h.ivAvatar);
+        }
+        h.ivAvatar.setTag(R.id.tag_avatar_uid, null);
+    }
+
+    /** Read-only view over the current comment list for {@link ReelCommentAvatarBinder#prefetch}. */
+    private ReelCommentAvatarBinder.AvatarSource avatarSource() {
+        List<ReelComment> list = items();
+        return new ReelCommentAvatarBinder.AvatarSource() {
+            @Override public String photo(int index) {
+                ReelComment c = list.get(index);
+                if (c.ownerPhoto != null && !c.ownerPhoto.isEmpty()) return c.ownerPhoto;
+                return c.uid != null ? avatarCache.get(c.uid) : null; // fallback-resolved uid photo, if already known
+            }
+            @Override public long avatarVersion(int index) {
+                ReelComment c = list.get(index);
+                if (c.avatarVersion > 0) return c.avatarVersion;
+                Long v = c.uid != null ? avatarVersionCache.get(c.uid) : null;
+                return v != null ? v : 0L;
+            }
+            @Override public int size() { return list.size(); }
+        };
+    }
+
+    /**
+     * v2 (velocity-based prefetch): call from ReelCommentFragment's
+     * RecyclerView scroll listener. Forwards the newly-visible index +
+     * scroll velocity into ReelCommentAvatarBinder.prefetch() — fast fling
+     * skips prefetch entirely, slow/deliberate scroll warms several rows
+     * ahead via DiskCacheStrategy.DATA (bytes only, decode deferred to a
+     * real bind). A no-op for a comment whose uid photo isn't resolved yet
+     * (fallback-fetch still in flight) — it'll simply warm on its next bind.
+     */
+    public void prefetchAvatarsFrom(Context ctx, int fromIndex, float velocityPxPerMs) {
+        ReelCommentAvatarBinder.prefetch(ctx, avatarSource(), fromIndex, velocityPxPerMs);
+    }
+
     // ── Avatar with Firebase fallback ──────────────────────────────────────
 
     private void openCommentStatus(Context ctx, ReelComment c) {
@@ -492,7 +537,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         }
     }
 
-    private void bindAvatar(Context ctx, ImageView iv, String uid, String photoUrl) {
+    private void bindAvatar(Context ctx, ImageView iv, String uid, String photoUrl, long avatarVersion) {
         // PERF/correctness: tag the row with which uid its avatar is FOR,
         // checked by the async Firebase fallback below before it applies a
         // result — otherwise a slow lookup for a row that's since been
@@ -501,14 +546,15 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
 
         if (photoUrl != null && !photoUrl.isEmpty()) {
             avatarCache.put(uid, photoUrl);
-            loadAvatarInto(ctx, iv, photoUrl);
+            loadAvatarInto(ctx, iv, photoUrl, avatarVersion);
             return;
         }
 
         // Check cache first
         String cached = uid != null ? avatarCache.get(uid) : null;
         if (cached != null && !cached.isEmpty()) {
-            loadAvatarInto(ctx, iv, cached);
+            Long cachedVer = uid != null ? avatarVersionCache.get(uid) : null;
+            loadAvatarInto(ctx, iv, cached, cachedVer != null ? cachedVer : 0L);
             return;
         }
 
@@ -526,12 +572,14 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
                     String thumb = s.child("thumbUrl").getValue(String.class);
                     String photo = s.child("photoUrl").getValue(String.class);
                     String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                    Long ver = s.child("avatarVersion").getValue(Long.class);
                     if (p != null && !p.isEmpty()) {
                         avatarCache.put(uid, p);
+                        if (ver != null) avatarVersionCache.put(uid, ver);
                         // Stale-callback guard: only apply if this row is
                         // still showing the comment we fetched for.
                         if (uid.equals(iv.getTag(R.id.tag_avatar_uid))) {
-                            loadAvatarInto(ctx, iv, p);
+                            loadAvatarInto(ctx, iv, p, ver != null ? ver : 0L);
                         }
                     }
                 }
@@ -540,28 +588,16 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             });
     }
 
-    private void loadAvatarInto(Context ctx, ImageView iv, String url) {
+    /**
+     * v2 (deep avatar pipeline): now delegates to ReelCommentAvatarBinder —
+     * same density-aware tiered + WebP/AVIF URL this already had, PLUS
+     * L2/L3 bitmap reuse, a blur-up thumbnail chain, and the isVisible-gate
+     * tagging {@link #onViewRecycled} relies on to cancel a stale request.
+     * See ReelCommentAvatarBinder's class doc for the full picture.
+     */
+    private void loadAvatarInto(Context ctx, ImageView iv, String url, long avatarVersion) {
         try {
-            // PERF: skip the Glide call entirely if this exact URL is
-            // already what's loaded/loading into this recycled row — avoids
-            // redundant request-building work when a row rebinds with
-            // unchanged avatar data (e.g. a like/reaction-only refresh that
-            // still routes through a full bind for some other reason).
-            Object lastUrl = iv.getTag(R.id.tag_avatar_url);
-            if (url.equals(lastUrl)) return;
-            iv.setTag(R.id.tag_avatar_url, url);
-
-            // Routed through the central AvatarUrlBuilder — exact size,
-            // 2x retina, auto-format Cloudinary variant — and .override()
-            // (via the shared, cached RequestOptions) pins the Glide decode
-            // size so RecyclerView recycling never decodes larger than the
-            // 36dp circle needs.
-            String resizedUrl = AvatarUrlBuilder.build(ctx, url, AVATAR_TIER);
-            Glide.with(ctx).load(resizedUrl)
-                .apply(avatarRequestOptions(ctx))
-                .placeholder(R.drawable.ic_person)
-                .error(R.drawable.ic_person)
-                .into(iv);
+            ReelCommentAvatarBinder.bind(ctx, iv, url, avatarVersion, R.drawable.ic_person);
         } catch (Exception ignored) {}
     }
 

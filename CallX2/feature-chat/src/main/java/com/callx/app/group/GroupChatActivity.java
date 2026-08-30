@@ -641,6 +641,9 @@ public class GroupChatActivity extends AppCompatActivity
     @Override
     protected void onDestroy() {
         saveGroupDraft();
+        // FIX (avatar pipeline parity): stop the toolbar group-icon request
+        // from GroupAvatarBinder.bind() if it's still in flight.
+        com.callx.app.cache.GroupAvatarBinder.cancel(this, binding.ivPartnerAvatar);
         if (activeReadByObserver != null) { activeReadByObserver.detach(); activeReadByObserver = null; }
         subtitleHandler.removeCallbacks(subtitleTick);
         typingHandler.removeCallbacks(stopTyping);
@@ -843,10 +846,12 @@ public class GroupChatActivity extends AppCompatActivity
             startActivity(i);
         });
         if (groupPhoto != null && !groupPhoto.isEmpty()) {
-            com.bumptech.glide.Glide.with(this).load(groupPhoto)
-                    .placeholder(com.callx.app.core.R.drawable.ic_group)
-                    .override(720, 720)
-                    .into(binding.ivPartnerAvatar);
+            // FIX (avatar pipeline parity): was a flat .override(720, 720) —
+            // a 720x720 decode for a 32dp toolbar circle. Now routes through
+            // GroupAvatarBinder: tier-bucketed responsive CDN URL + L2/L3
+            // reuse (see GroupAvatarBinder class doc).
+            com.callx.app.cache.GroupAvatarBinder.bind(this, binding.ivPartnerAvatar, groupPhoto,
+                    com.callx.app.cache.GroupAvatarBinder.TIER_TOOLBAR, com.callx.app.core.R.drawable.ic_group);
         }
 
         // Voice call

@@ -10,6 +10,7 @@ package com.callx.app.messages;
   import androidx.annotation.NonNull;
   import androidx.recyclerview.widget.RecyclerView;
   import com.bumptech.glide.Glide;
+  import com.callx.app.cache.XAvatarBinder;
   import com.callx.app.x.R;
   import java.util.ArrayList;
   import java.util.List;
@@ -45,6 +46,24 @@ package com.callx.app.messages;
 
       @Override public int getItemCount() { return items.size(); }
 
+      /** FIX (lifecycle-aware cancel): see XAvatarBinder#cancel. */
+      @Override public void onViewRecycled(@NonNull VH h) {
+          super.onViewRecycled(h);
+          if (h.ivAvatar != null) XAvatarBinder.cancel(ctx, h.ivAvatar);
+      }
+
+      /** FIX (velocity-based prefetch): AvatarSource over `items` for XMessagesFragment's scroll listener. */
+      public XAvatarBinder.AvatarSource avatarSource() {
+          return new XAvatarBinder.AvatarSource() {
+              @Override public String photo(int index) {
+                  ConversationPreview p = items.get(index);
+                  return (p.otherThumbUrl != null && !p.otherThumbUrl.isEmpty()) ? p.otherThumbUrl : p.otherPhotoUrl;
+              }
+              @Override public long avatarVersion(int index) { return 0; }
+              @Override public int size() { return items.size(); }
+          };
+      }
+
       class VH extends RecyclerView.ViewHolder {
           ImageView ivAvatar, ivVerified;
           TextView tvName, tvHandle, tvLastMsg, tvTime;
@@ -62,10 +81,11 @@ package com.callx.app.messages;
           }
 
           void bind(ConversationPreview p) {
-              Glide.with(ctx).load(
-                  (p.otherThumbUrl != null && !p.otherThumbUrl.isEmpty()) ? p.otherThumbUrl : p.otherPhotoUrl
-              ).circleCrop()
-                  .placeholder(R.drawable.ic_person).override(96, 96).into(ivAvatar);
+              // FIX (deep avatar pipeline): now XAvatarBinder.bind() — tiered +
+              // versioned CDN url, L2/L3 reuse shared with feed/notif/profile
+              // pipeline. See XAvatarBinder class doc.
+              String avatarUrl = (p.otherThumbUrl != null && !p.otherThumbUrl.isEmpty()) ? p.otherThumbUrl : p.otherPhotoUrl;
+              XAvatarBinder.bind(ctx, ivAvatar, avatarUrl, 0, R.drawable.ic_person);
               tvName.setText(p.otherName);
               tvHandle.setText("@" + p.otherHandle);
               tvLastMsg.setText(p.lastMessage != null ? p.lastMessage : "");

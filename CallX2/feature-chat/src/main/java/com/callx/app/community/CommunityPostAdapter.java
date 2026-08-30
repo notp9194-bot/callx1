@@ -145,19 +145,7 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
     // memory just to render into a ~40dp avatar circle or a 200dp media card.
     // PREFER_RGB_565 halves per-pixel memory for photos that don't need an
     // alpha channel, which is true for both avatars and post media here.
-    private RequestOptions avatarRequestOptions;
     private RequestOptions mediaRequestOptions;
-
-    private RequestOptions avatarRequestOptions(android.content.Context ctx) {
-        if (avatarRequestOptions == null) {
-            int px = CommunityPostCanvasView.avatarPx(ctx);
-            avatarRequestOptions = RequestOptions.circleCropTransform()
-                    .override(px, px)
-                    .format(DecodeFormat.PREFER_RGB_565)
-                    .diskCacheStrategy(DiskCacheStrategy.ALL);
-        }
-        return avatarRequestOptions;
-    }
 
     private RequestOptions mediaRequestOptions(android.content.Context ctx) {
         if (mediaRequestOptions == null) {
@@ -184,27 +172,16 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
         // CustomTarget was created on every bind with nothing ever clearing
         // the old one, so a fast fling could leave several completed decodes
         // racing to land on a view that had already scrolled past them.
-        if (h.avatarTarget != null) Glide.with(cv.getContext()).clear(h.avatarTarget);
+        if (h.avatarTarget != null) com.callx.app.cache.CommunityAvatarBinder.cancelBitmap(cv.getContext(), h.avatarTarget);
         if (h.mediaTarget != null) Glide.with(cv.getContext()).clear(h.mediaTarget);
 
-        if (p.authorPhoto != null && !p.authorPhoto.isEmpty()) {
-            h.avatarTarget = new CustomTarget<Bitmap>() {
-                @Override
-                public void onResourceReady(@NonNull Bitmap resource, Transition<? super Bitmap> transition) {
-                    cv.setAuthorAvatarBitmap(p.id, resource);
-                }
-                @Override
-                public void onLoadCleared(android.graphics.drawable.Drawable placeholder) {
-                    cv.setAuthorAvatarBitmap(p.id, null);
-                }
-            };
-            Glide.with(cv.getContext()).asBitmap()
-                    .load(p.authorPhoto)
-                    .apply(avatarRequestOptions(cv.getContext()))
-                    .into(h.avatarTarget);
-        } else {
-            h.avatarTarget = null;
-        }
+        // FIX (avatar pipeline parity): was a hand-rolled dp*density
+        // override with no tier bucketing (see CommunityAvatarBinder class
+        // doc) — same author photo shown here AND in the member list
+        // decoded/cached separately before this.
+        h.avatarTarget = com.callx.app.cache.CommunityAvatarBinder.bindBitmap(
+                cv.getContext(), p.authorPhoto, com.callx.app.cache.CommunityAvatarBinder.TIER_POST_AUTHOR,
+                bmp -> cv.setAuthorAvatarBitmap(p.id, bmp));
 
         if (p.mediaUrl != null && !p.mediaUrl.isEmpty()) {
             h.mediaTarget = new CustomTarget<Bitmap>() {
@@ -268,7 +245,7 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
         // guard in setAuthorAvatarBitmap()/setMediaBitmap(). Frees up Glide's
         // decode executor for the rows actually becoming visible.
         if (h.avatarTarget != null) {
-            Glide.with(h.canvasView.getContext()).clear(h.avatarTarget);
+            com.callx.app.cache.CommunityAvatarBinder.cancelBitmap(h.canvasView.getContext(), h.avatarTarget);
             h.avatarTarget = null;
         }
         if (h.mediaTarget != null) {

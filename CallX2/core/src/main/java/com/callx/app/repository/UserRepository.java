@@ -152,6 +152,7 @@ public class UserRepository {
         e.emoji       = u.emoji;
         e.callxId     = u.callxId;
         e.lastSeen    = u.lastSeen;
+        e.avatarVersion = u.avatarVersion;
         e.cachedAt    = System.currentTimeMillis();
         return e;
     }
@@ -166,6 +167,7 @@ public class UserRepository {
         u.emoji       = e.emoji;
         u.callxId     = e.callxId;
         u.lastSeen    = e.lastSeen;
+        u.avatarVersion = e.avatarVersion;
         return u;
     }
 }

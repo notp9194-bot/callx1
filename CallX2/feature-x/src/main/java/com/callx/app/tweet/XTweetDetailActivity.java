@@ -12,6 +12,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
+import com.callx.app.cache.XAvatarBinder;
 import com.callx.app.feed.XTweetAdapter;
 import com.callx.app.models.XNotification;
 import com.callx.app.models.XTweet;
@@ -147,10 +148,10 @@ public class XTweetDetailActivity extends AppCompatActivity {
         String avatarUrl = (rootTweet.authorThumbUrl != null && !rootTweet.authorThumbUrl.isEmpty())
             ? rootTweet.authorThumbUrl : rootTweet.authorPhotoUrl;
         if (ivAvatar != null) {
-            Glide.with(this).load(avatarUrl)
-                .apply(new RequestOptions().circleCrop().diskCacheStrategy(DiskCacheStrategy.ALL)
-                    .placeholder(R.drawable.ic_person))
-                .into(ivAvatar);
+            // FIX (deep avatar pipeline): now XAvatarBinder.bind() — tiered +
+            // versioned CDN url, L2/L3 reuse shared with the feed pipeline.
+            // See XAvatarBinder class doc.
+            XAvatarBinder.bind(this, ivAvatar, avatarUrl, 0, R.drawable.ic_person);
             if (rootTweet.authorUid != null)
                 ivAvatar.setOnClickListener(v ->
                     XProfileSheet.showProfile(getSupportFragmentManager(), rootTweet.authorUid));
