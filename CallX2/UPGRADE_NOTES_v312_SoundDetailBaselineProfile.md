@@ -58,3 +58,29 @@ device/GMD and use that script to add them once real numbers exist.
 ## Files touched
 - `macrobenchmark/src/main/java/com/callx/benchmark/CallXBaselineProfileGenerator.kt`
 - `macrobenchmark/src/main/java/com/callx/benchmark/SoundDetailBenchmark.kt` (new)
+
+---
+
+# Build fix — ReelFirebaseUtils module-boundary break
+
+`:core:compileDebugJavaWithJavac` failed:
+```
+core/src/main/java/com/callx/app/cache/SoundDetailCache.java:7: error: cannot find symbol
+import com.callx.app.utils.ReelFirebaseUtils;
+symbol:   class ReelFirebaseUtils
+```
+`ReelFirebaseUtils` physically lived in `:feature-reels`, but `SoundDetailCache`
+(added in v300, for the reelUsers/ → users/ creator-profile fallback) is in
+`:core`. `:core` cannot depend on `:feature-reels` — only the reverse — so it
+was never on core's compile classpath; feature-reels itself never noticed
+because it obviously always had itself on its own classpath.
+
+**Fix:** moved `ReelFirebaseUtils.java` from `feature-reels/.../utils/` to
+`core/.../utils/` (same package, so every existing
+`import com.callx.app.utils.ReelFirebaseUtils;` in feature-reels/feature-chat/
+core keeps resolving unchanged — both those modules already declare
+`implementation project(':core')`). No other code changes needed; the class
+only ever depended on `Constants` (already in core) and the Firebase SDK
+(already a `:core` dependency via `FirebaseUtils`).
+
+Files touched: `core/src/main/java/com/callx/app/utils/ReelFirebaseUtils.java` (moved here), `feature-reels/src/main/java/com/callx/app/utils/ReelFirebaseUtils.java` (removed).

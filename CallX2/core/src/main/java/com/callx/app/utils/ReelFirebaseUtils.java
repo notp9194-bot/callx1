@@ -6,6 +6,19 @@ import com.google.firebase.database.FirebaseDatabase;
 /**
  * ReelFirebaseUtils — Reels system ke liye dedicated Firebase helper.
  *
+ * FIX (build break): moved here from feature-reels → core. SoundDetailCache
+ * (core module) needs this for its reelUsers/ → users/ creator-profile
+ * fallback cascade, but :core does not (and must not, to avoid a module
+ * cycle) depend on :feature-reels — only the reverse. Living in feature-reels,
+ * this class was invisible to core's classpath, so `:core:compileDebugJavaWithJavac`
+ * failed with "cannot find symbol: class ReelFirebaseUtils" the moment
+ * SoundDetailCache imported it. Package stays `com.callx.app.utils` (same as
+ * before, alongside FirebaseUtils/Constants, both already in core) so every
+ * existing `import com.callx.app.utils.ReelFirebaseUtils;` across
+ * feature-chat/feature-reels/core keeps resolving unchanged — feature-reels
+ * and feature-chat both already declare `implementation project(':core')`,
+ * so they see this class the same way they always did.
+ *
  * ROOT NODE: "reels"
  * Sab kuch reels/... ke neeche — chat users/{uid} se bilkul alag.
  *
