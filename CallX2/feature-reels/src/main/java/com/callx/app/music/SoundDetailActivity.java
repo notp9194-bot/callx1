@@ -104,6 +104,7 @@ public class SoundDetailActivity extends AppCompatActivity {
         // 160dp wrap_content tile.
         private static final int GRID_SPAN_COUNT = 3;
         private static int cachedCellHeightPx = -1;
+        private static int cachedCellWidthPx  = -1;
 
         // ── Data-saving thumb sizing (ported from ReelGridAdapter) ──
         // Previously this grid loaded item.thumbnailUrl straight into Glide —
@@ -117,11 +118,32 @@ public class SoundDetailActivity extends AppCompatActivity {
 
         private static int resolveCellHeightPx(android.content.Context ctx) {
             if (cachedCellHeightPx > 0) return cachedCellHeightPx;
-            android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
-            int spacingPx   = Math.round(2 * dm.density); // matches WhiteGridDecoration
-            int cellWidthPx = (dm.widthPixels - spacingPx * (GRID_SPAN_COUNT + 1)) / GRID_SPAN_COUNT;
-            cachedCellHeightPx = Math.round(cellWidthPx * 16f / 9f);
+            resolveCellWidthPx(ctx); // populates cachedCellWidthPx as a side effect the first time
+            cachedCellHeightPx = Math.round(cachedCellWidthPx * 16f / 9f);
             return cachedCellHeightPx;
+        }
+
+        /**
+         * ✅ FIX (oversized bitmap decode): onBindViewHolder() was loading the
+         * CDN-resized thumb via Glide with no .override() at all — Glide
+         * decoded whatever pixel size CloudinaryUploader.deriveThumbUrl()
+         * happened to return (a fixed 300/200px SQUARE, see
+         * resolveGridThumbSize()) into a view that's actually
+         * cellWidthPx × 16:9-taller-than-that, i.e. every cell was decoding
+         * (and holding in memory) a needlessly large, wrong-aspect square
+         * bitmap Glide then had to crop down anyway. Locking the decode size
+         * to the ACTUAL grid cell dimensions (same width this method already
+         * computes for the cell's LayoutParams, times a small headroom
+         * factor so a slightly-larger-than-cell CDN thumb still centerCrops
+         * cleanly rather than upscaling) keeps decode cost proportional to
+         * what's actually on screen.
+         */
+        private static int resolveCellWidthPx(android.content.Context ctx) {
+            if (cachedCellWidthPx > 0) return cachedCellWidthPx;
+            android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+            int spacingPx = Math.round(2 * dm.density); // matches WhiteGridDecoration
+            cachedCellWidthPx = (dm.widthPixels - spacingPx * (GRID_SPAN_COUNT + 1)) / GRID_SPAN_COUNT;
+            return cachedCellWidthPx;
         }
 
         private static int resolveGridThumbSize(android.content.Context ctx) {
@@ -182,8 +204,14 @@ public class SoundDetailActivity extends AppCompatActivity {
                 int thumbSize = resolveGridThumbSize(h.iv.getContext());
                 String gridUrl = com.callx.app.utils.CloudinaryUploader.deriveThumbUrl(
                         item.thumbnailUrl, thumbSize, "webp");
+                // .override() locked to the actual grid cell size (see
+                // resolveCellWidthPx()/resolveCellHeightPx() FIX doc above)
+                // instead of decoding whatever raw size the CDN thumb comes
+                // back at.
+                int cellW = resolveCellWidthPx(h.iv.getContext());
+                int cellH = resolveCellHeightPx(h.iv.getContext());
                 com.bumptech.glide.Glide.with(h.iv.getContext()).load(gridUrl)
-                    .centerCrop().into(h.iv);
+                    .centerCrop().override(cellW, cellH).into(h.iv);
             }
             if (h.tvViews != null) h.tvViews.setText(formatViews(item.viewsCount));
             if (h.tvOriginal != null)
@@ -245,12 +273,26 @@ public class SoundDetailActivity extends AppCompatActivity {
             ll.addView(iv); ll.addView(tv);
             return new VH(ll, iv, tv);
         }
+        // Matches onCreateViewHolder's dp80 ivCover size below in px, cached
+        // once per process (same pattern as ReelThumbAdapter's cell sizing).
+        private static int cachedCoverPx = -1;
+        private static int coverPx(android.content.Context ctx) {
+            if (cachedCoverPx <= 0) cachedCoverPx = Math.round(80 * ctx.getResources().getDisplayMetrics().density);
+            return cachedCoverPx;
+        }
+
         @Override
         public void onBindViewHolder(@androidx.annotation.NonNull VH h, int pos) {
             RelatedItem item = items.get(pos);
             h.tvTitle.setText(item.title != null ? item.title : "");
-            if (item.coverUrl != null && !item.coverUrl.isEmpty())
-                com.bumptech.glide.Glide.with(h.ivCover.getContext()).load(item.coverUrl).into(h.ivCover);
+            if (item.coverUrl != null && !item.coverUrl.isEmpty()) {
+                // ✅ FIX (oversized bitmap decode): no .override() meant Glide
+                // decoded the raw source cover at full size into an 80dp
+                // ImageView. Locked to the view's actual pixel size.
+                int px = coverPx(h.ivCover.getContext());
+                com.bumptech.glide.Glide.with(h.ivCover.getContext()).load(item.coverUrl)
+                    .centerCrop().override(px, px).into(h.ivCover);
+            }
             if (listener != null) h.root.setOnClickListener(v -> listener.onClick(item));
         }
         @Override public int getItemCount() { return items.size(); }

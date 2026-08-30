@@ -51,7 +51,9 @@
                 android:background="@drawable/bg_drag_handle"
                 android:visibility="gone"/>
 
-            <!-- Top bar -->
+            <!-- Top bar — background matched to the panel card
+                 (?attr/colorSurface) so header, panel, and grid all sit on
+                 the exact same surface colour in both light/dark mode. -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="56dp"
@@ -59,7 +61,7 @@
                 android:gravity="center_vertical"
                 android:paddingStart="4dp"
                 android:paddingEnd="8dp"
-                android:background="@color/sound_detail_bg_light">
+                android:background="?attr/colorSurface">
 
                 <!-- Back (Activity) / Close (Sheet) — icon set by Fragment -->
                 <ImageButton
@@ -328,10 +330,15 @@
                             android:textSize="10sp"/>
                     </LinearLayout>
 
-                    <!-- Waveform -->
-                    <LinearLayout android:id="@+id/layout_sound_waveform"
+                    <!-- Waveform — single Canvas view (SoundWaveformView) instead of
+                         36 child Views each driven by its own ValueAnimator. See
+                         SoundWaveformView's class doc for why: setLayoutParams() on
+                         a LinearLayout child forces a full layout pass per frame,
+                         36x, continuously, while playing. This draws all 36 bars in
+                         one onDraw() and only ever calls invalidate(). -->
+                    <com.callx.app.music.SoundWaveformView
+                        android:id="@+id/waveform_sound"
                         android:layout_width="match_parent" android:layout_height="26dp"
-                        android:orientation="horizontal" android:gravity="bottom|center_horizontal"
                         android:layout_marginTop="8dp"/>
                 </LinearLayout>
 
@@ -406,8 +413,8 @@
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:orientation="horizontal" android:layout_marginTop="16dp">
                     <FrameLayout android:id="@+id/btn_use_sound_camera"
-                        android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1"
-                        android:background="@drawable/bg_sound_detail_box" android:layout_marginEnd="6dp">
+                        android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="0.85"
+                        android:background="@drawable/bg_sound_detail_action_btn" android:layout_marginEnd="6dp">
                         <LinearLayout
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:layout_gravity="center"
@@ -425,8 +432,8 @@
                         </LinearLayout>
                     </FrameLayout>
                     <FrameLayout android:id="@+id/btn_use_sound_gallery"
-                        android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1"
-                        android:background="@drawable/bg_sound_detail_box" android:layout_marginEnd="6dp">
+                        android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="0.85"
+                        android:background="@drawable/bg_sound_detail_action_btn" android:layout_marginEnd="6dp">
                         <LinearLayout
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:layout_gravity="center"
@@ -443,8 +450,11 @@
                                 android:fontFamily="sans-serif-medium"/>
                         </LinearLayout>
                     </FrameLayout>
+                    <!-- Wider weight (1.3 vs 0.85) than the two boxes above so
+                         the full "Add to profile" text fits on one line
+                         without ellipsizing or shrinking to just "Add". -->
                     <FrameLayout android:id="@+id/btn_add_to_profile"
-                        android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1"
+                        android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1.3"
                         android:background="@drawable/bg_btn_follow_pill"
                         android:visibility="gone">
                         <LinearLayout
@@ -457,8 +467,9 @@
                                 android:layout_marginEnd="4dp"/>
                             <TextView android:id="@+id/tv_add_to_profile"
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="Add"
-                                android:textColor="@color/white" android:textSize="11sp"
+                                android:text="Add to profile"
+                                android:textColor="@color/white" android:textSize="10sp"
+                                android:maxLines="1" android:ellipsize="end"
                                 android:fontFamily="sans-serif-medium"/>
                         </LinearLayout>
                     </FrameLayout>
@@ -489,10 +500,11 @@
                     android:textSize="13sp"/>
             </LinearLayout>
 
-            <!-- Reels grid -->
+            <!-- Reels grid — background matched to the panel card
+                 (?attr/colorSurface), same as the top bar above. -->
             <androidx.recyclerview.widget.RecyclerView android:id="@+id/rv_sound_reels"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:background="@color/sound_detail_bg_light"
+                android:background="?attr/colorSurface"
                 android:padding="1dp"
                 android:nestedScrollingEnabled="false"
                 android:clipToPadding="false" android:clipChildren="false"

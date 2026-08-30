@@ -2,7 +2,6 @@ package com.callx.app.music;
 import com.callx.app.utils.AlertDialogStyler;
 
 import android.animation.ObjectAnimator;
-import android.animation.ValueAnimator;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
@@ -25,17 +24,18 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.core.widget.NestedScrollView;
 import androidx.fragment.app.Fragment;
-import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
-import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import android.util.LruCache;
+
+import com.callx.app.cache.SoundDetailCache;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.ListPreloader;
 import com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader;
@@ -45,12 +45,12 @@ import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.bumptech.glide.request.RequestOptions;
 import androidx.transition.AutoTransition;
 import androidx.transition.TransitionManager;
+import com.callx.app.player.ReelThermalManager;
 import com.callx.app.player.SingleReelPlayerActivity;
 import com.callx.app.profile.ReelPeekPreviewController;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.MediaSwipeReplyCloseHelper;
-import com.callx.app.utils.ReelFirebaseUtils;
 import com.callx.app.utils.SwipeAwareFrameLayout;
 import com.facebook.shimmer.ShimmerFrameLayout;
 import com.google.android.material.card.MaterialCardView;
@@ -68,7 +68,6 @@ import com.google.firebase.database.ValueEventListener;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Random;
 
 /**
  * SoundDetailFragment — Single source of truth for Sound Detail screen.
@@ -97,6 +96,21 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private static final int REELS_PAGE_SIZE = 12;
     private static final int REQUEST_TRIM_SOUND = 702;
 
+    /**
+     * ULTRA optimization: buildStaticWaveform() used to re-run
+     * SoundWaveformView#seedStatic()'s Random-based bar generation every
+     * single time a SoundDetailFragment instance was created for a given
+     * sound — including reopening the exact same sound's detail screen
+     * multiple times in one session. The 36 pseudo-random heights are
+     * fully determined by soundId, so they're cached here once per
+     * process (static — shared across every SoundDetailFragment
+     * instance) instead of being recomputed on each open. LruCache caps
+     * memory at 64 sounds' worth of float[36] (~9KB total) and evicts the
+     * least-recently-opened sound first, so it "frees" naturally when the
+     * cache fills rather than growing unbounded.
+     */
+    private static final LruCache<String, float[]> WAVEFORM_CACHE = new LruCache<>(64);
+
     // ── Host callback (Activity → finish, Sheet → dismiss) ────────────────────
     private Runnable onCloseListener;
 
@@ -120,6 +134,10 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private boolean autoPlayAttempted = false; // Instagram-style: fire the auto-play exactly once per screen open, whenever the playback URL first becomes available (bundle args or async Firebase fetch)
 
     private String  creatorUid, creatorName, creatorPhoto;
+    // Gap #2: guards resolveCreatorAfterSoundLoad() so it (and the
+    // loadCreatorProfile() bundle-args fast-path) only ever resolve the
+    // creator once — see resolveCreatorAfterSoundLoad()'s doc.
+    private boolean creatorProfileResolutionAttempted = false;
 
     // ── Pagination ────────────────────────────────────────────────────────────
     private String  lastReelKey        = null;
@@ -152,7 +170,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private RecyclerView rvReels, rvRelated;
     private ProgressBar  progressBar, progressReelsPagination;
     private View         layoutSoundInfo, layoutReelsHeader;
-    private LinearLayout layoutWaveform;
+    private SoundWaveformView waveformView;
     private SeekBar      seekBar;
     private TextView     tvCurrentTime, tvTotalTime;
     private ShimmerFrameLayout shimmerLayout;
@@ -185,20 +203,46 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     // Feature-parity fix: cached so an owner long-press doesn't hit Firebase
     // on every single peek — loaded once (lazily, on first owner long-press
     // in this screen instance) and kept in sync locally on pin/unpin/delete.
+    // PERF: pinned-reel-id resolution/caching now lives in SoundDetailCache
+    // (shared, survives across related-sound hops) — see
+    // ensurePinnedReelIdLoaded(). cachedPinnedReelId stays as a local mirror
+    // so buildOwnerPeekOptions()/confirmDeleteOwnedReel() can read it
+    // synchronously without an extra cache lookup.
     private String  cachedPinnedReelId;
-    private boolean pinnedReelIdLoaded = false;
 
     // ── Player ────────────────────────────────────────────────────────────────
     private ExoPlayer exoPlayer;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Handler seekHandler = new Handler(Looper.getMainLooper());
 
+    // ── Thermal (gap #3: waveform + ExoPlayer weren't thermal-aware, unlike
+    // Home/Post feed's use of ReelThermalManager) ─────────────────────────────
+    private ReelThermalManager thermalManager;
+    // Re-evaluated on every thermal change while playing, so the waveform
+    // drops out of its animation loop the moment the device goes HOT, and
+    // resumes animating if it cools back down — not just at play-start.
+    private final Runnable thermalChangeListener = this::onThermalChanged;
+
     // ── Animations ────────────────────────────────────────────────────────────
     private ObjectAnimator            discAnimator;
-    private final List<ValueAnimator> waveAnimators = new ArrayList<>();
 
+    // FIX #BG-SEEK-LOOP: 300ms polling loop earlier only re-checked `isPlaying`
+    // before rescheduling itself. If the flag stayed true across an async edge
+    // (e.g. Fragment backgrounded via Recents right as a play callback landed),
+    // the loop kept firing on the main thread indefinitely — same class of bug
+    // Reels' player already guards against. `isResumed()` is now checked on
+    // every tick too, so the loop self-terminates the moment this Fragment is
+    // no longer in the foreground, independent of whatever `isPlaying` says.
+    //
+    // THERMAL: interval also scales with device thermal state — 300ms normally,
+    // 800ms once ReelThermalManager reports HOT (same signal startWaveAnimation()
+    // already uses to freeze the waveform). Seek bar / time label don't need
+    // 3x/sec precision on a throttled device; re-checked via seekIntervalMs()
+    // on every tick, so a mid-playback thermal change takes effect on the very
+    // next reschedule — no separate listener wiring needed.
     private final Runnable seekUpdateRunnable = new Runnable() {
         @Override public void run() {
+            if (!isResumed()) return; // hard stop — fragment not foreground, don't reschedule
             if (exoPlayer != null && isPlaying && !userSeeking) {
                 long pos = exoPlayer.getCurrentPosition();
                 long dur = exoPlayer.getDuration();
@@ -206,9 +250,16 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                     seekBar.setProgress((int)(100L * pos / dur));
                 if (tvCurrentTime != null) tvCurrentTime.setText(formatMs((int) pos));
             }
-            if (isPlaying) seekHandler.postDelayed(this, 300);
+            if (isPlaying) seekHandler.postDelayed(this, seekIntervalMs());
         }
     };
+
+    /** 300ms normally; throttled to 800ms on a HOT device — mirrors the
+     *  waveform's isThermalHot() gate so seek-bar polling backs off under
+     *  thermal load same as everything else in this screen. */
+    private long seekIntervalMs() {
+        return isThermalHot() ? 800L : 300L;
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Factory
@@ -280,6 +331,8 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         bindViews(view);
         applyMode();          // drag handle + close icon based on isSheet
         showShimmer(true);
+        thermalManager = ReelThermalManager.get(requireContext());
+        thermalManager.addChangeListener(thermalChangeListener);
         peekController = new com.callx.app.profile.ReelPeekPreviewController(requireActivity());
         populateSoundInfo();
         loadSoundData();
@@ -336,6 +389,21 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         if (peekController != null) peekController.dismiss();
     }
 
+    // FIX #BG-SEEK-LOOP: Reels' player is lifecycle-gated (ReelsFragment#onStop
+    // removes its listeners/loops unconditionally on background); SoundDetail
+    // previously relied only on onPause()'s `if (isPlaying)` check. That's
+    // normally enough, but it leaves no second line of defense if `isPlaying`
+    // flips true from an async ExoPlayer callback right around the pause edge
+    // (e.g. user hits Recents mid-buffer) — the seek loop and player can then
+    // keep running until the OS kills the process. onStop() now force-stops
+    // both unconditionally, same as the Reels feed does when it backgrounds.
+    @Override
+    public void onStop() {
+        seekHandler.removeCallbacks(seekUpdateRunnable);
+        if (exoPlayer != null && isPlaying) pausePlayback();
+        super.onStop();
+    }
+
     @Override
     public void onDestroyView() {
         seekHandler.removeCallbacksAndMessages(null);
@@ -346,6 +414,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         stopWaveAnimation();
         releasePlayer();
         detachLiveListener();
+        if (thermalManager != null) thermalManager.removeChangeListener(thermalChangeListener);
         if (peekController != null) peekController.dismiss();
         if (layoutMiniPlayer != null) layoutMiniPlayer.setSwipeHelper(null);
         miniPlayerSwipeHelper = null;
@@ -419,7 +488,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         progressBar       = v.findViewById(R.id.progress_sound);
         progressReelsPagination = v.findViewById(R.id.progress_reels_pagination);
         layoutSoundInfo   = v.findViewById(R.id.layout_sound_info);
-        layoutWaveform    = v.findViewById(R.id.layout_sound_waveform);
+        waveformView      = v.findViewById(R.id.waveform_sound);
         seekBar           = v.findViewById(R.id.seekbar_sound);
         tvCurrentTime     = v.findViewById(R.id.tv_sound_current_time);
         tvTotalTime       = v.findViewById(R.id.tv_sound_total_time);
@@ -468,8 +537,16 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                     new com.callx.app.profile.ReelGridAdapter.WhiteGridDecoration(requireContext()));
             }
         }
-        if (rvRelated != null) rvRelated.setLayoutManager(
-            new LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false));
+        if (rvRelated != null) {
+            rvRelated.setLayoutManager(
+                new LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false));
+            // ULTRA: every row is a fixed 80dp-tall cell (RelatedAdapter
+            // .onCreateViewHolder()), so rv_related_sounds's own
+            // wrap_content height never actually changes as items are
+            // added/swapped — safe to skip RecyclerView's extra measure
+            // pass, same reasoning already applied to rvReels above.
+            rvRelated.setHasFixedSize(true);
+        }
 
         if (seekBar != null) {
             seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -597,6 +674,20 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         buildStaticWaveform();
     }
 
+    /**
+     * Ultra optimization: ivCreatorAvatar (38dp) and ivMiniCover (40dp)
+     * were both requesting .override(720, 720) from Glide — a fixed size
+     * meant for the large screenshot-style ivSoundCover thumbnail, not a
+     * ~40dp circular avatar. That's ~18x more pixels decoded and held in
+     * memory than the view can ever show, on every screen open / creator
+     * switch, for zero visual gain. Sized to a comfortable 48dp @ device
+     * density instead — still crisp on high-density screens, a fraction
+     * of the decode/memory cost.
+     */
+    private int avatarDecodePx() {
+        return Math.round(48 * getResources().getDisplayMetrics().density);
+    }
+
     private void loadCoverImage(String url) {
         if (ivSoundCover == null || isGone()) return;
         // Rounded-square crop now that the cover is a larger, static
@@ -632,60 +723,54 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     // Waveform
     // ─────────────────────────────────────────────────────────────────────────
 
+    /**
+     * ULTRA optimization: the 36-child-View + 36-ValueAnimator waveform was
+     * replaced by a single SoundWaveformView that draws all 36 bars in one
+     * onDraw() and is driven by one animator that only calls invalidate()
+     * (never setLayoutParams() / requestLayout()). See SoundWaveformView's
+     * class doc for the full rationale. These three methods are kept as
+     * thin wrappers so every existing call site (populateSoundInfo(),
+     * onPlaybackStateChanged(), resumePlayback(), pausePlayback(),
+     * onPlayerError(), onDestroyView()) needs no further changes.
+     */
     private void buildStaticWaveform() {
-        if (layoutWaveform == null || isGone()) return;
-        layoutWaveform.removeAllViews();
-        stopWaveAnimation();
-        float dp = requireContext().getResources().getDisplayMetrics().density;
-        Random rng = new Random(soundTitle.hashCode());
-        for (int i = 0; i < 36; i++) {
-            View bar = new View(requireContext());
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                (int)(4 * dp), (int)((10 + rng.nextInt(30)) * dp));
-            lp.setMargins((int)(3 * dp), 0, (int)(3 * dp), 0);
-            lp.gravity = android.view.Gravity.BOTTOM;
-            bar.setLayoutParams(lp);
-            bar.setBackgroundColor(0x44FFFFFF);
-            bar.setTag("waveBar");
-            layoutWaveform.addView(bar);
+        if (waveformView == null || isGone()) return;
+        // ULTRA: soundId is the real per-sound key (soundTitle is only a
+        // fallback seed source for the rare case a sound arrives without
+        // an id). Same soundId → same cached bars, no Random recompute.
+        String key = !soundId.isEmpty() ? soundId : ("title:" + soundTitle.hashCode());
+        float[] cached = WAVEFORM_CACHE.get(key);
+        if (cached != null) {
+            waveformView.setStaticHeights(cached);
+        } else {
+            float[] generated = waveformView.seedStatic(soundTitle.hashCode());
+            WAVEFORM_CACHE.put(key, generated);
         }
     }
 
     private void startWaveAnimation() {
-        if (layoutWaveform == null || isGone()) return;
-        stopWaveAnimation();
-        float dp = requireContext().getResources().getDisplayMetrics().density;
-        int minH = (int)(8 * dp), maxH = (int)(38 * dp);
-        for (int i = 0; i < layoutWaveform.getChildCount(); i++) {
-            final View bar = layoutWaveform.getChildAt(i);
-            if (!"waveBar".equals(bar.getTag())) continue;
-            bar.setBackgroundColor(0xFFFF3B5C);
-            int dur = 400 + (i % 5) * 80;
-            int target = minH + (int)((maxH - minH) * (0.4f + (i % 7) * 0.08f));
-            ValueAnimator a = ValueAnimator.ofInt(minH, target);
-            a.setDuration(dur);
-            a.setRepeatMode(ValueAnimator.REVERSE);
-            a.setRepeatCount(ValueAnimator.INFINITE);
-            a.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
-            a.addUpdateListener(anim -> {
-                if (bar.getParent() == null) return;
-                LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) bar.getLayoutParams();
-                lp.height = (int) anim.getAnimatedValue();
-                bar.setLayoutParams(lp);
-            });
-            a.start();
-            waveAnimators.add(a);
-        }
+        if (waveformView == null || isGone()) return;
+        // Thermal-aware: on a HOT device, skip the per-frame animation loop
+        // entirely (see gap #3) — the view still shows a "playing" pose,
+        // it just doesn't redraw every frame.
+        waveformView.setForceStatic(isThermalHot());
+        waveformView.setPlaying(true);
     }
 
     private void stopWaveAnimation() {
-        for (ValueAnimator a : waveAnimators) a.cancel();
-        waveAnimators.clear();
-        if (layoutWaveform != null)
-            for (int i = 0; i < layoutWaveform.getChildCount(); i++) {
-                View bar = layoutWaveform.getChildAt(i);
-                if ("waveBar".equals(bar.getTag())) bar.setBackgroundColor(0x44FFFFFF);
-            }
+        if (waveformView != null) waveformView.setPlaying(false);
+    }
+
+    private boolean isThermalHot() {
+        return thermalManager != null && thermalManager.getLevel() == ReelThermalManager.Level.HOT;
+    }
+
+    /** ReelThermalManager change callback — only matters while audio is
+     *  actually playing; a level change while paused/stopped needs no
+     *  reaction since the waveform is already static. */
+    private void onThermalChanged() {
+        if (isGone() || waveformView == null || !isPlaying) return;
+        waveformView.setForceStatic(isThermalHot());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -708,155 +793,118 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     // Firebase — Sound data
     // ─────────────────────────────────────────────────────────────────────────
 
+    /**
+     * PERF (Firebase read batching, ULTRA): this used to fire its own
+     * "sounds/{id}" listener directly, with a second, separate
+     * "musicLibrary/{id}" listener as a manual fallback method
+     * (loadSoundDataFromMusicLibrary()) — one of 10+ independent
+     * addListenerForSingleValueEvent call sites this screen used to fire
+     * on every single open, even when re-opening the exact same sound (or
+     * hopping through related sounds, which replaces this fragment with a
+     * new instance each time). Now routed through SoundDetailCache: the
+     * sounds/ → musicLibrary/ fallback cascade lives there once, and the
+     * result is cached for SOUND_TTL_MS, so a repeat open of a sound
+     * already resolved this session costs zero reads. See
+     * SoundDetailCache's class doc for the full rationale.
+     */
     private void loadSoundData() {
         if (soundId.isEmpty()) { showShimmer(false); updatePlayButtonState(); return; }
 
-        FirebaseUtils.db().getReference("sounds").child(soundId)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (isGone()) return;
+        SoundDetailCache.getInstance().getSoundData(soundId, entry -> {
+            if (isGone()) return;
 
-                    if (!snap.exists()) {
-                        // Tracks picked from Trending Audio's "Music" tab (musicLibrary node)
-                        // don't exist under sounds/ — without this, previewAudioUrl never
-                        // resolves and playback silently falls back to the raw/full-quality
-                        // audioUrl, which the play button isn't guaranteed to stream cleanly.
-                        loadSoundDataFromMusicLibrary();
-                        return;
-                    }
+            if (!entry.found) {
+                showShimmer(false);
+                updatePlayButtonState();
+                resolveCreatorAfterSoundLoad();
+                return;
+            }
 
-                    Long    count    = snap.child("reel_count").getValue(Long.class);
-                    Long    rank     = snap.child("trending_rank").getValue(Long.class);
-                    Long    saves    = snap.child("total_saves").getValue(Long.class);
-                    Boolean orig     = snap.child("is_original").getValue(Boolean.class);
-                    Boolean ver      = snap.child("is_verified").getValue(Boolean.class);
-                    Boolean trending = snap.child("is_trending").getValue(Boolean.class);
-
-                    // Creator denormalized
-                    if (creatorUid.isEmpty()) {
-                        String uid = snap.child("creatorUid").getValue(String.class);
-                        if (uid != null) creatorUid = uid;
-                    }
-                    String dn = snap.child("creatorName").getValue(String.class);
-                    String dp = snap.child("creatorPhoto").getValue(String.class);
-                    if (dn != null && !dn.isEmpty()) creatorName = dn;
-                    if (dp != null && !dp.isEmpty()) creatorPhoto = dp;
-
-                    if (!creatorUid.isEmpty() && creatorName != null && !creatorName.isEmpty()) {
-                        bindCreatorRow(creatorUid, creatorName, creatorPhoto);
-                        sortAndApplyReelItems();
-                    }
-
-                    // Audio URL fallback
-                    if (soundUrl.isEmpty()) {
-                        for (String key : new String[]{"audioUrl","audio_url","url"}) {
-                            String u = snap.child(key).getValue(String.class);
-                            if (u != null && !u.isEmpty()) { soundUrl = u; break; }
-                        }
-                    }
-                    if (previewAudioUrl.isEmpty()) {
-                        String pu = snap.child("previewAudioUrl").getValue(String.class);
-                        if (pu != null) previewAudioUrl = pu;
-                    }
-                    if (coverUrl.isEmpty()) {
-                        for (String key : new String[]{"coverUrl","cover_url"}) {
-                            String c = snap.child(key).getValue(String.class);
-                            if (c != null && !c.isEmpty()) { coverUrl = c; loadCoverImage(coverUrl); break; }
-                        }
-                    }
-                    if (durationMs <= 0) {
-                        for (String key : new String[]{"duration_ms","durationMs"}) {
-                            Long d = snap.child(key).getValue(Long.class);
-                            if (d != null && d > 0) {
-                                durationMs = d.intValue();
-                                String s = formatMs(durationMs);
-                                if (tvDuration  != null) tvDuration.setText(s);
-                                if (tvTotalTime != null) tvTotalTime.setText(s);
-                                break;
-                            }
-                        }
-                    }
-
-                    if (tvReelCount  != null) tvReelCount.setText(formatCount(count  != null ? count  : 0) + " Reels");
-                    if (tvSavesCount != null) { tvSavesCount.setText("•  " + formatCount(saves != null ? saves : 0) + " Saves"); tvSavesCount.setVisibility(View.VISIBLE); }
-
-                    if (tvTrendingRank != null) {
-                        if (rank != null && rank > 0 && rank <= 50) { tvTrendingRank.setVisibility(View.VISIBLE); tvTrendingRank.setText("🔥  #" + rank + " Trending"); }
-                        else if (Boolean.TRUE.equals(trending))      { tvTrendingRank.setVisibility(View.VISIBLE); tvTrendingRank.setText("🔥  Trending"); }
-                        else                                           tvTrendingRank.setVisibility(View.GONE);
-                    }
-                    if (tvOriginalBadge != null) tvOriginalBadge.setVisibility(Boolean.TRUE.equals(orig) ? View.VISIBLE : View.GONE);
-                    if (tvIsVerified    != null) tvIsVerified.setVisibility(Boolean.TRUE.equals(ver)  ? View.VISIBLE : View.GONE);
-
-                    showShimmer(false);
-                    updatePlayButtonState();
-                    if (scrollSoundDetail != null) scrollSoundDetail.post(SoundDetailFragment.this::updateFloatingActionsVisibility);
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {
-                    if (!isGone()) { showShimmer(false); updatePlayButtonState(); }
-                }
-            });
+            if (entry.fromMusicLibrary) applyMusicLibraryEntry(entry);
+            else                        applySoundsNodeEntry(entry);
+        });
     }
 
-    /** Fallback source for sounds picked from Trending Audio's Music tab (musicLibrary node). */
-    private void loadSoundDataFromMusicLibrary() {
-        FirebaseUtils.getMusicLibraryRef().child(soundId)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (isGone()) { return; }
+    /** Binds the screen from a "sounds/{id}" node read (via SoundDetailCache) — same fields loadSoundData() used to read straight off the DataSnapshot. */
+    private void applySoundsNodeEntry(SoundDetailCache.SoundNodeEntry snap) {
+        // Creator denormalized
+        if (creatorUid.isEmpty() && snap.creatorUid != null) creatorUid = snap.creatorUid;
+        if (snap.creatorName  != null && !snap.creatorName.isEmpty())  creatorName  = snap.creatorName;
+        if (snap.creatorPhoto != null && !snap.creatorPhoto.isEmpty()) creatorPhoto = snap.creatorPhoto;
 
-                    if (soundUrl.isEmpty()) {
-                        String u = snap.child("audioUrl").getValue(String.class);
-                        if (u != null && !u.isEmpty()) soundUrl = u;
-                    }
-                    if (previewAudioUrl.isEmpty()) {
-                        String pu = snap.child("previewAudioUrl").getValue(String.class);
-                        if (pu != null && !pu.isEmpty()) previewAudioUrl = pu;
-                    }
-                    if (coverUrl.isEmpty()) {
-                        String c = snap.child("coverUrl").getValue(String.class);
-                        if (c != null && !c.isEmpty()) { coverUrl = c; loadCoverImage(coverUrl); }
-                    }
-                    if (durationMs <= 0) {
-                        Long d = snap.child("durationMs").getValue(Long.class);
-                        if (d != null && d > 0) {
-                            durationMs = d.intValue();
-                            String s = formatMs(durationMs);
-                            if (tvDuration  != null) tvDuration.setText(s);
-                            if (tvTotalTime != null) tvTotalTime.setText(s);
-                        }
-                    }
-                    if (tvReelCount != null) tvReelCount.setText("0 Reels");
+        if (!creatorUid.isEmpty() && creatorName != null && !creatorName.isEmpty()) {
+            bindCreatorRow(creatorUid, creatorName, creatorPhoto);
+            sortAndApplyReelItems();
+            creatorProfileResolutionAttempted = true; // resolved straight from this read — no separate creator fetch needed
+        } else {
+            // Name wasn't denormalized on the sound node (or no
+            // creatorUid at all) — piggyback off THIS read instead of
+            // loadCreatorProfile() firing its own separate listener.
+            resolveCreatorAfterSoundLoad();
+        }
 
-                    // ✅ FIX: creator/Follow row + follow button used to only
-                    // ever populate when opened as a bottom sheet from an
-                    // actual reel (creatorUid comes straight from reel.uid
-                    // there). Opened full-screen (SoundDetailActivity) from
-                    // MusicPicker/SoundSearch/TrendingAudio/etc, the track
-                    // lives under musicLibrary/ (not sounds/), so the
-                    // "sounds/{id}/creatorUid" fallback in loadCreatorProfile()
-                    // found nothing and the row + Follow button never showed.
-                    // musicLibrary tracks denormalize the uploader as
-                    // uploadedByUid/uploadedByName (see MusicTrack model) —
-                    // resolve creator from there too so it shows regardless
-                    // of sheet vs full-screen entry point.
-                    if (creatorUid.isEmpty()) {
-                        String uUid = snap.child("uploadedByUid").getValue(String.class);
-                        if (uUid != null && !uUid.isEmpty()) {
-                            creatorUid = uUid;
-                            String uName = snap.child("uploadedByName").getValue(String.class);
-                            if (uName != null && !uName.isEmpty()) creatorName = uName;
-                            fetchCreatorUserData(creatorUid);
-                        }
-                    }
+        if (soundUrl.isEmpty()        && snap.audioUrl        != null) soundUrl        = snap.audioUrl;
+        if (previewAudioUrl.isEmpty() && snap.previewAudioUrl != null) previewAudioUrl = snap.previewAudioUrl;
+        if (coverUrl.isEmpty()        && snap.coverUrl        != null) { coverUrl = snap.coverUrl; loadCoverImage(coverUrl); }
+        if (durationMs <= 0 && snap.durationMs != null && snap.durationMs > 0) {
+            durationMs = snap.durationMs;
+            String s = formatMs(durationMs);
+            if (tvDuration  != null) tvDuration.setText(s);
+            if (tvTotalTime != null) tvTotalTime.setText(s);
+        }
 
-                    showShimmer(false);
-                    updatePlayButtonState();
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {
-                    if (!isGone()) { showShimmer(false); updatePlayButtonState(); }
-                }
-            });
+        if (tvReelCount  != null) tvReelCount.setText(formatCount(snap.reelCount  != null ? snap.reelCount  : 0) + " Reels");
+        if (tvSavesCount != null) { tvSavesCount.setText("•  " + formatCount(snap.totalSaves != null ? snap.totalSaves : 0) + " Saves"); tvSavesCount.setVisibility(View.VISIBLE); }
+
+        if (tvTrendingRank != null) {
+            Long rank = snap.trendingRank;
+            if (rank != null && rank > 0 && rank <= 50)        { tvTrendingRank.setVisibility(View.VISIBLE); tvTrendingRank.setText("🔥  #" + rank + " Trending"); }
+            else if (Boolean.TRUE.equals(snap.isTrending))     { tvTrendingRank.setVisibility(View.VISIBLE); tvTrendingRank.setText("🔥  Trending"); }
+            else                                                  tvTrendingRank.setVisibility(View.GONE);
+        }
+        if (tvOriginalBadge != null) tvOriginalBadge.setVisibility(Boolean.TRUE.equals(snap.isOriginal) ? View.VISIBLE : View.GONE);
+        if (tvIsVerified    != null) tvIsVerified.setVisibility(Boolean.TRUE.equals(snap.isVerified)  ? View.VISIBLE : View.GONE);
+
+        showShimmer(false);
+        updatePlayButtonState();
+        if (scrollSoundDetail != null) scrollSoundDetail.post(SoundDetailFragment.this::updateFloatingActionsVisibility);
+    }
+
+    /**
+     * Binds the screen from a "musicLibrary/{id}" fallback read (via
+     * SoundDetailCache) — fallback source for sounds picked from Trending
+     * Audio's Music tab, which don't exist under sounds/.
+     *
+     * ✅ FIX (kept from the original): creator/Follow row + follow button
+     * used to only ever populate when opened as a bottom sheet from an
+     * actual reel. Opened full-screen from MusicPicker/SoundSearch/
+     * TrendingAudio/etc, the track lives under musicLibrary/ (not sounds/),
+     * so the "sounds/{id}/creatorUid" fallback found nothing and the row +
+     * Follow button never showed. musicLibrary tracks denormalize the
+     * uploader as uploadedByUid/uploadedByName (see MusicTrack model) —
+     * SoundDetailCache resolves creator from there too, so it shows
+     * regardless of sheet vs full-screen entry point.
+     */
+    private void applyMusicLibraryEntry(SoundDetailCache.SoundNodeEntry snap) {
+        if (soundUrl.isEmpty()        && snap.audioUrl        != null && !snap.audioUrl.isEmpty())        soundUrl        = snap.audioUrl;
+        if (previewAudioUrl.isEmpty() && snap.previewAudioUrl != null && !snap.previewAudioUrl.isEmpty()) previewAudioUrl = snap.previewAudioUrl;
+        if (coverUrl.isEmpty()        && snap.coverUrl        != null && !snap.coverUrl.isEmpty())        { coverUrl = snap.coverUrl; loadCoverImage(coverUrl); }
+        if (durationMs <= 0 && snap.durationMs != null && snap.durationMs > 0) {
+            durationMs = snap.durationMs;
+            String s = formatMs(durationMs);
+            if (tvDuration  != null) tvDuration.setText(s);
+            if (tvTotalTime != null) tvTotalTime.setText(s);
+        }
+        if (tvReelCount != null) tvReelCount.setText("0 Reels");
+
+        if (creatorUid.isEmpty() && snap.creatorUid != null && !snap.creatorUid.isEmpty()) {
+            creatorUid = snap.creatorUid;
+            if (snap.creatorName != null && !snap.creatorName.isEmpty()) creatorName = snap.creatorName;
+        }
+        resolveCreatorAfterSoundLoad(); // handles both "just resolved creatorUid above" and "still empty" cases
+
+        showShimmer(false);
+        updatePlayButtonState();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1133,22 +1181,18 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     // this fragment's own reelItems list + adapter instead of that
     // Activity's diffing adapter.
 
-    /** Loads reelPinned/{uid} once per screen instance, then runs `then`. */
+    /**
+     * Resolves reelPinned/{uid}, then runs `then`. PERF: routed through
+     * SoundDetailCache (short-TTL, keyed by uid, write-through on pin/
+     * unpin below) instead of an instance-local flag — an instance field
+     * like the old pinnedReelIdLoaded would reset to unloaded on every
+     * related-sound hop (new Fragment instance); the shared cache doesn't.
+     */
     private void ensurePinnedReelIdLoaded(String uid, Runnable then) {
-        if (pinnedReelIdLoaded) { then.run(); return; }
-        com.google.firebase.database.FirebaseDatabase.getInstance()
-            .getReference("reelPinned").child(uid)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    cachedPinnedReelId = snap.getValue(String.class);
-                    pinnedReelIdLoaded = true;
-                    then.run();
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {
-                    pinnedReelIdLoaded = true; // don't retry every peek on a transient failure
-                    then.run();
-                }
-            });
+        SoundDetailCache.getInstance().getPinnedReelId(uid, id -> {
+            cachedPinnedReelId = id;
+            then.run();
+        });
     }
 
     private List<ReelPeekPreviewController.PeekOption> buildOwnerPeekOptions(
@@ -1177,6 +1221,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             .getReference("reelPinned").child(myUid).setValue(reelId)
             .addOnSuccessListener(v -> {
                 cachedPinnedReelId = reelId;
+                SoundDetailCache.getInstance().setPinnedReelId(myUid, reelId); // write-through
                 if (isAdded()) Toast.makeText(requireContext(), "Reel pinned!", Toast.LENGTH_SHORT).show();
             });
     }
@@ -1187,6 +1232,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             .getReference("reelPinned").child(myUid).removeValue()
             .addOnSuccessListener(v -> {
                 cachedPinnedReelId = null;
+                SoundDetailCache.getInstance().setPinnedReelId(myUid, null); // write-through
                 if (isAdded()) Toast.makeText(requireContext(), "Pinned reel removed", Toast.LENGTH_SHORT).show();
             });
     }
@@ -1235,102 +1281,151 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             item.isOriginalCreator = o;
         }
         if (!changed) return;
+
+        // ULTRA: this re-sort only reorders the "Original" creator's reels
+        // to the front — it doesn't add/remove anything or change what's
+        // inside each cell. notifyDataSetChanged() used to rebind (and
+        // re-run Glide loads for) every visible cell just to move a few
+        // rows. DiffUtil against a pre-sort snapshot emits move/change ops
+        // for only the rows that actually shifted or flipped the
+        // "Original" badge, so untouched cells are left bound as-is.
+        List<SoundDetailActivity.ReelThumbItem> before = new ArrayList<>(reelItems);
         reelItems.sort((a, b) -> Boolean.compare(!a.isOriginalCreator, !b.isOriginalCreator));
-        if (reelThumbAdapter != null) reelThumbAdapter.notifyDataSetChanged();
+        if (reelThumbAdapter != null) {
+            DiffUtil.DiffResult diff = DiffUtil.calculateDiff(
+                new ReelThumbDiffCallback(before, reelItems), false);
+            diff.dispatchUpdatesTo(reelThumbAdapter);
+        }
+    }
+
+    /** Content diff for {@link SoundDetailActivity.ReelThumbAdapter} — identity by
+     *  reelId, content equality by the fields onBindViewHolder() actually renders
+     *  (thumbnail, view count, "Original" badge). Used by sortAndApplyReelItems()
+     *  so a reorder dispatches DiffUtil move/change ops instead of a blanket
+     *  notifyDataSetChanged(). Move detection is disabled (see calculateDiff call)
+     *  since this grid's item decoration/animator setup doesn't animate moves —
+     *  the change ops alone are enough to avoid rebinding untouched cells. */
+    private static class ReelThumbDiffCallback extends DiffUtil.Callback {
+        private final List<SoundDetailActivity.ReelThumbItem> oldList, newList;
+        ReelThumbDiffCallback(List<SoundDetailActivity.ReelThumbItem> oldList,
+                              List<SoundDetailActivity.ReelThumbItem> newList) {
+            this.oldList = oldList; this.newList = newList;
+        }
+        @Override public int getOldListSize() { return oldList.size(); }
+        @Override public int getNewListSize() { return newList.size(); }
+        @Override public boolean areItemsTheSame(int oldPos, int newPos) {
+            String a = oldList.get(oldPos).reelId, b = newList.get(newPos).reelId;
+            return a != null && a.equals(b);
+        }
+        @Override public boolean areContentsTheSame(int oldPos, int newPos) {
+            SoundDetailActivity.ReelThumbItem a = oldList.get(oldPos), b = newList.get(newPos);
+            return a.isOriginalCreator == b.isOriginalCreator
+                && a.viewsCount == b.viewsCount
+                && java.util.Objects.equals(a.thumbnailUrl, b.thumbnailUrl);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Firebase — Related sounds
     // ─────────────────────────────────────────────────────────────────────────
 
+    /**
+     * PERF: routed through SoundDetailCache#getRelatedSounds(), cached by
+     * genre alone (not by soundId) — every sound sharing a genre reuses the
+     * same fetched list instead of re-querying musicLibrary/ every time a
+     * different song of that genre opens this screen. soundId exclusion is
+     * applied locally below since that part IS specific to this instance.
+     */
     private void loadRelatedSounds() {
         if (genre.isEmpty()) return;
-        FirebaseUtils.getMusicLibraryRef().orderByChild("genre").equalTo(genre).limitToFirst(10)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (isGone()) return;
-                    relatedItems.clear();
-                    for (DataSnapshot s : snap.getChildren()) {
-                        String id    = s.getKey();
-                        String title = firstOf(s, "title", "name");
-                        String art   = s.child("artist").getValue(String.class);
-                        String cover = s.child("coverUrl").getValue(String.class);
-                        String url   = s.child("audioUrl").getValue(String.class);
-                        if (title != null && (id == null || !id.equals(soundId)))
-                            relatedItems.add(new SoundDetailActivity.RelatedItem(
-                                n(id), title, n(art), n(cover), n(url)));
-                    }
-                    if (rvRelated != null && !relatedItems.isEmpty()) {
-                        rvRelated.setAdapter(new SoundDetailActivity.RelatedAdapter(relatedItems, item -> {
-                            showMiniPlayer();
-                            SoundDetailFragment next = SoundDetailFragment.newInstance(
-                                item.id, item.title, item.artist, item.coverUrl, item.audioUrl,
-                                0, genre, 0, null, null, isSheet);
-                            next.setOnCloseListener(onCloseListener);
-                            requireActivity().getSupportFragmentManager()
-                                .beginTransaction()
-                                .replace(requireView().getId(), next)
-                                .addToBackStack(null)
-                                .commit();
-                        }));
-                        View sec = getView() != null ? getView().findViewById(R.id.layout_related_sounds_section) : null;
-                        if (sec != null) sec.setVisibility(View.VISIBLE);
-                    }
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
+        SoundDetailCache.getInstance().getRelatedSounds(genre, related -> {
+            if (isGone()) return;
+            relatedItems.clear();
+            for (SoundDetailCache.RelatedEntry r : related) {
+                if (r.id != null && r.id.equals(soundId)) continue;
+                relatedItems.add(new SoundDetailActivity.RelatedItem(r.id, r.title, r.artist, r.coverUrl, r.audioUrl));
+            }
+            if (rvRelated != null && !relatedItems.isEmpty()) {
+                rvRelated.setAdapter(new SoundDetailActivity.RelatedAdapter(relatedItems, item -> {
+                    showMiniPlayer();
+                    SoundDetailFragment next = SoundDetailFragment.newInstance(
+                        item.id, item.title, item.artist, item.coverUrl, item.audioUrl,
+                        0, genre, 0, null, null, isSheet);
+                    next.setOnCloseListener(onCloseListener);
+                    requireActivity().getSupportFragmentManager()
+                        .beginTransaction()
+                        .replace(requireView().getId(), next)
+                        .addToBackStack(null)
+                        .commit();
+                }));
+                View sec = getView() != null ? getView().findViewById(R.id.layout_related_sounds_section) : null;
+                if (sec != null) sec.setVisibility(View.VISIBLE);
+            }
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Firebase — Creator
     // ─────────────────────────────────────────────────────────────────────────
 
+    /**
+     * Gap #2 (Firebase read batching): this used to fire its own
+     * "sounds/{soundId}/creatorUid" read independently and in parallel with
+     * loadSoundData()'s read of the FULL "sounds/{soundId}" node — an
+     * overlapping round-trip to the same node for a value loadSoundData()
+     * was already about to have. Now it only resolves from whatever's
+     * already known synchronously (bundle args); if creatorUid isn't known
+     * yet, it does nothing and waits — resolveCreatorAfterSoundLoad() (
+     * called from loadSoundData()'s and loadSoundDataFromMusicLibrary()'s
+     * callbacks) piggybacks the creatorUid off that read instead, so there
+     * is at most one round-trip to the sound node instead of two.
+     */
     private void loadCreatorProfile() {
         if (!creatorUid.isEmpty() && creatorName != null && !creatorName.isEmpty()) {
-            bindCreatorRow(creatorUid, creatorName, creatorPhoto); return;
+            bindCreatorRow(creatorUid, creatorName, creatorPhoto);
+            creatorProfileResolutionAttempted = true;
+            return;
         }
-        if (!creatorUid.isEmpty()) { fetchCreatorUserData(creatorUid); return; }
-        if (soundId.isEmpty()) return;
-
-        FirebaseUtils.db().getReference("sounds").child(soundId).child("creatorUid")
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (isGone()) return;
-                    String uid = snap.getValue(String.class);
-                    if (uid != null && !uid.isEmpty()) {
-                        creatorUid = uid; fetchCreatorUserData(uid); sortAndApplyReelItems();
-                    }
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
+        if (!creatorUid.isEmpty()) {
+            fetchCreatorUserData(creatorUid);
+            creatorProfileResolutionAttempted = true;
+        }
+        // else: creatorUid not known yet from bundle args — leave it to
+        // resolveCreatorAfterSoundLoad() once the sound node read lands.
     }
 
+    /**
+     * Called exactly once, from loadSoundData()'s onDataChange/onCancelled
+     * and loadSoundDataFromMusicLibrary()'s onDataChange/onCancelled — i.e.
+     * right after the sound (or fallback musicLibrary) node has already
+     * been read in full. Resolves creatorUid from that same read instead
+     * of loadCreatorProfile() firing a second, overlapping listener.
+     */
+    private void resolveCreatorAfterSoundLoad() {
+        if (creatorProfileResolutionAttempted) return;
+        creatorProfileResolutionAttempted = true;
+        if (!creatorUid.isEmpty() && creatorName != null && !creatorName.isEmpty()) {
+            bindCreatorRow(creatorUid, creatorName, creatorPhoto);
+        } else if (!creatorUid.isEmpty()) {
+            fetchCreatorUserData(creatorUid);
+        }
+        // If creatorUid is still empty here, neither node had a creator to
+        // resolve — nothing more to fetch.
+    }
+
+    /**
+     * PERF: routed through SoundDetailCache#getCreatorProfile(), which owns
+     * the reelUsers/ → users/ fallback cascade (previously this method's
+     * own two listeners) behind a 5-minute TTL cache keyed by uid. A
+     * creator seen on one sound is instantly known on every other sound of
+     * theirs opened this session — no repeat reads for the same person.
+     */
     private void fetchCreatorUserData(String uid) {
-        ReelFirebaseUtils.reelUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                if (isGone()) return;
-                String name  = firstOf(snap, "displayName", "handle");
-                String photo = firstOf(snap, "photoUrl", "thumbUrl");
-                if (name != null && !name.isEmpty()) {
-                    creatorName = name; creatorPhoto = photo;
-                    bindCreatorRow(uid, name, photo);
-                } else fetchCreatorFromMainUsersNode(uid);
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) { fetchCreatorFromMainUsersNode(uid); }
-        });
-    }
-
-    private void fetchCreatorFromMainUsersNode(String uid) {
-        FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                if (isGone()) return;
-                String name = firstOf(snap, "displayName", "username", "name");
-                String photo = firstOf(snap, "photoUrl", "profilePic", "avatar");
-                creatorName  = name  != null ? name  : "Unknown";
-                creatorPhoto = photo;
-                bindCreatorRow(uid, creatorName, photo);
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        SoundDetailCache.getInstance().getCreatorProfile(uid, profile -> {
+            if (isGone()) return;
+            creatorName  = profile.name;
+            creatorPhoto = profile.photo;
+            bindCreatorRow(uid, profile.name, profile.photo);
         });
     }
 
@@ -1341,7 +1436,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             if (photo != null && !photo.isEmpty())
                 Glide.with(requireContext()).load(photo).transform(new CircleCrop())
                     .placeholder(R.drawable.ic_person).error(R.drawable.ic_person)
-                    .override(720, 720).into(ivCreatorAvatar);
+                    .override(avatarDecodePx(), avatarDecodePx()).into(ivCreatorAvatar);
             else ivCreatorAvatar.setImageResource(R.drawable.ic_person);
         }
         layoutCreator.setVisibility(View.VISIBLE);
@@ -1356,6 +1451,12 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
      * filled/outline style reused across FollowConnectionsActivity,
      * ReelLikesBottomSheet, and ReelSharesBottomSheet. Hidden entirely when
      * this sound's creator is the current user (nothing to follow).
+     *
+     * PERF: follow status now lives in SoundDetailCache (short-TTL,
+     * keyed by myUid|creatorUid, write-through on toggle) instead of this
+     * fragment's own static map — same "no re-read once known this
+     * session" behavior, but shared with every other screen that resolves
+     * follow status through the same cache instead of a fragment-local one.
      */
     private void bindFollowCreatorBtn(String uid) {
         if (btnFollowCreator == null) return;
@@ -1369,17 +1470,10 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         // below, so a fast tap can't race the Firebase read.
         btnFollowCreator.setOnClickListener(v -> {});
 
-        FirebaseUtils.getReelFollowsRef(myUid).child(uid)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (isGone()) return;
-                    boolean initiallyFollowing = snap.exists() && Boolean.TRUE.equals(snap.getValue(Boolean.class));
-                    attachFollowCreatorClick(uid, myUid, initiallyFollowing);
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {
-                    attachFollowCreatorClick(uid, myUid, false);
-                }
-            });
+        SoundDetailCache.getInstance().getFollowStatus(myUid, uid, following -> {
+            if (isGone()) return;
+            attachFollowCreatorClick(uid, myUid, following);
+        });
     }
 
     /** Holds the live follow state in a one-element array so the click
@@ -1391,6 +1485,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         styleFollowBtn(btnFollowCreator, following[0]);
         btnFollowCreator.setOnClickListener(v -> {
             following[0] = !following[0];
+            SoundDetailCache.getInstance().setFollowStatus(myUid, uid, following[0]); // write-through — instant across every screen sharing the cache
             DatabaseReference ref = FirebaseUtils.getReelFollowsRef(myUid).child(uid);
             if (following[0]) ref.setValue(true);
             else              ref.removeValue();
@@ -1441,15 +1536,16 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         } catch (Exception ex) { android.util.Log.w("SoundDetailFrag", "UserProfileActivity not found", ex); }
     }
 
+    /** PERF: routed through SoundDetailCache — short-TTL cached, and written-through instantly by toggleSave() below, so it costs a read at most once per TTL window instead of on every screen open. */
     private void checkIfSaved() {
         String uid = null;
         try { uid = FirebaseUtils.getCurrentUid(); } catch (Exception ignored) {}
         if (uid == null || soundId.isEmpty()) return;
-        FirebaseUtils.getUserRef(uid).child("saved_sounds").child(soundId)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) { isSaved = snap.exists(); updateSaveButton(); }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
+        SoundDetailCache.getInstance().getSavedStatus(uid, soundId, saved -> {
+            if (isGone()) return;
+            isSaved = saved;
+            updateSaveButton();
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1496,7 +1592,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                 data.put("soundUrl", soundUrl); data.put("durationMs", durationMs);
                 com.google.firebase.database.FirebaseDatabase.getInstance()
                     .getReference("reels/users").child(myUid).child("profileSong").setValue(data)
-                    .addOnSuccessListener(u -> { if (tvAddToProfile != null) tvAddToProfile.setText("✓  Added to profile"); })
+                    .addOnSuccessListener(u -> { if (tvAddToProfile != null) tvAddToProfile.setText("✓ Added"); })
                     .addOnFailureListener(e -> { if (isAdded()) Toast.makeText(requireContext(), "Failed: " + e.getMessage(), Toast.LENGTH_SHORT).show(); });
             });
         }
@@ -1624,7 +1720,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         if (tvMiniTitle != null) tvMiniTitle.setText(soundTitle.isEmpty() ? "Now Playing" : soundTitle);
         if (ivMiniCover != null && !coverUrl.isEmpty())
             Glide.with(requireContext()).load(coverUrl).transform(new CircleCrop())
-                .placeholder(R.drawable.ic_music_note).override(720, 720).into(ivMiniCover);
+                .placeholder(R.drawable.ic_music_note).override(avatarDecodePx(), avatarDecodePx()).into(ivMiniCover);
         layoutMiniPlayer.setVisibility(View.VISIBLE);
         updateMiniPlayButton();
     }
@@ -1738,16 +1834,25 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         if (isPlaying) pausePlayback(); else { if (exoPlayer == null) initAndStartPlayer(); else resumePlayback(); }
     }
 
+    // PERF (SoundPreviewPlayerPool): reuse the app-wide pooled ExoPlayer
+    // instead of `new ExoPlayer.Builder(...).build()` on every single open —
+    // skips renderer/decoder/thread setup on the 2nd+ open in a session
+    // (e.g. bouncing between a reel and its sound page). Audio focus
+    // (duck/pause under a call or other apps' audio) is now handled by the
+    // pool itself via setAudioAttributes(..., handleAudioFocus=true), so no
+    // manual AudioManager/AudioFocusRequest code is needed here.
+    //
+    // Trade-off vs the old per-open buildThermalAwareLoadControl(): the
+    // pooled player's buffer window is fixed once at construction instead
+    // of being recomputed per-open from the current thermal level, since
+    // ExoPlayer's LoadControl can't be swapped after the player is built.
+    // Acceptable here — this is audio-only playback, where the buffer-size
+    // difference is a few KB either way, unlike video. thermalManager is
+    // still used below purely to gate the waveform animation loop.
     private void initAndStartPlayer() {
         if (isGone()) return;
         isPreparing = true; setPlayButtonLoading(true);
-        DefaultTrackSelector ts = new DefaultTrackSelector(requireContext());
-        ts.setParameters(ts.buildUponParameters().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true));
-        exoPlayer = new ExoPlayer.Builder(requireContext())
-            .setTrackSelector(ts)
-            .setLoadControl(new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(4_000, 12_000, 1_500, 2_000).build())
-            .build();
+        exoPlayer = SoundPreviewPlayerPool.get(requireContext()).acquire();
         exoPlayer.addListener(this);
         exoPlayer.setMediaItem(MediaItem.fromUri(getPlaybackUrl()));
         exoPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
@@ -1810,8 +1915,20 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         btnPlayPause.setEnabled(!loading); btnPlayPause.setAlpha(loading ? 0.5f : 1f);
     }
 
+    // PERF (SoundPreviewPlayerPool): return the instance to the pool instead
+    // of exoPlayer.release() — the pool stops it, clears media items, and
+    // strips this Fragment's listener, but keeps the underlying ExoPlayer
+    // (decoder/thread) alive for the next Sound Detail screen to reuse.
+    // Uses getExisting() (not get(requireContext())) since this can run from
+    // an async onPlayerError callback after the Fragment has detached —
+    // requireContext() would crash right when we're mid-cleanup.
     private void releasePlayer() {
-        if (exoPlayer != null) { exoPlayer.removeListener(this); exoPlayer.stop(); exoPlayer.release(); exoPlayer = null; }
+        if (exoPlayer != null) {
+            SoundPreviewPlayerPool pool = SoundPreviewPlayerPool.getExisting();
+            if (pool != null) pool.release(this);
+            else { try { exoPlayer.removeListener(this); } catch (Exception ignored) {} }
+            exoPlayer = null;
+        }
         isPlaying = false; isPreparing = false;
     }
 
@@ -1824,6 +1941,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         try { uid = FirebaseUtils.getCurrentUid(); } catch (Exception ignored) {}
         if (uid == null || soundId.isEmpty()) return;
         isSaved = !isSaved; updateSaveButton();
+        SoundDetailCache.getInstance().setSavedStatus(uid, soundId, isSaved); // write-through — instant, no waiting on TTL
         DatabaseReference ref = FirebaseUtils.getUserRef(uid).child("saved_sounds").child(soundId);
         if (isSaved) { ref.setValue(soundTitle); incrementSoundSaves(1); if (isAdded()) Toast.makeText(requireContext(), "Sound saved", Toast.LENGTH_SHORT).show(); }
         else         { ref.removeValue(); incrementSoundSaves(-1); if (isAdded()) Toast.makeText(requireContext(), "Sound removed", Toast.LENGTH_SHORT).show(); }

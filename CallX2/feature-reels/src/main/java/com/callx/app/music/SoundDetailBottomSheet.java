@@ -181,8 +181,15 @@ public class SoundDetailBottomSheet extends BottomSheetDialogFragment implements
     private void populateData() {
         // Song cover thumbnail
         if (coverUrl != null && !coverUrl.isEmpty()) {
+            // ✅ FIX (oversized bitmap decode): no .override() meant Glide
+            // decoded the raw source cover at full size into a 72dp x 72dp
+            // ImageView (see bottom_sheet_sound_detail.xml's iv_sound_cover
+            // FrameLayout). Locked to the view's actual pixel size.
+            int coverPx = Math.round(72 * getResources().getDisplayMetrics().density);
             Glide.with(this)
                 .load(coverUrl)
+                .centerCrop()
+                .override(coverPx, coverPx)
                 .placeholder(R.drawable.ic_music_disc)
                 .into(ivSoundCover);
         }
