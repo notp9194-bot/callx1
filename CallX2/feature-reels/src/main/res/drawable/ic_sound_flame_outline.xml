@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Outline flame icon for the "Trending" chip — replaces the 🔥 emoji,
-     same rationale as ic_sound_note_outline. -->
+<!--
+    Filled flame icon for the "Trending" chip — replaces the 🔥 emoji.
+    v1 had this same path but was missing android:fillColor entirely
+    (transparent fill + no stroke = fully invisible). Fixed by filling it
+    solid, which also reads cleaner than an outline would at a small size.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp" android:height="24dp"
-    android:viewportWidth="24" android:viewportHeight="24">
+    android:width="16dp"
+    android:height="16dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
     <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#FF000000"
-        android:strokeWidth="1.8"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M12,2.5c1,2.5 -2.5,4 -2.5,7.2 0,1.9 1.4,3.3 2.9,3.3 1.6,0 2.9,-1.3 2.9,-2.9 0,-1 -0.5,-1.7 -0.5,-1.7 2,1 3.2,3 3.2,5.1 0,3.6 -2.9,6.5 -6.5,6.5 -3.6,0 -6.5,-2.9 -6.5,-6.5 0,-4.8 3.6,-7.1 3.6,-11z"/>
+        android:fillColor="#FF000000"
+        android:pathData="M12,2c-1.5,3 -5,5.5 -5,10c0,4 3,7 7,7c3.5,0 6,-2.7 6,-6c0,-3 -2,-5 -3.3,-6c0.3,1 0,2.3 -1,3c-1,0.7 -2.2,0.2 -2.5,-1c-0.4,-1.5 0.3,-3 -1.2,-7z"/>
 </vector>

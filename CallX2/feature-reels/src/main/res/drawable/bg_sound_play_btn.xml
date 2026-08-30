@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Flat solid play/pause button — replaces the old rainbow gradient ring
+     + glow bloom. A plain brand_primary-filled circle, no border, no
+     shadow, no gradient — matches the rest of this screen's flat, minimal
+     redesign instead of standing out as the one loud multicolor element. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="@color/brand_primary"/>
+</shape>

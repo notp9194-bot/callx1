@@ -306,12 +306,8 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private TextView     tvCreatorName;
     private TextView     tvCreatorFollowers;
     private android.widget.Button btnFollowCreator;
-    // Play-button gradient ring (screenshot-matching vibrant ring). Ring
-    // itself is a shared StoryRingGradientDrawable — same pink→red→orange→
-    // yellow sweep used app-wide for story rings — set once in bindViews(),
-    // never reallocated.
-    private View         viewPlayRing;
-    private View         viewPlayRingGlow;
+    // v318: gradient ring + glow removed (see bindViews()/bg_sound_play_btn) —
+    // play button is now a flat solid circle, no ring drawable needed.
     private SwipeAwareFrameLayout layoutMiniPlayer;
     private ImageView    ivMiniCover;
     private TextView     tvMiniTitle;
@@ -815,9 +811,6 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         tvCreatorName     = binding.tvCreatorName;
         tvCreatorFollowers = binding.tvCreatorFollowers;
         btnFollowCreator  = binding.btnFollowCreator;
-        viewPlayRing      = binding.viewPlayRing;
-        viewPlayRingGlow  = binding.viewPlayRingGlow;
-        setupPlayRingGradient();
         layoutMiniPlayer  = binding.layoutMiniPlayer;
         ivMiniCover       = binding.ivMiniCover;
         tvMiniTitle       = binding.tvMiniTitle;
@@ -1028,35 +1021,6 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
      */
     private int avatarDecodePx() {
         return Math.round(48 * getResources().getDisplayMetrics().density);
-    }
-
-    /**
-     * Applies the shared brand gradient ring (same SweepGradient every story
-     * ring in the app uses) as the play button's ring background, plus the
-     * shared pre-rasterized glow bitmap behind it. Called once from
-     * bindViews() — both drawables are cached by size (+stroke for the
-     * ring), so this is a cheap lookup, not a fresh allocation, even across
-     * every related-sound hop that replaces this fragment instance.
-     *
-     * Premium refine: stroke thinned 3.5dp→2.5dp and the glow's alpha
-     * turned down (~45%) — this screen's ring/glow use a size+stroke
-     * combination not shared with any other screen (see call-site grep:
-     * 76dp glow / 2.5dp stroke only appear here), so toning it down only
-     * affects the Sound Detail play button, not story rings elsewhere.
-     */
-    private void setupPlayRingGradient() {
-        if (isGone()) return;
-        float density = getResources().getDisplayMetrics().density;
-        if (viewPlayRing != null) {
-            viewPlayRing.setBackground(
-                com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(2.5f, density));
-        }
-        if (viewPlayRingGlow != null) {
-            com.callx.app.utils.PlayRingGlowDrawable glow =
-                com.callx.app.utils.PlayRingGlowDrawable.withSizeDp(76f, density);
-            glow.setAlpha(115); // ~45%, was fully opaque — softer, less neon
-            viewPlayRingGlow.setBackground(glow);
-        }
     }
 
     private void loadCoverImage(String url) {

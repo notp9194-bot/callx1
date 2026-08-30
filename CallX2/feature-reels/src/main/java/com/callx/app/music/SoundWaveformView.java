@@ -10,6 +10,8 @@ import android.util.AttributeSet;
 import android.view.View;
 import android.view.animation.AccelerateDecelerateInterpolator;
 
+import com.callx.app.reels.R;
+
 import java.util.Random;
 
 /**
@@ -46,11 +48,17 @@ public class SoundWaveformView extends View {
 
     private static final int BAR_COUNT = 36;
 
-    // Premium refine: idle bars dimmer (0x44→0x30) and the playing color
-    // pulled back from a loud neon red to the app's own brand tone, so the
-    // waveform reads as a quiet, minimal accent instead of a bold highlight.
-    private static final int COLOR_IDLE    = 0x30FFFFFF;
-    private static final int COLOR_PLAYING = 0xFF5B5BF6;
+    // Premium refine: idle bars dimmer (0x44→0x30). The playing color is
+    // resolved at runtime from @color/brand_primary (see colorPlaying
+    // field below) instead of a hardcoded literal — this constant used to
+    // be a hardcoded indigo (#5B5BF6) which silently drifted out of sync
+    // with the rest of the screen once the seekbar/chips/follow button
+    // were switched to reference @color/brand_primary directly, which
+    // resolves to the app's real green (#4CAF50, defined in the app/
+    // module). Resolving the same resource here keeps the waveform's
+    // "playing" color locked to whatever brand_primary actually is.
+    private static final int COLOR_IDLE = 0x30FFFFFF;
+    private final int colorPlaying;
 
     /**
      * PERF (ULTRA): per-bar animation constants, precomputed ONCE.
@@ -134,6 +142,13 @@ public class SoundWaveformView extends View {
     public SoundWaveformView(Context context, AttributeSet attrs) { this(context, attrs, 0); }
     public SoundWaveformView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
+        int resolved;
+        try {
+            resolved = context.getResources().getColor(R.color.brand_primary, null);
+        } catch (Exception e) {
+            resolved = 0xFF4CAF50; // fallback, matches app/'s brand_primary in case the resource can't resolve
+        }
+        colorPlaying = resolved;
         seedStatic(0);
     }
 
@@ -284,7 +299,7 @@ public class SoundWaveformView extends View {
         ensureTargetPxCached(dp, minHPx, maxHPx);
 
         boolean animateNow = playing && !forceStatic;
-        barPaint.setColor(playing ? COLOR_PLAYING : COLOR_IDLE);
+        barPaint.setColor(playing ? colorPlaying : COLOR_IDLE);
 
         long elapsed = animateNow ? SystemClock.uptimeMillis() - animStartUptime : 0;
 
