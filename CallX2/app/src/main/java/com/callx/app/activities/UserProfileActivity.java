@@ -69,6 +69,10 @@ public class UserProfileActivity extends AppCompatActivity {
     // uses this flag to skip the network in that case.
     private boolean screenVisible = false;
 
+    private String partnerName;
+    private String partnerPhoto;
+    private String chatId;
+
     // Delta-sync (see AvatarVersionSyncManager): live avatarVersion watch for
     // the profile being VIEWED — so if the partner uploads a new avatar
     // while this screen is open, ivAvatarLarge refreshes without the viewer
@@ -85,9 +89,6 @@ public class UserProfileActivity extends AppCompatActivity {
         ProfileAvatarBinder.bindGated(UserProfileActivity.this, binding.ivAvatarLarge,
             url, partnerAvatarVersion, ProfileAvatarBinder.LARGE_TIER, R.drawable.ic_person, screenVisible);
     };
-    private String partnerName;
-    private String partnerPhoto;
-    private String chatId;
 
     // Mute state (sync from ChatActivity isMuted logic)
     private boolean isMuted = false;
