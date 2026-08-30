@@ -4,13 +4,16 @@
     A gentle radial fade from a low-alpha brand tint to transparent —
     sits centered behind the rounded cover, larger than it, so the cover
     reads as "floating on a glow" instead of framed by a drop shadow.
+    Color matches @color/brand_primary (#4CAF50, the app's real green
+    accent — see app/values/colors.xml) hardcoded here since gradient
+    stop colors can't reference a theme/resource color directly.
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
     <gradient
         android:type="radial"
-        android:gradientRadius="60dp"
-        android:startColor="#3D5B5BF6"
-        android:centerColor="#1A5B5BF6"
-        android:endColor="#005B5BF6"/>
+        android:gradientRadius="58dp"
+        android:startColor="#5C4CAF50"
+        android:centerColor="#2A4CAF50"
+        android:endColor="#004CAF50"/>
 </shape>

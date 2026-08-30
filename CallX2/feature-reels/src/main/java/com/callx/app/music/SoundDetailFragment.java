@@ -590,10 +590,10 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             if (tvTrendingRank != null) {
                 if (vm.trendingRank != null && vm.trendingRank > 0 && vm.trendingRank <= 50) {
                     tvTrendingRank.setVisibility(View.VISIBLE);
-                    tvTrendingRank.setText("🔥  #" + vm.trendingRank + " Trending");
+                    tvTrendingRank.setText("#" + vm.trendingRank + " Trending");
                 } else if (vm.isTrending) {
                     tvTrendingRank.setVisibility(View.VISIBLE);
-                    tvTrendingRank.setText("🔥  Trending");
+                    tvTrendingRank.setText("Trending");
                 } else {
                     tvTrendingRank.setVisibility(View.GONE);
                 }
@@ -1037,17 +1037,25 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
      * bindViews() — both drawables are cached by size (+stroke for the
      * ring), so this is a cheap lookup, not a fresh allocation, even across
      * every related-sound hop that replaces this fragment instance.
+     *
+     * Premium refine: stroke thinned 3.5dp→2.5dp and the glow's alpha
+     * turned down (~45%) — this screen's ring/glow use a size+stroke
+     * combination not shared with any other screen (see call-site grep:
+     * 76dp glow / 2.5dp stroke only appear here), so toning it down only
+     * affects the Sound Detail play button, not story rings elsewhere.
      */
     private void setupPlayRingGradient() {
         if (isGone()) return;
         float density = getResources().getDisplayMetrics().density;
         if (viewPlayRing != null) {
             viewPlayRing.setBackground(
-                com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3.5f, density));
+                com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(2.5f, density));
         }
         if (viewPlayRingGlow != null) {
-            viewPlayRingGlow.setBackground(
-                com.callx.app.utils.PlayRingGlowDrawable.withSizeDp(76f, density));
+            com.callx.app.utils.PlayRingGlowDrawable glow =
+                com.callx.app.utils.PlayRingGlowDrawable.withSizeDp(76f, density);
+            glow.setAlpha(115); // ~45%, was fully opaque — softer, less neon
+            viewPlayRingGlow.setBackground(glow);
         }
     }
 
@@ -1221,8 +1229,8 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
 
         if (tvTrendingRank != null) {
             Long rank = snap.trendingRank;
-            if (rank != null && rank > 0 && rank <= 50)        { tvTrendingRank.setVisibility(View.VISIBLE); tvTrendingRank.setText("🔥  #" + rank + " Trending"); }
-            else if (Boolean.TRUE.equals(snap.isTrending))     { tvTrendingRank.setVisibility(View.VISIBLE); tvTrendingRank.setText("🔥  Trending"); }
+            if (rank != null && rank > 0 && rank <= 50)        { tvTrendingRank.setVisibility(View.VISIBLE); tvTrendingRank.setText("#" + rank + " Trending"); }
+            else if (Boolean.TRUE.equals(snap.isTrending))     { tvTrendingRank.setVisibility(View.VISIBLE); tvTrendingRank.setText("Trending"); }
             else                                                  tvTrendingRank.setVisibility(View.GONE);
         }
         if (tvOriginalBadge != null) tvOriginalBadge.setVisibility(Boolean.TRUE.equals(snap.isOriginal) ? View.VISIBLE : View.GONE);

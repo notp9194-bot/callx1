@@ -41,7 +41,7 @@
          elevation on every box (waveform card, creator row, chips, action
          pills) — a faint brand-tinted off-white instead of a stroke or a
          shadow, so shapes read as flat, softly-colored surfaces. -->
-    <color name="sound_detail_box_tint">#F4F4FC</color>
+    <color name="sound_detail_box_tint">#F6F6FB</color>
     <color name="sound_drag_handle">#D9D9DC</color>
     
     <!-- Common Colors -->

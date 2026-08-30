@@ -275,16 +275,22 @@
                             android:layout_marginTop="10dp">
                             <TextView android:id="@+id/tv_sound_original_badge"
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="🎵  Original" android:textColor="@color/brand_primary"
+                                android:text="Original" android:textColor="@color/brand_primary"
                                 android:textSize="12sp" android:fontFamily="sans-serif-medium"
                                 android:background="@drawable/bg_sound_stat_chip"
+                                android:drawableStart="@drawable/ic_sound_note_outline"
+                                android:drawableTint="@color/brand_primary"
+                                android:drawablePadding="5dp"
                                 android:paddingHorizontal="12dp" android:paddingVertical="6dp"
                                 android:visibility="gone"/>
                             <TextView android:id="@+id/tv_sound_trending_rank"
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="🔥  Trending" android:textColor="@color/brand_primary"
+                                android:text="Trending" android:textColor="@color/brand_primary"
                                 android:textSize="12sp" android:fontFamily="sans-serif-medium"
                                 android:background="@drawable/bg_sound_stat_chip"
+                                android:drawableStart="@drawable/ic_sound_flame_outline"
+                                android:drawableTint="@color/brand_primary"
+                                android:drawablePadding="5dp"
                                 android:paddingHorizontal="12dp" android:paddingVertical="6dp"
                                 android:layout_marginStart="8dp" android:visibility="gone"/>
                         </LinearLayout>
@@ -357,9 +363,11 @@
                          (bg_seekbar_track_sound / ic_seekbar_thumb_sound)
                          instead of the default chunky Material seekbar. -->
                     <SeekBar android:id="@+id/seekbar_sound"
-                        android:layout_width="match_parent" android:layout_height="16dp"
+                        android:layout_width="match_parent" android:layout_height="18dp"
                         android:progressDrawable="@drawable/bg_seekbar_track_sound"
                         android:thumb="@drawable/ic_seekbar_thumb_sound"
+                        android:thumbTint="@null"
+                        android:progressTint="@null"
                         android:splitTrack="false"
                         android:max="100"/>
                     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -402,7 +410,7 @@
                     android:layout_marginTop="16dp" android:paddingHorizontal="14dp"
                     android:visibility="gone">
                     <ImageView android:id="@+id/iv_creator_avatar"
-                        android:layout_width="38dp" android:layout_height="38dp"
+                        android:layout_width="44dp" android:layout_height="44dp"
                         android:scaleType="centerCrop" android:src="@drawable/ic_person"/>
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical"
@@ -459,7 +467,7 @@
                         android:visibility="gone"/>
                     <ImageView android:layout_width="20dp" android:layout_height="20dp"
                         android:src="@drawable/ic_arrow_forward"
-                        android:tint="@color/text_secondary" android:scaleType="fitCenter"/>
+                        android:tint="#8064748B" android:scaleType="fitCenter"/>
                 </LinearLayout>
 
                 <!-- divider_creator removed — the creator row is now its own
