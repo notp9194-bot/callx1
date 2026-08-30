@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Same pink→green sweep-gradient ring as bg_play_pause_ring.xml, but with
+    a thinner 2dp punch so it reads correctly at the creator avatar's small
+    38dp size (see layout_sound_creator in fragment_sound_detail.xml).
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval">
+            <gradient
+                android:type="sweep"
+                android:startColor="@color/sound_ring_pink"
+                android:centerColor="@color/sound_ring_green"
+                android:endColor="@color/sound_ring_pink"
+                android:useLevel="false"/>
+        </shape>
+    </item>
+    <item
+        android:top="2dp"
+        android:bottom="2dp"
+        android:left="2dp"
+        android:right="2dp">
+        <shape android:shape="oval">
+            <solid android:color="@color/sound_detail_bg_light"/>
+        </shape>
+    </item>
+</layer-list>

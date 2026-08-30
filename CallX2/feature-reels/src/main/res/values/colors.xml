@@ -103,4 +103,19 @@
          other premium/CTA accents in this file (e.g. view_all_reels_stroke)
          stay fixed regardless of theme. -->
     <color name="premium_badge_gold">#FFC947</color>
+
+    <!-- ── Sound Detail screen — modern screenshot-match accents ── -->
+    <!-- Sweep-gradient ring around the big play/pause button and the
+         creator avatar (bg_play_pause_ring.xml) — pink → green loop,
+         same family used across the reels camera UI. -->
+    <color name="sound_ring_pink">#FF3B79</color>
+    <color name="sound_ring_green">#00F260</color>
+    <!-- "Add to profile" solid pill fill (bg_add_to_profile_gradient.xml). -->
+    <color name="sound_cta_gradient_start">#FF2D78</color>
+    <color name="sound_cta_gradient_end">#FF6B4A</color>
+    <!-- Waveform played/unplayed split while audio is playing — played bars
+         match sound_ring_pink, unplayed bars sit at a neutral mid-gray so
+         the progress point reads clearly in both light and dark mode. -->
+    <color name="waveform_played">#FF3B79</color>
+    <color name="waveform_unplayed">#B0B0B0</color>
 </resources>

@@ -48,6 +48,14 @@ public class SoundWaveformView extends View {
 
     private static final int COLOR_IDLE    = 0x44FFFFFF;
     private static final int COLOR_PLAYING = 0xFFFF3B5C;
+    /**
+     * Screenshot-match: while playing, bars are split at the current
+     * playback position instead of all being one flat color — bars before
+     * {@link #progressFraction} draw pink (played), bars after draw a
+     * neutral gray (not yet played). See {@link #setProgress}.
+     */
+    private static final int COLOR_PLAYED   = 0xFFFF3B79;
+    private static final int COLOR_UNPLAYED = 0xFFB0B0B0;
 
     /**
      * PERF (ULTRA): per-bar animation constants, precomputed ONCE.
@@ -105,6 +113,10 @@ public class SoundWaveformView extends View {
     private boolean playing     = false;
     private boolean forceStatic = false; // true on HOT thermal — skip the animation loop
 
+    /** 0f..1f playback position, used only to split bar color (played vs
+     *  unplayed) while {@link #playing} — see {@link #setProgress}. */
+    private float progressFraction = 0f;
+
     /**
      * PERF (opt-in, ULTRA): GPU-composited hardware layer for the animation
      * window only. OFF by default — see {@link #setHardwareLayerEnabled}.
@@ -160,6 +172,19 @@ public class SoundWaveformView extends View {
         if (heights == null || heights.length != BAR_COUNT) return;
         System.arraycopy(heights, 0, staticHeightDp, 0, BAR_COUNT);
         invalidate();
+    }
+
+    /**
+     * Updates the played/unplayed split point (screenshot style). Call this
+     * from the same place the seek bar's progress is set, with
+     * currentPositionMs/durationMs. Only affects color while {@link #playing}
+     * is true; a plain redraw is requested so the split reflects immediately.
+     */
+    public void setProgress(float fraction) {
+        float clamped = Math.max(0f, Math.min(1f, fraction));
+        if (clamped == progressFraction) return;
+        progressFraction = clamped;
+        if (playing) invalidate();
     }
 
     /** Start/stop the waveform animation (mirrors old startWaveAnimation()/stopWaveAnimation()). */
@@ -277,11 +302,20 @@ public class SoundWaveformView extends View {
         ensureTargetPxCached(dp, minHPx, maxHPx);
 
         boolean animateNow = playing && !forceStatic;
-        barPaint.setColor(playing ? COLOR_PLAYING : COLOR_IDLE);
 
         long elapsed = animateNow ? SystemClock.uptimeMillis() - animStartUptime : 0;
 
         for (int i = 0; i < BAR_COUNT; i++) {
+            // Screenshot-match: while playing, color each bar by whether
+            // it sits before or after the current playback position
+            // instead of painting every bar the same flat pink.
+            if (playing) {
+                float barPos = i / (float) (BAR_COUNT - 1);
+                barPaint.setColor(barPos <= progressFraction ? COLOR_PLAYED : COLOR_UNPLAYED);
+            } else {
+                barPaint.setColor(COLOR_IDLE);
+            }
+
             float barHPx;
             if (animateNow) {
                 // durMs/cycleMs/targetPx are all precomputed — see the

@@ -87,7 +87,7 @@
                     android:layout_width="48dp"
                     android:layout_height="48dp"
                     android:src="@drawable/ic_share_reel"
-                    android:tint="@color/green_accent"
+                    android:tint="@color/text_primary"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="Share sound"/>
 
@@ -96,7 +96,7 @@
                     android:layout_width="48dp"
                     android:layout_height="48dp"
                     android:src="@drawable/ic_bookmark"
-                    android:tint="@color/blue_accent"
+                    android:tint="@color/text_primary"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="Save sound"/>
 
@@ -220,12 +220,23 @@
                         android:layout_weight="1" android:orientation="vertical"
                         android:layout_marginStart="16dp">
 
-                        <TextView android:id="@+id/tv_sound_title"
-                            android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Sound Title"
-                            android:textColor="@color/sound_detail_text_light"
-                            android:textSize="16sp" android:fontFamily="sans-serif-medium"
-                            android:maxLines="2" android:ellipsize="end"/>
+                        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:orientation="horizontal" android:gravity="center_vertical">
+                            <TextView android:id="@+id/tv_sound_title"
+                                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="Sound Title"
+                                android:textColor="@color/sound_detail_text_light"
+                                android:textSize="16sp" android:fontFamily="sans-serif-medium"
+                                android:maxLines="2" android:ellipsize="end"/>
+                            <!-- Verified badge — pink checkmark next to the title,
+                                 matching the screenshot's "Original audio ✓" look. -->
+                            <ImageView android:id="@+id/iv_sound_title_badge"
+                                android:layout_width="15dp" android:layout_height="15dp"
+                                android:layout_marginStart="4dp"
+                                android:src="@drawable/ic_verified"
+                                android:tint="@color/sound_ring_pink"
+                                android:contentDescription="Verified"/>
+                        </LinearLayout>
 
                         <TextView android:id="@+id/tv_sound_artist"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -240,13 +251,19 @@
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="0 Reels"
                                 android:textColor="@color/sound_detail_text_light"
-                                android:textSize="13sp" android:fontFamily="sans-serif-medium"/>
+                                android:textSize="13sp" android:fontFamily="sans-serif-medium"
+                                android:drawableStart="@drawable/ic_reels"
+                                android:drawableTint="@color/sound_detail_subtext_light"
+                                android:drawablePadding="4dp"/>
                             <TextView android:id="@+id/tv_sound_saves_count"
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:layout_marginStart="6dp"
+                                android:layout_marginStart="10dp"
                                 android:text="•  0 Saves"
                                 android:textColor="@color/sound_detail_text_light"
                                 android:textSize="13sp" android:fontFamily="sans-serif-medium"
+                                android:drawableStart="@drawable/ic_bookmark"
+                                android:drawableTint="@color/sound_detail_subtext_light"
+                                android:drawablePadding="4dp"
                                 android:visibility="gone"/>
                         </LinearLayout>
 
@@ -291,10 +308,10 @@
                     </LinearLayout>
 
                     <ImageButton android:id="@+id/btn_sound_play_pause"
-                        android:layout_width="52dp" android:layout_height="52dp"
-                        android:src="@drawable/ic_play" android:tint="@color/brand_primary"
-                        android:background="@drawable/bg_play_pause_btn"
-                        android:padding="14dp" android:contentDescription="Play preview"/>
+                        android:layout_width="56dp" android:layout_height="56dp"
+                        android:src="@drawable/ic_play" android:tint="@color/white"
+                        android:background="@drawable/bg_play_pause_ring"
+                        android:padding="16dp" android:contentDescription="Play preview"/>
                 </LinearLayout>
 
                 <!-- Waveform + progress card — single rounded box using this
@@ -313,8 +330,8 @@
                          40dp->26dp) taaki poora card compact dikhe. -->
                     <SeekBar android:id="@+id/seekbar_sound"
                         android:layout_width="match_parent" android:layout_height="20dp"
-                        android:progressTint="@color/brand_primary"
-                        android:thumbTint="@color/brand_primary"
+                        android:progressTint="@color/green_accent"
+                        android:thumbTint="@color/green_accent"
                         android:progressBackgroundTint="@color/gray_light"
                         android:max="100"/>
                     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -352,13 +369,20 @@
                     android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:minHeight="56dp"
                     android:orientation="horizontal" android:gravity="center_vertical"
-                    android:background="@drawable/bg_sound_detail_box"
+                    android:background="@drawable/bg_sound_creator_card"
                     android:foreground="?attr/selectableItemBackground"
                     android:layout_marginTop="12dp" android:paddingHorizontal="12dp"
                     android:visibility="gone">
-                    <ImageView android:id="@+id/iv_creator_avatar"
-                        android:layout_width="38dp" android:layout_height="38dp"
-                        android:scaleType="centerCrop" android:src="@drawable/ic_person"/>
+                    <!-- Avatar wrapped with a pink→green gradient ring
+                         (bg_avatar_ring), matching the screenshot's
+                         colorful ring around the creator photo. -->
+                    <FrameLayout android:layout_width="42dp" android:layout_height="42dp"
+                        android:background="@drawable/bg_avatar_ring">
+                        <ImageView android:id="@+id/iv_creator_avatar"
+                            android:layout_width="36dp" android:layout_height="36dp"
+                            android:layout_gravity="center"
+                            android:scaleType="centerCrop" android:src="@drawable/ic_person"/>
+                    </FrameLayout>
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical"
                         android:layout_marginStart="10dp">
@@ -367,12 +391,22 @@
                             android:textColor="@color/sound_detail_subtext_light"
                             android:textSize="10sp" android:fontFamily="sans-serif-medium"
                             android:textAllCaps="true" android:letterSpacing="0.06"/>
-                        <TextView android:id="@+id/tv_creator_name"
-                            android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="@username"
-                            android:textColor="@color/sound_detail_text_light"
-                            android:textSize="14sp" android:fontFamily="sans-serif-medium"
-                            android:maxLines="1" android:ellipsize="end" android:layout_marginTop="1dp"/>
+                        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:orientation="horizontal" android:gravity="center_vertical"
+                            android:layout_marginTop="1dp">
+                            <TextView android:id="@+id/tv_creator_name"
+                                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="@username"
+                                android:textColor="@color/sound_detail_text_light"
+                                android:textSize="14sp" android:fontFamily="sans-serif-medium"
+                                android:maxLines="1" android:ellipsize="end"/>
+                            <ImageView android:id="@+id/iv_creator_badge"
+                                android:layout_width="13dp" android:layout_height="13dp"
+                                android:layout_marginStart="4dp"
+                                android:src="@drawable/ic_verified"
+                                android:tint="@color/sound_ring_pink"
+                                android:contentDescription="Verified"/>
+                        </LinearLayout>
                     </LinearLayout>
                     <!-- Follow/Following pill button — reused from
                          FollowConnectionsActivity / ReelLikesBottomSheet /
@@ -414,7 +448,7 @@
                     android:orientation="horizontal" android:layout_marginTop="16dp">
                     <FrameLayout android:id="@+id/btn_use_sound_camera"
                         android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="0.85"
-                        android:background="@drawable/bg_sound_detail_action_btn" android:layout_marginEnd="6dp">
+                        android:background="@drawable/bg_sound_pill_outline" android:layout_marginEnd="6dp">
                         <LinearLayout
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:layout_gravity="center"
@@ -433,7 +467,7 @@
                     </FrameLayout>
                     <FrameLayout android:id="@+id/btn_use_sound_gallery"
                         android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="0.85"
-                        android:background="@drawable/bg_sound_detail_action_btn" android:layout_marginEnd="6dp">
+                        android:background="@drawable/bg_sound_pill_outline" android:layout_marginEnd="6dp">
                         <LinearLayout
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:layout_gravity="center"
@@ -455,7 +489,7 @@
                          without ellipsizing or shrinking to just "Add". -->
                     <FrameLayout android:id="@+id/btn_add_to_profile"
                         android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1.3"
-                        android:background="@drawable/bg_btn_follow_pill"
+                        android:background="@drawable/bg_add_to_profile_gradient"
                         android:visibility="gone">
                         <LinearLayout
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -464,6 +498,7 @@
                             <ImageView
                                 android:layout_width="14dp" android:layout_height="14dp"
                                 android:src="@drawable/ic_add_reels"
+                                android:tint="@color/white"
                                 android:layout_marginEnd="4dp"/>
                             <TextView android:id="@+id/tv_add_to_profile"
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
