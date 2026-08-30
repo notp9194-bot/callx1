@@ -617,6 +617,26 @@ public class ReelSocialController {
                         }
                         @Override public void onComplete(@Nullable DatabaseError e, boolean b, @Nullable DataSnapshot sn) {}
                     });
+                // PERF (Firebase read batching, ULTRA): keep the denormalized
+                // sounds/{musicId}/reels/{reelId}/viewsCount copy in sync so
+                // SoundDetailFragment's pagination never has to fire a
+                // per-reel read to learn this count (see its PERF note).
+                // Mirrored with its own transaction, not a plain set(), so
+                // concurrent viewers across different sessions never clobber
+                // each other's increment.
+                if (reel.musicId != null && !reel.musicId.isEmpty()) {
+                    FirebaseUtils.db()
+                        .getReference("sounds").child(reel.musicId)
+                        .child("reels").child(reel.reelId).child("viewsCount")
+                        .runTransaction(new Transaction.Handler() {
+                            @NonNull @Override public Transaction.Result doTransaction(@NonNull MutableData d) {
+                                Long c = d.getValue(Long.class);
+                                d.setValue(c != null ? c + 1 : 1);
+                                return Transaction.success(d);
+                            }
+                            @Override public void onComplete(@Nullable DatabaseError e, boolean b, @Nullable DataSnapshot sn) {}
+                        });
+                }
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });

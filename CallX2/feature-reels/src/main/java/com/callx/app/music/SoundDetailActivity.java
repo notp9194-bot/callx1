@@ -164,10 +164,34 @@ public class SoundDetailActivity extends AppCompatActivity {
             return cachedGridThumbSize;
         }
 
-        public ReelThumbAdapter() { items = new java.util.ArrayList<>(); listener = null; }
+        public ReelThumbAdapter() { items = new java.util.ArrayList<>(); listener = null; setHasStableIds(true); }
         public ReelThumbAdapter(java.util.List<ReelThumbItem> items, OnItemClick listener) {
             this.items = items != null ? items : new java.util.ArrayList<>();
             this.listener = listener;
+            // ULTRA: same stable-ID pattern as SoundReelsAdapter/PostsFeedActivity/
+            // UserReelsActivity's grid adapters — lets DiffUtil (see
+            // SoundDetailFragment#sortAndApplyReelItems's ReelThumbDiffCallback,
+            // which already keys identity off reelId) and RecyclerView track
+            // each cell's ViewHolder by reelId instead of by position. Without
+            // this, a dispatched move/change op can rebind the wrong ViewHolder
+            // when positions shift (pagination insert, live add/remove,
+            // sortAndApplyReelItems' reorder) — with it, RecyclerView follows
+            // the actual item, so an already-bound cell whose position moved
+            // isn't needlessly rebound (and its already-loaded Glide thumbnail
+            // isn't needlessly reloaded).
+            setHasStableIds(true);
+        }
+
+        /** Stable ID = the reelId string's hash — mirrors SoundReelsAdapter#getItemId.
+         *  Two different reelId values colliding is practically never going to
+         *  happen, and even if it did the only cost is a spurious rebind, not a
+         *  crash. Falls back to `position` only for the (should-be-impossible)
+         *  case of a null reelId, so RecyclerView still gets a stable-shaped ID
+         *  rather than crashing on autoboxing. */
+        @Override
+        public long getItemId(int position) {
+            String id = items.get(position).reelId;
+            return id != null ? id.hashCode() : position;
         }
 
         public void setOnItemLongPress(OnItemLongPress l) { this.longPressListener = l; }
@@ -250,28 +274,72 @@ public class SoundDetailActivity extends AppCompatActivity {
     /** Adapter for the related sounds list in SoundDetailFragment. */
     public static class RelatedAdapter extends androidx.recyclerview.widget.RecyclerView.Adapter<RelatedAdapter.VH> {
         public interface OnItemClick { void onClick(RelatedItem item); }
+        // ✅ OPT (ULTRA): owns its own copy of the list instead of holding the
+        // Fragment's live `relatedItems` reference directly. That's what
+        // makes submitList()'s diff below meaningful — diffing a list against
+        // itself (the old bug: constructor took the caller's mutable list
+        // as-is, so "old" and "new" were literally the same object by the
+        // time a diff would run) can never find a difference.
         private final java.util.List<RelatedItem> items;
         private final OnItemClick listener;
         public RelatedAdapter(java.util.List<RelatedItem> items, OnItemClick listener) {
-            this.items = items != null ? items : new java.util.ArrayList<>();
+            this.items = items != null ? new java.util.ArrayList<>(items) : new java.util.ArrayList<>();
             this.listener = listener;
+        }
+        /**
+         * PERF (ULTRA): replaces {@code setAdapter(new RelatedAdapter(...))}
+         * on every {@code loadRelatedSounds()} call. That pattern threw away
+         * a perfectly reusable adapter (and its RecyclerView view-holder
+         * pool) each time and forced a full rebind of every visible row.
+         * Reused across calls, this diffs the held copy against the
+         * incoming list and dispatches only the inserts/removes/changes that
+         * actually happened — a no-op if nothing changed, single-row ops if
+         * the related list is later wired to something live. Genre-scoped
+         * lists here are small (SoundDetailCache caps them), so the diff
+         * runs synchronously on the caller's thread same as ReelThumbAdapter
+         * does for its steady-state reorder path.
+         */
+        public void submitList(java.util.List<RelatedItem> newItems) {
+            java.util.List<RelatedItem> safeNew = newItems != null
+                ? new java.util.ArrayList<>(newItems) : new java.util.ArrayList<>();
+            androidx.recyclerview.widget.DiffUtil.DiffResult diff =
+                androidx.recyclerview.widget.DiffUtil.calculateDiff(new RelatedDiffCallback(items, safeNew));
+            items.clear();
+            items.addAll(safeNew);
+            diff.dispatchUpdatesTo(this);
+        }
+        /** Identity by soundId; content equality by the fields onBindViewHolder()
+         *  actually renders (title text, cover image). */
+        private static class RelatedDiffCallback extends androidx.recyclerview.widget.DiffUtil.Callback {
+            private final java.util.List<RelatedItem> oldList, newList;
+            RelatedDiffCallback(java.util.List<RelatedItem> oldList, java.util.List<RelatedItem> newList) {
+                this.oldList = oldList; this.newList = newList;
+            }
+            @Override public int getOldListSize() { return oldList.size(); }
+            @Override public int getNewListSize() { return newList.size(); }
+            @Override public boolean areItemsTheSame(int oldPos, int newPos) {
+                String a = oldList.get(oldPos).id, b = newList.get(newPos).id;
+                return a != null && a.equals(b);
+            }
+            @Override public boolean areContentsTheSame(int oldPos, int newPos) {
+                RelatedItem a = oldList.get(oldPos), b = newList.get(newPos);
+                return java.util.Objects.equals(a.title, b.title)
+                    && java.util.Objects.equals(a.coverUrl, b.coverUrl);
+            }
         }
         @androidx.annotation.NonNull @Override
         public VH onCreateViewHolder(@androidx.annotation.NonNull android.view.ViewGroup parent, int vt) {
-            android.widget.LinearLayout ll = new android.widget.LinearLayout(parent.getContext());
-            ll.setOrientation(android.widget.LinearLayout.VERTICAL);
-            float d = parent.getContext().getResources().getDisplayMetrics().density;
-            int dp80 = (int)(80*d); int dp120 = (int)(120*d);
-            ll.setLayoutParams(new androidx.recyclerview.widget.RecyclerView.LayoutParams(dp120, dp80));
-            ll.setPadding(4,2,4,2);
-            android.widget.ImageView iv = new android.widget.ImageView(parent.getContext());
-            iv.setLayoutParams(new android.widget.LinearLayout.LayoutParams(dp80, dp80));
-            iv.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-            android.widget.TextView tv = new android.widget.TextView(parent.getContext());
-            tv.setTextSize(11); tv.setMaxLines(1);
-            tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            ll.addView(iv); ll.addView(tv);
-            return new VH(ll, iv, tv);
+            // ✅ OPT (was: LinearLayout/ImageView/TextView built by hand here,
+            // with manual density math for the 80/120dp sizes, on every single
+            // onCreateViewHolder() call) — now a plain XML inflate of
+            // item_sound_related_row.xml, which is exactly the same view tree.
+            // Cheaper per call (LayoutInflater's cached/compiled parse beats
+            // three View constructors + manual setLayoutParams/setPadding
+            // calls) and the row is now editable in the layout editor instead
+            // of buried in Java.
+            android.view.View v = android.view.LayoutInflater.from(parent.getContext())
+                .inflate(com.callx.app.reels.R.layout.item_sound_related_row, parent, false);
+            return new VH(v);
         }
         // Matches onCreateViewHolder's dp80 ivCover size below in px, cached
         // once per process (same pattern as ReelThumbAdapter's cell sizing).
@@ -297,11 +365,14 @@ public class SoundDetailActivity extends AppCompatActivity {
         }
         @Override public int getItemCount() { return items.size(); }
         public static class VH extends androidx.recyclerview.widget.RecyclerView.ViewHolder {
-            final android.widget.LinearLayout root;
+            final android.view.View root;
             final android.widget.ImageView ivCover;
             final android.widget.TextView tvTitle;
-            VH(android.widget.LinearLayout r, android.widget.ImageView iv, android.widget.TextView tv) {
-                super(r); root=r; ivCover=iv; tvTitle=tv;
+            VH(android.view.View v) {
+                super(v);
+                root = v;
+                ivCover = v.findViewById(com.callx.app.reels.R.id.iv_related_row_cover);
+                tvTitle = v.findViewById(com.callx.app.reels.R.id.tv_related_row_title);
             }
         }
     }

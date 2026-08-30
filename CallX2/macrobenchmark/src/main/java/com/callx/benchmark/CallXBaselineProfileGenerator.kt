@@ -28,7 +28,17 @@ import org.junit.runner.RunWith
  *  which on a cold start is exactly the slow path this file exists to
  *  avoid. Re-run on a connected device/emulator before the next release.
  *
- *  9 real user journeys cover:
+ *  v311: +1 journey — Sound Detail had NO baseline-profile coverage at
+ *  all despite being a common tap target off every reel (tv_music_name /
+ *  ivMusicDisc → SoundDetailActivity, see ReelUiController). Without an
+ *  entry here, every one of SoundDetailFragment's hot-path methods
+ *  (bindViews()'s ~48 view lookups, applySoundsNodeEntry(), the reel-grid
+ *  DiffUtil/adapter path, SoundWaveformView's waveform draw) ran JIT-only
+ *  on a cold open — no AOT compilation — regardless of how well-cached
+ *  SoundDetailCache made the underlying Firebase reads. See
+ *  generateSoundDetailFlow() below.
+ *
+ *  10 real user journeys cover:
  *    1. Cold start → chat list
  *    2. Open chat → scroll messages
  *    3. Send a message (input pipeline)
@@ -38,6 +48,7 @@ import org.junit.runner.RunWith
  *    7. Status tab open + scroll
  *    8. Calls tab open + scroll
  *    9. Emoji reaction (long press)
+ *   10. Reels tab → open Sound Detail → scroll reel grid
  * ══════════════════════════════════════════════════════════════════════
  */
 @OptIn(ExperimentalBaselineProfilesApi::class)
@@ -121,6 +132,21 @@ class CallXBaselineProfileGenerator {
         journeyChatListStartup()
         journeyOpenFirstChat()
         journeyEmojiReaction()
+    }
+
+    // v311: gap #6 — Sound Detail (opened off a reel's music row) had no
+    // baseline-profile journey at all. Covers cold Reels-tab open, the
+    // tap that launches SoundDetailActivity, and a scroll of the reel
+    // grid once it's populated — the same three method groups
+    // SoundDetailBenchmark.kt measures frame timing for.
+    @Test
+    fun generateSoundDetailFlow() = baselineProfileRule.collect(
+        packageName = TARGET_PACKAGE, stableIterations = 3, maxIterations = 8,
+    ) {
+        journeyChatListStartup()
+        journeyOpenReelsTab()
+        journeyOpenSoundDetailFromReel()
+        journeyScrollSoundDetailGrid()
     }
 }
 
@@ -222,4 +248,35 @@ private fun MacrobenchmarkScope.journeyEmojiReaction() {
     Thread.sleep(800)
     device.pressBack()
     Thread.sleep(400)
+}
+
+// v311 (gap #6): Reels tab (bottom_nav → nav_reels) → vp_reels ViewPager2.
+private fun MacrobenchmarkScope.journeyOpenReelsTab() {
+    val tab = device.findObject(By.res(TARGET_PACKAGE, "nav_reels"))
+        ?: device.findObject(By.text("Reels")) ?: return
+    tab.click()
+    device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "vp_reels")), TIMEOUT)
+    Thread.sleep(SETTLE)
+}
+
+// v311 (gap #6): tv_music_name is the same tap target ReelUiController wires
+// to delegate.openSoundDetail() (see its setOnClickListener) — launches
+// SoundDetailActivity, which hosts SoundDetailFragment full-screen.
+// rv_sound_reels appearing is the signal the reel grid actually populated,
+// not just that the Activity/shimmer is up.
+private fun MacrobenchmarkScope.journeyOpenSoundDetailFromReel() {
+    val musicRow = device.findObject(By.res(TARGET_PACKAGE, "tv_music_name")) ?: return
+    musicRow.click()
+    device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rv_sound_reels")), TIMEOUT)
+    Thread.sleep(SETTLE)
+}
+
+// v311 (gap #6): the reel grid inside Sound Detail doesn't scroll
+// independently — scroll_sound_detail (the outer NestedScrollView) owns
+// the gesture (see rvReels.setNestedScrollingEnabled(true)'s doc in
+// SoundDetailFragment), so that's what gets flung here, same as
+// SoundDetailBenchmark.kt's jank tests.
+private fun MacrobenchmarkScope.journeyScrollSoundDetailGrid() {
+    val scroller = device.findObject(By.res(TARGET_PACKAGE, "scroll_sound_detail")) ?: return
+    repeat(2) { scroller.fling(Direction.DOWN); Thread.sleep(300); scroller.fling(Direction.UP); Thread.sleep(300) }
 }

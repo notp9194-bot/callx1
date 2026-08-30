@@ -1,11 +1,18 @@
 package com.callx.app.music;
 import com.callx.app.utils.AlertDialogStyler;
+import com.callx.app.reels.databinding.FragmentSoundDetailBinding;
 
 import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
+import android.content.ComponentCallbacks2;
+import android.content.Context;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -24,7 +31,7 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.core.widget.NestedScrollView;
 import androidx.fragment.app.Fragment;
-import androidx.media3.common.MediaItem;
+import androidx.lifecycle.ViewModelProvider;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -111,6 +118,62 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
      */
     private static final LruCache<String, float[]> WAVEFORM_CACHE = new LruCache<>(64);
 
+    /**
+     * PERF (ULTRA): WAVEFORM_CACHE above never shrank on its own — an
+     * android.util.LruCache only evicts on its own count/size cap, which
+     * has nothing to do with actual system memory pressure. Small (~9KB
+     * max here), but the codebase's convention for every other L2 cache
+     * (see AvatarL2MemoryCache / ReelsAvatarL2Cache) is that ANY process-
+     * wide cache hooks ComponentCallbacks2#onTrimMemory rather than relying
+     * solely on its own cap — so this follows the same "survive MODERATE,
+     * clear at COMPLETE" rule. Registered lazily, once per process, the
+     * first time any SoundDetailFragment view is created (see
+     * ensureWaveformCacheTrimRegistered() in onViewCreated) — an
+     * AtomicBoolean guards against the many SoundDetailFragment instances
+     * that come and go in a session (bottom sheet reopens, related-sound
+     * hops) trying to register more than once.
+     */
+    private static final java.util.concurrent.atomic.AtomicBoolean WAVEFORM_TRIM_REGISTERED =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    private static void ensureWaveformCacheTrimRegistered(Context ctx) {
+        if (!WAVEFORM_TRIM_REGISTERED.compareAndSet(false, true)) return;
+        ctx.getApplicationContext().registerComponentCallbacks(new ComponentCallbacks2() {
+            @Override public void onTrimMemory(int level) {
+                if (level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE) {
+                    int evicted = WAVEFORM_CACHE.size();
+                    WAVEFORM_CACHE.evictAll();
+                    Log.d("SoundDetailFragment", "WAVEFORM_CACHE TRIM_MEMORY_COMPLETE — cleared " + evicted + " entries");
+                } else if (level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
+                    // Halve rather than wipe — MODERATE fires routinely on
+                    // ordinary backgrounding, and this cache is tiny enough
+                    // (~9KB max) that a full wipe here buys nothing but
+                    // forces the next batch of sound opens to recompute
+                    // bars that were fine a second ago. trimToSize() doesn't
+                    // change maxSize(), so the cache can grow back to 64
+                    // once memory pressure passes.
+                    WAVEFORM_CACHE.trimToSize(WAVEFORM_CACHE.maxSize() / 2);
+                }
+                // Below MODERATE (UI_HIDDEN/BACKGROUND/RUNNING_*): no-op,
+                // same reasoning AvatarL2MemoryCache documents — this cache
+                // is cheap enough to just leave alone under routine signals.
+            }
+            @Override public void onLowMemory() {
+                WAVEFORM_CACHE.evictAll();
+            }
+            @Override public void onConfigurationChanged(Configuration newConfig) { }
+        });
+    }
+
+    // ── Rotation-reload fix (#4) ────────────────────────────────────────────
+    // Fragment-scoped ViewModel — Android retains a Fragment's ViewModelStore
+    // across a config-change recreate (same fragment identity, new instance),
+    // so this instance survives rotation even though every field on
+    // SoundDetailFragment itself is thrown away and rebuilt from scratch.
+    // Used purely as a state cache (no LiveData) — see SoundDetailViewModel's
+    // class doc and restoreFromViewModel() below for the full rationale.
+    private SoundDetailViewModel vm;
+
     // ── Host callback (Activity → finish, Sheet → dismiss) ────────────────────
     private Runnable onCloseListener;
 
@@ -144,9 +207,65 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private boolean isLoadingMoreReels = false;
     private boolean hasMoreReels       = true;
     private ChildEventListener soundReelsLiveListener = null;
+    /**
+     * PERF/SAFETY (ULTRA): explicit single-flight guard for
+     * attachSoundReelsLiveListener(), in addition to the
+     * `soundReelsLiveListener != null` check already inside it. That null
+     * check alone relies on the ChildEventListener field being assigned
+     * before attachSoundReelsLiveListener() can be re-entered — true on a
+     * normal single call, but not guaranteed if loadMoreReelsForSound()
+     * ever gets re-triggered (e.g. a debounced pagination Runnable still
+     * queued, or a Firebase page callback landing) before that assignment
+     * completes for this same Fragment instance. compareAndSet() below
+     * claims the attach atomically and immediately, so a second call in
+     * that window backs off instead of racing a second
+     * addChildEventListener() onto the same query. Reset in
+     * detachLiveListener(), which onDestroyView() already calls — so a
+     * rotation/fragment-recreate always gets a clean flag on the new
+     * instance (this field is per-instance, not static) and a real
+     * detach-then-reattach (e.g. related-sound hop reusing lastReelKey)
+     * is still allowed.
+     */
+    private final java.util.concurrent.atomic.AtomicBoolean reelsLiveListenerAttached =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
 
     // ── Grid layout manager (UserReelsActivity-style swipe-aware) ─────────────
     private SoundDetailGridLayoutManager soundReelsLayoutManager;
+
+    /**
+     * PERF (ULTRA): static/process-wide RecycledViewPool for rvReels, shared
+     * across every SoundDetailFragment instance — same pattern as
+     * HomeFragment#SUGGESTED_CREATORS_TILE_POOL / UserReelsActivity#gridSharedViewPool
+     * elsewhere in this codebase.
+     *
+     * WHY THIS MATTERS HERE SPECIFICALLY: RelatedAdapter's related-sound
+     * click (see bindViews() below) doesn't update the current screen in
+     * place — it REPLACES this Fragment with a brand-new SoundDetailFragment
+     * instance for the next sound (loadRelatedSounds()'s onClick doc says
+     * the same). That means a brand-new rvReels + a brand-new
+     * ReelThumbAdapter on every hop, and — without a shared pool — a
+     * brand-new, per-instance RecyclerView.RecycledViewPool too, so every
+     * single grid cell had to be inflated from scratch (item_sound_reel_thumb.xml)
+     * on every hop even though the previous instance's now-discarded pool
+     * was sitting on a full set of already-inflated, now-unused ViewHolders.
+     * A RecycledViewPool keys purely by (adapter viewType, not adapter
+     * identity) — see UserSeriesGridAdapter's doc on this same pattern — so
+     * a NEW ReelThumbAdapter instance can freely draw from VHs a PREVIOUS
+     * instance returned, as long as the view type matches. ReelThumbAdapter
+     * has exactly one cell layout (no getItemViewType() override → always
+     * type 0), so this is safe: every hop's grid reuses the same pool of
+     * already-inflated item_sound_reel_thumb.xml cells instead of paying
+     * layout inflation again per cell, per hop.
+     *
+     * Sized a bit above rvReels' setItemViewCacheSize(12) below — enough to
+     * outlive one grid's cache without holding an unbounded number of
+     * scrapped views (same reasoning as the sibling pools' explicit caps).
+     */
+    private static final RecyclerView.RecycledViewPool SOUND_REELS_SHARED_POOL =
+        new RecyclerView.RecycledViewPool();
+    static {
+        SOUND_REELS_SHARED_POOL.setMaxRecycledViews(0 /* ReelThumbAdapter's only view type */, 18);
+    }
 
     // ── Debounced reels pagination (ported from UserReelsActivity) ────────────
     // Calling loadMoreReelsForSound() as soon as the threshold is crossed means
@@ -158,6 +277,13 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private final Runnable    reelsPaginationRunnable = this::maybeLoadMoreReels;
 
     // ── Views ─────────────────────────────────────────────────────────────────
+    // ✅ OPT (ULTRA): ViewBinding instead of 48 raw findViewById() calls.
+    // Same field set below, just populated from `binding.*` in bindViews()
+    // now — inflate + lookup is a compiled/cached path instead of a tree
+    // walk per id, and a renamed/removed id now fails the build instead of
+    // handing back a silent null at runtime. Nulled in onDestroyView() so
+    // the binding (and the view tree it holds) doesn't outlive the Fragment.
+    private FragmentSoundDetailBinding binding;
     private View         viewDragHandle;
     private MaterialCardView rootCard;
     private ImageButton  btnBack, btnShare, btnSaveSound, btnMore, btnPlayPause;
@@ -168,6 +294,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private View         btnUseSoundCamera, btnUseSoundGallery, btnAddToProfile;
     private ImageView    ivSoundCover, ivDiscRing;
     private RecyclerView rvReels, rvRelated;
+    private SoundDetailActivity.RelatedAdapter relatedAdapter;
     private ProgressBar  progressBar, progressReelsPagination;
     private View         layoutSoundInfo, layoutReelsHeader;
     private SoundWaveformView waveformView;
@@ -213,7 +340,15 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     // ── Player ────────────────────────────────────────────────────────────────
     private ExoPlayer exoPlayer;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final Handler seekHandler = new Handler(Looper.getMainLooper());
+    // PERF (ULTRA): DiffUtil.calculateDiff() for the reel grid is O(N) and
+    // was running synchronously on the main thread in sortAndApplyReelItems().
+    // Fine while the grid is a page or two, but once multiple pages have
+    // paginated in (plus live adds from attachSoundReelsLiveListener()) that
+    // calculateDiff() call itself can eat a frame. Moved to this single
+    // background thread — only dispatchUpdatesTo(), which must touch the
+    // adapter, still runs on mainHandler.
+    private final java.util.concurrent.ExecutorService diffExecutor =
+        java.util.concurrent.Executors.newSingleThreadExecutor();
 
     // ── Thermal (gap #3: waveform + ExoPlayer weren't thermal-aware, unlike
     // Home/Post feed's use of ReelThermalManager) ─────────────────────────────
@@ -230,29 +365,65 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     // before rescheduling itself. If the flag stayed true across an async edge
     // (e.g. Fragment backgrounded via Recents right as a play callback landed),
     // the loop kept firing on the main thread indefinitely — same class of bug
-    // Reels' player already guards against. `isResumed()` is now checked on
-    // every tick too, so the loop self-terminates the moment this Fragment is
-    // no longer in the foreground, independent of whatever `isPlaying` says.
+    // Reels' player already guards against. isResumed() is checked on every
+    // tick too, so it self-terminates the moment this Fragment is no longer
+    // in the foreground, independent of whatever `isPlaying` says.
     //
-    // THERMAL: interval also scales with device thermal state — 300ms normally,
-    // 800ms once ReelThermalManager reports HOT (same signal startWaveAnimation()
-    // already uses to freeze the waveform). Seek bar / time label don't need
-    // 3x/sec precision on a throttled device; re-checked via seekIntervalMs()
-    // on every tick, so a mid-playback thermal change takes effect on the very
-    // next reschedule — no separate listener wiring needed.
-    private final Runnable seekUpdateRunnable = new Runnable() {
-        @Override public void run() {
-            if (!isResumed()) return; // hard stop — fragment not foreground, don't reschedule
-            if (exoPlayer != null && isPlaying && !userSeeking) {
-                long pos = exoPlayer.getCurrentPosition();
-                long dur = exoPlayer.getDuration();
-                if (dur > 0 && seekBar != null)
-                    seekBar.setProgress((int)(100L * pos / dur));
-                if (tvCurrentTime != null) tvCurrentTime.setText(formatMs((int) pos));
-            }
-            if (isPlaying) seekHandler.postDelayed(this, seekIntervalMs());
+    // ✅ OPT (ULTRA): this used to be a Handler.postDelayed(this, ...)
+    // self-rescheduling chain. postDelayed() schedules each next tick
+    // relative to "now" *after* the previous tick already finished running —
+    // under any main-thread jank (a GC pause, a big layout/measure pass) the
+    // whole chain drifts later and later and never catches back up, since
+    // there's nothing re-syncing it to an external clock. A ValueAnimator's
+    // update listener is driven by Choreographer instead — re-synced to the
+    // display's actual vsync signal every single frame, so it can't drift,
+    // and it coalesces with whatever else is already drawing that frame
+    // instead of firing on its own independent timer.
+    //
+    // THERMAL: interval still scales with device thermal state exactly as
+    // before — 300ms normally, 800ms once ReelThermalManager reports HOT
+    // (same signal startWaveAnimation() already uses to freeze the
+    // waveform). The animator's update listener still fires every frame
+    // (~16ms, cheap — no player calls happen there), but the actual
+    // position read + seekbar/time update only runs once the throttled
+    // interval has actually elapsed, gated by an elapsedRealtime() check
+    // against seekIntervalMs() — same real work, same cadence, same CPU
+    // cost per second as the old Handler version, just frame-synced instead
+    // of timer-scheduled.
+    private ValueAnimator seekAnimator;
+    private long lastSeekTickElapsedMs = 0L;
+
+    private void startSeekTicker() {
+        if (seekAnimator != null && seekAnimator.isStarted()) return;
+        lastSeekTickElapsedMs = 0L; // force an immediate tick on the first frame
+        seekAnimator = ValueAnimator.ofFloat(0f, 1f);
+        seekAnimator.setDuration(16L); // one frame — INFINITE repeat below is what keeps it ticking
+        seekAnimator.setRepeatCount(ValueAnimator.INFINITE);
+        seekAnimator.addUpdateListener(a -> onSeekAnimatorFrame());
+        seekAnimator.start();
+    }
+
+    private void stopSeekTicker() {
+        if (seekAnimator != null) {
+            seekAnimator.cancel();
+            seekAnimator = null;
         }
-    };
+    }
+
+    private void onSeekAnimatorFrame() {
+        if (!isResumed()) { stopSeekTicker(); return; } // hard stop — fragment not foreground
+        if (!isPlaying) { stopSeekTicker(); return; }
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastSeekTickElapsedMs < seekIntervalMs()) return; // thermal-aware throttle
+        lastSeekTickElapsedMs = now;
+        if (exoPlayer != null && !userSeeking) {
+            long pos = exoPlayer.getCurrentPosition();
+            long dur = exoPlayer.getDuration();
+            if (dur > 0 && seekBar != null)
+                seekBar.setProgress((int)(100L * pos / dur));
+            if (tvCurrentTime != null) tvCurrentTime.setText(formatMs((int) pos));
+        }
+    }
 
     /** 300ms normally; throttled to 800ms on a HOT device — mirrors the
      *  waveform's isThermalHot() gate so seek-bar polling backs off under
@@ -306,7 +477,8 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     public View onCreateView(@NonNull LayoutInflater inflater,
                              @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
-        return inflater.inflate(R.layout.fragment_sound_detail, container, false);
+        binding = FragmentSoundDetailBinding.inflate(inflater, container, false);
+        return binding.getRoot();
     }
 
     @Override
@@ -328,20 +500,139 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             isSheet         = b.getBoolean(ARG_IS_SHEET, false);
         }
 
-        bindViews(view);
+        // PERF (#4, rotation reload): a Fragment's ViewModelStore survives a
+        // config-change recreate, so `vm` here is the SAME instance as
+        // before rotation whenever this is a config-change recreate of an
+        // already-open screen — and a fresh, empty one on a genuine new
+        // open (first open, or a related-sound hop replacing this Fragment
+        // with a brand-new instance). vm.soundId lets us tell those two
+        // cases apart without any extra flag.
+        vm = new ViewModelProvider(this).get(SoundDetailViewModel.class);
+        boolean restoringAfterRotation =
+            !soundId.isEmpty() && soundId.equals(vm.soundId) && vm.hasAnyData();
+
+        bindViews();
         applyMode();          // drag handle + close icon based on isSheet
-        showShimmer(true);
+        ensureWaveformCacheTrimRegistered(requireContext());
         thermalManager = ReelThermalManager.get(requireContext());
         thermalManager.addChangeListener(thermalChangeListener);
         peekController = new com.callx.app.profile.ReelPeekPreviewController(requireActivity());
         populateSoundInfo();
-        loadSoundData();
-        loadReelsForSound();
-        loadRelatedSounds();
-        loadCreatorProfile();
         setupClickListeners();
         checkIfSaved();
         setupReelGridParallax(); // UserReelsActivity-style cover parallax on scroll
+
+        if (restoringAfterRotation) {
+            // ── ROTATION FAST-PATH ──────────────────────────────────────
+            // Zero Firebase reads, zero grid rebuild-from-empty: repaint
+            // straight from vm, synchronously, right here — see
+            // restoreFromViewModel()'s doc for why this must run inline in
+            // onViewCreated() rather than from any async callback.
+            showShimmer(false);
+            restoreFromViewModel();
+        } else {
+            vm.soundId = soundId; // claim this vm for this sound (fresh open)
+            showShimmer(true);
+            loadSoundData();
+            loadReelsForSound(true /* fetchInitialPage */);
+            loadRelatedSounds();
+            loadCreatorProfile();
+        }
+    }
+
+    /**
+     * ROTATION FIX (#4): repaints the whole screen from SoundDetailViewModel
+     * instead of re-running loadSoundData()/loadReelsForSound()/
+     * loadRelatedSounds()/loadCreatorProfile(). SoundDetailCache's TTL
+     * already made those calls cheap (no network on a warm cache), but they
+     * still meant: a Firebase read, `reelItems` rebuilt from an empty list,
+     * and the grid rebound from scratch — which is exactly what threw away
+     * scroll position on every rotation. This reads back the same fields
+     * applySoundsNodeEntry()/applyMusicLibraryEntry()/bindCreatorRow()/
+     * finishAppendingPage()/loadRelatedSounds() already wrote into vm as
+     * they resolved, so a rotation costs one field-copy pass instead.
+     *
+     * Runs synchronously from onViewCreated() — not from inside an async
+     * Firebase/cache callback — specifically so rvReels already has its
+     * items by the time FragmentManager restores the view hierarchy's saved
+     * state (scroll offsets included) right after onViewCreated() returns.
+     * Restoring the grid asynchronously (the old behavior, since every load
+     * call went through an async callback) meant that restore always lost
+     * the race against the framework's state-restore, which is what forced
+     * the scroll position back to 0 on every rotation even with the cache.
+     */
+    private void restoreFromViewModel() {
+        if (vm.soundDataLoaded) {
+            if (vm.durationMs > 0) {
+                durationMs = vm.durationMs;
+                String s = formatMs(durationMs);
+                if (tvDuration  != null) tvDuration.setText(s);
+                if (tvTotalTime != null) tvTotalTime.setText(s);
+            }
+            if (soundUrl.isEmpty()        && vm.soundUrl        != null) soundUrl        = vm.soundUrl;
+            if (previewAudioUrl.isEmpty() && vm.previewAudioUrl != null) previewAudioUrl = vm.previewAudioUrl;
+            if (coverUrl.isEmpty() && vm.coverUrl != null && !vm.coverUrl.isEmpty()) {
+                coverUrl = vm.coverUrl;
+                loadCoverImage(coverUrl);
+            }
+            if (tvReelCount  != null) tvReelCount.setText(formatCount(vm.reelCount) + " Reels");
+            if (tvSavesCount != null) {
+                tvSavesCount.setText("•  " + formatCount(vm.totalSaves) + " Saves");
+                tvSavesCount.setVisibility(View.VISIBLE);
+            }
+            if (tvTrendingRank != null) {
+                if (vm.trendingRank != null && vm.trendingRank > 0 && vm.trendingRank <= 50) {
+                    tvTrendingRank.setVisibility(View.VISIBLE);
+                    tvTrendingRank.setText("🔥  #" + vm.trendingRank + " Trending");
+                } else if (vm.isTrending) {
+                    tvTrendingRank.setVisibility(View.VISIBLE);
+                    tvTrendingRank.setText("🔥  Trending");
+                } else {
+                    tvTrendingRank.setVisibility(View.GONE);
+                }
+            }
+            if (tvOriginalBadge != null) tvOriginalBadge.setVisibility(vm.isOriginal ? View.VISIBLE : View.GONE);
+            if (tvIsVerified    != null) tvIsVerified.setVisibility(vm.isVerified  ? View.VISIBLE : View.GONE);
+        }
+
+        if (vm.creatorLoaded && vm.creatorUid != null && !vm.creatorUid.isEmpty()) {
+            creatorUid    = vm.creatorUid;
+            creatorName   = vm.creatorName;
+            creatorPhoto  = vm.creatorPhoto;
+            creatorProfileResolutionAttempted = true;
+            bindCreatorRow(creatorUid, creatorName, creatorPhoto);
+        }
+
+        if (vm.reelsLoaded) {
+            reelItems.clear();
+            reelItems.addAll(vm.reelItems);
+            lastReelKey  = vm.lastReelKey;
+            hasMoreReels = vm.hasMoreReels;
+        }
+        // Adapter/scroll-listeners/preloader setup only — reelItems is
+        // already populated above, so pass fetchInitialPage=false to skip
+        // the Firebase page read; still (re)attaches the live listener so
+        // anything added to this sound since we last looked still streams in.
+        loadReelsForSound(false);
+
+        if (vm.relatedLoaded && !vm.relatedItems.isEmpty()) {
+            relatedItems.clear();
+            relatedItems.addAll(vm.relatedItems);
+            if (rvRelated != null && relatedAdapter != null) {
+                relatedAdapter.submitList(relatedItems);
+                View sec = binding != null ? binding.layoutRelatedSoundsSection : null;
+                if (sec != null) sec.setVisibility(View.VISIBLE);
+            }
+        }
+
+        updatePlayButtonState();
+        if (scrollSoundDetail != null) {
+            scrollSoundDetail.post(SoundDetailFragment.this::updateFloatingActionsVisibility);
+            if (vm.savedScrollY >= 0) {
+                final int y = vm.savedScrollY;
+                scrollSoundDetail.post(() -> scrollSoundDetail.scrollTo(0, y));
+            }
+        }
     }
 
     @Override
@@ -399,17 +690,24 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     // both unconditionally, same as the Reels feed does when it backgrounds.
     @Override
     public void onStop() {
-        seekHandler.removeCallbacks(seekUpdateRunnable);
+        stopSeekTicker();
         if (exoPlayer != null && isPlaying) pausePlayback();
         super.onStop();
     }
 
     @Override
     public void onDestroyView() {
-        seekHandler.removeCallbacksAndMessages(null);
+        // PERF (#4, rotation reload): capture scroll offset into vm right
+        // before the view tree goes away — restoreFromViewModel() applies
+        // it back on the recreated Fragment. Guarded on vm != null since a
+        // process-death recreate can, in rare cases, call onDestroyView()
+        // before onViewCreated() ever ran (e.g. state restore edge cases).
+        if (vm != null && scrollSoundDetail != null) vm.savedScrollY = scrollSoundDetail.getScrollY();
+        stopSeekTicker();
         mainHandler.removeCallbacksAndMessages(null);
         // Cancel any pending debounced pagination check (UserReelsActivity pattern)
         reelsPaginationHandler.removeCallbacksAndMessages(null);
+        diffExecutor.shutdownNow(); // avoid leaking this background diff thread past this fragment instance
         stopDiscAnimation();
         stopWaveAnimation();
         releasePlayer();
@@ -418,6 +716,11 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         if (peekController != null) peekController.dismiss();
         if (layoutMiniPlayer != null) layoutMiniPlayer.setSwipeHelper(null);
         miniPlayerSwipeHelper = null;
+        // ✅ Nulled last, after everything above has had its chance to use
+        // the view fields it backs — same reasoning as any other
+        // ViewBinding fragment: the binding (and the view tree under it)
+        // must not outlive this Fragment instance.
+        binding = null;
         super.onDestroyView();
     }
 
@@ -459,55 +762,61 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     // View binding
     // ─────────────────────────────────────────────────────────────────────────
 
-    private void bindViews(View v) {
-        viewDragHandle    = v.findViewById(R.id.view_drag_handle);
-        rootCard          = v.findViewById(R.id.root_sound_detail);
-        btnBack           = v.findViewById(R.id.btn_sound_back);
-        btnPlayPause      = v.findViewById(R.id.btn_sound_play_pause);
-        btnShare          = v.findViewById(R.id.btn_sound_share);
-        btnMore           = v.findViewById(R.id.btn_sound_more);
-        btnSaveSound      = v.findViewById(R.id.btn_save_sound);
-        tvSoundTitle      = v.findViewById(R.id.tv_sound_title);
-        tvArtist          = v.findViewById(R.id.tv_sound_artist);
-        tvDuration        = v.findViewById(R.id.tv_sound_duration);
-        tvReelCount       = v.findViewById(R.id.tv_sound_reel_count);
-        tvTrendingRank    = v.findViewById(R.id.tv_sound_trending_rank);
-        tvSavesCount      = v.findViewById(R.id.tv_sound_saves_count);
-        tvBpm             = v.findViewById(R.id.tv_sound_bpm);
-        tvGenre           = v.findViewById(R.id.tv_sound_genre);
-        tvOriginalBadge   = v.findViewById(R.id.tv_sound_original_badge);
-        tvIsVerified      = v.findViewById(R.id.tv_sound_verified_badge);
-        btnUseSoundCamera = v.findViewById(R.id.btn_use_sound_camera);
-        btnUseSoundGallery= v.findViewById(R.id.btn_use_sound_gallery);
-        btnAddToProfile   = v.findViewById(R.id.btn_add_to_profile);
-        tvAddToProfile    = v.findViewById(R.id.tv_add_to_profile);
-        ivSoundCover      = v.findViewById(R.id.iv_sound_cover);
-        ivDiscRing        = v.findViewById(R.id.iv_disc_ring);
-        rvReels           = v.findViewById(R.id.rv_sound_reels);
-        rvRelated         = v.findViewById(R.id.rv_related_sounds);
-        progressBar       = v.findViewById(R.id.progress_sound);
-        progressReelsPagination = v.findViewById(R.id.progress_reels_pagination);
-        layoutSoundInfo   = v.findViewById(R.id.layout_sound_info);
-        waveformView      = v.findViewById(R.id.waveform_sound);
-        seekBar           = v.findViewById(R.id.seekbar_sound);
-        tvCurrentTime     = v.findViewById(R.id.tv_sound_current_time);
-        tvTotalTime       = v.findViewById(R.id.tv_sound_total_time);
-        shimmerLayout     = v.findViewById(R.id.shimmer_sound_detail);
-        layoutReelsHeader = v.findViewById(R.id.layout_reels_header);
-        layoutCreator     = v.findViewById(R.id.layout_sound_creator);
-        ivCreatorAvatar   = v.findViewById(R.id.iv_creator_avatar);
-        tvCreatorName     = v.findViewById(R.id.tv_creator_name);
-        btnFollowCreator  = v.findViewById(R.id.btn_follow_creator);
-        layoutMiniPlayer  = v.findViewById(R.id.layout_mini_player);
-        ivMiniCover       = v.findViewById(R.id.iv_mini_cover);
-        tvMiniTitle       = v.findViewById(R.id.tv_mini_title);
-        btnMiniPlayPause  = v.findViewById(R.id.btn_mini_play_pause);
-        btnMiniClose      = v.findViewById(R.id.btn_mini_close);
+    private void bindViews() {
+        viewDragHandle    = binding.viewDragHandle;
+        rootCard          = binding.getRoot();
+        btnBack           = binding.btnSoundBack;
+        btnPlayPause      = binding.btnSoundPlayPause;
+        btnShare          = binding.btnSoundShare;
+        btnMore           = binding.btnSoundMore;
+        btnSaveSound      = binding.btnSaveSound;
+        tvSoundTitle      = binding.tvSoundTitle;
+        tvArtist          = binding.tvSoundArtist;
+        // tv_sound_duration has no view in fragment_sound_detail.xml — that id
+        // only exists in item_saved_sound.xml / bottom_sheet_sound_detail.xml
+        // (pre-existing, unrelated to this refactor). The old
+        // v.findViewById(R.id.tv_sound_duration) silently returned null here
+        // too; kept explicit so the `if (tvDuration != null)` guards further
+        // down keep behaving exactly as before.
+        tvDuration        = null;
+        tvReelCount       = binding.tvSoundReelCount;
+        tvTrendingRank    = binding.tvSoundTrendingRank;
+        tvSavesCount      = binding.tvSoundSavesCount;
+        tvBpm             = binding.tvSoundBpm;
+        tvGenre           = binding.tvSoundGenre;
+        tvOriginalBadge   = binding.tvSoundOriginalBadge;
+        tvIsVerified      = binding.tvSoundVerifiedBadge;
+        btnUseSoundCamera = binding.btnUseSoundCamera;
+        btnUseSoundGallery= binding.btnUseSoundGallery;
+        btnAddToProfile   = binding.btnAddToProfile;
+        tvAddToProfile    = binding.tvAddToProfile;
+        ivSoundCover      = binding.ivSoundCover;
+        ivDiscRing        = binding.ivDiscRing;
+        rvReels           = binding.rvSoundReels;
+        rvRelated         = binding.rvRelatedSounds;
+        progressBar       = binding.progressSound;
+        progressReelsPagination = binding.progressReelsPagination;
+        layoutSoundInfo   = binding.layoutSoundInfo;
+        waveformView      = binding.waveformSound;
+        seekBar           = binding.seekbarSound;
+        tvCurrentTime     = binding.tvSoundCurrentTime;
+        tvTotalTime       = binding.tvSoundTotalTime;
+        shimmerLayout     = binding.shimmerSoundDetail;
+        layoutReelsHeader = binding.layoutReelsHeader;
+        layoutCreator     = binding.layoutSoundCreator;
+        ivCreatorAvatar   = binding.ivCreatorAvatar;
+        tvCreatorName     = binding.tvCreatorName;
+        btnFollowCreator  = binding.btnFollowCreator;
+        layoutMiniPlayer  = binding.layoutMiniPlayer;
+        ivMiniCover       = binding.ivMiniCover;
+        tvMiniTitle       = binding.tvMiniTitle;
+        btnMiniPlayPause  = binding.btnMiniPlayPause;
+        btnMiniClose      = binding.btnMiniClose;
         setupMiniPlayerSwipeClose();
-        layoutFloatingActions = v.findViewById(R.id.layout_floating_sound_actions);
-        btnFloatingUseAudio   = v.findViewById(R.id.btn_floating_use_audio);
-        btnFloatingSave       = v.findViewById(R.id.btn_floating_save);
-        scrollSoundDetail     = v.findViewById(R.id.scroll_sound_detail);
+        layoutFloatingActions = binding.layoutFloatingSoundActions;
+        btnFloatingUseAudio   = binding.btnFloatingUseAudio;
+        btnFloatingSave       = binding.btnFloatingSave;
+        scrollSoundDetail     = binding.scrollSoundDetail;
 
         if (rvReels != null) {
             // ── UserReelsActivity-style perf setup ─────────────────────────
@@ -525,6 +834,11 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             // ULTRA: cache more off-screen ViewHolders so fast flings and
             // fresh-page appends reuse already-bound views instead of re-inflating.
             rvReels.setItemViewCacheSize(12);
+            // ULTRA: process-wide shared pool — see SOUND_REELS_SHARED_POOL's
+            // doc above for why this specifically helps the related-sound
+            // hop case (new Fragment + new rvReels + new adapter, same
+            // underlying pool of inflated cells).
+            rvReels.setRecycledViewPool(SOUND_REELS_SHARED_POOL);
             // Must stay enabled so NestedScrollView/CoordinatorLayout intercepts
             // vertical events and the header can collapse properly.
             rvReels.setNestedScrollingEnabled(true);
@@ -546,6 +860,23 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             // added/swapped — safe to skip RecyclerView's extra measure
             // pass, same reasoning already applied to rvReels above.
             rvRelated.setHasFixedSize(true);
+            // ✅ OPT (ULTRA): adapter created once here and reused via
+            // submitList() (DiffUtil) from loadRelatedSounds(), instead of a
+            // fresh RelatedAdapter + setAdapter() on every load — see
+            // RelatedAdapter.submitList() for why that matters.
+            relatedAdapter = new SoundDetailActivity.RelatedAdapter(new ArrayList<>(), item -> {
+                showMiniPlayer();
+                SoundDetailFragment next = SoundDetailFragment.newInstance(
+                    item.id, item.title, item.artist, item.coverUrl, item.audioUrl,
+                    0, genre, 0, null, null, isSheet);
+                next.setOnCloseListener(onCloseListener);
+                requireActivity().getSupportFragmentManager()
+                    .beginTransaction()
+                    .replace(requireView().getId(), next)
+                    .addToBackStack(null)
+                    .commit();
+            });
+            rvRelated.setAdapter(relatedAdapter);
         }
 
         if (seekBar != null) {
@@ -868,6 +1199,23 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         showShimmer(false);
         updatePlayButtonState();
         if (scrollSoundDetail != null) scrollSoundDetail.post(SoundDetailFragment.this::updateFloatingActionsVisibility);
+
+        // PERF (#4): snapshot into vm so a later rotation can repaint from
+        // here instead of re-reading "sounds/{id}" (even a cached read).
+        if (vm != null) {
+            vm.soundDataLoaded    = true;
+            vm.fromMusicLibrary   = false;
+            vm.soundUrl           = snap.audioUrl;
+            vm.previewAudioUrl    = snap.previewAudioUrl;
+            vm.coverUrl           = snap.coverUrl;
+            vm.durationMs         = durationMs;
+            vm.reelCount          = snap.reelCount  != null ? snap.reelCount  : 0;
+            vm.totalSaves         = snap.totalSaves != null ? snap.totalSaves : 0;
+            vm.trendingRank       = snap.trendingRank;
+            vm.isTrending         = Boolean.TRUE.equals(snap.isTrending);
+            vm.isOriginal         = Boolean.TRUE.equals(snap.isOriginal);
+            vm.isVerified         = Boolean.TRUE.equals(snap.isVerified);
+        }
     }
 
     /**
@@ -905,13 +1253,36 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
 
         showShimmer(false);
         updatePlayButtonState();
+
+        // PERF (#4): same snapshot as applySoundsNodeEntry(), musicLibrary
+        // fallback flavor (0 reel count is deliberate here, see caller).
+        if (vm != null) {
+            vm.soundDataLoaded = true;
+            vm.fromMusicLibrary = true;
+            vm.soundUrl        = snap.audioUrl;
+            vm.previewAudioUrl = snap.previewAudioUrl;
+            vm.coverUrl        = snap.coverUrl;
+            vm.durationMs      = durationMs;
+            vm.reelCount       = 0;
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Firebase — Reels
     // ─────────────────────────────────────────────────────────────────────────
 
-    private void loadReelsForSound() {
+    /**
+     * @param fetchInitialPage true on a fresh open (actually hit Firebase
+     *                          for the first page via loadMoreReelsForSound());
+     *                          false when restoring after rotation, where
+     *                          reelItems has already been repopulated from
+     *                          SoundDetailViewModel by restoreFromViewModel()
+     *                          — in that case this only (re)builds the
+     *                          adapter/scroll-listeners/preloader around the
+     *                          data that's already there and reattaches the
+     *                          live listener, with no extra read.
+     */
+    private void loadReelsForSound(boolean fetchInitialPage) {
         if (soundId.isEmpty() || rvReels == null) return;
         reelThumbAdapter = new SoundDetailActivity.ReelThumbAdapter(reelItems, position -> {
             if (isGone()) return;
@@ -1003,7 +1374,14 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         // ── Glide preloader — warm upcoming thumbnails (UserReelsActivity) ─
         setupGlidePreloaderForReels();
 
-        loadMoreReelsForSound();
+        if (fetchInitialPage) {
+            loadMoreReelsForSound();
+        } else {
+            // Restoring: reelItems already came from vm — just make sure
+            // we're still listening for anything new since we last saw
+            // this sound. No Firebase page read here.
+            attachSoundReelsLiveListener();
+        }
     }
 
     private void loadMoreReelsForSound() {
@@ -1019,6 +1397,20 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (isGone()) return;
                 List<SoundDetailActivity.ReelThumbItem> page = new ArrayList<>();
+                // PERF (Firebase read batching, ULTRA): legacy-only stragglers —
+                // reels linked under this sound BEFORE viewsCount started being
+                // denormalized onto sounds/{soundId}/reels/{reelId} (see the
+                // exists() check below) collect here for a one-time backfill.
+                // Every reel created or viewed after that change already has
+                // the field, so in steady state this list is empty and no
+                // extra read happens at all.
+                List<SoundDetailActivity.ReelThumbItem> legacyBackfill = new ArrayList<>();
+                // PERF (ULTRA): no explicit Glide.preload() per item here —
+                // setupGlidePreloaderForReels() already runs a
+                // RecyclerViewPreloader wired to this same adapter, which
+                // scroll-ahead preloads each thumbnail once as it nears the
+                // viewport. Preloading again here per page was a duplicate
+                // network hit for every thumbnail, every page.
                 for (DataSnapshot s : snap.getChildren()) {
                     String rid   = s.getKey();
                     String thumb = firstOf(s, "thumbnailUrl", "thumbnail");
@@ -1028,6 +1420,13 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                         SoundDetailActivity.ReelThumbItem item =
                             new SoundDetailActivity.ReelThumbItem(rid, n(thumb), n(vid));
                         item.uid = uid;
+                        DataSnapshot vSnap = s.child("viewsCount");
+                        if (vSnap.exists()) {
+                            Long v = vSnap.getValue(Long.class);
+                            item.viewsCount = v != null ? v : 0L;
+                        } else {
+                            legacyBackfill.add(item);
+                        }
                         page.add(item);
                         lastReelKey = rid;
                     }
@@ -1036,7 +1435,8 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                 if (page.isEmpty() && reelItems.isEmpty() && lastReelKey == null) {
                     hasMoreReels = false; loadReelsFromReelsNode(); return;
                 }
-                fetchViewCountsForPage(page);
+                finishAppendingPage(page, true);
+                if (!legacyBackfill.isEmpty()) backfillLegacyViewCounts(legacyBackfill);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {
                 isLoadingMoreReels = false;
@@ -1075,26 +1475,46 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             });
     }
 
-    private void fetchViewCountsForPage(List<SoundDetailActivity.ReelThumbItem> page) {
-        if (page.isEmpty()) { finishAppendingPage(page, false); return; }
-        for (SoundDetailActivity.ReelThumbItem item : page) {
-            if (!item.thumbnailUrl.isEmpty() && isAdded())
-                Glide.with(requireContext()).load(item.thumbnailUrl)
-                    .apply(new RequestOptions().centerCrop().override(300, 533)).preload();
-        }
-        final int total = page.size();
-        final int[] done = {0};
-        for (SoundDetailActivity.ReelThumbItem item : page) {
+    /**
+     * PERF (Firebase read batching, ULTRA): this used to be
+     * fetchViewCountsForPage() — fired on EVERY single pagination page,
+     * fan-out one addListenerForSingleValueEvent per reel (REELS_PAGE_SIZE
+     * reads, every time, forever) just to learn a view count. viewsCount is
+     * now denormalized straight onto sounds/{soundId}/reels/{reelId} at
+     * write time (ReelUploadActivity#registerOrLinkSound seeds it at 0,
+     * ReelSocialController / HomeFeedWatchTracker#recordView keep it in
+     * sync on every real view — see their PERF notes), so
+     * loadMoreReelsForSound() reads it straight off the page snapshot it
+     * already fetched, with zero extra round-trips.
+     *
+     * This method now only runs for the shrinking tail of reels that were
+     * linked to a sound before that denormalization shipped and therefore
+     * never got the field. For those — and only those — it does one real
+     * read of the source of truth (reels/{reelId}/viewsCount) and patches
+     * the sound-side node so this exact reel never needs this fallback
+     * again, for this user or anyone else.
+     */
+    private void backfillLegacyViewCounts(List<SoundDetailActivity.ReelThumbItem> legacyItems) {
+        if (legacyItems.isEmpty() || soundId.isEmpty()) return;
+        for (SoundDetailActivity.ReelThumbItem item : legacyItems) {
             FirebaseUtils.getReelsRef().child(item.reelId).child("viewsCount")
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot snap) {
                         Long v = snap.getValue(Long.class);
-                        item.viewsCount = v != null ? v : 0L;
-                        if (++done[0] >= total) finishAppendingPage(page, true);
+                        long views = v != null ? v : 0L;
+                        item.viewsCount = views;
+
+                        // Self-heal: patch it onto the sound-side node so
+                        // this fallback never fires again for this reel.
+                        FirebaseUtils.db().getReference("sounds").child(soundId)
+                            .child("reels").child(item.reelId).child("viewsCount")
+                            .setValue(views);
+
+                        if (isGone() || reelThumbAdapter == null) return;
+                        int idx = reelItems.indexOf(item);
+                        if (idx >= 0) reelThumbAdapter.notifyItemChanged(idx);
                     }
-                    @Override public void onCancelled(@NonNull DatabaseError e) {
-                        if (++done[0] >= total) finishAppendingPage(page, true);
-                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) { }
                 });
         }
     }
@@ -1120,11 +1540,34 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                 if (scrollSoundDetail != null) scrollSoundDetail.requestLayout();
             });
         }
+        syncReelsToViewModel();
         attachSoundReelsLiveListener();
     }
 
+    /**
+     * PERF (#4): mirrors reelItems + pagination cursor into vm after every
+     * mutation (page append, live add, live remove) so a rotation always
+     * restores from the freshest state, not just whatever the first page
+     * looked like. reelItems here is thumbnails only (id/thumbUrl/videoUrl/
+     * uid/viewsCount) — cheap enough to copy on every mutation.
+     */
+    private void syncReelsToViewModel() {
+        if (vm == null) return;
+        vm.reelsLoaded  = true;
+        vm.lastReelKey  = lastReelKey;
+        vm.hasMoreReels = hasMoreReels;
+        vm.reelItems.clear();
+        vm.reelItems.addAll(reelItems);
+    }
+
     private void attachSoundReelsLiveListener() {
-        if (soundReelsLiveListener != null || soundId.isEmpty() || isGone()) return;
+        if (soundId.isEmpty() || isGone()) return;
+        // Single-flight claim FIRST — see reelsLiveListenerAttached's doc.
+        // If this returns false, someone else already claimed (or is
+        // claiming) the attach for this instance, so bail before touching
+        // the query at all.
+        if (!reelsLiveListenerAttached.compareAndSet(false, true)) return;
+        if (soundReelsLiveListener != null) return; // defensive; unreachable given the claim above, but keeps the old guard intact
         Query liveQ = com.google.firebase.database.FirebaseDatabase.getInstance()
             .getReference("sounds").child(soundId).child("reels").orderByKey();
         if (lastReelKey != null) liveQ = liveQ.startAfter(lastReelKey);
@@ -1146,6 +1589,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                     if (rvReels != null) rvReels.post(() -> rvReels.scrollToPosition(0));
                 }
                 lastReelKey = rid;
+                syncReelsToViewModel();
             }
             @Override public void onChildRemoved(@NonNull DataSnapshot snap) {
                 if (isGone()) return;
@@ -1154,6 +1598,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                     if (rid != null && rid.equals(reelItems.get(i).reelId)) {
                         reelItems.remove(i);
                         if (reelThumbAdapter != null) reelThumbAdapter.notifyItemRemoved(i);
+                        syncReelsToViewModel();
                         break;
                     }
                 }
@@ -1166,6 +1611,11 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     }
 
     private void detachLiveListener() {
+        // Always release the single-flight claim, even if there's nothing
+        // to remove below — otherwise a partial/failed attach (or a call
+        // with soundId already empty) would leave reelsLiveListenerAttached
+        // stuck true and permanently block re-attachment for this instance.
+        reelsLiveListenerAttached.set(false);
         if (soundReelsLiveListener == null || soundId.isEmpty()) return;
         try {
             com.google.firebase.database.FirebaseDatabase.getInstance()
@@ -1282,20 +1732,42 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         }
         if (!changed) return;
 
-        // ULTRA: this re-sort only reorders the "Original" creator's reels
-        // to the front — it doesn't add/remove anything or change what's
-        // inside each cell. notifyDataSetChanged() used to rebind (and
-        // re-run Glide loads for) every visible cell just to move a few
-        // rows. DiffUtil against a pre-sort snapshot emits move/change ops
-        // for only the rows that actually shifted or flipped the
-        // "Original" badge, so untouched cells are left bound as-is.
-        List<SoundDetailActivity.ReelThumbItem> before = new ArrayList<>(reelItems);
-        reelItems.sort((a, b) -> Boolean.compare(!a.isOriginalCreator, !b.isOriginalCreator));
-        if (reelThumbAdapter != null) {
+        // PERF (ULTRA): this re-sort only reorders the "Original" creator's
+        // reels to the front — it doesn't add/remove anything or change
+        // what's inside each cell. notifyDataSetChanged() used to rebind
+        // (and re-run Glide loads for) every visible cell just to move a
+        // few rows; DiffUtil emits move/change ops for only the rows that
+        // actually shifted or flipped the "Original" badge instead.
+        //
+        // calculateDiff() itself is O(N) and was running synchronously on
+        // the main thread here — fine for a page or two, but once several
+        // pagination pages plus live adds (attachSoundReelsLiveListener)
+        // have grown reelItems, that call alone can eat a frame. The sort +
+        // diff calculation now both run on diffExecutor; only
+        // dispatchUpdatesTo() — which must touch the adapter — comes back
+        // to the main thread.
+        final List<SoundDetailActivity.ReelThumbItem> before = new ArrayList<>(reelItems);
+        diffExecutor.execute(() -> {
+            List<SoundDetailActivity.ReelThumbItem> after = new ArrayList<>(before);
+            after.sort((a, b) -> Boolean.compare(!a.isOriginalCreator, !b.isOriginalCreator));
             DiffUtil.DiffResult diff = DiffUtil.calculateDiff(
-                new ReelThumbDiffCallback(before, reelItems), false);
-            diff.dispatchUpdatesTo(reelThumbAdapter);
-        }
+                new ReelThumbDiffCallback(before, after), false);
+            mainHandler.post(() -> {
+                if (isGone() || reelThumbAdapter == null) return;
+                // The live list may have changed shape (a pagination page or
+                // a live add/delete landed) while this diff was computing in
+                // the background — applying it against a resized list would
+                // dispatch adapter ops for positions that no longer exist.
+                // Bail; the next mutation to reelItems already reflects
+                // current reality, and any missed reorder is harmless (the
+                // isOriginalCreator flags above were already applied to the
+                // live item objects regardless).
+                if (reelItems.size() != before.size()) return;
+                reelItems.clear();
+                reelItems.addAll(after);
+                diff.dispatchUpdatesTo(reelThumbAdapter);
+            });
+        });
     }
 
     /** Content diff for {@link SoundDetailActivity.ReelThumbAdapter} — identity by
@@ -1345,21 +1817,16 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                 if (r.id != null && r.id.equals(soundId)) continue;
                 relatedItems.add(new SoundDetailActivity.RelatedItem(r.id, r.title, r.artist, r.coverUrl, r.audioUrl));
             }
-            if (rvRelated != null && !relatedItems.isEmpty()) {
-                rvRelated.setAdapter(new SoundDetailActivity.RelatedAdapter(relatedItems, item -> {
-                    showMiniPlayer();
-                    SoundDetailFragment next = SoundDetailFragment.newInstance(
-                        item.id, item.title, item.artist, item.coverUrl, item.audioUrl,
-                        0, genre, 0, null, null, isSheet);
-                    next.setOnCloseListener(onCloseListener);
-                    requireActivity().getSupportFragmentManager()
-                        .beginTransaction()
-                        .replace(requireView().getId(), next)
-                        .addToBackStack(null)
-                        .commit();
-                }));
-                View sec = getView() != null ? getView().findViewById(R.id.layout_related_sounds_section) : null;
+            if (rvRelated != null && relatedAdapter != null && !relatedItems.isEmpty()) {
+                relatedAdapter.submitList(relatedItems);
+                View sec = binding != null ? binding.layoutRelatedSoundsSection : null;
                 if (sec != null) sec.setVisibility(View.VISIBLE);
+            }
+            // PERF (#4): snapshot so a rotation doesn't re-hit SoundDetailCache.
+            if (vm != null) {
+                vm.relatedLoaded = true;
+                vm.relatedItems.clear();
+                vm.relatedItems.addAll(relatedItems);
             }
         });
     }
@@ -1430,6 +1897,14 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     }
 
     private void bindCreatorRow(String uid, String name, String photo) {
+        // PERF (#4): snapshot regardless of the early-return below, so a
+        // creator resolved right before a rotation still gets remembered.
+        if (vm != null) {
+            vm.creatorLoaded = true;
+            vm.creatorUid    = uid;
+            vm.creatorName   = name;
+            vm.creatorPhoto  = photo;
+        }
         if (layoutCreator == null || isGone()) return;
         if (tvCreatorName != null) tvCreatorName.setText("@" + name);
         if (ivCreatorAvatar != null) {
@@ -1842,6 +2317,13 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     // pool itself via setAudioAttributes(..., handleAudioFocus=true), so no
     // manual AudioManager/AudioFocusRequest code is needed here.
     //
+    // PERF (disk cache): setMediaSource(pool.buildMediaSource(url)) instead
+    // of setMediaItem(MediaItem.fromUri(url)) — routes playback through
+    // UnifiedVideoCacheManager's disk-backed CacheDataSource (see
+    // SoundPreviewPlayerPool#buildMediaSource), so reopening the same sound,
+    // or the retry/fallback-URL path below, replays from disk instead of
+    // re-downloading.
+    //
     // Trade-off vs the old per-open buildThermalAwareLoadControl(): the
     // pooled player's buffer window is fixed once at construction instead
     // of being recomputed per-open from the current thermal level, since
@@ -1852,9 +2334,10 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private void initAndStartPlayer() {
         if (isGone()) return;
         isPreparing = true; setPlayButtonLoading(true);
-        exoPlayer = SoundPreviewPlayerPool.get(requireContext()).acquire();
+        SoundPreviewPlayerPool pool = SoundPreviewPlayerPool.get(requireContext());
+        exoPlayer = pool.acquire();
         exoPlayer.addListener(this);
-        exoPlayer.setMediaItem(MediaItem.fromUri(getPlaybackUrl()));
+        exoPlayer.setMediaSource(pool.buildMediaSource(getPlaybackUrl()));
         exoPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
         exoPlayer.prepare();
     }
@@ -1867,7 +2350,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             exoPlayer.play(); isPlaying = true;
             if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_pause);
             startWaveAnimation(); startDiscAnimation();
-            seekHandler.post(seekUpdateRunnable); updateMiniPlayButton();
+            startSeekTicker(); updateMiniPlayButton();
         } else if (state == Player.STATE_ENDED) {
             pausePlayback();
             if (seekBar != null) seekBar.setProgress(0);
@@ -1879,7 +2362,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         releasePlayer(); setPlayButtonLoading(false);
         isPlaying = false; isPreparing = false;
         if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_play);
-        stopWaveAnimation(); stopDiscAnimation(); seekHandler.removeCallbacks(seekUpdateRunnable);
+        stopWaveAnimation(); stopDiscAnimation(); stopSeekTicker();
         if (!retried) {
             retried = true; mainHandler.postDelayed(this::initAndStartPlayer, 800);
         } else if (!triedFallbackUrl && !skipPreviewUrl && !previewAudioUrl.isEmpty()
@@ -1898,7 +2381,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         exoPlayer.play(); isPlaying = true;
         if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_pause);
         startWaveAnimation(); startDiscAnimation();
-        seekHandler.post(seekUpdateRunnable); updateMiniPlayButton();
+        startSeekTicker(); updateMiniPlayButton();
     }
 
     private void pausePlayback() {
@@ -1906,7 +2389,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         isPlaying = false;
         if (btnPlayPause != null) btnPlayPause.setImageResource(R.drawable.ic_play);
         stopWaveAnimation(); stopDiscAnimation();
-        seekHandler.removeCallbacks(seekUpdateRunnable); updateMiniPlayButton();
+        stopSeekTicker(); updateMiniPlayButton();
     }
 
     private void setPlayButtonLoading(boolean loading) {

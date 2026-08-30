@@ -3,14 +3,21 @@ package com.callx.app.music;
 import android.content.Context;
 import android.util.Log;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.OptIn;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
+import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
+import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.MediaSource;
+import androidx.media3.exoplayer.source.ProgressiveMediaSource;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
+
+import com.callx.app.cache.UnifiedVideoCacheManager;
 
 /**
  * SoundPreviewPlayerPool — single reusable ExoPlayer for the Sound Detail
@@ -34,6 +41,18 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
  * transparently requests AUDIOFOCUS_GAIN on play, pauses/ducks on a
  * transient loss (an incoming call, another app starting playback), and
  * resumes on regain — exactly the behavior Sound Detail was missing.
+ *
+ * PERF (disk cache): {@link #buildMediaSource(String)} routes playback
+ * through {@link UnifiedVideoCacheManager}'s MUSIC {@code CacheDataSource}
+ * (shares the same on-disk, DB-indexed SimpleCache as X/Status/Chat).
+ * {@code SoundDetailFragment} previously called
+ * {@code exoPlayer.setMediaItem(MediaItem.fromUri(url))} directly — a plain
+ * {@code DefaultHttpDataSource} with no cache underneath, so replaying the
+ * exact same preview URL (reopening a sound, or the retry/fallback path in
+ * {@code onPlayerError}) re-downloaded it from the network every time. Now
+ * the first play caches bytes to disk as they stream, and every subsequent
+ * play of that same URL — this session or a future one, since the cache
+ * index is SQLite-backed — is served straight off disk.
  *
  * Thread-confined to the main thread, same as every other ExoPlayer touch
  * point in this codebase.
@@ -72,8 +91,27 @@ public final class SoundPreviewPlayerPool {
     }
 
     /**
+     * Builds a disk-cached {@link MediaSource} for a preview/sound URL —
+     * caller passes this to {@code exoPlayer.setMediaSource(...)} instead of
+     * {@code setMediaItem(MediaItem.fromUri(url))}. Goes through
+     * {@link UnifiedVideoCacheManager}'s {@code MUSIC} module, so a replay of
+     * the same URL (same sound reopened, or the retry/fallback-URL path in
+     * {@code onPlayerError}) is served from disk instead of re-hitting the
+     * network. {@code UnifiedVideoCacheManager} is initialized once at app
+     * startup ({@code CallxApp}), so it's always ready by the time a Sound
+     * Detail screen can open.
+     */
+    @NonNull
+    public MediaSource buildMediaSource(@NonNull String url) {
+        CacheDataSource.Factory cacheFactory =
+            UnifiedVideoCacheManager.getFactory(UnifiedVideoCacheManager.Module.MUSIC);
+        return new ProgressiveMediaSource.Factory(cacheFactory)
+            .createMediaSource(MediaItem.fromUri(url));
+    }
+
+    /**
      * Hand out the pooled player, building it lazily on first use. Caller
-     * still owns addListener()/setMediaItem()/setRepeatMode()/prepare();
+     * still owns addListener()/setMediaSource()/setRepeatMode()/prepare();
      * call {@link #release(Player.Listener)} (never {@code player.release()}
      * directly) when the screen goes away so the instance survives for the
      * next Sound Detail open.

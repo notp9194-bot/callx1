@@ -251,8 +251,47 @@ public class HomeFeedWatchTracker {
                                                          boolean committed,
                                                          @Nullable DataSnapshot s) { }
                     });
+                mirrorViewCountOntoSound(reelId);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) { }
         });
+    }
+
+    /**
+     * PERF (Firebase read batching, ULTRA): keeps
+     * sounds/{musicId}/reels/{reelId}/viewsCount in sync with the real
+     * counter above so SoundDetailFragment's pagination can read view
+     * counts straight off the sound's own reel list instead of firing a
+     * per-reel read on every page load (see that fragment's PERF note).
+     *
+     * This card model only carries reelId, not the reel's musicId, so this
+     * does one small lookup of reels/{reelId}/musicId first — but recordView()
+     * only ever gets here once per viewer per reel, EVER (guarded above by
+     * reelViews/{reelId}/{uid}), so this never scales with page loads the
+     * way the old per-page view-count fan-out did.
+     */
+    private void mirrorViewCountOntoSound(String reelId) {
+        FirebaseUtils.getReelsRef().child(reelId).child("musicId")
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String musicId = snap.getValue(String.class);
+                    if (musicId == null || musicId.isEmpty()) return;
+                    FirebaseUtils.db()
+                        .getReference("sounds").child(musicId)
+                        .child("reels").child(reelId).child("viewsCount")
+                        .runTransaction(new Transaction.Handler() {
+                            @NonNull @Override
+                            public Transaction.Result doTransaction(@NonNull MutableData d) {
+                                Long c = d.getValue(Long.class);
+                                d.setValue(c != null ? c + 1 : 1);
+                                return Transaction.success(d);
+                            }
+                            @Override public void onComplete(@Nullable DatabaseError e,
+                                                             boolean committed,
+                                                             @Nullable DataSnapshot s) { }
+                        });
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) { }
+            });
     }
 }

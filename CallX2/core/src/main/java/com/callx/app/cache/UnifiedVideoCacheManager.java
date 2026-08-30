@@ -65,7 +65,6 @@ public class UnifiedVideoCacheManager {
     private static final long OTHER_CACHE_LOW  =  80L * 1024 * 1024;
     private static final String OTHER_CACHE_DIR = "other_video_cache";
     private static final String OTHER_DB_NAME   = "other_cache.db";
-
     // Preload bytes per module
     private static final long PARTIAL_BYTES_REELS  =  6L * 1024 * 1024; // 6MB — smooth autoplay
     private static final long PARTIAL_BYTES_X      =  5L * 1024 * 1024;
@@ -73,6 +72,7 @@ public class UnifiedVideoCacheManager {
     private static final long PARTIAL_BYTES_CHAT   =  8L * 1024 * 1024;
     /** Duet originals — compositor needs large chunk */
     public  static final long PARTIAL_BYTES_DUET   = 50L * 1024 * 1024;
+    private static final long PARTIAL_BYTES_MUSIC  =  1L * 1024 * 1024;
 
     // Fragment (checkpoint) size for cache writes.
     //
@@ -107,6 +107,10 @@ public class UnifiedVideoCacheManager {
     private static CacheDataSource.Factory sXFactory;
     private static CacheDataSource.Factory sStatusFactory;
     private static CacheDataSource.Factory sChatFactory;
+    /** Sound-preview audio (SoundDetailFragment / SoundPreviewPlayerPool) —
+     *  shares the "other" 300MB cache + DB with X/Status/Chat; audio files
+     *  are small enough that a dedicated budget isn't worth it. */
+    private static CacheDataSource.Factory sMusicFactory;
     private static boolean                 sInitialized = false;
     private static long                    sReelsCacheSize;
 
@@ -119,7 +123,7 @@ public class UnifiedVideoCacheManager {
     // after init() has already returned.
     private static Context sAppContext;
 
-    public enum Module { REELS, X, STATUS, CHAT }
+    public enum Module { REELS, X, STATUS, CHAT, MUSIC }
 
     private UnifiedVideoCacheManager() {}
 
@@ -177,6 +181,7 @@ public class UnifiedVideoCacheManager {
             sXFactory      = buildFactory(httpFactory, sOtherCache,  FRAGMENT_SIZE_OTHER);
             sStatusFactory = buildFactory(httpFactory, sOtherCache,  FRAGMENT_SIZE_OTHER);
             sChatFactory   = buildFactory(httpFactory, sOtherCache,  FRAGMENT_SIZE_OTHER);
+            sMusicFactory  = buildFactory(httpFactory, sOtherCache,  FRAGMENT_SIZE_OTHER);
 
             sPreloadExecutor = Executors.newFixedThreadPool(2);
             sInitialized = true;
@@ -214,6 +219,7 @@ public class UnifiedVideoCacheManager {
             case X:      return sXFactory;
             case STATUS: return sStatusFactory;
             case CHAT:   return sChatFactory;
+            case MUSIC:  return sMusicFactory;
             default:     return sReelsFactory;
         }
     }
@@ -289,6 +295,7 @@ public class UnifiedVideoCacheManager {
             case X:      return PARTIAL_BYTES_X;
             case STATUS: return PARTIAL_BYTES_STATUS;
             case CHAT:   return PARTIAL_BYTES_CHAT;
+            case MUSIC:  return PARTIAL_BYTES_MUSIC;
             default:     return PARTIAL_BYTES_REELS;
         }
     }
@@ -329,7 +336,7 @@ public class UnifiedVideoCacheManager {
         catch (Exception e) { Log.e(TAG, "Release reels cache", e); }
         try { if (sOtherCache != null) { sOtherCache.release(); sOtherCache = null; } }
         catch (Exception e) { Log.e(TAG, "Release other cache", e); }
-        sReelsFactory = null; sXFactory = null; sStatusFactory = null; sChatFactory = null;
+        sReelsFactory = null; sXFactory = null; sStatusFactory = null; sChatFactory = null; sMusicFactory = null;
         sReelsDb = null; sOtherDb = null;
         sInitialized = false;
         Log.d(TAG, "released.");

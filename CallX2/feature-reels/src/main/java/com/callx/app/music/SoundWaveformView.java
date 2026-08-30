@@ -49,6 +49,49 @@ public class SoundWaveformView extends View {
     private static final int COLOR_IDLE    = 0x44FFFFFF;
     private static final int COLOR_PLAYING = 0xFFFF3B5C;
 
+    /**
+     * PERF (ULTRA): per-bar animation constants, precomputed ONCE.
+     *
+     * onDraw() below used to recompute {@code durMs} and {@code targetPx}
+     * for all 36 bars on every single frame — a modulo + a multiply-add per
+     * bar per bar per tick, forever, for as long as the animation runs.
+     * Both formulas depend ONLY on the bar index {@code i}, never on the
+     * elapsed time or anything else that changes frame to frame, so
+     * there's nothing to gain from redoing that arithmetic every tick.
+     *
+     * - {@link #BAR_DUR_MS_PER_INDEX} / {@link #BAR_CYCLE_MS_PER_INDEX}: pure
+     *   functions of {@code i} — identical for every SoundWaveformView
+     *   instance in the process, so these are `static final`, computed once
+     *   per class-load, same lifetime/sharing rationale as
+     *   SoundDetailFragment's WAVEFORM_CACHE.
+     * - {@link #targetPxByIndex}: the target-height FRACTION
+     *   (0.4f + (i % 7) * 0.08f) is likewise a pure function of {@code i}
+     *   (see {@link #BAR_TARGET_FRACTION}, also static/shared) — but the
+     *   final pixel value also depends on minHPx/maxHPx, which come from
+     *   this device's display density. Density is effectively fixed for a
+     *   given View instance (it can't change frame-to-frame), so this one
+     *   is cached per-instance, lazily, the first time onDraw() runs — see
+     *   {@link #ensureTargetPxCached}.
+     */
+    private static final int[]   BAR_DUR_MS_PER_INDEX   = new int[BAR_COUNT];
+    private static final long[]  BAR_CYCLE_MS_PER_INDEX = new long[BAR_COUNT];
+    private static final float[] BAR_TARGET_FRACTION    = new float[BAR_COUNT];
+    static {
+        for (int i = 0; i < BAR_COUNT; i++) {
+            int durMs = 400 + (i % 5) * 80;
+            BAR_DUR_MS_PER_INDEX[i]   = durMs;
+            BAR_CYCLE_MS_PER_INDEX[i] = durMs * 2L;
+            BAR_TARGET_FRACTION[i]    = 0.4f + (i % 7) * 0.08f;
+        }
+    }
+
+    /** Lazily-built, per-instance cache of each bar's target height in px —
+     *  see {@link #ensureTargetPxCached} for why this can't be static like
+     *  the arrays above. */
+    private final float[] targetPxByIndex = new float[BAR_COUNT];
+    private boolean targetPxCached = false;
+    private float cachedDp = -1f; // density this cache was built for; rebuild if it ever changes
+
     private final Paint barPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF barRect  = new RectF();
     private final AccelerateDecelerateInterpolator interpolator = new AccelerateDecelerateInterpolator();
@@ -61,6 +104,28 @@ public class SoundWaveformView extends View {
 
     private boolean playing     = false;
     private boolean forceStatic = false; // true on HOT thermal — skip the animation loop
+
+    /**
+     * PERF (opt-in, ULTRA): GPU-composited hardware layer for the animation
+     * window only. OFF by default — see {@link #setHardwareLayerEnabled}.
+     *
+     * Why opt-in and not just always-on: onDraw() below recomputes ALL 36
+     * bar heights fresh every single invalidate() (that's the whole point
+     * of this view vs. the old per-bar ValueAnimators — see class doc).
+     * That means there's no unchanged content for a hardware layer to
+     * cache and reuse across frames the way it would for, say, a view
+     * that's only translating/fading — every tick still redraws every bar
+     * into the layer's backing texture. So the benefit here is narrower
+     * (mainly: draw calls happen on RenderThread instead of the UI
+     * thread), and it isn't free: a hardware layer pins a GPU-backed
+     * bitmap the size of this view for as long as it's active, and
+     * toggling layer type is itself not free. Flip this on only after a
+     * profiler run (Android Studio's GPU rendering profile / Layout
+     * Inspector / systrace) actually shows this view's onDraw() or the
+     * driver's invalidate() cadence as a jank source during playback —
+     * don't enable it speculatively.
+     */
+    private boolean hardwareLayerEnabled = false;
 
     public SoundWaveformView(Context context) { this(context, null); }
     public SoundWaveformView(Context context, AttributeSet attrs) { this(context, attrs, 0); }
@@ -116,10 +181,41 @@ public class SoundWaveformView extends View {
         refreshDriverState();
     }
 
+    /**
+     * Turn the hardware layer optimization on/off — call this from the host
+     * once (e.g. wired to a remote/debug flag or a profiler-driven build
+     * config), NOT per-frame. Safe to call any time; takes effect
+     * immediately if currently animating, otherwise on the next time
+     * animation starts. See {@link #hardwareLayerEnabled}'s doc for why
+     * this defaults to false and should only be flipped on with profiler
+     * evidence in hand.
+     */
+    public void setHardwareLayerEnabled(boolean enabled) {
+        if (this.hardwareLayerEnabled == enabled) return;
+        this.hardwareLayerEnabled = enabled;
+        applyLayerTypeForCurrentState();
+    }
+
     private void refreshDriverState() {
         boolean shouldAnimate = playing && !forceStatic;
         if (shouldAnimate) startDriver(); else stopDriver();
+        applyLayerTypeForCurrentState();
         invalidate(); // one redraw to reflect the new state even if the driver just stopped
+    }
+
+    /**
+     * Layer type only tracks the ANIMATING window, never left on while
+     * idle/static — a static waveform is drawn once and left alone (no
+     * invalidate loop), so a hardware layer buys it nothing while
+     * permanently costing the backing texture's GPU memory. Also reset to
+     * NONE on stop/detach (see stopDriver()/onDetachedFromWindow()) so
+     * backgrounding playback or leaving the screen releases it instead of
+     * holding a GPU-backed bitmap for a view that's no longer animating.
+     */
+    private void applyLayerTypeForCurrentState() {
+        boolean animateNow = playing && !forceStatic;
+        int wanted = (hardwareLayerEnabled && animateNow) ? LAYER_TYPE_HARDWARE : LAYER_TYPE_NONE;
+        if (getLayerType() != wanted) setLayerType(wanted, null);
     }
 
     private void startDriver() {
@@ -134,6 +230,12 @@ public class SoundWaveformView extends View {
 
     private void stopDriver() {
         if (driver != null) { driver.cancel(); driver = null; }
+        // Belt-and-braces: refreshDriverState() already calls
+        // applyLayerTypeForCurrentState() after this, but stopDriver() is
+        // also reached directly from onDetachedFromWindow()/release()
+        // below, which don't — so drop the layer here too rather than
+        // leaving a GPU-backed bitmap pinned on a view that just stopped.
+        if (getLayerType() != LAYER_TYPE_NONE) setLayerType(LAYER_TYPE_NONE, null);
     }
 
     /** Call from the host Fragment's onDestroyView(), same lifecycle spot the old stopWaveAnimation() was called from. */
@@ -147,6 +249,20 @@ public class SoundWaveformView extends View {
         stopDriver();
     }
 
+    /**
+     * Builds/rebuilds {@link #targetPxByIndex} from {@link #BAR_TARGET_FRACTION}
+     * and the current minHPx/maxHPx. Cheap (36 multiply-adds) and only runs
+     * once per density — a no-op fast-path check on every other call.
+     */
+    private void ensureTargetPxCached(float dp, float minHPx, float maxHPx) {
+        if (targetPxCached && dp == cachedDp) return;
+        for (int i = 0; i < BAR_COUNT; i++) {
+            targetPxByIndex[i] = minHPx + (maxHPx - minHPx) * BAR_TARGET_FRACTION[i];
+        }
+        cachedDp = dp;
+        targetPxCached = true;
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
@@ -158,6 +274,7 @@ public class SoundWaveformView extends View {
         float barWidth = Math.max(1f, slot * 0.4f); // ~4dp bar in a ~10dp slot, same proportions as the old 4dp bar / 3dp+3dp margin
         float cornerRadius = barWidth / 2f;
         float minHPx = 8 * dp, maxHPx = 38 * dp;
+        ensureTargetPxCached(dp, minHPx, maxHPx);
 
         boolean animateNow = playing && !forceStatic;
         barPaint.setColor(playing ? COLOR_PLAYING : COLOR_IDLE);
@@ -167,19 +284,22 @@ public class SoundWaveformView extends View {
         for (int i = 0; i < BAR_COUNT; i++) {
             float barHPx;
             if (animateNow) {
-                // Same per-bar duration/target formulas the old per-bar ValueAnimator used.
-                int durMs = 400 + (i % 5) * 80;
-                float targetPx = minHPx + (maxHPx - minHPx) * (0.4f + (i % 7) * 0.08f);
-                long cyclePos = elapsed % (durMs * 2L);
+                // durMs/cycleMs/targetPx are all precomputed — see the
+                // BAR_*_PER_INDEX arrays and ensureTargetPxCached() above.
+                // Only the elapsed-time-dependent part (cyclePos/frac/eased)
+                // still runs fresh every frame, since that's the one part
+                // that actually changes tick to tick.
+                long cyclePos = elapsed % BAR_CYCLE_MS_PER_INDEX[i];
+                int  durMs    = BAR_DUR_MS_PER_INDEX[i];
                 float frac = cyclePos < durMs
                         ? cyclePos / (float) durMs
                         : 1f - (cyclePos - durMs) / (float) durMs; // REVERSE ping-pong, same as ValueAnimator.REVERSE
                 float eased = interpolator.getInterpolation(frac);
-                barHPx = minHPx + (targetPx - minHPx) * eased;
+                barHPx = minHPx + (targetPxByIndex[i] - minHPx) * eased;
             } else if (playing) {
                 // HOT thermal: playing but animation loop skipped — settle at this
                 // bar's target height instead of freezing mid-swing or going idle-dim.
-                barHPx = minHPx + (maxHPx - minHPx) * (0.4f + (i % 7) * 0.08f);
+                barHPx = targetPxByIndex[i];
             } else {
                 barHPx = staticHeightDp[i] * dp;
             }

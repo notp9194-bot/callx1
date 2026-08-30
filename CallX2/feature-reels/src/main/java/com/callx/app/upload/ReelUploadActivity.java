@@ -3161,6 +3161,13 @@ public class ReelUploadActivity extends AppCompatActivity {
         reelEntry.put("thumbnailUrl", thumbUrl != null ? thumbUrl : "");
         reelEntry.put("videoUrl",     videoUrl != null ? videoUrl : "");
         reelEntry.put("ownerUid",     ownerUid != null ? ownerUid : "");
+        // PERF (Firebase read batching, ULTRA): seed viewsCount here so it's
+        // denormalized on this node from birth — SoundDetailFragment's
+        // pagination reads it straight off this same node instead of firing
+        // a separate per-reel "reels/{id}/viewsCount" read on every page
+        // load. Kept in sync on every real view by
+        // ReelSocialController#recordView and HomeFeedWatchTracker#recordView.
+        reelEntry.put("viewsCount",   0);
         soundRef.child("reels").child(reelId).setValue(reelEntry);
 
         // Bump reel_count via transaction (works whether the sound node
