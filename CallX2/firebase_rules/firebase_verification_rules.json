@@ -1,0 +1,61 @@
+{
+  "_comment": "CallX — Firebase Realtime Database Security Rules (Verification badge)",
+  "_version": "production-v1",
+  "_deploy": "firebase deploy --only database",
+  "_instructions": [
+    "1. Install Firebase CLI: npm install -g firebase-tools",
+    "2. Login: firebase login",
+    "3. Merge the 'rules' section below into your existing Firebase DB rules.",
+    "4. Deploy: firebase deploy --only database",
+    "   OR paste manually into Firebase Console → Realtime Database → Rules tab.",
+    "",
+    "SECURITY MODEL:",
+    "  • verification_requests — a top-level '.read' grants admins the",
+    "    orderByChild('status') query the :admin app runs (RTDB requires",
+    "    read permission at the exact path being queried, not just at each",
+    "    child) — .indexOn ['status'] keeps that query server-side/fast",
+    "    instead of the SDK warning + client-side filtering it'd otherwise do.",
+    "  • verification_requests/{uid} — the OWNER can create/update their own",
+    "    request (submitting a new request or editing while still pending).",
+    "    Only an admin (present under admins/{adminUid}) can set 'status' to",
+    "    'approved'/'rejected' — enforced via the .validate rule on that field.",
+    "  • admins/{uid} — read-only to everyone signed in (so a client can",
+    "    check 'am I an admin'); writes are NOT allowed from any client at",
+    "    all — an admin is added by hand via the Firebase console (or the",
+    "    Admin SDK from a trusted backend), never from the :admin app itself.",
+    "    This keeps 'who can grant verification' outside app-layer reach.",
+    "  • users/{uid}/isVerified — only an existing admin can set this to",
+    "    true/false; the owning user cannot self-verify.",
+    "",
+    "SETUP: the very first admin has no admins/{uid} entry to check against,",
+    "so it can't be created from a client per the rule above. Add the first",
+    "admin manually once, in the Firebase Console → Realtime Database →",
+    "your data → admins → +  → key: <that person's uid>, value: true."
+  ],
+  "rules": {
+    "verification_requests": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).val() === true",
+      ".indexOn": ["status"],
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).val() === true)",
+        ".write": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).val() === true)",
+        "status": {
+          ".validate": "root.child('admins').child(auth.uid).val() === true || (auth.uid === $uid && (!data.exists() || data.val() === 'pending' || data.val() === 'rejected'))"
+        }
+      }
+    },
+    "admins": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": false
+      }
+    },
+    "users": {
+      "$uid": {
+        "isVerified": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
+        }
+      }
+    }
+  }
+}

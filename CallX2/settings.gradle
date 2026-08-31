@@ -34,3 +34,11 @@ include ':feature-payments'
 // Real device pe measured baseline profile generate karta hai.
 // Run: ./gradlew :macrobenchmark:generateBaselineProfile
 include ':macrobenchmark'
+
+// ── Admin app: separate standalone app for reviewing verification-badge
+//    requests (approve/reject). Depends only on :core (shares FirebaseUtils'
+//    verification_requests/admins helpers + the ic_verified_pink asset) —
+//    not on :app or any feature-* module, so it builds/installs completely
+//    independently of the main CallX2 app. See admin/README.md for the one
+//    manual setup step (registering its own Firebase app entry).
+include ':admin'

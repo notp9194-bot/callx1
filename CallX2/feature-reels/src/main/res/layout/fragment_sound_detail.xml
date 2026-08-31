@@ -238,7 +238,10 @@
                                 android:maxLines="2" android:ellipsize="end"/>
                             <!-- Verified badge — UI only, always shown next to the
                                  title (no real verification-status logic wired up),
-                                 matching the pink checkmark badge from the screenshot. -->
+                                 matching the pink checkmark badge from the screenshot.
+                                 Sourced from core/drawable/ic_verified_pink (moved
+                                 there so other screens/modules can reuse the same
+                                 badge instead of each keeping their own copy). -->
                             <ImageView android:id="@+id/iv_sound_title_verified"
                                 android:layout_width="16dp" android:layout_height="16dp"
                                 android:layout_marginStart="4dp"

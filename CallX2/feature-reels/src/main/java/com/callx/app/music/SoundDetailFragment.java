@@ -2553,13 +2553,22 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         if (onCloseListener != null) onCloseListener.run();
     }
 
-    /** ✅ FIX Bug 1: Opens gallery; onActivityResult 701 will open editor with sound + trim. */
+    /** Opens gallery; onActivityResult 701 will open editor with sound + trim.
+     *  Bug fix: was launched via requireActivity().startActivityForResult(),
+     *  which delivers the result straight to the host Activity — since
+     *  neither SoundDetailActivity nor SoundDetailSheetFragment overrides
+     *  onActivityResult() to forward it, this Fragment's own
+     *  onActivityResult() (below, request 701) never ran, so picking a
+     *  video silently did nothing. Fixed by calling this Fragment's own
+     *  startActivityForResult() (same method REQUEST_TRIM_SOUND already
+     *  correctly uses above) so FragmentManager routes the result back
+     *  here. */
     private void openGalleryForVideo() {
         if (isGone()) return;
         Intent pick = new Intent(Intent.ACTION_PICK,
             android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI);
         pick.setType("video/*");
-        requireActivity().startActivityForResult(pick, 701);
+        startActivityForResult(pick, 701);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

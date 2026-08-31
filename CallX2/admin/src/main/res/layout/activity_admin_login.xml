@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:gravity="center"
+    android:background="#FFFFFF"
+    android:padding="32dp">
+
+    <TextView
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="CallX Admin"
+        android:textSize="26sp" android:textStyle="bold"
+        android:textColor="#212121"
+        android:layout_marginBottom="4dp"/>
+
+    <TextView
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="Verification review console"
+        android:textSize="13sp" android:textColor="#757575"
+        android:layout_marginBottom="32dp"/>
+
+    <EditText android:id="@+id/et_admin_email"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:hint="Admin email"
+        android:inputType="textEmailAddress"
+        android:autofillHints="emailAddress"
+        android:layout_marginBottom="12dp"/>
+
+    <EditText android:id="@+id/et_admin_password"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:hint="Password"
+        android:inputType="textPassword"
+        android:autofillHints="password"
+        android:layout_marginBottom="20dp"/>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_admin_login"
+        android:layout_width="match_parent" android:layout_height="52dp"
+        android:text="Log In"
+        app:cornerRadius="12dp"
+        android:backgroundTint="#4CAF50"/>
+
+    <ProgressBar android:id="@+id/progress_admin_login"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:visibility="gone"/>
+
+    <TextView android:id="@+id/tv_admin_login_error"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:textColor="#D32F2F" android:textSize="13sp"
+        android:gravity="center" android:layout_marginTop="16dp"
+        android:visibility="gone"/>
+
+</LinearLayout>

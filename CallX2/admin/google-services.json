@@ -1,0 +1,175 @@
+{
+  "project_info": {
+    "project_number": "286173223634",
+    "firebase_url": "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "sathix-97a76",
+    "storage_bucket": "sathix-97a76.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:286173223634:android:77c66dd61ac22411b16b0b",
+        "android_client_info": {
+          "package_name": "com.callx.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "286173223634-1dvfsi2lihebv8e61bd0hpot6rfrnopa.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.callx.app",
+            "certificate_hash": "82df1bb61da9458311f97e6fee5857f8a58b48a4"
+          }
+        },
+        {
+          "client_id": "286173223634-9mndallp5b5j2dbncqqlv6gub6cjmdm7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.callx.app",
+            "certificate_hash": "33a0ef226646225df945725f0139d1f938fec1d0"
+          }
+        },
+        {
+          "client_id": "286173223634-hsvoagnvpkg84bcpgfq0ralpt7h8bbiv.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.callx.app",
+            "certificate_hash": "601879e07f18cf4c218c509258d7243e9c618dbe"
+          }
+        },
+        {
+          "client_id": "286173223634-jdrjk4c6pl51qqch4b40c1m6ei2s9as9.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.callx.app",
+            "certificate_hash": "d004920357fe8c05df4f91fd85b62bfc9ec38b74"
+          }
+        },
+        {
+          "client_id": "286173223634-sptrh0qsrdotg0gg0rgiacdg55f5l5jr.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.callx.app",
+            "certificate_hash": "0d4f4405a86f3cde6efb32cef564724a2795a968"
+          }
+        },
+        {
+          "client_id": "286173223634-t5cqu7guq4hslbkvhqpnfim14hng7tg8.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.callx.app",
+            "certificate_hash": "a150d3527f9a94717091dfedfc716314aa73f7eb"
+          }
+        },
+        {
+          "client_id": "286173223634-c2obs8l08mmp09c0v988ad73n1gpt5h2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAl-UmdtYFQo5qX6QyiZnTVmC6AS2bwqR4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "286173223634-c2obs8l08mmp09c0v988ad73n1gpt5h2.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:286173223634:android:07048c23a9c7d05fb16b0b",
+        "android_client_info": {
+          "package_name": "com.callx.app.admin"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "286173223634-c2obs8l08mmp09c0v988ad73n1gpt5h2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAl-UmdtYFQo5qX6QyiZnTVmC6AS2bwqR4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "286173223634-c2obs8l08mmp09c0v988ad73n1gpt5h2.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:286173223634:android:2ca9e2eb9f77307fb16b0b",
+        "android_client_info": {
+          "package_name": "com.sathix.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "286173223634-c2obs8l08mmp09c0v988ad73n1gpt5h2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAl-UmdtYFQo5qX6QyiZnTVmC6AS2bwqR4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "286173223634-c2obs8l08mmp09c0v988ad73n1gpt5h2.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:286173223634:android:a03683ffecb96ea0b16b0b",
+        "android_client_info": {
+          "package_name": "com.sathix.app.debug"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "286173223634-c2obs8l08mmp09c0v988ad73n1gpt5h2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAl-UmdtYFQo5qX6QyiZnTVmC6AS2bwqR4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "286173223634-c2obs8l08mmp09c0v988ad73n1gpt5h2.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

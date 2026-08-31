@@ -3,6 +3,12 @@
     ic_verified_pink.xml — screenshot-matching verified badge (UI only, no
     verification logic attached).
 
+    ic_verified_pink.xml — shared verified badge (moved from feature-reels
+    into core so any screen/module can use it, e.g.
+    <ImageView android:src="@drawable/ic_verified_pink"/> — no extra
+    module dependency needed beyond the usual "implementation
+    project(':core')" every feature module already has).
+
     Reuses ic_verified's scalloped rosette path data, but unlike ic_verified
     (single #FFFFFFFF fill meant to be tinted via android:tint, which paints
     the checkmark the exact same color as the badge and makes it disappear)

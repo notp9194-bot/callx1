@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#F6F6FB"
+    android:padding="14dp"
+    android:layout_marginHorizontal="12dp" android:layout_marginTop="10dp">
+
+    <LinearLayout
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical">
+
+        <ImageView android:id="@+id/iv_request_avatar"
+            android:layout_width="44dp" android:layout_height="44dp"
+            android:scaleType="centerCrop"
+            android:src="@drawable/ic_person"/>
+
+        <LinearLayout
+            android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:orientation="vertical" android:layout_marginStart="12dp">
+            <TextView android:id="@+id/tv_request_name"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:textColor="#212121" android:textSize="15sp" android:textStyle="bold"/>
+            <TextView android:id="@+id/tv_request_uid"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:textColor="#9E9E9E" android:textSize="11sp"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView android:id="@+id/tv_request_reason"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:textColor="#424242" android:textSize="13sp"
+        android:layout_marginTop="10dp"/>
+
+    <LinearLayout
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:layout_marginTop="14dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_reject"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="0dp" android:layout_height="42dp" android:layout_weight="1"
+            android:text="Reject"
+            app:strokeColor="#D32F2F" android:textColor="#D32F2F"
+            android:layout_marginEnd="8dp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_approve"
+            android:layout_width="0dp" android:layout_height="42dp" android:layout_weight="1"
+            android:text="Approve"
+            android:backgroundTint="#4CAF50"/>
+    </LinearLayout>
+</LinearLayout>

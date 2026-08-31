@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#FFFFFF">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar_admin"
+        android:layout_width="match_parent" android:layout_height="?attr/actionBarSize"
+        android:background="#4CAF50"
+        app:titleTextColor="#FFFFFF"
+        app:title="Pending Verifications"/>
+
+    <TextView android:id="@+id/tv_empty_state"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="No pending requests"
+        android:textColor="#9E9E9E" android:textSize="14sp"
+        android:gravity="center" android:padding="32dp"
+        android:visibility="gone"/>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_verification_requests"
+        android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_weight="1"
+        android:paddingBottom="12dp"
+        android:clipToPadding="false"/>
+
+</LinearLayout>

@@ -299,6 +299,23 @@
                 android:layout_marginTop="16dp"
                 android:visibility="gone"/>
 
+            <!-- Verification — own profile only. Label/state swaps between
+                 "Request Verification" (nothing on file / rejected),
+                 "Verification Pending" (disabled, awaiting admin review),
+                 and "Verified ✓" (disabled, already approved). See
+                 ProfileActivity#setupVerificationEntryPoint(). -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_request_verification"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:text="Request Verification"
+                app:cornerRadius="14dp"
+                app:strokeColor="@color/brand_primary"
+                android:textColor="@color/brand_primary"
+                android:layout_marginTop="12dp"
+                android:visibility="gone"/>
+
             <!-- Save Button -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_save"

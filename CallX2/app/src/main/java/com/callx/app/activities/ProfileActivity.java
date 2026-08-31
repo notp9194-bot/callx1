@@ -67,6 +67,7 @@ public class ProfileActivity extends AppCompatActivity {
             binding.btnChangeAvatar.setOnClickListener(v -> imagePicker.launch("image/*"));
             binding.btnSave.setOnClickListener(v -> save());
             setupCommunityEntryPoint();
+            setupVerificationEntryPoint();
         } else {
             // Someone else's profile — read-only
             binding.btnChangeAvatar.setVisibility(View.GONE);
@@ -384,6 +385,79 @@ public class ProfileActivity extends AppCompatActivity {
                 showCreateCommunityDialog();
             }
         });
+    }
+
+    /**
+     * Verification badge request — own profile only. Reads current status
+     * from Firebase (users/{uid}/isVerified, then verification_requests/{uid}/status)
+     * and sets the button's label/enabled-state accordingly, then wires the
+     * "Request Verification" tap to a simple reason dialog that writes a
+     * pending request for an admin to review (see the :admin app module).
+     */
+    private void setupVerificationEntryPoint() {
+        binding.btnRequestVerification.setVisibility(View.VISIBLE);
+        binding.btnRequestVerification.setEnabled(false);
+        binding.btnRequestVerification.setText("Checking status…");
+
+        FirebaseUtils.getIsVerifiedRef(currentUid).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(DataSnapshot verifiedSnap) {
+                if (isFinishing() || isDestroyed()) return;
+                boolean isVerified = Boolean.TRUE.equals(verifiedSnap.getValue(Boolean.class));
+                if (isVerified) {
+                    binding.btnRequestVerification.setText("Verified ✓");
+                    binding.btnRequestVerification.setEnabled(false);
+                    return;
+                }
+                FirebaseUtils.getVerificationRequestRef(currentUid).child("status")
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override public void onDataChange(DataSnapshot statusSnap) {
+                            if (isFinishing() || isDestroyed()) return;
+                            String status = statusSnap.getValue(String.class);
+                            if (FirebaseUtils.STATUS_PENDING.equals(status)) {
+                                binding.btnRequestVerification.setText("Verification Pending");
+                                binding.btnRequestVerification.setEnabled(false);
+                            } else {
+                                // null (never requested) or "rejected" — either way, allow (re-)requesting.
+                                binding.btnRequestVerification.setText("Request Verification");
+                                binding.btnRequestVerification.setEnabled(true);
+                                binding.btnRequestVerification.setOnClickListener(v -> showRequestVerificationDialog());
+                            }
+                        }
+                        @Override public void onCancelled(DatabaseError error) { }
+                    });
+            }
+            @Override public void onCancelled(DatabaseError error) { }
+        });
+    }
+
+    private void showRequestVerificationDialog() {
+        android.widget.EditText etReason = new android.widget.EditText(this);
+        etReason.setHint("Why should this account be verified?");
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        etReason.setPadding(pad, pad, pad, pad);
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Request Verification")
+            .setView(etReason)
+            .setPositiveButton("Submit", (d, w) -> {
+                String reason = etReason.getText().toString().trim();
+                java.util.Map<String, Object> req = new HashMap<>();
+                req.put("uid", currentUid);
+                req.put("name", binding.etName.getText().toString().trim());
+                req.put("photoUrl", currentPhoto);
+                req.put("reason", reason);
+                req.put("status", FirebaseUtils.STATUS_PENDING);
+                req.put("submittedAt", ServerValue.TIMESTAMP);
+                FirebaseUtils.getVerificationRequestRef(currentUid).setValue(req)
+                    .addOnSuccessListener(unused -> {
+                        Toast.makeText(this, "Request submitted", Toast.LENGTH_SHORT).show();
+                        binding.btnRequestVerification.setText("Verification Pending");
+                        binding.btnRequestVerification.setEnabled(false);
+                    })
+                    .addOnFailureListener(e -> Toast.makeText(this, "Failed: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
     }
 
     private void showCreateCommunityDialog() {

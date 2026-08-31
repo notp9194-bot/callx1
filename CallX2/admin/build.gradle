@@ -1,0 +1,77 @@
+plugins {
+    id 'com.android.application'
+    id 'com.google.gms.google-services'
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  CallX Admin — standalone app for reviewing verification-badge requests
+// ══════════════════════════════════════════════════════════════════════
+// Separate installable app (own applicationId, own launcher icon) so it
+// can sit on a moderator's device without also carrying the full CallX2
+// app. Talks to the SAME Firebase project as the main app (same RTDB/
+// storage bucket) — only the auth account + admins/{uid} allowlist entry
+// decide who can act, not which app is installed.
+//
+// ONE MANUAL SETUP STEP (can't be done from code — needs Firebase console
+// access): this module ships with a PLACEHOLDER google-services.json
+// copied from :app, which will fail to build against applicationId
+// "com.callx.app.admin" (google-services validates the applicationId
+// against the package names registered inside that file). To fix:
+//   1. Firebase Console → your project → ⚙ Project settings → Add app → Android
+//   2. Package name: com.callx.app.admin
+//   3. Download the generated google-services.json
+//   4. Replace admin/google-services.json with the downloaded file
+// See admin/README.md for the full walkthrough, including adding the
+// first admin uid (also a manual, console-only step by design — see
+// firebase_rules/firebase_verification_rules.json's SETUP note).
+android {
+    namespace 'com.callx.app.admin'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.callx.app.admin"
+        minSdk 23
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+        vectorDrawables.useSupportLibrary = true
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+            debuggable true
+        }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles(
+                getDefaultProguardFile('proguard-android-optimize.txt'),
+                'proguard-rules.pro'
+            )
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        viewBinding true
+    }
+}
+
+dependencies {
+    // :core gives us FirebaseUtils (verification_requests / admins / isVerified
+    // helpers added alongside this feature) + the ic_verified_pink asset, and
+    // pulls in Firebase BOM + Glide (via its own `api` deps) transitively —
+    // no separate applicationId/version wiring needed here.
+    implementation project(':core')
+
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+}
