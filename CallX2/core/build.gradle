@@ -52,9 +52,14 @@ dependencies {
     // deceleration + slight bounce instead of a flat linear tween.
     implementation 'androidx.dynamicanimation:dynamicanimation:1.0.0'
 
-    implementation platform('com.google.firebase:firebase-bom:32.7.0')
-    implementation 'com.google.firebase:firebase-auth'
-    implementation 'com.google.firebase:firebase-database'
+    api platform('com.google.firebase:firebase-bom:32.7.0')
+    // api (not implementation): FirebaseUtils in :core wraps these, but
+    // consumers like :admin (AdminLoginActivity, AdminVerificationListActivity)
+    // reference com.google.firebase.auth.* / com.google.firebase.database.*
+    // classes directly, not just through FirebaseUtils, so they must be on
+    // the compile classpath of any module depending on :core.
+    api 'com.google.firebase:firebase-auth'
+    api 'com.google.firebase:firebase-database'
     implementation 'com.google.firebase:firebase-messaging'
 
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
