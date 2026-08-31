@@ -85,6 +85,9 @@ public class ReelDuetController {
         i.putExtra(DuetReelActivity.EXTRA_DURATION_SEC,     reel.duration / 1000);
         i.putExtra(DuetReelActivity.EXTRA_ALLOW_DUET_LEVEL, duetLevel);
         i.putExtra(DuetReelActivity.EXTRA_VIEWER_FOLLOWS,   delegate.isFollowing());
+        i.putExtra(DuetReelActivity.EXTRA_CAPTION,          reel.caption);
+        i.putExtra(DuetReelActivity.EXTRA_SOUND_NAME,       reel.musicName);
+        i.putExtra(DuetReelActivity.EXTRA_VERIFIED,         reel.isVerified);
         if (reel.thumbUrl != null) i.putExtra("duet_reel_thumb", reel.thumbUrl);
         try {
             String cachedPath = com.callx.app.cache.ReelCacheManager.extractCachedVideoToFile(

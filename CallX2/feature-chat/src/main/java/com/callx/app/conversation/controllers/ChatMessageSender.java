@@ -130,6 +130,23 @@ public class ChatMessageSender {
                         // invalidating again here rebuilt the visible page.
                         delegate.updateMessageStatus(key, "sent");
                     });
+
+                    // ULTRA-OPT (local optimistic tick prediction): the real
+                    // delivered tick only lands once the recipient's device
+                    // has received the push AND written the ack back to
+                    // Firebase AND our listener has heard about it — a full
+                    // round trip. If we already know from presence (see
+                    // ChatActivity#partnerOnlineCached, kept warm by a single
+                    // chat-lifetime listener) that the partner is online right
+                    // now, show the delivered tick immediately instead of
+                    // waiting on that round trip. This is UI-only — nothing
+                    // is written to Firebase here — so the live per-message
+                    // status listener stays attached and remains the sole
+                    // source of truth for the eventual "read" tick, and for
+                    // correcting this guess if it turns out to be wrong.
+                    if (Boolean.TRUE.equals(delegate.isPartnerOnlineCached())) {
+                        delegate.markOptimisticDelivered(key);
+                    }
                 })
                 .addOnFailureListener(e -> {
                     // Firebase rejected — stays pending, retry on reconnect

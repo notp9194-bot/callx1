@@ -261,17 +261,24 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // app session ran. Fix: keep the actual Query instances these listeners
     // were attached to, and remove from THOSE in onDestroy.
     private Query               messageQuery;
-    private Query               statusQuery;
-    // TICK FIX: dedicated status-sync listener — see attachFirebaseListener()
-    // doc comment below for why this is needed alongside messageListener.
-    private ChildEventListener statusSyncListener;
-    // How many of the most-recent messages stay "live" for delivered/read
-    // tick updates. Wider than INITIAL_LOAD on purpose: INITIAL_LOAD is only
-    // the first-open page size, but a message can sit around a while before
-    // the partner's "delivered"/"read" write lands, so this window needs
-    // enough headroom that a normal back-and-forth conversation still has
-    // its ticks tracked live.
-    private static final int STATUS_SYNC_WINDOW = 100;
+    // TICK FIX v2 (per-message ack, WhatsApp-style): tick sync used to be a
+    // second ChildEventListener on messagesRef.orderByChild("timestamp")
+    // .limitToLast(STATUS_SYNC_WINDOW) — but a Firebase ChildEventListener
+    // fires onChildAdded for EVERY child already inside its window the
+    // instant it's attached, and that callback only fires after the SDK has
+    // already downloaded that child's full node over the network. So every
+    // single chat re-open re-downloaded the full data (text/mediaUrl/
+    // captions/ciphertext) of the last 100 messages, even though onChildAdded
+    // itself was a no-op that threw the data away — real bandwidth spent on
+    // fully-synced messages the client already had. WhatsApp doesn't do
+    // "resubscribe to last N and replay them" — it acks per-message. Fix:
+    // don't watch a time window at all. Watch only the messages that can
+    // still change — our own outgoing messages not yet 'read' — with one
+    // lightweight node listener per pending message (messagesRef.child(id)).
+    // That listener is removed the moment the message reaches 'read', so the
+    // live set self-shrinks to exactly what's still in flight (usually zero
+    // or a handful), never a fixed 100-message re-fetch.
+    private final java.util.Map<String, ValueEventListener> pendingStatusListeners = new java.util.HashMap<>();
 
     // ── PERF FIX: write-coalescing buffer for Firebase → Room sync ─────────
     // Root cause of the "chat opens with 3-4s delay + up/down jump" bug:
@@ -670,6 +677,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // messages queue mein buffer hote hain (pendingUpserts map mein).
         // Jab DB ready hoga tab flush hoga — sab ek saath render hoga.
         startRealtimeListenerEarly();
+        // ULTRA-OPT (presence-aware throttling): one lightweight listener
+        // for the whole chat lifetime — see field doc above.
+        attachPartnerPresenceListener();
 
         // Presence: toolbar mein online/typing dikhane ke liye turant chahiye
         presenceController.init();
@@ -1087,6 +1097,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (screenshotNotifier != null) screenshotNotifier.onScreenPaused();
         if (liveTypingController != null) liveTypingController.clearOurPreview();
         typingHandler.removeCallbacks(stopTypingRunnable);
+        // ULTRA-OPT (WorkManager background sync): the in-Activity per-message
+        // status listeners (pendingStatusListeners) are about to get torn
+        // down in onDestroy(), so anything still "sent"/"delivered" right now
+        // stops being tracked the instant this screen goes away. Hand off
+        // whatever's still pending to a short-lived background Worker so a
+        // read receipt that lands a few seconds after we leave doesn't sit
+        // unsynced until the next reopen. Only worth enqueuing if there's
+        // actually something in flight.
+        if (!pendingStatusListeners.isEmpty() && currentUid != null) {
+            com.callx.app.conversation.workers.ChatStatusSyncWorker.enqueue(
+                    getApplicationContext(), chatId, currentUid);
+        }
         // Feature 1: auto-close view-once dialog when app goes to background
         if (activeViewOnceDialog != null && activeViewOnceDialog.isShowing()) {
             activeViewOnceDialog.dismiss(); // triggers onDismissListener → doCleanupAndDelete
@@ -1139,8 +1161,28 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // never matched and left these running forever across reopens.
         if (messageQuery != null && messageListener != null)
             messageQuery.removeEventListener(messageListener);
-        if (statusQuery != null && statusSyncListener != null)
-            statusQuery.removeEventListener(statusSyncListener);
+        // ULTRA-OPT (debounced detach): cancel any queued debounce-detach
+        // runnables so they don't fire on this Handler after destroy — we're
+        // about to remove every listener directly below anyway.
+        statusDetachHandler.removeCallbacksAndMessages(null);
+        pendingDetachRunnables.clear();
+        // TICK FIX v2: detach every still-pending per-message status listener
+        // (see pendingStatusListeners field doc) — each was attached to its
+        // own messagesRef.child(id), not to messageQuery, so they need their
+        // own removeEventListener calls or they'd leak the same way the old
+        // blanket statusQuery listener did.
+        if (messagesRef != null && !pendingStatusListeners.isEmpty()) {
+            for (java.util.Map.Entry<String, ValueEventListener> e : pendingStatusListeners.entrySet()) {
+                messagesRef.child(e.getKey()).removeEventListener(e.getValue());
+            }
+        }
+        pendingStatusListeners.clear();
+        // ULTRA-OPT: tear down the presence listener + any ids still
+        // waiting on it, and drop the optimistic-tick bookkeeping — all
+        // scoped to this Activity instance.
+        detachPartnerPresenceListener();
+        deferredStatusIds.clear();
+        optimisticStatusFloor.clear();
 
         // PERF FIX: flush any buffered Firebase→Room writes immediately
         // instead of losing them if the debounce window hadn't fired yet.
@@ -2862,6 +2904,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     decryptIncomingIfNeeded(m);
                     runOnUiThread(() -> {
                         saveToRoom(m, false);
+                        // TICK FIX v2: this is where our own just-sent message
+                        // (or one that arrived via delta sync on chat reopen)
+                        // first becomes known to this Activity with its real
+                        // Firebase key. If it's ours and not read yet, start
+                        // tracking it now instead of waiting for the next
+                        // syncPendingStatusListeners() pass — see
+                        // pendingStatusListeners field doc.
+                        if (m.senderId != null && m.senderId.equals(currentUid) && !"read".equals(m.status)) {
+                            attachPendingStatusListener(m.id);
+                        }
                         // PERF FIX v25: no longer fires MessageStatusSync.upgradeStatus()
                         // (an individual Firebase runTransaction() + synchronous
                         // SharedPreferences/PendingAckQueue write) per incoming message
@@ -2890,7 +2942,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // Same off-main-thread decrypt fix as onChildAdded above.
                 e2eeDecryptExecutor.execute(() -> {
                     decryptIncomingIfNeeded(m);
-                    runOnUiThread(() -> saveToRoom(m, true));
+                    runOnUiThread(() -> {
+                        saveToRoom(m, true);
+                        if (m.senderId != null && m.senderId.equals(currentUid) && !"read".equals(m.status)) {
+                            attachPendingStatusListener(m.id);
+                        } else if ("read".equals(m.status)) {
+                            scheduleStatusListenerDetach(m.id);
+                        }
+                    });
                 });
             }
             @Override public void onChildRemoved(DataSnapshot snapshot) {
@@ -2902,71 +2961,317 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 pendingUpserts.remove(key);
                 pendingRemovals.add(key);
                 scheduleWriteFlush();
+                detachPendingStatusListener(key);
             }
             @Override public void onChildMoved(DataSnapshot s, String p) {}
             @Override public void onCancelled(DatabaseError error) {}
         };
         query.addChildEventListener(messageListener);
 
-        // ── TICK FIX ─────────────────────────────────────────────────────
-        // BUG: messageListener above is attached to a DELTA query —
-        // startAfter(lastTs) on every reopen after the first. A brand-new
-        // Firebase Query only reports onChildChanged for children that are
+        // ── TICK FIX v2 (per-message ack) ───────────────────────────────
+        // BUG this replaces: messageListener above is attached to a DELTA
+        // query — startAfter(lastTs) on every reopen after the first. A
+        // brand-new Firebase Query only reports onChildChanged for children
         // INSIDE its own filtered result set; a message whose timestamp is
         // <= lastTs was never part of this query's window, so once the
-        // sender leaves the chat and comes back later, Firebase never
-        // tells this listener about a "sent" -> "delivered" -> "read"
-        // update that happens on that already-synced message. Net effect:
-        // ticks silently freeze at "sent" (one grey tick) forever, because
-        // nothing is watching that message for changes any more — exactly
-        // what was reported ("only the sent single tick ever shows").
+        // sender leaves the chat and comes back later, Firebase never tells
+        // this listener about a "sent" -> "delivered" -> "read" update on
+        // that already-synced message. Net effect without SOME fix here:
+        // ticks silently freeze at "sent" forever.
         //
-        // FIX: a second, small ChildEventListener scoped to the last
-        // STATUS_SYNC_WINDOW messages (by timestamp), same as the very
-        // first page load would be. Its onChildAdded is a no-op — new/
-        // already-loaded messages are fully handled by messageListener and
-        // the initial Room cache, so we don't want to double-process them
-        // here. Its onChildChanged reuses the exact same saveToRoom() path,
-        // which upserts the FULL message row via Room REPLACE — cheap,
-        // since PagingDataAdapter's DiffUtil.ItemCallback already detects
-        // "only status changed" and returns PAYLOAD_STATUS (see
-        // MessagePagingAdapter), so the UI does a draw-only tick update
-        // instead of a full rebind. No effect on scroll/paging performance:
-        // this listener never touches the Pager, only the messages table.
-        statusQuery = messagesRef.orderByChild("timestamp").limitToLast(STATUS_SYNC_WINDOW);
-        statusSyncListener = new ChildEventListener() {
-            @Override public void onChildAdded(DataSnapshot snapshot, String prev) {
-                // Handled by messageListener / initial Room load — ignore here.
+        // The previous fix for that (limitToLast(STATUS_SYNC_WINDOW) + a
+        // second ChildEventListener) re-introduced a worse bug: attaching a
+        // ChildEventListener to a limitToLast window makes Firebase replay
+        // onChildAdded — with the FULL node payload already downloaded —
+        // for every child in that window, every single time the chat is
+        // opened, even though the handler discarded it. That's a real
+        // re-fetch of up to 100 messages' full data on every chat open.
+        //
+        // FIX: don't watch a window at all. Pull the ids of our own
+        // outgoing messages that haven't reached 'read' yet from Room (an
+        // on-device query, zero network cost) and attach ONE lightweight
+        // messagesRef.child(id) listener per pending message — exactly the
+        // per-message ack model WhatsApp uses. Each listener detaches itself
+        // the moment that message reaches 'read', so the live set is always
+        // just "whatever's still in flight", not a fixed re-synced window.
+        syncPendingStatusListeners();
+    }
+
+    // ULTRA-OPT: above this count, skip straight to a persistent listener per
+    // pending message and instead resolve current status via parallel
+    // one-time reads first (see batchFetchAndAttach doc below) — a large
+    // "sent"/"delivered" backlog (broadcast reply burst, coming back online
+    // after a while) would otherwise open that many simultaneous sockets at
+    // once for no reason: most of them are usually already 'read' by the
+    // time we check.
+    private static final int BATCH_STATUS_THRESHOLD = 10;
+    // ULTRA-OPT: debounce before actually detaching a listener once a
+    // message reaches 'read'. A read receipt can flicker (delivered write
+    // lands, then read write lands a moment later) — tearing the listener
+    // down and never re-attaching it is fine either way since 'read' is
+    // terminal, but this debounce avoids listener churn (attach/detach
+    // thrash) if saveToRoom/UI processing races the two writes.
+    private static final long STATUS_DETACH_DEBOUNCE_MS = 2500;
+    private final android.os.Handler statusDetachHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final java.util.Map<String, Runnable> pendingDetachRunnables = new java.util.HashMap<>();
+
+    // ── ULTRA-OPT (presence-aware throttling) ───────────────────────────────
+    // If the partner is offline there is nobody on the other end to flip
+    // sent -> delivered -> read, so opening a live messagesRef.child(id)
+    // socket for every pending message the instant they're sent is wasted —
+    // it'll just sit there doing nothing until the partner's device comes
+    // back online. Instead we track a single lightweight presence listener
+    // on users/{partnerUid}/online and defer attaching per-message listeners
+    // while offline; the moment presence flips to online we replay the
+    // deferred ids in one go. Anything that resolves without us watching
+    // (partner came online + read while this listener happened to be
+    // mid-flip) is still caught by the next syncPendingStatusListeners()
+    // pass on resume or by a live onChildChanged from messageListener.
+    private Boolean partnerOnlineCached = null;
+    private ValueEventListener partnerPresenceListener;
+    private final java.util.LinkedHashSet<String> deferredStatusIds = new java.util.LinkedHashSet<>();
+
+    /** Ordinal rank so optimistic UI never regresses on a stale echo — mirrors MessageStatusSync#rank(). */
+    private static int statusRank(String status) {
+        if (status == null) return -1;
+        switch (status) {
+            case "pending":   return 0;
+            case "sent":      return 1;
+            case "delivered": return 2;
+            case "read":
+            case "seen":      return 3;
+            default:          return -1;
+        }
+    }
+
+    // ── ULTRA-OPT (local optimistic tick prediction) ────────────────────────
+    // messageId -> rank of the status we've already shown optimistically
+    // (see markOptimisticDelivered / ChatMessageSender). Firebase's own
+    // status writes are monotonic (MessageStatusSync uses a transaction), but
+    // the *read* that reaches our listener can still momentarily reflect a
+    // status older than what we've already predicted (e.g. we guessed
+    // "delivered" the instant the push succeeded; the listener's very next
+    // callback can still be carrying the pre-ack "sent" snapshot). Comparing
+    // against this floor lets us ignore that stale echo instead of flickering
+    // the tick backwards, while still accepting anything that's caught up or
+    // moved further (delivered confirmed, or read).
+    private final java.util.Map<String, Integer> optimisticStatusFloor = new java.util.HashMap<>();
+
+    @Override
+    public Boolean isPartnerOnlineCached() { return partnerOnlineCached; }
+
+    @Override
+    public void markOptimisticDelivered(String messageId) {
+        if (messageId == null) return;
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            runOnUiThread(() -> markOptimisticDelivered(messageId));
+            return;
+        }
+        // Never downgrade — if we already know it's read (or already marked
+        // delivered), don't stomp a newer floor with an older one.
+        Integer existing = optimisticStatusFloor.get(messageId);
+        int deliveredRank = statusRank("delivered");
+        if (existing != null && existing >= deliveredRank) return;
+        optimisticStatusFloor.put(messageId, deliveredRank);
+        updateMessageStatus(messageId, "delivered");
+    }
+
+    /** Attaches the single, chat-lifetime presence listener used for throttling above. */
+    private void attachPartnerPresenceListener() {
+        if (partnerUid == null || partnerUid.isEmpty() || partnerPresenceListener != null) return;
+        partnerPresenceListener = new ValueEventListener() {
+            @Override public void onDataChange(DataSnapshot snapshot) {
+                boolean wasOffline = Boolean.FALSE.equals(partnerOnlineCached);
+                Boolean online = snapshot.getValue(Boolean.class);
+                partnerOnlineCached = Boolean.TRUE.equals(online);
+                if (partnerOnlineCached && wasOffline && !deferredStatusIds.isEmpty()) {
+                    java.util.List<String> ids = new java.util.ArrayList<>(deferredStatusIds);
+                    deferredStatusIds.clear();
+                    for (String id : ids) attachPendingStatusListener(id);
+                }
             }
-            @Override public void onChildChanged(DataSnapshot snapshot, String prev) {
+            @Override public void onCancelled(DatabaseError error) { /* keep last known value */ }
+        };
+        FirebaseUtils.getUserRef(partnerUid).child("online").addValueEventListener(partnerPresenceListener);
+    }
+
+    private void detachPartnerPresenceListener() {
+        if (partnerUid != null && !partnerUid.isEmpty() && partnerPresenceListener != null) {
+            FirebaseUtils.getUserRef(partnerUid).child("online").removeEventListener(partnerPresenceListener);
+        }
+        partnerPresenceListener = null;
+    }
+
+    /**
+     * TICK FIX v2: reads Room for our own outgoing messages in this chat
+     * that aren't 'read' yet, and makes sure each one has a live
+     * messagesRef.child(id) listener attached. Safe to call repeatedly —
+     * attachPendingStatusListener() no-ops for ids already tracked.
+     * ULTRA-OPT: routes through a one-time batched fetch first when the
+     * backlog is large (see BATCH_STATUS_THRESHOLD).
+     */
+    private void syncPendingStatusListeners() {
+        if (messagesRef == null || currentUid == null) return;
+        safeIoExecute(() -> {
+            if (db == null) return;
+            java.util.List<String> ids = db.messageDao().getPendingOutgoingMessageIds(chatId, currentUid);
+            if (ids.isEmpty()) return;
+            runOnUiThread(() -> {
+                java.util.List<String> notYetTracked = new java.util.ArrayList<>();
+                for (String id : ids) {
+                    if (!pendingStatusListeners.containsKey(id)) notYetTracked.add(id);
+                }
+                if (notYetTracked.isEmpty()) return;
+                if (notYetTracked.size() > BATCH_STATUS_THRESHOLD) {
+                    batchFetchAndAttach(notYetTracked);
+                } else {
+                    for (String id : notYetTracked) attachPendingStatusListener(id);
+                }
+            });
+        });
+    }
+
+    /**
+     * ULTRA-OPT (batch listener attach): resolves current status for a large
+     * pending backlog via parallel ONE-TIME reads (DatabaseReference#get())
+     * instead of opening a persistent ValueEventListener per message up
+     * front. Messages that come back already 'read' never get a live
+     * listener at all — only the ones still genuinely in flight after this
+     * batch resolves do. This is the client-side version of "one batched
+     * status-fetch, then tick-only listeners"; a real deployment could swap
+     * the parallel get() calls below for a single Cloud Function/REST call
+     * that does the multi-path read server-side, but the attach pattern
+     * (resolve first, listen only to what's still pending) is identical.
+     */
+    private void batchFetchAndAttach(java.util.List<String> ids) {
+        java.util.List<com.google.android.gms.tasks.Task<DataSnapshot>> tasks = new java.util.ArrayList<>(ids.size());
+        for (String id : ids) tasks.add(messagesRef.child(id).get());
+        com.google.android.gms.tasks.Tasks.whenAllComplete(tasks).addOnCompleteListener(ignored -> {
+            for (int i = 0; i < ids.size(); i++) {
+                String id = ids.get(i);
+                com.google.android.gms.tasks.Task<DataSnapshot> t = tasks.get(i);
+                if (!t.isSuccessful() || t.getResult() == null) {
+                    // Couldn't resolve in the batch — fall back to a live listener.
+                    attachPendingStatusListener(id);
+                    continue;
+                }
+                DataSnapshot snapshot = t.getResult();
                 Message m = snapshot.getValue(Message.class);
-                if (m == null) return;
+                if (m == null) continue;
                 m.id = snapshot.getKey();
-                // E2EE FIX: this listener fires on ANY field change within the
-                // status-sync window — including pure tick updates (sent ->
-                // delivered -> read) on messages that were already decrypted
-                // and shown as plaintext. snapshot.getValue() always reflects
-                // what's stored on Firebase, which for an E2E message is
-                // ALWAYS ciphertext ("e2r1:{...}") — text itself never
-                // changes, only status/deliveredAt/readAt do. Without
-                // decrypting here, saveToRoom()'s REPLACE overwrote the
-                // already-decrypted plaintext row with raw ciphertext on
-                // every single tick update, which is exactly what showed up
-                // as raw "e2r1:" JSON in the chat bubbles.
-                // Same off-main-thread decrypt fix as messageListener above —
-                // this listener fires just as often (every tick update) and
-                // was paying the same synchronous crypto+disk cost on the UI
-                // thread.
                 e2eeDecryptExecutor.execute(() -> {
                     decryptIncomingIfNeeded(m);
-                    runOnUiThread(() -> saveToRoom(m, true));
+                    runOnUiThread(() -> {
+                        saveToRoom(m, true);
+                        // Only messages still not 'read' after this batch
+                        // resolve get a persistent listener — this is where
+                        // the real listener-count savings come from.
+                        if (!"read".equals(m.status)) attachPendingStatusListener(id);
+                    });
                 });
             }
-            @Override public void onChildRemoved(DataSnapshot snapshot) {}
-            @Override public void onChildMoved(DataSnapshot s, String p) {}
-            @Override public void onCancelled(DatabaseError error) {}
+        });
+    }
+
+    /**
+     * Attaches a single-node listener for one pending outgoing message so we
+     * hear its next status change (sent -> delivered -> read) without
+     * re-subscribing to any wider window. No-ops if already tracked. Detach
+     * is debounced once the message reaches 'read' (see
+     * STATUS_DETACH_DEBOUNCE_MS) so the live-listener set stays close to
+     * "still in flight" without thrashing on rapid delivered->read flicker.
+     */
+    private void attachPendingStatusListener(String messageId) {
+        if (messageId == null || pendingStatusListeners.containsKey(messageId)) return;
+        // ULTRA-OPT (presence-aware throttling): partner offline → nothing
+        // will change server-side until they come back, so don't open a
+        // socket for it yet. Queue it and let attachPartnerPresenceListener()
+        // replay it the moment presence flips to online.
+        if (Boolean.FALSE.equals(partnerOnlineCached)) {
+            deferredStatusIds.add(messageId);
+            return;
+        }
+        DatabaseReference ref = messagesRef.child(messageId);
+        ValueEventListener listener = new ValueEventListener() {
+            @Override public void onDataChange(DataSnapshot snapshot) {
+                Message m = snapshot.getValue(Message.class);
+                if (m == null) {
+                    detachPendingStatusListenerImmediate(messageId);
+                    return;
+                }
+                m.id = snapshot.getKey();
+                // ULTRA-OPT (local optimistic tick prediction): if we've
+                // already predicted a further-along status for this id (see
+                // markOptimisticDelivered), ignore a snapshot that's still
+                // behind that prediction instead of flickering the tick back
+                // — but keep the listener alive so the real confirmation
+                // (or the eventual "read") still comes through.
+                Integer floor = optimisticStatusFloor.get(messageId);
+                if (floor != null) {
+                    if (statusRank(m.status) < floor) return;
+                    optimisticStatusFloor.remove(messageId); // caught up — reconciled
+                }
+                // Same off-main-thread decrypt fix as messageListener above:
+                // a tick update on an E2E message still carries ciphertext
+                // in the raw snapshot (only status/deliveredAt/readAt
+                // actually changed), so this must decrypt before it reaches
+                // saveToRoom()'s Room REPLACE or it'll clobber the already-
+                // decrypted plaintext row with raw "e2r1:" ciphertext.
+                e2eeDecryptExecutor.execute(() -> {
+                    decryptIncomingIfNeeded(m);
+                    runOnUiThread(() -> {
+                        saveToRoom(m, true);
+                        if ("read".equals(m.status)) {
+                            scheduleStatusListenerDetach(messageId);
+                        } else {
+                            // Status moved away from 'read' (shouldn't
+                            // normally happen — read is terminal — but if a
+                            // detach was queued from a stale event, cancel it).
+                            cancelScheduledDetach(messageId);
+                        }
+                    });
+                });
+            }
+            @Override public void onCancelled(DatabaseError error) {
+                detachPendingStatusListenerImmediate(messageId);
+            }
         };
-        statusQuery.addChildEventListener(statusSyncListener);
+        pendingStatusListeners.put(messageId, listener);
+        ref.addValueEventListener(listener);
+    }
+
+    /** ULTRA-OPT: debounced detach — see STATUS_DETACH_DEBOUNCE_MS doc. */
+    private void scheduleStatusListenerDetach(String messageId) {
+        cancelScheduledDetach(messageId);
+        Runnable r = () -> {
+            pendingDetachRunnables.remove(messageId);
+            detachPendingStatusListenerImmediate(messageId);
+        };
+        pendingDetachRunnables.put(messageId, r);
+        statusDetachHandler.postDelayed(r, STATUS_DETACH_DEBOUNCE_MS);
+    }
+
+    private void cancelScheduledDetach(String messageId) {
+        Runnable r = pendingDetachRunnables.remove(messageId);
+        if (r != null) statusDetachHandler.removeCallbacks(r);
+    }
+
+    /** Immediate removal — used for cancel/removed/null cases and by the debounce runnable itself. */
+    private void detachPendingStatusListenerImmediate(String messageId) {
+        cancelScheduledDetach(messageId);
+        ValueEventListener listener = pendingStatusListeners.remove(messageId);
+        if (listener != null && messagesRef != null) {
+            messagesRef.child(messageId).removeEventListener(listener);
+        }
+        deferredStatusIds.remove(messageId);
+        optimisticStatusFloor.remove(messageId);
+    }
+
+    // Kept as the external-facing name used by messageListener's onChildAdded/
+    // onChildChanged/onChildRemoved above — routes through the debounce for
+    // the 'read' case, immediate for deletion/cancellation.
+    private void detachPendingStatusListener(String messageId) {
+        detachPendingStatusListenerImmediate(messageId);
     }
 
     /**

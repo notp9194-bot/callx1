@@ -265,6 +265,28 @@ public interface MessageDao {
     @Query("SELECT * FROM messages WHERE chatId = :chatId AND senderId = :partnerUid AND (status IS NULL OR status != 'read') ORDER BY timestamp ASC")
     List<MessageEntity> getUnreadMessages(String chatId, String partnerUid);
 
+    /**
+     * TICK FIX v2 (per-message ack, WhatsApp style): ids of OUR OWN outgoing
+     * messages in this chat that haven't reached 'read' yet — i.e. exactly
+     * the set of messages whose delivered/read ticks could still change.
+     * Used to attach one targeted node listener per pending message instead
+     * of a blanket limitToLast(N) window that re-downloads N messages' full
+     * data on every listener attach. Deliberately excludes 'pending' (not
+     * even sent to Firebase yet — nothing to listen to there).
+     */
+    @WorkerThread
+    @Query("SELECT id FROM messages WHERE chatId = :chatId AND senderId = :myUid AND status IN ('sent','delivered') ORDER BY timestamp ASC")
+    List<String> getPendingOutgoingMessageIds(String chatId, String myUid);
+
+    /**
+     * WorkManager background status sync (ChatStatusSyncWorker): ticks-only
+     * partial update — never touches text/media/caption columns, so it's
+     * safe to call without going through the E2EE decrypt/plaintext-restore
+     * path the live in-Activity listeners use.
+     */
+    @Query("UPDATE messages SET status = :status, deliveredAt = :deliveredAt, readAt = :readAt WHERE id = :messageId")
+    void updateStatusTicks(String messageId, String status, Long deliveredAt, Long readAt);
+
     @WorkerThread
 
     // ── Feature 13: View Once ─────────────────────────────────────────────

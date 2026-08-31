@@ -26,6 +26,8 @@
         ".read": "auth != null && $chatId.contains(auth.uid)",
         ".write": "auth != null && $chatId.contains(auth.uid)",
         "messages": {
+          "_comment": "COMPOSITE INDEX (multi-device sync): .indexOn status/timestamp so orderByChild('status').equalTo('sent'|'delivered') and orderByChild('timestamp') queries run server-side instead of falling back to an unindexed full-node download-and-filter on every device. Needed for the future multi-device per-status sync path (ChatStatusSyncWorker/batchFetchAndAttach today only query by id via get(); an equalTo('sent') style query becomes viable with this in place).",
+          ".indexOn": ["status", "timestamp"],
           "$msgId": {
             ".validate": "newData.hasChildren(['senderId','timestamp']) && newData.child('timestamp').val() <= now + 5000",
             "senderId": {
@@ -106,6 +108,89 @@
           "$uid": {
             ".write": "auth != null && $chatId.contains(auth.uid)",
             ".validate": "newData.isNumber() && newData.val() >= 0"
+          }
+        }
+      }
+    },
+    "messages": {
+      "_comment": "PATH FIX: FirebaseUtils.getMessagesRef(chatId) = db().getReference('messages').child(chatId) — the app actually reads/writes messages at this TOP-LEVEL 'messages/{chatId}/{msgId}' path, not under 'chats/{chatId}/messages' above (that nested block is kept for reference/legacy but isn't what ChatActivity/messagesRef points at). Rules + the status/timestamp index need to live here for equalTo()/orderByChild() queries against the real path to actually work.",
+      "$chatId": {
+        ".read": "auth != null && $chatId.contains(auth.uid)",
+        ".write": "auth != null && $chatId.contains(auth.uid)",
+        ".indexOn": ["status", "timestamp"],
+        "$msgId": {
+          ".validate": "newData.hasChildren(['senderId','timestamp']) && newData.child('timestamp').val() <= now + 5000",
+          "senderId": {
+            ".validate": "newData.val() === auth.uid"
+          },
+          "timestamp": {
+            ".validate": "newData.isNumber() && newData.val() <= now + 5000"
+          },
+          "text": {
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 20000)"
+          },
+          "type": {
+            ".validate": "newData.isString() && newData.val().length <= 50"
+          },
+          "mediaUrl": {
+            ".validate": "!newData.exists() || newData.isString()"
+          },
+          "thumbnailUrl": {
+            ".validate": "!newData.exists() || newData.isString()"
+          },
+          "fileName": {
+            ".validate": "!newData.exists() || newData.isString()"
+          },
+          "fileSize": {
+            ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0)"
+          },
+          "duration": {
+            ".validate": "!newData.exists() || newData.isNumber()"
+          },
+          "status": {
+            ".write": "auth != null && $chatId.contains(auth.uid)",
+            ".validate": "newData.isString() && (newData.val() === 'sent' || newData.val() === 'delivered' || newData.val() === 'read')"
+          },
+          "deliveredAt": {
+            ".validate": "!newData.exists() || newData.isNumber()"
+          },
+          "readAt": {
+            ".validate": "!newData.exists() || newData.isNumber()"
+          },
+          "reactions": {
+            "$uid": {
+              ".write": "auth != null && auth.uid === $uid",
+              ".validate": "newData.isString() && newData.val().length <= 10"
+            }
+          },
+          "deleted": {
+            ".validate": "!newData.exists() || newData.isBoolean()"
+          },
+          "edited": {
+            ".validate": "!newData.exists() || newData.isBoolean()"
+          },
+          "starred": {
+            ".write": "auth != null && $chatId.contains(auth.uid)",
+            ".validate": "!newData.exists() || newData.isBoolean()"
+          },
+          "pinned": {
+            ".write": "auth != null && $chatId.contains(auth.uid)",
+            ".validate": "!newData.exists() || newData.isBoolean()"
+          },
+          "replyToId": {
+            ".validate": "!newData.exists() || newData.isString()"
+          },
+          "replyToText": {
+            ".validate": "!newData.exists() || newData.isString()"
+          },
+          "replyToSenderName": {
+            ".validate": "!newData.exists() || newData.isString()"
+          },
+          "replyToType": {
+            ".validate": "!newData.exists() || newData.isString()"
+          },
+          "forwardedFrom": {
+            ".validate": "!newData.exists() || newData.isString()"
           }
         }
       }

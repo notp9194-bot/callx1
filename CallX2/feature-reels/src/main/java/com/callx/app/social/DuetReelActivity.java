@@ -90,6 +90,9 @@ public class DuetReelActivity extends AppCompatActivity {
     public static final String EXTRA_VIEWER_FOLLOWS    = "viewer_follows";
     public static final String EXTRA_CACHED_VIDEO_PATH = "cached_video_path";
     public static final String EXTRA_DUET_ROOT_ID      = "duet_root_id";
+    public static final String EXTRA_CAPTION           = "duet_caption";
+    public static final String EXTRA_SOUND_NAME        = "duet_sound_name";
+    public static final String EXTRA_VERIFIED          = "duet_owner_verified";
 
     private static final int MAX_DUET_SEC   = 60;
     private static final int REQ_PERMISSIONS = 101;
@@ -118,6 +121,22 @@ public class DuetReelActivity extends AppCompatActivity {
     private ImageButton        btnLayoutPip;
     private ImageButton        btnLayoutReactionBubble;
     private FrameLayout        bubbleOverlay;
+
+    // ── New screenshot-style chrome (v221) ──────────────────────────────────────
+    private View        btnAddSound;
+    private TextView    tvAddSoundLabel;
+    private TextView    tvDuetCaption;
+    private TextView    tvDuetSound;
+    private ImageView   ivDuetVerified;
+    private ImageButton btnToolLayout;
+    private ImageButton btnToolBeauty;
+    private View        viewBeautyBadge;
+    private ImageButton btnToolTimer;
+    private TextView    tvTimerBadge;
+    private ImageButton btnBottomEffects;
+    private ImageButton btnBottomUpload;
+    private boolean      beautyEnabled        = false;
+    private int          preRecordCountdownSec = 3;
 
     // Layout modes
     private static final int LAYOUT_SIDE_BY_SIDE    = 0;
@@ -384,6 +403,91 @@ public class DuetReelActivity extends AppCompatActivity {
         if (btnViewDuets != null) {
             btnViewDuets.setOnClickListener(v -> openDuetsOfReel());
         }
+
+        setupScreenshotStyleChrome();
+    }
+
+    /**
+     * v221 — wires the new TikTok-style chrome: caption overlay (username, caption,
+     * sound line), the "Add sound" pill, and the right-side Flip/Layout/Beauty/
+     * Filters/Timer column. All existing functionality (layout modes, live filters,
+     * text/sticker overlays) is preserved — this only adds new entry points to it.
+     */
+    private void setupScreenshotStyleChrome() {
+        boolean verified   = getIntent().getBooleanExtra(EXTRA_VERIFIED, false);
+        String  captionTxt = getIntent().getStringExtra(EXTRA_CAPTION);
+        String  soundTxt   = getIntent().getStringExtra(EXTRA_SOUND_NAME);
+
+        if (ivDuetVerified != null) ivDuetVerified.setVisibility(verified ? View.VISIBLE : View.GONE);
+
+        if (tvDuetCaption != null) {
+            if (captionTxt != null && !captionTxt.trim().isEmpty()) {
+                tvDuetCaption.setText(captionTxt);
+                tvDuetCaption.setVisibility(View.VISIBLE);
+            } else {
+                tvDuetCaption.setVisibility(View.GONE);
+            }
+        }
+
+        if (tvDuetSound != null) {
+            String who = ownerName.isEmpty() ? "" : ownerName;
+            if (soundTxt != null && !soundTxt.trim().isEmpty()) {
+                tvDuetSound.setText(soundTxt);
+            } else if (!who.isEmpty()) {
+                tvDuetSound.setText("original sound - " + who);
+            } else {
+                tvDuetSound.setText("original sound");
+            }
+        }
+
+        if (tvAddSoundLabel != null && soundTxt != null && !soundTxt.trim().isEmpty()) {
+            tvAddSoundLabel.setText(soundTxt);
+        }
+        if (btnAddSound != null) {
+            btnAddSound.setOnClickListener(v -> {
+                String label = (tvAddSoundLabel != null) ? tvAddSoundLabel.getText().toString() : "sound";
+                Toast.makeText(this, "Using " + label + " for this duet", Toast.LENGTH_SHORT).show();
+            });
+        }
+
+        if (btnToolLayout != null) {
+            btnToolLayout.setOnClickListener(v -> {
+                if (layoutSelector == null) return;
+                layoutSelector.setVisibility(
+                    layoutSelector.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+            });
+        }
+
+        if (btnToolBeauty != null) {
+            btnToolBeauty.setOnClickListener(v -> toggleBeauty());
+        }
+
+        if (btnToolTimer != null) {
+            btnToolTimer.setOnClickListener(v -> cycleTimerDuration());
+        }
+
+        if (btnBottomEffects != null) {
+            btnBottomEffects.setOnClickListener(v -> openStickerPicker());
+        }
+        if (btnBottomUpload != null) {
+            btnBottomUpload.setOnClickListener(v ->
+                Toast.makeText(this, "Upload from gallery coming soon", Toast.LENGTH_SHORT).show());
+        }
+    }
+
+    /** Toggles a subtle brighten/soften beauty look on top of the currently selected live filter. */
+    private void toggleBeauty() {
+        beautyEnabled = !beautyEnabled;
+        if (viewBeautyBadge != null) viewBeautyBadge.setVisibility(beautyEnabled ? View.VISIBLE : View.GONE);
+        applyLiveFilter(currentFilterIndex);
+    }
+
+    /** Cycles the pre-record countdown between 3s / 5s / 10s, matching the Timer tool. */
+    private void cycleTimerDuration() {
+        if (preRecordCountdownSec == 3)      preRecordCountdownSec = 5;
+        else if (preRecordCountdownSec == 5) preRecordCountdownSec = 10;
+        else                                 preRecordCountdownSec = 3;
+        if (tvTimerBadge != null) tvTimerBadge.setText(preRecordCountdownSec + "s");
     }
 
     private void bindViews() {
@@ -416,6 +520,20 @@ public class DuetReelActivity extends AppCompatActivity {
         filterStripPanel      = findViewById(R.id.panel_filter_strip);
         filterChipContainer   = findViewById(R.id.container_filter_chips);
         tvActiveFilterName    = findViewById(R.id.tv_active_filter_name);
+
+        // v221 — screenshot-style chrome
+        btnAddSound      = findViewById(R.id.btn_duet_add_sound);
+        tvAddSoundLabel  = findViewById(R.id.tv_add_sound_label);
+        tvDuetCaption    = findViewById(R.id.tv_duet_caption);
+        tvDuetSound      = findViewById(R.id.tv_duet_sound);
+        ivDuetVerified   = findViewById(R.id.iv_duet_verified);
+        btnToolLayout    = findViewById(R.id.btn_tool_layout);
+        btnToolBeauty    = findViewById(R.id.btn_tool_beauty);
+        viewBeautyBadge  = findViewById(R.id.view_beauty_badge);
+        btnToolTimer     = findViewById(R.id.btn_tool_timer);
+        tvTimerBadge     = findViewById(R.id.tv_timer_badge);
+        btnBottomEffects = findViewById(R.id.btn_bottom_effects);
+        btnBottomUpload  = findViewById(R.id.btn_bottom_upload);
 
         if (tvCountdown != null) tvCountdown.setVisibility(View.GONE);
     }
@@ -575,16 +693,29 @@ public class DuetReelActivity extends AppCompatActivity {
             }
         }
 
-        if (idx == 0) {
+        if (idx == 0 && !beautyEnabled) {
             // Normal — remove any active layer type so hardware composition is standard
             frameCameraContainer.setLayerType(View.LAYER_TYPE_NONE, null);
             return;
         }
 
-        ColorMatrix cm = buildFilterColorMatrix(idx);
+        ColorMatrix cm = (idx == 0) ? new ColorMatrix() : buildFilterColorMatrix(idx);
+        if (beautyEnabled) cm.postConcat(buildBeautyMatrix());
         Paint filterPaint = new Paint();
         filterPaint.setColorFilter(new ColorMatrixColorFilter(cm));
         frameCameraContainer.setLayerType(View.LAYER_TYPE_HARDWARE, filterPaint);
+    }
+
+    /** Subtle brighten + soften + warm-tint matrix used for the "Beauty" toggle. */
+    private ColorMatrix buildBeautyMatrix() {
+        float c = 0.94f, b = 12f;
+        float t = (1f - c) / 2f * 255f + b;
+        return new ColorMatrix(new float[]{
+            c, 0, 0, 0, t + 4,
+            0, c, 0, 0, t + 2,
+            0, 0, c, 0, t,
+            0, 0, 0, 1, 0
+        });
     }
 
     /**
@@ -1586,7 +1717,7 @@ public class DuetReelActivity extends AppCompatActivity {
         try {
             cameraProvider.bindToLifecycle(this, selector, preview, videoCapture);
             // Re-apply live filter after camera rebind (flip camera case)
-            if (currentFilterIndex > 0) applyLiveFilter(currentFilterIndex);
+            if (currentFilterIndex > 0 || beautyEnabled) applyLiveFilter(currentFilterIndex);
         } catch (Exception e) {
             Log.e(TAG, "bindCameraUseCases failed: " + e.getMessage());
             Toast.makeText(this, "Cannot bind camera", Toast.LENGTH_SHORT).show();
@@ -1621,10 +1752,10 @@ public class DuetReelActivity extends AppCompatActivity {
         if (layoutSelector != null) layoutSelector.setVisibility(View.GONE);
 
         tvCountdown.setVisibility(View.VISIBLE);
-        tvCountdown.setText("3");
+        tvCountdown.setText(String.valueOf(preRecordCountdownSec));
 
-        new CountDownTimer(3200, 1000) {
-            int count = 3;
+        new CountDownTimer((preRecordCountdownSec * 1000) + 200, 1000) {
+            int count = preRecordCountdownSec;
             @Override public void onTick(long ms) {
                 tvCountdown.setText(String.valueOf(count--));
                 tvCountdown.animate().scaleX(1.4f).scaleY(1.4f).setDuration(200)

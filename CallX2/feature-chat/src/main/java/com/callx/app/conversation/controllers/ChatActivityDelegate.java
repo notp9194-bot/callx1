@@ -137,4 +137,10 @@ public interface ChatActivityDelegate extends ChatSearchController.SearchDelegat
      * source. This keeps the local pending -> sent transition payload-only.
      */
     default void updateMessageStatus(String messageId, String status) {}
+
+    // ── ULTRA-OPT: presence-aware throttling + local optimistic tick ───────
+    /** Cached users/{partnerUid}/online value — null if not resolved yet, else true/false. */
+    default Boolean isPartnerOnlineCached() { return null; }
+    /** Predicts the "delivered" tick immediately (UI-only) when we already know the partner is online. */
+    default void markOptimisticDelivered(String messageId) {}
 }
