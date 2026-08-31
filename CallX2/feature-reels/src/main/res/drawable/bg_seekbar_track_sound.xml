@@ -8,13 +8,20 @@
     thin 3dp line. Fixed by wrapping each shape in an <inset> with generous
     top/bottom insets, which DOES constrain the drawn height regardless of
     the SeekBar's own height.
+
+    v319 fix: the track's idle/background color was @color/sound_detail_box_tint —
+    the EXACT same color as the waveform card's own background
+    (bg_sound_detail_box uses the same token), so the unfilled part of the
+    track was completely invisible (same color drawn on same color). Now
+    uses @color/gray_light, which has real contrast against the card in
+    both light and dark mode.
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:id="@android:id/background">
         <inset android:insetTop="7dp" android:insetBottom="7dp">
             <shape android:shape="rectangle">
                 <corners android:radius="1.5dp"/>
-                <solid android:color="@color/sound_detail_box_tint"/>
+                <solid android:color="@color/gray_light"/>
             </shape>
         </inset>
     </item>
