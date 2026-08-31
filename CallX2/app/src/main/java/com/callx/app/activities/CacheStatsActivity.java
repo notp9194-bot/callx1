@@ -15,6 +15,7 @@ import androidx.appcompat.widget.Toolbar;
 
 import com.callx.app.R;
 import com.callx.app.cache.CacheAnalytics;
+import com.callx.app.cache.CacheDashboardStats;
 import com.callx.app.cache.CacheManager;
 import com.callx.app.cache.DiskCache;
 import com.callx.app.cache.MemoryCache;
@@ -186,6 +187,7 @@ public class CacheStatsActivity extends AppCompatActivity {
                         CacheManager cm = CacheManager.getInstance(getApplicationContext());
                         cm.clearMemoryCache();
                         cm.clearDiskCache();
+                        MediaCache.clearAll(getApplicationContext());
                         AppDatabase.getInstance(getApplicationContext())
                             .messageDao().deleteAll();
                         saveClearTs();
@@ -214,16 +216,28 @@ public class CacheStatsActivity extends AppCompatActivity {
                 DiskCache      disk      = cm.getDiskCache();
                 CacheAnalytics analytics = cm.getAnalytics();
                 AppDatabase    db        = cm.getDatabase();
+                CacheDashboardStats dashboardStats =
+                        CacheDashboardStats.getInstance(getApplicationContext());
+                dashboardStats.observeAppMemoryCounters(mem.hitCount(), mem.missCount());
+                CacheDashboardStats.Snapshot dashboard = dashboardStats.snapshot();
+                CacheDashboardStats.GlideMemorySnapshot glideMemory =
+                        CacheDashboardStats.getGlideMemorySnapshot(getApplicationContext());
 
                 // Memory
-                long memHits   = mem.hitCount();
-                long memMisses = mem.missCount();
-                long memUsed   = estimateMemoryUsedBytes(mem);
-                long memMax    = Runtime.getRuntime().maxMemory() / 8;
+                long memHits   = dashboard.memoryHits;
+                long memMisses = dashboard.memoryMisses;
+                long memUsed   = glideMemory.usedBytes;
+                long memMax    = glideMemory.maxBytes;
 
                 // Disk
-                long diskUsed = disk.getCacheSizeBytes();
-                long diskMax  = disk.getMaxSizeBytes();
+                long glideDiskUsed = CacheDashboardStats.getGlideDiskCacheSizeBytes(
+                        getApplicationContext());
+                long chatAvatarDiskUsed = CacheDashboardStats.getChatAvatarDiskCacheSizeBytes(
+                        getApplicationContext());
+                long diskUsed = disk.getCacheSizeBytes() + glideDiskUsed + chatAvatarDiskUsed;
+                long diskMax  = disk.getMaxSizeBytes()
+                        + CacheDashboardStats.getGlideDiskMaxSizeBytes()
+                        + CacheDashboardStats.getChatAvatarDiskCacheMaxSizeBytes();
 
                 // Media Cache (audio/video/files)
                 Log.d(TAG, "Loading media cache stats...");
@@ -264,6 +278,8 @@ public class CacheStatsActivity extends AppCompatActivity {
                 final long fMemMax    = memMax;
                 final long fDiskUsed  = diskUsed;
                 final long fDiskMax   = diskMax;
+                final long fDiskHits  = dashboard.diskHits;
+                final long fDiskMisses = dashboard.diskMisses;
                 final long fMediaUsed = mediaUsed;
                 final long fMsgCount  = msgCount;
                 final long fUserCount = userCount;
@@ -274,7 +290,7 @@ public class CacheStatsActivity extends AppCompatActivity {
                     updateUI(fMemHits, fMemMisses, fMemUsed, fMemMax,
                              fDiskUsed, fDiskMax, fMediaUsed,
                              fMsgCount, fUserCount, fChatCount,
-                             topChatNames, lastClearedTs);
+                             topChatNames, lastClearedTs, fDiskHits, fDiskMisses);
                 });
             } catch (Exception e) {
                 Log.e(TAG, "loadStats error: " + e.getMessage(), e);
@@ -289,13 +305,14 @@ public class CacheStatsActivity extends AppCompatActivity {
     private void updateUI(long memHits, long memMisses, long memUsed, long memMax,
                           long diskUsed, long diskMax, long mediaUsed,
                           long msgCount, long userCount, long chatCount,
-                          List<String> topChatNames, long lastClearedTs) {
+                           List<String> topChatNames, long lastClearedTs,
+                           long diskHits, long diskMisses) {
 
         DecimalFormat df  = new DecimalFormat("#,###");
         DecimalFormat pct = new DecimalFormat("##.#");
 
         // ── System status ─────────────────────────────────────────
-        tvCacheEnabled.setText("✓ 4-Tier Cache Active (Memory + Disk + Media + DB)");
+        tvCacheEnabled.setText("✓ Persistent stats active · Exact Glide RAM usage");
         tvCacheEnabled.setTextColor(getColor(R.color.brand_primary));
         tvEncryptedStatus.setText("✓ SQLCipher AES-256 Encrypted");
         tvEncryptedStatus.setTextColor(getColor(R.color.brand_primary));
@@ -315,8 +332,10 @@ public class CacheStatsActivity extends AppCompatActivity {
         tvDiskMax.setText(fmtSize(diskMax));
         int diskPct = diskMax > 0 ? (int) Math.min(100, (diskUsed * 100 / diskMax)) : 0;
         pbDisk.setProgress(diskPct);
-        tvDiskHitRate.setText(diskPct + "% used");
-        tvDiskHitRate.setTextColor(diskPct < 80
+        long diskTotal = diskHits + diskMisses;
+        double diskHitRate = diskTotal > 0 ? (double) diskHits / diskTotal : 0.0;
+        tvDiskHitRate.setText(pct.format(diskHitRate * 100) + "% hits · " + diskPct + "% used");
+        tvDiskHitRate.setTextColor(diskHitRate >= 0.7
             ? getColor(R.color.brand_primary) : getColor(R.color.action_danger));
 
         // ── Media Cache ────────────────────────────────────────────
@@ -330,10 +349,15 @@ public class CacheStatsActivity extends AppCompatActivity {
         tvDbChats.setText(df.format(chatCount) + " chats");
 
         // ── Overall analytics ─────────────────────────────────────
-        tvTotalHits.setText(df.format(memHits));
-        tvTotalMisses.setText(df.format(memMisses));
-        tvOverallHitRate.setText(pct.format(memHitRate * 100) + "%");
-        tvOverallHitRate.setTextColor(hitRateColor(memHitRate));
+        long overallHits = memHits + diskHits;
+        long overallMisses = memMisses + diskMisses;
+        long overallTotal = overallHits + overallMisses;
+        double overallHitRate = overallTotal > 0
+                ? (double) overallHits / overallTotal : 0.0;
+        tvTotalHits.setText(df.format(overallHits));
+        tvTotalMisses.setText(df.format(overallMisses));
+        tvOverallHitRate.setText(pct.format(overallHitRate * 100) + "%");
+        tvOverallHitRate.setTextColor(hitRateColor(overallHitRate));
 
         // ── Auto-eviction ─────────────────────────────────────────
         tvAutoEvictStatus.setText("✓ Active (LRU + TTL + Priority + onTrimMemory)");
@@ -374,14 +398,6 @@ public class CacheStatsActivity extends AppCompatActivity {
     // ──────────────────────────────────────────────────────────────
     // Helpers
     // ──────────────────────────────────────────────────────────────
-
-    private long estimateMemoryUsedBytes(MemoryCache mem) {
-        // FIX: Use actual item count from LruCache instead of hit/miss estimate.
-        // Old formula was wrong — it returned 0 when hits=0 (fresh app open),
-        // even if items were in cache. Now: each item estimated ~512 bytes avg.
-        int items = mem.size(); // actual live item count in LruCache
-        return (long) items * 512L;
-    }
 
     private void confirmAction(String title, String msg, Runnable action) {
         com.callx.app.utils.AlertDialogStyler.showReusableConfirm(this,

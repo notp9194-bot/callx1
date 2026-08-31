@@ -1,6 +1,8 @@
 package com.callx.app.cache;
 
 import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import androidx.annotation.WorkerThread;
@@ -8,6 +10,7 @@ import androidx.annotation.WorkerThread;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.db.entity.UserEntity;
+import com.bumptech.glide.Glide;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -54,15 +57,17 @@ public class CacheManager {
     private final DiskCache      mDisk;
     private final CacheAnalytics mAnalytics;
     private final AppDatabase    mDb;
+    private final Context        mContext;
 
     // Bounded executor — prevents OOM from unbounded queue (fixed in v10)
     private final ThreadPoolExecutor mExecutor;
 
     private CacheManager(Context ctx) {
+        mContext  = ctx.getApplicationContext();
         mMemory    = MemoryCache.getInstance();
-        mDisk      = DiskCache.getInstance(ctx);
-        mAnalytics = CacheAnalytics.getInstance(ctx);
-        mDb        = AppDatabase.getInstance(ctx);
+        mDisk      = DiskCache.getInstance(mContext);
+        mAnalytics = CacheAnalytics.getInstance(mContext);
+        mDb        = AppDatabase.getInstance(mContext);
 
         mExecutor  = new ThreadPoolExecutor(
                 2, 3,
@@ -237,6 +242,15 @@ public class CacheManager {
 
     public void clearMemoryCache() {
         mMemory.evictAll();
+        CacheDashboardStats.getInstance(mContext).clearMemory();
+        // Chat images, avatars, wallpapers, GIFs and stickers are primarily
+        // served by Glide's own in-process resource cache.
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            Glide.get(mContext).clearMemory();
+        } else {
+            new Handler(Looper.getMainLooper())
+                    .post(() -> Glide.get(mContext).clearMemory());
+        }
         Log.d(TAG, "Memory cache cleared");
     }
 
@@ -247,6 +261,10 @@ public class CacheManager {
                 File[] files = dir.listFiles();
                 if (files != null) for (File f : files) f.delete();
             }
+            // Keep the dashboard's clear action honest: custom DiskCache and
+            // Glide's InternalCacheDiskCacheFactory are separate directories.
+            Glide.get(mContext).clearDiskCache();
+            CacheDashboardStats.getInstance(mContext).clearDisk();
             Log.d(TAG, "Disk cache cleared");
         });
     }

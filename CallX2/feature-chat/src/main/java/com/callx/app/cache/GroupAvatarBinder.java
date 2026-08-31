@@ -78,6 +78,9 @@ public final class GroupAvatarBinder {
         Bitmap l2Hit = ChatAvatarL2Cache.get(ctx).get(url);
         if (l2Hit != null) {
             iv.setImageBitmap(l2Hit);
+            CacheDashboardStats dashboard = CacheDashboardStats.getInstance(ctx);
+            dashboard.recordMemoryHit("group_avatar:" + url);
+            dashboard.recordMemoryEntry("group_avatar:" + url, l2Hit.getByteCount());
             AvatarCacheAnalytics.getInstance(ctx).record(AvatarCacheAnalytics.Tier.L2_MEMORY);
             return;
         }
@@ -92,11 +95,15 @@ public final class GroupAvatarBinder {
             .listener(new RequestListener<Drawable>() {
                 @Override
                 public boolean onLoadFailed(GlideException e, Object model, Target<Drawable> target, boolean isFirstResource) {
+                    CacheDashboardStats.getInstance(ctx).recordMemoryMiss("group_avatar:" + url);
+                    CacheDashboardStats.getInstance(ctx).recordDiskMiss("group_avatar:" + url);
                     return false;
                 }
                 @Override
                 public boolean onResourceReady(Drawable resource, Object model, Target<Drawable> target,
                                                 com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
+                    CacheDashboardStats.getInstance(ctx)
+                            .recordGlideResult("group_avatar:" + url, dataSource, resource);
                     AvatarCacheAnalytics.getInstance(ctx)
                         .record(AvatarCacheAnalytics.fromGlideDataSource(dataSource));
                     if (resource instanceof BitmapDrawable) {

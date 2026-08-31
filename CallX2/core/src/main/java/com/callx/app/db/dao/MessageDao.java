@@ -63,6 +63,12 @@ public interface MessageDao {
     @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp ASC LIMIT :limit OFFSET :offset")
     List<MessageEntity> getMessagesPaged(String chatId, int limit, int offset);
 
+    /** Topic/thread messages — local-first group topic chat window. */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND topicId = :topicId " +
+           "ORDER BY timestamp ASC, id ASC LIMIT :limit")
+    List<MessageEntity> getTopicMessages(String chatId, String topicId, int limit);
+
     /** Export Chat feature: full synchronous fetch of every message in a chat, oldest first. */
     @WorkerThread
     @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY timestamp ASC")

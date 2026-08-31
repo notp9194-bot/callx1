@@ -1957,6 +1957,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (headerAvatar != null && !headerAvatar.isEmpty()) {
             Glide.with(this).load(headerAvatar).placeholder(R.drawable.ic_person).circleCrop()
                     .override(96, 96)
+                    .listener(com.callx.app.cache.CacheDashboardStats.glideListener(
+                            this, "chat_header_avatar:" + headerAvatar))
                     .into(binding.ivPartnerAvatar);
         } else {
             FirebaseUtils.getUserRef(partnerUid).addListenerForSingleValueEvent(new ValueEventListener() {
@@ -1969,7 +1971,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         if (thumb != null) partnerThumb = thumb;
                         Glide.with(ChatActivity.this).load(url).placeholder(R.drawable.ic_person)
                                 .override(96, 96)
-                                .circleCrop().into(binding.ivPartnerAvatar);
+                                .circleCrop()
+                                .listener(com.callx.app.cache.CacheDashboardStats.glideListener(
+                                        ChatActivity.this, "chat_header_avatar:" + url))
+                                .into(binding.ivPartnerAvatar);
                     }
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {}
@@ -3643,49 +3648,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     private MessageEntity modelToEntity(Message m) {
-        MessageEntity e = new MessageEntity();
-        e.id = m.id != null ? m.id : ""; e.chatId = chatId; e.senderId = m.senderId;
-        e.senderName = m.senderName; e.senderPhoto = m.senderPhoto; e.text = m.text;
-        e.type = m.type != null ? m.type : "text"; e.mediaUrl = m.mediaUrl != null ? m.mediaUrl : m.imageUrl;
-        e.thumbnailUrl = m.thumbnailUrl; e.fileName = m.fileName; e.fileSize = m.fileSize;
-        e.duration = m.duration; e.timestamp = m.timestamp; e.status = m.status;
-        e.deliveredAt = m.deliveredAt; e.readAt = m.readAt;
-        e.replyToId = m.replyToId; e.replyToText = m.replyToText;
-        e.replyToSenderName = m.replyToSenderName; e.replyToType = m.replyToType;
-        e.replyToMediaUrl = m.replyToMediaUrl; e.edited = m.edited; e.editedAt = m.editedAt; e.deleted = m.deleted;
-        e.editHistoryJson = com.callx.app.utils.EditHistoryJsonUtil.historyToJson(m.editHistory);
-        e.forwardedFrom = m.forwardedFrom; e.starred = Boolean.TRUE.equals(m.starred);
-        e.reactionsJson = com.callx.app.utils.ReactionJsonUtil.reactionsToJson(m.reactions);
-        e.pinned = Boolean.TRUE.equals(m.pinned); e.reelId = m.reelId;
-        e.reelOwnerUid = m.reelOwnerUid;
-        e.statusOwnerUid = m.statusOwnerUid; e.statusOwnerName = m.statusOwnerName;
-        e.statusThumbUrl = m.statusThumbUrl;
-        e.reelThumbUrl = m.reelThumbUrl; e.fontStyle = m.fontStyle; e.expiresAt = m.expiresAt;
-        e.viewOnce = m.viewOnce; e.viewOnceState = m.viewOnceState; e.openedAt = m.openedAt; e.viewOnceExpiresAt = m.viewOnceExpiresAt;
-        e.pollQuestion    = m.pollQuestion;
-        e.pollOptionsJson = com.callx.app.utils.PollJsonUtil.optionsToJson(m.pollOptions);
-        e.pollVotesJson   = com.callx.app.utils.PollJsonUtil.votesToJson(m.pollVotes);
-        e.pollAnonymous   = m.pollAnonymous;
-        e.pollClosed      = m.pollClosed;
-        e.pollMultiChoice = m.pollMultiChoice;
-        e.reelShareUrl        = m.reelShareUrl;
-        e.reelShareThumb      = m.reelShareThumb;
-        e.reelShareCaption    = m.reelShareCaption;
-        e.reelShareUsername   = m.reelShareUsername;
-        e.reelShareOwnerPhoto = m.reelShareOwnerPhoto;
-        e.mediaItemsJson = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems);
-        e.caption        = m.caption;
-        e.contactName = m.contactName; e.contactPhone = m.contactPhone;
-        e.contactPhone2 = m.contactPhone2; e.contactPhotoUrl = m.contactPhotoUrl;
-        e.locationLat = m.locationLat; e.locationLng = m.locationLng; e.locationAddress = m.locationAddress;
-        e.broadcast = m.broadcast;
-        // BUG FIX (v43): see AppDatabase.MIGRATION_42_43 — these previously
-        // had no Room column and were silently dropped on every round-trip.
-        e.mediaWidth = m.mediaWidth; e.mediaHeight = m.mediaHeight;
-        // BUG FIX (v44): blurHash — see AppDatabase.MIGRATION_43_44.
-        e.blurHash = m.blurHash;
-        e.syncedAt = System.currentTimeMillis();
-        return e;
+        return com.callx.app.utils.MessageEntityMapper.fromModel(m, chatId);
     }
 
     // ─────────────────────────────────────────────────────────────────────

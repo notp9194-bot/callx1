@@ -73,6 +73,8 @@ public class ChatThemeController {
                     .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                     .centerCrop()
                     .override(720, 720)
+                    .listener(com.callx.app.cache.CacheDashboardStats.glideListener(
+                            delegate.getActivity(), "wallpaper:" + value))
                     .into(ivWall);
         }
     }

@@ -1503,6 +1503,7 @@ public class GroupChatActivity extends AppCompatActivity
         m.messageId         = e.id;
         m.senderId          = e.senderId;
         m.senderName        = e.senderName;
+        m.senderPhoto       = e.senderPhoto;
         m.text              = e.text;
         m.type              = e.type;
         m.mediaUrl          = e.mediaUrl;
@@ -1513,18 +1514,26 @@ public class GroupChatActivity extends AppCompatActivity
         m.duration          = e.duration;
         m.timestamp         = e.timestamp;
         m.status            = e.status;
+        m.deliveredAt       = e.deliveredAt;
+        m.readAt            = e.readAt;
         m.deliveredBy       = com.callx.app.utils.GroupReceiptJsonUtil.receiptsFromJson(e.groupDeliveredByJson);
         m.readBy            = com.callx.app.utils.GroupReceiptJsonUtil.receiptsFromJson(e.groupReadByJson);
         m.replyToId         = e.replyToId;
         m.replyToText       = e.replyToText;
         m.replyToSenderName = e.replyToSenderName;
+        m.replyToType       = e.replyToType;
+        m.replyToMediaUrl   = e.replyToMediaUrl;
         m.edited            = e.edited;
         m.editedAt          = e.editedAt;
         m.editHistory       = com.callx.app.utils.EditHistoryJsonUtil.historyFromJson(e.editHistoryJson);
         m.deleted           = e.deleted;
+        m.isAnonymous       = Boolean.TRUE.equals(e.isAnonymous);
+        m.broadcast         = e.broadcast;
         m.forwardedFrom     = e.forwardedFrom;
         m.starred           = e.starred;
         m.pinned            = e.pinned;
+        m.reactions         = com.callx.app.utils.ReactionJsonUtil.reactionsFromJson(e.reactionsJson);
+        m.isGroup           = true;
         m.fontStyle         = e.fontStyle;  // FIX: typing style — Room se load hone par preserve karo
         m.expiresAt         = e.expiresAt;  // Disappearing messages
         m.pollQuestion      = e.pollQuestion;
@@ -1547,6 +1556,19 @@ public class GroupChatActivity extends AppCompatActivity
         // adapter's localPendingMedia check works for group-chat uploads too.
         // See MessageEntityMapper.toModel() for the full explanation.
         m.mediaLocalPath = e.mediaLocalPath;
+        m.mediaResourceType = e.mediaResourceType;
+        m.viewOnce = e.viewOnce;
+        m.viewOnceState = e.viewOnceState;
+        m.openedAt = e.openedAt;
+        m.viewOnceExpiresAt = e.viewOnceExpiresAt;
+        m.mediaKeyEnc = e.mediaKeyEnc;
+        m.voiceUrl = e.voiceUrl;
+        m.voiceDuration = e.voiceDuration;
+        m.mediaWidth = e.mediaWidth;
+        m.mediaHeight = e.mediaHeight;
+        m.blurHash = e.blurHash;
+        m.topicId = e.topicId;
+        m.topicName = e.topicName;
         // PERF: same background StaticLayout precompute as 1:1 ChatActivity
         // — see MessageBubbleCanvasView's cache javadoc. Safe no-op for
         // anything not a plain, non-deleted text message.
@@ -1585,6 +1607,7 @@ public class GroupChatActivity extends AppCompatActivity
         e.chatId                = groupId;
         e.senderId              = m.senderId;
         e.senderName            = m.senderName;
+        e.senderPhoto           = m.senderPhoto;
         e.text                  = m.text;
         e.type                  = m.type != null ? m.type : "text";
         e.mediaUrl              = m.mediaUrl != null ? m.mediaUrl : m.imageUrl;
@@ -1594,22 +1617,40 @@ public class GroupChatActivity extends AppCompatActivity
         e.duration              = m.duration;
         e.timestamp             = m.timestamp;
         e.status                = m.status;
+        e.deliveredAt           = m.deliveredAt;
+        e.readAt                = m.readAt;
         e.groupDeliveredByJson   = com.callx.app.utils.GroupReceiptJsonUtil.receiptsToJson(m.deliveredBy);
         e.groupReadByJson        = com.callx.app.utils.GroupReceiptJsonUtil.receiptsToJson(m.readBy);
         e.replyToId             = m.replyToId;
         e.replyToText           = m.replyToText;
         e.replyToSenderName     = m.replyToSenderName;
+        e.replyToType           = m.replyToType;
+        e.replyToMediaUrl       = m.replyToMediaUrl;
         e.edited                = m.edited;
         e.editedAt              = m.editedAt;
         e.editHistoryJson       = com.callx.app.utils.EditHistoryJsonUtil.historyToJson(m.editHistory);
         e.deleted               = m.deleted;
+        e.isAnonymous           = m.isAnonymous;
+        e.broadcast             = m.broadcast;
         e.forwardedFrom         = m.forwardedFrom;
         e.starred               = Boolean.TRUE.equals(m.starred);
         e.pinned                = Boolean.TRUE.equals(m.pinned);
+        e.reactionsJson         = com.callx.app.utils.ReactionJsonUtil.reactionsToJson(m.reactions);
         e.isGroup               = true;
         e.syncedAt              = System.currentTimeMillis();
         e.fontStyle             = m.fontStyle;
         e.expiresAt             = m.expiresAt;  // Disappearing messages
+        e.viewOnce               = m.viewOnce;
+        e.viewOnceState          = m.viewOnceState;
+        e.openedAt               = m.openedAt;
+        e.viewOnceExpiresAt      = m.viewOnceExpiresAt;
+        e.mediaKeyEnc            = m.mediaKeyEnc;
+        e.mediaLocalPath         = m.mediaLocalPath;
+        e.mediaResourceType      = m.mediaResourceType;
+        e.voiceUrl               = m.voiceUrl;
+        e.voiceDuration          = m.voiceDuration;
+        e.mediaWidth             = m.mediaWidth;
+        e.mediaHeight            = m.mediaHeight;
         // BUG FIX (v44): blurHash — see AppDatabase.MIGRATION_43_44.
         e.blurHash              = m.blurHash;
         e.pollQuestion          = m.pollQuestion;
@@ -1628,6 +1669,7 @@ public class GroupChatActivity extends AppCompatActivity
         e.contactName = m.contactName; e.contactPhone = m.contactPhone;
         e.contactPhone2 = m.contactPhone2; e.contactPhotoUrl = m.contactPhotoUrl;
         e.locationLat = m.locationLat; e.locationLng = m.locationLng; e.locationAddress = m.locationAddress;
+        e.topicId = m.topicId; e.topicName = m.topicName;
         return e;
     }
 

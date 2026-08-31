@@ -75,7 +75,10 @@ public class ChatProfileCardBinder {
         if (avatar != null && !avatar.isEmpty()) {
             Glide.with(activity).load(avatar).placeholder(R.drawable.ic_person)
                     .override(240, 240)
-                    .circleCrop().into(binding.ivProfileCardAvatar);
+                    .circleCrop()
+                    .listener(com.callx.app.cache.CacheDashboardStats.glideListener(
+                            activity, "profile_card_avatar:" + avatar))
+                    .into(binding.ivProfileCardAvatar);
         }
 
         if (partnerUid == null || partnerUid.isEmpty()) return;

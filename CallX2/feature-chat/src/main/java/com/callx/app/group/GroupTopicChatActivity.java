@@ -11,6 +11,8 @@ import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.chat.R;
+import com.callx.app.db.AppDatabase;
+import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.models.Message;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.PushNotify;
@@ -21,6 +23,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * GroupTopicChatActivity — Dedicated chat screen for a single Group Topic / Thread.
@@ -61,6 +65,8 @@ public class GroupTopicChatActivity extends AppCompatActivity {
     private TopicMessageAdapter adapter;
     private DatabaseReference groupMsgRef;
     private ChildEventListener msgListener;
+    private AppDatabase db;
+    private final ExecutorService dbExecutor = Executors.newSingleThreadExecutor();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -100,6 +106,7 @@ public class GroupTopicChatActivity extends AppCompatActivity {
         rv.setAdapter(adapter);
 
         groupMsgRef = FirebaseUtils.getGroupMessagesRef(groupId);
+        db = AppDatabase.getInstance(getApplicationContext());
 
         checkAdminStatus();
         loadAnonymousSetting();
@@ -161,15 +168,16 @@ public class GroupTopicChatActivity extends AppCompatActivity {
     }
 
     private void listenMessages() {
+        loadCachedMessages();
         msgListener = new ChildEventListener() {
             @Override public void onChildAdded(DataSnapshot snap, String prev) {
                 Message m = snap.getValue(Message.class);
                 if (m == null) return;
                 if (m.id == null) m.id = snap.getKey();
                 if (topicId.equals(m.topicId)) {
-                    messages.add(m);
-                    adapter.notifyItemInserted(messages.size() - 1);
-                    rv.scrollToPosition(messages.size() - 1);
+                    m.isGroup = true;
+                    persistMessage(m);
+                    upsertMessage(m, true);
                 }
             }
             @Override public void onChildChanged(DataSnapshot snap, String prev) {
@@ -177,22 +185,93 @@ public class GroupTopicChatActivity extends AppCompatActivity {
                 if (m == null) return;
                 if (m.id == null) m.id = snap.getKey();
                 if (!topicId.equals(m.topicId)) return;
-                for (int i = 0; i < messages.size(); i++) {
-                    Message existing = messages.get(i);
-                    if (snap.getKey().equals(existing.id) || snap.getKey().equals(existing.messageId)) {
-                        messages.set(i, m);
-                        adapter.notifyItemChanged(i);
-                        break;
-                    }
+                m.isGroup = true;
+                persistMessage(m);
+                upsertMessage(m, false);
+            }
+            @Override public void onChildRemoved(DataSnapshot snap) {
+                String messageId = snap.getKey();
+                if (messageId == null) return;
+                dbExecutor.execute(() -> db.messageDao().softDelete(messageId));
+                int index = findMessage(messageId);
+                if (index >= 0) {
+                    messages.get(index).deleted = true;
+                    messages.get(index).text = "";
+                    adapter.notifyItemChanged(index);
                 }
             }
-            @Override public void onChildRemoved(DataSnapshot snap) {}
             @Override public void onChildMoved(DataSnapshot snap, String prev) {}
             @Override public void onCancelled(DatabaseError e) {}
         };
         groupMsgRef.orderByChild("topicId").equalTo(topicId)
                 .limitToLast(100)
                 .addChildEventListener(msgListener);
+    }
+
+    private void loadCachedMessages() {
+        dbExecutor.execute(() -> {
+            List<MessageEntity> cached = db.messageDao()
+                    .getTopicMessages(groupId, topicId, 100);
+            List<Message> models = new ArrayList<>(cached.size());
+            for (MessageEntity entity : cached) {
+                Message model = com.callx.app.utils.MessageEntityMapper.toModel(entity);
+                if (model != null) {
+                    model.isGroup = true;
+                    models.add(model);
+                }
+            }
+            runOnUiThread(() -> {
+                for (Message model : models) {
+                    if (findMessage(model.id) < 0) {
+                        messages.add(insertionIndex(model), model);
+                    }
+                }
+                if (!models.isEmpty()) {
+                    adapter.notifyDataSetChanged();
+                    rv.scrollToPosition(messages.size() - 1);
+                }
+            });
+        });
+    }
+
+    private void persistMessage(Message message) {
+        if (message == null || message.id == null) return;
+        dbExecutor.execute(() -> db.messageDao().insertMessage(
+                com.callx.app.utils.MessageEntityMapper.fromModel(message, groupId)));
+    }
+
+    private int findMessage(String messageId) {
+        if (messageId == null) return -1;
+        for (int i = 0; i < messages.size(); i++) {
+            Message item = messages.get(i);
+            if (messageId.equals(item.id) || messageId.equals(item.messageId)) return i;
+        }
+        return -1;
+    }
+
+    private void upsertMessage(Message message, boolean scrollToEnd) {
+        int existing = findMessage(message.id != null ? message.id : message.messageId);
+        if (existing >= 0) {
+            messages.set(existing, message);
+            adapter.notifyItemChanged(existing);
+        } else {
+            int insertAt = insertionIndex(message);
+            messages.add(insertAt, message);
+            adapter.notifyItemInserted(insertAt);
+        }
+        if (scrollToEnd && !messages.isEmpty()) {
+            rv.scrollToPosition(messages.size() - 1);
+        }
+    }
+
+    private int insertionIndex(Message message) {
+        long timestamp = message.timestamp != null ? message.timestamp : 0L;
+        for (int i = 0; i < messages.size(); i++) {
+            Message existing = messages.get(i);
+            long existingTimestamp = existing.timestamp != null ? existing.timestamp : 0L;
+            if (existingTimestamp > timestamp) return i;
+        }
+        return messages.size();
     }
 
     private void sendMessage() {
@@ -214,11 +293,14 @@ public class GroupTopicChatActivity extends AppCompatActivity {
         m.type        = "text";
         m.topicId     = topicId;
         m.topicName   = topicName;
+        m.isGroup     = true;
         m.timestamp   = System.currentTimeMillis();
         m.status      = "sent";
 
         DatabaseReference ref = groupMsgRef.push();
         m.id = m.messageId = ref.getKey();
+        persistMessage(m);
+        upsertMessage(m, true);
         ref.setValue(m);
 
         // Bump topic's lastMessage + messageCount
@@ -251,6 +333,7 @@ public class GroupTopicChatActivity extends AppCompatActivity {
         super.onDestroy();
         saveTopicDraft();
         if (msgListener != null) groupMsgRef.removeEventListener(msgListener);
+        dbExecutor.shutdown();
     }
 
     // ── Draft persistence (SharedPreferences-backed — see DraftStore) ──────

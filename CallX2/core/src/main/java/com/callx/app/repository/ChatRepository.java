@@ -412,48 +412,7 @@ public class ChatRepository {
 
     private MessageEntity toEntity(Message m, String chatId) {
         decryptIfNeeded(m);
-        MessageEntity e = new MessageEntity();
-        e.id              = m.id != null ? m.id : "";
-        e.chatId          = chatId;
-        e.senderId        = m.senderId;
-        e.senderName      = m.senderName;
-        e.text            = m.text;
-        e.type            = m.type != null ? m.type : "text";
-        e.mediaUrl        = m.mediaUrl != null ? m.mediaUrl : m.imageUrl;
-        e.thumbnailUrl    = m.thumbnailUrl;
-        e.fileName        = m.fileName;
-        e.fileSize        = m.fileSize;
-        e.duration        = m.duration;
-        e.timestamp       = m.timestamp;
-        e.status          = m.status;
-        e.deliveredAt     = m.deliveredAt;
-        e.readAt          = m.readAt;
-        e.replyToId       = m.replyToId;
-        e.replyToText     = m.replyToText;
-        e.replyToSenderName = m.replyToSenderName;
-        e.edited          = m.edited;
-        e.editedAt        = m.editedAt;
-        e.editHistoryJson = com.callx.app.utils.EditHistoryJsonUtil.historyToJson(m.editHistory);
-        e.deleted         = m.deleted;
-        e.forwardedFrom   = m.forwardedFrom;
-        e.starred         = m.starred;
-        e.pinned          = m.pinned;
-        e.mediaItemsJson  = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems);
-        e.caption         = m.caption;
-        e.contactName     = m.contactName;
-        e.contactPhone    = m.contactPhone;
-        e.contactPhone2   = m.contactPhone2;
-        e.contactPhotoUrl = m.contactPhotoUrl;
-        e.locationLat     = m.locationLat;
-        e.locationLng     = m.locationLng;
-        e.locationAddress = m.locationAddress;
-        // BUG FIX (v44): blurHash — see AppDatabase.MIGRATION_43_44.
-        e.blurHash        = m.blurHash;
-        // v46: Media E2E (image) — kept as the still-encrypted envelope,
-        // never decrypted at this layer. See MessageEntity#mediaKeyEnc.
-        e.mediaKeyEnc     = m.mediaKeyEnc;
-        e.syncedAt        = System.currentTimeMillis();
-        return e;
+        return com.callx.app.utils.MessageEntityMapper.fromModel(m, chatId);
     }
 
     private UserEntity userToEntity(User u) {

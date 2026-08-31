@@ -102,6 +102,9 @@ public class Message {
      */
     @Exclude
     public transient String mediaLocalPath;
+    /** Local-only upload resource type retained across Room round-trips. */
+    @Exclude
+    public transient String mediaResourceType;
 
     // ── Feature 1: Read Receipts ──────────────────────────
     /** sent | delivered | read */

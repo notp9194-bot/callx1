@@ -79,6 +79,14 @@
                         android:textSize="13sp"
                         android:layout_marginBottom="4dp"/>
                     <TextView
+                        android:id="@+id/tv_chat_asset_scope"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Chat assets: map thumbnails • sender/group avatars • wallpaper • profile avatar • GIFs/stickers"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp"
+                        android:layout_marginBottom="4dp"/>
+                    <TextView
                         android:id="@+id/tv_encrypted_status"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -103,7 +111,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Memory Cache (RAM)"
+                        android:text="Memory Cache (Glide RAM)"
                         android:textColor="@color/text_primary"
                         android:textSize="14sp"
                         android:textStyle="bold"

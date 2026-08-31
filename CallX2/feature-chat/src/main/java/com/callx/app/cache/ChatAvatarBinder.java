@@ -110,6 +110,9 @@ public final class ChatAvatarBinder {
         Bitmap l2Hit = ChatAvatarL2Cache.get(ctx).get(url);
         if (l2Hit != null) {
             iv.setImageBitmap(l2Hit);
+            CacheDashboardStats dashboard = CacheDashboardStats.getInstance(ctx);
+            dashboard.recordMemoryHit("avatar:" + url);
+            dashboard.recordMemoryEntry("avatar:" + url, l2Hit.getByteCount());
             AvatarCacheAnalytics.getInstance(ctx).record(AvatarCacheAnalytics.Tier.L2_MEMORY);
             return;
         }
@@ -126,12 +129,16 @@ public final class ChatAvatarBinder {
                 public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model,
                                              com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
                                              boolean isFirstResource) {
+                    CacheDashboardStats.getInstance(ctx).recordMemoryMiss("avatar:" + url);
+                    CacheDashboardStats.getInstance(ctx).recordDiskMiss("avatar:" + url);
                     return false; // let Glide still apply the error placeholder
                 }
                 @Override
                 public boolean onResourceReady(android.graphics.drawable.Drawable resource, Object model,
                                                 com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
                                                 com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
+                    CacheDashboardStats.getInstance(ctx)
+                            .recordGlideResult("avatar:" + url, dataSource, resource);
                     // CDN/cache split monitoring — same analytics every other
                     // avatar screen feeds into (see FollowAvatarBinder /
                     // ReelUiController). NOTE: a single Glide request only

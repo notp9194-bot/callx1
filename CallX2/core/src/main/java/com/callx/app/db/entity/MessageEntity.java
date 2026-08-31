@@ -21,6 +21,7 @@ import androidx.annotation.NonNull;
         // does a full table scan of every message in the DB on every retry call.
         @Index(value = {"chatId", "status"}),
         @Index(value = {"status"})
+        @Index(value = {"chatId", "topicId", "timestamp"})
     }
 )
 public class MessageEntity {
@@ -234,6 +235,12 @@ public class MessageEntity {
     /** JSON object string of Message#readBy (uid → epoch ms), see
      *  GroupReceiptJsonUtil. Null outside group chats / before any member acks. */
     public String groupReadByJson;
+
+    // ── Group topics / threads ─────────────────────────────────────────────
+    /** Firebase topic/thread id, retained for offline thread rendering. */
+    public String topicId;
+    /** Cached topic title so the thread header does not need a network read. */
+    public String topicName;
 
     // ── Voice Caption on Photo (v48) ──────────────────────────────────────
     /** Mirrors Message#voiceUrl — set only on 1:1 image messages that also
