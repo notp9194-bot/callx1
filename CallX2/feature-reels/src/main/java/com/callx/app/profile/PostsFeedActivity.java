@@ -1347,6 +1347,7 @@ public class PostsFeedActivity extends AppCompatActivity {
             }
 
             h.tvOwner.setText(r.ownerName != null ? r.ownerName : "");
+            com.callx.app.utils.VerifiedBadgeUtils.bindForUid(h.ivVerified, r.uid);
             // PERF (URL-skip): skip the Glide chain entirely when this
             // holder is already showing the same avatar URL (e.g. a
             // likesCount-only rebind of the same post). The collab branch
@@ -1426,6 +1427,9 @@ public class PostsFeedActivity extends AppCompatActivity {
                         + " \u2227 " + (collabName != null ? collabName : "User");
                 }
                 h.tvOwner.setText(h.lastCollabLabel);
+                // Badge refers to the initiator (the account this row's
+                // avatar/name tap opens) — see boundReel/click-listener note.
+                com.callx.app.utils.VerifiedBadgeUtils.bindForUid(h.ivVerified, r.collabInitiatorUid);
 
                 LinearLayout collabRow = (LinearLayout) h.collabAvatarContainer;
                 collabRow.setVisibility(View.VISIBLE);
@@ -1705,7 +1709,7 @@ public class PostsFeedActivity extends AppCompatActivity {
 
         class Holder extends RecyclerView.ViewHolder {
             View      pvVideo; // PlayerView — only ever hidden on this screen
-            ImageView ivThumb, ivAvatar, ivStoryRing, ivLikeAnim;
+            ImageView ivThumb, ivAvatar, ivStoryRing, ivLikeAnim, ivVerified;
             TextView  tvOwner, tvCaption, tvLikes, tvComments, tvSuggested, tvAudio, btnFollow;
             TextView  tvReposts, tvSends;
             TextView  btnReadMore;
@@ -1812,6 +1816,7 @@ public class PostsFeedActivity extends AppCompatActivity {
                 setupFrameMediaGestureOnce();
                 tvTime      = itemView.findViewById(R.id.tv_post_time);
                 tvOwner     = itemView.findViewById(R.id.tv_post_owner);
+                ivVerified  = itemView.findViewById(R.id.iv_post_verified);
                 tvSuggested = itemView.findViewById(R.id.tv_post_suggested);
                 tvAudio     = itemView.findViewById(R.id.tv_post_audio);
                 tvCaption   = itemView.findViewById(R.id.tv_post_caption);

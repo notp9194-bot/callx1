@@ -85,6 +85,7 @@ public class ReelUiController {
     private final AvatarVersionSyncManager.Listener avatarVersionListener = this::onAvatarVersionChanged;
     private ImageView       ivOwnerStoryRing;
     private TextView        tvOwnerName;
+    private ImageView       ivOwnerVerified;
     private TextView        tvCaption;
     private TextView        tvMusicName;
     private com.callx.app.views.MusicTickerView tvBioSongName;
@@ -176,6 +177,7 @@ public class ReelUiController {
         // Ring itself is now bound per-reel in bindReelData() below (needs
         // reel.ownerUid to check seen state) — see StorySeenState.
         tvOwnerName        = root.findViewById(R.id.tv_owner_name);
+        ivOwnerVerified    = root.findViewById(R.id.iv_owner_verified);
         tvCaption          = root.findViewById(R.id.tv_caption);
         tvMusicName        = root.findViewById(R.id.tv_music_name);
         tvBioSongName      = root.findViewById(R.id.tv_bio_song_name);
@@ -619,6 +621,10 @@ public class ReelUiController {
 
         // Owner name + caption
         if (tvOwnerName != null) tvOwnerName.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
+        // Same cached bindForUid() lookup used by chats/calls/other tabs —
+        // shows only for the actual non-collab single owner; the collab
+        // row (llCollabAuthors below) shows its own per-author badges.
+        com.callx.app.utils.VerifiedBadgeUtils.bindForUid(ivOwnerVerified, reel.uid);
 
         // Instagram-style: gradient only while an UNSEEN status exists;
         // flat gray once fully seen; hidden if no active status at all.

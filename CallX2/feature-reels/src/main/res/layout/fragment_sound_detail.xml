@@ -428,13 +428,15 @@
                                 android:textColor="@color/sound_detail_text_light"
                                 android:textSize="15sp" android:fontFamily="sans-serif-medium"
                                 android:maxLines="1" android:ellipsize="end"/>
-                            <!-- Verified badge — UI only, always shown next to the
-                                 creator username (no real verification-status
-                                 logic wired up), matching the screenshot. -->
+                            <!-- Verified badge — wired to real verification status via
+                                 VerifiedBadgeUtils.bindForUid() in bindCreatorRow(), same
+                                 as chats/calls/other tabs. Starts hidden; shown only when
+                                 the resolved uid is actually verified. -->
                             <ImageView android:id="@+id/iv_creator_verified"
                                 android:layout_width="13dp" android:layout_height="13dp"
                                 android:layout_marginStart="3dp"
                                 android:src="@drawable/ic_verified_pink"
+                                android:visibility="gone"
                                 android:contentDescription="Verified"/>
                         </LinearLayout>
                         <TextView android:id="@+id/tv_creator_followers"

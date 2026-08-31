@@ -305,6 +305,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private ShimmerFrameLayout shimmerLayout;
     private LinearLayout layoutCreator;
     private ImageView    ivCreatorAvatar;
+    private ImageView    ivCreatorVerified;
     private TextView     tvCreatorName;
     private TextView     tvCreatorFollowers;
     private android.widget.Button btnFollowCreator;
@@ -812,6 +813,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         layoutReelsHeader = binding.layoutReelsHeader;
         layoutCreator     = binding.layoutSoundCreator;
         ivCreatorAvatar   = binding.ivCreatorAvatar;
+        ivCreatorVerified = binding.ivCreatorVerified;
         tvCreatorName     = binding.tvCreatorName;
         tvCreatorFollowers = binding.tvCreatorFollowers;
         btnFollowCreator  = binding.btnFollowCreator;
@@ -1924,6 +1926,11 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             else ivCreatorAvatar.setImageResource(R.drawable.ic_person);
         }
         layoutCreator.setVisibility(View.VISIBLE);
+        // Resolves via the cached lookup (VerifiedStatusCache) so scrolling/
+        // reopening the sheet doesn't repeatedly hit Firebase — same pattern
+        // as chats/calls tabs. Was previously wired to always show regardless
+        // of actual verification status; now reflects the real value.
+        VerifiedBadgeUtils.bindForUid(ivCreatorVerified, uid);
         // divider_creator removed from layout — creator row is now its own
         // boxed card (bg_sound_detail_box), so no separate hairline needed.
         layoutCreator.setOnClickListener(v -> openUserProfile(uid, name, photo));

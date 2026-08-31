@@ -4359,6 +4359,9 @@ public class HomeFragment extends Fragment {
             String collabLabel = (reel.collabInitiatorName != null ? reel.collabInitiatorName : "User")
                 + " \u2227 " + (reel.collabCollaboratorName != null ? reel.collabCollaboratorName : "User");
             tvOwner.setText(collabLabel);
+            // Collab header shows two people — badge next to the name refers
+            // to the initiator (the account tvOwner's click target opens).
+            com.callx.app.utils.VerifiedBadgeUtils.bindForUid(holder.ivPostVerified, reel.collabInitiatorUid);
             // Load collaborator's avatar into a second circle view if one exists in layout
             View collabAvatarContainer = holder.collabAvatarContainer;
             if (collabAvatarContainer instanceof LinearLayout) {
@@ -4411,6 +4414,7 @@ public class HomeFragment extends Fragment {
             }
             tvOwner.setText(holder.lastOwnerLabel);
             tvOwner.setOnClickListener(x -> avatar.performClick());
+            com.callx.app.utils.VerifiedBadgeUtils.bindForUid(holder.ivPostVerified, reel.uid);
         }
 
         if (tvTime != null) {
@@ -6230,6 +6234,7 @@ public class HomeFragment extends Fragment {
 
         CircleImageView avatar;
         ImageView       ivPostStoryRing;
+        ImageView       ivPostVerified;
         TextView        tvOwner;
         TextView        tvTime;
         TextView        tvAudio;
@@ -6324,6 +6329,7 @@ public class HomeFragment extends Fragment {
             if (viewsCached) return;
             avatar                = itemView.findViewById(R.id.iv_post_avatar);
             ivPostStoryRing       = itemView.findViewById(R.id.iv_post_story_ring);
+            ivPostVerified        = itemView.findViewById(R.id.iv_post_verified);
             tvOwner               = itemView.findViewById(R.id.tv_post_owner);
             tvTime                = itemView.findViewById(R.id.tv_post_time);
             tvAudio               = itemView.findViewById(R.id.tv_post_audio);
