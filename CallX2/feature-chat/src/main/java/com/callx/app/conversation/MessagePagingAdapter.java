@@ -517,6 +517,41 @@ public class MessagePagingAdapter
         };
     }
 
+    // ── DASHBOARD WIRING (Settings → Storage & Cache / CacheStatsActivity) ──
+    // That screen only reads com.callx.app.cache.CacheManager's MemoryCache/
+    // DiskCache — a completely separate tier from DECODED_BITMAP_CACHE and
+    // Glide's own disk cache used everywhere above. Result: real thumbnail
+    // traffic (reel-seen/status-seen bubble, image/video bubbles, reel-share
+    // avatar+thumb, contact avatar) never showed up there — "0% hits" even
+    // after 1000+ messages, because none of it was ever recorded. These two
+    // helpers mirror the outcome into CacheManager so the dashboard reflects
+    // reality. They do NOT change caching behavior — the local pool / Glide
+    // disk cache remain the actual fast path; this is bookkeeping only.
+    private static final java.util.concurrent.ExecutorService DASHBOARD_DISK_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+
+    /** Call when an existing pool/cache hit is served, so MemoryCache's hit counter is honest. */
+    private static void dashboardRecordHit(Context ctx, String key) {
+        if (key == null || key.isEmpty()) return;
+        com.callx.app.cache.CacheManager.getInstance(ctx).getMemoryCache().get("thumb_" + key);
+    }
+
+    /** Call once a bitmap is freshly decoded, so Memory+Disk tiers both pick it up. */
+    private static void dashboardRecordDecoded(Context ctx, String key, Bitmap bmp) {
+        if (key == null || key.isEmpty() || bmp == null || bmp.isRecycled()) return;
+        com.callx.app.cache.CacheManager cm = com.callx.app.cache.CacheManager.getInstance(ctx.getApplicationContext());
+        cm.getMemoryCache().put("thumb_" + key, bmp);
+        if (cm.getDiskCache().exists(key)) return; // already recorded once — don't re-encode every rebind
+        // Compress synchronously here (bitmap is guaranteed non-recycled on this
+        // callback thread); only the disk WRITE is pushed to a background thread.
+        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+        bmp.compress(Bitmap.CompressFormat.JPEG, 85, bos);
+        byte[] bytes = bos.toByteArray();
+        DASHBOARD_DISK_EXECUTOR.execute(() -> {
+            try { cm.getDiskCache().save(key, bytes); } catch (Exception ignored) {}
+        });
+    }
+
     // ── PERF #4: Density-aware thumbnail pixel size ───────────────────────
     // Replaces hard-coded override(480, 480) throughout.  MEDIA_MAX_WIDTH_DP
     // in MessageBubbleCanvasView is 260dp — on an xhdpi device (2×) that is
@@ -2541,6 +2576,7 @@ public class MessagePagingAdapter
                 final int seenThumbPxH = seenThumbPxH(ctx);
                 android.graphics.Bitmap seenThumbHit = DECODED_BITMAP_CACHE.get(poolKey(thumbUrl, seenThumbPxW, seenThumbPxH));
                 if (seenThumbHit != null && !seenThumbHit.isRecycled()) {
+                    dashboardRecordHit(ctx, thumbUrl);
                     cv.setSeenThumbBitmap(seenThumbHit);
                 } else {
                     glide(ctx).asBitmap().load(thumbUrl).apply(THUMB_RGB565)
@@ -2550,6 +2586,7 @@ public class MessagePagingAdapter
                                 public void onResourceReady(@NonNull Bitmap resource,
                                         @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
                                     DECODED_BITMAP_CACHE.put(poolKey(thumbUrl, seenThumbPxW, seenThumbPxH), resource);
+                                    dashboardRecordDecoded(ctx, thumbUrl, resource);
                                     if (h.canvasBindToken != myToken) return;
                                     cv.setSeenThumbBitmap(resource);
                                 }
@@ -2827,6 +2864,7 @@ public class MessagePagingAdapter
                             com.callx.app.conversation.canvas.MessageBubbleCanvasView
                                     .cacheAspectRatio(fullUrl, (float) poolHit.getWidth() / poolHit.getHeight());
                         }
+                        dashboardRecordHit(ctx, poolKey);
                         cv.setMediaBitmap(poolHit);
                     } else {
                     // PERF #4: use density-aware thumb size instead of hard-coded 480px
@@ -2853,7 +2891,10 @@ public class MessagePagingAdapter
                                     // under the same source-aware key it was looked up with above,
                                     // so a local-first decode never gets stored under (and later
                                     // handed out for) the plain remote-URL key.
-                                    if (!poolKey.isEmpty()) DECODED_BITMAP_CACHE.put(poolKey, resource);
+                                    if (!poolKey.isEmpty()) {
+                                        DECODED_BITMAP_CACHE.put(poolKey, resource);
+                                        dashboardRecordDecoded(ctx, poolKey, resource);
+                                    }
                                     if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this load started
                                     cv.setMediaBitmap(resource);
                                 }
@@ -3127,6 +3168,7 @@ public class MessagePagingAdapter
                 final String finalAvatarUrl = avatarUrl;
                 android.graphics.Bitmap reelAvatarHit = AVATAR_BITMAP_CACHE.get(finalAvatarUrl);
                 if (reelAvatarHit != null && !reelAvatarHit.isRecycled()) {
+                    dashboardRecordHit(ctx, finalAvatarUrl);
                     cv.setReelShareAvatarBitmap(reelAvatarHit);
                 } else {
                 glide(ctx).asBitmap().load(finalAvatarUrl).apply(THUMB_RGB565).override(96, 96).circleCrop()
@@ -3135,6 +3177,7 @@ public class MessagePagingAdapter
                             public void onResourceReady(@NonNull Bitmap resource,
                                     @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
                                 AVATAR_BITMAP_CACHE.put(finalAvatarUrl, resource);
+                                dashboardRecordDecoded(ctx, finalAvatarUrl, resource);
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setReelShareAvatarBitmap(resource);
                             }
@@ -3198,6 +3241,7 @@ public class MessagePagingAdapter
                 final String finalThumbUrl = thumb;
                 android.graphics.Bitmap reelThumbHit = DECODED_BITMAP_CACHE.get(poolKey(finalThumbUrl, 330, 474));
                 if (reelThumbHit != null && !reelThumbHit.isRecycled()) {
+                    dashboardRecordHit(ctx, finalThumbUrl);
                     cv.setReelShareThumbBitmap(reelThumbHit);
                 } else {
                 glide(ctx).asBitmap().load(finalThumbUrl).apply(THUMB_RGB565).override(330, 474).centerCrop()
@@ -3206,6 +3250,7 @@ public class MessagePagingAdapter
                             public void onResourceReady(@NonNull Bitmap resource,
                                     @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
                                 DECODED_BITMAP_CACHE.put(poolKey(finalThumbUrl, 330, 474), resource);
+                                dashboardRecordDecoded(ctx, finalThumbUrl, resource);
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setReelShareThumbBitmap(resource);
                             }
@@ -3320,6 +3365,7 @@ public class MessagePagingAdapter
                         com.callx.app.conversation.canvas.MessageBubbleCanvasView
                                 .cacheAspectRatio(vThumbUrl, (float) vPoolHit.getWidth() / vPoolHit.getHeight());
                     }
+                    dashboardRecordHit(ctx, vPoolKey);
                     cv.setMediaBitmap(vPoolHit);
                 } else if (vThumbKey != null) {
                     // Encrypted thumb — decrypt via MediaCache before handing to Glide.
@@ -3368,6 +3414,7 @@ public class MessagePagingAdapter
                                 }
                                 // PERF #1: store in pool for scroll-back reuse
                                 DECODED_BITMAP_CACHE.put(vPoolKey, resource);
+                                dashboardRecordDecoded(ctx, vPoolKey, resource);
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setMediaBitmap(resource);
                             }
@@ -3439,6 +3486,7 @@ public class MessagePagingAdapter
                 // contact-card row) blanked the avatar for a frame.
                 android.graphics.Bitmap contactHit = DECODED_BITMAP_CACHE.get(poolKey(contactPhotoUrl, 96, 96));
                 if (contactHit != null && !contactHit.isRecycled()) {
+                    dashboardRecordHit(ctx, contactPhotoUrl);
                     cv.setContactAvatarBitmap(contactHit);
                 } else {
                     glide(ctx).asBitmap().load(contactPhotoUrl).apply(THUMB_RGB565)
@@ -3448,6 +3496,7 @@ public class MessagePagingAdapter
                                 public void onResourceReady(@NonNull Bitmap resource,
                                         @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
                                     DECODED_BITMAP_CACHE.put(poolKey(contactPhotoUrl, 96, 96), resource);
+                                    dashboardRecordDecoded(ctx, contactPhotoUrl, resource);
                                     if (h.canvasBindToken != myToken) return;
                                     cv.setContactAvatarBitmap(resource);
                                 }
