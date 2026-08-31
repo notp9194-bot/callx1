@@ -69,6 +69,7 @@ public class ChatProfileCardBinder {
     public void bind(String partnerUid, String partnerName, String partnerPhoto, String partnerThumb) {
         this.partnerUid = partnerUid;
         binding.tvProfileCardName.setText(partnerName != null ? partnerName : "");
+        com.callx.app.utils.VerifiedBadgeUtils.bindForUid(binding.ivProfileCardVerified, partnerUid);
 
         String avatar = (partnerThumb != null && !partnerThumb.isEmpty()) ? partnerThumb : partnerPhoto;
         if (avatar != null && !avatar.isEmpty()) {

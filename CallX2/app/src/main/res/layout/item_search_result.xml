@@ -27,13 +27,29 @@
         android:orientation="vertical"
         android:layout_marginStart="14dp">
 
-        <TextView
-            android:id="@+id/tv_name"
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="?android:attr/textColorPrimary"
-            android:textSize="15sp"
-            android:textStyle="bold"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tv_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="15sp"
+                android:textStyle="bold"/>
+
+            <ImageView
+                android:id="@+id/iv_verified"
+                android:layout_width="13dp"
+                android:layout_height="13dp"
+                android:layout_marginStart="3dp"
+                android:src="@drawable/ic_verified_pink"
+                android:visibility="gone"
+                android:contentDescription="Verified"/>
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tv_callx_id"

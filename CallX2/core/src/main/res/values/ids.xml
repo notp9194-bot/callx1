@@ -24,4 +24,8 @@
     <item name="menu_manage"         type="id"/>
     <item name="menu_join_requests"  type="id"/>
     <item name="menu_discover"       type="id"/>
+
+    <!-- Tag key for VerifiedBadgeUtils.bindForUid — guards against a
+         recycled RecyclerView row applying a stale async result. -->
+    <item name="verified_badge_uid_tag" type="id"/>
 </resources>

@@ -58,6 +58,7 @@ import com.callx.app.profile.ReelPeekPreviewController;
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.MediaSwipeReplyCloseHelper;
+import com.callx.app.utils.VerifiedBadgeUtils;
 import com.callx.app.utils.SwipeAwareFrameLayout;
 import com.facebook.shimmer.ShimmerFrameLayout;
 import com.google.android.material.card.MaterialCardView;
@@ -291,6 +292,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                          tvTrendingRank, tvSavesCount, tvBpm, tvGenre,
                          tvOriginalBadge, tvIsVerified;
     private TextView     tvAddToProfile;
+    private ImageView    ivSoundTitleVerified;
     private View         btnUseSoundCamera, btnUseSoundGallery, btnAddToProfile;
     private ImageView    ivSoundCover, ivDiscRing;
     private RecyclerView rvReels, rvRelated;
@@ -596,6 +598,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             }
             if (tvOriginalBadge != null) tvOriginalBadge.setVisibility(vm.isOriginal ? View.VISIBLE : View.GONE);
             if (tvIsVerified    != null) tvIsVerified.setVisibility(vm.isVerified  ? View.VISIBLE : View.GONE);
+            VerifiedBadgeUtils.bind(ivSoundTitleVerified, vm.isVerified);
         }
 
         if (vm.creatorLoaded && vm.creatorUid != null && !vm.creatorUid.isEmpty()) {
@@ -789,6 +792,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         tvGenre           = binding.tvSoundGenre;
         tvOriginalBadge   = binding.tvSoundOriginalBadge;
         tvIsVerified      = binding.tvSoundVerifiedBadge;
+        ivSoundTitleVerified = binding.ivSoundTitleVerified;
         btnUseSoundCamera = binding.btnUseSoundCamera;
         btnUseSoundGallery= binding.btnUseSoundGallery;
         btnAddToProfile   = binding.btnAddToProfile;
@@ -1199,6 +1203,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         }
         if (tvOriginalBadge != null) tvOriginalBadge.setVisibility(Boolean.TRUE.equals(snap.isOriginal) ? View.VISIBLE : View.GONE);
         if (tvIsVerified    != null) tvIsVerified.setVisibility(Boolean.TRUE.equals(snap.isVerified)  ? View.VISIBLE : View.GONE);
+        VerifiedBadgeUtils.bind(ivSoundTitleVerified, Boolean.TRUE.equals(snap.isVerified));
 
         showShimmer(false);
         updatePlayButtonState();

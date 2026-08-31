@@ -174,6 +174,8 @@ import com.callx.app.utils.AlertDialogStyler;
           binding.tvOwner.setText(ownerName != null ? ownerName : "Status");
           if (StatusCloseFriendsManager.isCloseFriend(this, ownerUid))
               binding.tvOwner.setText("\u2B50 " + (ownerName != null ? ownerName : "Status"));
+          com.callx.app.utils.VerifiedBadgeUtils.bindForUid(
+              (android.widget.ImageView) findViewById(R.id.iv_owner_verified), ownerUid);
           load(ownerUid);
       }
       @Override protected void onPause()  { super.onPause();  pauseProgress(); }

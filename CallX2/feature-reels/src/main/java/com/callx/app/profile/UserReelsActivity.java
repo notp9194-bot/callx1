@@ -2470,16 +2470,7 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     private void loadVerifiedStatus() {
-        FirebaseUtils.getUserRef(targetUid).child("isVerified")
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    if (ivVerified != null)
-                        ivVerified.setVisibility(
-                            Boolean.TRUE.equals(snap.getValue(Boolean.class))
-                                ? View.VISIBLE : View.GONE);
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
+        com.callx.app.utils.VerifiedBadgeUtils.bindForUid(ivVerified, targetUid);
     }
 
     // ── Mutual Followers (Feature 10) ─────────────────────────────────────

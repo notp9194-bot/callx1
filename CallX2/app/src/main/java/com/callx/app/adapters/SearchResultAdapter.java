@@ -65,6 +65,13 @@ public class SearchResultAdapter extends RecyclerView.Adapter<SearchResultAdapte
         list.clear();
         if (results != null) list.addAll(results);
         notifyDataSetChanged();
+        // Batch-warm the verified-badge cache for this page before rows
+        // bind, so scrolling doesn't fire one Firebase read per row.
+        if (results != null) {
+            List<String> uids = new ArrayList<>(results.size());
+            for (UserResult u : results) if (u.uid != null) uids.add(u.uid);
+            com.callx.app.utils.VerifiedBadgeUtils.prefetch(uids);
+        }
     }
 
     @NonNull @Override
@@ -78,6 +85,7 @@ public class SearchResultAdapter extends RecyclerView.Adapter<SearchResultAdapte
     public void onBindViewHolder(@NonNull VH h, int pos) {
         UserResult u = list.get(pos);
         h.tvName.setText(u.name != null ? u.name : "User");
+        com.callx.app.utils.VerifiedBadgeUtils.bindForUid(h.ivVerified, u.uid);
         h.tvCallxId.setText(u.callxId != null ? u.callxId : "");
         // v19: routed through SearchAvatarBinder — same tiered/versioned
         // responsive URL + L2/L3 memory-and-disk reuse (survives
@@ -138,11 +146,13 @@ public class SearchResultAdapter extends RecyclerView.Adapter<SearchResultAdapte
     static class VH extends RecyclerView.ViewHolder {
         CircleImageView ivAvatar;
         TextView tvName, tvCallxId;
+        ImageView ivVerified;
         ImageView ivArrow;
         VH(View v) {
             super(v);
             ivAvatar   = v.findViewById(R.id.iv_avatar);
             tvName     = v.findViewById(R.id.tv_name);
+            ivVerified = v.findViewById(R.id.iv_verified);
             tvCallxId  = v.findViewById(R.id.tv_callx_id);
             ivArrow    = v.findViewById(R.id.iv_arrow);
         }

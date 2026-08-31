@@ -152,6 +152,8 @@ public class XDMConversationActivity extends AppCompatActivity {
         tvTypingIndicator = findViewById(R.id.tv_dm_typing_indicator);
 
         if (tvTitle  != null && otherName   != null) tvTitle.setText(otherName);
+        com.callx.app.utils.VerifiedBadgeUtils.bindForUid(
+            findViewById(R.id.iv_dm_conv_verified), otherUid);
         if (tvHandle != null && otherHandle != null) tvHandle.setText("@" + otherHandle);
         if (ivAvatar != null) {
             String url = (otherThumb != null && !otherThumb.isEmpty()) ? otherThumb : otherPhoto;

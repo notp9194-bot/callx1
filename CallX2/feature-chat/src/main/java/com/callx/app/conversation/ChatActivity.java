@@ -1908,6 +1908,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         });
 
         if (partnerName != null) binding.tvPartnerName.setText(partnerName);
+        com.callx.app.utils.VerifiedBadgeUtils.bindForUid(binding.ivPartnerNameVerified, partnerUid);
         binding.ivPartnerAvatar.setOnClickListener(v -> openAvatarZoom());
 
         String headerAvatar = (partnerThumb != null && !partnerThumb.isEmpty()) ? partnerThumb : partnerPhoto;

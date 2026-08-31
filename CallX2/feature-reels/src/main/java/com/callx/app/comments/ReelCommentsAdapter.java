@@ -188,6 +188,12 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
 
     public void setComments(List<ReelComment> list) {
         differ.submitList(list != null ? new ArrayList<>(list) : new ArrayList<>());
+        // Batch-warm the verified-badge cache for this comment page before rows bind.
+        if (list != null) {
+            List<String> uids = new ArrayList<>(list.size());
+            for (ReelComment c : list) if (c.uid != null) uids.add(c.uid);
+            com.callx.app.utils.VerifiedBadgeUtils.prefetch(uids);
+        }
     }
 
     public ReelComment getComment(int position) {
@@ -339,6 +345,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         // ── Name ────────────────────────────────────────────────────────
         h.tvName.setText(c.ownerName != null && !c.ownerName.isEmpty()
             ? c.ownerName : "User");
+        com.callx.app.utils.VerifiedBadgeUtils.bindForUid(h.ivVerified, c.uid);
 
         // ── Time + Edited (+ local-first send state) ─────────────────────
         // Offline/retry: a comment created locally (see
@@ -721,6 +728,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         android.widget.ImageView ivStoryRing;
         ImageView ivCommentImage;
         TextView tvName, tvText, tvTime, tvLikes, btnReply, tvViewReplies;
+        ImageView ivVerified;
         TextView tvEdited, tvAuthorBadge, tvCreatorLiked;
         ImageButton btnLike;
         LinearLayout containerReplies;
@@ -746,6 +754,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
             ivAvatar        = v.findViewById(R.id.iv_avatar);
             ivStoryRing     = v.findViewById(R.id.iv_story_ring);
             tvName          = v.findViewById(R.id.tv_name);
+            ivVerified      = v.findViewById(R.id.iv_verified);
             tvText          = v.findViewById(R.id.tv_comment_text);
             ivCommentImage  = v.findViewById(R.id.iv_comment_image);
             tvTime          = v.findViewById(R.id.tv_time);

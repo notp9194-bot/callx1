@@ -275,6 +275,13 @@ package com.callx.app.feed;
           final int prevMyCount = myStatusCount;
           myStatusCount = myStatuses.size();
           lastUnseen = unseen; lastSeen = seen; lastMuted = muted; lastHiddenCount = hiddenCount;
+          // Batch-warm the verified-badge cache for this page of statuses
+          // before rows bind — avoids one Firebase read per row on scroll.
+          List<String> verifyUids = new ArrayList<>();
+          if (unseen != null) for (Entry e : unseen) if (e.ownerUid != null) verifyUids.add(e.ownerUid);
+          if (seen   != null) for (Entry e : seen)   if (e.ownerUid != null) verifyUids.add(e.ownerUid);
+          if (muted  != null) for (Entry e : muted)  if (e.ownerUid != null) verifyUids.add(e.ownerUid);
+          com.callx.app.utils.VerifiedBadgeUtils.prefetch(verifyUids);
           List<FlatItem> next = buildFlatItems(unseen, seen, muted, hiddenCount);
           dispatchDiff(next, prevMyCount);
       }
@@ -605,6 +612,7 @@ package com.callx.app.feed;
       private void bindContact(ContactVH h, Entry e, Context ctx, boolean isMuted) {
           if (e == null) return;
           h.tvName.setText(e.ownerName != null ? e.ownerName : "");
+          com.callx.app.utils.VerifiedBadgeUtils.bindForUid(h.ivVerified, e.ownerUid);
           h.tvTime.setText(e.latestTimestamp != null
                   ? timeFmt.format(new java.util.Date(e.latestTimestamp)) : "");
           // FIX (deep avatar pipeline + isVisible gate): bindGated() only
@@ -731,11 +739,13 @@ package com.callx.app.feed;
           CircleImageView ivAvatar;
           ImageView ring, ivThumb;
           TextView tvName, tvTime, tvSub, tvBadge, tvReaction, tvCfBadge; // FIX: tvCfBadge added
+          android.widget.ImageView ivVerified;
           ContactVH(View v) {
               super(v);
               ivAvatar   = v.findViewById(R.id.iv_avatar);
               ring       = v.findViewById(R.id.ring);
               tvName     = v.findViewById(R.id.tv_name);
+              ivVerified = v.findViewById(R.id.iv_verified);
               tvTime     = v.findViewById(R.id.tv_time);
               tvSub      = v.findViewById(R.id.tv_sub);
               tvBadge    = v.findViewById(R.id.tv_badge);

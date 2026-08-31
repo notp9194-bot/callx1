@@ -896,6 +896,11 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             }
             logs.add(l);
         }
+        // Batch-warm the verified-badge cache for this page of call logs
+        // before rows bind — avoids one Firebase read per row on scroll.
+        java.util.List<String> verifyUids = new ArrayList<>(logs.size());
+        for (CallLog l : logs) if (l.partnerUid != null) verifyUids.add(l.partnerUid);
+        com.callx.app.utils.VerifiedBadgeUtils.prefetch(verifyUids);
         if (adapter != null) adapter.notifyDataSetChanged();
         if (emptyState != null)
             emptyState.setVisibility(logs.isEmpty() ? View.VISIBLE : View.GONE);

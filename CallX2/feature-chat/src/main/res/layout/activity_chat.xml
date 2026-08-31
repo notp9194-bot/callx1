@@ -936,16 +936,32 @@
                     android:clickable="true"
                     android:focusable="true">
 
-                    <TextView
-                        android:id="@+id/tv_partner_name"
+                    <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Contact Name"
-                        android:textColor="@color/white"
-                        android:textSize="14sp"
-                        android:textStyle="bold"
-                        android:maxLines="1"
-                        android:ellipsize="end"/>
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/tv_partner_name"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Contact Name"
+                            android:textColor="@color/white"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:maxLines="1"
+                            android:ellipsize="end"/>
+
+                        <ImageView
+                            android:id="@+id/iv_partner_name_verified"
+                            android:layout_width="12dp"
+                            android:layout_height="12dp"
+                            android:layout_marginStart="3dp"
+                            android:src="@drawable/ic_verified_pink"
+                            android:visibility="gone"
+                            android:contentDescription="Verified"/>
+                    </LinearLayout>
 
                     <!-- Online / last-seen status only — typing no longer shown here,
                          see ll_typing_strip floating banner over the message list. -->

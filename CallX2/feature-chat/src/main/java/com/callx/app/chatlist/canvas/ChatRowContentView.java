@@ -1,13 +1,17 @@
 package com.callx.app.chatlist.canvas;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.text.TextPaint;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.View;
+
+import androidx.core.content.ContextCompat;
 
 /**
  * ChatRowContentView — v90 view-tree consolidation.
@@ -63,6 +67,12 @@ public class ChatRowContentView extends View {
     private float nameBaseline = 0f; // relative to row 1's own top (y=0)
     private float timeBaseline = 0f;
 
+    // ── Verified badge (drawn right after the name) ──────────────────────
+    private boolean isVerified = false;
+    private Bitmap verifiedBadgeBitmap;
+    private final float verifiedBadgeSizePx;
+    private final float verifiedBadgeGapPx;
+
     // ── Row 2: last-message text + read-receipt ticks ────────────────────
     private final TextPaint msgPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG
             | Paint.SUBPIXEL_TEXT_FLAG | Paint.LINEAR_TEXT_FLAG);
@@ -113,6 +123,8 @@ public class ChatRowContentView extends View {
         int timeTextHeight = (int) Math.ceil(fmTime.descent - fmTime.ascent);
         nameRowHeight = Math.max(nameTextHeight, timeTextHeight);
         nameTimeGapPx = 8f * dp;
+        verifiedBadgeSizePx = 13f * dp;
+        verifiedBadgeGapPx = 3f * dp;
 
         tickSizePx = TICK_SIZE_DP * dp;
         tickGapPx  = TICK_GAP_DP  * dp;
@@ -158,6 +170,28 @@ public class ChatRowContentView extends View {
         if (timePaint.getColor() == color) return;
         timePaint.setColor(color);
         invalidate();
+    }
+
+    /** Shows/hides the verified badge right after the name. Call from VerifiedBadgeUtils. */
+    public void setVerified(boolean verified) {
+        if (this.isVerified == verified) return;
+        this.isVerified = verified;
+        if (verified && verifiedBadgeBitmap == null) {
+            verifiedBadgeBitmap = loadVerifiedBadgeBitmap(getContext());
+        }
+        nameDirty = true; // name available width changes when badge reserves space
+        invalidate();
+    }
+
+    private Bitmap loadVerifiedBadgeBitmap(Context ctx) {
+        Drawable d = ContextCompat.getDrawable(ctx, com.callx.app.core.R.drawable.ic_verified_pink);
+        if (d == null) return null;
+        int size = Math.max(1, Math.round(verifiedBadgeSizePx));
+        Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(bmp);
+        d.setBounds(0, 0, size, size);
+        d.draw(c);
+        return bmp;
     }
 
     // ── Row 2 setters (identical signatures to ChatListLastMessageView) ─
@@ -261,10 +295,16 @@ public class ChatRowContentView extends View {
 
         // ── Row 1: name + time ──
         float timeW = getTimeWidth();
-        int nameAvail = (int) (w - timeW - (timeW > 0 ? nameTimeGapPx : 0));
+        float badgeReserved = isVerified ? (verifiedBadgeSizePx + verifiedBadgeGapPx) : 0f;
+        int nameAvail = (int) (w - timeW - (timeW > 0 ? nameTimeGapPx : 0) - badgeReserved);
         rebuildNameEllipsisIfNeeded(nameAvail);
 
         canvas.drawText(ellipsizedName, 0, ellipsizedName.length(), 0f, nameBaseline, namePaint);
+        if (isVerified && verifiedBadgeBitmap != null) {
+            float nameTextWidth = namePaint.measureText(ellipsizedName, 0, ellipsizedName.length());
+            float badgeTop = nameRowHeight / 2f - verifiedBadgeSizePx / 2f;
+            canvas.drawBitmap(verifiedBadgeBitmap, nameTextWidth + verifiedBadgeGapPx, badgeTop, null);
+        }
         if (timeW > 0f) {
             canvas.drawText(rawTime, w - timeW, timeBaseline, timePaint);
         }

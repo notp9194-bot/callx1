@@ -41,17 +41,33 @@
             app:civ_border_width="2dp"
             app:civ_border_color="#33FFFFFF"/>
 
-        <TextView
-            android:id="@+id/tv_profile_card_name"
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:textColor="@color/white"
-            android:textSize="17sp"
-            android:textStyle="bold"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:text="Contact Name"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tv_profile_card_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/white"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:text="Contact Name"/>
+
+            <ImageView
+                android:id="@+id/iv_profile_card_verified"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_marginStart="4dp"
+                android:src="@drawable/ic_verified_pink"
+                android:visibility="gone"
+                android:contentDescription="Verified"/>
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tv_profile_card_handle"

@@ -180,6 +180,11 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     public void submitList(List<User> newList) {
         List<User> safe = newList == null ? Collections.emptyList() : newList;
         differ.submitList(safe);
+        // Batch-warm the verified-badge cache for this page of chats before
+        // rows bind — avoids one Firebase read per row on a fast fling.
+        List<String> uids = new ArrayList<>(safe.size());
+        for (User u : safe) if (u.uid != null) uids.add(u.uid);
+        com.callx.app.utils.VerifiedBadgeUtils.prefetch(uids);
         // Precompute runs on a background thread — main thread returns immediately.
         // By the time the diff result dispatches onBindViewHolder, most entries
         // will already be cached (precompute completes in ~10–50 ms for 100 rows).
@@ -509,6 +514,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         h.boundUser = u;
 
         h.nameTimeView.setName(u.name == null ? "User" : u.name);
+        com.callx.app.utils.VerifiedBadgeUtils.bindForUid(h.nameTimeView, h.nameTimeView::setVerified, u.uid);
 
         Long when = u.lastMessageAt != null ? u.lastMessageAt : u.lastSeen;
         // v85: ChatListTimeCache — LruCache keyed by minute, avoids SimpleDateFormat per bind

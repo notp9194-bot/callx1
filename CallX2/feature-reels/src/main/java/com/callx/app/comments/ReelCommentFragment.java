@@ -2084,6 +2084,8 @@ public class ReelCommentFragment extends Fragment {
             TextView tvLikes    = v.findViewById(R.id.tv_likes_count);
 
             if (tvName != null) tvName.setText(r.ownerName != null ? r.ownerName : "User");
+            android.widget.ImageView ivVerified = v.findViewById(R.id.iv_verified);
+            com.callx.app.utils.VerifiedBadgeUtils.bindForUid(ivVerified, r.uid);
             if (tvTime != null) tvTime.setText(formatTime(r.timestamp));
             if (tvEdited != null) tvEdited.setVisibility(r.isEdited ? View.VISIBLE : View.GONE);
 

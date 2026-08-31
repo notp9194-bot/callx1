@@ -362,6 +362,23 @@ public class CallxApp extends Application {
             // Status: 200MB dedicated cache — same pattern as Reels
             StatusVideoCacheManager.init(CallxApp.this);
 
+            // Verified-badge cache: loads previously-resolved uid→isVerified
+            // pairs from disk so a cold restart shows badges immediately
+            // instead of every list row waiting on a fresh Firebase read.
+            com.callx.app.cache.VerifiedStatusCache.init(CallxApp.this);
+            // Live invalidation for our OWN badge only (see class doc for
+            // why this isn't done for every cached uid) — an admin
+            // grant/revoke reflects instantly instead of waiting on the
+            // cache's 12h TTL.
+            try {
+                if (FirebaseAuth.getInstance().getCurrentUser() != null) {
+                    com.callx.app.cache.VerifiedStatusCache.getInstance()
+                            .listenSelf(FirebaseUtils.getCurrentUid());
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Verified-status self listener attach failed: " + e.getMessage());
+            }
+
             Log.d(TAG, "Background init complete");
         }, "app-init-bg").start();
     }

@@ -73,6 +73,7 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
         Context ctx = h.itemView.getContext();
 
         h.tvName.setText(l.partnerName == null ? "Unknown" : l.partnerName);
+        com.callx.app.utils.VerifiedBadgeUtils.bindForUid(h.ivVerified, l.partnerUid);
 
         String when = l.timestamp != null ? fmt.format(new Date(l.timestamp)) : "";
         String dur  = (l.duration != null && l.duration > 0)
@@ -348,7 +349,7 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
     static class VH extends RecyclerView.ViewHolder {
         TextView tvName, tvMeta;
         ImageButton btnCallBack, btnVideoCall;
-        ImageView ivDirection, ivStoryRing;
+        ImageView ivDirection, ivStoryRing, ivVerified;
         CircleImageView ivAvatar;
         VH(View v) {
             super(v);
@@ -359,6 +360,7 @@ public class CallHistoryAdapter extends RecyclerView.Adapter<CallHistoryAdapter.
             ivDirection  = v.findViewById(R.id.iv_direction);
             ivAvatar     = v.findViewById(R.id.iv_avatar);
             ivStoryRing  = v.findViewById(R.id.iv_story_ring);
+            ivVerified   = v.findViewById(R.id.iv_verified);
         }
     }
 }

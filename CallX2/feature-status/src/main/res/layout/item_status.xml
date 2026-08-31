@@ -64,6 +64,15 @@
                   android:maxLines="1"
                   android:ellipsize="end"/>
 
+              <ImageView
+                  android:id="@+id/iv_verified"
+                  android:layout_width="13dp"
+                  android:layout_height="13dp"
+                  android:layout_marginStart="3dp"
+                  android:src="@drawable/ic_verified_pink"
+                  android:visibility="gone"
+                  android:contentDescription="Verified"/>
+
               <!-- FIX NEW: Close Friends star badge -->
               <TextView
                   android:id="@+id/tv_cf_badge"
