@@ -11,6 +11,7 @@ import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 
 import com.callx.app.db.AppDatabase;
+import com.callx.app.utils.AppBgExecutor;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
@@ -107,7 +108,18 @@ public class ChatStatusSyncWorker extends Worker {
                     if (status != null) {
                         // Ticks-only write — never touches text/media, so no
                         // E2EE decrypt needed here (see MessageDao#updateStatusTicks doc).
-                        db.messageDao().updateStatusTicks(id, status, deliveredAt, readAt);
+                        //
+                        // THREAD FIX: Firebase's DefaultRunLoop dispatches
+                        // ValueEventListener callbacks via a Handler bound to
+                        // the MAIN Looper by default — regardless of which
+                        // thread attached the listener (doWork() runs this on
+                        // a WorkManager background thread, but that doesn't
+                        // matter here). Calling into Room directly from here
+                        // was therefore a main-thread DB access and crashed
+                        // with IllegalStateException. Route the write through
+                        // the shared background pool instead.
+                        AppBgExecutor.execute(() ->
+                                db.messageDao().updateStatusTicks(id, status, deliveredAt, readAt));
                     }
                     if ("read".equals(status)) {
                         finishOne(id, listeners, ref, remaining, allResolved);
