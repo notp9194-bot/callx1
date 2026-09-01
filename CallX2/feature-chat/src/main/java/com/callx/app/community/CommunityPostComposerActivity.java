@@ -19,7 +19,10 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.PickVisualMediaRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia;
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
@@ -93,7 +96,16 @@ public class CommunityPostComposerActivity extends AppCompatActivity {
     private Calendar scheduledCal = null;
     private TextView tvScheduledLabel;
 
-    private ActivityResultLauncher<String> mediaPicker;
+    // v141-style reuse of chat's attach-sheet picking mechanism: the system
+    // Photo Picker via PickMultipleVisualMedia, instead of a hand-rolled
+    // GetContent("image/*,video/*") call. GetContent() only accepts a single
+    // MIME type — passing a comma-joined "image/*,video/*" string is not a
+    // valid MIME type, so ACTION_GET_CONTENT resolved against it and matched
+    // nothing: the picker opened with no media visible and nothing could ever
+    // be selected, so posts always went out text-only. PickMultipleVisualMedia
+    // + PickVisualMedia.ImageAndVideo is exactly what ChatMediaController's
+    // "Gallery" attach-sheet option uses and does not have this problem.
+    private ActivityResultLauncher<PickVisualMediaRequest> mediaPicker;
     private ActivityResultLauncher<Intent> mediaEditLauncher;
 
     @Override
@@ -134,14 +146,41 @@ public class CommunityPostComposerActivity extends AppCompatActivity {
         cbAnnouncement.setVisibility(canAnnounce ? View.VISIBLE : View.GONE);
         cbAnnouncement.setChecked(defaultAnnouncement);
 
-        // Media pickers
-        mediaPicker = registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
-            if (uri == null) return;
-            if (pickedUris.size() >= MAX_MEDIA) {
+        // Media pickers — reuses the same PickMultipleVisualMedia (system Photo
+        // Picker) mechanism as chat's attach sheet (see ChatMediaController#
+        // registerPickers / #showAttachSheet's "Gallery" option) instead of the
+        // old broken GetContent("image/*,video/*") call.
+        mediaPicker = registerForActivityResult(new PickMultipleVisualMedia(MAX_MEDIA), uris -> {
+            if (uris == null || uris.isEmpty()) return;
+            for (Uri u : uris) {
+                try {
+                    getContentResolver().takePersistableUriPermission(
+                            u, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                } catch (SecurityException ignored) {
+                    // Photo Picker URIs don't always support persistable grants —
+                    // fine, they remain valid for the lifetime of this activity.
+                }
+            }
+            int remaining = MAX_MEDIA - pickedUris.size();
+            if (remaining <= 0) {
                 Toast.makeText(this, "Max " + MAX_MEDIA + " media items", Toast.LENGTH_SHORT).show();
                 return;
             }
-            launchMediaEditor(uri);
+            if (uris.size() > remaining) {
+                Toast.makeText(this, "Only added " + remaining + " — max " + MAX_MEDIA + " media items",
+                        Toast.LENGTH_SHORT).show();
+            }
+            if (uris.size() == 1) {
+                // Single pick keeps the existing crop/edit flow for images.
+                launchMediaEditor(uris.get(0));
+                return;
+            }
+            for (int i = 0; i < Math.min(uris.size(), remaining); i++) {
+                Uri u = uris.get(i);
+                String mime = getContentResolver().getType(u);
+                String type = (mime != null && mime.startsWith("video")) ? "video" : "image";
+                addMediaToStrip(u, type);
+            }
         });
         mediaEditLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -152,9 +191,12 @@ public class CommunityPostComposerActivity extends AppCompatActivity {
                     }
                 });
 
-        btnAddMedia.setOnClickListener(v -> mediaPicker.launch("image/*,video/*"));
+        PickVisualMediaRequest pickRequest = new PickVisualMediaRequest.Builder()
+                .setMediaType(PickVisualMedia.ImageAndVideo.INSTANCE)
+                .build();
+        btnAddMedia.setOnClickListener(v -> mediaPicker.launch(pickRequest));
         if (btnAddMoreMedia != null)
-            btnAddMoreMedia.setOnClickListener(v -> mediaPicker.launch("image/*,video/*"));
+            btnAddMoreMedia.setOnClickListener(v -> mediaPicker.launch(pickRequest));
 
         btnPost.setOnClickListener(v -> publishOrSchedule(false));
         if (btnSchedule != null) btnSchedule.setOnClickListener(v -> pickScheduleTime());
