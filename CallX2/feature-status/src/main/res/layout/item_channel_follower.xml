@@ -8,10 +8,19 @@
     android:background="?attr/selectableItemBackground">
 
     <de.hdodenhof.circleimageview.CircleImageView
-        android:id="@+id/iv_follower_avatar"
+        android:id="@+id/iv_follower_icon"
         android:layout_width="44dp"
         android:layout_height="44dp"
         android:src="@drawable/bg_channel_avatar_default" />
+
+    <ImageView
+        android:id="@+id/iv_follower_check"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:layout_marginStart="-10dp"
+        android:layout_marginTop="28dp"
+        android:src="@drawable/ic_check_circle"
+        android:visibility="gone" />
 
     <LinearLayout
         android:layout_width="0dp"
@@ -20,13 +29,33 @@
         android:orientation="vertical"
         android:layout_marginStart="12dp">
 
-        <TextView
-            android:id="@+id/tv_follower_name"
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="15sp"
-            android:textColor="@color/colorTextPrimary"
-            android:textStyle="normal" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tv_follower_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="15sp"
+                android:textColor="@color/colorTextPrimary"
+                android:textStyle="normal" />
+
+            <TextView
+                android:id="@+id/tv_follower_role"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:textSize="11sp"
+                android:textColor="@color/colorTextSecondary"
+                android:background="@drawable/bg_rounded_outline"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:paddingTop="1dp"
+                android:paddingBottom="1dp" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tv_follower_join_date"
@@ -35,10 +64,20 @@
             android:textSize="12sp"
             android:textColor="@color/colorTextSecondary"
             android:layout_marginTop="2dp" />
+
+        <TextView
+            android:id="@+id/tv_follower_blocked"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Blocked"
+            android:textSize="11sp"
+            android:textColor="@color/colorError"
+            android:layout_marginTop="2dp"
+            android:visibility="gone" />
     </LinearLayout>
 
     <ImageButton
-        android:id="@+id/btn_follower_more"
+        android:id="@+id/btn_follower_action"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:src="@drawable/ic_more_vert"
@@ -46,16 +85,4 @@
         android:padding="8dp"
         android:contentDescription="More options"
         android:visibility="gone" />
-
-    <!-- alias id used in ChannelFollowersActivity -->
-    <ImageView android:id="@+id/iv_follower_icon"
-        android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
-    <TextView android:id="@+id/tv_follower_role"
-        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
-    <TextView android:id="@+id/tv_follower_blocked"
-        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
-    <ImageView android:id="@+id/iv_follower_check"
-        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
-    <com.google.android.material.button.MaterialButton android:id="@+id/btn_follower_action"
-        android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone"/>
 </LinearLayout>

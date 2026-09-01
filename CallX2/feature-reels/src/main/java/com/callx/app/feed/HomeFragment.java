@@ -182,6 +182,16 @@ public class HomeFragment extends Fragment {
     private final List<HomeFeedCard> feedCards = new ArrayList<>();
     private int                currentPlayingIndex = -1;
     private boolean            isMuted = false;
+
+    // ── Photo-slideshow background audio (Home / For-You feed) ─────────────
+    // 🐛 FIX: photo posts have no videoUrl, so attachPlayerToCard() used to
+    // bail out before ever starting anything — video posts got sound via
+    // feedPlayer, photo posts got none at all. Mirrors ReelPlayerController's
+    // photoAudioPlayer (immersive Reels tab), just scoped to this fragment's
+    // single active card instead of a per-page controller.
+    private android.media.MediaPlayer feedPhotoAudioPlayer;
+    private final android.os.Handler feedPhotoAudioHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable feedPhotoAudioLoopRunnable;
     private final Handler      scrollHandler = new Handler(Looper.getMainLooper());
     /** Retry ticks for the PTS-gated reveal below — separate from
      *  scrollHandler so a pending retry can be reasoned about (and, if
@@ -1380,6 +1390,89 @@ public class HomeFragment extends Fragment {
      * Falls back to the original cold-start path on a cache miss (fast
      * scroll past the predicted next card, or scrolling backward).
      */
+    /** Starts (or restarts) background music for a photo-slideshow feed card. */
+    private void startFeedPhotoAudio(ReelModel reel) {
+        releaseFeedPhotoAudio();
+        if (reel == null || reel.musicUrl == null || reel.musicUrl.isEmpty()) return;
+
+        final int startMs = reel.musicStartMs > 0 ? reel.musicStartMs
+                          : (reel.musicStartSec > 0 ? reel.musicStartSec * 1000 : 0);
+        final int endMs   = reel.musicEndMs > 0 ? reel.musicEndMs : 0;
+        final boolean hasTrim = (endMs > startMs && endMs > 0);
+
+        try {
+            feedPhotoAudioPlayer = new android.media.MediaPlayer();
+            feedPhotoAudioPlayer.setDataSource(reel.musicUrl);
+            final android.media.MediaPlayer built = feedPhotoAudioPlayer;
+            feedPhotoAudioPlayer.setOnPreparedListener(mp -> {
+                if (feedPhotoAudioPlayer != built || !isAdded()) return;
+                try {
+                    mp.setVolume(isMuted ? 0f : 1f, isMuted ? 0f : 1f);
+                    if (startMs > 0) mp.seekTo(startMs);
+                    mp.setLooping(!hasTrim);
+                    mp.start();
+                    if (hasTrim) scheduleFeedPhotoAudioLoop(startMs, endMs);
+                } catch (Exception ignored) {}
+            });
+            feedPhotoAudioPlayer.setOnErrorListener((mp, what, extra) -> {
+                releaseFeedPhotoAudio();
+                return true;
+            });
+            feedPhotoAudioPlayer.prepareAsync();
+        } catch (Exception e) {
+            releaseFeedPhotoAudio();
+        }
+    }
+
+    /** Resumes the current photo card's audio (tap-to-play, tab-back-visible, etc). */
+    private void resumeFeedPhotoAudio(ReelModel reel) {
+        if (feedPhotoAudioPlayer == null) { startFeedPhotoAudio(reel); return; }
+        try {
+            feedPhotoAudioPlayer.setVolume(isMuted ? 0f : 1f, isMuted ? 0f : 1f);
+            if (!feedPhotoAudioPlayer.isPlaying()) feedPhotoAudioPlayer.start();
+        } catch (Exception e) {
+            startFeedPhotoAudio(reel);
+        }
+    }
+
+    private void pauseFeedPhotoAudio() {
+        cancelFeedPhotoAudioLoop();
+        if (feedPhotoAudioPlayer != null) {
+            try { if (feedPhotoAudioPlayer.isPlaying()) feedPhotoAudioPlayer.pause(); } catch (Exception ignored) {}
+        }
+    }
+
+    private void releaseFeedPhotoAudio() {
+        cancelFeedPhotoAudioLoop();
+        if (feedPhotoAudioPlayer != null) {
+            try { if (feedPhotoAudioPlayer.isPlaying()) feedPhotoAudioPlayer.stop(); } catch (Exception ignored) {}
+            try { feedPhotoAudioPlayer.release(); } catch (Exception ignored) {}
+            feedPhotoAudioPlayer = null;
+        }
+    }
+
+    private void scheduleFeedPhotoAudioLoop(int startMs, int endMs) {
+        cancelFeedPhotoAudioLoop();
+        feedPhotoAudioLoopRunnable = () -> {
+            if (feedPhotoAudioPlayer == null) return;
+            try {
+                feedPhotoAudioPlayer.seekTo(startMs);
+                if (!feedPhotoAudioPlayer.isPlaying()) feedPhotoAudioPlayer.start();
+                scheduleFeedPhotoAudioLoop(startMs, endMs);
+            } catch (Exception e) {
+                releaseFeedPhotoAudio();
+            }
+        };
+        feedPhotoAudioHandler.postDelayed(feedPhotoAudioLoopRunnable, Math.max(200, endMs - startMs));
+    }
+
+    private void cancelFeedPhotoAudioLoop() {
+        if (feedPhotoAudioLoopRunnable != null) {
+            feedPhotoAudioHandler.removeCallbacks(feedPhotoAudioLoopRunnable);
+            feedPhotoAudioLoopRunnable = null;
+        }
+    }
+
     private void attachPlayerToCard(int index) {
         if (!isAdded() || feedPlayer == null || index >= feedCards.size()) return;
         // Detach old
@@ -1424,6 +1517,11 @@ public class HomeFragment extends Fragment {
             if (old.playerView != null) old.playerView.setPlayer(null);
             if (old.endOverlay  != null) old.endOverlay.setVisibility(View.GONE);
         }
+        // Outgoing card may have been a photo-slideshow post with its own
+        // background track — stop it before promoting the next card so two
+        // cards never play music at once (releaseFeedPhotoAudio is a no-op
+        // when nothing is active).
+        releaseFeedPhotoAudio();
         if (watchTracker != null) watchTracker.onCardInactive();
         currentPlayingIndex = index;
         HomeFeedCard card = feedCards.get(index);
@@ -1459,7 +1557,20 @@ public class HomeFragment extends Fragment {
             if (uiStatePrecomputer != null) uiStatePrecomputer.precomputeFrom(currentFeedPosts, index);
         }
 
-        if (card.videoUrl == null || card.videoUrl.isEmpty()) return;
+        if (card.videoUrl == null || card.videoUrl.isEmpty()) {
+            // 🐛 FIX: photo-slideshow posts have no videoUrl and never used
+            // to reach any playback code below — silent sound, unlike the
+            // Reels tab's own photo mode. Start/resume this card's music
+            // the same way the video branch below starts feedPlayer.
+            ReelModel photoReel = index < currentFeedPosts.size() ? currentFeedPosts.get(index) : null;
+            if (autoplayPolicy.shouldAutoplay(getContext())) {
+                userPausedActiveCard = false;
+                startFeedPhotoAudio(photoReel);
+            } else {
+                userPausedActiveCard = true;
+            }
+            return;
+        }
         if (card.endOverlay != null) card.endOverlay.setVisibility(View.GONE);
 
         com.callx.app.player.AdaptiveStreamingManager mgr =
@@ -1618,6 +1729,18 @@ public class HomeFragment extends Fragment {
         }
         HomeFeedCard card = feedCards.get(index);
         if (card == null) return;
+        // Photo-slideshow cards have no video, so tap-to-pause/-play toggles
+        // the background track instead of the (unattached) feedPlayer.
+        if (card.videoUrl == null || card.videoUrl.isEmpty()) {
+            if (feedPhotoAudioPlayer != null && feedPhotoAudioPlayer.isPlaying()) {
+                userPausedActiveCard = true;
+                pauseFeedPhotoAudio();
+                showCardPlayOverlay(card, true);
+            } else {
+                resumeActiveCard(index);
+            }
+            return;
+        }
         if (feedPlayer.isPlaying()) {
             userPausedActiveCard = true;
             feedPlayer.pause();
@@ -1632,11 +1755,18 @@ public class HomeFragment extends Fragment {
 
     /** Starts (or restarts) the active card, hiding the tap-to-play overlay. */
     private void resumeActiveCard(int index) {
-        if (feedPlayer == null || index < 0 || index >= feedCards.size()) return;
+        if (index < 0 || index >= feedCards.size()) return;
         HomeFeedCard card = feedCards.get(index);
         if (card == null) return;
         userPausedActiveCard = false;
         if (card.endOverlay != null) card.endOverlay.setVisibility(View.GONE);
+        if (card.videoUrl == null || card.videoUrl.isEmpty()) {
+            ReelModel photoReel = index < currentFeedPosts.size() ? currentFeedPosts.get(index) : null;
+            resumeFeedPhotoAudio(photoReel);
+            showCardPlayOverlay(card, false);
+            return;
+        }
+        if (feedPlayer == null) return;
         feedPlayer.setPlayWhenReady(true);
         feedPlayer.play();
         if (watchTracker != null) watchTracker.onCardActive(card.reelId);
@@ -2125,6 +2255,7 @@ public class HomeFragment extends Fragment {
         stopProgressTicker();
         if (watchTracker != null) watchTracker.onCardInactive();
         if (feedPlayer != null) feedPlayer.pause();
+        pauseFeedPhotoAudio();
         // stop() drops a standby player back to STATE_IDLE (needs a fresh
         // prepare() before it's playable again), so the tracked index/url
         // must be cleared too or the next attachPlayerToCard() would try to
@@ -2150,7 +2281,17 @@ public class HomeFragment extends Fragment {
      * onResume() used to when this fragment was only ever created already-visible.
      */
     public void onTabBecameVisible() {
-        if (feedPlayer != null) {
+        HomeFeedCard activeCard = (currentPlayingIndex >= 0 && currentPlayingIndex < feedCards.size())
+            ? feedCards.get(currentPlayingIndex) : null;
+        boolean activeCardIsPhoto = activeCard != null
+            && (activeCard.videoUrl == null || activeCard.videoUrl.isEmpty());
+        if (activeCardIsPhoto) {
+            if (!userPausedActiveCard) {
+                ReelModel photoReel = currentPlayingIndex < currentFeedPosts.size()
+                    ? currentFeedPosts.get(currentPlayingIndex) : null;
+                resumeFeedPhotoAudio(photoReel);
+            }
+        } else if (feedPlayer != null) {
             if (currentPlayingIndex >= 0) {
                 if (!userPausedActiveCard) { feedPlayer.play(); startProgressTicker(); }
             } else if (!currentFeedPosts.isEmpty()) {
@@ -2184,6 +2325,7 @@ public class HomeFragment extends Fragment {
         stopProgressTicker();
         if (watchTracker != null) watchTracker.onCardInactive();
         if (feedPlayer != null) feedPlayer.pause();
+        pauseFeedPhotoAudio();
     }
 
     @Override public void onDestroyView() {
@@ -2223,6 +2365,7 @@ public class HomeFragment extends Fragment {
         }
         standbyNextIndex = -1; standbyNextUrl = null;
         standbyPrevIndex = -1; standbyPrevUrl = null;
+        releaseFeedPhotoAudio();
         attachStartTimeMs = 0L;
         // Release our listener only — ReelThermalManager is a process-lifetime
         // singleton shared with the Reels tab, so it must NOT be torn down here.
@@ -4241,6 +4384,9 @@ public class HomeFragment extends Fragment {
             btnMute.setOnClickListener(x -> {
                 isMuted = !isMuted;
                 if (feedPlayer != null) feedPlayer.setVolume(isMuted ? 0f : 1f);
+                if (feedPhotoAudioPlayer != null) {
+                    try { feedPhotoAudioPlayer.setVolume(isMuted ? 0f : 1f, isMuted ? 0f : 1f); } catch (Exception ignored) {}
+                }
                 btnMute.setImageResource(isMuted
                     ? R.drawable.ic_volume_off : R.drawable.ic_volume_on);
             });

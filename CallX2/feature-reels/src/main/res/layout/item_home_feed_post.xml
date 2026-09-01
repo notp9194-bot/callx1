@@ -15,7 +15,12 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:layout_marginBottom="2dp"><!-- PERF: no background here on purpose.
+    android:layout_marginBottom="12dp"><!-- 🐛 FIX: was 2dp — Post feed's separate header row adds
+        ~10dp of its own top padding before the next card's content starts, so its
+        cards read as visibly separated. Home feed's header is overlaid ON the video
+        (no such padding), so 2dp made back-to-back reels look like one continuous
+        video with no boundary — bumped to 12dp to match Post feed's effective gap.
+        PERF: no background here on purpose.
         fragment_home's root is already @color/background_light, so painting
         the same colour again per card is a full extra overdraw pass over the
         entire feed area on every frame. The video block below draws its own
