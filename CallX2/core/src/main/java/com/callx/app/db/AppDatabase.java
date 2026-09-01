@@ -62,9 +62,11 @@ import com.callx.app.db.entity.*;
         ReelWatchHistoryCacheEntity.class,
         // Offline cache for the Trending Audio browser (v50) — instant
         // reopen instead of a fresh Firebase read every time.
-        TrendingAudioCacheEntity.class
+        TrendingAudioCacheEntity.class,
+        // v54: durable per-chat compound message sync cursors.
+        MessageSyncStateEntity.class
     },
-    version = 53,
+    version = 55,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -78,6 +80,7 @@ public abstract class AppDatabase extends RoomDatabase {
     public abstract GroupDao            groupDao();
     public abstract GroupMemberDao      groupMemberDao();
     public abstract MessageDao          messageDao();
+    public abstract MessageSyncStateDao messageSyncStateDao();
     public abstract CallLogDao          callLogDao();
     public abstract ScheduledMessageDao scheduledMessageDao();
     public abstract StatusDao           statusDao();
@@ -706,6 +709,40 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** v54: durable per-chat (timestamp, messageId) Firebase sync cursor. */
+    static final Migration MIGRATION_53_54 = new Migration(53, 54) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS message_sync_state (" +
+                    "chatId TEXT NOT NULL, " +
+                    "cursorTimestamp INTEGER NOT NULL DEFAULT 0, " +
+                    "cursorMessageId TEXT, " +
+                    "updatedAt INTEGER NOT NULL DEFAULT 0, " +
+                    "PRIMARY KEY(chatId))");
+        }
+    };
+
+    /**
+     * v55: GAP FIX (#1 — true server cursor). Adds the server-assigned
+     * per-chat `seq` (see Message#seq / functions/index.js#assignMessageSeq)
+     * to both the messages table and the sync-cursor table, so a seq-anchored
+     * cursor persists across app restarts instead of needing to be
+     * re-derived. Both columns are nullable with no default beyond SQLite's
+     * implicit NULL — existing rows simply have no seq until their chat's
+     * next delta sync picks one up, exactly the same "not backfilled,
+     * upgrades opportunistically" behavior as the server side (see the
+     * Cloud Function's BACKWARD COMPAT note).
+     */
+    static final Migration MIGRATION_54_55 = new Migration(54, 55) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN seq INTEGER");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_chatId_seq " +
+                    "ON messages (chatId, seq)");
+            db.execSQL("ALTER TABLE message_sync_state ADD COLUMN cursorSeq INTEGER");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -765,7 +802,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47,
                                     MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50,
                                     MIGRATION_50_51, MIGRATION_51_52,
-                                    MIGRATION_52_53)
+                                    MIGRATION_52_53, MIGRATION_53_54,
+                                    MIGRATION_54_55)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

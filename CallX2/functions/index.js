@@ -73,7 +73,83 @@ exports.onDevicePairingApproved = functions.database
   });
 
 /**
- * Housekeeping: every 5 minutes, delete pairing QR sessions that expired
+ * GAP FIX (#1 — "true server cursor nahi hai"):
+ * =============================================
+ * The Android delta-sync cursor (see ChatRepository#syncMessagesDelta and
+ * CacheManager#getLastSyncCursor) has always been a client-derived
+ * (timestamp, messageId) compound key. That's a solid *keyset* cursor for
+ * pagination — no two rows ever collide — but it's NOT a real ack/sequence
+ * token, because `timestamp` is written by whichever device sent the
+ * message: offline send-queue flushes, multi-device clock skew, or just
+ * two people typing at once can all produce a client-side ordering that
+ * doesn't match "the order the server actually durably received them in."
+ *
+ * This function is the minimal piece that fixes that: the moment a new
+ * message node is created, atomically hand it the next integer in a
+ * per-chat counter using an RTDB transaction. `chatSeqCounters/{chatId}`
+ * is a single integer per chat — `transaction()` guarantees the increment
+ * is race-free even when two messages are written to the same chat by two
+ * different clients in the same instant (the exact case a client-only
+ * counter can't get right). `seq` is therefore a genuine, monotonic,
+ * gap-free (per chat) server-issued cursor — the Android client stores it
+ * in `message_sync_state.cursorSeq` (see MIGRATION_54_55 in AppDatabase)
+ * and, once a chat has one, queries `orderByChild("seq").startAt(seq)`
+ * instead of the timestamp-based query.
+ *
+ * BACKWARD COMPAT: existing messages written before this function was
+ * deployed have no `seq` and are NOT backfilled by this function (a
+ * one-time backfill script walking the whole `messages` tree is a
+ * separate, explicit operational step — see the deploy note below, not
+ * something to run automatically on every deploy). The Android client
+ * already handles this: any chat whose stored cursor predates this
+ * feature has no `cursorSeq` yet, so it keeps using the timestamp cursor
+ * until a fresh full resync (or this function catching up on that chat's
+ * next new message) gives it a seq to switch to.
+ *
+ * DEPLOY NOTE: to backfill *existing* chats instead of only new messages
+ * going forward, run a one-off script that, per chatId, walks
+ * `messages/{chatId}` ordered by `timestamp` ascending and writes
+ * `seq: 1, 2, 3, ...` in that order, then seeds
+ * `chatSeqCounters/{chatId}` to the final count — intentionally not
+ * included here since it's a single-run migration, not steady-state
+ * function code, and shouldn't risk re-running on every `firebase deploy`.
+ */
+const MESSAGE_PATH = "/messages/{chatId}/{messageId}";
+
+exports.assignMessageSeq = functions.database
+  .ref(MESSAGE_PATH)
+  .onCreate(async (snapshot, context) => {
+    const { chatId, messageId } = context.params;
+    const message = snapshot.val();
+    if (!message) return null;
+    if (message.seq !== undefined && message.seq !== null) {
+      // Already has one — a retried trigger invocation, or a client that
+      // (incorrectly) set its own seq. Never let a client-supplied value
+      // stand in for the authoritative one; still, don't reassign it.
+      return null;
+    }
+
+    const counterRef = getDatabase().ref(`chatSeqCounters/${chatId}`);
+    try {
+      const result = await counterRef.transaction((current) => (current || 0) + 1);
+      if (!result.committed) {
+        console.error(`seq transaction did not commit for chat=${chatId} message=${messageId}`);
+        return null;
+      }
+      const seq = result.snapshot.val();
+      await snapshot.ref.update({ seq, seqAssignedAt: ServerValue.TIMESTAMP });
+    } catch (err) {
+      // Don't let a seq-assignment failure ever touch the message itself —
+      // the message the user sent is already durably written; this is a
+      // best-effort enrichment on top of it. A message that never gets a
+      // seq just keeps falling back to timestamp-based sync for that one
+      // message, same as pre-migration history.
+      console.error(`Failed to assign seq for chat=${chatId} message=${messageId}:`, err);
+    }
+    return null;
+  });
+
+
  * without ever being approved (the web client regenerates its QR locally
  * long before this runs — this just keeps the database tidy).
  */

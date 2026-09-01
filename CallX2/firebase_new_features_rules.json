@@ -35,6 +35,14 @@
         ".read": "auth != null",
         ".write": "auth != null && auth.uid === $uid"
       }
+    },
+
+    "_comment_chatSeqCounters": "GAP FIX #1 (true server cursor) — chatSeqCounters/{chatId} backs the assignMessageSeq Cloud Function (functions/index.js). Clients only ever need to READ a chat's current counter for diagnostics; they must NEVER write it directly — the whole point of the transaction() in the function is that it's the single authority handing out seq numbers, and a client write here would let two devices race an increment outside that transaction and hand out a duplicate/out-of-order seq. Writes come only from the Admin-privileged Cloud Function, which bypasses these rules entirely — so .write stays false for everyone, always.",
+    "chatSeqCounters": {
+      "$chatId": {
+        ".read": "auth != null",
+        ".write": false
+      }
     }
   }
 }

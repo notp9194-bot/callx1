@@ -88,7 +88,10 @@ public class MessageRemoteMediator extends RxRemoteMediator<MessageCursor, Messa
                     .onErrorReturn(MediatorResult.Error::new);
         }
 
-        return repository.fetchOlderMessagesFromFirebase(chatId, oldestLoaded.timestamp, pageSize)
+        return repository.fetchOlderMessagesFromFirebase(
+                        chatId,
+                        new MessageCursor(oldestLoaded.timestamp, oldestLoaded.id),
+                        pageSize)
                 .map(insertedCount -> {
                     boolean endReached = insertedCount < pageSize;
                     return (MediatorResult) new MediatorResult.Success(endReached);

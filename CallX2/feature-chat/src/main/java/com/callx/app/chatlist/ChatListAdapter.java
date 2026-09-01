@@ -222,9 +222,10 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         Long last = sLastPreloadAt.get(chatId);
         if (last != null && (now - last) < PRELOAD_COOLDOWN_MS) return;
         sLastPreloadAt.put(chatId, now);
-        ChatRepository repo = ChatRepository.getInstance(ctx.getApplicationContext());
-        repo.warmLastMessagesCache(chatId);
-        repo.syncMessagesDelta(chatId);
+        ChatRepository.getInstance(ctx.getApplicationContext()).warmLastMessagesCache(chatId);
+        // ChatActivity owns the live listener for the opened chat. Do not
+        // start another pull from every recycled row; background preload
+        // remains centralized in ChatRepository.preloadRecentChats().
     }
 
     public interface SelectionListener {

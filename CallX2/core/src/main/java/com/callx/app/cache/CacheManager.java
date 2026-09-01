@@ -8,8 +8,12 @@ import android.util.Log;
 import androidx.annotation.WorkerThread;
 
 import com.callx.app.db.AppDatabase;
+import com.callx.app.db.entity.MessageSyncStateEntity;
 import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.db.entity.UserEntity;
+import com.callx.app.models.Message;
+import com.callx.app.utils.MessageEntityMapper;
+import com.callx.app.db.paging.MessageCursor;
 import com.bumptech.glide.Glide;
 
 import java.io.File;
@@ -174,9 +178,19 @@ public class CacheManager {
             List<String> topChats = mAnalytics.getTopChats(3);
             for (String chatId : topChats) {
                 if (mMemory.get("msg_" + chatId) == null) {
-                    List<MessageEntity> msgs = mDb.messageDao().getMessagesPaged(chatId, 50, 0);
+                    // App-start warmup must use the newest window. The old
+                    // offset query returned the oldest rows after the DAO
+                    // switched display paging to ASC order, so the instant
+                    // reopen cache was often warmed with the wrong messages.
+                    List<MessageEntity> msgs = mDb.messageDao().getLastMessagesAsc(chatId, 20);
                     if (msgs != null && !msgs.isEmpty()) {
                         mMemory.put("msg_" + chatId, msgs);
+                        List<Message> models = new ArrayList<>(msgs.size());
+                        for (MessageEntity entity : msgs) {
+                            Message model = MessageEntityMapper.toModel(entity);
+                            if (model != null) models.add(model);
+                        }
+                        LastMessagesCache.getInstance().seed(chatId, models);
                         Log.d(TAG, "Predictive preload: " + chatId);
                     }
                 }
@@ -218,13 +232,53 @@ public class CacheManager {
     // DELTA SYNC SUPPORT
     // ─────────────────────────────────────────────────────────────
 
-    // FIX #1: getLastSyncTimestamp() does a synchronous Room DB query (getLastTimestamp).
-    // Must be called from a background thread — ChatActivity.startRealtimeListener()
-    // already wraps this in ioExecutor.execute() but the annotation enforces it at compile time.
+    /**
+     * Returns the durable compound cursor used by Firebase delta sync.
+     *
+     * Existing installations have no row in message_sync_state. For those
+     * installs, seed a temporary same-timestamp cursor from the newest local
+     * message. The empty id intentionally causes the first post-upgrade sync
+     * to reconcile every message sharing that timestamp instead of skipping it.
+     */
+    @WorkerThread
+    public MessageCursor getLastSyncCursor(String chatId) {
+        MessageSyncStateEntity state = mDb.messageSyncStateDao().get(chatId);
+        if (state != null && state.cursorMessageId != null) {
+            return new MessageCursor(state.cursorTimestamp, state.cursorMessageId, state.cursorSeq);
+        }
+
+        List<MessageEntity> latest = mDb.messageDao().getMessagesLatestDesc(chatId, 1);
+        if (latest == null || latest.isEmpty()) return null;
+        MessageEntity newest = latest.get(0);
+        if (newest == null || newest.timestamp == null || newest.id == null) return null;
+
+        // Empty id is a bootstrap sentinel: include all rows at newest.timestamp.
+        // GAP FIX (#1): seed the seq too if the newest local row already has
+        // one (e.g. restored from a backup/second install after this feature
+        // shipped) — otherwise this bootstrap cursor stays timestamp-only
+        // and upgrades to seq the moment the first delta sync lands one.
+        return new MessageCursor(newest.timestamp, "", newest.seq);
+    }
+
+    /**
+     * Compatibility accessor for older callers. New sync code must use the
+     * compound cursor above.
+     */
     @WorkerThread
     public long getLastSyncTimestamp(String chatId) {
-        Long ts = mDb.messageDao().getLastTimestamp(chatId);
-        return ts != null ? ts : 0L;
+        MessageCursor cursor = getLastSyncCursor(chatId);
+        return cursor != null ? cursor.timestamp : 0L;
+    }
+
+    @WorkerThread
+    public void advanceSyncCursor(String chatId, long timestamp, String messageId) {
+        mDb.messageSyncStateDao().advance(chatId, timestamp, messageId, null);
+    }
+
+    /** GAP FIX (#1): seq-aware advance — see MessageSyncStateDao#advance. */
+    @WorkerThread
+    public void advanceSyncCursor(String chatId, long timestamp, String messageId, Long seq) {
+        mDb.messageSyncStateDao().advance(chatId, timestamp, messageId, seq);
     }
 
     // ─────────────────────────────────────────────────────────────

@@ -161,12 +161,27 @@ public class SyncWorker extends Worker {
 
             // ── Step 3 (HEAVY ONLY): Full cleanup + DB prune ─────────────
             if (isHeavy) {
-                // Prune old messages (keep last 200 per chat)
+                // GAP FIX (#3 — offline history loss): this used to
+                // unconditionally hard-delete every chat down to 200
+                // messages on every heavy periodic sync, regardless of
+                // whether the device needed the space — the single biggest
+                // contributor to "old messages offline nahi milte" since it
+                // ran silently in the background with no user action at
+                // all. Now gated on real storage pressure (see
+                // DeviceStorageUtils) and, when it does trigger, prunes to
+                // a much more generous floor (2000) instead of 200 — this
+                // stays a genuine last-resort disk-space measure, not a
+                // routine history cap.
                 if (chats != null) {
-                    for (ChatEntity chat : chats) {
-                        repo.pruneOldMessages(chat.chatId, 200);
+                    if (com.callx.app.utils.DeviceStorageUtils.isDeviceStorageLow(ctx)) {
+                        for (ChatEntity chat : chats) {
+                            repo.pruneOldMessages(chat.chatId, 2000);
+                        }
+                        Log.d(TAG, "DB pruned for " + chats.size() + " chats (low storage)");
+                    } else {
+                        Log.d(TAG, "Skipped DB prune for " + chats.size()
+                                + " chats — storage not low");
                     }
-                    Log.d(TAG, "DB pruned for " + chats.size() + " chats");
                 }
 
                 // ── AUTO-DELETE ENFORCEMENT ────────────────────────────────

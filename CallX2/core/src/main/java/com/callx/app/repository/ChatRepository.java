@@ -9,6 +9,7 @@ import androidx.lifecycle.MutableLiveData;
 import com.callx.app.cache.CacheManager;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
+import com.callx.app.db.paging.MessageCursor;
 import com.callx.app.db.entity.UserEntity;
 import com.callx.app.models.Message;
 import com.callx.app.models.User;
@@ -22,6 +23,7 @@ import com.google.firebase.database.ValueEventListener;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 
 /**
@@ -44,6 +46,10 @@ public class ChatRepository {
     private final ExecutorService mExecutor;
     private final FirebaseDatabase mFirebase;
     private final Context mAppContext;
+    // One network delta request per chat at a time, regardless of whether it
+    // was requested by Room observation, preload, network recovery, or
+    // WorkManager. The realtime chat listener remains the live-update path.
+    private final ConcurrentHashMap<String, Boolean> mSyncInFlight = new ConcurrentHashMap<>();
 
     private ChatRepository(Context ctx) {
         mCache      = CacheManager.getInstance(ctx);
@@ -142,13 +148,18 @@ public class ChatRepository {
     }
 
     public void syncMessagesDelta(String chatId) {
+        if (chatId == null || chatId.isEmpty()) return;
+        if (mSyncInFlight.putIfAbsent(chatId, Boolean.TRUE) != null) {
+            Log.d(TAG, "Delta sync already in flight — coalescing chatId=" + chatId);
+            return;
+        }
         mExecutor.execute(() -> {
             // TraceSectionMetric("ChatRepo#syncDelta") — full Firebase delta sync
             // wall time per chat open (background thread). Measures network +
             // Room insert. If > 2s consistently → consider WebSocket or push-triggered
             // sync instead of open-triggered pull.
-            long lastTs = mCache.getLastSyncTimestamp(chatId);
-            Log.d(TAG, "Delta sync chatId=" + chatId + " since=" + lastTs);
+            MessageCursor cursor = mCache.getLastSyncCursor(chatId);
+            Log.d(TAG, "Delta sync chatId=" + chatId + " since=" + cursor);
 
             // FIX: startAfter(null, "timestamp") is invalid Firebase syntax when lastTs==0.
             // When no prior sync: use limitToLast to get the most recent PAGE_SIZE messages.
@@ -163,56 +174,124 @@ public class ChatRepository {
             // separately via DB#insertMessages in the onDataChange callback).
             android.os.Trace.beginSection("ChatRepo#syncDelta");
             try {
-                if (lastTs == 0) {
+                if (cursor == null) {
                     query = mFirebase.getReference("messages")
                         .child(chatId)
                         .orderByChild("timestamp")
                         .limitToLast(PAGE_SIZE);
+                } else if (cursor.hasSeq()) {
+                    // GAP FIX (#1 — true server cursor): once this chat has a
+                    // server-assigned seq to anchor on, prefer it outright —
+                    // startAt(seq) on the "seq" index is a genuine ack-style
+                    // cursor (see Message#seq), not a client-derived keyset
+                    // approximation. inclusive startAt is fine here the same
+                    // way it is for the timestamp path below: the isAfter()
+                    // check in onDataChange still filters out the boundary
+                    // row itself using seq comparison.
+                    query = mFirebase.getReference("messages")
+                        .child(chatId)
+                        .orderByChild("seq")
+                        .startAt((double) cursor.seq)
+                        .limitToFirst(PAGE_SIZE);
                 } else {
                     query = mFirebase.getReference("messages")
                         .child(chatId)
                         .orderByChild("timestamp")
-                        .startAfter((double) lastTs)
-                        .limitToLast(PAGE_SIZE);
+                        // Inclusive start + client-side id filtering is the
+                        // RTDB equivalent of a (timestamp, id) keyset cursor.
+                        // limitToFirst catches up oldest-first instead of
+                        // jumping over a burst larger than PAGE_SIZE.
+                        .startAt((double) cursor.timestamp)
+                        .limitToFirst(PAGE_SIZE);
                 }
             } finally {
                 android.os.Trace.endSection();
             }
 
+            final boolean seqAnchored = cursor != null && cursor.hasSeq();
+
             query.addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override
                 public void onDataChange(DataSnapshot snapshot) {
                     List<MessageEntity> newMessages = new ArrayList<>();
+                    long maxTimestamp = Long.MIN_VALUE;
+                    String maxId = null;
+                    Long maxSeq = null;
                     for (DataSnapshot child : snapshot.getChildren()) {
                         Message m = child.getValue(Message.class);
                         if (m == null) continue;
                         if (m.id == null) m.id = child.getKey();
-                        newMessages.add(toEntity(m, chatId));
+                        if (m.id == null || m.timestamp == null) continue;
+
+                        boolean isNew = seqAnchored
+                                ? isAfterSeq(m, cursor)
+                                : (cursor == null || isAfter(m.timestamp, m.id, cursor));
+                        if (isNew) {
+                            newMessages.add(toEntity(m, chatId));
+                        }
+                        // Track the newest row in this batch by whichever
+                        // ordering this query actually ran under, so the
+                        // cursor we advance to matches the query's own
+                        // ordering instead of silently mixing the two.
+                        if (seqAnchored) {
+                            if (m.seq != null && (maxSeq == null || m.seq > maxSeq)) {
+                                maxSeq = m.seq;
+                                maxTimestamp = m.timestamp;
+                                maxId = m.id;
+                            }
+                        } else if (maxId == null || isAfter(m.timestamp, m.id,
+                                new MessageCursor(maxTimestamp, maxId))) {
+                            maxTimestamp = m.timestamp;
+                            maxId = m.id;
+                            maxSeq = m.seq;
+                        }
                     }
-                    if (!newMessages.isEmpty()) {
-                        mExecutor.execute(() -> {
+                    final long finalMaxTimestamp = maxTimestamp;
+                    final String finalMaxId = maxId;
+                    final Long finalMaxSeq = maxSeq;
+                    mExecutor.execute(() -> {
+                        try {
                             // TraceSectionMetric("DB#insertMessages") — Room bulk insert
                             // cost per delta sync batch. Target: < 50ms for PAGE_SIZE=50
                             // rows. If > 100ms, chatId+timestamp index likely missing —
                             // verify MIGRATION_17_18 ran on this device.
                             android.os.Trace.beginSection("DB#insertMessages");
                             try {
+                            if (!newMessages.isEmpty()) {
                                 mDb.messageDao().insertMessages(newMessages);
+                            }
+                            if (finalMaxId != null) {
+                                mCache.advanceSyncCursor(chatId, finalMaxTimestamp, finalMaxId, finalMaxSeq);
+                            }
                             } finally {
                                 android.os.Trace.endSection();
                             }
                             mCache.invalidateMessages(chatId);
-                            Log.d(TAG, "Delta sync: inserted " + newMessages.size() + " new messages for " + chatId);
-                        });
-                    }
+                            Log.d(TAG, "Delta sync: inserted " + newMessages.size()
+                                    + " new messages for " + chatId);
+                        } finally {
+                            mSyncInFlight.remove(chatId);
+                        }
+                    });
                 }
 
                 @Override
                 public void onCancelled(DatabaseError error) {
                     Log.w(TAG, "Delta sync cancelled: " + error.getMessage());
+                    mSyncInFlight.remove(chatId);
                 }
             });
         });
+    }
+
+    private static boolean isAfterSeq(Message m, MessageCursor cursor) {
+        return m.seq != null && cursor.seq != null && m.seq > cursor.seq;
+    }
+
+    private static boolean isAfter(Long timestamp, String id, MessageCursor cursor) {
+        if (timestamp == null || id == null || cursor == null) return false;
+        return timestamp > cursor.timestamp
+                || (timestamp == cursor.timestamp && id.compareTo(cursor.id) > 0);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -270,6 +349,11 @@ public class ChatRepository {
                     mExecutor.execute(() -> {
                         if (!initial.isEmpty()) {
                             mDb.messageDao().insertMessages(initial);
+                            MessageEntity newest = initial.get(initial.size() - 1);
+                            if (newest.timestamp != null && newest.id != null) {
+                                mCache.advanceSyncCursor(
+                                        chatId, newest.timestamp, newest.id, newest.seq);
+                            }
                             mCache.invalidateMessages(chatId);
                         }
                         if (!emitter.isDisposed()) emitter.onSuccess(initial.size());
@@ -285,12 +369,14 @@ public class ChatRepository {
     }
 
     public io.reactivex.rxjava3.core.Single<Integer> fetchOlderMessagesFromFirebase(
-            String chatId, long beforeTimestamp, int pageSize) {
+            String chatId, MessageCursor beforeCursor, int pageSize) {
         return io.reactivex.rxjava3.core.Single.<Integer>create(emitter -> {
             Query query = mFirebase.getReference("messages")
                     .child(chatId)
                     .orderByChild("timestamp")
-                    .endBefore((double) beforeTimestamp)
+                    // Inclusive timestamp + client-side id filtering gives
+                    // Firebase the same compound boundary as Room paging.
+                    .endAt((double) beforeCursor.timestamp)
                     .limitToLast(pageSize);
 
             query.addListenerForSingleValueEvent(new ValueEventListener() {
@@ -301,7 +387,10 @@ public class ChatRepository {
                         Message m = child.getValue(Message.class);
                         if (m == null) continue;
                         if (m.id == null) m.id = child.getKey();
-                        older.add(toEntity(m, chatId));
+                        if (m.id == null || m.timestamp == null) continue;
+                        if (isBefore(m.timestamp, m.id, beforeCursor)) {
+                            older.add(toEntity(m, chatId));
+                        }
                     }
                     mExecutor.execute(() -> {
                         if (!older.isEmpty()) {
@@ -317,6 +406,12 @@ public class ChatRepository {
                 }
             });
         }).subscribeOn(io.reactivex.rxjava3.schedulers.Schedulers.io());
+    }
+
+    private static boolean isBefore(Long timestamp, String id, MessageCursor cursor) {
+        if (timestamp == null || id == null || cursor == null) return false;
+        return timestamp < cursor.timestamp
+                || (timestamp == cursor.timestamp && id.compareTo(cursor.id) < 0);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -374,40 +469,46 @@ public class ChatRepository {
         mExecutor.execute(() -> mDb.messageDao().pruneOldMessages(chatId, keepCount));
     }
 
+    /**
+     * GAP FIX (#3): the storage-pressure-gated entry point pruning call
+     * sites should use instead of {@link #pruneOldMessages} directly.
+     * Skips the delete entirely — no DB query at all, not even a read —
+     * unless {@link DeviceStorageUtils#isDeviceStorageLow} says the device
+     * genuinely needs the space back right now. `keepCount` here is
+     * intentionally much higher than the old per-open (500) / periodic
+     * (200) values: this only fires under real pressure, so when it does
+     * fire it should still leave a generous amount of recent history
+     * intact rather than clawing all the way down to a small number.
+     */
+    public void pruneOldMessagesIfLowStorage(Context ctx, String chatId, int keepCountWhenLow) {
+        if (!com.callx.app.utils.DeviceStorageUtils.isDeviceStorageLow(ctx)) return;
+        pruneOldMessages(chatId, keepCountWhenLow);
+    }
+
     // ─────────────────────────────────────────────────────────────
     // HELPERS — model ↔ entity conversion
     // ─────────────────────────────────────────────────────────────
 
     /**
      * E2EE: decrypts m.text in place if it's a ratchet envelope (1:1 chat
-     * text only — see E2EEncryptionManager). This repository is a SECOND,
-     * independent path (besides ChatActivity's live ChildEventListener)
-     * that pulls messages straight from Firebase into Room — used for the
-     * initial delta sync on chat open and for older-history pagination
-     * (MessageRemoteMediator). Both paths must decrypt before touching
-     * Room, or whichever one writes last wins the race and can silently
-     * overwrite an already-decrypted row with raw ciphertext.
+     * text only). This repository is a SECOND, independent path (besides
+     * ChatActivity's live ChildEventListener) that pulls messages straight
+     * from Firebase into Room — used for the initial delta sync on chat
+     * open and for older-history pagination (MessageRemoteMediator). Both
+     * paths must decrypt before touching Room, or whichever one writes
+     * last wins the race and can silently overwrite an already-decrypted
+     * row with raw ciphertext.
      *
-     * No chatId parsing needed to find "the partner" — m.senderId already
-     * tells us exactly who encrypted this message. Group messages
-     * (m.isGroup) and non-text types are left untouched.
+     * GAP FIX (#6): this used to be its own hand-written copy of the same
+     * logic ChatActivity#decryptIncomingIfNeeded implements — two copies of
+     * a subtle rule (own-message-echo vs. real decrypt) that could drift
+     * apart. Both now delegate to the single canonical implementation in
+     * {@link com.callx.app.sync.MessageDecryptor}, so there's exactly one
+     * place this rule lives.
      */
     private void decryptIfNeeded(Message m) {
-        if (m == null || m.text == null || m.isGroup) return;
-        if (!com.callx.app.utils.E2EEncryptionManager.isEncrypted(m.text)) return;
-
-        String currentUid = com.callx.app.utils.FirebaseUtils.getCurrentUid();
-        if (m.senderId != null && m.senderId.equals(currentUid)) {
-            // Our own message echoing back — can't decrypt our own outgoing
-            // ciphertext in reverse (see ChatActivity#cacheOwnPlaintext for
-            // why), so restore whatever we cached at send time instead.
-            String cached = com.callx.app.utils.E2EEncryptionManager
-                    .getInstance(mAppContext).takeOwnPlaintext(m.id);
-            m.text = (cached != null) ? cached : "🔒 Sent message";
-            return;
-        }
-        m.text = com.callx.app.utils.E2EEncryptionManager
-                .getInstance(mAppContext).decrypt(m.text, m.senderId, m.id);
+        com.callx.app.sync.MessageDecryptor.decryptIfNeeded(
+                mAppContext, m, com.callx.app.utils.FirebaseUtils.getCurrentUid());
     }
 
     private MessageEntity toEntity(Message m, String chatId) {

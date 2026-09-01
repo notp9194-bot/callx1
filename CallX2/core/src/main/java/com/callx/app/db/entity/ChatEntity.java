@@ -62,6 +62,12 @@ public class ChatEntity {
     public long syncedAt;
 
     /**
+     * v54: the message sync cursor is stored in message_sync_state rather
+     * than inferred from the newest Room row. Keeping it separate means
+     * pruning/edits cannot move the network cursor backwards.
+     */
+
+    /**
      * v18 IMPROVEMENT 2: Draft message persist karo.
      * Jab user type kare aur navigate away kare, yahan save hoga.
      * Wapas aane par etMessage mein auto-restore hoga.

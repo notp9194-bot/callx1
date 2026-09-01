@@ -73,6 +73,10 @@ public class MessageEntity {
     public Long   fileSize;
     public Long   duration;
     public Long   timestamp;
+    // GAP FIX (#1 — true server cursor): mirrors Message#seq — see that
+    // field's doc. Persisted so a seq-anchored delta-sync cursor survives
+    // app restart without needing to re-derive it from Firebase.
+    public Long   seq;
     public String status;         // sent | delivered | read
     /** Server timestamps for status transitions — mirrors Message.deliveredAt/readAt
      *  (TICK ADVANCE #5 / v25 fix). Needed so the Message Info dialog and read-receipt

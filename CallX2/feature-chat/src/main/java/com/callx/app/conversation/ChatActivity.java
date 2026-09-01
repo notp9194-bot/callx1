@@ -91,6 +91,7 @@ import com.callx.app.conversation.controllers.ChatContactShareController;
 import com.callx.app.conversation.controllers.ChatLocationShareController;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
+import com.callx.app.db.paging.MessageCursor;
 import com.callx.app.models.Message;
 import com.callx.app.repository.ChatRepository;
 import com.callx.app.utils.FirebaseUtils;
@@ -261,6 +262,26 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // app session ran. Fix: keep the actual Query instances these listeners
     // were attached to, and remove from THOSE in onDestroy.
     private Query               messageQuery;
+    // GAP FIX (stale edit/delete): messageQuery above is cursor-bound —
+    // orderByChild("timestamp").startAt(cursor.timestamp) — by construction
+    // it can NEVER report onChildChanged/onChildRemoved for a message whose
+    // timestamp is older than the last delta-sync cursor, because that
+    // message was never inside this query's filtered result set to begin
+    // with. Net effect without a second watcher: if a message from before
+    // the last sync gets edited or deleted on the server (or by the other
+    // device in a multi-device account) while this cursor has already moved
+    // past it, this device never finds out — the stale copy just sits in
+    // Room forever. historyQuery is a second, bounded (HISTORY_WATCH_WINDOW)
+    // listener over the same node, independent of the cursor, that exists
+    // ONLY to catch changed/removed events on that older slice. It
+    // deliberately ignores onChildAdded (messageQuery / cold delta sync /
+    // MessageRemoteMediator already own inserts) so it never duplicates
+    // work — it only ever feeds edits/deletes into the same
+    // pendingUpserts/pendingRemovals coalescing buffer messageQuery already
+    // uses, so there's no separate write path to keep in sync.
+    private Query               historyQuery;
+    private ChildEventListener  historyListener;
+    private static final int    HISTORY_WATCH_WINDOW = 200;
     // TICK FIX v2 (per-message ack, WhatsApp-style): tick sync used to be a
     // second ChildEventListener on messagesRef.orderByChild("timestamp")
     // .limitToLast(STATUS_SYNC_WINDOW) — but a Firebase ChildEventListener
@@ -772,6 +793,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         // Background cleanup (10s baad — load se compete na kare)
         //
+        // GAP FIX (#3 — offline history loss): this used to be an
+        // unconditional db.messageDao().pruneOldMessages(chatId, 500) —
+        // every single chat open hard-deleted anything beyond the last 500
+        // messages, so a chat's older history quietly disappeared from
+        // local disk on a schedule that had nothing to do with whether the
+        // device actually needed the space. Routed through
+        // ChatRepository#pruneOldMessagesIfLowStorage instead: it's now a
+        // genuine no-op (not even a DB read) unless the device is actually
+        // low on storage, and only prunes down to a much more generous
+        // floor (see keepCountWhenLow below) when it does trigger.
+        //
         // BUG FIX: pruneOldMessages() pehle turant (no delay) chal raha tha
         // har chat open pe. Yeh `messages` table pe ek DELETE query hai —
         // Room ka invalidation tracker DELETE dekh ke active PagingSource
@@ -783,9 +815,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // nahi karega.
         deferredTaskHandler.postDelayed(() -> {
             if (isFinishing() || isDestroyed()) return;
-            safeIoExecute(() -> {
-                if (db != null) db.messageDao().pruneOldMessages(chatId, 500);
-            });
+            com.callx.app.repository.ChatRepository.getInstance(getApplicationContext())
+                    .pruneOldMessagesIfLowStorage(getApplicationContext(), chatId, 2000);
         }, 10_000L);
         deferredTaskHandler.postDelayed(() -> {
             if (isFinishing() || isDestroyed()) return;
@@ -1161,6 +1192,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // never matched and left these running forever across reopens.
         if (messageQuery != null && messageListener != null)
             messageQuery.removeEventListener(messageListener);
+        // GAP FIX (stale edit/delete): historyQuery/historyListener are a
+        // separate Query instance from messageQuery (different filter
+        // params — limitToLast(HISTORY_WATCH_WINDOW) vs startAt(cursor)) —
+        // same leak risk as messageQuery above if not removed from the
+        // exact Query it was attached to.
+        if (historyQuery != null && historyListener != null)
+            historyQuery.removeEventListener(historyListener);
         // ULTRA-OPT (debounced detach): cancel any queued debounce-detach
         // runnables so they don't fire on this Handler after destroy — we're
         // about to remove every listener directly below anyway.
@@ -1596,9 +1634,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     updateOfflineBanner(false);
                     messageSender.updateSendButtonState(true);
                     messageSender.retryPendingMessages();
-                // Feature 13: flush any offline view-once deletes
-                if (viewOnceController != null) viewOnceController.flushPendingDeletes();
-                    ChatRepository.getInstance(getApplicationContext()).syncMessagesDelta(chatId);
+                    // Feature 13: flush any offline view-once deletes.
+                    if (viewOnceController != null) viewOnceController.flushPendingDeletes();
+                    // The active Firebase child listener is the single live
+                    // sync path for this chat. Do not launch a second pull
+                    // whenever Android reports network recovery.
                 });
             }
             @Override public void onLost(Network n) {
@@ -2860,22 +2900,35 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // AppDatabase pehle se warm hai (app-start fix), seedha call karo —
         // koi gating ki zaroorat nahi.
         safeIoExecute(() -> {
-            long lastTs = CacheManager.getInstance(this).getLastSyncTimestamp(chatId);
-            runOnUiThread(() -> attachFirebaseListener(lastTs));
+            MessageCursor cursor = CacheManager.getInstance(this).getLastSyncCursor(chatId);
+            runOnUiThread(() -> attachFirebaseListener(cursor));
         });
     }
 
     private void startRealtimeListener() {
         safeIoExecute(() -> {
-            long lastTs = CacheManager.getInstance(this).getLastSyncTimestamp(chatId);
-            runOnUiThread(() -> attachFirebaseListener(lastTs));
+            MessageCursor cursor = CacheManager.getInstance(this).getLastSyncCursor(chatId);
+            runOnUiThread(() -> attachFirebaseListener(cursor));
         });
     }
 
-    private void attachFirebaseListener(long lastTs) {
-        messageQuery = lastTs > 0
-                ? messagesRef.orderByChild("timestamp").startAfter((double) lastTs)
-                : messagesRef.orderByChild("timestamp").limitToLast(INITIAL_LOAD);
+    private void attachFirebaseListener(MessageCursor cursor) {
+        if (messageQuery != null && messageListener != null) {
+            messageQuery.removeEventListener(messageListener);
+        }
+        // GAP FIX (#1 — true server cursor): prefer the seq index the moment
+        // this chat's cursor has one — see MessageCursor#hasSeq / Message#seq.
+        // Falls back to the original timestamp cursor for chats that haven't
+        // synced a seq-bearing message yet (pre-migration history, or a chat
+        // whose most recent message hasn't had assignMessageSeq catch up to
+        // it yet — see that function's "brief window" note).
+        if (cursor != null && cursor.hasSeq()) {
+            messageQuery = messagesRef.orderByChild("seq").startAt((double) cursor.seq);
+        } else if (cursor != null) {
+            messageQuery = messagesRef.orderByChild("timestamp").startAt((double) cursor.timestamp);
+        } else {
+            messageQuery = messagesRef.orderByChild("timestamp").limitToLast(INITIAL_LOAD);
+        }
         com.google.firebase.database.Query query = messageQuery;
 
         messageListener = new ChildEventListener() {
@@ -2883,6 +2936,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 Message m = snapshot.getValue(Message.class);
                 if (m == null) return;
                 m.id = snapshot.getKey();
+                if (cursor != null && !isAfterSyncCursor(m, cursor)) return;
                 // PERF FIX (ultra-opt pass): decryptIncomingIfNeeded() below
                 // does real crypto (double-ratchet step) PLUS
                 // EncryptedSharedPreferences disk I/O (AES256_GCM read/write)
@@ -2972,6 +3026,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onCancelled(DatabaseError error) {}
         };
         query.addChildEventListener(messageListener);
+        attachHistoryWatcher();
 
         // ── TICK FIX v2 (per-message ack) ───────────────────────────────
         // BUG this replaces: messageListener above is attached to a DELTA
@@ -3000,6 +3055,68 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // the moment that message reaches 'read', so the live set is always
         // just "whatever's still in flight", not a fixed re-synced window.
         syncPendingStatusListeners();
+    }
+
+    /**
+     * GAP FIX (stale edit/delete on old messages): see historyQuery field
+     * doc above. Bounded to the last HISTORY_WATCH_WINDOW messages so a
+     * long-running chat doesn't keep an unbounded live socket open — that
+     * window comfortably covers "someone edited/deleted something from
+     * earlier in this session or a bit before," which is the realistic case;
+     * anything older than that reconciles on next full reopen (cursor reset)
+     * rather than live. onChildAdded is intentionally a no-op: this listener
+     * exists only to catch changes/removals, never to (re)insert — messageQuery
+     * above and the cold delta/backfill paths already own inserts, and Firebase
+     * downloads each child's full payload the instant a ChildEventListener is
+     * attached regardless of which callback we act on, so there's no bandwidth
+     * saved by skipping the attach — only by not re-processing what it fires.
+     */
+    private void attachHistoryWatcher() {
+        if (historyQuery != null && historyListener != null) {
+            historyQuery.removeEventListener(historyListener);
+        }
+        historyQuery = messagesRef.orderByChild("timestamp").limitToLast(HISTORY_WATCH_WINDOW);
+        Query hQuery = historyQuery;
+
+        historyListener = new ChildEventListener() {
+            @Override public void onChildAdded(DataSnapshot snapshot, String prev) {
+                // No-op by design — see method doc.
+            }
+            @Override public void onChildChanged(DataSnapshot snapshot, String prev) {
+                Message m = snapshot.getValue(Message.class);
+                if (m == null) return;
+                m.id = snapshot.getKey();
+                // Same off-main-thread decrypt as the primary listener — order
+                // doesn't matter here since this is strictly older/settled
+                // messages, not a live in-order ratchet stream, but keeping it
+                // off the UI thread still matters for the same reason (disk
+                // I/O in EncryptedSharedPreferences).
+                e2eeDecryptExecutor.execute(() -> {
+                    decryptIncomingIfNeeded(m);
+                    runOnUiThread(() -> {
+                        queueRoomWrite(m);
+                        if (m.senderId != null && m.senderId.equals(currentUid) && !"read".equals(m.status)) {
+                            attachPendingStatusListener(m.id);
+                        } else if ("read".equals(m.status)) {
+                            scheduleStatusListenerDetach(m.id);
+                        }
+                    });
+                });
+            }
+            @Override public void onChildRemoved(DataSnapshot snapshot) {
+                String key = snapshot.getKey();
+                if (key == null) return;
+                // Already on the main thread (Firebase's default callback
+                // thread) — same as the primary listener's onChildRemoved.
+                pendingUpserts.remove(key);
+                pendingRemovals.add(key);
+                scheduleWriteFlush();
+                detachPendingStatusListener(key);
+            }
+            @Override public void onChildMoved(DataSnapshot s, String p) {}
+            @Override public void onCancelled(DatabaseError error) {}
+        };
+        hQuery.addChildEventListener(historyListener);
     }
 
     // ULTRA-OPT: above this count, skip straight to a persistent listener per
@@ -3285,37 +3402,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * it ever reaches Room or the adapter — so everything downstream
      * (bubble rendering, chat search, export, translation, etc.) only ever
      * sees plaintext, exactly like it did before encryption existed.
-     * No-op for non-text messages and for plaintext (older/non-E2E) text.
+     *
+     * GAP FIX (#6): the actual decrypt rule (own-echo vs. real decrypt) used
+     * to be duplicated here and in ChatRepository#decryptIfNeeded — now both
+     * delegate to the single canonical {@link com.callx.app.sync.MessageDecryptor}.
+     * This method keeps only the one piece that's genuinely specific to this
+     * Activity: surfacing a security-alert bubble immediately since the chat
+     * is visibly open right now (background paths just leave the alert
+     * pending for the next time the chat opens).
      */
     private void decryptIncomingIfNeeded(Message m) {
-        if (m == null || m.text == null) return;
-        if (!com.callx.app.utils.E2EEncryptionManager.isEncrypted(m.text)) return;
-
-        // A message we sent ourselves inevitably echoes back down this same
-        // Firebase listener (chat resync on reopen, reconnect, etc.) — and
-        // what's stored on Firebase for it is ALWAYS ciphertext, by design.
-        // We can't decrypt our own outgoing ciphertext in reverse (it was
-        // sealed with our send chain, not something this device can run
-        // backwards) — instead we restore the plaintext we cached at send
-        // time. See ChatActivity#doSendTextMessage() / cacheOwnPlaintext().
-        if (m.senderId != null && m.senderId.equals(currentUid)) {
-            String cached = com.callx.app.utils.E2EEncryptionManager.getInstance(this)
-                    .takeOwnPlaintext(m.id);
-            m.text = (cached != null) ? cached : "🔒 Sent message";
-            return;
-        }
-
-        // E2EE FIX: pass m.id so E2EEncryptionManager's persisted per-message
-        // cache makes this idempotent — necessary because this same message
-        // can also be decrypted by CallxMessagingService (notification build
-        // on FCM receipt, possibly while this Activity isn't even running)
-        // and by ChatRepository's delta-sync path. Whichever of those runs
-        // first "wins" the one-time ratchet key; everyone else — including
-        // repeated calls from this same listener on later status-tick
-        // updates — gets the cached plaintext back instead of re-touching
-        // the ratchet (which would fail; see E2EEncryptionManager#decrypt).
-        m.text = com.callx.app.utils.E2EEncryptionManager.getInstance(this)
-                .decrypt(m.text, partnerUid, m.id);
+        com.callx.app.sync.MessageDecryptor.decryptIfNeeded(this, m, currentUid);
 
         // E2EE: if that decrypt just detected a genuine identity-key change
         // (see E2EEncryptionManager#persistSecurityAlert), surface it as a
@@ -3403,10 +3500,33 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             java.util.List<MessageEntity> entities = new java.util.ArrayList<>(upsertsSnapshot.size());
             for (Message m : upsertsSnapshot) entities.add(modelToEntity(m));
             db.messageDao().applyBufferedChanges(entities, removalsSnapshot, readSnapshot);
+            for (Message m : upsertsSnapshot) {
+                if (m != null && m.id != null && m.timestamp != null) {
+                    CacheManager.getInstance(getApplicationContext())
+                            .advanceSyncCursor(chatId, m.timestamp, m.id, m.seq);
+                }
+            }
 
             if (willRefresh) reanchorPagingToBottom();
             if (afterCommit != null) runOnUiThread(afterCommit);
         });
+    }
+
+    private static boolean isAfterSyncCursor(Message message, MessageCursor cursor) {
+        if (message == null || message.id == null || message.timestamp == null || cursor == null) {
+            return false;
+        }
+        // GAP FIX (#1): once the cursor has a real server seq, compare by
+        // seq alone — a message that hasn't been assigned a seq yet (see
+        // Message#seq's "brief window" note) is treated as not-yet-past-cursor
+        // rather than guessed at via timestamp, since the two orderings can
+        // legitimately disagree and seq is the one we trust.
+        if (cursor.hasSeq()) {
+            return message.seq != null && message.seq > cursor.seq;
+        }
+        return message.timestamp > cursor.timestamp
+                || (message.timestamp == cursor.timestamp
+                && message.id.compareTo(cursor.id) > 0);
     }
 
     // ─────────────────────────────────────────────────────────────────────

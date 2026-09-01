@@ -38,10 +38,25 @@ public final class MessageCursor {
 
     public final long timestamp;
     @NonNull public final String id;
+    // GAP FIX (#1 — true server cursor): server-assigned per-chat sequence
+    // number, when known (see Message#seq / functions/index.js#assignMessageSeq).
+    // Null for chats that haven't picked one up yet — see MessageCursor's
+    // class doc addendum below for how callers should treat that case.
+    @androidx.annotation.Nullable public final Long seq;
 
     public MessageCursor(long timestamp, @NonNull String id) {
+        this(timestamp, id, null);
+    }
+
+    public MessageCursor(long timestamp, @NonNull String id, @androidx.annotation.Nullable Long seq) {
         this.timestamp = timestamp;
         this.id = id;
+        this.seq = seq;
+    }
+
+    /** True once this cursor has a real server seq to sync against instead of timestamp+id. */
+    public boolean hasSeq() {
+        return seq != null;
     }
 
     @Override
@@ -49,17 +64,17 @@ public final class MessageCursor {
         if (this == o) return true;
         if (!(o instanceof MessageCursor)) return false;
         MessageCursor that = (MessageCursor) o;
-        return timestamp == that.timestamp && id.equals(that.id);
+        return timestamp == that.timestamp && id.equals(that.id) && Objects.equals(seq, that.seq);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(timestamp, id);
+        return Objects.hash(timestamp, id, seq);
     }
 
     @NonNull
     @Override
     public String toString() {
-        return "MessageCursor{timestamp=" + timestamp + ", id='" + id + "'}";
+        return "MessageCursor{timestamp=" + timestamp + ", id='" + id + "', seq=" + seq + "}";
     }
 }

@@ -39,6 +39,7 @@ import com.callx.app.chat.databinding.ActivityChatBinding;
 import com.callx.app.chat.databinding.LayoutRecordingBarBinding;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
+import com.callx.app.db.paging.MessageCursor;
 import com.callx.app.models.Message;
 import com.callx.app.repository.ChatRepository;
 import com.callx.app.utils.VoiceRecorder;
@@ -127,7 +128,20 @@ public class GroupChatActivity extends AppCompatActivity
 
     // ── Firebase refs ──────────────────────────────────────────────────────
     private DatabaseReference  groupMessagesRef;
+    private Query              messageQuery;
     private ChildEventListener messageListener;
+    // GAP FIX (stale edit/delete on old messages): messageQuery is
+    // cursor-bound (startAt(cursor.timestamp)), so it structurally can't
+    // report onChildChanged/onChildRemoved for a message older than the
+    // last delta-sync cursor — that message was never inside this query's
+    // filtered result set. historyQuery is a second, bounded
+    // (HISTORY_WATCH_WINDOW) listener over the same node, independent of
+    // the cursor, whose only job is to catch changes/removals on that
+    // older slice. See ChatActivity#attachHistoryWatcher() for the 1:1-chat
+    // twin of this fix and the full reasoning.
+    private Query              historyQuery;
+    private ChildEventListener historyListener;
+    private static final int   HISTORY_WATCH_WINDOW = 200;
 
     // ── PERF FIX: write-coalescing buffer for Firebase → Room sync ─────────
     // Same root cause as ChatActivity (1:1 chat): Firebase replays the last
@@ -652,8 +666,14 @@ public class GroupChatActivity extends AppCompatActivity
         // postDelayed callback never fires against a destroyed activity.
         readAckHandler.removeCallbacksAndMessages(null);
         setMyTyping(false);
-        if (groupMessagesRef != null && messageListener != null)
-            groupMessagesRef.removeEventListener(messageListener);
+        if (messageQuery != null && messageListener != null)
+            messageQuery.removeEventListener(messageListener);
+        // GAP FIX (stale edit/delete): historyQuery is a distinct Query
+        // instance (different filter params) from messageQuery — same
+        // per-Query removeEventListener requirement, same leak risk if
+        // skipped.
+        if (historyQuery != null && historyListener != null)
+            historyQuery.removeEventListener(historyListener);
         // PERF FIX: flush any buffered Firebase→Room writes immediately
         // instead of losing them if the debounce window hadn't fired yet.
         writeFlushHandler.removeCallbacks(writeFlushRunnable);
@@ -1305,11 +1325,13 @@ public class GroupChatActivity extends AppCompatActivity
         // thi har group chat open pe, jo messages table invalidate kar deti
         // thi aur Paging3 ko force-reload karaati thi — har baar visible
         // "reload" dikhta tha chahe data already cached ho. Ab 10s baad.
+        // GAP FIX (#3 — offline history loss): and no longer unconditional —
+        // see ChatActivity's twin comment. Only prunes under real storage
+        // pressure, and down to a much more generous floor when it does.
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
             if (isFinishing() || isDestroyed()) return;
-            ioExecutor.execute(() -> {
-                if (db != null) db.messageDao().pruneOldMessages(groupId, 500);
-            });
+            com.callx.app.repository.ChatRepository.getInstance(getApplicationContext())
+                    .pruneOldMessagesIfLowStorage(getApplicationContext(), groupId, 2000);
         }, 10_000L
         );
     }
@@ -1369,21 +1391,33 @@ public class GroupChatActivity extends AppCompatActivity
     private void startRealtimeListener() {
         // DB query MUST run on a background thread — Room forbids main-thread access.
         ioExecutor.execute(() -> {
-            long lastTs = CacheManager.getInstance(this).getLastSyncTimestamp(groupId);
-            runOnUiThread(() -> attachFirebaseListener(lastTs));
+            MessageCursor cursor = CacheManager.getInstance(this).getLastSyncCursor(groupId);
+            runOnUiThread(() -> attachFirebaseListener(cursor));
         });
     }
 
-    private void attachFirebaseListener(long lastTs) {
-        Query query = lastTs > 0
-                ? groupMessagesRef.orderByChild("timestamp").startAfter((double) lastTs)
-                : groupMessagesRef.orderByChild("timestamp").limitToLast(INITIAL_LOAD);
+    private void attachFirebaseListener(MessageCursor cursor) {
+        if (messageQuery != null && messageListener != null) {
+            messageQuery.removeEventListener(messageListener);
+        }
+        // GAP FIX (#1 — true server cursor): see ChatActivity#attachFirebaseListener
+        // for the full reasoning; same seq-preferred/timestamp-fallback logic.
+        Query query;
+        if (cursor != null && cursor.hasSeq()) {
+            query = groupMessagesRef.orderByChild("seq").startAt((double) cursor.seq);
+        } else if (cursor != null) {
+            query = groupMessagesRef.orderByChild("timestamp").startAt((double) cursor.timestamp);
+        } else {
+            query = groupMessagesRef.orderByChild("timestamp").limitToLast(INITIAL_LOAD);
+        }
+        messageQuery = query;
 
         messageListener = new ChildEventListener() {
             @Override public void onChildAdded(DataSnapshot s, String prev) {
                 Message m = s.getValue(Message.class);
                 if (m == null) return;
                 m.id = s.getKey();
+                if (cursor != null && !isAfterSyncCursor(m, cursor)) return;
                 decryptIncomingGroupTextIfNeeded(m);
                 saveToRoom(m);
                 markRead(m);
@@ -1408,6 +1442,46 @@ public class GroupChatActivity extends AppCompatActivity
             @Override public void onCancelled(DatabaseError e) {}
         };
         query.addChildEventListener(messageListener);
+        attachHistoryWatcher();
+    }
+
+    /**
+     * GAP FIX (stale edit/delete): see historyQuery field doc above. Bounded
+     * to the last HISTORY_WATCH_WINDOW messages so a long-running group
+     * doesn't hold an unbounded live socket open. onChildAdded is
+     * intentionally a no-op — messageQuery and the cold delta/backfill paths
+     * already own inserts; this listener exists only to catch edits/removals
+     * Firebase wouldn't otherwise report to a cursor-bound query.
+     */
+    private void attachHistoryWatcher() {
+        if (historyQuery != null && historyListener != null) {
+            historyQuery.removeEventListener(historyListener);
+        }
+        historyQuery = groupMessagesRef.orderByChild("timestamp").limitToLast(HISTORY_WATCH_WINDOW);
+        Query hQuery = historyQuery;
+
+        historyListener = new ChildEventListener() {
+            @Override public void onChildAdded(DataSnapshot s, String prev) {
+                // No-op by design — see method doc.
+            }
+            @Override public void onChildChanged(DataSnapshot s, String prev) {
+                Message m = s.getValue(Message.class);
+                if (m == null) return;
+                m.id = s.getKey();
+                decryptIncomingGroupTextIfNeeded(m);
+                saveToRoom(m);
+            }
+            @Override public void onChildRemoved(DataSnapshot s) {
+                String key = s.getKey();
+                if (key == null) return;
+                pendingUpserts.remove(key);
+                pendingRemovals.add(key);
+                scheduleWriteFlush();
+            }
+            @Override public void onChildMoved(DataSnapshot s, String p) {}
+            @Override public void onCancelled(DatabaseError e) {}
+        };
+        hQuery.addChildEventListener(historyListener);
     }
 
     /**
@@ -1484,6 +1558,12 @@ public class GroupChatActivity extends AppCompatActivity
             List<MessageEntity> entities = new ArrayList<>(upsertsSnapshot.size());
             for (Message m : upsertsSnapshot) entities.add(modelToEntity(m));
             db.messageDao().applyBufferedChanges(entities, removalsSnapshot, null);
+            for (Message m : upsertsSnapshot) {
+                if (m != null && m.id != null && m.timestamp != null) {
+                    CacheManager.getInstance(getApplicationContext())
+                            .advanceSyncCursor(groupId, m.timestamp, m.id, m.seq);
+                }
+            }
 
             if (willReanchor) {
                 int count = db.messageDao().getMessageCount(groupId);
@@ -1491,6 +1571,19 @@ public class GroupChatActivity extends AppCompatActivity
                 runOnUiThread(() -> attachPagerWithKey(initialKey));
             }
         });
+    }
+
+    private static boolean isAfterSyncCursor(Message message, MessageCursor cursor) {
+        if (message == null || message.id == null || message.timestamp == null || cursor == null) {
+            return false;
+        }
+        // GAP FIX (#1): see ChatActivity#isAfterSyncCursor for full reasoning.
+        if (cursor.hasSeq()) {
+            return message.seq != null && message.seq > cursor.seq;
+        }
+        return message.timestamp > cursor.timestamp
+                || (message.timestamp == cursor.timestamp
+                && message.id.compareTo(cursor.id) > 0);
     }
 
     // ─────────────────────────────────────────────────────────────────────

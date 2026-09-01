@@ -23,7 +23,7 @@ public final class MessageEntityMapper {
         m.senderPhoto = e.senderPhoto; m.text = e.text; m.type = e.type; m.mediaUrl = e.mediaUrl;
         m.imageUrl = "image".equals(e.type) ? e.mediaUrl : null; m.thumbnailUrl = e.thumbnailUrl;
         m.fileName = e.fileName; m.fileSize = e.fileSize; m.duration = e.duration;
-        m.timestamp = e.timestamp; m.status = e.status; m.replyToId = e.replyToId;
+        m.timestamp = e.timestamp; m.seq = e.seq; m.status = e.status; m.replyToId = e.replyToId;
         m.deliveredAt = e.deliveredAt; m.readAt = e.readAt;
         m.deliveredBy = GroupReceiptJsonUtil.receiptsFromJson(e.groupDeliveredByJson);
         m.readBy = GroupReceiptJsonUtil.receiptsFromJson(e.groupReadByJson);
@@ -97,6 +97,7 @@ public final class MessageEntityMapper {
         e.fileSize = m.fileSize;
         e.duration = m.duration;
         e.timestamp = m.timestamp;
+        e.seq = m.seq;
         e.status = m.status;
         e.deliveredAt = m.deliveredAt;
         e.readAt = m.readAt;

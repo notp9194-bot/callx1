@@ -43,6 +43,23 @@ public class Message {
     public Long   fileSize;
     public Long   duration;     // ms — audio/video
     public Long   timestamp;
+    // GAP FIX (#1 — true server cursor): server-assigned, monotonically
+    // increasing per-chat sequence number. Written by the
+    // `assignMessageSeq` Cloud Function (functions/index.js) via an atomic
+    // RTDB transaction on `chatSeqCounters/{chatId}` moments after the
+    // message node is created — NOT set by the client at send time, and
+    // deliberately excluded from client writes (see MessageSender). Unlike
+    // `timestamp`, which is set by whichever device sent the message and
+    // can collide or arrive out of order under clock skew/offline queuing,
+    // `seq` has a genuine total order handed out by one authority. Null on:
+    //  - messages sent before this Cloud Function was deployed (never
+    //    backfilled — see functions/index.js migration note), and
+    //  - a message in the brief window between creation and the function's
+    //    async onCreate trigger actually landing (typically well under a
+    //    second) — ChatRepository/ChatActivity fall back to the existing
+    //    (timestamp, id) cursor whenever a chat's stored cursor has no seq
+    //    yet, and pick up seq-based sync the moment the function catches up.
+    public Long   seq;
     /** Legacy field kept for backward compatibility */
     public String imageUrl;
     // Pixel dimensions of the original image/video-thumbnail, captured once
