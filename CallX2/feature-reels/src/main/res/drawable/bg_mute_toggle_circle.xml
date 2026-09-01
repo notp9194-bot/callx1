@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Circular semi-transparent backdrop for the mute toggle on Reels
+     home-feed and post-feed video tiles. Kept tight around the icon. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#55000000"/>
+</shape>

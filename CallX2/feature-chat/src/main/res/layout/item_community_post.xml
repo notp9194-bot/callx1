@@ -45,12 +45,24 @@
             android:orientation="horizontal"
             android:gravity="center_vertical">
 
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_author_avatar"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:src="@drawable/ic_person"
-                android:layout_marginEnd="10dp"/>
+            <FrameLayout
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:layout_marginEnd="10dp">
+
+                <View
+                    android:layout_width="46dp"
+                    android:layout_height="46dp"
+                    android:background="@drawable/story_ring_insta_gradient"/>
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/iv_author_avatar"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_person"/>
+
+            </FrameLayout>
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -106,7 +118,9 @@
             android:id="@+id/container_media"
             android:layout_width="match_parent"
             android:layout_height="200dp"
-            android:layout_marginTop="10dp">
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_reel_preview_rounded"
+            android:clipToOutline="true">
 
             <ImageView
                 android:id="@+id/iv_post_media"
@@ -119,11 +133,12 @@
 
             <ImageView
                 android:id="@+id/iv_play_icon"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:layout_gravity="center"
-                android:src="@drawable/ic_play_circle"
-                android:alpha="0.85"
+                android:background="@drawable/bg_circle_action"
+                android:padding="14dp"
+                android:src="@drawable/ic_play_rounded"
                 android:visibility="gone"
                 android:contentDescription="Play video"/>
 
@@ -153,9 +168,9 @@
 
             <ImageButton
                 android:id="@+id/btn_like"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="?attr/selectableItemBackgroundBorderless"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="@drawable/bg_action_btn_circle"
                 android:padding="6dp"
                 android:src="@drawable/ic_favorite_border"
                 android:contentDescription="Like"/>
@@ -164,16 +179,23 @@
                 android:id="@+id/tv_like_count"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:minWidth="22dp"
+                android:gravity="center"
+                android:background="@drawable/bg_bubble_circle"
+                android:paddingStart="7dp"
+                android:paddingEnd="7dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp"
                 android:text=""
-                android:textSize="13sp"
-                android:textColor="@color/text_muted"
-                android:layout_marginStart="4dp"/>
+                android:textSize="12sp"
+                android:textColor="#FFFFFF"
+                android:layout_marginStart="6dp"/>
 
             <ImageButton
                 android:id="@+id/btn_comment"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="?attr/selectableItemBackgroundBorderless"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="@drawable/bg_action_btn_circle"
                 android:padding="6dp"
                 android:layout_marginStart="16dp"
                 android:src="@drawable/ic_reply"
@@ -184,10 +206,17 @@
                 android:id="@+id/tv_comment_count"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:minWidth="22dp"
+                android:gravity="center"
+                android:background="@drawable/bg_bubble_circle"
+                android:paddingStart="7dp"
+                android:paddingEnd="7dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp"
                 android:text=""
-                android:textSize="13sp"
-                android:textColor="@color/text_muted"
-                android:layout_marginStart="4dp"/>
+                android:textSize="12sp"
+                android:textColor="#FFFFFF"
+                android:layout_marginStart="6dp"/>
 
         </LinearLayout>
 

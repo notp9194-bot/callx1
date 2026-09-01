@@ -230,15 +230,15 @@
         <!-- Mute toggle — sits above the audio-cover tile, only shown when the post has an attached music track -->
         <ImageButton
             android:id="@+id/btn_post_mute"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
             android:layout_gravity="bottom|end"
             android:layout_marginEnd="10dp"
             android:layout_marginBottom="46dp"
             android:src="@drawable/ic_volume_off"
             android:tint="#FFFFFF"
-            android:background="#55000000"
-            android:padding="6dp"
+            android:background="@drawable/bg_mute_toggle_circle"
+            android:padding="5dp"
             android:contentDescription="Mute"/>
 
         <!-- Audio-cover tile — reused from the immersive Reels player's right
