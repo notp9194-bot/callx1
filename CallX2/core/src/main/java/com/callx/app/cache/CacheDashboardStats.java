@@ -149,7 +149,7 @@ public final class CacheDashboardStats {
     }
 
     public synchronized void clearMemory() {
-        memoryEntries.clear();
+        memoryEntries.evictAll();
         memoryBytes = 0L;
     }
 
@@ -268,11 +268,32 @@ public final class CacheDashboardStats {
         return GLIDE_DISK_MAX_BYTES;
     }
 
-    /** Exact live Glide resource-cache usage, not an estimate based on item count. */
+    /**
+     * Exact live Glide resource-cache usage, not an estimate based on item count.
+     * BUG FIX: Glide's public API does not expose MemoryCache — Glide#getMemoryCache()
+     * does not exist (it never did; the field is private with no getter), which made
+     * this fail to compile. There is no supported public accessor, so we read the
+     * private field via reflection and degrade gracefully to a zeroed snapshot if
+     * Glide's internals ever change shape, rather than crashing the cache dashboard.
+     */
     public static GlideMemorySnapshot getGlideMemorySnapshot(Context context) {
-        com.bumptech.glide.load.engine.cache.MemoryCache cache =
-                Glide.get(context.getApplicationContext()).getMemoryCache();
-        return new GlideMemorySnapshot(cache.getCurrentSize(), cache.getMaxSize());
+        long usedBytes = 0L;
+        long maxBytes = 0L;
+        try {
+            Glide glide = Glide.get(context.getApplicationContext());
+            java.lang.reflect.Field field = Glide.class.getDeclaredField("memoryCache");
+            field.setAccessible(true);
+            com.bumptech.glide.load.engine.cache.MemoryCache cache =
+                    (com.bumptech.glide.load.engine.cache.MemoryCache) field.get(glide);
+            if (cache != null) {
+                usedBytes = cache.getCurrentSize();
+                maxBytes = cache.getMaxSize();
+            }
+        } catch (Exception e) {
+            // Reflection failed (Glide internals changed) — fall back to zeroed snapshot
+            // instead of crashing the cache dashboard.
+        }
+        return new GlideMemorySnapshot(usedBytes, maxBytes);
     }
 
     public static long getChatAvatarDiskCacheSizeBytes(Context context) {
