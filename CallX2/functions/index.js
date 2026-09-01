@@ -150,8 +150,11 @@ exports.assignMessageSeq = functions.database
   });
 
 
- * without ever being approved (the web client regenerates its QR locally
- * long before this runs — this just keeps the database tidy).
+/**
+ * Periodic sweep for stale Linked Devices pairing sessions — e.g. a QR
+ * code that sat around without ever being approved (the web client
+ * regenerates its QR locally long before this runs — this just keeps the
+ * database tidy).
  */
 exports.cleanupExpiredPairingSessions = functions.pubsub
   .schedule("every 5 minutes")
@@ -479,6 +482,68 @@ async function authProfile(uid) {
   return { uid, ...asObject(profile), ...authUser };
 }
 
+/**
+ * Resolve a moderator's free-text search into an actual Firebase Auth uid.
+ * The admin search box accepts a UID, email, phone number, CallX ID, or
+ * display name — a moderator almost never has the raw UID on hand, so
+ * treating the input as "UID or nothing" (the old behaviour) meant every
+ * realistic search came back "not found" even for real accounts.
+ * Tries, in order, the cheapest/most-exact match first and stops at the
+ * first hit. Returns null only if none of the strategies find anyone.
+ */
+async function resolveSearchToUid(rawQuery) {
+  const query = String(rawQuery || "").trim();
+  if (!query) return null;
+  const db = getDatabase();
+
+  // 1) Treat it as a Firebase Auth uid / RTDB key directly.
+  try {
+    const u = await getAuth().getUser(query);
+    return u.uid;
+  } catch (e) { /* not a uid, keep trying */ }
+
+  // 2) Email address.
+  if (query.includes("@")) {
+    try {
+      const u = await getAuth().getUserByEmail(query);
+      return u.uid;
+    } catch (e) { /* no match */ }
+  }
+
+  // 3) Phone number (accept with or without leading '+').
+  if (/^\+?[0-9]{6,15}$/.test(query)) {
+    const phone = query.startsWith("+") ? query : `+${query}`;
+    try {
+      const u = await getAuth().getUserByPhoneNumber(phone);
+      return u.uid;
+    } catch (e) { /* no match */ }
+  }
+
+  // 4) CallX ID — exact match, same field the in-app SearchActivity uses.
+  const byCallxId = await db.ref("users").orderByChild("callxId")
+    .equalTo(query).limitToFirst(1).once("value");
+  if (byCallxId.exists()) {
+    let found = null;
+    byCallxId.forEach((c) => { found = c.key; });
+    if (found) return found;
+  }
+
+  // 5) Display name — case-insensitive prefix match via nameLower, same
+  //    approach as the in-app search.
+  const lower = query.toLowerCase();
+  const rangeEnd = lower.slice(0, -1)
+    + String.fromCharCode(lower.charCodeAt(lower.length - 1) + 1);
+  const byName = await db.ref("users").orderByChild("nameLower")
+    .startAt(lower).endAt(rangeEnd + "\uf8ff").limitToFirst(1).once("value");
+  if (byName.exists()) {
+    let found = null;
+    byName.forEach((c) => { found = c.key; });
+    if (found) return found;
+  }
+
+  return null;
+}
+
 exports.adminAction = functions.https.onCall(async (data, context) => {
   const action = data && data.action;
   const payload = asObject(data && data.payload);
@@ -512,7 +577,11 @@ exports.adminAction = functions.https.onCall(async (data, context) => {
     if (!payload.uid || typeof payload.uid !== "string") {
       throw new functions.https.HttpsError("invalid-argument", "uid is required.");
     }
-    return { user: await authProfile(payload.uid) };
+    const resolvedUid = await resolveSearchToUid(payload.uid);
+    if (!resolvedUid) {
+      return { user: null };
+    }
+    return { user: await authProfile(resolvedUid) };
   }
 
   if (action === "setUserStatus") {

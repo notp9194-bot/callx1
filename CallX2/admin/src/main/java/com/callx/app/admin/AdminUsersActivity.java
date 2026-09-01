@@ -26,8 +26,8 @@ public class AdminUsersActivity extends AppCompatActivity {
         list = AdminUi.column(this);
         scroll.addView(list, new ViewGroup.LayoutParams(-1, -2));
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        list.addView(AdminUi.title(this, "Search by Firebase UID"));
-        uidField = AdminUi.field(this, "Paste a user UID");
+        list.addView(AdminUi.title(this, "Search users"));
+        uidField = AdminUi.field(this, "UID, CallX ID, email, phone, or name");
         uidField.setSingleLine(true);
         list.addView(uidField);
         list.addView(AdminUi.button(this, "Lookup profile", v -> lookup()));
@@ -38,24 +38,28 @@ public class AdminUsersActivity extends AppCompatActivity {
     }
 
     private void lookup() {
-        String uid = uidField.getText().toString().trim();
-        if (uid.isEmpty()) { AdminUi.toast(this, "Enter a UID first"); return; }
+        String query = uidField.getText().toString().trim();
+        if (query.isEmpty()) { AdminUi.toast(this, "Enter a UID, CallX ID, email, phone, or name first"); return; }
         Map<String, Object> p = new HashMap<>();
-        p.put("uid", uid);
+        p.put("uid", query);
         status.setText("Loading…");
         AdminApi.call("lookupUser", p, new AdminApi.Callback() {
-            @Override public void onSuccess(Object value) { renderUser(uid, AdminApi.map(value)); }
+            @Override public void onSuccess(Object value) { renderUser(query, AdminApi.map(value)); }
             @Override public void onError(String message) { status.setText("Lookup failed: " + message); }
         });
     }
 
-    private void renderUser(String uid, Map<String, Object> result) {
+    private void renderUser(String query, Map<String, Object> result) {
         list.removeViews(5, Math.max(0, list.getChildCount() - 5));
         if (result.isEmpty() || result.get("user") == null) {
-            status.setText("No profile found for " + uid);
+            status.setText("No profile found for " + query);
             return;
         }
         Map<String, Object> user = AdminApi.map(result.get("user"));
+        // The search box accepts UID/CallX ID/email/phone/name, so the query
+        // text is not necessarily the real uid — always act on the uid the
+        // server actually resolved and returned, never on the typed text.
+        String uid = AdminApi.text(user.get("uid"), query);
         status.setText("Profile loaded");
         com.google.android.material.card.MaterialCardView card = AdminUi.card(this);
         LinearLayout inside = AdminUi.column(this);
