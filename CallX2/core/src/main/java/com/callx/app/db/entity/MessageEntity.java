@@ -25,8 +25,7 @@ import androidx.annotation.NonNull;
         // BUG FIX: MIGRATION_54_55 creates index_messages_chatId_seq in the
         // actual DB (for seq-anchored delta-sync cursor lookups) but this
         // @Index was never declared here, so Room's expected-schema check
-        // always disagreed with the real on-disk schema — same class of
-        // bug as the groupDeliveredByJson/groupReadByJson migration gap.
+        // always disagreed with the real on-disk schema.
         @Index(value = {"chatId", "seq"})
     }
 )
