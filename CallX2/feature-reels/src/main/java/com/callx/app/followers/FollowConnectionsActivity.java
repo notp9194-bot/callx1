@@ -49,6 +49,11 @@ public class FollowConnectionsActivity extends AppCompatActivity {
     public static final String EXTRA_IS_SELF     = "is_self";
     public static final String EXTRA_START_TAB   = "start_tab";
     public static final String EXTRA_MUTUAL_UIDS = "mutual_uids";
+    // ✅ NEW: lets a caller reusing this screen for a non-follower list (e.g.
+    // "people who used this sound") rename the Mutual tab's label instead of
+    // showing "Mutual" — everything else (search, list, follow button) is
+    // reused as-is.
+    public static final String EXTRA_MUTUAL_TAB_LABEL = "mutual_tab_label";
 
     public static final int TAB_FOLLOWERS = 0;
     public static final int TAB_FOLLOWING = 1;
@@ -67,6 +72,9 @@ public class FollowConnectionsActivity extends AppCompatActivity {
     private boolean          isSelf;
     private int              startTab = TAB_FOLLOWERS;
     private ArrayList<String> mutualUidsArg = new ArrayList<>();
+    // ✅ NEW: defaults to "Mutual"; overridden when this screen is reused for
+    // a different precomputed-UID-list use case (see EXTRA_MUTUAL_TAB_LABEL).
+    private String mutualTabLabel = "Mutual";
 
     // ── Per-tab data ──────────────────────────────────────────────────────
     private static final int TAB_COUNT = 4;
@@ -99,6 +107,8 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         startTab   = getIntent().getIntExtra(EXTRA_START_TAB, TAB_FOLLOWERS);
         ArrayList<String> mu = getIntent().getStringArrayListExtra(EXTRA_MUTUAL_UIDS);
         if (mu != null) mutualUidsArg.addAll(mu);
+        String labelOverride = getIntent().getStringExtra(EXTRA_MUTUAL_TAB_LABEL);
+        if (labelOverride != null && !labelOverride.isEmpty()) mutualTabLabel = labelOverride;
 
         if (targetUid == null) { finish(); return; }
 
@@ -123,7 +133,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         viewPager.setOffscreenPageLimit(TAB_COUNT);
 
         // Connect TabLayout
-        String[] defaultLabels = {"Followers", "Following", "Mutual", "Suggested"};
+        String[] defaultLabels = {"Followers", "Following", mutualTabLabel, "Suggested"};
         new TabLayoutMediator(tabLayout, viewPager,
                 (tab, pos) -> tab.setText(defaultLabels[pos])).attach();
 
@@ -1041,7 +1051,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             if (tabLayout == null) return;
             TabLayout.Tab t = tabLayout.getTabAt(tab);
             if (t == null) return;
-            String[] labels = {"Followers", "Following", "Mutual", "Suggested"};
+            String[] labels = {"Followers", "Following", mutualTabLabel, "Suggested"};
             int c = counts[tab];
             t.setText(c > 0 ? formatCount(c) + " " + labels[tab] : labels[tab]);
         });

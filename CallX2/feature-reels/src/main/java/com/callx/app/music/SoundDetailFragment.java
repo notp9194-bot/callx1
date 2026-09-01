@@ -43,7 +43,9 @@ import androidx.recyclerview.widget.RecyclerView;
 import android.util.LruCache;
 
 import com.callx.app.cache.SoundDetailCache;
+import com.callx.app.cache.MutualFollowersCache;
 import com.bumptech.glide.Glide;
+import de.hdodenhof.circleimageview.CircleImageView;
 import com.bumptech.glide.ListPreloader;
 import com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader;
 import com.bumptech.glide.load.resource.bitmap.CircleCrop;
@@ -74,6 +76,7 @@ import com.google.firebase.database.Transaction;
 import com.google.firebase.database.ValueEventListener;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 
@@ -294,6 +297,21 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private TextView     tvAddToProfile;
     private ImageView    ivSoundTitleVerified;
     private View         btnUseSoundCamera, btnUseSoundGallery, btnAddToProfile;
+    // "Used by" row — reused UI pattern from UserReelsActivity's mutual
+    // followers row, logic = unique owners of reels made with this sound.
+    private LinearLayout    layoutSoundUsers;
+    private CircleImageView ivSoundUser1, ivSoundUser2, ivSoundUser3;
+    private TextView         tvSoundUsers;
+    private final List<String> soundUserUidsList = new ArrayList<>();
+    // PERF: soundUserUidsList stays a List (order matters — first 3 drive
+    // the avatars), but dedupe-checking against it with .contains() is
+    // O(n) per item, O(n²) overall for a large reel-set. This companion
+    // Set mirrors the same UIDs purely for O(1) "already added?" checks.
+    private final HashSet<String> soundUserUidsSeen = new HashSet<>();
+    // PERF: computed once from reelItems already fetched for the grid —
+    // guards against redoing the (cheap, in-memory) derivation on every
+    // subsequent page/live-listener append.
+    private boolean soundUsersComputed = false;
     private ImageView    ivSoundCover, ivDiscRing;
     private RecyclerView rvReels, rvRelated;
     private SoundDetailActivity.RelatedAdapter relatedAdapter;
@@ -536,6 +554,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             // onViewCreated() rather than from any async callback.
             showShimmer(false);
             restoreFromViewModel();
+            deriveSoundUsersFromReelItems(); // reelItems already populated above — no network call
         } else {
             vm.soundId = soundId; // claim this vm for this sound (fresh open)
             showShimmer(true);
@@ -543,6 +562,8 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             loadReelsForSound(true /* fetchInitialPage */);
             loadRelatedSounds();
             loadCreatorProfile();
+            // "used by" row derives from reelItems as soon as the first
+            // page lands — see finishAppendingPage() → deriveSoundUsersFromReelItems()
         }
     }
 
@@ -666,6 +687,11 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             if (videoUri == null) return;
             Intent i = new Intent(requireContext(), com.callx.app.editor.ReelEditorActivity.class);
             i.putExtra(com.callx.app.editor.ReelEditorActivity.EXTRA_VIDEO_URI, videoUri.toString());
+            // ✅ FIX: gallery gives a content:// URI, not a file path. Without this,
+            // ReelEditorActivity defaults EXTRA_IS_FILE_PATH to true and tries
+            // new File("content://...") — invalid, so the player never loads
+            // and the video shows blank in the edit screen.
+            i.putExtra(com.callx.app.editor.ReelEditorActivity.EXTRA_IS_FILE_PATH, false);
             if (!soundId.isEmpty())    i.putExtra("selected_sound_id",    soundId);
             if (!soundTitle.isEmpty()) i.putExtra("selected_sound_title", soundTitle);
             if (!soundUrl.isEmpty())   i.putExtra("selected_sound_url",   soundUrl);
@@ -797,6 +823,11 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         btnUseSoundCamera = binding.btnUseSoundCamera;
         btnUseSoundGallery= binding.btnUseSoundGallery;
         btnAddToProfile   = binding.btnAddToProfile;
+        layoutSoundUsers  = binding.layoutSoundUsers;
+        ivSoundUser1      = binding.ivSoundUser1;
+        ivSoundUser2      = binding.ivSoundUser2;
+        ivSoundUser3      = binding.ivSoundUser3;
+        tvSoundUsers      = binding.tvSoundUsers;
         tvAddToProfile    = binding.tvAddToProfile;
         ivSoundCover      = binding.ivSoundCover;
         ivDiscRing        = binding.ivDiscRing;
@@ -1486,6 +1517,134 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             });
     }
 
+    // ── "Used by" — people who used this sound (Feature reuse of Mutual
+    // Followers row/screen from UserReelsActivity) ────────────────────────
+    //
+    // Row UI: same overlapping-avatar + text pattern as
+    // UserReelsActivity#layoutMutualFollowers.
+    // Click target: reuses FollowConnectionsActivity as-is (search, list,
+    // follow button all reused) — only the UID list and tab label differ,
+    // via EXTRA_MUTUAL_UIDS + EXTRA_MUTUAL_TAB_LABEL.
+
+    /**
+     * PERF (no extra Firebase read): "used by" needs the same ownerUid data
+     * that loadReelsForSound()/loadMoreReelsForSound() already fetch for
+     * the reels grid (each ReelThumbItem carries .uid) — so instead of a
+     * second "sounds/{soundId}/reels" query duplicating that read, this
+     * derives the unique-uid list straight from reelItems already sitting
+     * in memory. Called once (see soundUsersComputed) from
+     * finishAppendingPage() as soon as the first page of reels lands, and
+     * from restoreFromViewModel() on rotation where reelItems is already
+     * fully populated synchronously.
+     */
+    private void deriveSoundUsersFromReelItems() {
+        if (isGone() || soundUsersComputed) return;
+        soundUsersComputed = true;
+        soundUserUidsList.clear();
+        soundUserUidsSeen.clear();
+        for (SoundDetailActivity.ReelThumbItem item : reelItems) {
+            if (item.uid != null && !item.uid.isEmpty() && soundUserUidsSeen.add(item.uid)) {
+                soundUserUidsList.add(item.uid);
+            }
+        }
+        fetchSoundUserProfiles();
+    }
+
+    /** Fetches name+photo for the first 3 sound-user UIDs, then shows the row. */
+    private void fetchSoundUserProfiles() {
+        if (soundUserUidsList.isEmpty()) {
+            showSoundUsers(new ArrayList<>(), new ArrayList<>());
+            return;
+        }
+        int fetchCount = Math.min(3, soundUserUidsList.size());
+        List<String> names  = new ArrayList<>(java.util.Collections.nCopies(fetchCount, (String) null));
+        List<String> photos = new ArrayList<>(java.util.Collections.nCopies(fetchCount, (String) null));
+        final int[] done = {0};
+        MutualFollowersCache profileCache = MutualFollowersCache.getInstance();
+        for (int i = 0; i < fetchCount; i++) {
+            final int index = i;
+            String uid = soundUserUidsList.get(i);
+            // PERF: shared cache (5-min TTL) — if this uid was already
+            // resolved anywhere else in the app this session (a mutual-
+            // followers row, a follow list, etc.), this is a zero-Firebase-
+            // read hit instead of a fresh getUserRef() lookup.
+            profileCache.getProfile(uid, (name, photo) -> {
+                if (isGone()) return;
+                names.set(index, name);
+                photos.set(index, photo);
+                done[0]++;
+                if (done[0] >= fetchCount) showSoundUsers(names, photos);
+            });
+        }
+    }
+
+    private void showSoundUsers(List<String> names, List<String> photos) {
+        if (layoutSoundUsers == null || isGone()) return;
+        int count = soundUserUidsList.size();
+        if (count <= 0) {
+            layoutSoundUsers.setVisibility(View.GONE);
+            return;
+        }
+
+        CircleImageView[] ivs = {ivSoundUser1, ivSoundUser2, ivSoundUser3};
+        for (int i = 0; i < 3; i++) {
+            if (ivs[i] == null) continue;
+            if (i < photos.size() && !photos.get(i).isEmpty()) {
+                ivs[i].setVisibility(View.VISIBLE);
+                Glide.with(this).load(photos.get(i))
+                    .placeholder(R.drawable.ic_person)
+                    .error(R.drawable.ic_person)
+                    .circleCrop()
+                    // PERF: avatars render at only 24dp — 240x240 was decoding
+                    // ~10x more pixels than ever get drawn. 60x60 covers up to
+                    // ~2.5x hdpi density for a 24dp view, same visual result.
+                    .override(60, 60)
+                    .into(ivs[i]);
+            } else if (i < names.size()) {
+                ivs[i].setVisibility(View.VISIBLE);
+                ivs[i].setImageResource(R.drawable.ic_person);
+            } else {
+                ivs[i].setVisibility(View.GONE);
+            }
+        }
+
+        String text;
+        if (count == 1) {
+            text = "Used by " + names.get(0);
+        } else if (count == 2) {
+            text = "Used by " + names.get(0) + " and " + names.get(1);
+        } else {
+            int others = count - 2;
+            text = "Used by " + names.get(0) + ", " + names.get(1)
+                + " and " + others + (others == 1 ? " other" : " others");
+        }
+
+        if (tvSoundUsers != null) tvSoundUsers.setText(text);
+        layoutSoundUsers.setVisibility(View.VISIBLE);
+        layoutSoundUsers.setOnClickListener(v -> openSoundUsers());
+    }
+
+    private void openSoundUsers() {
+        if (isGone()) return;
+        Intent i = new Intent(requireContext(), com.callx.app.followers.FollowConnectionsActivity.class);
+        // ⚠ FollowConnectionsActivity needs a target UID to open at all
+        // (see its `if (targetUid == null) { finish(); return; }` guard) —
+        // reuse the sound's own creatorUid if known, else the first sound
+        // user, purely as a non-null anchor; the actual list shown comes
+        // entirely from EXTRA_MUTUAL_UIDS below, not from this uid's graph.
+        String anchorUid = !creatorUid.isEmpty() ? creatorUid
+                : (!soundUserUidsList.isEmpty() ? soundUserUidsList.get(0) : "");
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_UID, anchorUid);
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_NAME, soundTitle != null ? soundTitle : "");
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_IS_SELF, false);
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_START_TAB,
+                com.callx.app.followers.FollowConnectionsActivity.TAB_MUTUAL);
+        i.putExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_MUTUAL_TAB_LABEL, "Used by");
+        i.putStringArrayListExtra(com.callx.app.followers.FollowConnectionsActivity.EXTRA_MUTUAL_UIDS,
+                new ArrayList<>(soundUserUidsList));
+        startActivity(i);
+    }
+
     /**
      * PERF (Firebase read batching, ULTRA): this used to be
      * fetchViewCountsForPage() — fired on EVERY single pagination page,
@@ -1553,6 +1712,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         }
         syncReelsToViewModel();
         attachSoundReelsLiveListener();
+        deriveSoundUsersFromReelItems(); // no-op after first call — see soundUsersComputed
     }
 
     /**

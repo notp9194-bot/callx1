@@ -1,8 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- "Original" / "Trending" chips — flat tinted fill, no stroke/shadow,
-     matching bg_sound_detail_box's premium flat treatment. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="@color/sound_detail_box_tint"/>
-    <corners android:radius="12dp"/>
-</shape>
+<!-- "Original" / "Trending" chips — flat fill, no elevation/RenderNode
+     shadow. Shadow look baked as a second static shape, same treatment as
+     bg_sound_detail_box, so it stays in the same perf class as before. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:top="2dp"
+        android:left="1dp"
+        android:right="1dp">
+        <shape android:shape="rectangle">
+            <solid android:color="#33000000"/>
+            <corners android:radius="12dp"/>
+        </shape>
+    </item>
+    <item android:bottom="2dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/sound_detail_box_tint"/>
+            <corners android:radius="12dp"/>
+        </shape>
+    </item>
+</layer-list>

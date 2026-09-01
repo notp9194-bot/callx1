@@ -245,6 +245,41 @@ public final class MutualFollowersCache {
         FirebaseUtils.getReelFollowsRef(targetUid).addListenerForSingleValueEvent(onEach);
     }
 
+    public interface ProfileCallback {
+        void onReady(@NonNull String name, @NonNull String photo);
+    }
+
+    /**
+     * Single-uid cache-aware name/photo lookup, reusing the same
+     * profileCache (5-min TTL) that mutual-followers rows fill — any uid
+     * already resolved anywhere (a mutual row, a follow list, etc.) hits
+     * this for free with zero Firebase read. Public so other "N people,
+     * show top-3 avatars" rows (e.g. SoundDetailFragment's "used by") can
+     * share it instead of standing up their own cache.
+     */
+    public void getProfile(@NonNull String uid, @NonNull ProfileCallback callback) {
+        ProfileEntry cached = profileCache.get(uid);
+        if (cached != null && cached.isFresh()) {
+            callback.onReady(cached.name, cached.photo);
+            return;
+        }
+        FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot us) {
+                String n = us.child("name").getValue(String.class);
+                String thumb = us.child("thumbUrl").getValue(String.class);
+                String photo = us.child("photoUrl").getValue(String.class);
+                String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                String finalName = n != null ? n : "User";
+                String finalPhoto = p != null ? p : "";
+                profileCache.put(uid, new ProfileEntry(finalName, finalPhoto));
+                callback.onReady(finalName, finalPhoto);
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {
+                callback.onReady("User", "");
+            }
+        });
+    }
+
     // ── Name/photo resolution for the top-3 display avatars ─────────────────
 
     private void resolveProfilesAndReturn(List<String> mutualUids, MutualResultCallback callback) {
@@ -260,34 +295,11 @@ public final class MutualFollowersCache {
         for (int i = 0; i < fetchCount; i++) {
             final int index = i;
             String uid = mutualUids.get(i);
-            ProfileEntry cached = profileCache.get(uid);
-            if (cached != null && cached.isFresh()) {
-                names.set(index, cached.name);
-                photos.set(index, cached.photo);
+            getProfile(uid, (name, photo) -> {
+                names.set(index, name);
+                photos.set(index, photo);
                 done[0]++;
                 if (done[0] >= fetchCount) callback.onReady(mutualUids, names, photos);
-                continue;
-            }
-            FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot us) {
-                    String n = us.child("name").getValue(String.class);
-                    String thumb = us.child("thumbUrl").getValue(String.class);
-                    String photo = us.child("photoUrl").getValue(String.class);
-                    String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-                    String finalName = n != null ? n : "User";
-                    String finalPhoto = p != null ? p : "";
-                    profileCache.put(uid, new ProfileEntry(finalName, finalPhoto));
-                    names.set(index, finalName);
-                    photos.set(index, finalPhoto);
-                    done[0]++;
-                    if (done[0] >= fetchCount) callback.onReady(mutualUids, names, photos);
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {
-                    names.set(index, "User");
-                    photos.set(index, "");
-                    done[0]++;
-                    if (done[0] >= fetchCount) callback.onReady(mutualUids, names, photos);
-                }
             });
         }
     }

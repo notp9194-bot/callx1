@@ -1,12 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Premium flat redesign: no stroke, no elevation. Fill is a subtle
-    brand-tinted background (sound_detail_box_tint) instead of matching the
-    panel + a border — the box reads as its own soft surface purely through
-    color, flat design instead of a bordered/shadowed card.
+    Premium flat redesign: no stroke, no elevation/translationZ, no
+    RenderNode outline shadow. Shadow look is BAKED into this drawable as a
+    second flat shape (offset + semi-transparent), drawn statically by the
+    GPU same as any flat fill — not a dynamic Material elevation shadow, so
+    it avoids the extra compositing layer that AppBarLayout-style elevation
+    costs. Keeps performance in the same class as the old single-shape flat
+    box while still showing a soft shadow edge.
 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="@color/sound_detail_box_tint"/>
-    <corners android:radius="12dp"/>
-</shape>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- baked shadow layer -->
+    <item
+        android:top="2dp"
+        android:left="1dp"
+        android:right="1dp">
+        <shape android:shape="rectangle">
+            <solid android:color="#33000000"/>
+            <corners android:radius="12dp"/>
+        </shape>
+    </item>
+
+    <!-- actual box surface -->
+    <item android:bottom="2dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/sound_detail_box_tint"/>
+            <corners android:radius="12dp"/>
+        </shape>
+    </item>
+</layer-list>

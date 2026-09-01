@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- "Camera" / "Video" / "Add to profile" pills — flat fill, no
-     elevation/RenderNode shadow. Shadow look baked as a second static
-     shape, same treatment as bg_sound_detail_box, same perf class. -->
+<!-- "Used by" row background — flat fill, no elevation/RenderNode shadow.
+     Shadow look baked as a second static shape, same treatment as
+     bg_sound_detail_box/bg_sound_stat_chip/bg_sound_detail_action_btn, so
+     it stays visually consistent with the rest of the screen and in the
+     same perf class (no GPU compositing layer). Smaller 8dp radius fits
+     this row's shorter height. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item
         android:top="2dp"
@@ -9,13 +12,13 @@
         android:right="1dp">
         <shape android:shape="rectangle">
             <solid android:color="#33000000"/>
-            <corners android:radius="12dp"/>
+            <corners android:radius="8dp"/>
         </shape>
     </item>
     <item android:bottom="2dp">
         <shape android:shape="rectangle">
             <solid android:color="@color/sound_detail_box_tint"/>
-            <corners android:radius="12dp"/>
+            <corners android:radius="8dp"/>
         </shape>
     </item>
 </layer-list>
