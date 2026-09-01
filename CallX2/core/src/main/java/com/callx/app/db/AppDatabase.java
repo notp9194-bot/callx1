@@ -66,7 +66,7 @@ import com.callx.app.db.entity.*;
         // v54: durable per-chat compound message sync cursors.
         MessageSyncStateEntity.class
     },
-    version = 55,
+    version = 56,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -743,6 +743,26 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /**
+     * v56: BUG FIX — MessageEntity.groupDeliveredByJson / groupReadByJson
+     * (Group tick system, comments reference "v26") were added to the
+     * entity class but never had a matching Room migration anywhere in
+     * this file. Any device that reached the "messages" table via the
+     * migration path (i.e. every upgrading install, as opposed to a fresh
+     * install that uses the generated CREATE TABLE) therefore ended up
+     * with a "messages" table permanently missing these two columns,
+     * no matter how many later migrations ran — causing
+     * IllegalStateException("Migration didn't properly handle: messages")
+     * on every app start. This migration finally adds them.
+     */
+    static final Migration MIGRATION_55_56 = new Migration(55, 56) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN groupDeliveredByJson TEXT");
+            db.execSQL("ALTER TABLE messages ADD COLUMN groupReadByJson TEXT");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -803,7 +823,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50,
                                     MIGRATION_50_51, MIGRATION_51_52,
                                     MIGRATION_52_53, MIGRATION_53_54,
-                                    MIGRATION_54_55)
+                                    MIGRATION_54_55, MIGRATION_55_56)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

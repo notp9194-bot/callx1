@@ -21,7 +21,13 @@ import androidx.annotation.NonNull;
         // does a full table scan of every message in the DB on every retry call.
         @Index(value = {"chatId", "status"}),
         @Index(value = {"status"}),
-        @Index(value = {"chatId", "topicId", "timestamp"})
+        @Index(value = {"chatId", "topicId", "timestamp"}),
+        // BUG FIX: MIGRATION_54_55 creates index_messages_chatId_seq in the
+        // actual DB (for seq-anchored delta-sync cursor lookups) but this
+        // @Index was never declared here, so Room's expected-schema check
+        // always disagreed with the real on-disk schema — same class of
+        // bug as the groupDeliveredByJson/groupReadByJson migration gap.
+        @Index(value = {"chatId", "seq"})
     }
 )
 public class MessageEntity {
