@@ -1,0 +1,33 @@
+{
+  "_comment": "Merge these top-level entries into the live Realtime Database rules. Privileged writes are performed by the adminAction callable with Firebase Admin SDK.",
+  "_deploy": "firebase deploy --only database",
+  "rules": {
+    "crash_reports": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      "$reportId": {
+        ".write": "auth != null && !data.exists() && newData.child('uid').val() === auth.uid",
+        ".validate": "newData.hasChildren(['trace','timestamp','packageName'])"
+      }
+    },
+    "appConfig": {
+      ".read": "auth != null",
+      ".write": false
+    },
+    "admin_announcements": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      ".write": false
+    },
+    "admin_audit": {
+      ".read": false,
+      ".write": false
+    },
+    "admin_session_events": {
+      ".read": false,
+      ".write": false
+    },
+    "payment_admin_cases": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}

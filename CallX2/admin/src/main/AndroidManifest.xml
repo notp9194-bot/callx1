@@ -24,5 +24,13 @@
             android:name=".AdminVerificationListActivity"
             android:exported="false"/>
 
+        <activity android:name=".AdminDashboardActivity" android:exported="false"/>
+        <activity android:name=".AdminUsersActivity" android:exported="false"/>
+        <activity android:name=".AdminReportsActivity" android:exported="false"/>
+        <activity android:name=".AdminCommunicationsActivity" android:exported="false"/>
+        <activity android:name=".AdminOperationsActivity" android:exported="false"/>
+        <activity android:name=".AdminConfigActivity" android:exported="false"/>
+        <activity android:name=".AdminAdminsActivity" android:exported="false"/>
+
     </application>
 </manifest>

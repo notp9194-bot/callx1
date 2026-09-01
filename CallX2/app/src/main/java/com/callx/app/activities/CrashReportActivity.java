@@ -17,8 +17,13 @@ import android.widget.Toast;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.database.ServerValue;
+
 import java.io.File;
 import java.io.FileOutputStream;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * CrashReportActivity — shown automatically whenever the app crashes
@@ -45,6 +50,28 @@ public class CrashReportActivity extends AppCompatActivity {
             fos.write(trace.getBytes());
         } catch (Exception ignored) {
             // Best-effort only — the in-memory extra is the primary path.
+        }
+        // Keep the existing local recovery path, but also publish a redacted
+        // diagnostic envelope so the standalone admin app can triage crashes.
+        // The trace is written only to the admin-readable crash_reports node;
+        // any Firebase/network failure is intentionally ignored because this
+        // method runs from the uncaught-exception path.
+        try {
+            Map<String, Object> report = new HashMap<>();
+            com.google.firebase.auth.FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+            report.put("uid", user == null ? "" : user.getUid());
+            report.put("trace", trace == null ? "" : trace.substring(0, Math.min(trace.length(), 16000)));
+            report.put("packageName", ctx.getPackageName());
+            report.put("appVersion", String.valueOf(ctx.getPackageManager()
+                .getPackageInfo(ctx.getPackageName(), 0).versionName));
+            report.put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL);
+            report.put("androidVersion", android.os.Build.VERSION.RELEASE);
+            report.put("timestamp", ServerValue.TIMESTAMP);
+            com.google.firebase.database.FirebaseDatabase
+                .getInstance(com.callx.app.utils.Constants.DB_URL)
+                .getReference("crash_reports").push().setValue(report);
+        } catch (Exception ignored) {
+            // Crash reporting must never make the crash path worse.
         }
     }
 

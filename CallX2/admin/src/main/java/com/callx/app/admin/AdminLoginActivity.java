@@ -13,6 +13,8 @@ import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.ValueEventListener;
 
+import java.util.Map;
+
 /**
  * Entry point of the standalone Admin app. Signs in with Firebase Auth
  * (email/password — same auth users as the main app, or dedicated admin
@@ -68,9 +70,12 @@ public class AdminLoginActivity extends AppCompatActivity {
         FirebaseUtils.getAdminsRef().child(uid).addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(DataSnapshot snap) {
                 setLoading(false);
-                boolean isAdmin = Boolean.TRUE.equals(snap.getValue(Boolean.class));
+                // Backwards compatible with the original admins/{uid}: true
+                // allowlist and the new {role, permissions} policy object.
+                boolean isAdmin = Boolean.TRUE.equals(snap.getValue(Boolean.class))
+                    || snap.hasChildren();
                 if (isAdmin) {
-                    startActivity(new Intent(AdminLoginActivity.this, AdminVerificationListActivity.class));
+                    startActivity(new Intent(AdminLoginActivity.this, AdminDashboardActivity.class));
                     finish();
                 } else {
                     FirebaseAuth.getInstance().signOut();

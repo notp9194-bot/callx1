@@ -334,3 +334,460 @@ exports.notifyExpiredCountdownStickers = functions.pubsub
     }
     return null;
   });
+
+/**
+ * CallX Admin Control Center
+ * ==========================
+ * All privileged admin operations live behind this callable boundary. The
+ * Android admin app never receives a service-account credential and never
+ * reads the write-only moderation trees directly.
+ *
+ * Backwards compatible policy:
+ *   admins/{uid}: true
+ *     -> super_admin
+ *   admins/{uid}: { role: "moderator", permissions: {...} }
+ *
+ * Deploy together with the admin APK:
+ *   firebase deploy --only functions:adminAction
+ */
+const ADMIN_READ_ROOTS = [
+  "reelReports", "reelCommentReports", "reelReplyReports", "reports",
+  "community_reports", "channelReports", "groupReports", "sound_reports",
+];
+
+function adminRole(node) {
+  if (node === true) return "super_admin";
+  if (node && typeof node === "object") return node.role || "moderator";
+  return null;
+}
+
+async function requireAdmin(context, operation) {
+  if (!context.auth || !context.auth.uid) {
+    throw new functions.https.HttpsError("unauthenticated", "Admin sign-in required.");
+  }
+  const snap = await getDatabase().ref(`admins/${context.auth.uid}`).once("value");
+  const node = snap.val();
+  const role = adminRole(node);
+  if (!role) throw new functions.https.HttpsError("permission-denied", "Admin access revoked.");
+  const permissions = node && typeof node === "object" ? (node.permissions || {}) : {};
+  const superOnly = ["deleteUser", "organizationAction", "setConfig", "setAdmin", "removeAdmin"];
+  if (superOnly.includes(operation) && role !== "super_admin" && !permissions[operation]) {
+    throw new functions.https.HttpsError("permission-denied", "This role cannot perform that action.");
+  }
+  if (operation === "paymentReview" && role !== "super_admin" && role !== "finance"
+      && !permissions.paymentReview) {
+    throw new functions.https.HttpsError("permission-denied", "Finance permission required.");
+  }
+  return { uid: context.auth.uid, role, permissions };
+}
+
+async function audit(adminUid, action, targetType, targetId, details) {
+  await getDatabase().ref("admin_audit").push({
+    adminUid, action, targetType: targetType || "", targetId: targetId || "",
+    details: typeof details === "string" ? details : JSON.stringify(details || {}),
+    createdAt: ServerValue.TIMESTAMP,
+  });
+}
+
+function asObject(value) {
+  return value && typeof value === "object" ? value : {};
+}
+
+function safeTargetPath(type, value) {
+  const v = asObject(value);
+  const id = v.reelId || v.tweetId || v.soundId || v.groupId || v.channelId
+    || v.communityId || v.targetId;
+  if (!id || typeof id !== "string" || /[.#$\[\]/]/.test(id)) return null;
+  if (type === "reel") return `reels/${id}`;
+  if (type === "x") return `x/tweets/${id}`;
+  if (type === "sound") return `sounds/${id}`;
+  if (type === "group") return `groups/${id}`;
+  if (type === "channel") return `channels/${id}`;
+  if (type === "community") return `communities/${id}`;
+  if (type === "reel_comment" && v.commentId && !/[.#$\[\]/]/.test(v.commentId)) {
+    return `reelComments/${id}/${v.commentId}`;
+  }
+  return null;
+}
+
+function normaliseReport(type, reportPath, reportId, targetKey, value) {
+  const v = asObject(value);
+  const targetId = v.reelId || v.tweetId || v.soundId || v.groupId || v.channelId
+    || v.communityId || v.reportedUid || targetKey || "";
+  return {
+    type, reportId: reportId || "", reportPath, targetId,
+    reportedUid: v.reportedUid || (type === "user" ? targetKey : ""),
+    reporterUid: v.reporterUid || v.uid || "",
+    reason: v.reason || "No reason supplied",
+    status: v.status || "open",
+    timestamp: v.timestamp || v.ts || 0,
+    targetPath: safeTargetPath(type, v),
+  };
+}
+
+function collectNested(rootName, snapshot, type, output, limit) {
+  snapshot.forEach((targetSnap) => {
+    targetSnap.forEach((reportSnap) => {
+      if (output.length >= limit) return;
+      const value = reportSnap.val();
+      if (!value || typeof value !== "object") return;
+      output.push(normaliseReport(
+        type,
+        `${rootName}/${targetSnap.key}/${reportSnap.key}`,
+        reportSnap.key,
+        targetSnap.key,
+        value,
+      ));
+    });
+  });
+}
+
+async function listAllReports(limit = 500) {
+  const db = getDatabase();
+  const roots = await Promise.all(ADMIN_READ_ROOTS.map((root) => db.ref(root).once("value")));
+  const items = [];
+  const nested = [
+    ["reports", "user"], ["reelReports", "reel"], ["community_reports", "community"],
+    ["channelReports", "channel"], ["groupReports", "group"], ["sound_reports", "sound"],
+  ];
+  nested.forEach(([root, type], index) => collectNested(root, roots[index], type, items, limit));
+  const flatCommentIndex = ADMIN_READ_ROOTS.indexOf("reelCommentReports");
+  const flatReplyIndex = ADMIN_READ_ROOTS.indexOf("reelReplyReports");
+  [ ["reel_comment", roots[flatCommentIndex], "reelCommentReports"],
+    ["reel_reply", roots[flatReplyIndex], "reelReplyReports"] ].forEach(([type, snap, root]) => {
+    snap.forEach((child) => {
+      if (items.length >= limit) return;
+      items.push(normaliseReport(type, `${root}/${child.key}`, child.key, "", child.val()));
+    });
+  });
+  const xSnap = await db.ref("x/reports").once("value");
+  collectNested("x/reports", xSnap, "x", items, limit);
+  return items.filter((item) => item.status === "open" || item.status === "pending")
+    .sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
+}
+
+async function authProfile(uid) {
+  let authUser = {};
+  try {
+    const u = await getAuth().getUser(uid);
+    authUser = { email: u.email || "", phoneNumber: u.phoneNumber || "",
+      disabled: !!u.disabled, createdAt: u.metadata && u.metadata.creationTime || "" };
+  } catch (e) {
+    authUser = { authError: e.code || "not-found" };
+  }
+  const profile = (await getDatabase().ref(`users/${uid}`).once("value")).val();
+  return { uid, ...asObject(profile), ...authUser };
+}
+
+exports.adminAction = functions.https.onCall(async (data, context) => {
+  const action = data && data.action;
+  const payload = asObject(data && data.payload);
+  const policy = await requireAdmin(context, action);
+  const db = getDatabase();
+
+  if (action === "dashboard") {
+    const [users, calls, reports, verification, config] = await Promise.all([
+      db.ref("users").once("value"), db.ref("activeCalls").once("value"),
+      listAllReports(500), db.ref("verification_requests").orderByChild("status").equalTo("pending").once("value"),
+      db.ref("appConfig").once("value"),
+    ]);
+    const now = Date.now();
+    let dau = 0; let mau = 0; let online = 0;
+    users.forEach((child) => {
+      const lastSeen = Number(asObject(child.val()).lastSeen || 0);
+      if (lastSeen >= now - 24 * 60 * 60 * 1000) dau++;
+      if (lastSeen >= now - 30 * 24 * 60 * 60 * 1000) mau++;
+      if (asObject(child.val()).online === true) online++;
+    });
+    const storage = (await db.ref("storageMetrics").once("value")).val() || {};
+    return { role: policy.role, metrics: {
+      users: users.numChildren(), dau, mau, online, activeCalls: calls.numChildren(),
+      storageBytes: Number(storage.totalBytes || 0),
+      pendingReports: reports.length, pendingVerification: verification.numChildren(),
+      config: config.val() || {},
+    } };
+  }
+
+  if (action === "lookupUser") {
+    if (!payload.uid || typeof payload.uid !== "string") {
+      throw new functions.https.HttpsError("invalid-argument", "uid is required.");
+    }
+    return { user: await authProfile(payload.uid) };
+  }
+
+  if (action === "setUserStatus") {
+    const uid = payload.uid;
+    const status = payload.status;
+    if (!uid || !["active", "suspended", "banned"].includes(status)) {
+      throw new functions.https.HttpsError("invalid-argument", "Invalid user status.");
+    }
+    await db.ref(`users/${uid}`).update({
+      accountStatus: status, moderationUpdatedAt: ServerValue.TIMESTAMP,
+      moderationUpdatedBy: context.auth.uid,
+    });
+    try { await getAuth().updateUser(uid, { disabled: status !== "active" }); } catch (e) {
+      console.warn("Auth disable update failed", uid, e.message || e);
+    }
+    await audit(context.auth.uid, "set_user_status", "user", uid, { status });
+    return { ok: true, status };
+  }
+
+  if (action === "forceLogout") {
+    if (!payload.uid) throw new functions.https.HttpsError("invalid-argument", "uid is required.");
+    await getAuth().revokeRefreshTokens(payload.uid);
+    await db.ref(`admin_session_events/${payload.uid}`).push({
+      type: "force_logout", by: context.auth.uid, createdAt: ServerValue.TIMESTAMP,
+    });
+    await audit(context.auth.uid, "force_logout", "user", payload.uid, {});
+    return { ok: true };
+  }
+
+  if (action === "deleteUser") {
+    if (!payload.uid || payload.uid === context.auth.uid) {
+      throw new functions.https.HttpsError("invalid-argument", "A different uid is required.");
+    }
+    await db.ref(`users/${payload.uid}`).remove();
+    try { await getAuth().deleteUser(payload.uid); } catch (e) {
+      if (e.code !== "auth/user-not-found") throw e;
+    }
+    await audit(context.auth.uid, "delete_user", "user", payload.uid, {});
+    return { ok: true };
+  }
+
+  if (action === "listBlockedUsers") {
+    const [blocks, permanent] = await Promise.all([
+      db.ref("blocked").once("value"), db.ref("permaBlocked").once("value"),
+    ]);
+    const items = [];
+    [["blocks", blocks], ["permaBlocked", permanent]].forEach(([source, snap]) => {
+      snap.forEach((owner) => owner.forEach((blocked) => {
+        if (blocked.val()) items.push({ ownerUid: owner.key, blockedUid: blocked.key, source });
+      }));
+    });
+    return { items: items.slice(0, 2000) };
+  }
+
+  if (action === "listReports") {
+    const items = await listAllReports(500);
+    return { count: items.length, items };
+  }
+
+  if (action === "moderateReport") {
+    const type = String(payload.type || "");
+    const targetId = String(payload.targetId || "");
+    const reportId = String(payload.reportId || "");
+    const reportRoots = {
+      user: "reports", reel: "reelReports", community: "community_reports",
+      channel: "channelReports", group: "groupReports", sound: "sound_reports",
+    };
+    let reportPath = payload.reportPath;
+    if (["reel_comment", "reel_reply"].includes(type)) {
+      reportPath = `${type === "reel_comment" ? "reelCommentReports" : "reelReplyReports"}/${reportId}`;
+    } else if (type === "x") {
+      reportPath = `x/reports/${targetId}/${reportId}`;
+    } else if (reportRoots[type]) {
+      reportPath = `${reportRoots[type]}/${targetId}/${reportId}`;
+    }
+    if (!reportPath || /(^|\/)\.\.?($|\/)/.test(reportPath)) {
+      throw new functions.https.HttpsError("invalid-argument", "Invalid report reference.");
+    }
+    const updates = { status: payload.removeTarget ? "removed" : (payload.status || "resolved"),
+      reviewedBy: context.auth.uid, reviewedAt: ServerValue.TIMESTAMP };
+    await db.ref(reportPath).update(updates);
+    if (payload.removeTarget) {
+      const targetPath = safeTargetPath(type, { targetId, reelId: type === "reel" ? targetId : undefined,
+        tweetId: type === "x" ? targetId : undefined, communityId: type === "community" ? targetId : undefined,
+        groupId: type === "group" ? targetId : undefined, channelId: type === "channel" ? targetId : undefined,
+        soundId: type === "sound" ? targetId : undefined });
+      if (targetPath) await db.ref(targetPath).remove();
+    }
+    await audit(context.auth.uid, "moderate_report", type, targetId,
+      { reportId, removeTarget: !!payload.removeTarget });
+    return { ok: true };
+  }
+
+  if (action === "directTakedown") {
+    const type = String(payload.type || "").toLowerCase();
+    const contentId = String(payload.contentId || "");
+    const containerId = String(payload.containerId || "");
+    const valid = (value) => value && value.length <= 180 && !/[.#$\[\]/]/.test(value);
+    if (!valid(contentId) || (containerId && !valid(containerId))) {
+      throw new functions.https.HttpsError("invalid-argument", "Invalid content identifier.");
+    }
+    let targetPath = null;
+    if (type === "reel") targetPath = `reels/${contentId}`;
+    if (type === "x") targetPath = `x/tweets/${contentId}`;
+    if (type === "group") targetPath = `groups/${contentId}`;
+    if (type === "channel") targetPath = `channels/${contentId}`;
+    if (type === "community") targetPath = `communities/${contentId}`;
+    if (type === "message" || type === "media") {
+      if (!containerId) throw new functions.https.HttpsError("invalid-argument", "Container ID is required.");
+      targetPath = `messages/${containerId}/${contentId}`;
+    }
+    if (!targetPath) throw new functions.https.HttpsError("invalid-argument", "Unsupported takedown type.");
+    await db.ref(targetPath).remove();
+    await audit(context.auth.uid, "direct_takedown", type, contentId,
+      { targetPath, containerId });
+    return { ok: true, targetPath };
+  }
+
+  if (action === "listOrganizations") {
+    const roots = await Promise.all(["groups", "channels", "communities"].map((root) => db.ref(root).once("value")));
+    const items = [];
+    ["groups", "channels", "communities"].forEach((root, index) => roots[index].forEach((child) => {
+      const value = asObject(child.val());
+      const members = asObject(value.members);
+      items.push({ type: root.slice(0, -1), id: child.key, name: value.name || value.title || "",
+        ownerUid: value.ownerUid || value.ownerId || value.createdBy || "",
+        status: value.status || "active", memberCount: Object.keys(members).length });
+    }));
+    return { items: items.slice(0, 1000) };
+  }
+
+  if (action === "organizationAction") {
+    const root = { group: "groups", channel: "channels", community: "communities" }[payload.type];
+    if (!root || !payload.id) throw new functions.https.HttpsError("invalid-argument", "Invalid organisation.");
+    const ref = db.ref(`${root}/${payload.id}`);
+    if (payload.operation === "delete") await ref.remove();
+    else {
+      const current = (await ref.child("status").once("value")).val();
+      const next = current === "suspended" ? "active" : "suspended";
+      await ref.update({ status: next, suspensionUpdatedAt: ServerValue.TIMESTAMP,
+        suspensionUpdatedBy: context.auth.uid });
+    }
+    await audit(context.auth.uid, payload.operation, payload.type, payload.id, {});
+    return { ok: true };
+  }
+
+  if (action === "listPayments") {
+    const paths = ["payment_transactions", "payments/transactions", "paymentEvents",
+      "paymentFailures", "payment_failures", "paymentDisputes", "payment_admin_cases",
+      "fraudFlags", "kyc_reviews"];
+    const snaps = await Promise.all(paths.map((path) => db.ref(path).once("value")));
+    const items = [];
+    snaps.forEach((snap, index) => snap.forEach((child) => {
+      const value = asObject(child.val());
+      items.push({ id: child.key, recordType: paths[index], ...value });
+    }));
+    return { items: items.sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0)).slice(0, 500) };
+  }
+
+  if (action === "paymentReview") {
+    if (!payload.transactionId || !payload.operation) {
+      throw new functions.https.HttpsError("invalid-argument", "Transaction and operation are required.");
+    }
+    const caseRef = db.ref(`payment_admin_cases/${payload.transactionId}`).push();
+    await caseRef.set({ transactionId: payload.transactionId, operation: payload.operation,
+      status: payload.operation === "refund" ? "refund_requested" : "open",
+      createdBy: context.auth.uid, createdAt: ServerValue.TIMESTAMP });
+    const statusByOperation = { dispute: "DISPUTED", fraud: "FRAUD_REVIEW", kyc_approved: "KYC_APPROVED", refund: "REFUND_REQUESTED" };
+    if (statusByOperation[payload.operation]) {
+      await db.ref(`payment_transactions/${payload.transactionId}`).update({
+        adminStatus: statusByOperation[payload.operation], adminUpdatedAt: ServerValue.TIMESTAMP,
+      });
+    }
+    await audit(context.auth.uid, `payment_${payload.operation}`, "payment", payload.transactionId, {});
+    return { ok: true };
+  }
+
+  if (action === "sendAnnouncement") {
+    const title = String(payload.title || "").trim();
+    const body = String(payload.body || "").trim();
+    if (!title || !body || title.length > 120 || body.length > 1000) {
+      throw new functions.https.HttpsError("invalid-argument", "Announcement title/body is invalid.");
+    }
+    const announcement = db.ref("admin_announcements").push();
+    await announcement.set({ title, body, audience: payload.audience || "all",
+      createdBy: context.auth.uid, createdAt: ServerValue.TIMESTAMP });
+    const users = await db.ref("users").once("value");
+    const tokens = [];
+    users.forEach((child) => {
+      const v = asObject(child.val());
+      if (v.fcmToken && typeof v.fcmToken === "string") tokens.push(v.fcmToken);
+    });
+    let sent = 0;
+    for (let i = 0; i < tokens.length; i += 500) {
+      const response = await getMessaging().sendEachForMulticast({
+        tokens: tokens.slice(i, i + 500), notification: { title, body },
+        data: { type: "admin_announcement", announcementId: announcement.key },
+      });
+      sent += response.successCount;
+    }
+    await audit(context.auth.uid, "send_announcement", "announcement", announcement.key, { sent });
+    return { ok: true, sent, announcementId: announcement.key };
+  }
+
+  if (action === "listConfig") {
+    return { config: (await db.ref("appConfig").once("value")).val() || {} };
+  }
+
+  if (action === "setConfig") {
+    const key = String(payload.key || "");
+    if (!key || key.startsWith("/") || key.includes("..") || /[#$\[\]]/.test(key)) {
+      throw new functions.https.HttpsError("invalid-argument", "Invalid config key.");
+    }
+    await db.ref(`appConfig/${key}`).set(payload.value);
+    await audit(context.auth.uid, "set_config", "config", key, { value: payload.value });
+    return { ok: true };
+  }
+
+  if (action === "listAdmins") {
+    const snap = await db.ref("admins").once("value");
+    const items = [];
+    snap.forEach((child) => {
+      const node = child.val();
+      items.push({ uid: child.key, role: adminRole(node) || "unknown",
+        permissions: node && typeof node === "object" ? node.permissions || {} : {} });
+    });
+    return { items };
+  }
+
+  if (action === "setAdmin") {
+    const role = String(payload.role || "moderator");
+    if (!payload.uid || !["super_admin", "moderator", "support", "finance"].includes(role)) {
+      throw new functions.https.HttpsError("invalid-argument", "Invalid admin uid or role.");
+    }
+    const permissions = {};
+    if (payload.permissions && typeof payload.permissions === "object") {
+      Object.keys(payload.permissions).slice(0, 30).forEach((key) => {
+        if (/^[a-zA-Z0-9_]+$/.test(key) && payload.permissions[key] === true) permissions[key] = true;
+      });
+    }
+    await db.ref(`admins/${payload.uid}`).set({ role, updatedBy: context.auth.uid,
+      updatedAt: ServerValue.TIMESTAMP, permissions });
+    await audit(context.auth.uid, "set_admin", "admin", payload.uid, { role });
+    return { ok: true };
+  }
+
+  if (action === "removeAdmin") {
+    if (!payload.uid || payload.uid === context.auth.uid) {
+      throw new functions.https.HttpsError("invalid-argument", "Cannot remove the current admin.");
+    }
+    await db.ref(`admins/${payload.uid}`).remove();
+    await audit(context.auth.uid, "remove_admin", "admin", payload.uid, {});
+    return { ok: true };
+  }
+
+  if (action === "listAudit") {
+    const [auditSnap, crashSnap] = await Promise.all([
+      db.ref("admin_audit").limitToLast(300).once("value"),
+      db.ref("crash_reports").limitToLast(300).once("value"),
+    ]);
+    const items = [];
+    auditSnap.forEach((child) => items.push({ ...asObject(child.val()), id: child.key }));
+    crashSnap.forEach((child) => items.push({ ...asObject(child.val()), id: child.key,
+      action: "crash_report", targetType: "crash" }));
+    const communities = await db.ref("communities").once("value");
+    communities.forEach((community) => {
+      community.child("moderation_log").forEach((entry) => {
+        items.push({ ...asObject(entry.val()), id: entry.key,
+          action: "community_moderation", targetType: "community",
+          targetId: community.key });
+      });
+    });
+    return { items: items.sort((a, b) => Number(b.createdAt || b.timestamp || 0)
+      - Number(a.createdAt || a.timestamp || 0)).slice(0, 500) };
+  }
+
+  throw new functions.https.HttpsError("invalid-argument", `Unknown admin action: ${action}`);
+});

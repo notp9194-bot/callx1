@@ -26,4 +26,5 @@ dependencies {
     api platform('com.google.firebase:firebase-bom:32.7.0')
     api 'com.google.firebase:firebase-auth'
     api 'com.google.firebase:firebase-database'
+    api 'com.google.firebase:firebase-functions'
 }
