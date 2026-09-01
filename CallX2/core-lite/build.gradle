@@ -1,0 +1,29 @@
+plugins {
+    id 'com.android.library'
+}
+
+android {
+    namespace 'com.callx.app.corelite'
+    compileSdk 34
+
+    defaultConfig {
+        minSdk 23
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+dependencies {
+    // Deliberately limited to the services used by the admin app.
+    api platform('com.google.firebase:firebase-bom:32.7.0')
+    api 'com.google.firebase:firebase-auth'
+    api 'com.google.firebase:firebase-database'
+}

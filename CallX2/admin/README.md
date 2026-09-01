@@ -15,7 +15,7 @@ allowlist entry decides who can act.
    name, photo, submitted reason, **Approve** / **Reject**.
    - Approve → `users/{uid}/isVerified = true` (this is exactly the flag
      `SoundDetailFragment` and other screens already check to show the
-     `ic_verified_pink` badge, now shared from `:core`).
+     `ic_verified_pink` badge, now shared from `:core-lite`).
    - Reject → request `status` flips to `"rejected"` (user can re-request).
 
 ## One manual setup step (can't be scripted — needs Firebase Console access)

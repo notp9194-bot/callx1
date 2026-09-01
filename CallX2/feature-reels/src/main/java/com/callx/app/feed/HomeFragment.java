@@ -101,6 +101,8 @@ public class HomeFragment extends Fragment {
 
     private SwipeRefreshLayout swipeRefresh;
     private LinearLayout       containerStories;
+    private LinearLayout       containerNotes;
+    private HorizontalScrollView scrollNotes;
     // FIX (Stories tray deep avatar pipeline): the HorizontalScrollView
     // wrapping containerStories — needed to compute which story rows are
     // inside the initial visible viewport (HomeStoryAvatarBinder#bind) vs.
@@ -408,6 +410,52 @@ public class HomeFragment extends Fragment {
     private static final int FEED_PAGE_SIZE   = 8;
     /** How many raw rows we ask Firebase for per fetch (server-side window). */
     private static final int FEED_FETCH_BATCH = 25;
+
+    /** Row cap for the Room cold-start instant-paint cache — see
+     *  persistFeedPageToLocalCache()/paintFeedFromLocalCacheInstant(). Kept
+     *  equal to FEED_FETCH_BATCH: this is a "last-seen top of feed" cache
+     *  for instant paint, not a full offline store. */
+    private static final int HOME_FEED_CACHE_LIMIT = FEED_FETCH_BATCH;
+    /** v299 ultra: true from the moment paintFeedFromLocalCacheInstant()
+     *  paints the disk cache, back to false the instant a real Firebase
+     *  page lands (whether that page short-circuits via
+     *  isSameTopOfFeedOrder() or goes through the full rebuild). Lets
+     *  renderFeedPostsWithState() tell "confirming what's already on
+     *  screen" apart from "replacing it with something different". */
+    private boolean feedPaintedFromCache = false;
+    /** v299 ultra: cheap fingerprint (ordered reelId sequence) of the last
+     *  page actually written to the Room instant-paint cache. Firebase
+     *  reconciles the Home feed on every app-foreground and every
+     *  real-time listener tick, so without this every one of those
+     *  no-op-content ticks would still hit disk with a full delete+insert.
+     *  The cache only needs to represent "roughly what the user last saw",
+     *  so skipping a byte-identical rewrite is free — see
+     *  persistFeedPageToLocalCache(). */
+    private String lastPersistedCacheSignature = null;
+    /** v300 ultra: process-lifetime in-memory mirror of the last persisted
+     *  cache page. Room's disk read in paintFeedFromLocalCacheInstant() is
+     *  already fast (single indexed SELECT, ~25 rows), but it's still a
+     *  disk I/O + thread-hop the OS can stall on. The overwhelmingly common
+     *  case for repainting Home isn't a true cold process start though —
+     *  it's the user switching tabs away and back, or the fragment view
+     *  being recreated (config change, back-stack) while the app process
+     *  stays alive. For that case there's no reason to touch disk at all:
+     *  Instagram doesn't re-hit storage when you tap back to the Home tab
+     *  mid-session. Populated by persistFeedPageToLocalCache(); cleared on
+     *  logout/account-switch by clearInMemoryFeedCache() (see
+     *  AccountMenuActivity#confirmLogout / AuthActivity's EXTRA_FORCE_LOGIN
+     *  branch) so a new account on the same process never flashes the
+     *  previous account's feed. */
+    private static volatile List<ReelModel> sMemoryFeedCache = null;
+
+    /** Wipes the in-memory Home feed mirror. Must be called on logout /
+     *  forced account switch alongside ChatSnapshotCache.clearSnapshotAsync()
+     *  and AppDatabase.wipeForAccountSwitch() — those clear the disk-backed
+     *  caches, this clears the equivalent in-RAM one so a same-process
+     *  account switch can't flash the outgoing account's Home feed. */
+    public static void clearInMemoryFeedCache() {
+        sMemoryFeedCache = null;
+    }
     /** How often (in rendered posts) an inline "Suggested for you" creator
      *  row is mixed into the feed — Instagram doesn't show trending/suggested
      *  as separate boxes, it blends them straight into the scroll. */
@@ -592,7 +640,7 @@ public class HomeFragment extends Fragment {
      *  Compiled once and reused; matching against it per-bind is cheap,
      *  compiling it per-bind was not. */
     private static final java.util.regex.Pattern HASHTAG_PATTERN =
-        java.util.regex.Pattern.compile("#(\\w+)");
+        java.util.regex.Pattern.compile("([#@])(\\w+)");
     /** Card thumbnail decode size — 9:16, matching the card frame. Shared by
      *  the card load and the prefetch so both hit the same Glide cache key. */
     private static final int THUMB_DECODE_W = 540;
@@ -780,6 +828,12 @@ public class HomeFragment extends Fragment {
         watchTracker.preloadWatchProgress(null);
         autoplayPolicy.load(safeMyUid(), null);
         setupListeners();
+        // v298: paint the last-seen feed page from disk BEFORE the real
+        // Firebase fetch (kicked off by loadAllSections() right below) has
+        // any chance to respond — see paintFeedFromLocalCacheInstant()'s
+        // doc. Firebase is still always queried; this only removes the
+        // cold-start loading-spinner gap on repeat opens.
+        paintFeedFromLocalCacheInstant();
         loadAllSections();
         return v;
     }
@@ -903,6 +957,8 @@ public class HomeFragment extends Fragment {
      *  showFeedFilterDropdown, loadMyAvatar, ...) is unchanged. */
     private void bindHeaderViews(View v) {
         containerStories   = v.findViewById(R.id.container_stories);
+        containerNotes     = v.findViewById(R.id.container_notes);
+        scrollNotes        = v.findViewById(R.id.scroll_notes);
         scrollStories      = v.findViewById(R.id.scroll_stories);
         btnHomeFollowing   = v.findViewById(R.id.btn_home_following);
         btnHomeForYou      = v.findViewById(R.id.btn_home_for_you);
@@ -931,12 +987,7 @@ public class HomeFragment extends Fragment {
 
     private void setupListeners() {
         swipeRefresh.setColorSchemeResources(R.color.brand_primary);
-        swipeRefresh.setOnRefreshListener(() -> {
-            unseenOwnerUids.clear();
-            resetFeedPaginationState();
-            clearAllSections();
-            loadAllSections();
-        });
+        swipeRefresh.setOnRefreshListener(this::performFeedRefresh);
 
         btnHomeFollowing.setOnClickListener(v -> switchFeedMode(true));
         btnHomeForYou.setOnClickListener(v -> switchFeedMode(false));
@@ -1017,6 +1068,7 @@ public class HomeFragment extends Fragment {
         }
 
         loadMyAvatar();
+        loadNotes();
 
         // ── Scroll-triggered auto-play ──────────────────────────────────────
         // v243: RecyclerView doesn't have NestedScrollView's onScrollChange,
@@ -1390,6 +1442,30 @@ public class HomeFragment extends Fragment {
      * Falls back to the original cold-start path on a cache miss (fast
      * scroll past the predicted next card, or scrolling backward).
      */
+    /** Shared by pull-to-refresh and reselect-Home-tab-icon: clears + reloads the feed. */
+    private void performFeedRefresh() {
+        unseenOwnerUids.clear();
+        resetFeedPaginationState();
+        clearAllSections();
+        loadAllSections();
+    }
+
+    /**
+     * Instagram-style "tap Home icon while already on Home" behaviour:
+     * scroll to top (if not already there), then refresh the feed. Called
+     * by ReelsFragment's reel_nav_home OnItemReselectedListener.
+     */
+    public void scrollToTopAndRefresh() {
+        if (!isAdded() || recyclerHome == null || recyclerHome.getLayoutManager() == null) return;
+        boolean atTop = ((LinearLayoutManager) recyclerHome.getLayoutManager())
+                .findFirstCompletelyVisibleItemPosition() == 0;
+        if (atTop) {
+            performFeedRefresh();
+        } else {
+            recyclerHome.smoothScrollToPosition(0);
+        }
+    }
+
     /** Starts (or restarts) background music for a photo-slideshow feed card. */
     private void startFeedPhotoAudio(ReelModel reel) {
         releaseFeedPhotoAudio();
@@ -2563,6 +2639,102 @@ public class HomeFragment extends Fragment {
         loadSuggestedCreators();
     }
 
+    /**
+     * Loads the lightweight Notes tray independently from Stories. Notes are
+     * intentionally read from reelNotes/{uid}, not status/{uid}: a note is
+     * text-only, expires after 24 hours, and must not create a story ring.
+     * Older accounts simply have no node and keep the tray hidden.
+     */
+    private void loadNotes() {
+        if (!isAdded() || containerNotes == null) return;
+        containerNotes.removeAllViews();
+        containerNotes.setVisibility(View.GONE);
+        String myUid = safeMyUid();
+        if (myUid == null || myUid.isEmpty()) return;
+
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        ids.add(myUid);
+        if (cachedFollowedUids != null) ids.addAll(cachedFollowedUids);
+        ArrayList<String> limited = new ArrayList<>(ids);
+        if (limited.size() > 20) limited.subList(20, limited.size()).clear();
+
+        final LinkedHashMap<String, NoteEntry> notes = new LinkedHashMap<>();
+        final int[] remaining = {limited.size()};
+        for (String uid : limited) {
+            FirebaseUtils.db().getReference("reelNotes").child(uid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot s) {
+                        String text = s.child("text").getValue(String.class);
+                        Long expires = s.child("expiresAt").getValue(Long.class);
+                        if (text != null && !text.trim().isEmpty()
+                                && (expires == null || expires > System.currentTimeMillis())) {
+                            String name = s.child("ownerName").getValue(String.class);
+                            if (name == null || name.isEmpty()) name = s.child("name").getValue(String.class);
+                            String photo = s.child("photoUrl").getValue(String.class);
+                            if (photo == null || photo.isEmpty()) photo = s.child("ownerPhoto").getValue(String.class);
+                            notes.put(uid, new NoteEntry(uid, name, photo, text.trim()));
+                        }
+                        finishNotesRead(notes, remaining);
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {
+                        finishNotesRead(notes, remaining);
+                    }
+                });
+        }
+    }
+
+    private void finishNotesRead(LinkedHashMap<String, NoteEntry> notes, int[] remaining) {
+        if (--remaining[0] != 0 || !isAdded() || containerNotes == null) return;
+        containerNotes.removeAllViews();
+        if (notes.isEmpty()) {
+            containerNotes.setVisibility(View.GONE);
+            return;
+        }
+        for (NoteEntry note : notes.values()) addNoteBubble(note);
+        containerNotes.setVisibility(View.VISIBLE);
+    }
+
+    private void addNoteBubble(NoteEntry note) {
+        if (!isAdded() || containerNotes == null) return;
+        TextView bubble = new TextView(requireContext());
+        String label = note.uid.equals(safeMyUid()) ? "Your note" :
+            (note.name == null || note.name.isEmpty() ? "Note" : note.name);
+        bubble.setText(label + "\n" + note.text);
+        bubble.setTextColor(0xFF202124);
+        bubble.setTextSize(11f);
+        bubble.setGravity(Gravity.CENTER);
+        bubble.setMaxLines(2);
+        bubble.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        bubble.setPadding(dpToPx(12), dpToPx(6), dpToPx(12), dpToPx(6));
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(0xFFF0F1F5);
+        bg.setCornerRadius(dpToPx(18));
+        bubble.setBackground(bg);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+            dpToPx(132), dpToPx(48));
+        lp.setMargins(dpToPx(4), dpToPx(2), dpToPx(4), dpToPx(2));
+        bubble.setLayoutParams(lp);
+        bubble.setOnClickListener(v -> {
+            if (note.uid.equals(safeMyUid())) {
+                Toast.makeText(requireContext(), "Add or edit your note from your profile",
+                    Toast.LENGTH_SHORT).show();
+            } else {
+                Intent i = new Intent(requireContext(), UserReelsActivity.class);
+                i.putExtra(UserReelsActivity.EXTRA_UID, note.uid);
+                i.putExtra(UserReelsActivity.EXTRA_NAME, note.name);
+                startActivity(i);
+            }
+        });
+        containerNotes.addView(bubble);
+    }
+
+    private static class NoteEntry {
+        final String uid, name, photo, text;
+        NoteEntry(String uid, String name, String photo, String text) {
+            this.uid = uid; this.name = name; this.photo = photo; this.text = text;
+        }
+    }
+
     // ── Stories ───────────────────────────────────────────────────────────
     /**
      * Loads stories from contacts:
@@ -2935,6 +3107,7 @@ public class HomeFragment extends Fragment {
                                         Set<String> followedUids = new HashSet<>();
                                         for (DataSnapshot s : fSnap.getChildren()) followedUids.add(s.getKey());
                                         cachedFollowedUids = followedUids;
+                                         loadNotes();
                                         // ★ Instagram-level ranking: engagement × recency,
                                         // relationship + real creator watch-affinity,
                                         // watch-time/completion signal, topic
@@ -3041,6 +3214,7 @@ public class HomeFragment extends Fragment {
 
     private void loadReelsForFeed(Set<String> followedUids, String myUid) {
         cachedFollowedUids = followedUids;
+        loadNotes();
         FirebaseUtils.getReelsRef()
             .orderByChild("timestamp")
             .limitToLast(FEED_FETCH_BATCH)
@@ -3115,6 +3289,19 @@ public class HomeFragment extends Fragment {
 
     private void renderFeedPostsWithState(List<ReelModel> posts, Set<String> likedIds,
                                            Set<String> savedIds, String myUid, Set<String> followedUids) {
+        renderFeedPostsWithState(posts, likedIds, savedIds, myUid, followedUids, true);
+    }
+
+    /**
+     * @param persistToLocalCache Whether to write this page to the Room
+     *      instant-paint cache (see HomeFeedCacheEntity). True for every
+     *      real Firebase-backed render; false only for the one-time
+     *      cache→UI paint in paintFeedFromLocalCacheInstant(), so a cold
+     *      start doesn't just write the disk cache straight back to itself.
+     */
+    private void renderFeedPostsWithState(List<ReelModel> posts, Set<String> likedIds,
+                                           Set<String> savedIds, String myUid, Set<String> followedUids,
+                                           boolean persistToLocalCache) {
         if (!isAdded() || getContext() == null) return;
         // Cache render state so infinite-scroll pages and the real-time
         // "new posts" refresh can reuse it without re-fetching per card.
@@ -3124,6 +3311,24 @@ public class HomeFragment extends Fragment {
         cachedFollowedUids = followedUids;
         requireActivity().runOnUiThread(() -> {
             if (feedAdapter == null || !isAdded()) return;
+            // v299 ultra: zero-flicker handoff. If the screen is currently
+            // showing the disk-cache paint and this real Firebase page has
+            // the exact same top-of-feed reelId order, the user is looking
+            // at correct data already — a full clearFeedRows()+rebuild here
+            // would tear down and restart the ExoPlayer surface + Glide
+            // targets for every visible card for literally no visual
+            // change. Instagram/TikTok never re-flash the feed on a
+            // reconcile that agrees with what's on screen; only replace
+            // when the content actually differs.
+            if (persistToLocalCache && feedPaintedFromCache
+                    && isSameTopOfFeedOrder(currentFeedPosts, posts)) {
+                feedPaintedFromCache = false; // now confirmed live, not just disk
+                currentFeedPosts = posts;     // adopt live objects (fresh counts etc.)
+                startRealtimeNewPostsListener();
+                persistFeedPageToLocalCache(posts);
+                return;
+            }
+            feedPaintedFromCache = false;
             // The cards backing the ticker/tracker are about to be destroyed:
             // save where the current reel got to, then stand both down before
             // currentPlayingIndex is invalidated.
@@ -3156,7 +3361,204 @@ public class HomeFragment extends Fragment {
             // is sitting on Home — real background updates, not just
             // pull-to-refresh, same as Instagram's live feed.
             startRealtimeNewPostsListener();
+            if (persistToLocalCache) persistFeedPageToLocalCache(posts);
         });
+    }
+
+    // ── Cold-start instant-paint cache (Room) ───────────────────────────────
+
+    /**
+     * Reads the last successfully-rendered feed page from Room off the main
+     * thread and paints it the moment it's ready — see the call site in
+     * onCreateView for the full rationale (Instagram/TikTok-style instant
+     * cold start). Guarded so it's a no-op if the real Firebase response (or
+     * a pull-to-refresh) already populated currentFeedPosts first; disk is
+     * never allowed to stomp live data.
+     */
+    private void paintFeedFromLocalCacheInstant() {
+        if (!isAdded() || getContext() == null) return;
+        // v300 ultra: in-memory fast path first — zero disk I/O, zero
+        // thread-hop, paints on this very call. Covers tab-away-and-back
+        // and fragment-view recreation within the same app process, which
+        // is far more common in real usage than an actual cold start. Falls
+        // through to the Room read below only when this is empty (true
+        // process cold start, or right after logout cleared it).
+        List<ReelModel> memoryHit = sMemoryFeedCache;
+        if (memoryHit != null && !memoryHit.isEmpty() && currentFeedPosts.isEmpty()) {
+            thumbPreloader.preloadFrom(memoryHit, -1);
+            videoPreloader.preloadFrom(memoryHit, -1);
+            feedPaintedFromCache = true;
+            renderFeedPostsWithState(memoryHit, new HashSet<>(), new HashSet<>(), null,
+                    cachedFollowedUids, false);
+            return;
+        }
+        final android.content.Context appCtx = requireContext().getApplicationContext();
+        com.callx.app.utils.AppBgExecutor.execute(() -> {
+            List<com.callx.app.db.entity.HomeFeedCacheEntity> cached;
+            try {
+                cached = com.callx.app.db.AppDatabase.getInstance(appCtx)
+                        .homeFeedCacheDao().getCached();
+            } catch (Exception e) {
+                return; // Best-effort — a disk hiccup here just means no instant paint this launch.
+            }
+            if (cached == null || cached.isEmpty()) return;
+            List<ReelModel> posts = new ArrayList<>(cached.size());
+            for (com.callx.app.db.entity.HomeFeedCacheEntity e : cached) posts.add(toReelModelFromCache(e));
+            // v299 ultra: start warming the first screenful's media RIGHT NOW,
+            // still off the main thread — before the UI-thread hop below,
+            // before a single row is even inflated. Both preloaders enqueue
+            // to their own background executors (Glide / ExoPlayer cache
+            // writer), so this costs nothing on this thread; it just means
+            // the thumbnail bitmap and the first video's initial bytes are
+            // already landing in RAM/disk cache by the time FeedAdapter
+            // actually binds card 0 — the gap Instagram closes by never
+            // showing a decode/buffer spinner on a warm reopen.
+            thumbPreloader.preloadFrom(posts, -1);
+            videoPreloader.preloadFrom(posts, -1);
+            if (!isAdded() || getContext() == null) return;
+            requireActivity().runOnUiThread(() -> {
+                if (!isAdded() || getContext() == null) return;
+                // Never stomp a live render that already landed first.
+                if (!currentFeedPosts.isEmpty()) return;
+                feedPaintedFromCache = true;
+                renderFeedPostsWithState(posts, new HashSet<>(), new HashSet<>(), null,
+                        cachedFollowedUids, false);
+            });
+        });
+    }
+
+    /** v299 ultra: true iff both lists carry the same reelIds in the same
+     *  order over their shared length — the cheap signal that a fresh
+     *  Firebase page is "the same top-of-feed" the disk cache already
+     *  painted, so the live render can be treated as a confirmation
+     *  instead of a replacement. Deliberately ignores everything except
+     *  identity + order (not counts/captions/etc.) — a metadata-only
+     *  change (a like count ticking) is exactly the case we want to keep
+     *  cheap and flicker-free; a real content change (new/reordered
+     *  posts) will differ in reelId order and fall through to the normal
+     *  full rebuild. */
+    private boolean isSameTopOfFeedOrder(List<ReelModel> a, List<ReelModel> b) {
+        if (a == null || b == null || a.isEmpty() || b.isEmpty()) return false;
+        int n = Math.min(a.size(), b.size());
+        for (int i = 0; i < n; i++) {
+            ReelModel ra = a.get(i), rb = b.get(i);
+            String idA = ra != null ? ra.reelId : null;
+            String idB = rb != null ? rb.reelId : null;
+            if (idA == null || !idA.equals(idB)) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Writes the just-rendered feed page to Room so the NEXT cold start can
+     * paint instantly instead of showing the loading spinner. Capped to
+     * HOME_FEED_CACHE_LIMIT rows — a "last-seen top of feed" cache, not a
+     * full offline store. Best-effort: any disk failure here never affects
+     * the live feed that's already on screen.
+     */
+    private void persistFeedPageToLocalCache(List<ReelModel> posts) {
+        if (getContext() == null || posts == null || posts.isEmpty()) return;
+        final android.content.Context appCtx = requireContext().getApplicationContext();
+        final List<ReelModel> snapshot =
+                new ArrayList<>(posts.subList(0, Math.min(posts.size(), HOME_FEED_CACHE_LIMIT)));
+        // v299 ultra: skip the disk round-trip entirely when this exact page
+        // (by reelId order) is already what's persisted — Home reconciles
+        // against Firebase on every foreground + real-time tick, and most of
+        // those ticks change nothing about the top of the feed. Computed on
+        // the calling (main) thread since it's a handful of string compares,
+        // not worth a background hop by itself.
+        StringBuilder sig = new StringBuilder(snapshot.size() * 12);
+        for (ReelModel r : snapshot) sig.append(r != null && r.reelId != null ? r.reelId : "?").append('|');
+        final String signature = sig.toString();
+        // v300 ultra: always refresh the in-memory mirror (cheap reference
+        // assign), independent of the disk-write skip below — the memory
+        // fast path should reflect the newest page even on ticks that don't
+        // change the persisted disk copy.
+        sMemoryFeedCache = snapshot;
+        if (signature.equals(lastPersistedCacheSignature)) return;
+        com.callx.app.utils.AppBgExecutor.execute(() -> {
+            try {
+                List<com.callx.app.db.entity.HomeFeedCacheEntity> rows = new ArrayList<>(snapshot.size());
+                for (int i = 0; i < snapshot.size(); i++) rows.add(toCacheEntityFromReel(snapshot.get(i), i));
+                com.callx.app.db.AppDatabase.getInstance(appCtx).homeFeedCacheDao().replaceAll(rows);
+                lastPersistedCacheSignature = signature;
+            } catch (Exception ignored) {
+                // Best-effort disk cache write — never let a failure here affect the live feed.
+            }
+        });
+    }
+
+    private com.callx.app.db.entity.HomeFeedCacheEntity toCacheEntityFromReel(ReelModel r, int sortOrder) {
+        com.callx.app.db.entity.HomeFeedCacheEntity e = new com.callx.app.db.entity.HomeFeedCacheEntity();
+        e.reelId = r.reelId != null ? r.reelId : "";
+        e.uid = r.uid;
+        e.ownerName = r.ownerName;
+        e.ownerPhoto = r.ownerPhoto;
+        e.ownerAvatarBlurHash = r.ownerAvatarBlurHash;
+        e.avatarVersion = r.avatarVersion;
+        e.videoUrl = r.videoUrl;
+        e.video480 = r.video480;
+        e.video720 = r.video720;
+        e.video1080 = r.video1080;
+        e.hlsManifestUrl = r.hlsManifestUrl;
+        e.thumbUrl = r.thumbUrl;
+        e.thumbnailUrl = r.thumbnailUrl;
+        e.blurHash = r.blurHash;
+        e.caption = r.caption;
+        e.musicName = r.musicName;
+        e.musicId = r.musicId;
+        e.musicUrl = r.musicUrl;
+        e.musicCoverUrl = r.musicCoverUrl;
+        e.musicArtist = r.musicArtist;
+        e.musicStartSec = r.musicStartSec;
+        e.timestamp = r.timestamp;
+        e.duration = r.duration;
+        e.width = r.width;
+        e.height = r.height;
+        e.likesCount = r.likesCount;
+        e.commentsCount = r.commentsCount;
+        e.sharesCount = r.sharesCount;
+        e.viewsCount = r.viewsCount;
+        e.repostCount = r.repostCount;
+        e.isVerified = r.isVerified;
+        e.sortOrder = sortOrder;
+        return e;
+    }
+
+    private ReelModel toReelModelFromCache(com.callx.app.db.entity.HomeFeedCacheEntity e) {
+        ReelModel r = new ReelModel();
+        r.reelId = e.reelId;
+        r.uid = e.uid;
+        r.ownerName = e.ownerName;
+        r.ownerPhoto = e.ownerPhoto;
+        r.ownerAvatarBlurHash = e.ownerAvatarBlurHash;
+        r.avatarVersion = e.avatarVersion;
+        r.videoUrl = e.videoUrl;
+        r.video480 = e.video480;
+        r.video720 = e.video720;
+        r.video1080 = e.video1080;
+        r.hlsManifestUrl = e.hlsManifestUrl;
+        r.thumbUrl = e.thumbUrl;
+        r.thumbnailUrl = e.thumbnailUrl;
+        r.blurHash = e.blurHash;
+        r.caption = e.caption;
+        r.musicName = e.musicName;
+        r.musicId = e.musicId;
+        r.musicUrl = e.musicUrl;
+        r.musicCoverUrl = e.musicCoverUrl;
+        r.musicArtist = e.musicArtist;
+        r.musicStartSec = e.musicStartSec;
+        r.timestamp = e.timestamp;
+        r.duration = e.duration;
+        r.width = e.width;
+        r.height = e.height;
+        r.likesCount = e.likesCount;
+        r.commentsCount = e.commentsCount;
+        r.sharesCount = e.sharesCount;
+        r.viewsCount = e.viewsCount;
+        r.repostCount = e.repostCount;
+        r.isVerified = e.isVerified;
+        return r;
     }
 
     // ── Staged (scroll-yielding) card rendering ───────────────────────────
@@ -4339,6 +4741,7 @@ public class HomeFragment extends Fragment {
         holder.boundReel = reel;
         holder.boundCardIndex = cardIndex;
         holder.boundMyUid = myUid;
+        bindInlineSocialMetadata(holder, reel);
 
         // ── End-of-reel overlay buttons ──────────────────────────────────────
         if (watchMore != null && !holder.clickListenersBound) {
@@ -5143,6 +5546,12 @@ public class HomeFragment extends Fragment {
                 // same singleton cache, so a reel saved from either tab is
                 // available offline in both.
                 popup.getMenu().add(0, 7, 0, "Save for offline");
+                 popup.getMenu().add(0, 8, 0, "Share to Story");
+                 popup.getMenu().add(0, 9, 0, "Share to Close Friends Story");
+                 if ((reel.videoUrl != null && !reel.videoUrl.isEmpty())
+                         || (reel.video480 != null && !reel.video480.isEmpty())) {
+                     popup.getMenu().add(0, 10, 0, "Remix this reel");
+                 }
                 popup.setOnMenuItemClickListener(item -> {
                     switch (item.getItemId()) {
                         case 1: // Not interested — remove from feed optimistically
@@ -5214,6 +5623,15 @@ public class HomeFragment extends Fragment {
                         case 7: // Save for offline
                             saveHomeReelOffline(reel);
                             return true;
+                         case 8:
+                             launchHomeStoryShare(reel, false);
+                             return true;
+                         case 9:
+                             launchHomeStoryShare(reel, true);
+                             return true;
+                         case 10:
+                             launchHomeRemix(reel);
+                             return true;
                     }
                     return false;
                 });
@@ -5230,6 +5648,264 @@ public class HomeFragment extends Fragment {
         }
         // v243: no containerFeed.addView(card) — `card` IS the RecyclerView
         // ViewHolder's itemView already; FeedAdapter/RecyclerView own attach.
+    }
+
+    /** Binds all metadata that sits below a Home-feed caption. Every view is
+     * reset first because this physical ViewHolder is recycled between posts. */
+    private void bindInlineSocialMetadata(PostRowHolder holder, ReelModel reel) {
+        if (holder == null || reel == null) return;
+        TextView likedBy = holder.tvLikedBy;
+        TextView commentPreview = holder.tvCommentPreview;
+        if (likedBy != null) {
+            likedBy.setVisibility(View.GONE);
+            likedBy.setText("");
+            likedBy.setOnClickListener(v -> openLikes(reel));
+        }
+        if (commentPreview != null) {
+            commentPreview.setVisibility(View.GONE);
+            commentPreview.setText("");
+            commentPreview.setOnClickListener(v -> openCommentsForCard(reel));
+        }
+
+        if (holder.scrollTaggedPeople != null) holder.scrollTaggedPeople.setVisibility(View.GONE);
+        if (holder.layoutTaggedPeople != null) holder.layoutTaggedPeople.removeAllViews();
+        if (holder.scrollProductTags != null) holder.scrollProductTags.setVisibility(View.GONE);
+        if (holder.layoutProductTags != null) holder.layoutProductTags.removeAllViews();
+
+        if (holder.tvTranslate != null) {
+            boolean hasCaption = reel.caption != null && !reel.caption.trim().isEmpty();
+            holder.tvTranslate.setVisibility(hasCaption ? View.VISIBLE : View.GONE);
+            holder.tvTranslate.setText("See translation");
+            holder.tvTranslate.setOnClickListener(v -> showCaptionLanguageChooser(holder, reel));
+        }
+        if (holder.tvTranslation != null) {
+            holder.tvTranslation.setVisibility(View.GONE);
+            holder.tvTranslation.setText("");
+        }
+
+        // Social proof: reelLikeMeta contains the denormalized display name
+        // written by FirebaseUtils.writeReelLike(). It avoids one user read
+        // per card and naturally handles legacy likes with no metadata.
+        if (reel.reelId != null && !reel.reelId.isEmpty() && likedBy != null) {
+            FirebaseUtils.getReelLikeMetaRef(reel.reelId).limitToFirst(2)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot s) {
+                        if (holder.boundReel != reel || !isAdded()) return;
+                        ArrayList<String> names = new ArrayList<>();
+                        for (DataSnapshot child : s.getChildren()) {
+                            String n = child.child("name").getValue(String.class);
+                            if (n == null || n.trim().isEmpty()) n = child.child("username").getValue(String.class);
+                            if (n != null && !n.trim().isEmpty()) names.add(n.trim());
+                        }
+                        if (names.isEmpty()) return;
+                        String label = names.size() == 1
+                            ? "Liked by " + names.get(0) + " and others"
+                            : "Liked by " + names.get(0) + ", " + names.get(1) + " and others";
+                        likedBy.setText(label);
+                        likedBy.setVisibility(View.VISIBLE);
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                });
+        }
+
+        // Prefer a pinned comment (already denormalized on ReelModel), then
+        // fall back to the newest comment for older/unpinned reels.
+        if (commentPreview != null) {
+            if (reel.pinnedCommentText != null && !reel.pinnedCommentText.trim().isEmpty()) {
+                String author = reel.pinnedCommentAuthorName == null ? "" : reel.pinnedCommentAuthorName;
+                commentPreview.setText("💬 " + (author.isEmpty() ? "" : author + ": ") +
+                    reel.pinnedCommentText.trim());
+                commentPreview.setVisibility(View.VISIBLE);
+            } else if (reel.reelId != null && !reel.reelId.isEmpty()) {
+                FirebaseUtils.getReelCommentsRef(reel.reelId).orderByKey().limitToLast(1)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override public void onDataChange(@NonNull DataSnapshot s) {
+                            if (holder.boundReel != reel || !isAdded()) return;
+                            for (DataSnapshot child : s.getChildren()) {
+                                String text = child.child("text").getValue(String.class);
+                                if (text == null || text.trim().isEmpty()) continue;
+                                String author = child.child("ownerName").getValue(String.class);
+                                commentPreview.setText("💬 " + (author == null || author.isEmpty() ? "" : author + ": ") + text.trim());
+                                commentPreview.setVisibility(View.VISIBLE);
+                            }
+                        }
+                        @Override public void onCancelled(@NonNull DatabaseError e) {}
+                    });
+            }
+        }
+
+        bindTaggedPeople(holder, reel);
+        bindProductTags(holder, reel);
+    }
+
+    private void bindTaggedPeople(PostRowHolder holder, ReelModel reel) {
+        if (holder.layoutTaggedPeople == null || reel.taggedPeopleUids == null) return;
+        int max = Math.min(5, reel.taggedPeopleUids.size());
+        for (int i = 0; i < max; i++) {
+            String uid = reel.taggedPeopleUids.get(i);
+            if (uid == null || uid.trim().isEmpty()) continue;
+            final TextView pill = metadataPill("…");
+            pill.setTag(uid);
+            holder.layoutTaggedPeople.addView(pill);
+            if (holder.scrollTaggedPeople != null) holder.scrollTaggedPeople.setVisibility(View.VISIBLE);
+            FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot s) {
+                    if (holder.boundReel != reel || !isAdded()) return;
+                    String name = s.child("username").getValue(String.class);
+                    if (name == null || name.isEmpty()) name = s.child("handle").getValue(String.class);
+                    if (name == null || name.isEmpty()) name = s.child("name").getValue(String.class);
+                    pill.setText("@" + (name == null || name.isEmpty() ? "user" : name));
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {}
+            });
+            pill.setOnClickListener(v -> openUserProfile(uid));
+        }
+    }
+
+    private void bindProductTags(PostRowHolder holder, ReelModel reel) {
+        if (holder.layoutProductTags == null || reel.productTags == null) return;
+        for (ReelModel.ProductTag product : reel.productTags) {
+            if (product == null || product.name == null || product.name.trim().isEmpty()) continue;
+            String label = "🛍 " + product.name.trim();
+            if (product.price != null && !product.price.trim().isEmpty()) label += " · " + product.price.trim();
+            TextView pill = metadataPill(label);
+            holder.layoutProductTags.addView(pill);
+            if (holder.scrollProductTags != null) holder.scrollProductTags.setVisibility(View.VISIBLE);
+            pill.setOnClickListener(v -> {
+                if (product.productUrl != null && !product.productUrl.trim().isEmpty()) {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW,
+                            android.net.Uri.parse(product.productUrl.trim())));
+                    } catch (Exception e) {
+                        Toast.makeText(requireContext(), "Couldn't open product link",
+                            Toast.LENGTH_SHORT).show();
+                    }
+                } else {
+                    Toast.makeText(requireContext(), product.name, Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+    }
+
+    private TextView metadataPill(String text) {
+        TextView pill = new TextView(requireContext());
+        pill.setText(text);
+        pill.setTextColor(0xFF374151);
+        pill.setTextSize(11f);
+        pill.setGravity(Gravity.CENTER);
+        pill.setSingleLine(true);
+        pill.setPadding(dpToPx(10), dpToPx(6), dpToPx(10), dpToPx(6));
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(0xFFF0F1F5);
+        bg.setCornerRadius(dpToPx(16));
+        pill.setBackground(bg);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, dpToPx(32));
+        lp.setMargins(0, dpToPx(3), dpToPx(6), dpToPx(3));
+        pill.setLayoutParams(lp);
+        return pill;
+    }
+
+    private void openLikes(ReelModel reel) {
+        if (!isAdded() || reel == null || reel.reelId == null) return;
+        com.callx.app.comments.ReelLikesBottomSheet sheet =
+            com.callx.app.comments.ReelLikesBottomSheet.newInstance(
+                reel.reelId, reel.likesCount, 0);
+        sheet.show(getChildFragmentManager(), "home_likes");
+    }
+
+    private void openCommentsForCard(ReelModel reel) {
+        if (!isAdded() || getContext() == null || reel == null || reel.reelId == null) return;
+        Intent i = new Intent(getContext(), ReelCommentActivity.class);
+        i.putExtra(ReelCommentActivity.EXTRA_REEL_ID, reel.reelId);
+        i.putExtra(ReelCommentActivity.EXTRA_REEL_UID, reel.uid == null ? "" : reel.uid);
+        startActivity(i);
+    }
+
+    private void openUserProfile(String uid) {
+        if (!isAdded() || getContext() == null || uid == null || uid.isEmpty()) return;
+        Intent i = new Intent(getContext(), UserReelsActivity.class);
+        i.putExtra(UserReelsActivity.EXTRA_UID, uid);
+        startActivity(i);
+    }
+
+    private void showCaptionLanguageChooser(PostRowHolder holder, ReelModel reel) {
+        if (!isAdded() || reel == null || reel.caption == null) return;
+        String[] languages = {"English", "Hindi", "Spanish", "French"};
+        String[] codes = {"en", "hi", "es", "fr"};
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            .setTitle("Translate caption")
+            .setItems(languages, (d, which) -> translateCaption(holder, reel, codes[which]))
+            .show();
+    }
+
+    /** Uses Google's no-key translation endpoint for this user-requested,
+     * one-caption action. Nothing is sent until the user taps a language. */
+    private void translateCaption(PostRowHolder holder, ReelModel reel, String language) {
+        if (holder.tvTranslation == null || reel.caption == null) return;
+        holder.tvTranslation.setText("Translating…");
+        holder.tvTranslation.setVisibility(View.VISIBLE);
+        new Thread(() -> {
+            String result = null;
+            try {
+                String q = java.net.URLEncoder.encode(reel.caption, "UTF-8");
+                java.net.URL url = new java.net.URL(
+                    "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl="
+                    + language + "&dt=t&q=" + q);
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection) url.openConnection();
+                c.setConnectTimeout(7000);
+                c.setReadTimeout(7000);
+                java.io.BufferedReader br = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(c.getInputStream()));
+                StringBuilder json = new StringBuilder();
+                String line;
+                while ((line = br.readLine()) != null) json.append(line);
+                br.close();
+                org.json.JSONArray rows = new org.json.JSONArray(json.toString()).getJSONArray(0);
+                StringBuilder translated = new StringBuilder();
+                for (int i = 0; i < rows.length(); i++) translated.append(rows.getJSONArray(i).optString(0));
+                result = translated.toString();
+            } catch (Exception ignored) {}
+            final String translated = result;
+            if (!isAdded()) return;
+            requireActivity().runOnUiThread(() -> {
+                if (holder.boundReel != reel || holder.tvTranslation == null) return;
+                holder.tvTranslation.setText(translated == null || translated.isEmpty()
+                    ? "Translation unavailable right now." : translated);
+            });
+        }).start();
+    }
+
+    private void launchHomeStoryShare(ReelModel reel, boolean closeFriends) {
+        if (!isAdded() || getContext() == null || reel == null || reel.reelId == null) return;
+        Intent i = new Intent(requireContext(),
+            com.callx.app.social.ReelShareToStoryActivity.class);
+        i.putExtra(com.callx.app.social.ReelShareToStoryActivity.EXTRA_REEL_ID, reel.reelId);
+        i.putExtra(com.callx.app.social.ReelShareToStoryActivity.EXTRA_REEL_URL,
+            reel.videoUrl != null && !reel.videoUrl.isEmpty() ? reel.videoUrl : reel.video480);
+        i.putExtra(com.callx.app.social.ReelShareToStoryActivity.EXTRA_REEL_OWNER_NAME,
+            reel.ownerName == null ? "" : reel.ownerName);
+        if (closeFriends) {
+            i.putExtra(com.callx.app.social.ReelShareToStoryActivity.EXTRA_PRIVACY_PRESET,
+                "close_friends");
+        }
+        startActivity(i);
+    }
+
+    private void launchHomeRemix(ReelModel reel) {
+        if (!isAdded() || getContext() == null || reel == null || reel.reelId == null) return;
+        Intent i = new Intent(requireContext(),
+            com.callx.app.social.ReelRemixActivity.class);
+        i.putExtra(com.callx.app.social.ReelRemixActivity.EXTRA_REEL_ID, reel.reelId);
+        i.putExtra(com.callx.app.social.ReelRemixActivity.EXTRA_OWNER_UID,
+            reel.uid == null ? "" : reel.uid);
+        i.putExtra(com.callx.app.social.ReelRemixActivity.EXTRA_OWNER_NAME,
+            reel.ownerName == null ? "" : reel.ownerName);
+        i.putExtra(com.callx.app.social.ReelRemixActivity.EXTRA_VIDEO_URL,
+            reel.videoUrl == null ? "" : reel.videoUrl);
+        i.putExtra(com.callx.app.social.ReelRemixActivity.EXTRA_THUMB_URL,
+            reel.thumbUrl == null ? "" : reel.thumbUrl);
+        startActivity(i);
     }
 
     /**
@@ -5281,7 +5957,7 @@ public class HomeFragment extends Fragment {
 
     /**
      * Build a SpannableString that highlights #hashtags and @mentions in the caption.
-     * Hashtag taps open HashtagReelsActivity.
+     * Hashtag taps open discovery; mention taps resolve the handle to a profile.
      */
     private android.text.SpannableString buildCaptionSpannable(String text) {
         if (text == null || text.isEmpty())
@@ -5289,14 +5965,19 @@ public class HomeFragment extends Fragment {
         android.text.SpannableString span = new android.text.SpannableString(text);
         java.util.regex.Matcher m = HASHTAG_PATTERN.matcher(text);
         while (m.find()) {
-            final String tag = m.group(1);
+            final String prefix = m.group(1);
+            final String token = m.group(2);
             final int s = m.start(), e = m.end();
             span.setSpan(new android.text.style.ClickableSpan() {
                 @Override public void onClick(@NonNull android.view.View w) {
-                    if (!isAdded() || getContext() == null || tag == null) return;
-                    Intent hi = new Intent(getContext(), HashtagReelsActivity.class);
-                    hi.putExtra("hashtag", tag);
-                    startActivity(hi);
+                    if (!isAdded() || getContext() == null || token == null) return;
+                    if ("#".equals(prefix)) {
+                        Intent hi = new Intent(getContext(), HashtagReelsActivity.class);
+                        hi.putExtra("hashtag", token);
+                        startActivity(hi);
+                    } else {
+                        resolveMentionAndOpenProfile(token);
+                    }
                 }
                 @Override public void updateDrawState(@NonNull android.text.TextPaint ds) {
                     ds.setColor(0xFF00C6FF); ds.setUnderlineText(false);
@@ -5304,6 +5985,43 @@ public class HomeFragment extends Fragment {
             }, s, e, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         return span;
+    }
+
+    private void resolveMentionAndOpenProfile(String handle) {
+        if (!isAdded() || handle == null || handle.isEmpty()) return;
+        Query q = FirebaseUtils.db().getReference("users")
+            .orderByChild("username").equalTo(handle).limitToFirst(1);
+        q.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot s) {
+                String uid = null;
+                String name = handle;
+                for (DataSnapshot child : s.getChildren()) {
+                    uid = child.getKey();
+                    name = child.child("name").getValue(String.class);
+                    break;
+                }
+                if (uid == null) {
+                    FirebaseUtils.db().getReference("users")
+                        .orderByChild("handle").equalTo(handle).limitToFirst(1)
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override public void onDataChange(@NonNull DataSnapshot fallback) {
+                                for (DataSnapshot child : fallback.getChildren()) {
+                                    openUserProfile(child.getKey());
+                                    return;
+                                }
+                                Toast.makeText(requireContext(), "Profile not found",
+                                    Toast.LENGTH_SHORT).show();
+                            }
+                            @Override public void onCancelled(@NonNull DatabaseError e) {}
+                        });
+                } else {
+                    openUserProfile(uid);
+                }
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {
+                Toast.makeText(requireContext(), "Profile not found", Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     /**
@@ -6388,6 +7106,14 @@ public class HomeFragment extends Fragment {
         TextView        btnPostFollow;
         ImageView       ivThumb;
         TextView        tvCaption;
+        TextView        tvLikedBy;
+        TextView        tvCommentPreview;
+        TextView        tvTranslate;
+        TextView        tvTranslation;
+        LinearLayout    layoutTaggedPeople;
+        LinearLayout    layoutProductTags;
+        View            scrollTaggedPeople;
+        View            scrollProductTags;
         TextView        tvLikes;
         TextView        tvComments;
         TextView        tvReposts;
@@ -6483,6 +7209,14 @@ public class HomeFragment extends Fragment {
             btnPostFollow         = itemView.findViewById(R.id.btn_post_follow);
             ivThumb               = itemView.findViewById(R.id.iv_post_thumb);
             tvCaption             = itemView.findViewById(R.id.tv_post_caption);
+            tvLikedBy             = itemView.findViewById(R.id.tv_post_liked_by);
+            tvCommentPreview      = itemView.findViewById(R.id.tv_post_comment_preview);
+            tvTranslate            = itemView.findViewById(R.id.tv_post_translate);
+            tvTranslation         = itemView.findViewById(R.id.tv_post_translation);
+            layoutTaggedPeople     = itemView.findViewById(R.id.layout_post_tagged_people);
+            layoutProductTags      = itemView.findViewById(R.id.layout_post_product_tags);
+            scrollTaggedPeople     = itemView.findViewById(R.id.scroll_post_tagged_people);
+            scrollProductTags      = itemView.findViewById(R.id.scroll_post_product_tags);
             tvLikes               = itemView.findViewById(R.id.tv_post_likes);
             tvComments            = itemView.findViewById(R.id.tv_post_comments);
             tvReposts             = itemView.findViewById(R.id.tv_post_reposts);

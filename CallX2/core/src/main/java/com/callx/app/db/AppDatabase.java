@@ -64,9 +64,12 @@ import com.callx.app.db.entity.*;
         // reopen instead of a fresh Firebase read every time.
         TrendingAudioCacheEntity.class,
         // v54: durable per-chat compound message sync cursors.
-        MessageSyncStateEntity.class
+        MessageSyncStateEntity.class,
+        // v56: Home feed cold-start instant-paint cache — see
+        // HomeFeedCacheEntity's class doc.
+        HomeFeedCacheEntity.class
     },
-    version = 55,
+    version = 56,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -111,6 +114,9 @@ public abstract class AppDatabase extends RoomDatabase {
 
     // Trending Audio browser offline cache (v50)
     public abstract TrendingAudioCacheDao      trendingAudioCacheDao();
+
+    // Home feed cold-start instant-paint cache (v56)
+    public abstract HomeFeedCacheDao           homeFeedCacheDao();
 
     // ─── Migrations ───────────────────────────────────────────────────────────
 
@@ -743,6 +749,34 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /**
+     * v55 → v56: Home feed cold-start instant-paint cache table. See
+     * HomeFeedCacheEntity's class doc for why this exists.
+     */
+    static final Migration MIGRATION_55_56 = new Migration(55, 56) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS home_feed_cache ("
+                    + "reelId TEXT NOT NULL PRIMARY KEY, "
+                    + "uid TEXT, ownerName TEXT, ownerPhoto TEXT, ownerAvatarBlurHash TEXT, "
+                    + "avatarVersion INTEGER NOT NULL DEFAULT 0, "
+                    + "videoUrl TEXT, video480 TEXT, video720 TEXT, video1080 TEXT, hlsManifestUrl TEXT, "
+                    + "thumbUrl TEXT, thumbnailUrl TEXT, blurHash TEXT, "
+                    + "caption TEXT, musicName TEXT, musicId TEXT, musicUrl TEXT, "
+                    + "musicCoverUrl TEXT, musicArtist TEXT, musicStartSec INTEGER NOT NULL DEFAULT 0, "
+                    + "timestamp INTEGER NOT NULL DEFAULT 0, duration INTEGER NOT NULL DEFAULT 0, "
+                    + "width INTEGER NOT NULL DEFAULT 0, height INTEGER NOT NULL DEFAULT 0, "
+                    + "likesCount INTEGER NOT NULL DEFAULT 0, commentsCount INTEGER NOT NULL DEFAULT 0, "
+                    + "sharesCount INTEGER NOT NULL DEFAULT 0, viewsCount INTEGER NOT NULL DEFAULT 0, "
+                    + "repostCount INTEGER NOT NULL DEFAULT 0, "
+                    + "isVerified INTEGER NOT NULL DEFAULT 0, "
+                    + "sortOrder INTEGER NOT NULL DEFAULT 0, "
+                    + "cachedAt INTEGER NOT NULL DEFAULT 0)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_home_feed_cache_sortOrder "
+                    + "ON home_feed_cache (sortOrder)");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -803,7 +837,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50,
                                     MIGRATION_50_51, MIGRATION_51_52,
                                     MIGRATION_52_53, MIGRATION_53_54,
-                                    MIGRATION_54_55)
+                                    MIGRATION_54_55, MIGRATION_55_56)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

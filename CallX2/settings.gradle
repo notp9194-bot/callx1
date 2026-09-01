@@ -20,6 +20,7 @@ include ':app'
 include ':patternlockview'
 
 // ── Modular Architecture ──
+include ':core-lite'
 include ':core'
 include ':feature-chat'
 include ':feature-reels'
@@ -36,7 +37,7 @@ include ':feature-payments'
 include ':macrobenchmark'
 
 // ── Admin app: separate standalone app for reviewing verification-badge
-//    requests (approve/reject). Depends only on :core (shares FirebaseUtils'
+//    requests (approve/reject). Depends only on :core-lite (shares FirebaseUtils'
 //    verification_requests/admins helpers + the ic_verified_pink asset) —
 //    not on :app or any feature-* module, so it builds/installs completely
 //    independently of the main CallX2 app. See admin/README.md for the one

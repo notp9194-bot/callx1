@@ -133,6 +133,30 @@ public class ReelModel {
     public String  repostedFromUid;
     public String  repostedFromName;
     /**
+     * People tagged on the post (distinct from caption @mentions).  The upload
+     * flow stores UIDs here so the Home feed can resolve fresh names/photos
+     * without denormalizing stale profile text into every reel.
+     */
+    public List<String> taggedPeopleUids;
+
+    /**
+     * Product tags shown as tappable shopping pills below the Home-feed card.
+     * Kept as a small Firebase-friendly POJO so older reels simply deserialize
+     * with a null/empty list.
+     */
+    public List<ProductTag> productTags;
+
+    @IgnoreExtraProperties
+    public static class ProductTag {
+        public String name = "";
+        public String price = "";
+        public String imageUrl = "";
+        public String productUrl = "";
+
+        public ProductTag() {}
+    }
+
+    /**
      * UIDs of users @mentioned in the caption (Instagram-style).
      * Written at upload time; read by notification handlers.
      */

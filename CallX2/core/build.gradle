@@ -33,6 +33,11 @@ android {
 }
 
 dependencies {
+    // Keep the verification/admin primitives in the lightweight module while
+    // re-exporting them so existing app/features can keep their current
+    // FirebaseUtils imports unchanged.
+    api project(':core-lite')
+
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.core:core:1.13.1'

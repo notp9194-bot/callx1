@@ -9,7 +9,6 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.bumptech.glide.Glide;
 import com.callx.app.admin.model.VerificationRequest;
 import com.google.android.material.button.MaterialButton;
 
@@ -54,11 +53,8 @@ public class VerificationRequestAdapter extends RecyclerView.Adapter<Verificatio
         holder.name.setText(req.name == null || req.name.isEmpty() ? "(no name)" : req.name);
         holder.uid.setText(req.uid);
         holder.reason.setText(req.reason == null || req.reason.isEmpty() ? "(no reason given)" : req.reason);
-        Glide.with(holder.avatar)
-            .load(req.photoUrl)
-            .placeholder(R.drawable.ic_person)
-            .circleCrop()
-            .into(holder.avatar);
+        // Keep avatar loading while avoiding a third-party image dependency.
+        AdminImageLoader.load(holder.avatar, req.photoUrl);
         holder.btnApprove.setOnClickListener(v -> listener.onApprove(req));
         holder.btnReject.setOnClickListener(v -> listener.onReject(req));
     }

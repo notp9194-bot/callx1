@@ -79,6 +79,11 @@ public class AuthActivity extends AppCompatActivity {
                 && auth.getCurrentUser() != null) {
             com.callx.app.utils.PresenceManager.getInstance().onLogout();
             com.callx.app.chatlist.ChatSnapshotCache.clearSnapshotAsync(this);
+            // v300 ultra: Home's in-memory instant-paint mirror survives
+            // across activities for the life of the process, so a forced
+            // account switch has to drop it explicitly, same as the chat
+            // snapshot above.
+            com.callx.app.feed.HomeFragment.clearInMemoryFeedCache();
             BiometricLoginManager.getInstance(this).disable();
             // FIX-ACCT-SWITCH: chats/messages have no per-user (ownerUid)
             // scoping in Room, so without wiping the DB here the next

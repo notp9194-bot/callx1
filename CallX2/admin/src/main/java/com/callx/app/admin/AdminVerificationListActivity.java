@@ -9,7 +9,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 
 import com.callx.app.admin.databinding.ActivityAdminVerificationListBinding;
 import com.callx.app.admin.model.VerificationRequest;
-import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.corelite.FirebaseUtils;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.Query;

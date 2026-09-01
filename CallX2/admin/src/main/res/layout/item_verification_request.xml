@@ -14,7 +14,7 @@
         <ImageView android:id="@+id/iv_request_avatar"
             android:layout_width="44dp" android:layout_height="44dp"
             android:scaleType="centerCrop"
-            android:src="@drawable/ic_person"/>
+            android:src="@android:drawable/ic_menu_myplaces"/>
 
         <LinearLayout
             android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"

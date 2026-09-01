@@ -31,6 +31,7 @@ public class ReelShareToStoryActivity extends AppCompatActivity {
     public static final String EXTRA_REEL_ID        = "reel_id";
     public static final String EXTRA_REEL_URL        = "reel_url";
     public static final String EXTRA_REEL_OWNER_NAME = "owner_name";
+    public static final String EXTRA_PRIVACY_PRESET  = "privacy_preset";
 
     private ImageButton  btnBack;
     private PlayerView   playerView;
@@ -56,6 +57,18 @@ public class ReelShareToStoryActivity extends AppCompatActivity {
         reelUrl   = getIntent().getStringExtra(EXTRA_REEL_URL);
         ownerName = getIntent().getStringExtra(EXTRA_REEL_OWNER_NAME);
         bindViews();
+        String preset = getIntent().getStringExtra(EXTRA_PRIVACY_PRESET);
+        if ("close_friends".equals(preset)) {
+            for (int i = 0; i < rgStoryPrivacy.getChildCount(); i++) {
+                View child = rgStoryPrivacy.getChildAt(i);
+                if (child instanceof RadioButton
+                        && ((RadioButton) child).getText().toString().toLowerCase()
+                            .contains("close")) {
+                    ((RadioButton) child).setChecked(true);
+                    break;
+                }
+            }
+        }
         setupPlayer();
         loadMyStoryCount();
     }
@@ -136,6 +149,11 @@ public class ReelShareToStoryActivity extends AppCompatActivity {
         String stickerText = etCaption(etStickerText);
         int clipLen        = sbClipEnd.getProgress() + 1;
         String privacyText = getSelectedRadioText(rgStoryPrivacy);
+        // Persist the same privacy enum used by NewStatusActivity and the
+        // status viewers; the human-readable radio label is only UI text.
+        if (privacyText.toLowerCase().contains("close")) privacyText = "close_friends";
+        else if (privacyText.toLowerCase().contains("public")) privacyText = "everyone";
+        else privacyText = "followers";
         String durText     = getSelectedRadioText(rgStoryDuration);
 
         progress.setVisibility(View.VISIBLE);

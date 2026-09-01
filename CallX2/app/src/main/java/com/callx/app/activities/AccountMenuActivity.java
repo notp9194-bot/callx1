@@ -206,6 +206,10 @@ public class AccountMenuActivity extends AppCompatActivity {
                     // account that logs in on this device never flashes
                     // this account's chat previews as its own first frame.
                     com.callx.app.chatlist.ChatSnapshotCache.clearSnapshotAsync(this);
+                    // v300 ultra: same reason as the chat snapshot clear above —
+                    // Home's in-memory instant-paint mirror is per-process, not
+                    // per-account, so it must be wiped explicitly on logout too.
+                    com.callx.app.feed.HomeFragment.clearInMemoryFeedCache();
                     // FIX-ACCT-SWITCH: same reason as AuthActivity's
                     // EXTRA_FORCE_LOGIN branch — chats/messages carry no
                     // ownerUid in Room, so without wiping the DB here a

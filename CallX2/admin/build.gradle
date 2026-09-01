@@ -64,11 +64,10 @@ android {
 }
 
 dependencies {
-    // :core gives us FirebaseUtils (verification_requests / admins / isVerified
-    // helpers added alongside this feature) + the ic_verified_pink asset, and
-    // pulls in Firebase BOM + Glide (via its own `api` deps) transitively —
-    // no separate applicationId/version wiring needed here.
-    implementation project(':core')
+    // Keep the admin APK independent from the heavyweight main :core module.
+    // :core-lite exports only Auth + Realtime Database, the verification
+    // helpers/model, and the shared verified badge asset.
+    implementation project(':core-lite')
 
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'

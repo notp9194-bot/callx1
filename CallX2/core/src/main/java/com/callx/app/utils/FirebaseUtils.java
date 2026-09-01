@@ -48,42 +48,36 @@ public class FirebaseUtils {
         return db().getReference("users").child(uid);
     }
 
-    // ── Verification (blue/pink badge request + admin review) ──────────────
-    //
-    // Flow: user submits a request (name/photo/reason) → sits under
-    // verification_requests/{uid} with status "pending" → an admin (see the
-    // separate :admin app module) reviews it and either sets
-    // users/{uid}/isVerified = true (approve) or marks the request
-    // "rejected" (reject). isVerified is what SoundDetailFragment and any
-    // other screen should check to show the ic_verified_pink badge (core
-    // module) for real, instead of the always-on UI-only badge some
-    // screens still hardcode.
-    //
-    // admins/{uid} = true is a manual allowlist — add an admin's uid there
-    // by hand in the Firebase console (or via another admin already in the
-    // list) — there is no self-service "become an admin" flow by design.
-
-    public static final String VERIFICATION_REQUESTS_PATH = "verification_requests";
-    public static final String ADMINS_PATH                = "admins";
-    public static final String FIELD_IS_VERIFIED           = "isVerified";
-    public static final String STATUS_PENDING              = "pending";
-    public static final String STATUS_APPROVED             = "approved";
-    public static final String STATUS_REJECTED             = "rejected";
+    // ── Verification (implemented in :core-lite) ─────────────────────────
+    // Keep these aliases so the main app and feature modules retain their
+    // existing imports while the implementation stays out of the heavy core.
+    public static final String VERIFICATION_REQUESTS_PATH =
+        com.callx.app.corelite.FirebaseUtils.VERIFICATION_REQUESTS_PATH;
+    public static final String ADMINS_PATH =
+        com.callx.app.corelite.FirebaseUtils.ADMINS_PATH;
+    public static final String FIELD_IS_VERIFIED =
+        com.callx.app.corelite.FirebaseUtils.FIELD_IS_VERIFIED;
+    public static final String STATUS_PENDING =
+        com.callx.app.corelite.FirebaseUtils.STATUS_PENDING;
+    public static final String STATUS_APPROVED =
+        com.callx.app.corelite.FirebaseUtils.STATUS_APPROVED;
+    public static final String STATUS_REJECTED =
+        com.callx.app.corelite.FirebaseUtils.STATUS_REJECTED;
 
     public static DatabaseReference getVerificationRequestsRef() {
-        return db().getReference(VERIFICATION_REQUESTS_PATH);
+        return com.callx.app.corelite.FirebaseUtils.getVerificationRequestsRef();
     }
 
     public static DatabaseReference getVerificationRequestRef(String uid) {
-        return getVerificationRequestsRef().child(uid);
+        return com.callx.app.corelite.FirebaseUtils.getVerificationRequestRef(uid);
     }
 
     public static DatabaseReference getAdminsRef() {
-        return db().getReference(ADMINS_PATH);
+        return com.callx.app.corelite.FirebaseUtils.getAdminsRef();
     }
 
     public static DatabaseReference getIsVerifiedRef(String uid) {
-        return getUserRef(uid).child(FIELD_IS_VERIFIED);
+        return com.callx.app.corelite.FirebaseUtils.getIsVerifiedRef(uid);
     }
 
     // ── Linked devices (WhatsApp-Web-style companion sessions) ─────────────

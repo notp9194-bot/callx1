@@ -494,19 +494,11 @@
             android:contentDescription="Save"/>
     </LinearLayout>
 
-    <!-- Timestamp -->
-    <TextView
-        android:id="@+id/tv_post_time"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:paddingBottom="4dp"
-        android:text="1 day ago"
-        android:textColor="@color/text_secondary"
-        android:textSize="11sp"/>
-
     <!-- Caption -->
+    <!-- 🐛 FIX: caption now comes BEFORE the timestamp, to match Post feed's
+         order (item_post_feed_photo.xml) — was time-then-caption here, which
+         made the two feeds show reels/posts in a visibly different order and
+         confused users into thinking they were different content types. -->
     <TextView
         android:id="@+id/tv_post_caption"
         android:layout_width="match_parent"
@@ -535,5 +527,107 @@
         android:visibility="gone"
         android:clickable="true"
         android:focusable="true"/>
+
+    <!-- Instagram-style social context below the caption. These are hidden
+         for legacy reels that have no corresponding metadata. -->
+    <TextView
+        android:id="@+id/tv_post_liked_by"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="2dp"
+        android:textColor="@color/text_primary"
+        android:textSize="12sp"
+        android:fontFamily="sans-serif-medium"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true"/>
+
+    <TextView
+        android:id="@+id/tv_post_comment_preview"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="3dp"
+        android:textColor="@color/text_secondary"
+        android:textSize="12sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true"/>
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:visibility="gone"
+        android:id="@+id/scroll_post_tagged_people">
+        <LinearLayout
+            android:id="@+id/layout_post_tagged_people"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"/>
+    </HorizontalScrollView>
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:visibility="gone"
+        android:id="@+id/scroll_post_product_tags">
+        <LinearLayout
+            android:id="@+id/layout_post_product_tags"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"/>
+    </HorizontalScrollView>
+
+    <TextView
+        android:id="@+id/tv_post_translate"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="2dp"
+        android:text="See translation"
+        android:textColor="@color/brand_primary"
+        android:textSize="12sp"
+        android:fontFamily="sans-serif-medium"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true"/>
+
+    <TextView
+        android:id="@+id/tv_post_translation"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="3dp"
+        android:textColor="@color/text_primary"
+        android:textSize="13sp"
+        android:visibility="gone"/>
+
+    <!-- Timestamp -->
+    <TextView
+        android:id="@+id/tv_post_time"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="4dp"
+        android:text="1 day ago"
+        android:textColor="@color/text_secondary"
+        android:textSize="11sp"/>
 
 </LinearLayout>

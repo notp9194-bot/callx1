@@ -532,6 +532,18 @@ public class ReelsFragment extends Fragment {
             return false;
         });
 
+        // ── Instagram-style: tapping the Home icon again while already on
+        // the Home tab scrolls the feed to top and refreshes it (instead of
+        // doing nothing, since BottomNavigationView only fires
+        // OnItemSelectedListener for a NEW selection, never the current one).
+        reelBottomNav.setOnItemReselectedListener(item -> {
+            if (item.getItemId() == R.id.reel_nav_home) {
+                androidx.fragment.app.Fragment home =
+                    getChildFragmentManager().findFragmentByTag("home_fragment");
+                if (home instanceof HomeFragment) ((HomeFragment) home).scrollToTopAndRefresh();
+            }
+        });
+
         // Start on the Reels feed tab (suppressed so it doesn't scroll to top on init)
         suppressNavScrollToTop = true;
         reelBottomNav.setSelectedItemId(R.id.reel_nav_feed);

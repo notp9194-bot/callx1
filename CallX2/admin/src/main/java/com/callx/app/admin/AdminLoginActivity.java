@@ -7,7 +7,7 @@ import android.view.View;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.callx.app.admin.databinding.ActivityAdminLoginBinding;
-import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.corelite.FirebaseUtils;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;

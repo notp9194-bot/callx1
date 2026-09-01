@@ -168,6 +168,11 @@ public class ReelUploadActivity extends AppCompatActivity {
     private android.widget.TextView tvSeriesPickerUpload;
     private TextView          tvTagSummary, tvLocationName, tvScheduleTime;
     private String            taggedUids = "", locationName = "", scheduleTime = "";
+    /** Product tags selected in ReelProductTagActivity, persisted with the reel. */
+    private final java.util.ArrayList<String> productTagNames  = new java.util.ArrayList<>();
+    private final java.util.ArrayList<String> productTagPrices = new java.util.ArrayList<>();
+    private final java.util.ArrayList<String> productTagUrls   = new java.util.ArrayList<>();
+    private final java.util.ArrayList<String> productTagImages = new java.util.ArrayList<>();
 
     // ── Photo Slideshow fields ────────────────────────────────────────────────
     private boolean               isPhotoMode              = false;
@@ -1512,6 +1517,25 @@ public class ReelUploadActivity extends AppCompatActivity {
                     tvCollabSummary.setText(others > 0 ? (first + " +" + others) : first);
                 }
             }
+        } else if (requestCode == 505 && resultCode == Activity.RESULT_OK && data != null) {
+            productTagNames.clear();
+            productTagPrices.clear();
+            productTagUrls.clear();
+            productTagImages.clear();
+            java.util.ArrayList<String> names = data.getStringArrayListExtra("product_names");
+            java.util.ArrayList<String> prices = data.getStringArrayListExtra("product_prices");
+            java.util.ArrayList<String> urls = data.getStringArrayListExtra("product_urls");
+            java.util.ArrayList<String> images = data.getStringArrayListExtra("product_images");
+            if (names != null) productTagNames.addAll(names);
+            if (prices != null) productTagPrices.addAll(prices);
+            if (urls != null) productTagUrls.addAll(urls);
+            if (images != null) productTagImages.addAll(images);
+            if (btnProductTag != null) {
+                String label = productTagNames.isEmpty() ? "" :
+                    (productTagNames.size() + " product" + (productTagNames.size() == 1 ? "" : "s") + " tagged");
+                Toast.makeText(this, label.isEmpty() ? "Product tags cleared" : label,
+                    Toast.LENGTH_SHORT).show();
+            }
         } else if (requestCode == 504 && resultCode == Activity.RESULT_OK && data != null) {
             scheduleTime = data.getStringExtra("scheduled_time");
             if (scheduleTime == null) scheduleTime = "";
@@ -2692,6 +2716,10 @@ public class ReelUploadActivity extends AppCompatActivity {
                     reel.audienceType    = audienceType;
                     reel.thumbUrl        = thumbUrl;
                     reel.ownerAvatarBlurHash = ownerAvatarHash != null ? ownerAvatarHash : "";
+                     reel.taggedPeopleUids = parseTaggedUids(a.taggedUids);
+                     reel.productTags = a.buildProductTags();
+                     reel.mentionedUids = a.mentionedUids.isEmpty()
+                         ? null : new java.util.ArrayList<>(a.mentionedUids);
 
                     // Duet / Stitch permissions
                     String duetLevel   = a.getDuetLevel();
@@ -2807,6 +2835,10 @@ public class ReelUploadActivity extends AppCompatActivity {
 
                 reel.audienceType = audienceType;
                 reel.ownerAvatarBlurHash = ownerAvatarHash != null ? ownerAvatarHash : "";
+                reel.taggedPeopleUids = a.parseTaggedUids(a.taggedUids);
+                reel.productTags = a.buildProductTags();
+                reel.mentionedUids = a.mentionedUids.isEmpty()
+                    ? null : new java.util.ArrayList<>(a.mentionedUids);
                 // ✅ FIX: sync both thumbnail fields so Firebase has "thumbUrl" AND "thumbnailUrl"
                 if (reel.thumbnailUrl == null || reel.thumbnailUrl.isEmpty()) {
                     reel.thumbnailUrl = reel.thumbUrl != null ? reel.thumbUrl : "";
@@ -3107,6 +3139,32 @@ public class ReelUploadActivity extends AppCompatActivity {
                 Toast.makeText(a, "Database error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
             }
         });
+    }
+
+    /** Converts the tag-picker's compact comma-separated result into the
+     * Firebase list used by ReelModel and the Home feed. */
+    private java.util.List<String> parseTaggedUids(String raw) {
+        if (raw == null || raw.trim().isEmpty()) return null;
+        java.util.ArrayList<String> out = new java.util.ArrayList<>();
+        for (String uid : raw.split(",")) {
+            if (uid != null && !uid.trim().isEmpty()) out.add(uid.trim());
+        }
+        return out.isEmpty() ? null : out;
+    }
+
+    /** Builds the Firebase-friendly product tag list from the picker result. */
+    private java.util.List<com.callx.app.models.ReelModel.ProductTag> buildProductTags() {
+        if (productTagNames.isEmpty()) return null;
+        java.util.ArrayList<com.callx.app.models.ReelModel.ProductTag> out = new java.util.ArrayList<>();
+        for (int i = 0; i < productTagNames.size(); i++) {
+            com.callx.app.models.ReelModel.ProductTag p = new com.callx.app.models.ReelModel.ProductTag();
+            p.name = productTagNames.get(i);
+            p.price = i < productTagPrices.size() ? productTagPrices.get(i) : "";
+            p.productUrl = i < productTagUrls.size() ? productTagUrls.get(i) : "";
+            p.imageUrl = i < productTagImages.size() ? productTagImages.get(i) : "";
+            out.add(p);
+        }
+        return out;
     }
 
     /**

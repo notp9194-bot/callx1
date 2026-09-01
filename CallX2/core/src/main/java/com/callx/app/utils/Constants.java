@@ -1,8 +1,7 @@
 package com.callx.app.utils;
 
 public class Constants {
-    public static final String DB_URL =
-        "https://sathix-97a76-default-rtdb.asia-southeast1.firebasedatabase.app";
+    public static final String DB_URL = com.callx.app.corelite.FirebaseUtils.DB_URL;
 
     public static final String SERVER_URL =
         "https://callx-server.onrender.com";
