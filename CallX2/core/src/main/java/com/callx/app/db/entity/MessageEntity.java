@@ -20,7 +20,7 @@ import androidx.annotation.NonNull;
         // queries that filter by status='pending'. Without this index SQLite
         // does a full table scan of every message in the DB on every retry call.
         @Index(value = {"chatId", "status"}),
-        @Index(value = {"status"})
+        @Index(value = {"status"}),
         @Index(value = {"chatId", "topicId", "timestamp"})
     }
 )
