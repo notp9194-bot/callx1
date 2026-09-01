@@ -278,11 +278,9 @@
                              + text pattern), logic here is people who used
                              this sound in a reel, not mutual followers. -->
                         <LinearLayout android:id="@+id/layout_sound_users"
-                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:layout_width="match_parent" android:layout_height="26dp"
                             android:orientation="horizontal" android:gravity="center_vertical"
                             android:layout_marginTop="6dp"
-                            android:background="@drawable/bg_sound_users_row"
-                            android:paddingHorizontal="10dp" android:paddingVertical="5dp"
                             android:clickable="true" android:focusable="true"
                             android:foreground="?attr/selectableItemBackground"
                             android:visibility="gone">
@@ -297,9 +295,7 @@
                                     android:layout_gravity="center_vertical"
                                     android:layout_marginStart="18dp"
                                     android:src="@drawable/ic_person"
-                                    android:visibility="gone"
-                                    app:civ_border_width="1.5dp"
-                                    app:civ_border_color="?attr/colorSurface"/>
+                                    android:visibility="gone"/>
 
                                 <de.hdodenhof.circleimageview.CircleImageView
                                     android:id="@+id/iv_sound_user_2"
@@ -307,25 +303,21 @@
                                     android:layout_gravity="center_vertical"
                                     android:layout_marginStart="9dp"
                                     android:src="@drawable/ic_person"
-                                    android:visibility="gone"
-                                    app:civ_border_width="1.5dp"
-                                    app:civ_border_color="?attr/colorSurface"/>
+                                    android:visibility="gone"/>
 
                                 <de.hdodenhof.circleimageview.CircleImageView
                                     android:id="@+id/iv_sound_user_1"
                                     android:layout_width="24dp" android:layout_height="24dp"
                                     android:layout_gravity="center_vertical"
                                     android:src="@drawable/ic_person"
-                                    android:visibility="gone"
-                                    app:civ_border_width="1.5dp"
-                                    app:civ_border_color="?attr/colorSurface"/>
+                                    android:visibility="gone"/>
                             </FrameLayout>
 
                             <TextView android:id="@+id/tv_sound_users"
                                 android:layout_width="0dp" android:layout_height="wrap_content"
                                 android:layout_weight="1"
                                 android:textSize="12sp"
-                                android:textColor="@color/sound_detail_subtext_light"
+                                android:textColor="@color/sound_detail_text_light"
                                 android:maxLines="2" android:lineSpacingMultiplier="1.2"/>
                         </LinearLayout>
 

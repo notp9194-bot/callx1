@@ -2155,8 +2155,22 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             following[0] = !following[0];
             SoundDetailCache.getInstance().setFollowStatus(myUid, uid, following[0]); // write-through — instant across every screen sharing the cache
             DatabaseReference ref = FirebaseUtils.getReelFollowsRef(myUid).child(uid);
-            if (following[0]) ref.setValue(true);
-            else              ref.removeValue();
+            // ✅ FIX: was only writing MY outgoing-follows edge
+            // (reelFollows/{myUid}/{uid}) and never the creator's incoming-
+            // followers edge (reelFollowers/{uid}/{myUid}) — the exact node
+            // FollowersListActivity's count and getFollowerCount() above
+            // read from. Following someone from this screen silently never
+            // counted them as a follower anywhere else in the app.
+            DatabaseReference followerRef = FirebaseUtils.getReelFollowersRef(uid).child(myUid);
+            if (following[0]) { ref.setValue(true); followerRef.setValue(true); }
+            else              { ref.removeValue();  followerRef.removeValue(); }
+            // Optimistic local count update — avoids a fresh Firebase read
+            // just to reflect the ±1 this click itself caused.
+            SoundDetailCache.getInstance().adjustFollowerCountLocally(uid, following[0] ? 1 : -1);
+            if (tvCreatorFollowers != null) {
+                SoundDetailCache.getInstance().getFollowerCount(uid, count ->
+                    tvCreatorFollowers.setText(formatCount(count) + " followers"));
+            }
             styleFollowBtn(btnFollowCreator, following[0]);
             bounceView(btnFollowCreator);
         });

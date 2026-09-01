@@ -355,11 +355,15 @@ public final class SoundDetailCache {
         waiters.add(callback);
         inFlightFollowerCount.put(uid, waiters);
 
-        FirebaseUtils.getUserRef(uid).child("followersCount")
+        // ✅ FIX: users/{uid}/followersCount is a denormalized counter that's
+        // only ever decremented (one unfollow path) and never incremented
+        // anywhere in the app, so it always reads 0/stale. The real,
+        // reliable source — same one FollowersListActivity's header count
+        // uses — is reelFollowers/{uid}'s child count.
+        FirebaseUtils.getReelFollowersRef(uid)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    Long count = snap.getValue(Long.class);
-                    long value = count != null ? count : 0L;
+                    long value = snap.getChildrenCount();
                     followerCountCache.put(uid, new Entry<>(value));
                     List<LongCallback> pending = inFlightFollowerCount.remove(uid);
                     if (pending != null) for (LongCallback cb : pending) cb.onReady(value);
@@ -369,6 +373,13 @@ public final class SoundDetailCache {
                     callback.onReady(0L); // don't cache a failed read — next bind should retry
                 }
             });
+    }
+
+    /** Write-through — call right after a follow/unfollow toggle changes this uid's follower count by ±1, so it's reflected instantly without a fresh Firebase read. */
+    public void adjustFollowerCountLocally(String uid, int delta) {
+        Entry<Long> cached = followerCountCache.get(uid);
+        long base = cached != null ? cached.value : 0L;
+        followerCountCache.put(uid, new Entry<>(Math.max(0L, base + delta)));
     }
 
     /** Write-through — call after a follow/unfollow toggle changes the target's own count locally, if that ever gets tracked client-side. Not currently called (server-authoritative counter), kept for parity with the other write-through setters. */
