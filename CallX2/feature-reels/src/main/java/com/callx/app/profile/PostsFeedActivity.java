@@ -229,6 +229,14 @@ public class PostsFeedActivity extends AppCompatActivity {
         recyclerView.setDrawingCacheEnabled(false);      // deprecated bitmap cache path — not needed, avoid extra memory
         recyclerView.getRecycledViewPool().setMaxRecycledViews(0, 12); // view type 0 = the only row type here
         recyclerView.setHasFixedSize(false);             // row height varies with caption length — keep accurate remeasure
+        // PERF: HomeFragment's recyclerHome already does this — every
+        // notifyItemChanged() (like tap, live like/comment-count tick,
+        // follow tap) was triggering RecyclerView's default ItemAnimator
+        // fade-out/fade-in "change" animation on that row, which repaints
+        // the whole card for ~120ms and reads as a flicker/stutter right
+        // when the user is mid-scroll or mid-tap. Post feed was missing
+        // this — same fix, same reasoning.
+        recyclerView.setItemAnimator(null);
         body.addView(recyclerView, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 

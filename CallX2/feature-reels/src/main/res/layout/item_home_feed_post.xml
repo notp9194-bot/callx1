@@ -56,13 +56,19 @@
             android:background="#111111"/>
 
         <!-- ── Overlaid header strip at top of video ── -->
-        <LinearLayout
+        <!-- PERF: was a horizontal LinearLayout with THREE layout_weight="1"
+             siblings (ll_post_owner_row, stub_home_collab_row, and — one
+             level down — the username/suggested/audio column). Every
+             layout_weight child forces LinearLayout to measure its subtree
+             TWICE (once unweighted, once to distribute leftover space) —
+             on a RecyclerView row that's real per-bind cost. Flattened to
+             ConstraintLayout: same visual result via matchConstraint (0dp)
+             widths, single measure pass, one fewer view-tree level. -->
+        <androidx.constraintlayout.widget.ConstraintLayout
             android:id="@+id/overlay_post_header"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="top"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
             android:paddingStart="12dp"
             android:paddingEnd="8dp"
             android:paddingTop="14dp"
@@ -72,19 +78,25 @@
                  GONE (in favor of stub_home_collab_row below) when the reel
                  has collaborators — same merged-row swap ReelUiController
                  does for the immersive Reels player (ll_owner_row vs
-                 ll_collab_second_author). -->
-            <LinearLayout
+                 ll_collab_second_author). Occupies the same flexible slot
+                 as stub_home_collab_row below (only one is ever visible),
+                 so both share identical start/end/top constraints. -->
+            <androidx.constraintlayout.widget.ConstraintLayout
                 android:id="@+id/ll_post_owner_row"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toStartOf="@id/btn_post_follow"
+                app:layout_constraintTop_toTopOf="parent">
 
                 <!-- Avatar + optional gradient ring -->
                 <FrameLayout
+                    android:id="@+id/frame_post_avatar"
                     android:layout_width="46dp"
-                    android:layout_height="46dp">
+                    android:layout_height="46dp"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintBottom_toBottomOf="parent">
 
                     <ImageView
                         android:id="@+id/iv_post_story_ring"
@@ -118,11 +130,15 @@
 
                 <!-- Username + Suggested + Audio -->
                 <LinearLayout
+                    android:id="@+id/ll_post_owner_text"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
                     android:orientation="vertical"
-                    android:layout_marginStart="10dp">
+                    android:layout_marginStart="10dp"
+                    app:layout_constraintStart_toEndOf="@id/frame_post_avatar"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toTopOf="@id/frame_post_avatar"
+                    app:layout_constraintBottom_toBottomOf="@id/frame_post_avatar">
 
                     <LinearLayout
                         android:layout_width="wrap_content"
@@ -172,7 +188,7 @@
                         android:textSize="11sp"
                         android:visibility="gone"/>
                 </LinearLayout>
-            </LinearLayout>
+            </androidx.constraintlayout.widget.ConstraintLayout>
 
             <!-- ── Collab / multi-collaborator merged row — REUSED as-is from
                  the Reels play screen (stub_reel_collab_row.xml): overlapping
@@ -180,14 +196,17 @@
                  + Follow, same ids (collab_avatar_stack, tv_collab_author_name,
                  tv_collab_follow_btn, ll_collab_song_row / tv_collab_song_name)
                  so HomeFragment can drive it with the exact same binding code
-                 as ReelUiController. GONE unless the reel has collaborators. -->
+                 as ReelUiController. GONE unless the reel has collaborators.
+                 Same flexible slot as ll_post_owner_row above. -->
             <ViewStub
                 android:id="@+id/stub_home_collab_row"
                 android:inflatedId="@+id/ll_collab_second_author"
                 android:layout="@layout/stub_reel_collab_row"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"/>
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toStartOf="@id/btn_post_follow"
+                app:layout_constraintTop_toTopOf="parent"/>
 
             <!-- Follow pill — GONE by default -->
             <TextView
@@ -205,7 +224,10 @@
                 android:visibility="gone"
                 android:layout_marginEnd="6dp"
                 android:clickable="true"
-                android:focusable="true"/>
+                android:focusable="true"
+                app:layout_constraintEnd_toStartOf="@id/btn_post_more"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintBottom_toBottomOf="parent"/>
 
             <!-- More / ≡ -->
             <ImageButton
@@ -215,8 +237,11 @@
                 android:src="@drawable/ic_more_vert"
                 android:tint="#FFFFFF"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="More"/>
-        </LinearLayout>
+                android:contentDescription="More"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintBottom_toBottomOf="parent"/>
+        </androidx.constraintlayout.widget.ConstraintLayout>
 
         <!-- ── Collab icon — bottom-LEFT corner of the video, mirror of the
              mute/audio-cover tiles on the bottom-right. Same circular chip
@@ -438,21 +463,28 @@
         android:visibility="gone"/>
 
     <!-- ══════════ ACTION BAR — Instagram-style spacing ══════════ -->
-    <LinearLayout
+    <!-- PERF: Send-group used layout_weight="1" purely as a spacer to push
+         Save to the right edge — that forces a 2-pass measure on this row
+         every bind for zero visual benefit. Flattened to ConstraintLayout:
+         Like→Comment→Repost→Send packed as a left-aligned chain, Save
+         pinned to parent end directly. Same look, single measure pass. -->
+    <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
         android:paddingStart="12dp"
         android:paddingEnd="12dp">
 
         <!-- ❤ Like + count group -->
         <LinearLayout
+            android:id="@+id/ll_post_like_group"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginEnd="14dp">
+            android:layout_marginEnd="14dp"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent">
 
             <ImageButton
                 android:id="@+id/btn_post_like"
@@ -475,11 +507,15 @@
 
         <!-- 💬 Comment + count group -->
         <LinearLayout
+            android:id="@+id/ll_post_comment_group"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginEnd="14dp">
+            android:layout_marginEnd="14dp"
+            app:layout_constraintStart_toEndOf="@id/ll_post_like_group"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent">
 
             <ImageButton
                 android:id="@+id/btn_post_comment"
@@ -502,11 +538,15 @@
 
         <!-- 🔄 Repost + count group -->
         <LinearLayout
+            android:id="@+id/ll_post_repost_group"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginEnd="14dp">
+            android:layout_marginEnd="14dp"
+            app:layout_constraintStart_toEndOf="@id/ll_post_comment_group"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent">
 
             <ImageButton
                 android:id="@+id/btn_post_repost"
@@ -529,11 +569,14 @@
 
         <!-- ▷ Send / Share + count group -->
         <LinearLayout
+            android:id="@+id/ll_post_send_group"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_weight="1">
+            app:layout_constraintStart_toEndOf="@id/ll_post_repost_group"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent">
 
             <ImageButton
                 android:id="@+id/btn_post_send"
@@ -554,7 +597,7 @@
                 android:layout_marginStart="4dp"/>
         </LinearLayout>
 
-        <!-- 🔖 Save — right-aligned spacer -->
+        <!-- 🔖 Save — right-aligned -->
         <ImageButton
             android:id="@+id/btn_post_save"
             android:layout_width="36dp"
@@ -562,8 +605,11 @@
             android:src="@drawable/ic_bookmark"
             android:tint="@color/text_primary"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Save"/>
-    </LinearLayout>
+            android:contentDescription="Save"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"/>
+    </androidx.constraintlayout.widget.ConstraintLayout>
 
     <!-- Caption -->
     <!-- 🐛 FIX: caption now comes BEFORE the timestamp, to match Post feed's
