@@ -710,42 +710,18 @@ public class HomeFragment extends Fragment
             if (feedWindowManager != null) feedWindowManager.onScrollSettled();
         }
     };
-    /** ★ Instagram-level instant autoplay: coalesces to at most one
-     *  playMostVisibleCard() call per Looper pass (~once per frame) instead
-     *  of the old "wait 120ms after scroll goes quiet" debounce. The old
-     *  debounce reset on every single onScrolled call, so during any
-     *  continuous drag/fling — where onScrolled fires continuously — it
-     *  never actually fired until the whole scroll had been motionless for
-     *  120ms straight, meaning a reel didn't start playing until well after
-     *  it had already settled into view. playMostVisibleCard() itself is
-     *  cheap (a bounded visibility scan with an early break, no allocation)
-     *  and only does real work when the dominant card actually changed, so
-     *  running it every frame during scroll is safe — a card now starts
-     *  playing the moment it becomes the most-visible one, not 120ms after
-     *  the finger stops. playVisibleCheckScheduled guards against queuing
-     *  more than one pending check per frame.
-     *
-     *  ★★ Ultra-advanced: the hot-path scheduling itself runs on
-     *  Choreographer rather than the plain main-thread Handler used
-     *  everywhere else. Handler.post() only queues behind whatever else is
-     *  already sitting in the main Looper's message queue (input events,
-     *  other posted work), so under load its "next frame" isn't reliably
-     *  synced to vsync. Choreographer.postFrameCallback() is the same
-     *  primitive RecyclerView's own scroll/layout pipeline uses internally
-     *  — it runs exactly once per display refresh, right alongside the
-     *  layout pass that just moved these cards, so the visibility check
-     *  always reads this frame's final positions instead of racing an
-     *  arbitrary queued message. */
+    /** Stable autoplay scheduling: visibility is scanned once on the first
+     *  vsync after RecyclerView becomes IDLE. Keeping player handoffs out of
+     *  onScrolled is intentional — a fling can pass several cards and every
+     *  intermediate Surface/decoder swap costs the same frames needed to draw
+     *  the scroll. */
     private boolean playVisibleCheckScheduled = false;
     private final android.view.Choreographer.FrameCallback playVisibleFrameCallback = frameTimeNanos -> {
         playVisibleCheckScheduled = false;
         playMostVisibleCard();
     };
-    /** Handler-based twin of playVisibleFrameCallback — kept for the few
-     *  call sites elsewhere that want a deliberate fixed delay (e.g. "wait
-     *  300ms for a transition to finish, then re-check") rather than a
-     *  frame-synced check; the hot scroll path below uses the Choreographer
-     *  callback exclusively. */
+    /** Handler-based fallback used by lifecycle/transition call sites that
+     *  need a deliberate delayed visibility check. */
     private final Runnable playVisibleRunnable = () -> {
         playVisibleCheckScheduled = false;
         playMostVisibleCard();
@@ -765,13 +741,13 @@ public class HomeFragment extends Fragment
      *  floor before anything else takes over — mirrors Instagram's
      *  symmetric enter/exit behaviour instead of only gating entry. */
     private boolean pausedForVisibility = false;
+    /** True when playback was paused deliberately for an active scroll. The
+     * player stays attached under its thumbnail; it is not torn down/rebound
+     * on every intermediate card during a fling. */
+    private boolean pausedForScroll = false;
     /** Low-pass filtered scroll velocity used by the landing ripple. */
     private long lastHomeScrollSampleNanos = 0L;
     private float lastHomeScrollVelocityPxPerMs = 0f;
-    /** Max side a hardware layer can be rasterized into on virtually all
-     *  GPUs; a taller layer is silently refused, so promoting a very long
-     *  feed's content root costs a re-render for nothing. */
-    private static final int MAX_HW_LAYER_PX = 4096;
     /** Decode size for the 36dp card avatar (36dp ≈ 144px at xxhdpi). */
     private static final int AVATAR_DECODE_PX = 144;
     /** ★ Ultra-advanced optimization: Pattern.compile() is far from free —
@@ -997,6 +973,10 @@ public class HomeFragment extends Fragment
         Player.Listener listener = new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
+                // Standby players are prepared off-screen. Their READY/ENDED
+                // callbacks must never mutate the visible card or active
+                // player's playback chrome.
+                if (player != feedPlayer) return;
                 if (state == Player.STATE_ENDED && currentPlayingIndex >= 0
                         && currentPlayingIndex < feedCards.size()
                         && feedCards.get(currentPlayingIndex) != null) {
@@ -1019,6 +999,10 @@ public class HomeFragment extends Fragment
             }
             @Override
             public void onRenderedFirstFrame() {
+                // A prebuffered neighbour can render internally before it is
+                // promoted. Only the player currently attached to a visible
+                // PlayerView may reveal the active card.
+                if (player != feedPlayer) return;
                 // Instagram-style handoff: reveal the card's thumbnail crossfade
                 // once the first actually-decoded frame is on screen — but not
                 // blindly on this callback alone. onRenderedFirstFrame can fire
@@ -1027,10 +1011,23 @@ public class HomeFragment extends Fragment
                 // it through attemptPtsGatedReveal() so we only reveal once the
                 // on-screen frame's position actually matches where this card is
                 // meant to start, avoiding a visible seek/black-frame flash.
-                if (currentPlayingIndex >= 0 && currentPlayingIndex < feedCards.size()
-                        && feedCards.get(currentPlayingIndex) != null) {
-                    attemptPtsGatedReveal(feedCards.get(currentPlayingIndex), player,
-                        System.currentTimeMillis());
+                HomeFeedCard activeCard = currentPlayingIndex >= 0
+                        && currentPlayingIndex < feedCards.size()
+                        ? feedCards.get(currentPlayingIndex) : null;
+                if (activeCard != null) {
+                    long nowMs = System.currentTimeMillis();
+                    if (isHomeFeedScrollActive()) {
+                        // The first frame can arrive while a drag/fling is
+                        // still moving the Surface. Keep the opaque thumbnail
+                        // in place and finish the reveal after IDLE instead of
+                        // animating a handoff inside the scroll.
+                        activeCard.firstFramePtsGatePending = true;
+                        if (activeCard.firstFrameGateStartMs <= 0L) {
+                            activeCard.firstFrameGateStartMs = nowMs;
+                        }
+                    } else {
+                        attemptPtsGatedReveal(activeCard, player, nowMs);
+                    }
                 }
 
                 // Consume once — attachStartTimeMs is reset to 0 by whichever
@@ -1047,6 +1044,7 @@ public class HomeFragment extends Fragment
             @Override
             public void onPositionDiscontinuity(Player.PositionInfo oldPosition,
                     Player.PositionInfo newPosition, int reason) {
+                if (player != feedPlayer) return;
                 // A resume seek landing is exactly the moment the PTS gate above
                 // was waiting on — re-check immediately instead of only relying
                 // on a second onRenderedFirstFrame (which media3 doesn't reliably
@@ -1059,7 +1057,10 @@ public class HomeFragment extends Fragment
                 // Small settle delay — checking on the discontinuity callback
                 // itself can still read the pre-seek position for a frame or two.
                 ptsGateHandler.postDelayed(() -> {
-                    if (!isAdded() || active.firstFrameRevealed) return;
+                    if (!isAdded() || active.firstFrameRevealed
+                            || isHomeFeedScrollActive() || currentPlayingIndex < 0
+                            || currentPlayingIndex >= feedCards.size()
+                            || feedCards.get(currentPlayingIndex) != active) return;
                     attemptPtsGatedReveal(active, player, active.firstFrameGateStartMs);
                 }, 32);
             }
@@ -1239,25 +1240,12 @@ public class HomeFragment extends Fragment
 
                     sampleHomeScrollVelocity(dy);
 
-                    // Instant-play trigger, frame-synced — see
-                    // playVisibleFrameCallback doc. Skipped during a fast
-                    // FLING: attempting to swap/play media while the list is
-                    // still flying past is wasted main-thread + decoder work
-                    // that's immediately superseded a few frames later, and
-                    // was a real contributor to the scroll-time flicker —
-                    // Instagram only starts the "instant play" attempt once
-                    // the fling has begun settling, not on every raw frame.
-                    boolean isFlinging = ultraOptimizer != null
-                        && ultraOptimizer.getCurrentScrollState() == HomeFeedUltraOptimizer.SCROLL_FLINGING;
-                    if (!isFlinging && !playVisibleCheckScheduled) {
-                        playVisibleCheckScheduled = true;
-                        android.view.Choreographer.getInstance().postFrameCallback(playVisibleFrameCallback);
-                    }
-
-                    // ★ Buttery scroll: promote the RecyclerView itself to a
-                    // hardware layer for the duration of active scrolling —
-                    // same idea the old NestedScrollView content root used,
-                    // just retargeted at the new scroll container.
+                    // Do not attach/swap players from this hot path. A fling
+                    // can cross several cards before the final visible card is
+                    // known; attaching here causes repeated Surface/decoder
+                    // work and is a direct source of scroll-time flicker.
+                    // Playback is paused once at scroll start and selected once
+                    // at the IDLE callback below.
                     beginFeedScrollLayer();
                     scrollDiagnostics.onScrolled(dx, dy, rv.computeVerticalScrollOffset());
                     scrollHandler.removeCallbacks(scrollSettleRunnable);
@@ -1318,6 +1306,9 @@ public class HomeFragment extends Fragment
                         ultraOptimizer.onRecyclerScrollStateChanged(newState);
                     }
                     scrollDiagnostics.onScrollStateChanged(newState);
+                    if (newState != RecyclerView.SCROLL_STATE_IDLE) {
+                        pauseActivePlaybackForScroll();
+                    }
 
                     // Definitive settle check: guarantees the truly-final
                     // resting position is evaluated with zero delay the
@@ -1329,7 +1320,10 @@ public class HomeFragment extends Fragment
                         android.view.Choreographer.getInstance().removeFrameCallback(playVisibleFrameCallback);
                         scrollHandler.removeCallbacks(playVisibleRunnable);
                         playVisibleCheckScheduled = false;
-                        playMostVisibleCard();
+                        endFeedScrollLayer();
+                        playVisibleCheckScheduled = true;
+                        android.view.Choreographer.getInstance()
+                                .postFrameCallback(playVisibleFrameCallback);
                         settleHomeWaterFlow();
                     }
                 }
@@ -1374,23 +1368,19 @@ public class HomeFragment extends Fragment
 
     // ── Buttery scroll helpers ──────────────────────────────────────────
 
-    /** Promotes the feed's scrolling content to a hardware layer for the
-     *  duration of active scrolling/fling. No-op if already on, or if the
-     *  view isn't bound yet. See beginFeedScrollLayer/endFeedScrollLayer
-     *  pair used from the scroll listener above. */
+    /** Tracks active scrolling for virtualization/diagnostics. The feed is
+     *  already hardware accelerated; promoting the full RecyclerView would
+     *  fight its recycled PlayerView/Surface children. */
     private void beginFeedScrollLayer() {
         if (isFeedScrolling || feedScrollContentRoot == null) return;
         isFeedScrolling = true;
-        // A hardware layer is only a win while the content still fits in one
-        // GPU texture. Once the feed has grown past MAX_HW_LAYER_PX — which
-        // happens after just a few cards — the promotion is refused and all
-        // that is left is the cost of re-rendering the subtree on every
-        // layer-type flip, i.e. exactly the stutter it was meant to remove.
-        // (isFeedScrolling itself is still tracked either way: the staged
-        // card renderer and the settle timer both key off it.)
-        if (feedScrollContentRoot.getHeight() > MAX_HW_LAYER_PX) return;
-        isHwLayerOn = true;
-        feedScrollContentRoot.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        // RecyclerView is already hardware accelerated. Do not promote the
+        // entire scrolling subtree: Home rows contain PlayerView/Surface
+        // content, and repeatedly toggling a parent hardware layer forces
+        // expensive GPU texture rebuilds and can expose a black frame during
+        // player handoff. Keep the scroll-state flag for virtualization and
+        // diagnostics, but leave layer ownership to RecyclerView/PlayerView.
+        isHwLayerOn = false;
     }
 
     private void endFeedScrollLayer() {
@@ -1507,6 +1497,52 @@ public class HomeFragment extends Fragment
     }
 
     /**
+     * Stops active media work for the duration of a drag/fling without
+     * detaching the PlayerView. Detaching/re-attaching a Surface during every
+     * fast scroll is much more expensive than pausing once, and it is what
+     * produces the black-frame/thumbnail handoff seen in the diagnostics.
+     */
+    private void pauseActivePlaybackForScroll() {
+        if (userPausedActiveCard || pausedForVisibility
+                || currentPlayingIndex < 0 || currentPlayingIndex >= feedCards.size()) {
+            return;
+        }
+        HomeFeedCard active = feedCards.get(currentPlayingIndex);
+        if (active == null) return;
+
+        if (active.videoUrl == null || active.videoUrl.isEmpty()) {
+            if (feedPhotoAudioPlayer != null) {
+                pauseFeedPhotoAudio();
+                pausedForScroll = true;
+            }
+            return;
+        }
+        if (feedPlayer != null && (feedPlayer.isPlaying() || feedPlayer.getPlayWhenReady())) {
+            feedPlayer.setPlayWhenReady(false);
+            feedPlayer.pause();
+            stopProgressTicker();
+            pausedForScroll = true;
+        }
+    }
+
+    private boolean isHomeFeedScrollActive() {
+        return isFeedScrolling || (recyclerHome != null
+                && recyclerHome.getScrollState() != RecyclerView.SCROLL_STATE_IDLE);
+    }
+
+    private void schedulePostScrollRevealRetry(HomeFeedCard card) {
+        ptsGateHandler.postDelayed(() -> {
+            if (!isAdded() || isHomeFeedScrollActive() || card.firstFrameRevealed
+                    || feedPlayer == null || currentPlayingIndex < 0
+                    || currentPlayingIndex >= feedCards.size()
+                    || feedCards.get(currentPlayingIndex) != card) {
+                return;
+            }
+            attemptPtsGatedReveal(card, feedPlayer, System.currentTimeMillis());
+        }, FIRST_FRAME_PTS_MAX_WAIT_MS);
+    }
+
+    /**
      * Walk the tracked feed cards currently on/near screen; find the one with
      * the largest visible area, then attach the shared ExoPlayer to it.
      *
@@ -1537,6 +1573,12 @@ public class HomeFragment extends Fragment
 
     private void playMostVisibleCard() {
         if (!isAdded() || feedPlayer == null || feedCards.isEmpty()) return;
+        // A stale vsync callback can run after a new gesture has already
+        // started. Never resume or switch media while RecyclerView is moving.
+        if (recyclerHome != null
+                && recyclerHome.getScrollState() != RecyclerView.SCROLL_STATE_IDLE) {
+            return;
+        }
         // ★ Instagram-level viewport: measure against the RecyclerView's own
         // on-screen bounds, not the raw display height. Raw heightPixels
         // includes area the feed never actually occupies (status bar, the
@@ -1622,15 +1664,36 @@ public class HomeFragment extends Fragment
         if (bestIdx != currentPlayingIndex) {
             pausedForVisibility = false;
             attachPlayerToCard(bestIdx);
-        } else if (pausedForVisibility && hasIncumbent) {
-            // Same card climbed back above the 50% floor before anything
-            // else took over (e.g. a small back-and-forth scroll) — resume
-            // it in place instead of leaving it paused forever, unless the
-            // user explicitly paused it themselves.
+        } else if ((pausedForVisibility || pausedForScroll) && hasIncumbent) {
+            // The same card either climbed back above the 50% floor or was
+            // paused for a completed scroll. Resume it in place instead of
+            // detaching/re-preparing the same player. Explicit user pause
+            // always wins.
             pausedForVisibility = false;
-            if (!userPausedActiveCard) {
-                feedPlayer.play();
-                startProgressTicker();
+            pausedForScroll = false;
+            if (!userPausedActiveCard && autoplayPolicy.shouldAutoplay(getContext())) {
+                HomeFeedCard active = feedCards.get(currentPlayingIndex);
+                if (active.videoUrl == null || active.videoUrl.isEmpty()) {
+                    ReelModel photoReel = currentPlayingIndex < currentFeedPosts.size()
+                            ? currentFeedPosts.get(currentPlayingIndex) : null;
+                    resumeFeedPhotoAudio(photoReel);
+                } else if (feedPlayer != null) {
+                    feedPlayer.play();
+                    startProgressTicker();
+                    if (!active.firstFrameRevealed && active.firstFramePtsGatePending) {
+                        if (!active.resumePending && active.resumeSeekTargetMs <= 0L) {
+                            // The frame was already rendered before the
+                            // scroll paused playback; there is no pending
+                            // seek to protect here, so reveal immediately at
+                            // the safe post-scroll boundary.
+                            revealCardThumbnailAfterFirstFrame(active);
+                        } else {
+                            attemptPtsGatedReveal(active, feedPlayer,
+                                    System.currentTimeMillis());
+                            schedulePostScrollRevealRetry(active);
+                        }
+                    }
+                }
             }
         }
     }
@@ -1785,10 +1848,23 @@ public class HomeFragment extends Fragment
     }
 
     private void attachPlayerToCard(int index) {
-        if (!isAdded() || feedPlayer == null || index >= feedCards.size()) return;
+        attachPlayerToCard(index, false);
+    }
+
+    private void attachPlayerToCard(int index, boolean userInitiated) {
+        if (!isAdded() || feedPlayer == null || index < 0 || index >= feedCards.size()) return;
+        // Automatic selection is intentionally deferred until RecyclerView is
+        // IDLE. A fast fling may pass several cards; every intermediate
+        // Surface/decoder handoff adds work to the exact frames being drawn.
+        // Explicit taps/scrubs are allowed to override this policy.
+        if (!userInitiated && recyclerHome != null
+                && recyclerHome.getScrollState() != RecyclerView.SCROLL_STATE_IDLE) {
+            return;
+        }
         // A real handoff to a (possibly different) card always supersedes
         // any pending visibility-driven pause state from the outgoing card.
         pausedForVisibility = false;
+        pausedForScroll = false;
         // Detach old
         if (currentPlayingIndex >= 0 && currentPlayingIndex < feedCards.size()
                 && feedCards.get(currentPlayingIndex) != null) {
@@ -2008,7 +2084,7 @@ public class HomeFragment extends Fragment
             public void onStartTrackingTouch(SeekBar sb) {
                 // Scrubbing a card that isn't the playing one makes it the
                 // playing one first, so the drag lands on the right media.
-                if (index != currentPlayingIndex) attachPlayerToCard(index);
+                if (index != currentPlayingIndex) attachPlayerToCard(index, true);
                 card.isScrubbing = true;
                 setSeekThumbVisible(sb, true);
                 if (card.tvPosition != null) card.tvPosition.setVisibility(View.VISIBLE);
@@ -2037,7 +2113,7 @@ public class HomeFragment extends Fragment
             // Tapping a non-active card promotes it; attach honours the
             // autoplay setting, so under "Off" force it to start anyway —
             // an explicit tap IS the user asking for playback.
-            attachPlayerToCard(index);
+            attachPlayerToCard(index, true);
             if (currentPlayingIndex == index && userPausedActiveCard) resumeActiveCard(index);
             return;
         }
@@ -2648,6 +2724,7 @@ public class HomeFragment extends Fragment
         stopRealtimeNewPostsListener();
         scrollHandler.removeCallbacks(playVisibleRunnable);
         android.view.Choreographer.getInstance().removeFrameCallback(playVisibleFrameCallback);
+        playVisibleCheckScheduled = false;
         scrollHandler.removeCallbacks(scrollSettleRunnable);
         cancelStagedFeedRender();
         if (cardPool != null) { cardPool.release(); cardPool = null; }
@@ -8654,7 +8731,25 @@ public class HomeFragment extends Fragment
                         // recycled, but a very fast fling could in principle
                         // race past that).
                         if (currentPlayingIndex == h.boundPostIndex) {
+                            // Cover the Surface before detaching it. Also stop
+                            // the player now: waiting for the later IDLE
+                            // callback would leave an off-screen decoder
+                            // running throughout the fling.
+                            if (card.thumbView != null) {
+                                card.thumbView.animate().cancel();
+                                card.thumbView.setAlpha(1f);
+                                card.thumbView.setVisibility(View.VISIBLE);
+                            }
+                            if (feedPlayer != null) {
+                                feedPlayer.setPlayWhenReady(false);
+                                feedPlayer.pause();
+                            }
+                            pauseFeedPhotoAudio();
+                            stopProgressTicker();
                             if (card.playerView != null) card.playerView.setPlayer(null);
+                            currentPlayingIndex = -1;
+                            pausedForVisibility = false;
+                            pausedForScroll = false;
                         }
                         // ★ Bitmap downsample + reuse: this ViewHolder's
                         // ImageView is about to be rebound to a totally

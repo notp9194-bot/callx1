@@ -14,6 +14,18 @@
   It opens a dialog with the newest measured bursts and a plain-language
   root-cause signal. The dialog also has **Copy report** so the captured text
   can be pasted into a bug report or chat.
+- Stabilized the playback handoff path after diagnostics showed 61–183 ms
+  stalls: player selection now happens only after RecyclerView becomes idle,
+  active playback pauses without a Surface detach during drag/fling, and an
+  off-screen recycled card cannot keep its player running.
+- Standby-player callbacks are ignored until that player is promoted, so a
+  neighbour's first decoded frame cannot reveal the active card's thumbnail.
+- Removed the dynamic full-feed hardware-layer toggle; RecyclerView and
+  PlayerView retain their normal hardware-accelerated rendering instead of
+  rebuilding a parent GPU texture during scrolling.
+- During drag/fling, the active media is paused in place and its opaque
+  thumbnail remains above the Surface. Thumbnail reveal is deferred until the
+  scroll is idle, preventing a mid-scroll first-frame crossfade.
 
 ## Important behavior
 
