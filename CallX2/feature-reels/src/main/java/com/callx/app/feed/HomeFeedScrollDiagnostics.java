@@ -212,14 +212,13 @@ public final class HomeFeedScrollDiagnostics {
 
     @RequiresApi(24)
     private void attachFrameMetrics(@NonNull Activity activity) {
-        final float refreshRateHz;
+        float refreshRateHz = 60f;
         try {
             float rate = activity.getWindowManager().getDefaultDisplay().getRefreshRate();
-            refreshRateHz = rate > 0f ? rate : 60f;
+            if (rate > 0f) refreshRateHz = rate;
         } catch (Exception ignored) {
             // A 60Hz fallback is only used when Android cannot report the
             // display rate; the actual frame duration is still measured.
-            refreshRateHz = 60f;
         }
         final long budgetMs = Math.max(1L, Math.round(1000f / refreshRateHz));
         frameListener = (window, metrics, dropCount) -> {
