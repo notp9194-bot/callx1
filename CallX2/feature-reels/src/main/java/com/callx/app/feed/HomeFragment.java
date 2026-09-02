@@ -4594,7 +4594,7 @@ public class HomeFragment extends Fragment {
             tvMutual.setEllipsize(android.text.TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams mutualTextLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            mutualTextLp.marginStart = dpToPx(3);
+            mutualTextLp.setMarginStart(dpToPx(3));
             tvMutual.setLayoutParams(mutualTextLp);
             llMutual.addView(tvMutual);
 
