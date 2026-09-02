@@ -58,7 +58,28 @@
                 android:id="@+id/view_group_last_message"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"/>
+            <com.callx.app.chatlist.canvas.ChatListUnreadBadgeView
+                android:id="@+id/view_group_unread_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"/>
         </LinearLayout>
 
     </LinearLayout>
+
+    <!-- WhatsApp-style long-press selection overlay. -->
+    <FrameLayout
+        android:id="@+id/fl_group_select_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#99000000"
+        android:visibility="gone">
+        <ImageView
+            android:id="@+id/iv_group_check"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_gravity="center"
+            android:src="@drawable/circle_accept"
+            android:visibility="invisible"/>
+    </FrameLayout>
 </FrameLayout>

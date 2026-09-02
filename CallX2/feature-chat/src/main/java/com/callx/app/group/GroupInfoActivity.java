@@ -319,7 +319,10 @@ public class GroupInfoActivity extends AppCompatActivity {
                     @Override public void onDataChange(com.google.firebase.database.DataSnapshot snap) {
                         View btnTopics = findViewById(R.id.btn_topics);
                         if (btnTopics != null) {
-                            boolean enabled = Boolean.TRUE.equals(snap.getValue(Boolean.class));
+                            // CRASH FIX: read the raw value and type-check instead of
+                            // getValue(Boolean.class), which throws on malformed data.
+                            Object raw = snap.getValue();
+                            boolean enabled = (raw instanceof Boolean) && (Boolean) raw;
                             btnTopics.setVisibility(enabled ? View.VISIBLE : View.GONE);
                         }
                     }
@@ -389,7 +392,9 @@ public class GroupInfoActivity extends AppCompatActivity {
         groupListener = new ValueEventListener() {
             @Override
             public void onDataChange(DataSnapshot snap) {
-                Group g = snap.getValue(Group.class);
+                // CRASH FIX: fromSnapshot() instead of snap.getValue(Group.class)
+                // directly — see Group.java for why the raw call can throw.
+                Group g = Group.fromSnapshot(snap);
                 if (g == null) return;
 
                 groupName = g.name != null ? g.name : "Group";

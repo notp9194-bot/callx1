@@ -110,6 +110,11 @@ public class MessageInfoBottomSheet extends BottomSheetDialogFragment {
     private MaxHeightRecyclerView rv;
     private ProgressBar progressBar;
     private MessageInfoAdapter adapter;
+    /** Last complete render state. Live group receipt callbacks often send
+     * only the three receipt buckets; retaining the base metadata prevents
+     * those updates from collapsing the sheet back to a blank "Sent" row. */
+    private MessageInfoData currentData;
+    private long renderVersion;
     /** The id of the message currently rendered — set once from the bridged
      *  data, then used by updateGroupData() to reject a stray refresh meant
      *  for a different message (e.g. a slow single-value read that resolves
@@ -151,7 +156,10 @@ public class MessageInfoBottomSheet extends BottomSheetDialogFragment {
             dismissAllowingStateLoss();
             return;
         }
-        shownMessageId = data.messageId;
+        currentData = copyData(data);
+        shownMessageId = currentData.messageId;
+        final MessageInfoData initialRenderData = copyData(currentData);
+        final long initialVersion = renderVersion;
 
         rv = v.findViewById(R.id.rv_message_info);
         progressBar = v.findViewById(R.id.progress_message_info);
@@ -166,11 +174,12 @@ public class MessageInfoBottomSheet extends BottomSheetDialogFragment {
         v.findViewById(R.id.iv_sheet_close).setOnClickListener(x -> dismiss());
 
         ROW_BUILD_EXECUTOR.execute(() -> {
-            List<MessageInfoRow> rows = MessageInfoRowBuilder.build(data);
+            List<MessageInfoRow> rows = MessageInfoRowBuilder.build(initialRenderData);
             mainHandler.post(() -> {
                 // Fragment may have been dismissed while rows were building
                 // on the background thread — view's gone, nothing to bind.
-                if (!isAdded() || getView() == null || adapter == null) return;
+                if (!isAdded() || getView() == null || adapter == null
+                        || initialVersion != renderVersion) return;
                 adapter.submitList(rows);
                 progressBar.setVisibility(View.GONE);
                 rv.setVisibility(View.VISIBLE);
@@ -200,10 +209,32 @@ public class MessageInfoBottomSheet extends BottomSheetDialogFragment {
         if (!isAdded() || adapter == null) return;
         if (shownMessageId != null && newData.messageId != null
                 && !shownMessageId.equals(newData.messageId)) return;
+        if (currentData == null) return;
+
+        // GroupChatActivity deliberately sends a lightweight receipt delta.
+        // Merge it with the original preview/sent metadata before rebuilding.
+        MessageInfoData snapshot = copyData(currentData);
+        if (snapshot.isGroup && newData.isGroup) {
+            snapshot.messageId = newData.messageId != null
+                    ? newData.messageId : snapshot.messageId;
+            if (newData.totalOthers > 0) snapshot.totalOthers = newData.totalOthers;
+            snapshot.readBy.clear();
+            snapshot.readBy.addAll(newData.readBy);
+            snapshot.deliveredOnly.clear();
+            snapshot.deliveredOnly.addAll(newData.deliveredOnly);
+            snapshot.pending.clear();
+            snapshot.pending.addAll(newData.pending);
+        } else {
+            snapshot = copyData(newData);
+        }
+        currentData = snapshot;
+        final MessageInfoData renderData = copyData(snapshot);
+        final long version = ++renderVersion;
         ROW_BUILD_EXECUTOR.execute(() -> {
-            List<MessageInfoRow> rows = MessageInfoRowBuilder.build(newData);
+            List<MessageInfoRow> rows = MessageInfoRowBuilder.build(renderData);
             mainHandler.post(() -> {
-                if (!isAdded() || getView() == null || adapter == null) return;
+                if (!isAdded() || getView() == null || adapter == null
+                        || version != renderVersion) return;
                 adapter.submitList(rows);
             });
         });
@@ -228,6 +259,31 @@ public class MessageInfoBottomSheet extends BottomSheetDialogFragment {
         rv = null;
         progressBar = null;
         adapter = null;
+        currentData = null;
         super.onDestroyView();
+    }
+
+    private static MessageInfoData copyData(MessageInfoData source) {
+        MessageInfoData copy = new MessageInfoData();
+        copy.messageId = source.messageId;
+        copy.previewLabel = source.previewLabel;
+        copy.messageType = source.messageType;
+        copy.isGroup = source.isGroup;
+        copy.isOutgoing = source.isOutgoing;
+        copy.sentAt = source.sentAt;
+        copy.deliveredAt = source.deliveredAt;
+        copy.readAt = source.readAt;
+        copy.incomingStatus = source.incomingStatus;
+        copy.totalOthers = source.totalOthers;
+        for (MessageInfoData.MemberReceipt r : source.readBy) {
+            copy.readBy.add(new MessageInfoData.MemberReceipt(r.uid, r.name, r.photoUrl, r.timestamp));
+        }
+        for (MessageInfoData.MemberReceipt r : source.deliveredOnly) {
+            copy.deliveredOnly.add(new MessageInfoData.MemberReceipt(r.uid, r.name, r.photoUrl, r.timestamp));
+        }
+        for (MessageInfoData.MemberReceipt r : source.pending) {
+            copy.pending.add(new MessageInfoData.MemberReceipt(r.uid, r.name, r.photoUrl, r.timestamp));
+        }
+        return copy;
     }
 }

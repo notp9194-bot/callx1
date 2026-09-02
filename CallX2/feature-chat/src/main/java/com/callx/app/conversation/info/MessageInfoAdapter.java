@@ -236,12 +236,10 @@ public class MessageInfoAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             MessageInfoRow a = oldRows.get(oldPos);
             MessageInfoRow b = newRows.get(newPos);
             if (a.type != b.type) return false;
-            // Header text ("READ BY (3/5)") includes counts, so it doubles
-            // as identity here; member/status rows are identified by their
-            // label (name / "Seen" / "Delivered"), which is stable across
-            // a single sheet's lifetime since MessageInfoData is rebuilt
-            // fresh per open.
-            return Objects.equals(a.label, b.label);
+            // Receipt counts and timestamps change in place. A member UID,
+            // rather than a display name, keeps DiffUtil attached to the same
+            // person even when names are duplicated or edited.
+            return Objects.equals(a.stableKey, b.stableKey);
         }
 
         @Override

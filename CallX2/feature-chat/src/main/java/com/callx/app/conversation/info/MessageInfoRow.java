@@ -14,6 +14,8 @@ public class MessageInfoRow {
     public enum Type { PREVIEW, STATUS, HEADER, MEMBER, EMPTY }
 
     public final Type type;
+    /** Stable identity independent of changing receipt counts/timestamps. */
+    public String stableKey;
 
     // PREVIEW
     public String previewLabel;
@@ -37,6 +39,7 @@ public class MessageInfoRow {
 
     public static MessageInfoRow preview(String previewLabel, String sentTimeLabel) {
         MessageInfoRow r = new MessageInfoRow(Type.PREVIEW);
+        r.stableKey = "preview";
         r.previewLabel = previewLabel;
         r.sentTimeLabel = sentTimeLabel;
         return r;
@@ -44,6 +47,7 @@ public class MessageInfoRow {
 
     public static MessageInfoRow status(String label, String timeLabel, int iconRes, boolean dim) {
         MessageInfoRow r = new MessageInfoRow(Type.STATUS);
+        r.stableKey = "status:" + label;
         r.label = label;
         r.timeLabel = timeLabel;
         r.iconRes = iconRes;
@@ -53,12 +57,21 @@ public class MessageInfoRow {
 
     public static MessageInfoRow header(String text) {
         MessageInfoRow r = new MessageInfoRow(Type.HEADER);
+        r.stableKey = text != null && text.startsWith("READ BY")
+                ? "header:read" : text != null && text.startsWith("DELIVERED TO")
+                ? "header:delivered" : "header:pending";
         r.label = text;
         return r;
     }
 
     public static MessageInfoRow member(String name, String timeLabel, int iconRes, String photoUrl) {
+        return member(null, name, timeLabel, iconRes, photoUrl);
+    }
+
+    public static MessageInfoRow member(String uid, String name, String timeLabel,
+                                        int iconRes, String photoUrl) {
         MessageInfoRow r = new MessageInfoRow(Type.MEMBER);
+        r.stableKey = uid == null ? "member:" + name : "member:" + uid;
         r.label = name;
         r.timeLabel = timeLabel;
         r.iconRes = iconRes;
@@ -68,6 +81,7 @@ public class MessageInfoRow {
 
     public static MessageInfoRow empty(String text) {
         MessageInfoRow r = new MessageInfoRow(Type.EMPTY);
+        r.stableKey = "empty";
         r.label = text;
         return r;
     }

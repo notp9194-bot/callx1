@@ -2,7 +2,6 @@ package com.callx.app.conversation.info;
 
 import com.callx.app.chat.R;
 
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -17,8 +16,13 @@ import java.util.Locale;
  */
 public final class MessageInfoRowBuilder {
 
-    private static final SimpleDateFormat SDF =
-            new SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault());
+    private static final ThreadLocal<java.text.SimpleDateFormat> SDF =
+            new ThreadLocal<java.text.SimpleDateFormat>() {
+                @Override protected java.text.SimpleDateFormat initialValue() {
+                    return new java.text.SimpleDateFormat("dd MMM yyyy, hh:mm a",
+                            Locale.getDefault());
+                }
+            };
 
     private MessageInfoRowBuilder() {}
 
@@ -56,7 +60,7 @@ public final class MessageInfoRowBuilder {
             rows.add(MessageInfoRow.empty("No one yet"));
         } else {
             for (MessageInfoData.MemberReceipt r : data.readBy) {
-                rows.add(MessageInfoRow.member(r.name,
+                rows.add(MessageInfoRow.member(r.uid, r.name,
                         r.timestamp != null ? formatTime(r.timestamp) : "",
                         R.drawable.ic_double_tick_blue, r.photoUrl));
             }
@@ -67,7 +71,7 @@ public final class MessageInfoRowBuilder {
             rows.add(MessageInfoRow.empty("—"));
         } else {
             for (MessageInfoData.MemberReceipt r : data.deliveredOnly) {
-                rows.add(MessageInfoRow.member(r.name,
+                rows.add(MessageInfoRow.member(r.uid, r.name,
                         r.timestamp != null ? formatTime(r.timestamp) : "",
                         R.drawable.ic_double_tick, r.photoUrl));
             }
@@ -85,7 +89,7 @@ public final class MessageInfoRowBuilder {
 
     private static String formatTime(long ts) {
         if (ts <= 0) return "";
-        return SDF.format(new Date(ts));
+        return SDF.get().format(new Date(ts));
     }
 
     private static String capitalize(String s) {

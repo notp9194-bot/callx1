@@ -32,6 +32,10 @@ public class GroupEntity {
     public String lastMessageStatus;
     public String lastMessageSenderUid;
     public String lastMessageId;
+    /** v57: viewer-specific unread count cached for offline group-list badges. */
+    public Long    unread;
+    /** v57: viewer-specific mute state cached for offline row actions. */
+    public Boolean muted;
     public long   syncedAt;
 
     public GroupEntity() {

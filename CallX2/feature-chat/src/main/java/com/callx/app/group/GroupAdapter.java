@@ -2,238 +2,266 @@ package com.callx.app.group;
 
 import android.content.Context;
 import android.content.Intent;
-import android.view.*;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.AsyncListDiffer;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
+
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.chat.R;
+import com.callx.app.chatlist.ChatListTimeCache;
 import com.callx.app.chatlist.canvas.ChatListLastMessageView;
 import com.callx.app.chatlist.canvas.ChatListNameTimeView;
+import com.callx.app.chatlist.canvas.ChatListUnreadBadgeView;
 import com.callx.app.models.Group;
 import com.callx.app.utils.ChatListPreviewUtil;
 import com.callx.app.utils.FirebaseUtils;
-import de.hdodenhof.circleimageview.CircleImageView;
-import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.ValueEventListener;
 
-import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+
+import de.hdodenhof.circleimageview.CircleImageView;
 
 /**
- * GroupAdapter v83
- *
- * CHANGES v83 — AsyncListDiffer (background-thread diff):
- *  • DiffUtil.ItemCallback<Group> DIFF_CALLBACK defined as static constant —
- *    areItemsTheSame() compares group ID; areContentsTheSame() compares every
- *    field the row renders (name, icon, lastMessage, status, senderUid, time,
- *    lastMessageType) so only actually-changed rows rebind.
- *  • Internal list owned by AsyncListDiffer<Group>; submitList() is the sole
- *    write entry-point; diff runs on a background thread (no main-thread block).
- *  • GroupsFragment calls adapter.submitList(fetched) — diffUpdateGroups()
- *    logic removed from the fragment.
- *
- * CHANGES v82 — Canvas row (CardView → FrameLayout; tv_group_name + tv_group_members
- *   → ChatListNameTimeView; ChatListLastMessageView unchanged).
- *
- * CHANGES v24 — Canvas ticks + live typing indicator per row.
+ * Groups list adapter. It intentionally follows the Chats adapter contract:
+ * AsyncListDiffer for background diffs, stable IDs, unread badge, real message
+ * time, and long-press selection for batch list actions.
  */
 public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
 
-    // ── v83: DiffUtil.ItemCallback ────────────────────────────────────────────
-    public static final DiffUtil.ItemCallback<Group> DIFF_CALLBACK =
-            new DiffUtil.ItemCallback<Group>() {
-
-        @Override
-        public boolean areItemsTheSame(@NonNull Group a, @NonNull Group b) {
-            return a.id != null && a.id.equals(b.id);
-        }
-
-        @Override
-        public boolean areContentsTheSame(@NonNull Group a, @NonNull Group b) {
-            return safeEq(a.name, b.name)
-                && safeEq(a.iconUrl, b.iconUrl)
-                && safeEq(a.lastMessage, b.lastMessage)
-                && safeEq(a.lastSenderName, b.lastSenderName)
-                && safeEq(a.lastMessageType, b.lastMessageType)
-                && safeEq(a.lastMessageStatus, b.lastMessageStatus)
-                && safeEq(a.lastMessageSenderUid, b.lastMessageSenderUid)
-                && longEq(a.lastMessageAt, b.lastMessageAt)
-                && memberCountEq(a, b);
-        }
-
-        private boolean safeEq(String x, String y) {
-            return x == null ? y == null : x.equals(y);
-        }
-        private boolean longEq(Long x, Long y) {
-            return x == null ? y == null : x.equals(y);
-        }
-        private boolean memberCountEq(Group a, Group b) {
-            int ca = a.members != null ? a.members.size() : 0;
-            int cb = b.members != null ? b.members.size() : 0;
-            return ca == cb;
-        }
-
-        /**
-         * v86: Bitmask payload — only the changed field redraws.
-         *  0x01 IDENTITY: name, icon
-         *  0x02 LAST_MSG: lastMessage, senderName, type, status, senderUid
-         *  0x04 TIME    : lastMessageAt
-         *  0x08 MEMBERS : member count
-         */
-        @Override
-        public Object getChangePayload(@NonNull Group a, @NonNull Group b) {
-            int flags = 0;
-            if (!safeEq(a.name, b.name) || !safeEq(a.iconUrl, b.iconUrl)) flags |= 0x01;
-            if (!safeEq(a.lastMessage, b.lastMessage)
-                    || !safeEq(a.lastSenderName, b.lastSenderName)
-                    || !safeEq(a.lastMessageType, b.lastMessageType)
-                    || !safeEq(a.lastMessageStatus, b.lastMessageStatus)
-                    || !safeEq(a.lastMessageSenderUid, b.lastMessageSenderUid)) flags |= 0x02;
-            if (!longEq(a.lastMessageAt, b.lastMessageAt))  flags |= 0x04;
-            if (!memberCountEq(a, b))                       flags |= 0x08;
-            return flags == 0 ? null : flags;
-        }
-    };
-
-    // ── v83: AsyncListDiffer ──────────────────────────────────────────────────
-    private final AsyncListDiffer<Group> differ = new AsyncListDiffer<>(this, DIFF_CALLBACK);
-
-    /**
-     * Submit a new list. Diff runs on a background thread; only changed rows
-     * rebind. Pass null or empty list to clear.
-     */
-    public void submitList(List<Group> newList) {
-        differ.submitList(newList == null ? Collections.emptyList() : newList);
+    public interface SelectionListener {
+        void onSelectionStarted();
+        void onSelectionChanged();
+        void onSelectionCleared();
     }
 
-    /** Current snapshot — safe to read on the main thread. */
+    private static final String PAYLOAD_SELECTION = "group_selection";
+
+    public static final DiffUtil.ItemCallback<Group> DIFF_CALLBACK =
+            new DiffUtil.ItemCallback<Group>() {
+                @Override public boolean areItemsTheSame(@NonNull Group a, @NonNull Group b) {
+                    return a.id != null && a.id.equals(b.id);
+                }
+
+                @Override public boolean areContentsTheSame(@NonNull Group a, @NonNull Group b) {
+                    return eq(a.name, b.name) && eq(a.iconUrl, b.iconUrl)
+                            && eq(a.lastMessage, b.lastMessage)
+                            && eq(a.lastSenderName, b.lastSenderName)
+                            && eq(a.lastMessageType, b.lastMessageType)
+                            && eq(a.lastMessageStatus, b.lastMessageStatus)
+                            && eq(a.lastMessageSenderUid, b.lastMessageSenderUid)
+                            && eq(a.lastMessageAt, b.lastMessageAt)
+                            && unread(a) == unread(b)
+                            && a.localPinned == b.localPinned
+                            && a.localArchived == b.localArchived
+                            && a.localMuted == b.localMuted
+                            && memberCount(a) == memberCount(b);
+                }
+
+                @Override public Object getChangePayload(@NonNull Group a, @NonNull Group b) {
+                    int flags = 0;
+                    if (!eq(a.name, b.name) || !eq(a.iconUrl, b.iconUrl)
+                            || a.localPinned != b.localPinned) flags |= 1;
+                    if (!eq(a.lastMessage, b.lastMessage)
+                            || !eq(a.lastSenderName, b.lastSenderName)
+                            || !eq(a.lastMessageType, b.lastMessageType)
+                            || !eq(a.lastMessageStatus, b.lastMessageStatus)
+                            || !eq(a.lastMessageSenderUid, b.lastMessageSenderUid)
+                            || a.localMuted != b.localMuted) flags |= 2;
+                    if (!eq(a.lastMessageAt, b.lastMessageAt)) flags |= 4;
+                    if (unread(a) != unread(b)) flags |= 8;
+                    if (a.localArchived != b.localArchived
+                            || memberCount(a) != memberCount(b)) flags |= 16;
+                    return flags == 0 ? null : flags;
+                }
+
+                private boolean eq(Object a, Object b) {
+                    return a == null ? b == null : a.equals(b);
+                }
+                private int memberCount(Group g) {
+                    return g.members == null ? 0 : g.members.size();
+                }
+                private long unread(Group g) {
+                    if (g.unread == null || FirebaseUtils.getCurrentUid() == null) return 0;
+                    Long value = g.unread.get(FirebaseUtils.getCurrentUid());
+                    return value == null ? 0 : Math.max(0, value);
+                }
+            };
+
+    private final AsyncListDiffer<Group> differ = new AsyncListDiffer<>(this, DIFF_CALLBACK);
+    private final String myUid = FirebaseUtils.getCurrentUid();
+    private final SelectionListener selectionListener;
+    private final Set<String> selectedIds = new HashSet<>();
+    private boolean selecting;
+
+    public GroupAdapter(SelectionListener listener) {
+        selectionListener = listener;
+        setHasStableIds(true);
+    }
+
+    public void submitList(List<Group> list) {
+        differ.submitList(list == null ? Collections.emptyList() : list);
+    }
+
     public List<Group> getCurrentList() {
         return differ.getCurrentList();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
+    public boolean isSelecting() { return selecting; }
+    public int getSelectedCount() { return selectedIds.size(); }
 
-    private final String myUid = FirebaseUtils.getCurrentUid();
-
-    public GroupAdapter() {
-        setHasStableIds(true);
+    public List<Group> getSelectedItems() {
+        java.util.ArrayList<Group> result = new java.util.ArrayList<>();
+        for (Group g : differ.getCurrentList()) {
+            if (g.id != null && selectedIds.contains(g.id)) result.add(g);
+        }
+        return result;
     }
 
-    @Override
-    public long getItemId(int position) {
+    public void selectAll() {
+        selecting = true;
+        selectedIds.clear();
+        for (Group g : differ.getCurrentList()) if (g.id != null) selectedIds.add(g.id);
+        notifyItemRangeChanged(0, getItemCount(), PAYLOAD_SELECTION);
+        if (selectionListener != null) selectionListener.onSelectionChanged();
+    }
+
+    public void clearSelection() {
+        selecting = false;
+        selectedIds.clear();
+        notifyItemRangeChanged(0, getItemCount(), PAYLOAD_SELECTION);
+        if (selectionListener != null) selectionListener.onSelectionCleared();
+    }
+
+    private void toggleSelection(int position) {
+        if (position == RecyclerView.NO_POSITION) return;
+        Group g = differ.getCurrentList().get(position);
+        if (g.id == null) return;
+        if (!selecting) {
+            selecting = true;
+            selectedIds.add(g.id);
+            if (selectionListener != null) selectionListener.onSelectionStarted();
+        } else if (!selectedIds.add(g.id)) {
+            selectedIds.remove(g.id);
+            if (selectedIds.isEmpty()) {
+                clearSelection();
+                return;
+            }
+            if (selectionListener != null) selectionListener.onSelectionChanged();
+        } else if (selectionListener != null) {
+            selectionListener.onSelectionChanged();
+        }
+        notifyItemRangeChanged(0, getItemCount(), PAYLOAD_SELECTION);
+    }
+
+    @Override public long getItemId(int position) {
         List<Group> list = differ.getCurrentList();
         if (position < 0 || position >= list.size()) return RecyclerView.NO_ID;
         String id = list.get(position).id;
-        return id != null ? id.hashCode() : position;
+        return id == null ? position : id.hashCode();
     }
 
-    @NonNull @Override
-    public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        View v = LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_group, parent, false);
+    @NonNull @Override public VH onCreateViewHolder(@NonNull ViewGroup parent, int type) {
+        View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_group, parent, false);
         return new VH(v);
     }
 
-    @Override
-    public void onBindViewHolder(@NonNull VH h, int pos) {
-        List<Group> list = differ.getCurrentList();
-        Group g = list.get(pos);
+    @Override public void onBindViewHolder(@NonNull VH h, int position) {
+        bind(h, differ.getCurrentList().get(position));
+    }
+
+    @Override public void onBindViewHolder(@NonNull VH h, int position,
+                                           @NonNull List<Object> payloads) {
+        if (payloads.isEmpty()) {
+            onBindViewHolder(h, position);
+        } else {
+            Group g = differ.getCurrentList().get(position);
+            h.boundGroup = g;
+            applySelection(h, g);
+            if ((payloads.contains(PAYLOAD_SELECTION))) return;
+            bind(h, g);
+        }
+    }
+
+    private void bind(VH h, Group g) {
         Context ctx = h.itemView.getContext();
+        h.boundGroup = g;
+        h.nameTimeView.setName((g.localPinned ? "📌 " : "") +
+                (g.name == null || g.name.isEmpty() ? "Group" : g.name));
+        Long when = g.lastMessageAt != null ? g.lastMessageAt : g.createdAt;
+        h.nameTimeView.setTime(when != null && when > 0
+                ? ChatListTimeCache.getFormatted(when) : "");
 
-        // v82: ChatListNameTimeView — name left, members count right
-        h.nameMembersView.setName(g.name == null ? "Group" : g.name);
-        int n = g.members != null ? g.members.size() : 0;
-        h.nameMembersView.setTime(n + " members");
-
-        // v90: Avatar — HARDWARE bitmap on API 26+, RGB_565 on API < 26
-        if (h.ivAvatar != null) {
-            if (g.iconUrl != null && !g.iconUrl.isEmpty()) {
-                int px = Math.round(50f * ctx.getResources().getDisplayMetrics().density);
-                DecodeFormat fmt = android.os.Build.VERSION.SDK_INT
-                        >= android.os.Build.VERSION_CODES.O
-                        ? DecodeFormat.PREFER_ARGB_8888   // → HARDWARE on API 26+
-                        : DecodeFormat.PREFER_RGB_565;
-                Glide.with(ctx)
-                        .load(g.iconUrl)
-                        .dontAnimate()
-                        .override(px, px)
-                        .format(fmt)
-                        .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-                        .apply(RequestOptions.circleCropTransform())
-                        .placeholder(R.drawable.ic_group)
-                        .error(R.drawable.ic_group)
-                        .into(h.ivAvatar);
-                h.ivAvatar.setPadding(0, 0, 0, 0);
-            } else {
-                h.ivAvatar.setImageResource(R.drawable.ic_group);
-                int pad = (int) (ctx.getResources().getDisplayMetrics().density * 12);
-                h.ivAvatar.setPadding(pad, pad, pad, pad);
-            }
+        if (g.iconUrl != null && !g.iconUrl.isEmpty()) {
+            int px = Math.round(50f * ctx.getResources().getDisplayMetrics().density);
+            Glide.with(ctx).load(g.iconUrl).dontAnimate().override(px, px)
+                    .format(android.os.Build.VERSION.SDK_INT >= 26
+                            ? DecodeFormat.PREFER_ARGB_8888 : DecodeFormat.PREFER_RGB_565)
+                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+                    .apply(RequestOptions.circleCropTransform())
+                    .placeholder(R.drawable.ic_group).error(R.drawable.ic_group)
+                    .into(h.avatar);
+            h.avatar.setPadding(0, 0, 0, 0);
+        } else {
+            h.avatar.setImageResource(R.drawable.ic_group);
+            int pad = (int) (ctx.getResources().getDisplayMetrics().density * 12);
+            h.avatar.setPadding(pad, pad, pad, pad);
         }
 
-        h.isTypingNow = false;
-        bindGroupRowContent(h, g);
+        h.typingNow = false;
+        bindContent(h, g);
         attachTypingListener(h, g);
-
-        h.itemView.setOnClickListener(v -> {
-            if (g.id == null || g.id.isEmpty()) return;
-            Intent i = new Intent(ctx, GroupChatActivity.class);
-            i.putExtra("groupId", g.id);
-            i.putExtra("groupName", g.name);
-            ctx.startActivity(i);
-        });
+        applySelection(h, g);
     }
 
-    /**
-     * v88: Clear Glide + detach typing listener on pool return.
-     * Prevents stale avatar flash and orphaned Firebase listeners.
-     */
-    @Override
-    public void onViewRecycled(@NonNull VH h) {
-        super.onViewRecycled(h);
-        if (h.ivAvatar != null) {
-            try { Glide.with(h.ivAvatar.getContext()).clear(h.ivAvatar); }
-            catch (Exception ignored) {}
-        }
-        detachTypingListener(h);
-        h.isTypingNow = false;
-    }
-
-    private void bindGroupRowContent(VH h, Group g) {
+    private void bindContent(VH h, Group g) {
         Context ctx = h.itemView.getContext();
         String preview = ChatListPreviewUtil.buildPreview(
-                g.lastMessageType, g.lastMessage, "Group ready");
-        h.lastMessageView.setMessageText(
-                preview, ctx.getResources().getColor(R.color.text_secondary), false);
-        updateReadStatusTicks(h, g);
+                g.lastMessageType, g.lastMessage,
+                memberCount(g) + " members");
+        if (g.lastSenderName != null && !g.lastSenderName.isEmpty()
+                && g.lastMessage != null && !g.lastMessage.isEmpty()) {
+            preview = g.lastSenderName + ": " + preview;
+        }
+        h.lastMessage.setMessageText(preview,
+                ctx.getResources().getColor(R.color.text_secondary), false);
+        updateTicks(h, g);
+        h.unread.setBadgeCount(unread(g));
     }
 
-    private void updateReadStatusTicks(VH h, Group g) {
-        boolean iAmLastSender = myUid != null && g.id != null
-                && myUid.equals(g.lastMessageSenderUid);
-        if (h.isTypingNow || !iAmLastSender || g.lastMessageStatus == null) {
-            h.lastMessageView.setTicks(ChatListLastMessageView.TICK_NONE, 0);
-            return;
-        }
-        Context ctx = h.itemView.getContext();
-        if ("read".equals(g.lastMessageStatus)) {
-            h.lastMessageView.setTicks(ChatListLastMessageView.TICK_READ,
-                    ctx.getResources().getColor(R.color.tick_read_blue));
+    private void applySelection(VH h, Group g) {
+        boolean selected = g.id != null && selectedIds.contains(g.id);
+        h.selectionOverlay.setVisibility(selecting ? View.VISIBLE : View.GONE);
+        h.selectionCheck.setVisibility(selecting && selected ? View.VISIBLE : View.INVISIBLE);
+        h.itemView.setAlpha(selecting && !selected ? 0.78f : 1f);
+    }
+
+    private void updateTicks(VH h, Group g) {
+        boolean mine = myUid != null && myUid.equals(g.lastMessageSenderUid);
+        if (h.typingNow || !mine || g.lastMessageStatus == null) {
+            h.lastMessage.setTicks(ChatListLastMessageView.TICK_NONE, 0);
+        } else if ("read".equals(g.lastMessageStatus)) {
+            h.lastMessage.setTicks(ChatListLastMessageView.TICK_READ,
+                    h.itemView.getResources().getColor(R.color.tick_read_blue));
         } else if ("delivered".equals(g.lastMessageStatus)) {
-            h.lastMessageView.setTicks(ChatListLastMessageView.TICK_DELIVERED,
-                    ctx.getResources().getColor(R.color.text_muted));
+            h.lastMessage.setTicks(ChatListLastMessageView.TICK_DELIVERED,
+                    h.itemView.getResources().getColor(R.color.text_muted));
         } else {
-            h.lastMessageView.setTicks(ChatListLastMessageView.TICK_SENT,
-                    ctx.getResources().getColor(R.color.text_muted));
+            h.lastMessage.setTicks(ChatListLastMessageView.TICK_SENT,
+                    h.itemView.getResources().getColor(R.color.text_muted));
         }
     }
 
@@ -243,21 +271,28 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
         DatabaseReference ref = FirebaseUtils.getGroupTypingRef(g.id);
         ValueEventListener listener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                int adapterPos = h.getAdapterPosition();
-                if (adapterPos == RecyclerView.NO_POSITION) return;
-                List<Group> current = differ.getCurrentList();
-                if (adapterPos >= current.size()) return;
-                if (!g.id.equals(current.get(adapterPos).id)) return;
-
-                List<String> names = new ArrayList<>();
+                int p = h.getBindingAdapterPosition();
+                if (p == RecyclerView.NO_POSITION || p >= differ.getCurrentList().size()) return;
+                Group current = differ.getCurrentList().get(p);
+                if (!g.id.equals(current.id)) return;
+                int count = 0;
+                String first = null;
                 for (DataSnapshot child : snap.getChildren()) {
                     if (myUid != null && myUid.equals(child.getKey())) continue;
-                    String name = child.getValue(String.class);
-                    names.add(name != null && !name.isEmpty() ? name : "Someone");
+                    if (first == null) first = child.getValue(String.class);
+                    count++;
                 }
-                applyTypingRow(h, current.get(adapterPos), names);
+                h.typingNow = count > 0;
+                if (count > 0) {
+                    String label = (first == null || first.isEmpty() ? "Someone" : first)
+                            + (count > 1 ? " +" + (count - 1) : "") + " typing...";
+                    h.lastMessage.setMessageText(label, 0xFF0F4C3A, true);
+                    h.lastMessage.setTicks(ChatListLastMessageView.TICK_NONE, 0);
+                } else {
+                    bindContent(h, current);
+                }
             }
-            @Override public void onCancelled(@NonNull DatabaseError error) {}
+            @Override public void onCancelled(@NonNull DatabaseError error) { }
         };
         ref.addValueEventListener(listener);
         h.typingRef = ref;
@@ -265,44 +300,68 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
     }
 
     private void detachTypingListener(VH h) {
-        if (h.typingRef != null && h.typingListener != null) {
+        if (h.typingRef != null && h.typingListener != null)
             h.typingRef.removeEventListener(h.typingListener);
-        }
         h.typingRef = null;
         h.typingListener = null;
     }
 
-    private void applyTypingRow(VH h, Group g, List<String> typingNames) {
-        boolean isTyping = !typingNames.isEmpty();
-        h.isTypingNow = isTyping;
-        if (isTyping) {
-            String label;
-            int n = typingNames.size();
-            if (n == 1)      label = typingNames.get(0) + " typing...";
-            else if (n == 2) label = typingNames.get(0) + ", " + typingNames.get(1) + " typing...";
-            else             label = typingNames.get(0) + " +" + (n - 1) + " typing...";
-            h.lastMessageView.setMessageText(label, 0xFF0F4C3A, true);
-            h.lastMessageView.setTicks(ChatListLastMessageView.TICK_NONE, 0);
-        } else {
-            bindGroupRowContent(h, g);
-        }
+    @Override public void onViewRecycled(@NonNull VH h) {
+        super.onViewRecycled(h);
+        detachTypingListener(h);
+        try { Glide.with(h.avatar.getContext()).clear(h.avatar); } catch (Exception ignored) { }
+        h.typingNow = false;
     }
 
     @Override public int getItemCount() { return differ.getCurrentList().size(); }
 
-    static class VH extends RecyclerView.ViewHolder {
-        ChatListNameTimeView    nameMembersView;
-        ChatListLastMessageView lastMessageView;
-        CircleImageView         ivAvatar;
-        DatabaseReference       typingRef;
-        ValueEventListener      typingListener;
-        boolean                 isTypingNow = false;
+    class VH extends RecyclerView.ViewHolder {
+        final ChatListNameTimeView nameTimeView;
+        final ChatListLastMessageView lastMessage;
+        final ChatListUnreadBadgeView unread;
+        final CircleImageView avatar;
+        final View selectionOverlay;
+        final View selectionCheck;
+        DatabaseReference typingRef;
+        ValueEventListener typingListener;
+        Group boundGroup;
+        boolean typingNow;
 
         VH(View v) {
             super(v);
-            nameMembersView = v.findViewById(R.id.view_group_name_members);
-            lastMessageView = v.findViewById(R.id.view_group_last_message);
-            ivAvatar        = v.findViewById(R.id.iv_group_avatar);
+            nameTimeView = v.findViewById(R.id.view_group_name_members);
+            lastMessage = v.findViewById(R.id.view_group_last_message);
+            avatar = v.findViewById(R.id.iv_group_avatar);
+            unread = v.findViewById(R.id.view_group_unread_badge);
+            selectionOverlay = v.findViewById(R.id.fl_group_select_overlay);
+            selectionCheck = v.findViewById(R.id.iv_group_check);
+            v.setOnClickListener(x -> {
+                if (boundGroup == null) return;
+                if (selecting) {
+                    toggleSelection(getBindingAdapterPosition());
+                } else {
+                    Intent i = new Intent(x.getContext(), GroupChatActivity.class);
+                    i.putExtra("groupId", boundGroup.id);
+                    i.putExtra("groupName", boundGroup.name);
+                    x.getContext().startActivity(i);
+                }
+            });
+            v.setOnLongClickListener(x -> {
+                if (boundGroup == null) return true;
+                toggleSelection(getBindingAdapterPosition());
+                return true;
+            });
         }
+    }
+
+    private static int memberCount(Group g) {
+        return g.members == null ? 0 : g.members.size();
+    }
+
+    private static long unread(Group g) {
+        if (g.unread == null) return 0;
+        String uid = FirebaseUtils.getCurrentUid();
+        Long count = uid == null ? null : g.unread.get(uid);
+        return count == null ? 0 : Math.max(0, count);
     }
 }

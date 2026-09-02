@@ -73,6 +73,7 @@ import com.callx.app.conversation.controllers.ChatLocationShareController;
 import com.callx.app.chat.ui.GifAwareEditText;
 import androidx.core.view.inputmethod.InputContentInfoCompat;
 import com.callx.app.chat.ui.MessageHighlightAnimator;
+import com.callx.app.payments.ui.ChatPaymentBottomSheet;
 
 /**
  * GroupChatActivity — Production-grade group chat screen.
@@ -2719,11 +2720,13 @@ public class GroupChatActivity extends AppCompatActivity
         // (the ValueEventListener and GroupMessageReadObserver callback mutate
         // m.readBy/m.deliveredBy, which requires m itself to never be reassigned).
         final Message m = resolved;
+        if (m.id == null || m.id.isEmpty()) m.id = infoId;
         boolean isOutgoing = m.senderId != null && currentUid.equals(m.senderId);
 
         com.callx.app.conversation.info.MessageInfoData data = new com.callx.app.conversation.info.MessageInfoData();
         data.isGroup = true;
         data.isOutgoing = isOutgoing;
+        data.messageId = m.id;
         data.messageType = m.type != null ? m.type : "text";
         data.previewLabel = com.callx.app.conversation.info.MessageInfoPreviewUtil.buildPreview(m);
         data.sentAt = m.timestamp != null ? m.timestamp : 0L;
@@ -2744,8 +2747,6 @@ public class GroupChatActivity extends AppCompatActivity
         java.util.List<String> otherUids = new java.util.ArrayList<>(memberNames.keySet());
         otherUids.remove(m.senderId);
         data.totalOthers = otherUids.size();
-        data.messageId = m.id;
-
         fillGroupReceiptBuckets(data, otherUids, m.readBy, m.deliveredBy);
 
         // Prefetch avatars into Glide's cache now, while the sheet is still
@@ -2829,8 +2830,11 @@ public class GroupChatActivity extends AppCompatActivity
         java.util.Map<String, Long> out = new java.util.LinkedHashMap<>();
         com.google.firebase.database.DataSnapshot child = msgSnap.child(childName);
         for (com.google.firebase.database.DataSnapshot uidSnap : child.getChildren()) {
-            Long ts = uidSnap.getValue(Long.class);
-            if (ts != null) out.put(uidSnap.getKey(), ts);
+            Object raw = uidSnap.getValue();
+            if (raw instanceof Number && uidSnap.getKey() != null) {
+                long ts = ((Number) raw).longValue();
+                if (ts > 0) out.put(uidSnap.getKey(), ts);
+            }
         }
         return out;
     }
@@ -2847,6 +2851,9 @@ public class GroupChatActivity extends AppCompatActivity
         com.callx.app.conversation.info.MessageInfoData fresh =
                 new com.callx.app.conversation.info.MessageInfoData();
         fresh.messageId = msgId;
+        fresh.isGroup = true;
+        fresh.isOutgoing = true;
+        fresh.totalOthers = otherUids != null ? otherUids.size() : 0;
         fillGroupReceiptBuckets(fresh, otherUids, readByMap, deliveredByMap);
         activeInfoSheet.updateGroupData(fresh);
     }
@@ -2859,19 +2866,34 @@ public class GroupChatActivity extends AppCompatActivity
         data.readBy.clear();
         data.deliveredOnly.clear();
         data.pending.clear();
+        java.util.Set<String> seen = new java.util.HashSet<>();
         for (String uid : otherUids) {
-            String name = memberNames.getOrDefault(uid, "Member");
+            if (uid == null || uid.isEmpty() || !seen.add(uid)) continue;
+            String name = memberNames.get(uid);
+            if (name == null || name.isEmpty()) name = "Member";
             String photo = memberPhotos != null ? memberPhotos.get(uid) : null;
             Long readTs = readByMap != null ? readByMap.get(uid) : null;
             Long delTs  = deliveredByMap != null ? deliveredByMap.get(uid) : null;
-            if (readTs != null) {
+            if (readTs != null && readTs > 0) {
                 data.readBy.add(new com.callx.app.conversation.info.MessageInfoData.MemberReceipt(uid, name, photo, readTs));
-            } else if (delTs != null) {
+            } else if (delTs != null && delTs > 0) {
                 data.deliveredOnly.add(new com.callx.app.conversation.info.MessageInfoData.MemberReceipt(uid, name, photo, delTs));
             } else {
                 data.pending.add(new com.callx.app.conversation.info.MessageInfoData.MemberReceipt(uid, name, photo, null));
             }
         }
+        java.util.Comparator<com.callx.app.conversation.info.MessageInfoData.MemberReceipt> newestFirst =
+                (a, b) -> {
+                    long at = a.timestamp == null ? 0 : a.timestamp;
+                    long bt = b.timestamp == null ? 0 : b.timestamp;
+                    if (at != bt) return Long.compare(bt, at);
+                    return a.name.compareToIgnoreCase(b.name);
+                };
+        java.util.Collections.sort(data.readBy, newestFirst);
+        java.util.Collections.sort(data.deliveredOnly, newestFirst);
+        java.util.Collections.sort(data.pending,
+                (a, b) -> a.name.compareToIgnoreCase(b.name));
+        data.totalOthers = seen.size();
     }
 
     // ── MessageInfoBottomSheet.HostRecyclerPauseListener ────────────────────
@@ -3658,6 +3680,13 @@ public class GroupChatActivity extends AppCompatActivity
         if (optLocation != null) {
             optLocation.setOnClickListener(x -> { sheet.dismiss(); locationShareController.launch(); });
         }
+        View optAudio = v.findViewById(R.id.opt_audio);
+        if (optAudio != null) {
+            optAudio.setOnClickListener(x -> {
+                sheet.dismiss();
+                audioPicker.launch("audio/*");
+            });
+        }
         // Camera tile is now the first item of the Recents grid (inline with
         // recent gallery thumbnails) rather than a separate opt_camera row —
         // see AttachSheetRecentMediaBinder / RecentMediaGridAdapter.
@@ -3714,20 +3743,271 @@ public class GroupChatActivity extends AppCompatActivity
                         mediaEditLauncher.launch(intent);
                     }
                 });
-        // Payment / Event / AI images — new chips, backend flow not wired up yet.
+        // Group payment: choose a real member first, then reuse the tested
+        // payment flow with that member as the counterparty. A group itself
+        // is never treated as a bank-account recipient.
         View optPayment = v.findViewById(R.id.opt_payment);
         if (optPayment != null) {
-            optPayment.setOnClickListener(x -> { sheet.dismiss(); Toast.makeText(this, "Payments coming soon", Toast.LENGTH_SHORT).show(); });
+            optPayment.setOnClickListener(x -> {
+                sheet.dismiss();
+                showGroupPaymentPicker();
+            });
         }
         View optEvent = v.findViewById(R.id.opt_event);
         if (optEvent != null) {
-            optEvent.setOnClickListener(x -> { sheet.dismiss(); Toast.makeText(this, "Events coming soon", Toast.LENGTH_SHORT).show(); });
+            optEvent.setOnClickListener(x -> {
+                sheet.dismiss();
+                showCreateGroupEventDialog();
+            });
         }
         View optAiImages = v.findViewById(R.id.opt_ai_images);
         if (optAiImages != null) {
-            optAiImages.setOnClickListener(x -> { sheet.dismiss(); Toast.makeText(this, "AI images coming soon", Toast.LENGTH_SHORT).show(); });
+            optAiImages.setOnClickListener(x -> {
+                sheet.dismiss();
+                showAiImagePromptDialog();
+            });
         }
         sheet.setContentView(v); sheet.show();
+    }
+
+    /** Pick a member before opening the existing payment flow. */
+    private void showGroupPaymentPicker() {
+        Runnable show = () -> {
+            List<String> uids = new ArrayList<>();
+            List<String> names = new ArrayList<>();
+            for (Map.Entry<String, String> entry : memberNames.entrySet()) {
+                if (entry.getKey() == null || entry.getKey().equals(currentUid)) continue;
+                uids.add(entry.getKey());
+                names.add(entry.getValue() == null || entry.getValue().isEmpty()
+                        ? "Member" : entry.getValue());
+            }
+            if (uids.isEmpty()) {
+                Toast.makeText(this, "No other group members found", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            new AlertDialog.Builder(this)
+                    .setTitle("Pay a group member")
+                    .setItems(names.toArray(new String[0]), (dialog, which) ->
+                            ChatPaymentBottomSheet.show(this, uids.get(which), names.get(which), groupId))
+                    .setNegativeButton("Cancel", null)
+                    .show();
+        };
+        if (!memberNames.isEmpty()) {
+            show.run();
+            return;
+        }
+        FirebaseUtils.getGroupMembersRef(groupId).addListenerForSingleValueEvent(
+                new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        for (DataSnapshot child : snap.getChildren()) {
+                            String uid = child.getKey();
+                            if (uid == null) continue;
+                            String name = child.child("name").getValue(String.class);
+                            memberNames.put(uid, name == null ? "Member" : name);
+                        }
+                        show.run();
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError error) {
+                        Toast.makeText(GroupChatActivity.this,
+                                "Members load failed: " + error.getMessage(),
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+    }
+
+    /** Creates a Firebase-backed group event and shares a readable event card
+     * as a normal chat message so every existing client can see it. */
+    private void showCreateGroupEventDialog() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(20);
+        root.setPadding(pad, 0, pad, 0);
+
+        EditText title = new EditText(this);
+        title.setHint("Event title");
+        title.setSingleLine(true);
+        root.addView(title, new LinearLayout.LayoutParams(-1, -2));
+
+        EditText description = new EditText(this);
+        description.setHint("Description (optional)");
+        description.setMinLines(2);
+        root.addView(description, new LinearLayout.LayoutParams(-1, -2));
+
+        EditText location = new EditText(this);
+        location.setHint("Location or meeting link (optional)");
+        location.setSingleLine(true);
+        root.addView(location, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView selectedTime = new TextView(this);
+        selectedTime.setText("Choose date and time");
+        selectedTime.setTextColor(getResources().getColor(R.color.text_secondary));
+        selectedTime.setPadding(0, dp(14), 0, dp(10));
+        root.addView(selectedTime, new LinearLayout.LayoutParams(-1, -2));
+
+        Calendar eventTime = Calendar.getInstance();
+        eventTime.add(Calendar.HOUR_OF_DAY, 1);
+        final boolean[] timeChosen = {false};
+        selectedTime.setOnClickListener(v -> {
+            new android.app.DatePickerDialog(this, (dialog, year, month, day) -> {
+                eventTime.set(Calendar.YEAR, year);
+                eventTime.set(Calendar.MONTH, month);
+                eventTime.set(Calendar.DAY_OF_MONTH, day);
+                new android.app.TimePickerDialog(this, (timeDialog, hour, minute) -> {
+                    eventTime.set(Calendar.HOUR_OF_DAY, hour);
+                    eventTime.set(Calendar.MINUTE, minute);
+                    eventTime.set(Calendar.SECOND, 0);
+                    eventTime.set(Calendar.MILLISECOND, 0);
+                    timeChosen[0] = true;
+                    selectedTime.setText(android.text.format.DateFormat
+                            .getMediumDateFormat(this).format(eventTime.getTime())
+                            + " " + android.text.format.DateFormat
+                            .getTimeFormat(this).format(eventTime.getTime()));
+                }, eventTime.get(Calendar.HOUR_OF_DAY),
+                        eventTime.get(Calendar.MINUTE), false).show();
+            }, eventTime.get(Calendar.YEAR), eventTime.get(Calendar.MONTH),
+                    eventTime.get(Calendar.DAY_OF_MONTH)).show();
+        });
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Create group event")
+                .setView(root)
+                .setPositiveButton("Create", null)
+                .setNegativeButton("Cancel", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(v -> {
+                    String eventTitle = title.getText().toString().trim();
+                    if (eventTitle.isEmpty()) {
+                        title.setError("Title is required");
+                        return;
+                    }
+                    if (!timeChosen[0]) {
+                        Toast.makeText(this, "Choose a date and time", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    if (eventTime.getTimeInMillis() <= System.currentTimeMillis()) {
+                        Toast.makeText(this, "Event time must be in the future", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    createGroupEvent(eventTitle, description.getText().toString().trim(),
+                            location.getText().toString().trim(), eventTime.getTimeInMillis());
+                    dialog.dismiss();
+                }));
+        dialog.show();
+    }
+
+    private void createGroupEvent(String title, String description, String location, long startAt) {
+        String eventId = groupMessagesRef.push().getKey();
+        if (eventId == null) eventId = UUID.randomUUID().toString();
+        Map<String, Object> event = new HashMap<>();
+        event.put("id", eventId);
+        event.put("groupId", groupId);
+        event.put("title", title);
+        event.put("description", description);
+        event.put("location", location);
+        event.put("startAt", startAt);
+        event.put("createdBy", currentUid);
+        event.put("createdByName", currentName);
+        event.put("createdAt", System.currentTimeMillis());
+
+        FirebaseUtils.getGroupsRef().child(groupId).child("events").child(eventId)
+                .setValue(event)
+                .addOnSuccessListener(unused -> {
+                    Message message = buildOutgoing();
+                    message.type = "text";
+                    message.text = "📅 " + title + "\n"
+                            + android.text.format.DateFormat.getMediumDateFormat(this)
+                            .format(new Date(startAt)) + " "
+                            + android.text.format.DateFormat.getTimeFormat(this)
+                            .format(new Date(startAt))
+                            + (location.isEmpty() ? "" : "\n📍 " + location)
+                            + (description.isEmpty() ? "" : "\n" + description);
+                    pushMessage(message, "📅 Event: " + title);
+                    Toast.makeText(this, "Event shared", Toast.LENGTH_SHORT).show();
+                })
+                .addOnFailureListener(error -> Toast.makeText(this,
+                        "Event creation failed: " + error.getMessage(), Toast.LENGTH_LONG).show());
+    }
+
+    /** Generates an image from a prompt, uploads it through the existing
+     * Cloudinary pipeline, and sends it as a normal group image message. */
+    private void showAiImagePromptDialog() {
+        EditText promptInput = new EditText(this);
+        promptInput.setHint("Describe the image");
+        promptInput.setSingleLine(false);
+        promptInput.setMinLines(2);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("AI image")
+                .setView(promptInput)
+                .setPositiveButton("Generate", null)
+                .setNegativeButton("Cancel", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(v -> {
+                    String prompt = promptInput.getText().toString().trim();
+                    if (prompt.isEmpty()) {
+                        promptInput.setError("Describe the image first");
+                        return;
+                    }
+                    dialog.dismiss();
+                    generateAndSendAiImage(prompt);
+                }));
+        dialog.show();
+    }
+
+    private void generateAndSendAiImage(String prompt) {
+        if (!isOnline()) {
+            Toast.makeText(this, "Internet is required for AI images", Toast.LENGTH_LONG).show();
+            return;
+        }
+        binding.uploadProgress.setVisibility(View.VISIBLE);
+        Toast.makeText(this, "Generating image…", Toast.LENGTH_SHORT).show();
+        final String encoded;
+        try {
+            encoded = java.net.URLEncoder.encode(prompt, "UTF-8")
+                    .replace("+", "%20");
+        } catch (java.io.UnsupportedEncodingException e) {
+            binding.uploadProgress.setVisibility(View.GONE);
+            Toast.makeText(this, "Could not encode prompt", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new Thread(() -> {
+            File generated = null;
+            try {
+                java.net.URL url = new java.net.URL(
+                        "https://image.pollinations.ai/prompt/" + encoded
+                                + "?width=1024&height=1024&nologo=true");
+                java.net.HttpURLConnection connection =
+                        (java.net.HttpURLConnection) url.openConnection();
+                connection.setConnectTimeout(20_000);
+                connection.setReadTimeout(60_000);
+                connection.setRequestMethod("GET");
+                if (connection.getResponseCode() != 200)
+                    throw new java.io.IOException("AI service returned " + connection.getResponseCode());
+                generated = new File(getCacheDir(), "group_ai_" + System.currentTimeMillis() + ".jpg");
+                try (java.io.InputStream input = connection.getInputStream();
+                     java.io.FileOutputStream output = new java.io.FileOutputStream(generated)) {
+                    byte[] buffer = new byte[16 * 1024];
+                    int read;
+                    while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
+                } finally {
+                    connection.disconnect();
+                }
+                File generatedFile = generated;
+                runOnUiThread(() -> {
+                    Uri uri = FileProvider.getUriForFile(this,
+                            getPackageName() + ".fileprovider", generatedFile);
+                    uploadAndSend(uri, "image", "image", "ai_generated.jpg");
+                });
+            } catch (Exception error) {
+                if (generated != null) generated.delete();
+                runOnUiThread(() -> {
+                    binding.uploadProgress.setVisibility(View.GONE);
+                    Toast.makeText(this, "AI image failed: " + error.getMessage(),
+                            Toast.LENGTH_LONG).show();
+                });
+            }
+        }, "group-ai-image").start();
     }
 
     // ─────────────────────────────────────────────────────────────────────

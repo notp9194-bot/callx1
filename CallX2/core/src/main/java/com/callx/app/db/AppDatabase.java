@@ -69,7 +69,7 @@ import com.callx.app.db.entity.*;
         // HomeFeedCacheEntity's class doc.
         HomeFeedCacheEntity.class
     },
-    version = 56,
+    version = 57,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -777,6 +777,15 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** v56 → v57: cache viewer-specific group-list badge and mute state. */
+    static final Migration MIGRATION_56_57 = new Migration(56, 57) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE groups ADD COLUMN unread INTEGER");
+            db.execSQL("ALTER TABLE groups ADD COLUMN muted INTEGER");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -837,7 +846,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50,
                                     MIGRATION_50_51, MIGRATION_51_52,
                                     MIGRATION_52_53, MIGRATION_53_54,
-                                    MIGRATION_54_55, MIGRATION_55_56)
+                                    MIGRATION_54_55, MIGRATION_55_56,
+                                    MIGRATION_56_57)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

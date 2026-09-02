@@ -443,7 +443,10 @@ public class ContactsActivity extends AppCompatActivity {
                         FirebaseUtils.getGroupsRef().child(gid)
                             .addListenerForSingleValueEvent(new ValueEventListener() {
                                 @Override public void onDataChange(@NonNull DataSnapshot ds) {
-                                    Group g = ds.getValue(Group.class);
+                                    // CRASH FIX: fromSnapshot() instead of
+                                    // ds.getValue(Group.class) directly — see
+                                    // Group.java for why the raw call can throw.
+                                    Group g = Group.fromSnapshot(ds);
                                     if (g != null) {
                                         if (g.id == null) g.id = ds.getKey();
                                         fetched.add(g);

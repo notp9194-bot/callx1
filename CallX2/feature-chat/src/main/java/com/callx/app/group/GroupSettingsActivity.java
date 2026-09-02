@@ -309,7 +309,13 @@ public class GroupSettingsActivity extends AppCompatActivity {
 
         swTopicsEnabled.setOnCheckedChangeListener((btn, checked) -> {
             if (!isAdmin) { swTopicsEnabled.setChecked(!checked); return; }
-            saveGroupSettingBool("topicsEnabled", checked);
+            // BUG FIX: topicsEnabled is a top-level Group field
+            // (groups/{groupId}/topicsEnabled per Group.java + upgrade notes),
+            // NOT nested under groupSettings like anonymousPostingEnabled/
+            // slowModeSecs. Writing it under groupSettings meant GroupInfoActivity's
+            // top-level read (and the Group model's own topicsEnabled field) never
+            // saw the real value — Topics button visibility never updated.
+            FirebaseUtils.getGroupsRef().child(groupId).child("topicsEnabled").setValue(checked);
             Toast.makeText(this, checked ? "Topics enabled" : "Topics disabled", Toast.LENGTH_SHORT).show();
         });
 
@@ -709,10 +715,19 @@ public class GroupSettingsActivity extends AppCompatActivity {
                         if (swAnonymousPosting != null)
                             swAnonymousPosting.setChecked(Boolean.TRUE.equals(anonEnabled));
 
-                        // Topics
-                        Boolean topicsOn = snap.child("topicsEnabled").getValue(Boolean.class);
-                        if (swTopicsEnabled != null)
-                            swTopicsEnabled.setChecked(Boolean.TRUE.equals(topicsOn));
+                    }
+                    @Override public void onCancelled(DatabaseError e) {}
+                });
+
+        // Topics: BUG FIX — read from the top-level Group node (matches
+        // where the toggle now saves + where Group.java/GroupInfoActivity
+        // read it), not from groupSettings.
+        FirebaseUtils.getGroupsRef().child(groupId).child("topicsEnabled")
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(DataSnapshot snap) {
+                        Object raw = snap.getValue();
+                        boolean topicsOn = (raw instanceof Boolean) && (Boolean) raw;
+                        if (swTopicsEnabled != null) swTopicsEnabled.setChecked(topicsOn);
                     }
                     @Override public void onCancelled(DatabaseError e) {}
                 });
