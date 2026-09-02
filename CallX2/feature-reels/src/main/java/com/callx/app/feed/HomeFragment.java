@@ -196,15 +196,11 @@ public class HomeFragment extends Fragment
     private ImageButton        btnNotifications;
     // ── Inline auto-play (single ExoPlayer shared across feed cards) ──
     private ExoPlayer          feedPlayer;
-    /** ★ Instant-play standby pool: two extra muted ExoPlayer instances that
-     *  pre-buffer the card AHEAD of and BEHIND whichever card is currently
-     *  active, so swapping either direction is just re-pointing a
-     *  PlayerView — no cold prepare/buffer wait either way (Instagram-style
-     *  scroll-up-to-rewatch is just as instant as scrolling forward). A
-     *  fixed 3-instance pool total (active + standbyNext + standbyPrev) —
-     *  players are demoted/promoted between roles rather than rebuilt, same
-     *  reuse principle as ExoPlayerPool for the Reels swipe feed. See
-     *  prepareStandbyNext()/prepareStandbyPrev()/attachPlayerToCard(). */
+    /** Adjacent media is warmed through the shared cache/preloader, not by
+     *  running extra decoders. Home deliberately keeps one attached player:
+     *  multiple READY/BUFFERING players competing for decoder, Surface and
+     *  network resources were the source of the measured scroll stalls. These
+     *  fields remain for lifecycle cleanup/compatibility with older state. */
     private ExoPlayer          standbyNextPlayer;
     private int                standbyNextIndex = -1;
     private String             standbyNextUrl   = null;
@@ -745,9 +741,6 @@ public class HomeFragment extends Fragment
      * player stays attached under its thumbnail; it is not torn down/rebound
      * on every intermediate card during a fling. */
     private boolean pausedForScroll = false;
-    /** Low-pass filtered scroll velocity used by the landing ripple. */
-    private long lastHomeScrollSampleNanos = 0L;
-    private float lastHomeScrollVelocityPxPerMs = 0f;
     /** Decode size for the 36dp card avatar (36dp ≈ 144px at xxhdpi). */
     private static final int AVATAR_DECODE_PX = 144;
     /** ★ Ultra-advanced optimization: Pattern.compile() is far from free —
@@ -905,10 +898,8 @@ public class HomeFragment extends Fragment
         // already uses for fast, low-latency start — Home's feed was
         // previously left on generic defaults.
         // ── Shared ExoPlayerPool instead of a raw buildBarePlayer() ────────
-        // Same centralized, tested pool the Reels swipe feed uses — POOL_SIZE=3
-        // was sized for exactly "prev paused / current playing / next
-        // prewarmed", which is precisely Home's feedPlayer + standbyPrev +
-        // standbyNext trio, so no capacity change needed on the pool itself.
+        // Same centralized pool the Reels swipe feed uses. Home intentionally
+        // acquires only one player so decoder/Surface ownership is singular.
         feedPlayer = com.callx.app.player.ExoPlayerPool.get(requireContext()).acquire();
         configureFeedPlayerInstance(feedPlayer);
         // ── Instagram-level thermal manager (real-time monitoring) ────────
@@ -954,19 +945,12 @@ public class HomeFragment extends Fragment
     }
 
     /**
-     * Applies the repeat-mode + end-of-reel listener every active feed
-     * player needs. feedPlayer and the two standby players swap roles
-     * repeatedly (see attachPlayerToCard's instant-play swap) — this must
-     * run once on EVERY ExoPlayer instance we build (here and in
-     * prepareStandbyNext/prepareStandbyPrev), not just the one that starts
-     * out as feedPlayer, or a promoted former-standby would silently play
-     * with no end-of-reel overlay and REPEAT_MODE_OFF unset.
+     * Applies the repeat-mode + end-of-reel listener to Home's active feed
+     * player. Legacy standby instances, if encountered during a hot code
+     * transition, are guarded and returned to the pool before handoff.
      *
-     * Also wires time-to-first-frame measurement: onRenderedFirstFrame only
-     * fires for an instance that's actually rendering to a Surface, which
-     * only ever happens for whichever instance is currently feedPlayer (the
-     * two standby instances are never PlayerView-attached), so this is safe
-     * to attach uniformly to all three pool instances.
+     * Also wires time-to-first-frame measurement and protects the thumbnail
+     * reveal until the active player has actually rendered the correct frame.
      */
     private void configureFeedPlayerInstance(ExoPlayer player) {
         player.setRepeatMode(Player.REPEAT_MODE_OFF);
@@ -1238,8 +1222,6 @@ public class HomeFragment extends Fragment
                         ultraOptimizer.onRecyclerScrolled(dx, dy);
                     }
 
-                    sampleHomeScrollVelocity(dy);
-
                     // Do not attach/swap players from this hot path. A fling
                     // can cross several cards before the final visible card is
                     // known; attaching here causes repeated Surface/decoder
@@ -1324,46 +1306,10 @@ public class HomeFragment extends Fragment
                         playVisibleCheckScheduled = true;
                         android.view.Choreographer.getInstance()
                                 .postFrameCallback(playVisibleFrameCallback);
-                        settleHomeWaterFlow();
                     }
                 }
             });
         }
-    }
-
-    /**
-     * Samples the already-delivered scroll deltas rather than installing a
-     * second touch/velocity pipeline. The exponential low-pass filter keeps a
-     * single noisy callback from making the landing ripple jumpy.
-     */
-    private void sampleHomeScrollVelocity(int dy) {
-        long now = System.nanoTime();
-        if (lastHomeScrollSampleNanos != 0L) {
-            float elapsedMs = (now - lastHomeScrollSampleNanos) / 1_000_000f;
-            if (elapsedMs >= 1f && elapsedMs <= 100f && dy != 0) {
-                float instant = Math.abs(dy) / elapsedMs;
-                lastHomeScrollVelocityPxPerMs =
-                    (lastHomeScrollVelocityPxPerMs * 0.65f) + (instant * 0.35f);
-            }
-        }
-        lastHomeScrollSampleNanos = now;
-    }
-
-    /**
-     * Adds the final "water settling" moment after the list comes to rest.
-     * This runs once per scroll gesture, never on the hot per-pixel path.
-     */
-    private void settleHomeWaterFlow() {
-        if (recyclerHome == null || !isAdded()) return;
-        if (currentPlayingIndex >= 0 && currentPlayingIndex < feedCards.size()) {
-            HomeFeedCard card = feedCards.get(currentPlayingIndex);
-            if (card != null && card.rootView != null && card.rootView.getParent() != null) {
-                ReelLiquidScrollEffect.settleRipple(
-                    card.rootView, lastHomeScrollVelocityPxPerMs);
-            }
-        }
-        lastHomeScrollSampleNanos = 0L;
-        lastHomeScrollVelocityPxPerMs = 0f;
     }
 
     // ── Buttery scroll helpers ──────────────────────────────────────────
@@ -1728,18 +1674,6 @@ public class HomeFragment extends Fragment
             .createMediaSource(MediaItem.fromUri(android.net.Uri.parse(url)));
     }
 
-    /**
-     * Detach the shared ExoPlayer from any previous card, then attach+play on the new one.
-     *
-     * ★ Instant-play swap: if prepareStandbyNext()/prepareStandbyPrev() already pre-buffered
-     * THIS exact card on the standby player (the common case when scrolling
-     * forward through the feed normally), we swap player instances instead
-     * of cold-starting — no setMediaSource+prepare+buffer wait, so playback
-     * starts as close to instantly as the decoder allows, matching the
-     * "already loading before you get there" feel of Instagram/Reels tabs.
-     * Falls back to the original cold-start path on a cache miss (fast
-     * scroll past the predicted next card, or scrolling backward).
-     */
     /** Shared by pull-to-refresh and reselect-Home-tab-icon: clears + reloads the feed. */
     private void performFeedRefresh() {
         unseenOwnerUids.clear();
@@ -1847,6 +1781,11 @@ public class HomeFragment extends Fragment
         }
     }
 
+    /**
+     * Reuses one active ExoPlayer for the settled card. The RecyclerView
+     * scroll path never calls this until IDLE; explicit user controls may
+     * request an immediate handoff.
+     */
     private void attachPlayerToCard(int index) {
         attachPlayerToCard(index, false);
     }
@@ -1963,28 +1902,33 @@ public class HomeFragment extends Fragment
         }
         if (card.endOverlay != null) card.endOverlay.setVisibility(View.GONE);
 
+        // Arm the reveal gate BEFORE attaching the PlayerView. A promoted
+        // standby player may already have a decoded frame and can dispatch
+        // onRenderedFirstFrame immediately when it is attached; resetting
+        // these fields after setPlayer/applyPendingResumeSeek would race that
+        // callback and could also erase the resolved resume target.
+        card.firstFrameRevealed = false;
+        card.firstFramePtsGatePending = false;
+        card.resumeSeekTargetMs = 0;
+        card.firstFrameGateStartMs = 0;
+        card.resumePending = true;
+        if (card.thumbView != null) {
+            card.thumbView.animate().cancel();
+            card.thumbView.setAlpha(1f);
+            card.thumbView.setVisibility(View.VISIBLE);
+        }
+
         com.callx.app.player.AdaptiveStreamingManager mgr =
             com.callx.app.player.AdaptiveStreamingManager.get(requireContext());
 
-        ExoPlayer oldActive = feedPlayer;
-        if (standbyNextPlayer != null && standbyNextIndex == index && card.videoUrl.equals(standbyNextUrl)) {
-            // Pre-buffered ahead of time (forward scroll, the common case) — promote.
-            feedPlayer        = standbyNextPlayer;
-            standbyNextPlayer = oldActive;
-            standbyNextIndex  = -1;
-            standbyNextUrl    = null;
-        } else if (standbyPrevPlayer != null && standbyPrevIndex == index && card.videoUrl.equals(standbyPrevUrl)) {
-            // Pre-buffered ahead of time (scrolled back up to rewatch) — promote.
-            feedPlayer        = standbyPrevPlayer;
-            standbyPrevPlayer = oldActive;
-            standbyPrevIndex  = -1;
-            standbyPrevUrl    = null;
-        } else {
-            // Cache miss — cold start on the current active player, same as before.
-            mgr.applyQualityCap(feedPlayer, mgr.recommendedCap(requireContext()));
-            feedPlayer.setMediaSource(buildCachedMediaSource(card.videoUrl));
-            feedPlayer.prepare();
-        }
+        // Keep a single decoder/Surface owner. Cache warming still happens
+        // below through ReelVideoPreloader/UnifiedVideoCacheManager, but
+        // promoting a second prepared ExoPlayer causes decoder/network
+        // contention and a visible Surface handoff at the exact landing frame.
+        releaseStandbyPlayersForStableHandoff();
+        mgr.applyQualityCap(feedPlayer, mgr.recommendedCap(requireContext()));
+        feedPlayer.setMediaSource(buildCachedMediaSource(card.videoUrl));
+        feedPlayer.prepare();
 
         if (card.playerView != null) card.playerView.setPlayer(feedPlayer);
         // Never let the virtualizer pull the playing card out of the tree.
@@ -1996,7 +1940,6 @@ public class HomeFragment extends Fragment
         // Preparation/pre-buffering above still happens regardless of the
         // setting — only the decision to actually start is gated, so a
         // tap-to-play under "Off" is still instant.
-        card.resumePending = true;
         boolean autoplay = autoplayPolicy.shouldAutoplay(getContext());
         if (autoplay) {
             userPausedActiveCard = false;
@@ -2012,19 +1955,6 @@ public class HomeFragment extends Fragment
             showCardPlayOverlay(card, true);
         }
         applyPendingResumeSeek();
-
-        // Reset the reveal guard — the actual fade now happens in
-        // configureFeedPlayerInstance()'s onRenderedFirstFrame, once a real
-        // decoded frame is on screen (see revealCardThumbnailAfterFirstFrame).
-        card.firstFrameRevealed = false;
-        card.firstFramePtsGatePending = false;
-        card.resumeSeekTargetMs = 0;
-        card.firstFrameGateStartMs = 0;
-        if (card.thumbView != null) {
-            card.thumbView.animate().cancel();
-            card.thumbView.setAlpha(1f);
-            card.thumbView.setVisibility(View.VISIBLE);
-        }
 
         // Speculative first-frame pre-render (same mechanism the Reels tab
         // uses): if this video is already substantially cached, decode its
@@ -2050,9 +1980,9 @@ public class HomeFragment extends Fragment
             }
         }
 
-        // Pre-buffer both neighbours so either scroll direction gets an instant swap.
-        prepareStandbyNext(index);
-        prepareStandbyPrev(index);
+        // Warm adjacent bytes/thumbnails through the cache only. Do not
+        // prepare extra ExoPlayers here; one active decoder is the stable
+        // Instagram-style feed invariant.
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -2520,6 +2450,37 @@ public class HomeFragment extends Fragment
             return (b != null && !b.isRecycled()) ? b : null;
         }
         return null;
+    }
+
+    /**
+     * Enforces Home's one-decoder invariant. The old two-player standby path
+     * could leave a neighbour buffering while the active player was being
+     * attached, competing for decoder/network time and producing READY/Surface
+     * handoff stalls. Adjacent content is now warmed by the cache preloader;
+     * any legacy standby instance is stopped and returned to the shared pool.
+     */
+    private void releaseStandbyPlayersForStableHandoff() {
+        com.callx.app.player.ExoPlayerPool pool = getContext() != null
+                ? com.callx.app.player.ExoPlayerPool.get(requireContext()) : null;
+        if (standbyNextPlayer != null && standbyNextPlayer != feedPlayer) {
+            try {
+                if (pool != null) pool.release(standbyNextPlayer);
+                else standbyNextPlayer.release();
+            } catch (Exception ignored) {}
+        }
+        if (standbyPrevPlayer != null && standbyPrevPlayer != feedPlayer
+                && standbyPrevPlayer != standbyNextPlayer) {
+            try {
+                if (pool != null) pool.release(standbyPrevPlayer);
+                else standbyPrevPlayer.release();
+            } catch (Exception ignored) {}
+        }
+        standbyNextPlayer = null;
+        standbyPrevPlayer = null;
+        standbyNextIndex = -1;
+        standbyNextUrl = null;
+        standbyPrevIndex = -1;
+        standbyPrevUrl = null;
     }
 
     /**

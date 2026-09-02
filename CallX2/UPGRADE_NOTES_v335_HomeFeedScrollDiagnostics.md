@@ -1,4 +1,4 @@
-# v335 — Home Feed Scroll Diagnostics
+# v336 — Home Feed Scroll Diagnostics + Instagram-Level Scroll Stability
 
 ## What changed
 
@@ -26,6 +26,10 @@
 - During drag/fling, the active media is paused in place and its opaque
   thumbnail remains above the Surface. Thumbnail reveal is deferred until the
   scroll is idle, preventing a mid-scroll first-frame crossfade.
+- Replaced the Home feed's three-decoder active/next/previous promotion path
+  with one active ExoPlayer. Neighbour videos are still cache-prefetched, but
+  they no longer enter READY/BUFFERING or compete for decoder/network time
+  while the visible card is settling.
 
 ## Important behavior
 
