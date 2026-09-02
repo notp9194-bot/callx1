@@ -832,6 +832,17 @@ public class ReelPlayerController {
         player.setPlayWhenReady(false);
         player.prepare();
 
+        // ✅ Instagram-style resume: if this reel was opened from an inline
+        // preview that already had playback progress (Home feed card tap),
+        // jump straight to that timestamp on this very first prepare —
+        // instead of always starting the fullscreen player at 0. Consumed
+        // once via the delegate so later loop-backs / re-preparations of
+        // this same reel start from 0 like any normal replay.
+        long pendingSeekMs = delegate.consumePendingInitialSeekMs();
+        if (pendingSeekMs > 0) {
+            player.seekTo(pendingSeekMs);
+        }
+
         // PERF (advance #7 — frame-perfect seek reset): pre-empt the
         // REPEAT_MODE_ONE auto-restart hitch with our own earlier exact seek.
         loopSeekHelper = new ReelLoopSeekHelper(player);

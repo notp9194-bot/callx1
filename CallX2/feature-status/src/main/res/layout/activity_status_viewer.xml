@@ -225,6 +225,36 @@
                           android:contentDescription="Verified"/>
                   </LinearLayout>
 
+                  <!-- NEW: audio-name ticker, directly below the owner name —
+                       shown only when this status has a music sticker attached.
+                       Reuses core's MusicTickerView, the exact same component
+                       (and continuous-scroll animation) already used by the
+                       reel player's bio song row (ll_bio_song_row /
+                       tv_bio_song_name in fragment_reel_player.xml) — no
+                       duplicate ticker implementation. -->
+                  <LinearLayout
+                      android:id="@+id/ll_status_song_row"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="2dp"
+                      android:orientation="horizontal"
+                      android:gravity="center_vertical"
+                      android:visibility="gone">
+
+                      <ImageView
+                          android:layout_width="11dp"
+                          android:layout_height="11dp"
+                          android:src="@drawable/ic_music_note"
+                          android:tint="@color/white"
+                          android:contentDescription="Song"/>
+
+                      <com.callx.app.views.MusicTickerView
+                          android:id="@+id/tv_status_song_name"
+                          android:layout_width="150dp"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="4dp"/>
+                  </LinearLayout>
+
                   <LinearLayout
                       android:layout_width="match_parent"
                       android:layout_height="wrap_content"
@@ -387,6 +417,84 @@
               android:focusable="true"
               android:background="?attr/selectableItemBackground"
               android:visibility="gone"/>
+
+          <!-- Latest-replies overlay (shown to every viewer, owner included) — Instagram-style: shows up to the
+               last 3 commenters' avatars STACKED (overlapping, newest on top) plus
+               the most recent comment's text, bottom-left on the story itself, so
+               the owner sees it at a glance instead of having to open the chat DM.
+               Populated/shown by StatusViewerActivity#updateLastReplyOverlay(); auto
+               fades out a few seconds after showing (tap re-opens it early); tapping
+               opens StatusRepliesBottomSheet with the full comment list. -->
+          <LinearLayout
+              android:id="@+id/ll_last_reply_bubble"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:layout_gravity="start"
+              android:orientation="horizontal"
+              android:gravity="center_vertical"
+              android:paddingStart="6dp"
+              android:paddingEnd="12dp"
+              android:paddingTop="6dp"
+              android:paddingBottom="6dp"
+              android:layout_marginBottom="8dp"
+              android:background="@drawable/bg_status_reply_overlay"
+              android:clickable="true"
+              android:focusable="true"
+              android:visibility="gone">
+
+              <!-- Stack: each avatar overlaps the previous by 12dp (negative start
+                   margin) with a border so they read as a distinct stack, exactly
+                   like Instagram's "recent repliers" cluster. Index 1 = oldest of
+                   the 3 (drawn first, bottom of stack), 3 = newest (drawn last, on
+                   top) — see bindLastReplyBubble() for the ordering. -->
+              <FrameLayout
+                  android:layout_width="wrap_content"
+                  android:layout_height="26dp">
+
+                  <de.hdodenhof.circleimageview.CircleImageView
+                      android:id="@+id/iv_last_reply_avatar_1"
+                      android:layout_width="24dp"
+                      android:layout_height="24dp"
+                      android:layout_marginStart="0dp"
+                      android:src="@drawable/ic_person"
+                      app:civ_border_width="1dp"
+                      app:civ_border_color="@color/white"
+                      android:visibility="gone"/>
+
+                  <de.hdodenhof.circleimageview.CircleImageView
+                      android:id="@+id/iv_last_reply_avatar_2"
+                      android:layout_width="24dp"
+                      android:layout_height="24dp"
+                      android:layout_marginStart="14dp"
+                      android:src="@drawable/ic_person"
+                      app:civ_border_width="1dp"
+                      app:civ_border_color="@color/white"
+                      android:visibility="gone"/>
+
+                  <de.hdodenhof.circleimageview.CircleImageView
+                      android:id="@+id/iv_last_reply_avatar_3"
+                      android:layout_width="24dp"
+                      android:layout_height="24dp"
+                      android:layout_marginStart="28dp"
+                      android:src="@drawable/ic_person"
+                      app:civ_border_width="1dp"
+                      app:civ_border_color="@color/white"
+                      android:visibility="gone"/>
+
+              </FrameLayout>
+
+              <TextView
+                  android:id="@+id/tv_last_reply_text"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_marginStart="8dp"
+                  android:maxWidth="220dp"
+                  android:maxLines="1"
+                  android:ellipsize="end"
+                  android:textColor="@color/white"
+                  android:textSize="13sp"/>
+
+          </LinearLayout>
 
           <!-- Reaction + reply row -->
           <LinearLayout

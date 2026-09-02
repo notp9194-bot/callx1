@@ -11,6 +11,23 @@ import java.util.regex.Pattern;
 @IgnoreExtraProperties
 public class ReelModel {
     public String  reelId;
+
+    /**
+     * Instagram-style "continue exactly where you left off" — when a reel is
+     * opened from an inline autoplay preview (e.g. Home feed card) that was
+     * already partway through playback, HomeFragment stamps the captured
+     * playback position onto this field right before handing the reel off
+     * to SingleReelPlayerActivity, so the fullscreen player seeks straight
+     * to that timestamp instead of restarting from 0.
+     *
+     * Deliberately NOT written to/read from Firebase — this is purely an
+     * in-process handoff value (set on an in-memory ReelModel instance
+     * milliseconds before the fullscreen player reads it), never persisted.
+     * `transient` keeps it out of Firebase's reflection-based (de)serializer
+     * the same way it would for plain Java serialization.
+     */
+    public transient long pendingStartPositionMs = 0;
+
     public String  uid;
     public String  ownerName;
     public String  ownerPhoto;

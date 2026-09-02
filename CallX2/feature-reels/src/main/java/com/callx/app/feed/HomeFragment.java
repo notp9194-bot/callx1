@@ -113,8 +113,26 @@ public class HomeFragment extends Fragment {
     // Rows currently in containerStories, in tray order — index 0 is
     // always the "Add Story" button (never gated/tracked here, it has its
     // own ivMyStoryAvatar handled by loadMyAvatar()). Rebuilt every
-    // loadStories()/clearStoriesKeepAddButton() cycle.
+    // loadStories()/bindStoryRow() cycle.
     private final List<StoryRow> storyRows = new ArrayList<>();
+    /** ★ Instagram-level PERF: pooled row Views for the Stories tray — same
+     *  fresh-inflate-every-load problem trendingCardPool/suggestedCreatorCardPool
+     *  fixed elsewhere in this header, now applied here. Index 0 in
+     *  containerStories is still the separate "Add Story" button (never
+     *  pooled here, handled by loadMyAvatar()); pool index i backs tray
+     *  position i+1. See obtainStoryRowView()/bindStoryRow(). */
+    private final List<View> storyRowPool = new ArrayList<>();
+    /** Cached child-view refs + current entry for one pooled Stories-tray
+     *  row — see obtainStoryRowView(). Click listener registered once per
+     *  pooled row; reads uid/name off THIS tag at click time, same
+     *  allocation-free rule as TrendingCardTag. */
+    private static class StoryRowTag {
+        CircleImageView avatar;
+        TextView tvName;
+        ImageView ivSeenRing;
+        ImageView ivGradientRing;
+        StoryEntry entry;
+    }
     // Last-seen scrollX + timestamp on scroll_stories, for the same
     // velocity-based prefetch depth every other avatar list in the app uses.
     private int lastStoriesScrollX = 0;
@@ -132,6 +150,33 @@ public class HomeFragment extends Fragment {
     private LinearLayout       containerFriendsActivity;
     private LinearLayout       containerContinueWatching;
     private LinearLayout       containerSuggestedCreators;
+    /** ★ Instagram-level PERF: pooled card Views for the header's static
+     *  "Suggested Creators" rail (containerSuggestedCreators) — see
+     *  addCreatorCards() below. Not the same UI as the inline "Suggested
+     *  for you" row mixed into the scrolling feed every N posts (that one —
+     *  ROW_SUGGESTED_CREATORS / SuggestedCreatorsTileAdapter — already uses
+     *  a real nested RecyclerView with a shared RecycledViewPool). This is
+     *  the separate, older Explore-adjacent rail pinned in the header
+     *  (position 0, never rebinds on scroll), which was still doing a full
+     *  removeAllViews()-then-rebuild-from-scratch every pull-to-refresh /
+     *  feed reload — one avatar/name/sub/Follow-button View tree plus a
+     *  fresh click listener PER CARD, discarded and reallocated on every
+     *  single refresh even though the same ~12 candidate slots keep coming
+     *  back. Pooled the same way v323 pooled the tagged-people/product-tag
+     *  pills: reuse card N's Views across refreshes, only update
+     *  text/image/tag; listeners registered once per pooled card and read
+     *  the CURRENT candidate off the card's tag at click time. */
+    private final List<LinearLayout> suggestedCreatorCardPool = new ArrayList<>();
+    /** ★ Instagram-level PERF: same pooling fix as suggestedCreatorCardPool,
+     *  applied to the header's other three static rails — Trending, Friends
+     *  Activity, and Continue Watching — which were still doing a full
+     *  clear-then-rebuild (fresh inflate/View tree + fresh click listener
+     *  PER CARD) on every pull-to-refresh / feed reload. See
+     *  obtainTrendingCard() / obtainFriendsActivityCard() /
+     *  obtainContinueWatchingCard(). */
+    private final List<View> trendingCardPool = new ArrayList<>();
+    private final List<FriendsActivityCard> friendsActivityCardPool = new ArrayList<>();
+    private final List<View> continueWatchingCardPool = new ArrayList<>();
     private ProgressBar        pbTrending;
     private ProgressBar        pbActivity;
     private ProgressBar        pbContinue;
@@ -307,6 +352,44 @@ public class HomeFragment extends Fragment {
     private static final int ROW_LOAD_MORE_FOOTER    = 7;
     private static final int VT_HEADER               = 0;
     private static final int VT_FOOTER               = 8;
+    /** ★ Sponsored/ad slot — see insertSponsoredRowIfDue(). Not wired to any
+     *  real ad SDK/network; this is a real, additive feed-mixing mechanism
+     *  (same interleaving pattern as ROW_SUGGESTED_CREATORS) reading from a
+     *  Firebase "sponsoredReels" node, since Instagram-level feeds always mix
+     *  paid placements into the organic ranking and this app previously had
+     *  no such slot at all. */
+    private static final int ROW_SPONSORED           = 9;
+    /** Home-feed caption collapsed line count before "…more" kicks in. */
+    private static final int CAPTION_MAX_LINES        = 2;
+
+    // ── Shared, allocation-free pill click listeners ────────────────────
+    // ★ Instagram-level PERF: one listener instance per pill TYPE for the
+    // life of the fragment (not per pill, not per bind). Both read whatever
+    // is CURRENTLY on the clicked View's tag at click time (setTag() is
+    // refreshed on every bind in bindTaggedPeople()/bindProductTags()), so
+    // reusing the exact same listener object across every pool pill and
+    // every rebind is safe — nothing about "which uid/product" is captured
+    // via closure, it's read fresh off the view itself.
+    private final View.OnClickListener taggedPersonPillClickListener = v -> {
+        Object tag = v.getTag();
+        if (tag instanceof String) openUserProfile((String) tag);
+    };
+    private final View.OnClickListener productTagPillClickListener = v -> {
+        Object tag = v.getTag();
+        if (!(tag instanceof ReelModel.ProductTag)) return;
+        ReelModel.ProductTag product = (ReelModel.ProductTag) tag;
+        if (product.productUrl != null && !product.productUrl.trim().isEmpty()) {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW,
+                    android.net.Uri.parse(product.productUrl.trim())));
+            } catch (Exception e) {
+                Toast.makeText(requireContext(), "Couldn't open product link",
+                    Toast.LENGTH_SHORT).show();
+            }
+        } else {
+            Toast.makeText(requireContext(), product.name, Toast.LENGTH_SHORT).show();
+        }
+    };
 
     private static class FeedRow {
         final int type;
@@ -316,7 +399,24 @@ public class HomeFragment extends Fragment {
         List<String[]> creatorPool;
         /** For ROW_SUGGESTED_REELS: candidate reel pool. */
         List<ReelModel> reelPool;
+        /** For ROW_SPONSORED: the single ad being shown in this slot. */
+        SponsoredAd sponsoredAd;
         FeedRow(int type) { this.type = type; }
+    }
+
+    /** Minimal sponsored/ad payload for an inline feed ad slot. Deliberately
+     *  separate from ReelModel — an ad never enters currentFeedPosts,
+     *  FeedRankingEngine, watch-history tracking, or the like/comment/repost
+     *  pipeline; it is purely a rendered slot at a fixed cadence, same as
+     *  real feed ad systems keep ad delivery decoupled from organic ranking. */
+    private static class SponsoredAd {
+        String id;
+        String imageUrl;
+        String headline;
+        String sponsorName;
+        String sponsorPhotoUrl;
+        String ctaText;
+        String ctaUrl;
     }
 
     /** The middle, recycled section of the feed — see FeedRow doc above. */
@@ -534,6 +634,23 @@ public class HomeFragment extends Fragment {
                 return size() > CAPTION_SPANNABLE_CACHE_MAX;
             }
         };
+    /**
+     * PERF cache — resolved "@username" labels for tagged-people pills,
+     * keyed by uid. See bindTaggedPeople(): the same tagged user routinely
+     * shows up on many different reels (and the same reel rebinds on the
+     * same holder), so this is a FRAGMENT-level cache (not per-holder) —
+     * one Firebase getUserRef() read ever, per user, per session, instead
+     * of one read per tagged-pill per bind. Same bounded-LRU eviction
+     * pattern as captionSpannableCache above.
+     */
+    private static final int TAGGED_USER_NAME_CACHE_MAX = 256;
+    private final LinkedHashMap<String, String> taggedUserNameCache =
+        new LinkedHashMap<String, String>(TAGGED_USER_NAME_CACHE_MAX, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+                return size() > TAGGED_USER_NAME_CACHE_MAX;
+            }
+        };
     private View             feedLoadMoreFooter  = null;
     private View             newPostsBanner      = null;
     private int               newPostsPending     = 0;
@@ -541,6 +658,12 @@ public class HomeFragment extends Fragment {
     private List<String[]>   suggestedCreatorPool = null; // uid,name,photo,sub — fetched once/session
     private int               postsSinceSuggestedReels   = 0;
     private List<ReelModel>   suggestedReelsPool   = null; // fetched once/session, reused for every insertion
+    /** Every SPONSORED_EVERY_N_POSTS organic posts (For-You mode only), one
+     *  inline ad slot is mixed in — see insertSponsoredRowIfDue(). */
+    private static final int SPONSORED_EVERY_N_POSTS = 9;
+    private int               postsSinceSponsored  = 0;
+    private List<SponsoredAd> sponsoredAdPool      = null; // fetched once/session
+    private int               sponsoredAdCursor    = 0;    // round-robins through the pool
     // Same shared mini-video-player long-press "peek" that UserReelsActivity's
     // grid and SoundDetailFragment already use — reused as-is here, just with
     // a bigger card size (see buildInlineSuggestedReelsRow's long-press wiring).
@@ -935,13 +1058,14 @@ public class HomeFragment extends Fragment {
     }
 
     /**
-     * Clears just the top story row and rebuilds it. loadStories() only
-     * APPENDS story avatars — calling it directly (without clearing first)
-     * would duplicate every avatar on each resume/observer refresh, so this
-     * wrapper is what onResume() and storyRingObserver actually call.
+     * Refreshes the Stories tray. loadStories()/bindStoryRow() now rebind
+     * pooled rows by index in place (see storyRowPool) instead of appending
+     * fresh views, so no clear-first step is needed here any more —
+     * onResume() and storyRingObserver just call this directly and the
+     * new fetch overwrites last session's rows once it resolves, same
+     * no-blank-flash rule as trendingCardPool/etc.
      */
     private void refreshStoryRow() {
-        clearStoriesKeepAddButton();
         loadStories();
     }
 
@@ -2552,6 +2676,7 @@ public class HomeFragment extends Fragment {
         lastPrefetchFromIndex = -1;
         postsSincePeopleYouMayLike = 0;
         postsSinceSuggestedReels = 0;
+        postsSinceSponsored = 0;
         newPostsPending = 0;
         feedLoadMoreFooter = null;
         hideNewPostsBanner();
@@ -2587,46 +2712,40 @@ public class HomeFragment extends Fragment {
     private void clearAllSections() {
         cancelStagedFeedRender();
         clearFeedRows();
-        if (containerTrending != null)         clearContainerKeepLoader(containerTrending);
-        if (containerFriendsActivity != null)  clearContainerKeepLoader(containerFriendsActivity);
-        if (containerContinueWatching != null) clearContainerKeepLoader(containerContinueWatching);
-        if (containerSuggestedCreators != null)clearContainerKeepLoader(containerSuggestedCreators);
-        if (containerStories != null)          clearStoriesKeepAddButton();
+        // containerStories / containerTrending / containerFriendsActivity /
+        // containerContinueWatching / containerSuggestedCreators: deliberately
+        // NOT cleared here — each render*()/addCreatorCards()/bindStoryRow()
+        // now reuses/hides its own pooled cards in place instead of being
+        // handed an emptied container to rebuild from scratch every refresh
+        // (see trendingCardPool / friendsActivityCardPool /
+        // continueWatchingCardPool / suggestedCreatorCardPool / storyRowPool
+        // docs). Stale cards just sit there, still showing last session's
+        // data, until the new fetch resolves and overwrites them in place —
+        // no blank flash.
         if (pbTrending != null)   pbTrending.setVisibility(View.VISIBLE);
         if (pbActivity != null)   pbActivity.setVisibility(View.VISIBLE);
         if (pbContinue != null)   pbContinue.setVisibility(View.VISIBLE);
         if (pbSuggested != null)  pbSuggested.setVisibility(View.VISIBLE);
     }
 
-    private void clearContainerKeepLoader(LinearLayout container) {
-        if (container == null) return;
-        for (int i = container.getChildCount() - 1; i >= 0; i--) {
-            View child = container.getChildAt(i);
-            if (!(child instanceof ProgressBar)) container.removeViewAt(i);
-        }
-    }
-
     /**
-     * Remove story avatars but keep the "Add Story" button at index 0.
-     *
-     * FIX (Lifecycle-aware cancel): each removed row's in-flight avatar
-     * request is cancelled first via HomeStoryAvatarBinder#cancel — without
-     * this, a still-resolving load for a row about to be torn down (e.g. a
-     * gated row whose promote() never got the chance to finish before the
-     * next pull-to-refresh rebuilt the tray) could otherwise keep running
-     * for a view nobody holds a reference to anymore. storyRows/scroll
-     * tracking state is reset here too, so the next loadStories() build
-     * starts from a clean isVisible-gate baseline instead of promoting
-     * against stale rows from the previous tray.
+     * Hides pooled Stories-tray rows beyond the current story count — same
+     * "hidden, not destroyed, ready to reuse" rule as trendingCardPool's
+     * tail-hide loop in renderTrending(). Each hidden row's in-flight avatar
+     * request is cancelled via HomeStoryAvatarBinder#cancel first (a gated
+     * row whose promote() never got the chance to finish could otherwise
+     * keep running for a row nobody's tracking in storyRows any more).
      */
-    private void clearStoriesKeepAddButton() {
-        if (containerStories == null) return;
-        if (getContext() != null) {
-            for (StoryRow row : storyRows) HomeStoryAvatarBinder.cancel(requireContext(), row.avatar);
-        }
-        storyRows.clear();
-        for (int i = containerStories.getChildCount() - 1; i >= 1; i--) {
-            containerStories.removeViewAt(i);
+    private void hideExtraStoryRows(int activeCount) {
+        if (!isAdded() || getContext() == null || containerStories == null) return;
+        for (int i = activeCount; i < storyRowPool.size(); i++) {
+            View row = storyRowPool.get(i);
+            StoryRowTag tag = (StoryRowTag) row.getTag();
+            if (tag != null) {
+                HomeStoryAvatarBinder.cancel(requireContext(), tag.avatar);
+                tag.entry = null;
+            }
+            row.setVisibility(View.GONE);
         }
     }
 
@@ -2644,13 +2763,21 @@ public class HomeFragment extends Fragment {
      * intentionally read from reelNotes/{uid}, not status/{uid}: a note is
      * text-only, expires after 24 hours, and must not create a story ring.
      * Older accounts simply have no node and keep the tray hidden.
+     *
+     * ★ Instagram-level PERF: no removeAllViews()/GONE reset up front any
+     * more — same "deliberately not cleared, overwritten in place once the
+     * fetch resolves" rule as containerTrending/etc (see clearAllSections
+     * doc). A stale bubble from last session just keeps showing until
+     * finishNotesRead() rebinds or hides it, instead of the tray blanking
+     * out on every refresh.
      */
     private void loadNotes() {
         if (!isAdded() || containerNotes == null) return;
-        containerNotes.removeAllViews();
-        containerNotes.setVisibility(View.GONE);
         String myUid = safeMyUid();
-        if (myUid == null || myUid.isEmpty()) return;
+        if (myUid == null || myUid.isEmpty()) {
+            containerNotes.setVisibility(View.GONE);
+            return;
+        }
 
         LinkedHashSet<String> ids = new LinkedHashSet<>();
         ids.add(myUid);
@@ -2685,21 +2812,39 @@ public class HomeFragment extends Fragment {
 
     private void finishNotesRead(LinkedHashMap<String, NoteEntry> notes, int[] remaining) {
         if (--remaining[0] != 0 || !isAdded() || containerNotes == null) return;
-        containerNotes.removeAllViews();
         if (notes.isEmpty()) {
+            // Nothing to show this refresh — hide any pooled bubbles left
+            // from last session rather than tearing them down; the tray
+            // itself just goes GONE the same as before.
+            for (TextView bubble : noteBubblePool) bubble.setVisibility(View.GONE);
             containerNotes.setVisibility(View.GONE);
             return;
         }
-        for (NoteEntry note : notes.values()) addNoteBubble(note);
+        int i = 0;
+        for (NoteEntry note : notes.values()) {
+            bindNoteBubble(obtainNoteBubble(i), note);
+            i++;
+        }
+        // Pooled bubbles left over from a previous, longer notes list —
+        // hidden, not destroyed, same tail-hide rule as trendingCardPool.
+        for (; i < noteBubblePool.size(); i++) noteBubblePool.get(i).setVisibility(View.GONE);
         containerNotes.setVisibility(View.VISIBLE);
     }
 
-    private void addNoteBubble(NoteEntry note) {
-        if (!isAdded() || containerNotes == null) return;
+    /** ★ Instagram-level PERF: pooled note bubbles — same fresh-View-every-
+     *  refresh problem trendingCardPool/etc fixed elsewhere in this header.
+     *  Index i backs the i-th bubble in tray order; see obtainNoteBubble()/
+     *  bindNoteBubble(). */
+    private final List<TextView> noteBubblePool = new ArrayList<>();
+
+    /** Returns the pooled note bubble at index i, creating (and adding to
+     *  containerNotes) a new one only the first time this index is needed.
+     *  Static styling/background/layout params are set exactly once per
+     *  index; every later refresh only updates text/tag via bindNoteBubble(). */
+    private TextView obtainNoteBubble(int index) {
+        if (index < noteBubblePool.size()) return noteBubblePool.get(index);
+
         TextView bubble = new TextView(requireContext());
-        String label = note.uid.equals(safeMyUid()) ? "Your note" :
-            (note.name == null || note.name.isEmpty() ? "Note" : note.name);
-        bubble.setText(label + "\n" + note.text);
         bubble.setTextColor(0xFF202124);
         bubble.setTextSize(11f);
         bubble.setGravity(Gravity.CENTER);
@@ -2714,7 +2859,13 @@ public class HomeFragment extends Fragment {
             dpToPx(132), dpToPx(48));
         lp.setMargins(dpToPx(4), dpToPx(2), dpToPx(4), dpToPx(2));
         bubble.setLayoutParams(lp);
+
+        // Allocation-free: reads whatever NoteEntry is CURRENTLY tagged on
+        // this bubble at click time, so this single listener instance
+        // stays correct across every future refresh of this slot.
         bubble.setOnClickListener(v -> {
+            NoteEntry note = (NoteEntry) v.getTag();
+            if (note == null) return;
             if (note.uid.equals(safeMyUid())) {
                 Toast.makeText(requireContext(), "Add or edit your note from your profile",
                     Toast.LENGTH_SHORT).show();
@@ -2725,7 +2876,20 @@ public class HomeFragment extends Fragment {
                 startActivity(i);
             }
         });
+
+        noteBubblePool.add(bubble);
         containerNotes.addView(bubble);
+        return bubble;
+    }
+
+    /** Updates a pooled note bubble's text + click tag for `note` — no view
+     *  creation, no removeAllViews(). See obtainNoteBubble() doc. */
+    private void bindNoteBubble(TextView bubble, NoteEntry note) {
+        String label = note.uid.equals(safeMyUid()) ? "Your note" :
+            (note.name == null || note.name.isEmpty() ? "Note" : note.name);
+        bubble.setText(label + "\n" + note.text);
+        bubble.setTag(note);
+        bubble.setVisibility(View.VISIBLE);
     }
 
     private static class NoteEntry {
@@ -2861,7 +3025,18 @@ public class HomeFragment extends Fragment {
                     if (!isAdded() || getContext() == null) return;
                     for (StoryEntry e : slots) if (e != null) collected.add(e);
                     collected.sort((a, b) -> Boolean.compare(!a.hasUnseen, !b.hasUnseen));
-                    for (int i = 0; i < collected.size(); i++) addStoryView(collected.get(i), i);
+                    // ★ Pooled rebuild (see storyRowPool doc): the active
+                    // gating list is reset here, then each row is rebound —
+                    // not re-inflated — by index. hideExtraStoryRows() is
+                    // queued after every bindStoryRow() runnable so it runs
+                    // last on the main-thread queue, once this load's rows
+                    // are all rebound.
+                    storyRows.clear();
+                    for (int i = 0; i < collected.size(); i++) bindStoryRow(collected.get(i), i);
+                    final int activeCount = collected.size();
+                    if (isAdded() && getContext() != null) {
+                        requireActivity().runOnUiThread(() -> hideExtraStoryRows(activeCount));
+                    }
                     attachStoriesScrollListener();
                 }
             };
@@ -2900,6 +3075,42 @@ public class HomeFragment extends Fragment {
     }
 
     /**
+     * Returns the pooled Stories-tray row at index i, inflating (and adding
+     * to containerStories) a new one only the first time this index is
+     * needed — same pattern as obtainTrendingCard(). Child-view lookups and
+     * the click listener are done exactly once per index for the life of
+     * the fragment; every later refresh only updates text/image/tag on the
+     * SAME View via bindStoryRow().
+     */
+    private View obtainStoryRowView(int index) {
+        if (index < storyRowPool.size()) return storyRowPool.get(index);
+
+        View storyView = LayoutInflater.from(requireContext())
+            .inflate(R.layout.item_home_story, containerStories, false);
+
+        StoryRowTag tag = new StoryRowTag();
+        tag.avatar         = storyView.findViewById(R.id.iv_story_avatar);
+        tag.tvName         = storyView.findViewById(R.id.tv_story_name);
+        tag.ivSeenRing     = storyView.findViewById(R.id.iv_story_seen_ring);
+        tag.ivGradientRing = storyView.findViewById(R.id.iv_reel_story_gradient_ring);
+        storyView.setTag(tag);
+
+        // ✅ Open StatusViewerActivity (cross-module via Class.forName) —
+        // allocation-free: reads whatever StoryRowTag is CURRENTLY on this
+        // row's tag at click time, so this single listener instance stays
+        // correct across every future refresh of this slot.
+        storyView.setOnClickListener(v -> {
+            StoryRowTag t = (StoryRowTag) v.getTag();
+            if (t == null || t.entry == null) return;
+            openStatusViewer(t.entry.uid, t.entry.name);
+        });
+
+        storyRowPool.add(storyView);
+        containerStories.addView(storyView);
+        return storyView;
+    }
+
+    /**
      * FIX (Stories tray deep avatar pipeline / isVisible gate): rows within
      * {@link #STORIES_EAGER_COUNT} of the tray start are bound for real
      * immediately (HomeStoryAvatarBinder#bind, IMMEDIATE priority) — that's
@@ -2910,45 +3121,47 @@ public class HomeFragment extends Fragment {
      * actually scrolls them into view — same "bind cheap now, promote once
      * truly visible" shape StatusAvatarBinder uses for a real RecyclerView,
      * adapted to this tray's plain-LinearLayout/no-recycling shape.
+     *
+     * ★ Instagram-level PERF: pooled the same way trendingCardPool /
+     * suggestedCreatorCardPool are — obtainStoryRowView() reuses row N's
+     * View across refreshes instead of inflating fresh every loadStories();
+     * this method only ever updates text/image/tag on that existing View.
      */
-    private void addStoryView(StoryEntry entry, int index) {
+    private void bindStoryRow(StoryEntry entry, int index) {
         if (!isAdded() || getContext() == null || containerStories == null) return;
         requireActivity().runOnUiThread(() -> {
-            if (!isAdded() || getContext() == null) return;
-            View storyView = LayoutInflater.from(requireContext())
-                .inflate(R.layout.item_home_story, containerStories, false);
+            if (!isAdded() || getContext() == null || containerStories == null) return;
+            View storyView = obtainStoryRowView(index);
+            StoryRowTag tag = (StoryRowTag) storyView.getTag();
+            tag.entry = entry;
 
-            CircleImageView avatar  = storyView.findViewById(R.id.iv_story_avatar);
-            TextView tvName         = storyView.findViewById(R.id.tv_story_name);
-            ImageView ivSeenRing    = storyView.findViewById(R.id.iv_story_seen_ring);
-
-            tvName.setText(entry.name != null ? entry.name : "User");
+            tag.tvName.setText(entry.name != null ? entry.name : "User");
 
             // ★ Instagram-style: gradient ring for ALL stories that have unseen content
-            ImageView ivGradientRing = storyView.findViewById(R.id.iv_reel_story_gradient_ring);
             // FIX v39: story_ring_insta_gradient.xml had a visible seam (XML sweep
             // gradient only supports 3 stops, doesn't loop back cleanly) — swapped
             // for the seamless StoryRingGradientDrawable used across the app.
-            if (ivGradientRing != null) {
-                ivGradientRing.setImageDrawable(
+            if (tag.ivGradientRing != null) {
+                tag.ivGradientRing.setImageDrawable(
                         com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3f,
                                 getResources().getDisplayMetrics().density));
             }
 
+            CircleImageView avatar = tag.avatar;
             if (entry.hasUnseen) {
                 // Gradient pink/orange ring — same as Instagram, for any unseen story
-                if (ivGradientRing != null) ivGradientRing.setVisibility(View.VISIBLE);
+                if (tag.ivGradientRing != null) tag.ivGradientRing.setVisibility(View.VISIBLE);
                 avatar.setBorderColor(0xFFFFFFFF);
                 avatar.setBorderWidth(dpToPx(3));
-                if (ivSeenRing != null) ivSeenRing.setVisibility(View.GONE);
+                if (tag.ivSeenRing != null) tag.ivSeenRing.setVisibility(View.GONE);
             } else {
                 // Gray ring for all-seen stories
-                if (ivGradientRing != null) ivGradientRing.setVisibility(View.GONE);
+                if (tag.ivGradientRing != null) tag.ivGradientRing.setVisibility(View.GONE);
                 avatar.setBorderColor(0xFF888888);
                 avatar.setBorderWidth(dpToPx(2));
-                if (ivSeenRing != null) {
-                    ivSeenRing.setVisibility(View.VISIBLE);
-                    ivSeenRing.setColorFilter(0xFF888888, android.graphics.PorterDuff.Mode.SRC_IN);
+                if (tag.ivSeenRing != null) {
+                    tag.ivSeenRing.setVisibility(View.VISIBLE);
+                    tag.ivSeenRing.setColorFilter(0xFF888888, android.graphics.PorterDuff.Mode.SRC_IN);
                 }
             }
 
@@ -2962,25 +3175,21 @@ public class HomeFragment extends Fragment {
                 HomeStoryAvatarBinder.bindGated(requireContext(), avatar, entry.photo, entry.avatarVersion, R.drawable.ic_person);
             }
             storyRows.add(new StoryRow(storyView, avatar, entry));
-
-            // ✅ Open StatusViewerActivity (cross-module via Class.forName)
-            storyView.setOnClickListener(v -> openStatusViewer(entry.uid, entry.name));
-
-            containerStories.addView(storyView);
+            storyView.setVisibility(View.VISIBLE);
         });
     }
 
     /** Rows inside this many tray positions of the start are assumed to be
      *  in the initial visible viewport (scroll_stories is roughly
      *  screen-width wide, each row ~96dp incl. the leading "Add Story"
-     *  button) — see addStoryView()'s isVisible-gate doc. */
+     *  button) — see bindStoryRow()'s isVisible-gate doc. */
     private static final int STORIES_EAGER_COUNT = 4;
 
     /**
      * FIX (Stories tray deep avatar pipeline): drives HomeStoryAvatarBinder's
      * isVisible gate off real scroll position instead of the
      * attach/recycle callbacks a RecyclerView would give for free — every
-     * row here is already attached to the window (see addStoryView), so the
+     * row here is already attached to the window (see obtainStoryRowView()), so the
      * signal StatusAvatarBinder/ChatAvatarBinder normally use isn't
      * available. Promotes any gated row whose bounds now intersect the
      * visible viewport, and forwards scroll velocity into
@@ -3340,6 +3549,7 @@ public class HomeFragment extends Fragment {
             renderedReelIds.clear();
             postsSincePeopleYouMayLike = 0;
             postsSinceSuggestedReels = 0;
+            postsSinceSponsored = 0;
             currentFeedPosts = posts;
             currentPlayingIndex = -1;
             // v243: with real RecyclerView recycling, building a page's worth
@@ -3607,6 +3817,11 @@ public class HomeFragment extends Fragment {
         if (postsSinceSuggestedReels >= SUGGESTED_REELS_EVERY_N_POSTS) {
             postsSinceSuggestedReels = 0;
             insertInlineSuggestedReelsRow();
+        }
+        postsSinceSponsored++;
+        if (postsSinceSponsored >= SPONSORED_EVERY_N_POSTS) {
+            postsSinceSponsored = 0;
+            insertSponsoredRowIfDue();
         }
     }
 
@@ -3889,27 +4104,47 @@ public class HomeFragment extends Fragment {
         isLoadingMoreFeed = true;
         showFeedFooterLoading(true);
 
+        // FIX: was `.endAt(oldestFeedTimestamp - 1)` (exclusive-by-subtraction).
+        // Two reels can legitimately share the exact same millisecond
+        // timestamp; the old cursor permanently skipped any such reel that
+        // hadn't already been rendered in the previous page, since every
+        // future page's query excluded that timestamp entirely. endAt() here
+        // is inclusive by design — duplicates that WERE already rendered are
+        // filtered out below via renderedReelIds, same as always, so nothing
+        // renders twice; reels that were missed before now get a chance.
+        final long queryBoundary = oldestFeedTimestamp;
         Query q = FirebaseUtils.getReelsRef()
                 .orderByChild("timestamp")
-                .endAt(oldestFeedTimestamp - 1)
+                .endAt(queryBoundary)
                 .limitToLast(FEED_FETCH_BATCH);
 
         q.addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (!isAdded() || getContext() == null) return;
                 List<ReelModel> newPosts = new ArrayList<>();
+                long rawOldestSeen = queryBoundary;
                 for (DataSnapshot s : snap.getChildren()) {
                     ReelModel r = s.getValue(ReelModel.class);
                     if (r == null) continue;
                     if (r.reelId == null) r.reelId = s.getKey();
+                    if (r.timestamp < rawOldestSeen) rawOldestSeen = r.timestamp;
                     if (renderedReelIds.contains(r.reelId)) continue;
                     if (isFollowingMode && !cachedFollowedUids.contains(r.uid)) continue;
                     newPosts.add(r);
                 }
                 feedHasMore = snap.getChildrenCount() >= FEED_FETCH_BATCH;
-                for (ReelModel r : newPosts) {
-                    if (oldestFeedTimestamp == null || r.timestamp < oldestFeedTimestamp)
-                        oldestFeedTimestamp = r.timestamp;
+                // FIX: advance the cursor from the RAW page (rawOldestSeen),
+                // not just the filtered newPosts. Previously, if an entire
+                // page came back as already-rendered duplicates (possible
+                // right at the boundary timestamp), oldestFeedTimestamp never
+                // moved and the very next scroll-triggered call re-issued the
+                // identical query forever — a stuck-pagination bug.
+                if (rawOldestSeen < oldestFeedTimestamp) {
+                    oldestFeedTimestamp = rawOldestSeen;
+                } else if (newPosts.isEmpty() && feedHasMore) {
+                    // Whole page was duplicates at the same boundary ms —
+                    // step back one ms so the next call can make progress.
+                    oldestFeedTimestamp = oldestFeedTimestamp - 1;
                 }
                 if (newPosts.isEmpty()) {
                     isLoadingMoreFeed = false;
@@ -3966,6 +4201,187 @@ public class HomeFragment extends Fragment {
      * confining them to a separate section. Fetches the candidate pool
      * once per session and reuses it for every insertion.
      */
+    /**
+     * ★ Inline sponsored/ad slot — mixed into the organic feed every
+     * SPONSORED_EVERY_N_POSTS posts, For-You mode only (Following stays pure
+     * chronological, same rule as the other inline rows). Reads a flat
+     * "sponsoredReels" Firebase node (one-time fetch, cached for the
+     * session, same caching shape as suggestedCreatorPool) and round-robins
+     * through it via sponsoredAdCursor so a short pool still fills every
+     * slot on a long scroll instead of only ever showing ad #1.
+     *
+     * Honest scope note: this is real, additive feed-mixing plumbing — not
+     * a real ad SDK/auction integration. There is no impression/click
+     * billing pipeline here; wiring that up is a backend/ads-network
+     * integration task, not something fake-able client-side. What this DOES
+     * give you: the actual on-screen ad slot, cadence, and rendering that
+     * an ad SDK's response would drop into.
+     */
+    private void insertSponsoredRowIfDue() {
+        if (!isAdded() || getContext() == null || feedAdapter == null) return;
+        if (sponsoredAdPool != null) {
+            addSponsoredRowIfAny(sponsoredAdPool);
+            return;
+        }
+        FirebaseUtils.db().getReference("sponsoredReels")
+            .limitToLast(20)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (!isAdded() || getContext() == null) return;
+                    List<SponsoredAd> ads = new ArrayList<>();
+                    for (DataSnapshot s : snap.getChildren()) {
+                        String imageUrl = s.child("imageUrl").getValue(String.class);
+                        String headline = s.child("headline").getValue(String.class);
+                        if (imageUrl == null || imageUrl.isEmpty() || headline == null) continue;
+                        SponsoredAd ad = new SponsoredAd();
+                        ad.id = s.getKey();
+                        ad.imageUrl = imageUrl;
+                        ad.headline = headline;
+                        ad.sponsorName = s.child("sponsorName").getValue(String.class);
+                        ad.sponsorPhotoUrl = s.child("sponsorPhotoUrl").getValue(String.class);
+                        ad.ctaText = s.child("ctaText").getValue(String.class);
+                        ad.ctaUrl = s.child("ctaUrl").getValue(String.class);
+                        ads.add(ad);
+                    }
+                    sponsoredAdPool = ads;
+                    requireActivity().runOnUiThread(() -> addSponsoredRowIfAny(ads));
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) { /* skip this slot, try again next cadence */ }
+            });
+    }
+
+    private void addSponsoredRowIfAny(List<SponsoredAd> pool) {
+        if (!isAdded() || getContext() == null || feedAdapter == null || pool == null || pool.isEmpty()) return;
+        SponsoredAd ad = pool.get(sponsoredAdCursor % pool.size());
+        sponsoredAdCursor++;
+        FeedRow row = new FeedRow(ROW_SPONSORED);
+        row.sponsoredAd = ad;
+        feedItems.add(row);
+        feedAdapter.notifyItemInserted(FEED_HEADER_OFFSET + feedItems.size() - 1);
+    }
+
+    /** ★ Ultra-advanced optimization: view-holder caching for the sponsored
+     *  card — same idea as PostRowHolder.cacheViews(). The old
+     *  bindSponsoredRowContent() did container.removeAllViews() and rebuilt
+     *  ~10 fresh View objects (LinearLayouts, avatar/name/label/image/
+     *  headline/cta) EVERY time this row scrolled back into view, even
+     *  though every sponsored slot shares the exact same shape — only the
+     *  text/images/click-target differ per ad. Now the chrome is built once
+     *  in onCreateViewHolder and every rebind just updates field values on
+     *  the already-attached views. currentAd is read by the click listener
+     *  at click time (not captured at bind time) so the listener object
+     *  itself never needs to be recreated either. */
+    private class SponsoredRowHolder extends RecyclerView.ViewHolder {
+        final ImageView avatar;
+        final TextView  nameView;
+        final ImageView image;
+        final TextView  headline;
+        final TextView  cta;
+        SponsoredAd currentAd;
+
+        SponsoredRowHolder(FrameLayout container) {
+            super(container);
+            Context ctx = container.getContext();
+
+            LinearLayout card = new LinearLayout(ctx);
+            card.setOrientation(LinearLayout.VERTICAL);
+            FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+            cardLp.topMargin = dpToPx(6);
+            cardLp.bottomMargin = dpToPx(6);
+            card.setLayoutParams(cardLp);
+
+            LinearLayout sponsorRow = new LinearLayout(ctx);
+            sponsorRow.setOrientation(LinearLayout.HORIZONTAL);
+            sponsorRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            int pad = dpToPx(12);
+            sponsorRow.setPadding(pad, pad, pad, dpToPx(6));
+
+            avatar = new ImageView(ctx);
+            LinearLayout.LayoutParams avatarLp = new LinearLayout.LayoutParams(dpToPx(32), dpToPx(32));
+            avatarLp.rightMargin = dpToPx(10);
+            avatar.setLayoutParams(avatarLp);
+            avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);
+
+            LinearLayout sponsorText = new LinearLayout(ctx);
+            sponsorText.setOrientation(LinearLayout.VERTICAL);
+            nameView = new TextView(ctx);
+            nameView.setTextColor(0xFF222222);
+            nameView.setTextSize(14f);
+            nameView.setTypeface(null, android.graphics.Typeface.BOLD);
+            TextView sponsoredLabel = new TextView(ctx);
+            sponsoredLabel.setText("Sponsored");
+            sponsoredLabel.setTextColor(0xFF8A8A8A);
+            sponsoredLabel.setTextSize(11f);
+            sponsorText.addView(nameView);
+            sponsorText.addView(sponsoredLabel);
+            sponsorRow.addView(avatar);
+            sponsorRow.addView(sponsorText);
+
+            image = new ImageView(ctx);
+            LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(220));
+            image.setLayoutParams(imgLp);
+            image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+
+            headline = new TextView(ctx);
+            headline.setTextColor(0xFF222222);
+            headline.setTextSize(14f);
+            headline.setPadding(pad, dpToPx(8), pad, dpToPx(4));
+
+            cta = new TextView(ctx);
+            cta.setTextColor(0xFF1877F2);
+            cta.setTextSize(14f);
+            cta.setTypeface(null, android.graphics.Typeface.BOLD);
+            cta.setPadding(pad, dpToPx(4), pad, dpToPx(12));
+
+            // Registered once — reads currentAd off the holder at click time
+            // instead of capturing a specific `ad` in a per-bind closure, so
+            // rebinding this holder to a different ad never needs a new
+            // listener object.
+            View.OnClickListener openAd = v -> {
+                SponsoredAd ad = currentAd;
+                if (ad == null || ad.ctaUrl == null || ad.ctaUrl.trim().isEmpty()) return;
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(ad.ctaUrl.trim())));
+                } catch (Exception e) {
+                    Toast.makeText(ctx, "Couldn't open link", Toast.LENGTH_SHORT).show();
+                }
+            };
+            image.setOnClickListener(openAd);
+            cta.setOnClickListener(openAd);
+
+            card.addView(sponsorRow);
+            card.addView(image);
+            card.addView(headline);
+            card.addView(cta);
+            container.addView(card);
+        }
+    }
+
+    /** Updates a pooled SponsoredRowHolder's field values for `ad` — no
+     *  view creation, no removeAllViews(). See SponsoredRowHolder doc. */
+    private void bindSponsoredRowHolder(SponsoredRowHolder holder, SponsoredAd ad) {
+        holder.currentAd = ad;
+        if (ad == null) return;
+
+        holder.nameView.setText(ad.sponsorName != null ? ad.sponsorName : "Sponsored");
+        if (ad.sponsorPhotoUrl != null && !ad.sponsorPhotoUrl.isEmpty()) {
+            Glide.with(this).load(ad.sponsorPhotoUrl)
+                .apply(new RequestOptions().transform(new CenterCrop(), new RoundedCorners(dpToPx(16))))
+                .into(holder.avatar);
+        } else {
+            Glide.with(this).clear(holder.avatar);
+        }
+
+        Glide.with(this).load(ad.imageUrl)
+            .apply(new RequestOptions().transform(new CenterCrop()).format(DecodeFormat.PREFER_RGB_565))
+            .into(holder.image);
+
+        holder.headline.setText(ad.headline);
+        holder.cta.setText(ad.ctaText != null && !ad.ctaText.isEmpty() ? ad.ctaText : "Learn more");
+    }
+
     private void insertInlineSuggestedCreatorsRow() {
         if (!isAdded() || getContext() == null || feedAdapter == null) return;
         if (suggestedCreatorPool != null) {
@@ -4002,7 +4418,7 @@ public class HomeFragment extends Fragment {
     /** v243: filters the pool down to candidates (same rule as before —
      *  unfollowed, capped at 6) and, if any remain, queues a ROW_SUGGESTED_CREATORS
      *  entry. The actual chip row view is now only built lazily, at bind
-     *  time, by bindSuggestedCreatorsRowContent(). */
+     *  time, by SuggestedCreatorsRowHolder/bindSuggestedCreatorsRowHolder(). */
     private void addSuggestedCreatorsRowIfAny(List<String[]> pool) {
         if (!isAdded() || getContext() == null || feedAdapter == null || pool.isEmpty()) return;
         Set<String> followed = cachedFollowedUids != null ? cachedFollowedUids : new HashSet<>();
@@ -4018,85 +4434,112 @@ public class HomeFragment extends Fragment {
         feedAdapter.notifyItemInserted(FEED_HEADER_OFFSET + feedItems.size() - 1);
     }
 
-    /** v243: builds the "Suggested for you" chip row into `container` — called
-     *  from FeedAdapter.onBindViewHolder(VT_SUGGESTED_CREATORS_ROW). Content
-     *  logic is unchanged from the old buildInlineSuggestedRow(); it just
-     *  targets a recycled ViewHolder container instead of containerFeed. */
-    private void bindSuggestedCreatorsRowContent(ViewGroup container, List<String[]> candidates) {
-        container.removeAllViews();
-        if (candidates == null || candidates.isEmpty()) return;
+    /** ★ View-holder caching for the "Suggested for you" row — same pattern
+     *  as PostRowHolder/SponsoredRowHolder. The old
+     *  bindSuggestedCreatorsRowContent() did container.removeAllViews() and
+     *  rebuilt the section LinearLayout + header TextView + a brand-new
+     *  RecyclerView (with a brand-new SuggestedCreatorsTileAdapter) EVERY
+     *  time this row scrolled back into view — even though the nested
+     *  RecyclerView already shares SUGGESTED_CREATORS_TILE_POOL, so tearing
+     *  it down and rebuilding it on every rebind threw away that reuse
+     *  benefit at the outer-row level. The chrome (section/header/
+     *  RecyclerView) and its adapter are now built exactly once in
+     *  onCreateViewHolder; every rebind just calls updateItems() on the
+     *  existing adapter. */
+    private class SuggestedCreatorsRowHolder extends RecyclerView.ViewHolder {
+        final RecyclerView chipsRecycler;
+        final SuggestedCreatorsTileAdapter adapter;
 
-        LinearLayout section = new LinearLayout(requireContext());
-        section.setOrientation(LinearLayout.VERTICAL);
-        int dp16 = dpToPx(16);
-        section.setPadding(dp16, dpToPx(12), dp16, dpToPx(4));
+        SuggestedCreatorsRowHolder(FrameLayout container) {
+            super(container);
+            Context ctx = container.getContext();
 
-        TextView header = new TextView(requireContext());
-        header.setText("Suggested for you");
-        header.setTextColor(0xFFFFFFFF);
-        header.setTextSize(13f);
-        header.setTypeface(null, android.graphics.Typeface.BOLD);
-        section.addView(header);
+            LinearLayout section = new LinearLayout(ctx);
+            section.setOrientation(LinearLayout.VERTICAL);
+            int dp16 = dpToPx(16);
+            section.setPadding(dp16, dpToPx(12), dp16, dpToPx(4));
 
-        // ── Instagram-level: real RecyclerView instead of an eagerly-inflated
-        // HorizontalScrollView+LinearLayout row ──────────────────────────────
-        // Mirrors bindSuggestedReelsRowContent()'s nested-RecyclerView upgrade
-        // below: the old code built + Glide-loaded every candidate chip up
-        // front (including chips off-screen to the right) as fresh View
-        // objects, and — since this whole row is itself just one FrameLayout
-        // FeedAdapter rebinds from scratch every time it scrolls back into
-        // view — repeated that full build+decode cost on every rebind, with
-        // zero reuse either across rebinds of the same strip or across the
-        // multiple "Suggested for you" strips mixed periodically into a long
-        // infinite-scroll session. A nested RecyclerView backed by the SAME
-        // shared pool as the reels tiles below only builds/binds chips
-        // actually on/near screen, and hands a chip ViewHolder scrolled out
-        // of one strip straight to the next strip (or this strip's next
-        // rebind) with no re-inflation and no re-decoding.
-        RecyclerView chipsRecycler = new RecyclerView(requireContext());
-        chipsRecycler.setLayoutManager(
-                new LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false));
-        chipsRecycler.setRecycledViewPool(SUGGESTED_CREATORS_TILE_POOL);
-        chipsRecycler.setItemViewCacheSize(4);
-        chipsRecycler.setHasFixedSize(true);
-        chipsRecycler.setItemAnimator(null);
-        LinearLayout.LayoutParams recyclerLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        recyclerLp.topMargin = dpToPx(8);
-        chipsRecycler.setLayoutParams(recyclerLp);
-        chipsRecycler.setAdapter(new SuggestedCreatorsTileAdapter(candidates));
+            TextView header = new TextView(ctx);
+            header.setText("Suggested for you");
+            header.setTextColor(0xFFFFFFFF);
+            header.setTextSize(13f);
+            header.setTypeface(null, android.graphics.Typeface.BOLD);
+            section.addView(header);
 
-        section.addView(chipsRecycler);
-        container.addView(section);
+            chipsRecycler = new RecyclerView(ctx);
+            chipsRecycler.setLayoutManager(
+                    new LinearLayoutManager(ctx, LinearLayoutManager.HORIZONTAL, false));
+            chipsRecycler.setRecycledViewPool(SUGGESTED_CREATORS_TILE_POOL);
+            chipsRecycler.setItemViewCacheSize(4);
+            chipsRecycler.setHasFixedSize(true);
+            chipsRecycler.setItemAnimator(null);
+            LinearLayout.LayoutParams recyclerLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            recyclerLp.topMargin = dpToPx(8);
+            chipsRecycler.setLayoutParams(recyclerLp);
+
+            adapter = new SuggestedCreatorsTileAdapter(new ArrayList<>());
+            chipsRecycler.setAdapter(adapter);
+
+            section.addView(chipsRecycler);
+            container.addView(section);
+        }
+    }
+
+    /** Swaps candidates into a pooled SuggestedCreatorsRowHolder's existing
+     *  adapter — no view creation, no removeAllViews(). See
+     *  SuggestedCreatorsRowHolder doc. */
+    private void bindSuggestedCreatorsRowHolder(SuggestedCreatorsRowHolder holder, List<String[]> candidates) {
+        holder.itemView.setVisibility(candidates == null || candidates.isEmpty() ? View.GONE : View.VISIBLE);
+        holder.adapter.updateItems(candidates != null ? candidates : java.util.Collections.emptyList());
     }
 
     /** Shared across every "Suggested for you" creators strip mixed into the
-     *  Home feed — see bindSuggestedCreatorsRowContent() note above for why
+     *  Home feed — see SuggestedCreatorsRowHolder note above for why
      *  this must be a single shared instance rather than one pool per strip. */
     private static final RecyclerView.RecycledViewPool SUGGESTED_CREATORS_TILE_POOL =
             new RecyclerView.RecycledViewPool();
 
     /** Backs one "Suggested for you" strip's avatar chips with real
-     *  ViewHolder recycling (see bindSuggestedCreatorsRowContent()). Chip
+     *  ViewHolder recycling (see SuggestedCreatorsRowHolder). Chip
      *  dimensions (136dp wide, 90dp avatar) unchanged from the old manual
      *  row, so this is a drop-in visual match. */
     private class SuggestedCreatorsTileAdapter extends RecyclerView.Adapter<SuggestedCreatorsTileAdapter.TileHolder> {
         private static final int CHIP_W_DP = 136;
         private static final int AVATAR_DP = 90;
 
-        private final List<String[]> items;
+        private List<String[]> items;
 
         SuggestedCreatorsTileAdapter(List<String[]> items) {
             this.items = items;
+        }
+
+        /** ★ Lets the SAME adapter instance — and therefore the same
+         *  RecyclerView + its shared-pool ViewHolders — be reused across
+         *  binds of the strip it backs, instead of a brand-new adapter (and
+         *  brand-new RecyclerView) being built every time the row scrolls
+         *  back into view. See SuggestedCreatorsRowHolder. */
+        void updateItems(List<String[]> newItems) {
+            this.items = newItems;
+            notifyDataSetChanged();
         }
 
         class TileHolder extends RecyclerView.ViewHolder {
             final LinearLayout chip;
             final CircleImageView av;
             final TextView tvName;
-            TileHolder(LinearLayout chip, CircleImageView av, TextView tvName) {
+            final LinearLayout llMutual;
+            final CircleImageView ivMutualAvatar;
+            final TextView tvMutual;
+            /** Bumped on every bind; guards the async mutual-followers callback
+             *  below from landing on a ViewHolder the shared pool has since
+             *  handed to a different candidate (RecyclerView reuse race). */
+            int bindToken = 0;
+            TileHolder(LinearLayout chip, CircleImageView av, TextView tvName,
+                       LinearLayout llMutual, CircleImageView ivMutualAvatar, TextView tvMutual) {
                 super(chip);
                 this.chip = chip; this.av = av; this.tvName = tvName;
+                this.llMutual = llMutual; this.ivMutualAvatar = ivMutualAvatar; this.tvMutual = tvMutual;
             }
         }
 
@@ -4125,7 +4568,39 @@ public class HomeFragment extends Fragment {
             tvName.setLayoutParams(nameLp);
             chip.addView(tvName);
 
-            return new TileHolder(chip, av, tvName);
+            // NEW: Instagram-style "N mutual" row (mini avatar + label) below the
+            // name — hidden until onBindViewHolder resolves an actual mutual
+            // count for this candidate. Same mutual-followers concept already
+            // shown on a reel's bio (ll_reel_mutual_followers / ReelSocialController),
+            // reused here via the shared MutualFollowersCache — no new
+            // mutual-followers computation logic written for this row.
+            LinearLayout llMutual = new LinearLayout(requireContext());
+            llMutual.setOrientation(LinearLayout.HORIZONTAL);
+            llMutual.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            LinearLayout.LayoutParams mutualRowLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            mutualRowLp.topMargin = dpToPx(3);
+            llMutual.setLayoutParams(mutualRowLp);
+            llMutual.setVisibility(View.GONE);
+
+            CircleImageView ivMutualAvatar = new CircleImageView(requireContext());
+            ivMutualAvatar.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(12), dpToPx(12)));
+            llMutual.addView(ivMutualAvatar);
+
+            TextView tvMutual = new TextView(requireContext());
+            tvMutual.setTextSize(10.5f);
+            tvMutual.setTextColor(0xFFAAAAAA);
+            tvMutual.setMaxLines(1);
+            tvMutual.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams mutualTextLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            mutualTextLp.marginStart = dpToPx(3);
+            tvMutual.setLayoutParams(mutualTextLp);
+            llMutual.addView(tvMutual);
+
+            chip.addView(llMutual);
+
+            return new TileHolder(chip, av, tvName, llMutual, ivMutualAvatar, tvMutual);
         }
 
         @Override
@@ -4149,6 +4624,35 @@ public class HomeFragment extends Fragment {
                 Glide.with(requireContext()).clear(holder.av);
             }
 
+            // NEW: "N mutual" row — resolved via the shared MutualFollowersCache
+            // (core/cache), the exact same cache reels already use for their
+            // "Followed by X, Y and N others" bio row, so this costs nothing
+            // extra beyond what's already warm from browsing reels this session.
+            holder.llMutual.setVisibility(View.GONE);
+            String myUid = safeMyUid();
+            final int token = ++holder.bindToken;
+            if (myUid != null && !myUid.isEmpty() && !myUid.equals(uid)) {
+                com.callx.app.cache.MutualFollowersCache.getInstance()
+                    .getMutualFollowers(myUid, uid, (uids, names, photos) -> {
+                        if (token != holder.bindToken || !isAdded() || getContext() == null) return; // stale — recycled
+                        int count = uids.size();
+                        if (count <= 0) {
+                            holder.llMutual.setVisibility(View.GONE);
+                            return;
+                        }
+                        if (!photos.isEmpty() && !photos.get(0).isEmpty()) {
+                            Glide.with(requireContext()).load(photos.get(0))
+                                .placeholder(R.drawable.ic_person)
+                                .apply(RequestOptions.circleCropTransform())
+                                .into(holder.ivMutualAvatar);
+                        } else {
+                            holder.ivMutualAvatar.setImageResource(R.drawable.ic_person);
+                        }
+                        holder.tvMutual.setText(count == 1 ? "1 mutual" : count + " mutual");
+                        holder.llMutual.setVisibility(View.VISIBLE);
+                    });
+            }
+
             holder.chip.setOnClickListener(v -> {
                 if (!isAdded() || getContext() == null) return;
                 Intent i = new Intent(getContext(), UserReelsActivity.class);
@@ -4165,6 +4669,8 @@ public class HomeFragment extends Fragment {
             // could land its bitmap into an avatar strip B has since reused
             // for a different creator.
             Glide.with(requireContext()).clear(holder.av);
+            Glide.with(requireContext()).clear(holder.ivMutualAvatar);
+            holder.bindToken++; // invalidate any in-flight mutual-followers lookup for this holder
         }
 
         @Override public int getItemCount() { return items.size(); }
@@ -4209,7 +4715,7 @@ public class HomeFragment extends Fragment {
 
     /** v243: filters (same rule as before) and, if any remain, queues a
      *  ROW_SUGGESTED_REELS entry — the tile row itself is only built lazily
-     *  by bindSuggestedReelsRowContent() at bind time. */
+     *  by SuggestedReelsRowHolder/bindSuggestedReelsRowHolder() at bind time. */
     private void addSuggestedReelsRowIfAny(List<ReelModel> pool) {
         if (!isAdded() || getContext() == null || feedAdapter == null || pool.isEmpty()) return;
         String myUid = safeMyUid();
@@ -4227,109 +4733,128 @@ public class HomeFragment extends Fragment {
         feedAdapter.notifyItemInserted(FEED_HEADER_OFFSET + feedItems.size() - 1);
     }
 
-    /** v243: builds the "Suggested reels" tile row into `container` — called
-     *  from FeedAdapter.onBindViewHolder(VT_SUGGESTED_REELS_ROW). Content
-     *  logic unchanged from buildInlineSuggestedReelsRow(); onNotInterested
-     *  lets the adapter remove this exact row from feedItems instead of the
-     *  old direct containerFeed.removeView(section).
-     */
-    private void bindSuggestedReelsRowContent(ViewGroup container, List<ReelModel> candidates,
-                                               Runnable onNotInterested) {
-        container.removeAllViews();
-        if (candidates == null || candidates.isEmpty()) return;
+    /** ★ View-holder caching for the "Suggested reels" row — same pattern as
+     *  SuggestedCreatorsRowHolder above. The old bindSuggestedReelsRowContent()
+     *  rebuilt the section/header row/header text/"⋮" button (with a brand
+     *  new click listener capturing that bind's onNotInterested) AND a fresh
+     *  RecyclerView+adapter every single time this row scrolled back into
+     *  view. Chrome + adapter now built once in onCreateViewHolder; the "⋮"
+     *  listener is registered once and reads a mutable `onNotInterested`
+     *  field off the holder at click time, and every rebind just updates
+     *  that field plus calls updateItems() on the existing adapter. */
+    private class SuggestedReelsRowHolder extends RecyclerView.ViewHolder {
+        final RecyclerView tilesRecycler;
+        final SuggestedReelsTileAdapter adapter;
+        Runnable onNotInterested;
 
+        SuggestedReelsRowHolder(FrameLayout container) {
+            super(container);
+            Context ctx = container.getContext();
+
+            LinearLayout section = new LinearLayout(ctx);
+            section.setOrientation(LinearLayout.VERTICAL);
+            int dp16 = dpToPx(16);
+            section.setPadding(dp16, dpToPx(12), dp16, dpToPx(4));
+
+            LinearLayout headerRow = new LinearLayout(ctx);
+            headerRow.setOrientation(LinearLayout.HORIZONTAL);
+            headerRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            headerRow.setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+            TextView header = new TextView(ctx);
+            header.setText("Suggested reels");
+            header.setTextColor(0xFFFFFFFF);
+            header.setTextSize(13f);
+            header.setTypeface(null, android.graphics.Typeface.BOLD);
+            LinearLayout.LayoutParams headerLp = new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            header.setLayoutParams(headerLp);
+            headerRow.addView(header);
+
+            ImageView btnMore = new ImageView(ctx);
+            btnMore.setImageResource(R.drawable.ic_more_vert);
+            btnMore.setColorFilter(0xFFFFFFFF);
+            LinearLayout.LayoutParams moreLp = new LinearLayout.LayoutParams(dpToPx(20), dpToPx(20));
+            btnMore.setLayoutParams(moreLp);
+            btnMore.setOnClickListener(v -> {
+                if (!isAdded() || getContext() == null) return;
+                android.widget.PopupMenu menu = new android.widget.PopupMenu(requireContext(), btnMore);
+                menu.getMenu().add("Not interested");
+                menu.setOnMenuItemClickListener(item -> {
+                    if (onNotInterested != null) onNotInterested.run();
+                    return true;
+                });
+                menu.show();
+            });
+            headerRow.addView(btnMore);
+            section.addView(headerRow);
+
+            tilesRecycler = new RecyclerView(ctx);
+            tilesRecycler.setLayoutManager(
+                    new LinearLayoutManager(ctx, LinearLayoutManager.HORIZONTAL, false));
+            tilesRecycler.setRecycledViewPool(SUGGESTED_REELS_TILE_POOL);
+            tilesRecycler.setItemViewCacheSize(4);
+            tilesRecycler.setHasFixedSize(true);
+            tilesRecycler.setItemAnimator(null);
+            LinearLayout.LayoutParams recyclerLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(284));
+            recyclerLp.topMargin = dpToPx(8);
+            tilesRecycler.setLayoutParams(recyclerLp);
+
+            adapter = new SuggestedReelsTileAdapter(new ArrayList<>(), new ArrayList<>());
+            tilesRecycler.setAdapter(adapter);
+
+            section.addView(tilesRecycler);
+            container.addView(section);
+        }
+    }
+
+    /** Swaps candidates + the "Not interested" callback into a pooled
+     *  SuggestedReelsRowHolder's existing adapter/listener — no view
+     *  creation, no removeAllViews(). See SuggestedReelsRowHolder doc. */
+    private void bindSuggestedReelsRowHolder(SuggestedReelsRowHolder holder, List<ReelModel> candidates,
+                                              Runnable onNotInterested) {
+        holder.onNotInterested = onNotInterested;
+        holder.itemView.setVisibility(candidates == null || candidates.isEmpty() ? View.GONE : View.VISIBLE);
+        if (candidates == null || candidates.isEmpty()) {
+            holder.adapter.updateItems(java.util.Collections.emptyList(), new ArrayList<>());
+            return;
+        }
         final ArrayList<String> reelIds = new ArrayList<>();
         for (ReelModel r : candidates) reelIds.add(r.reelId);
-
-        LinearLayout section = new LinearLayout(requireContext());
-        section.setOrientation(LinearLayout.VERTICAL);
-        int dp16 = dpToPx(16);
-        section.setPadding(dp16, dpToPx(12), dp16, dpToPx(4));
-
-        LinearLayout headerRow = new LinearLayout(requireContext());
-        headerRow.setOrientation(LinearLayout.HORIZONTAL);
-        headerRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        headerRow.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        TextView header = new TextView(requireContext());
-        header.setText("Suggested reels");
-        header.setTextColor(0xFFFFFFFF);
-        header.setTextSize(13f);
-        header.setTypeface(null, android.graphics.Typeface.BOLD);
-        LinearLayout.LayoutParams headerLp = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        header.setLayoutParams(headerLp);
-        headerRow.addView(header);
-
-        ImageView btnMore = new ImageView(requireContext());
-        btnMore.setImageResource(R.drawable.ic_more_vert);
-        btnMore.setColorFilter(0xFFFFFFFF);
-        LinearLayout.LayoutParams moreLp = new LinearLayout.LayoutParams(dpToPx(20), dpToPx(20));
-        btnMore.setLayoutParams(moreLp);
-        btnMore.setOnClickListener(v -> {
-            if (!isAdded() || getContext() == null) return;
-            android.widget.PopupMenu menu = new android.widget.PopupMenu(requireContext(), btnMore);
-            menu.getMenu().add("Not interested");
-            menu.setOnMenuItemClickListener(item -> {
-                if (onNotInterested != null) onNotInterested.run();
-                return true;
-            });
-            menu.show();
-        });
-        headerRow.addView(btnMore);
-        section.addView(headerRow);
-
-        // ── Instagram-level: real RecyclerView instead of an eagerly-inflated
-        // HorizontalScrollView+LinearLayout row ──────────────────────────────
-        // The old code inflated + Glide-loaded EVERY candidate tile up front,
-        // even the ones off-screen to the right, and — since this whole row is
-        // itself just one FrameLayout bound fresh by FeedAdapter every time it
-        // scrolls back into view (ROW_SUGGESTED_REELS has no inner recycling)
-        // — repeated that full inflate+decode cost on every rebind. A nested
-        // RecyclerView only builds/binds the tiles actually on/near screen,
-        // and — backed by SUGGESTED_REELS_TILE_POOL, shared across every
-        // "Suggested reels" strip inserted into the feed — a tile ViewHolder
-        // scrolled out of one strip can be handed straight to the next strip
-        // (or to this same strip on its next rebind) with no re-inflation and
-        // no re-decoding, exactly like Instagram's nested-recycling rows.
-        RecyclerView tilesRecycler = new RecyclerView(requireContext());
-        tilesRecycler.setLayoutManager(
-                new LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false));
-        tilesRecycler.setRecycledViewPool(SUGGESTED_REELS_TILE_POOL);
-        tilesRecycler.setItemViewCacheSize(4);
-        tilesRecycler.setHasFixedSize(true);
-        tilesRecycler.setItemAnimator(null);
-        LinearLayout.LayoutParams recyclerLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(284));
-        recyclerLp.topMargin = dpToPx(8);
-        tilesRecycler.setLayoutParams(recyclerLp);
-        tilesRecycler.setAdapter(new SuggestedReelsTileAdapter(candidates, reelIds));
-
-        section.addView(tilesRecycler);
-        container.addView(section);
+        holder.adapter.updateItems(candidates, reelIds);
     }
 
     /** Shared across every "Suggested reels" strip mixed into the Home feed —
-     *  see bindSuggestedReelsRowContent() note above for why this must be a
+     *  see SuggestedReelsRowHolder note above for why this must be a
      *  single shared instance rather than one pool per strip. */
     private static final RecyclerView.RecycledViewPool SUGGESTED_REELS_TILE_POOL =
             new RecyclerView.RecycledViewPool();
 
     /** Backs one "Suggested reels" strip's tiles with real ViewHolder
-     *  recycling (see bindSuggestedReelsRowContent()). ~9:16 tile, bigger
+     *  recycling (see SuggestedReelsRowHolder). ~9:16 tile, bigger
      *  than a grid cell so only ~2 tiles + a peek of the 3rd fit per screen
      *  (matches reference screenshot) — same sizing as the old manual row. */
     private class SuggestedReelsTileAdapter extends RecyclerView.Adapter<SuggestedReelsTileAdapter.TileHolder> {
         private static final int TILE_W_DP = 160;
         private static final int TILE_H_DP = 284;
 
-        private final List<ReelModel> items;
-        private final ArrayList<String> reelIds;
+        private List<ReelModel> items;
+        private ArrayList<String> reelIds;
 
         SuggestedReelsTileAdapter(List<ReelModel> items, ArrayList<String> reelIds) {
             this.items = items;
             this.reelIds = reelIds;
+        }
+
+        /** ★ Same reuse trick as SuggestedCreatorsTileAdapter.updateItems() —
+         *  see SuggestedReelsRowHolder for why this must swap data on the
+         *  existing adapter/RecyclerView rather than build fresh ones. */
+        void updateItems(List<ReelModel> newItems, ArrayList<String> newReelIds) {
+            this.items = newItems;
+            this.reelIds = newReelIds;
+            notifyDataSetChanged();
         }
 
         class TileHolder extends RecyclerView.ViewHolder {
@@ -4517,37 +5042,122 @@ public class HomeFragment extends Fragment {
         newPostsPending = 0;
     }
 
-    /** v243: builds/refreshes the "N new posts" pill into `container` —
-     *  called from FeedAdapter.onBindViewHolder(VT_NEW_POSTS_BANNER). Same
-     *  content/behavior as the old showNewPostsBanner()'s view-building half. */
-    private void bindNewPostsBannerContent(ViewGroup container) {
-        container.removeAllViews();
-        TextView pill = new TextView(requireContext());
-        pill.setTextColor(0xFFFFFFFF);
-        pill.setTextSize(13f);
-        pill.setTypeface(null, android.graphics.Typeface.BOLD);
-        pill.setGravity(android.view.Gravity.CENTER);
-        pill.setBackgroundResource(R.drawable.bg_speed_chip);
-        int padV = dpToPx(10), padH = dpToPx(16);
-        pill.setPadding(padH, padV, padH, padV);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
-        lp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
-        lp.topMargin = dpToPx(8);
-        lp.bottomMargin = dpToPx(8);
-        pill.setLayoutParams(lp);
-        pill.setText(newPostsPending == 1
+    /** ★ Instagram-level PERF: view-holder caching for the "N new posts"
+     *  pill — same idea as SponsoredRowHolder. The old
+     *  bindNewPostsBannerContent() did container.removeAllViews() and
+     *  rebuilt a fresh TextView + a fresh click listener EVERY time this
+     *  row (re)bound, even though the pill's only per-bind change is its
+     *  text. Chrome is built once in onCreateViewHolder; every rebind just
+     *  updates the text on the already-attached TextView. The click
+     *  listener never referenced bind-time data in the first place, so
+     *  registering it once at creation time changes nothing about its
+     *  behavior. */
+    /** ★ Instagram-level PERF: view-holder caching for the Loading spinner
+     *  row — same idea as NewPostsBannerHolder. The old inline
+     *  ROW_LOADING branch in onBindViewHolder did container.removeAllViews()
+     *  and built a fresh ProgressBar EVERY time this row (re)bound, even
+     *  though it has no per-bind data at all (nothing to update — a
+     *  spinner is just a spinner). Chrome is built once in
+     *  onCreateViewHolder; onBindViewHolder for ROW_LOADING is now a no-op,
+     *  same as VT_HEADER/VT_FOOTER. */
+    private class LoadingRowHolder extends RecyclerView.ViewHolder {
+        LoadingRowHolder(FrameLayout container) {
+            super(container);
+            ProgressBar pb = new ProgressBar(container.getContext());
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                dpToPx(32), dpToPx(32));
+            lp.gravity = android.view.Gravity.CENTER;
+            lp.topMargin = dpToPx(24);
+            lp.bottomMargin = dpToPx(24);
+            pb.setLayoutParams(lp);
+            container.addView(pb);
+        }
+    }
+
+    /** ★ Instagram-level PERF: view-holder caching for the "No posts yet"
+     *  empty state — same idea as LoadingRowHolder. The old inline
+     *  ROW_EMPTY branch in onBindViewHolder did container.removeAllViews()
+     *  and built a fresh TextView EVERY time this row (re)bound, even
+     *  though its text is a fixed string with no per-bind data. Chrome is
+     *  built once in onCreateViewHolder; onBindViewHolder for ROW_EMPTY is
+     *  now a no-op. */
+    private class EmptyRowHolder extends RecyclerView.ViewHolder {
+        EmptyRowHolder(FrameLayout container) {
+            super(container);
+            TextView tv = new TextView(container.getContext());
+            tv.setText("No posts yet");
+            tv.setTextColor(0xFF888888);
+            tv.setTextSize(14f);
+            tv.setGravity(android.view.Gravity.CENTER);
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dpToPx(48);
+            lp.bottomMargin = dpToPx(48);
+            tv.setLayoutParams(lp);
+            container.addView(tv);
+        }
+    }
+
+    /** ★ Instagram-level PERF: view-holder caching for the pagination
+     *  footer spinner — same idea as LoadingRowHolder. The old inline
+     *  ROW_LOAD_MORE_FOOTER branch in onBindViewHolder did
+     *  container.removeAllViews() and built a fresh ProgressBar EVERY time
+     *  this row (re)bound, even though it has no per-bind data at all.
+     *  Chrome is built once in onCreateViewHolder; onBindViewHolder for
+     *  ROW_LOAD_MORE_FOOTER is now a no-op. */
+    private class LoadMoreFooterRowHolder extends RecyclerView.ViewHolder {
+        LoadMoreFooterRowHolder(FrameLayout container) {
+            super(container);
+            ProgressBar pb = new ProgressBar(container.getContext());
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, dpToPx(48));
+            lp.gravity = android.view.Gravity.CENTER;
+            lp.topMargin = dpToPx(8);
+            lp.bottomMargin = dpToPx(8);
+            pb.setLayoutParams(lp);
+            container.addView(pb);
+        }
+    }
+
+    private class NewPostsBannerHolder extends RecyclerView.ViewHolder {
+        final TextView pill;
+
+        NewPostsBannerHolder(FrameLayout container) {
+            super(container);
+            Context ctx = container.getContext();
+            pill = new TextView(ctx);
+            pill.setTextColor(0xFFFFFFFF);
+            pill.setTextSize(13f);
+            pill.setTypeface(null, android.graphics.Typeface.BOLD);
+            pill.setGravity(android.view.Gravity.CENTER);
+            pill.setBackgroundResource(R.drawable.bg_speed_chip);
+            int padV = dpToPx(10), padH = dpToPx(16);
+            pill.setPadding(padH, padV, padH, padV);
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+            lp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
+            lp.topMargin = dpToPx(8);
+            lp.bottomMargin = dpToPx(8);
+            pill.setLayoutParams(lp);
+            pill.setOnClickListener(v -> {
+                if (recyclerHome != null) recyclerHome.smoothScrollToPosition(0);
+                resetFeedPaginationState();
+                cancelStagedFeedRender();
+                clearFeedRows();
+                showFeedLoading(true);
+                loadFeed();
+            });
+            container.addView(pill);
+        }
+    }
+
+    /** Updates a pooled NewPostsBannerHolder's text for the current pending
+     *  count — no view creation, no removeAllViews(). See
+     *  NewPostsBannerHolder doc. */
+    private void bindNewPostsBannerHolder(NewPostsBannerHolder holder) {
+        holder.pill.setText(newPostsPending == 1
                 ? "1 new post · Tap to refresh" : (newPostsPending + " new posts · Tap to refresh"));
-        pill.setOnClickListener(v -> {
-            if (recyclerHome != null) recyclerHome.smoothScrollToPosition(0);
-            resetFeedPaginationState();
-            cancelStagedFeedRender();
-            clearFeedRows();
-            showFeedLoading(true);
-            loadFeed();
-        });
-        newPostsBanner = pill;
-        container.addView(pill);
+        newPostsBanner = holder.pill;
     }
 
     /**
@@ -4581,19 +5191,32 @@ public class HomeFragment extends Fragment {
                     com.callx.app.cache.StatusCacheManager.getInstance(requireContext());
             boolean hasUnseen = scm.hasUnseen(reel.uid);
             boolean hasAny    = scm.hasStatus(reel.uid);
-            if (hasUnseen) {
-                ivPostStoryRing.setImageDrawable(null);
-                ivPostStoryRing.setBackground(
-                        com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(2f,
-                                getResources().getDisplayMetrics().density));
-                ivPostStoryRing.setVisibility(View.VISIBLE);
-            } else if (hasAny) {
-                ivPostStoryRing.setBackground(null);
-                ivPostStoryRing.setImageResource(com.callx.app.core.R.drawable.circle_status_seen);
-                ivPostStoryRing.setVisibility(View.VISIBLE);
-            } else {
-                ivPostStoryRing.setVisibility(View.GONE);
+            int state = hasUnseen ? 2 : (hasAny ? 1 : 0);
+            // ★ Instagram-level PERF: skip setBackground/setImageDrawable/
+            // setVisibility entirely when this exact uid+state was already
+            // applied on this holder's last bind — see field doc above.
+            boolean unchanged = reel.uid.equals(holder.lastStoryRingUid)
+                    && state == holder.lastStoryRingState;
+            if (!unchanged) {
+                holder.lastStoryRingUid = reel.uid;
+                holder.lastStoryRingState = state;
+                if (state == 2) {
+                    ivPostStoryRing.setImageDrawable(null);
+                    ivPostStoryRing.setBackground(
+                            com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(2f,
+                                    getResources().getDisplayMetrics().density));
+                    ivPostStoryRing.setVisibility(View.VISIBLE);
+                } else if (state == 1) {
+                    ivPostStoryRing.setBackground(null);
+                    ivPostStoryRing.setImageResource(com.callx.app.core.R.drawable.circle_status_seen);
+                    ivPostStoryRing.setVisibility(View.VISIBLE);
+                } else {
+                    ivPostStoryRing.setVisibility(View.GONE);
+                }
             }
+        } else if (ivPostStoryRing != null) {
+            holder.lastStoryRingUid = null;
+            holder.lastStoryRingState = -1;
         }
         TextView tvOwner          = holder.tvOwner;
         TextView tvTime           = holder.tvTime;
@@ -4815,28 +5438,37 @@ public class HomeFragment extends Fragment {
                 String coverUrl = !android.text.TextUtils.isEmpty(reel.musicCoverUrl)
                     ? reel.musicCoverUrl : reel.ownerPhoto;
                 if (isAdded() && getContext() != null && !android.text.TextUtils.isEmpty(coverUrl)) {
-                    android.content.Context ctx = requireContext();
-                    // PERF: same 28dp pattern as the player's btn_create_audio —
-                    // server-resize via AvatarUrlBuilder(..,28) AND pin Glide's
-                    // decode with .override() to 28dp*2 (retina), so this never
-                    // decodes more pixels than the 28dp tile actually shows.
-                    int sizePx = AvatarUrlBuilder.tierPx(ctx, com.callx.app.utils.AvatarSizeTier.TINY);
-                    int cornerRadiusPx = AvatarUrlBuilder.dpToPx(ctx, 4);
-                    Glide.with(ctx)
-                        .load(AvatarUrlBuilder.build(ctx, coverUrl, com.callx.app.utils.AvatarSizeTier.TINY))
-                        .apply(new RequestOptions()
-                            .transform(new MultiTransformation<>(
-                                new CenterCrop(), new RoundedCorners(cornerRadiusPx)))
-                            .override(sizePx, sizePx)
-                            .format(DecodeFormat.PREFER_RGB_565)
-                            .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-                            .placeholder(R.drawable.ic_audio))
-                        .into(btnAudioCover);
+                    // ★ Instagram-level PERF: skip the whole Glide chain
+                    // when this holder is already showing this exact cover
+                    // URL — same rebind-skip already applied to the thumb/
+                    // avatar loads above (lastThumbUrl/lastAvatarUrl).
+                    if (!coverUrl.equals(holder.lastAudioCoverUrl)) {
+                        holder.lastAudioCoverUrl = coverUrl;
+                        android.content.Context ctx = requireContext();
+                        // PERF: same 28dp pattern as the player's btn_create_audio —
+                        // server-resize via AvatarUrlBuilder(..,28) AND pin Glide's
+                        // decode with .override() to 28dp*2 (retina), so this never
+                        // decodes more pixels than the 28dp tile actually shows.
+                        int sizePx = AvatarUrlBuilder.tierPx(ctx, com.callx.app.utils.AvatarSizeTier.TINY);
+                        int cornerRadiusPx = AvatarUrlBuilder.dpToPx(ctx, 4);
+                        Glide.with(ctx)
+                            .load(AvatarUrlBuilder.build(ctx, coverUrl, com.callx.app.utils.AvatarSizeTier.TINY))
+                            .apply(new RequestOptions()
+                                .transform(new MultiTransformation<>(
+                                    new CenterCrop(), new RoundedCorners(cornerRadiusPx)))
+                                .override(sizePx, sizePx)
+                                .format(DecodeFormat.PREFER_RGB_565)
+                                .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+                                .placeholder(R.drawable.ic_audio))
+                            .into(btnAudioCover);
+                    }
                 } else {
+                    holder.lastAudioCoverUrl = null;
                     btnAudioCover.setImageResource(R.drawable.ic_audio);
                 }
             } else {
                 btnAudioCover.setVisibility(View.GONE);
+                holder.lastAudioCoverUrl = null;
                 // No need to null the listener anymore — it reads
                 // holder.boundReel dynamically (never stale) and the view
                 // is GONE so it can't receive clicks either way.
@@ -4898,16 +5530,244 @@ public class HomeFragment extends Fragment {
         // recycled row) skips straight past them and just relies on the
         // boundXxx field updates above to keep them pointed at the right
         // reel/cardIndex/uid.
+        // ── Bottom-left collab icon — registered ONCE per physical holder
+        // (fixed view in item_home_feed_post.xml, never lazily inflated),
+        // reads holder.boundReel at click time — same pattern as
+        // watchMore/watchAgain/btnMute above, avoids allocating a fresh
+        // lambda on every single bind/scroll.
+        if (holder.btnCollabIcon != null && !holder.clickListenersBound) {
+            holder.btnCollabIcon.setOnClickListener(v -> {
+                ReelModel currentReel = holder.boundReel;
+                if (!isAdded() || currentReel == null) return;
+                com.callx.app.social.CollaboratorsBottomSheet.newInstance(
+                        currentReel.reelId, currentReel.uid, currentReel.ownerName, currentReel.ownerPhoto)
+                    .show(getChildFragmentManager(), com.callx.app.social.CollaboratorsBottomSheet.TAG);
+            });
+        }
         holder.clickListenersBound = true;
 
-        // ── Collab / dual-author header ─────────────────────────────────────
+        // ── Collab / multi-collaborator header — REUSED from the Reels play
+        // screen (ReelUiController.populateStaticData()). Same priority:
+        // new stack-based system first (reel.acceptedCollaborators() /
+        // legacy single collabUid), old two-field dual-author system as a
+        // fallback only when the new system has nothing, else solo owner.
+        java.util.List<com.callx.app.models.ReelModel.CollabCollaborator> acceptedHome = reel.acceptedCollaborators();
+        boolean legacySingleOnlyHome = acceptedHome.isEmpty() && reel.isCollabPost
+            && reel.collabUid != null && !reel.collabUid.isEmpty();
+        boolean isCollabStackDisplay = !acceptedHome.isEmpty() || legacySingleOnlyHome;
+
+        View llCollabAuthorsHome = holder.llCollabAuthorsHome;
+        if (llCollabAuthorsHome == null) {
+            llCollabAuthorsHome = holder.itemView.findViewById(R.id.ll_collab_second_author);
+            if (llCollabAuthorsHome == null && isCollabStackDisplay) {
+                View stubHome = holder.itemView.findViewById(R.id.stub_home_collab_row);
+                if (stubHome instanceof android.view.ViewStub) {
+                    llCollabAuthorsHome = ((android.view.ViewStub) stubHome).inflate();
+                }
+            }
+            if (llCollabAuthorsHome != null) {
+                // ── PERF: cache the collab row + its children on the holder
+                // the FIRST time this physical row ever inflates/finds them —
+                // every rebind afterwards (this row scrolling back into view,
+                // or a different collab reel landing on it) reads these
+                // cached fields instead of re-walking the view tree, same
+                // "cacheViews()-once" principle as every other field on this
+                // holder. The avatar-stack click listener is ALSO registered
+                // here, exactly once — it reads holder.boundReel at click
+                // time (set fresh on every bind, above) instead of
+                // capturing `reel` in a brand-new lambda on every bind.
+                holder.llCollabAuthorsHome = llCollabAuthorsHome;
+                holder.collabStackHome = llCollabAuthorsHome.findViewById(R.id.collab_avatar_stack);
+                holder.tvCollabNameHome = llCollabAuthorsHome.findViewById(R.id.tv_collab_author_name);
+                holder.tvCollabFollowBtnHome = llCollabAuthorsHome.findViewById(R.id.tv_collab_follow_btn);
+                holder.llCollabSongRowHome = llCollabAuthorsHome.findViewById(R.id.ll_collab_song_row);
+                // No bio/song ticker in the compact feed header — audio
+                // already shows via tv_post_audio elsewhere on the card.
+                if (holder.llCollabSongRowHome != null) holder.llCollabSongRowHome.setVisibility(View.GONE);
+                llCollabAuthorsHome.setOnClickListener(null);
+
+                if (holder.collabStackHome != null) {
+                    holder.collabStackHome.setOnClickListener(v -> {
+                        ReelModel currentReel = holder.boundReel;
+                        if (!isAdded() || currentReel == null) return;
+                        com.callx.app.social.CollaboratorsBottomSheet.newInstance(
+                                currentReel.reelId, currentReel.uid, currentReel.ownerName, currentReel.ownerPhoto)
+                            .show(getChildFragmentManager(), com.callx.app.social.CollaboratorsBottomSheet.TAG);
+                    });
+                }
+                if (holder.tvCollabFollowBtnHome != null) {
+                    final TextView tvCollabFollowBtnCached = holder.tvCollabFollowBtnHome;
+                    tvCollabFollowBtnCached.setOnClickListener(x -> {
+                        String uid = holder.boundMyUid;
+                        ReelModel currentReel = holder.boundReel;
+                        if (uid == null || currentReel == null || currentReel.uid == null || currentReel.uid.isEmpty()) return;
+                        tvCollabFollowBtnCached.setVisibility(View.GONE);
+                        FirebaseUtils.getReelFollowsRef(uid).child(currentReel.uid).setValue(true);
+                        FirebaseUtils.getReelFollowersRef(currentReel.uid).child(uid).setValue(true);
+                    });
+                }
+            }
+        }
+
+        if (isCollabStackDisplay && llCollabAuthorsHome != null) {
+            // ── Multi-collaborator merged row: overlapping avatar stack +
+            // "@owner and N others", opens CollaboratorsBottomSheet — exact
+            // same views/ids/behavior as the Reels play screen.
+            llCollabAuthorsHome.setVisibility(View.VISIBLE);
+            if (holder.llPostOwnerRow != null) holder.llPostOwnerRow.setVisibility(View.GONE);
+            if (holder.collabAvatarContainer != null) holder.collabAvatarContainer.setVisibility(View.GONE);
+
+            com.callx.app.views.CollabAvatarStackView collabStackHome = holder.collabStackHome;
+            TextView tvCollabNameHome = holder.tvCollabNameHome;
+            TextView tvCollabFollowBtnHome = holder.tvCollabFollowBtnHome;
+
+            java.util.List<String> avatarUrlsHome = new java.util.ArrayList<>();
+            avatarUrlsHome.add(reel.ownerPhoto);
+            int totalCountHome;
+            if (!acceptedHome.isEmpty()) {
+                for (com.callx.app.models.ReelModel.CollabCollaborator c : acceptedHome) avatarUrlsHome.add(c.avatarUrl);
+                totalCountHome = acceptedHome.size();
+            } else {
+                avatarUrlsHome.add(reel.collabAvatarUrl);
+                totalCountHome = 1;
+            }
+
+            if (collabStackHome != null) {
+                final com.callx.app.views.CollabAvatarStackView collabStackFinal = collabStackHome;
+                int stackCountHome = Math.min(avatarUrlsHome.size(), 3);
+                // PERF (URL-skip): a rebind landing on this row with the
+                // SAME reel/avatars (a live-count tick, a like-tap's
+                // notifyItemChanged, or the row simply scrolling back into
+                // view) used to re-run up to 3 fresh Glide asBitmap() loads
+                // EVERY time even though none of the avatar URLs actually
+                // changed — same lastAvatarUrl/lastThumbUrl URL-skip
+                // principle this holder already uses elsewhere.
+                boolean unchangedHome = holder.lastCollabStackCount == stackCountHome;
+                if (unchangedHome) {
+                    for (int i = 0; i < stackCountHome; i++) {
+                        if (!java.util.Objects.equals(avatarUrlsHome.get(i), holder.lastCollabAvatarUrls[i])) {
+                            unchangedHome = false;
+                            break;
+                        }
+                    }
+                }
+                if (!unchangedHome) {
+                    collabStackFinal.clearAvatars();
+                    collabStackFinal.setAvatarCount(stackCountHome);
+                    for (int i = 0; i < stackCountHome; i++) {
+                        String url = avatarUrlsHome.get(i);
+                        holder.lastCollabAvatarUrls[i] = url;
+                        final int index = i;
+                        if (url != null && !url.isEmpty() && isAdded()) {
+                            int stackSizePx = AvatarUrlBuilder.tierPx(requireContext(), AvatarSizeTier.TINY);
+                            Glide.with(requireContext())
+                                .asBitmap()
+                                .load(AvatarUrlBuilder.build(requireContext(), url, AvatarSizeTier.TINY))
+                                .apply(new RequestOptions()
+                                    .override(stackSizePx, stackSizePx)
+                                    .format(DecodeFormat.PREFER_ARGB_8888)
+                                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
+                                .into(new CustomTarget<android.graphics.Bitmap>() {
+                                    @Override
+                                    public void onResourceReady(@androidx.annotation.NonNull android.graphics.Bitmap resource, Transition<? super android.graphics.Bitmap> transition) {
+                                        collabStackFinal.setAvatarBitmap(index, resource);
+                                    }
+                                    @Override
+                                    public void onLoadCleared(android.graphics.drawable.Drawable placeholder) { }
+                                });
+                        }
+                    }
+                    for (int i = stackCountHome; i < holder.lastCollabAvatarUrls.length; i++) holder.lastCollabAvatarUrls[i] = null;
+                    holder.lastCollabStackCount = stackCountHome;
+                }
+            }
+
+            if (tvCollabNameHome != null) {
+                String ownerNameHome = reel.ownerName != null && !reel.ownerName.isEmpty() ? reel.ownerName : "user";
+                String namePartHome = "@" + ownerNameHome;
+                String othersPartHome = " and " + totalCountHome + (totalCountHome == 1 ? " other" : " others");
+                String fullHome = namePartHome + othersPartHome;
+
+                // PERF: a same-post rebind (live-count tick etc.) repeats the
+                // exact same "@owner and N others" text — skip rebuilding
+                // the SpannableString + both ClickableSpans (2 extra
+                // allocations per bind) when the text hasn't actually
+                // changed since this holder's last bind.
+                if (!fullHome.equals(holder.lastCollabNameTextHome)) {
+                    holder.lastCollabNameTextHome = fullHome;
+                    android.text.SpannableString spannableHome = new android.text.SpannableString(fullHome);
+                    spannableHome.setSpan(new android.text.style.ClickableSpan() {
+                        @Override public void onClick(@androidx.annotation.NonNull View widget) {
+                            ReelModel currentReel = holder.boundReel;
+                            if (!isAdded() || getContext() == null || currentReel == null) return;
+                            Intent i = new Intent(getContext(), UserReelsActivity.class);
+                            i.putExtra(UserReelsActivity.EXTRA_UID,   currentReel.uid);
+                            i.putExtra(UserReelsActivity.EXTRA_NAME,  currentReel.ownerName);
+                            i.putExtra(UserReelsActivity.EXTRA_PHOTO, currentReel.ownerPhoto);
+                            startActivity(i);
+                        }
+                        @Override public void updateDrawState(@androidx.annotation.NonNull android.text.TextPaint ds) {
+                            ds.setUnderlineText(false);
+                        }
+                    }, 0, namePartHome.length(), android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    spannableHome.setSpan(new android.text.style.ClickableSpan() {
+                        @Override public void onClick(@androidx.annotation.NonNull View widget) {
+                            ReelModel currentReel = holder.boundReel;
+                            if (!isAdded() || currentReel == null) return;
+                            com.callx.app.social.CollaboratorsBottomSheet.newInstance(
+                                    currentReel.reelId, currentReel.uid, currentReel.ownerName, currentReel.ownerPhoto)
+                                .show(getChildFragmentManager(), com.callx.app.social.CollaboratorsBottomSheet.TAG);
+                        }
+                        @Override public void updateDrawState(@androidx.annotation.NonNull android.text.TextPaint ds) {
+                            ds.setUnderlineText(false);
+                        }
+                    }, namePartHome.length(), fullHome.length(), android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+                    tvCollabNameHome.setText(spannableHome);
+                    tvCollabNameHome.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+                    tvCollabNameHome.setHighlightColor(android.graphics.Color.TRANSPARENT);
+                }
+            }
+
+            if (tvCollabFollowBtnHome != null) {
+                boolean isFollowedHome = followedUids != null && reel.uid != null && followedUids.contains(reel.uid);
+                tvCollabFollowBtnHome.setVisibility(isFollowedHome ? View.GONE : View.VISIBLE);
+            }
+
+            // ── Bottom-left collab icon on the video itself — second entry
+            // point into the exact same CollaboratorsBottomSheet as the
+            // "@owner and N others" row / avatar stack above. Only shown for
+            // collab posts (same isCollabStackDisplay condition). Its click
+            // listener is registered once, up top with the other one-time
+            // listeners — nothing to wire here, just visibility.
+            if (holder.btnCollabIcon != null) holder.btnCollabIcon.setVisibility(View.VISIBLE);
+
+            // Legacy two-field dual-author branch never applies once the
+            // new stack system is showing — nothing further to bind.
+        } else {
+        if (llCollabAuthorsHome != null) llCollabAuthorsHome.setVisibility(View.GONE);
+        if (holder.btnCollabIcon != null) holder.btnCollabIcon.setVisibility(View.GONE);
+        if (holder.llPostOwnerRow != null) holder.llPostOwnerRow.setVisibility(View.VISIBLE);
+
+        // ── Legacy dual-author header (older collabInitiatorUid/
+        // collabColaboratorUid data) — unchanged fallback behavior. ──────
         boolean isCollab = reel.collabInitiatorUid != null && !reel.collabInitiatorUid.isEmpty()
                         && reel.collabColaboratorUid != null && !reel.collabColaboratorUid.isEmpty();
         if (isCollab) {
             // Show collab header: "InitiatorName & CollaboratorName"
-            String collabLabel = (reel.collabInitiatorName != null ? reel.collabInitiatorName : "User")
-                + " \u2227 " + (reel.collabCollaboratorName != null ? reel.collabCollaboratorName : "User");
-            tvOwner.setText(collabLabel);
+            // ★ Instagram-level PERF: skip the concat when this holder
+            // already built this exact label from these exact two source
+            // names on a previous bind — same rebind-skip principle as the
+            // solo-author lastOwnerNameSrc/lastOwnerLabel cache below.
+            String initName = reel.collabInitiatorName != null ? reel.collabInitiatorName : "User";
+            String collabName = reel.collabCollaboratorName != null ? reel.collabCollaboratorName : "User";
+            if (!initName.equals(holder.lastCollabLabelInitiator)
+                    || !collabName.equals(holder.lastCollabLabelCollaborator)) {
+                holder.lastCollabLabelInitiator = initName;
+                holder.lastCollabLabelCollaborator = collabName;
+                holder.lastCollabLabelText = initName + " \u2227 " + collabName;
+            }
+            tvOwner.setText(holder.lastCollabLabelText);
             // Collab header shows two people — badge next to the name refers
             // to the initiator (the account tvOwner's click target opens).
             com.callx.app.utils.VerifiedBadgeUtils.bindForUid(holder.ivPostVerified, reel.collabInitiatorUid);
@@ -4929,28 +5789,49 @@ public class HomeFragment extends Fragment {
                     av2.setBorderWidth(2);
                     collabRow.addView(av2);
                 }
+                // ★ Instagram-level PERF: skip the Glide chain when this
+                // holder is already showing this exact photo — same
+                // rebind-skip already applied to thumb/avatar/audio-cover
+                // above (lastThumbUrl/lastAvatarUrl/lastAudioCoverUrl).
                 if (reel.collabCollaboratorPhoto != null && !reel.collabCollaboratorPhoto.isEmpty()) {
-                    Glide.with(requireContext()).load(reel.collabCollaboratorPhoto)
-                        .apply(RequestOptions.circleCropTransform())
-                        .placeholder(R.drawable.ic_person).into(av2);
+                    if (!reel.collabCollaboratorPhoto.equals(holder.lastCollabCollaboratorPhoto)) {
+                        holder.lastCollabCollaboratorPhoto = reel.collabCollaboratorPhoto;
+                        Glide.with(requireContext()).load(reel.collabCollaboratorPhoto)
+                            .apply(RequestOptions.circleCropTransform())
+                            .placeholder(R.drawable.ic_person).into(av2);
+                    }
+                } else {
+                    holder.lastCollabCollaboratorPhoto = null;
                 }
                 // Also load initiator photo into the main avatar
                 if (reel.collabInitiatorPhoto != null && !reel.collabInitiatorPhoto.isEmpty()) {
-                    Glide.with(requireContext()).load(reel.collabInitiatorPhoto)
-                        .apply(RequestOptions.circleCropTransform())
-                        .placeholder(R.drawable.ic_person).into(avatar);
+                    if (!reel.collabInitiatorPhoto.equals(holder.lastCollabInitiatorPhoto)) {
+                        holder.lastCollabInitiatorPhoto = reel.collabInitiatorPhoto;
+                        Glide.with(requireContext()).load(reel.collabInitiatorPhoto)
+                            .apply(RequestOptions.circleCropTransform())
+                            .placeholder(R.drawable.ic_person).into(avatar);
+                    }
+                } else {
+                    holder.lastCollabInitiatorPhoto = null;
                 }
             }
-            // Collab click → open initiator profile
-            tvOwner.setOnClickListener(x -> {
-                if (!isAdded() || getContext() == null) return;
-                Intent i = new Intent(getContext(), UserReelsActivity.class);
-                i.putExtra(UserReelsActivity.EXTRA_UID,   reel.collabInitiatorUid);
-                i.putExtra(UserReelsActivity.EXTRA_NAME,  reel.collabInitiatorName);
-                i.putExtra(UserReelsActivity.EXTRA_PHOTO, reel.collabInitiatorPhoto);
-                startActivity(i);
-            });
+            // Collab click → open initiator profile. Listener itself is
+            // registered once, outside this branch (see the unified
+            // tvOwner click handler below) — nothing to wire here anymore.
         } else {
+            // Reset collab-avatar URL-skip cache — this holder is now
+            // showing a non-collab reel, so a LATER collab post landing
+            // back on this same physical holder must treat both photos as
+            // "new" again instead of wrongly comparing against whatever
+            // collab post it last showed.
+            holder.lastCollabCollaboratorPhoto = null;
+            holder.lastCollabInitiatorPhoto = null;
+            // Same reset for the legacy dual-author label cache above —
+            // a later legacy-collab post on this holder must rebuild the
+            // label instead of comparing against a stale pair.
+            holder.lastCollabLabelInitiator = null;
+            holder.lastCollabLabelCollaborator = null;
+            holder.lastCollabLabelText = null;
             // PERF: "@" + name used to be re-concatenated (new String) on
             // EVERY bind, even when the exact same reel rebinds onto this
             // same holder (e.g. a like-tap's notifyItemChanged). Now cached
@@ -4962,9 +5843,11 @@ public class HomeFragment extends Fragment {
                 holder.lastOwnerLabel = ownerNameSrc != null ? "@" + ownerNameSrc : "@user";
             }
             tvOwner.setText(holder.lastOwnerLabel);
-            tvOwner.setOnClickListener(x -> avatar.performClick());
+            // Listener registered once, outside this branch — see the
+            // unified tvOwner click handler below.
             com.callx.app.utils.VerifiedBadgeUtils.bindForUid(holder.ivPostVerified, reel.uid);
         }
+        } // end legacy/solo fallback (else branch of isCollabStackDisplay)
 
         if (tvTime != null) {
             // PERF: formatAgo() used to recompute + re-allocate its result
@@ -4999,8 +5882,6 @@ public class HomeFragment extends Fragment {
         String captionText = precomputedUi != null
             ? precomputedUi.captionText
             : (reel.caption != null ? reel.caption : "");
-        final int CAPTION_MAX_LINES = 2;
-        boolean[] captionExpanded = {false};
         View btnReadMore = holder.btnReadMore;
 
         // Apply hashtag spans
@@ -5029,20 +5910,38 @@ public class HomeFragment extends Fragment {
         if (captionText.length() > 120) {
             tvCaption.setMaxLines(CAPTION_MAX_LINES);
             tvCaption.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            // Reset to collapsed for whichever reel is landing on this
+            // holder now — a fresh bind should always start collapsed,
+            // even though the listener below is only registered once.
+            holder.captionExpanded = false;
             if (btnReadMore != null) {
                 btnReadMore.setVisibility(View.VISIBLE);
-                btnReadMore.setOnClickListener(rx -> {
-                    captionExpanded[0] = !captionExpanded[0];
-                    if (captionExpanded[0]) {
-                        tvCaption.setMaxLines(Integer.MAX_VALUE);
-                        tvCaption.setEllipsize(null);
-                        ((TextView) btnReadMore).setText("less");
-                    } else {
-                        tvCaption.setMaxLines(CAPTION_MAX_LINES);
-                        tvCaption.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                        ((TextView) btnReadMore).setText("more");
-                    }
-                });
+                ((TextView) btnReadMore).setText("more");
+                // ★ Instagram-level PERF: this used to be a fresh
+                // OnClickListener lambda allocated on EVERY bind. Registered
+                // ONCE per physical holder now (see readMoreListenerBound) —
+                // reads/toggles holder.captionExpanded and re-reads
+                // holder.tvCaption/holder.btnReadMore at click time, so a
+                // rebind is just the state reset above instead of a new
+                // listener allocation.
+                if (!holder.readMoreListenerBound) {
+                    btnReadMore.setOnClickListener(rx -> {
+                        TextView capView  = holder.tvCaption;
+                        TextView moreView = (TextView) holder.btnReadMore;
+                        if (capView == null || moreView == null) return;
+                        holder.captionExpanded = !holder.captionExpanded;
+                        if (holder.captionExpanded) {
+                            capView.setMaxLines(Integer.MAX_VALUE);
+                            capView.setEllipsize(null);
+                            moreView.setText("less");
+                        } else {
+                            capView.setMaxLines(CAPTION_MAX_LINES);
+                            capView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                            moreView.setText("more");
+                        }
+                    });
+                    holder.readMoreListenerBound = true;
+                }
             }
         } else {
             if (btnReadMore != null) btnReadMore.setVisibility(View.GONE);
@@ -5053,18 +5952,34 @@ public class HomeFragment extends Fragment {
             tvComments.setText(precomputedUi.commentsText);
             tvReposts.setText(precomputedUi.repostText);
         } else {
-            tvLikes.setText(formatCount(reel.likesCount));
-            tvComments.setText(formatCount(reel.commentsCount));
-            tvReposts.setText(formatCount(reel.repostCount));
+            // ★ Instagram-level PERF: skip formatCount()+setText() when this
+            // holder's last fallback bind already showed these exact counts
+            // for this same reel — see field doc above.
+            if (reel.likesCount != holder.lastFallbackLikesCount) {
+                holder.lastFallbackLikesCount = reel.likesCount;
+                tvLikes.setText(formatCount(reel.likesCount));
+            }
+            if (reel.commentsCount != holder.lastFallbackCommentsCount) {
+                holder.lastFallbackCommentsCount = reel.commentsCount;
+                tvComments.setText(formatCount(reel.commentsCount));
+            }
+            if (reel.repostCount != holder.lastFallbackRepostCount) {
+                holder.lastFallbackRepostCount = reel.repostCount;
+                tvReposts.setText(formatCount(reel.repostCount));
+            }
         }
 
-        // ── Liked state (declared early: needed by slideshow double-tap-to-like below) ──
+        // ── Liked state (declared early: needed by slideshow double-tap-to-like
+        // below). Now lives on the holder (holder.boundIsLiked) instead of a
+        // per-bind boolean[] closure, since the like BUTTON's own listener is
+        // registered once per holder and needs a persistent place to read/flip
+        // this from — see actionBarListenersBound above. ──
         final String reelId   = reel.reelId;
-        final boolean[] isLiked = {reel.reelId != null && likedIds.contains(reel.reelId)};
+        holder.boundIsLiked = reel.reelId != null && likedIds.contains(reel.reelId);
         if (btnLike != null) {
-            btnLike.setImageResource(isLiked[0]
+            btnLike.setImageResource(holder.boundIsLiked
                 ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
-            setLikeButtonTint(btnLike, isLiked[0]);
+            setLikeButtonTint(btnLike, holder.boundIsLiked);
         }
 
         // ── Photo slideshow support ─────────────────────────────────────────
@@ -5120,12 +6035,18 @@ public class HomeFragment extends Fragment {
                 holder.photoDots = new LinearLayout(requireContext());
                 holder.photoDots.setOrientation(LinearLayout.HORIZONTAL);
                 holder.photoDots.setGravity(android.view.Gravity.CENTER);
+                // ✅ Now lives in frame_photo_dots_row BELOW the media (Instagram-
+                // style) instead of overlaid on the bottom of the video/photo
+                // itself — plain centered wrap_content, no bottom-edge gravity
+                // or margin needed anymore.
                 FrameLayout.LayoutParams dotsLp = new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
                     FrameLayout.LayoutParams.WRAP_CONTENT);
-                dotsLp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL;
-                dotsLp.bottomMargin = dpToPx(8);
+                dotsLp.gravity = android.view.Gravity.CENTER;
                 holder.photoDots.setLayoutParams(dotsLp);
+                if (holder.framePhotoDotsRow != null) {
+                    holder.framePhotoDotsRow.addView(holder.photoDots);
+                }
 
                 // Registered ONCE — reads holder.photoDotDrawables at
                 // fire-time (whatever the CURRENT reel's dots are), so it
@@ -5138,8 +6059,72 @@ public class HomeFragment extends Fragment {
                             // Mutate the existing Drawable instead of
                             // allocating a fresh GradientDrawable per dot on
                             // every page change.
-                            holder.photoDotDrawables[di].setColor(di == position ? 0xFFFFFFFF : 0x66FFFFFF);
+                            holder.photoDotDrawables[di].setColor(
+                                di == position ? photoDotActiveColor() : photoDotInactiveColor());
                         }
+                    }
+                });
+
+                // Double-tap to like on slideshow — ★ Instagram-level PERF:
+                // this used to allocate a brand-new GestureDetector + a
+                // brand-new OnTouchListener object on EVERY single bind
+                // (comment said "kept per-bind" but nothing was actually
+                // cached). Registered ONCE per physical holder now, same
+                // "cache the object, refresh the data" rule as everything
+                // else in this block — the listener reads
+                // holder.boundReel/boundMyUid/boundIsLiked/photoPagerData
+                // at touch time, so it stays correct for whichever reel is
+                // CURRENTLY bound to this holder without ever needing to be
+                // re-created.
+                holder.photoPager.setOnTouchListener(new View.OnTouchListener() {
+                    private float downX = 0f, downY = 0f;
+                    private final GestureDetector gd = new GestureDetector(requireContext(),
+                        new GestureDetector.SimpleOnGestureListener() {
+                            @Override public boolean onDoubleTap(MotionEvent e) {
+                                String uid = holder.boundMyUid;
+                                String rid = holder.boundReel != null ? holder.boundReel.reelId : null;
+                                if (uid == null || rid == null) return true;
+                                if (!holder.boundIsLiked) {
+                                    holder.boundIsLiked = true;
+                                    holder.btnLike.setImageResource(R.drawable.ic_heart_filled);
+                                    setLikeButtonTint(holder.btnLike, true);
+                                    FirebaseUtils.writeReelLike(rid, uid); // writes reelLikes timestamp + reelLikeMeta denormalized snapshot together
+                                    FirebaseUtils.getReelLikedByUserRef(uid).child(rid)
+                                        .setValue(System.currentTimeMillis());
+                                    try {
+                                        int cur = Integer.parseInt(holder.tvLikes.getText().toString());
+                                        holder.tvLikes.setText(formatCount(cur + 1));
+                                    } catch (Exception ignored) {}
+                                }
+                                if (holder.frameVideo != null) showHeartAnimation(holder.frameVideo);
+                                return true;
+                            }
+                        });
+                    @Override public boolean onTouch(View v, MotionEvent event) {
+                        // FIX: same nested-ViewPager2 tab-switch bug as the Reels
+                        // player's photo slideshow — a multi-photo post here sits
+                        // inside this same horizontal tab-switch pager, so claim
+                        // horizontal drags immediately instead of letting the tab
+                        // pager steal them mid-swipe.
+                        switch (event.getActionMasked()) {
+                            case MotionEvent.ACTION_DOWN:
+                                downX = event.getRawX();
+                                downY = event.getRawY();
+                                if (holder.photoPagerData.size() > 1) v.getParent().requestDisallowInterceptTouchEvent(true);
+                                break;
+                            case MotionEvent.ACTION_MOVE:
+                                float dx = Math.abs(event.getRawX() - downX);
+                                float dy = Math.abs(event.getRawY() - downY);
+                                if (holder.photoPagerData.size() > 1 && dx >= dy) {
+                                    v.getParent().requestDisallowInterceptTouchEvent(true);
+                                }
+                                break;
+                            case MotionEvent.ACTION_UP:
+                            case MotionEvent.ACTION_CANCEL:
+                                v.getParent().requestDisallowInterceptTouchEvent(false);
+                                break;
+                        }
+                        return gd.onTouchEvent(event);
                     }
                 });
             }
@@ -5168,7 +6153,7 @@ public class HomeFragment extends Fragment {
                     android.graphics.drawable.GradientDrawable dotBg =
                         new android.graphics.drawable.GradientDrawable();
                     dotBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-                    dotBg.setColor(di == 0 ? 0xFFFFFFFF : 0x66FFFFFF);
+                    dotBg.setColor(di == 0 ? photoDotActiveColor() : photoDotInactiveColor());
                     dot.setBackground(dotBg);
                     holder.photoDots.addView(dot);
                     holder.photoDotDrawables[di] = dotBg;
@@ -5176,73 +6161,22 @@ public class HomeFragment extends Fragment {
                 holder.photoDotCount = photoList.size();
             } else {
                 for (int di = 0; di < holder.photoDotDrawables.length; di++) {
-                    holder.photoDotDrawables[di].setColor(di == 0 ? 0xFFFFFFFF : 0x66FFFFFF);
+                    holder.photoDotDrawables[di].setColor(di == 0 ? photoDotActiveColor() : photoDotInactiveColor());
                 }
             }
             holder.photoDots.setVisibility(View.VISIBLE);
-
-            // Double-tap to like on slideshow — kept per-bind since it must
-            // capture THIS reel's id/like-state/views (a single small
-            // listener object); the expensive part — view creation + the
-            // measure/layout pass that came with it — is what's cached above.
-            holder.photoPager.setOnTouchListener(new View.OnTouchListener() {
-                private float downX = 0f, downY = 0f;
-                private final GestureDetector gd = new GestureDetector(requireContext(),
-                    new GestureDetector.SimpleOnGestureListener() {
-                        @Override public boolean onDoubleTap(MotionEvent e) {
-                            if (myUid == null || reelId == null) return true;
-                            if (!isLiked[0]) {
-                                isLiked[0] = true;
-                                btnLike.setImageResource(R.drawable.ic_heart_filled);
-                                setLikeButtonTint(btnLike, true);
-                                FirebaseUtils.writeReelLike(reelId, myUid); // writes reelLikes timestamp + reelLikeMeta denormalized snapshot together
-                                FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId)
-                                    .setValue(System.currentTimeMillis());
-                                try {
-                                    int cur = Integer.parseInt(tvLikes.getText().toString());
-                                    tvLikes.setText(formatCount(cur + 1));
-                                } catch (Exception ignored) {}
-                            }
-                            if (frameVideo != null) showHeartAnimation(frameVideo);
-                            return true;
-                        }
-                    });
-                @Override public boolean onTouch(View v, MotionEvent event) {
-                    // FIX: same nested-ViewPager2 tab-switch bug as the Reels
-                    // player's photo slideshow — a multi-photo post here sits
-                    // inside this same horizontal tab-switch pager, so claim
-                    // horizontal drags immediately instead of letting the tab
-                    // pager steal them mid-swipe.
-                    switch (event.getActionMasked()) {
-                        case MotionEvent.ACTION_DOWN:
-                            downX = event.getRawX();
-                            downY = event.getRawY();
-                            if (photoList.size() > 1) v.getParent().requestDisallowInterceptTouchEvent(true);
-                            break;
-                        case MotionEvent.ACTION_MOVE:
-                            float dx = Math.abs(event.getRawX() - downX);
-                            float dy = Math.abs(event.getRawY() - downY);
-                            if (photoList.size() > 1 && dx >= dy) {
-                                v.getParent().requestDisallowInterceptTouchEvent(true);
-                            }
-                            break;
-                        case MotionEvent.ACTION_UP:
-                        case MotionEvent.ACTION_CANCEL:
-                            v.getParent().requestDisallowInterceptTouchEvent(false);
-                            break;
-                    }
-                    return gd.onTouchEvent(event);
-                }
-            });
+            if (holder.framePhotoDotsRow != null) holder.framePhotoDotsRow.setVisibility(View.VISIBLE);
 
             if (firstTimeOnThisHolder && frameVideo != null) {
                 // Same z-order fix as before — insert at the bottom of
-                // frame_video's children (index 0/1) so the header overlay
-                // (defined after it in XML) stays on top. Only ever added
-                // ONCE per holder now; later binds just toggle visibility
-                // (see above, and the video-branch below).
+                // frame_video's children so the header overlay (defined
+                // after it in XML) stays on top. Only ever added ONCE per
+                // holder now; later binds just toggle visibility (see
+                // above, and the video-branch below).
+                // ✅ photoDots is no longer added here — it now lives in
+                // frame_photo_dots_row BELOW the video block (added at
+                // creation time above), not overlaid on top of the media.
                 frameVideo.addView(holder.photoPager, 0);
-                frameVideo.addView(holder.photoDots, 1);
             }
         } else {
             // This (recycled) holder previously showed a photo slideshow —
@@ -5251,31 +6185,44 @@ public class HomeFragment extends Fragment {
             // back into a photo post.
             if (holder.photoPager != null) holder.photoPager.setVisibility(View.GONE);
             if (holder.photoDots  != null) holder.photoDots.setVisibility(View.GONE);
+            if (holder.framePhotoDotsRow != null) holder.framePhotoDotsRow.setVisibility(View.GONE);
 
             // ── Video frame gestures: double-tap like, tap play/pause, hold 2x ──
             // All three live in ONE touch listener because a View has only one
             // OnTouchListener — a separate listener for the new gestures would
             // silently replace double-tap-to-like.
-            if (frameVideo != null) {
+            //
+            // ★ Instagram-level PERF: this used to allocate a brand-new
+            // GestureDetector + a brand-new OnTouchListener lambda on EVERY
+            // single bind (comment said "kept per-bind" but nothing was
+            // actually cached — same issue as the photo-slideshow listener
+            // above). Registered ONCE per physical holder now, gated by
+            // holder.frameVideoGestureBound; the listener reads
+            // holder.boundReel/boundMyUid/boundCardIndex/boundIsLiked at
+            // touch time so it stays correct for whichever reel is
+            // CURRENTLY bound to this holder.
+            if (frameVideo != null && !holder.frameVideoGestureBound) {
                 GestureDetector dtGesture = new GestureDetector(requireContext(),
                     new GestureDetector.SimpleOnGestureListener() {
                         @Override public boolean onDoubleTap(MotionEvent e) {
-                            if (myUid == null || reelId == null) return true;
-                            if (!isLiked[0]) {
-                                isLiked[0] = true;
-                                if (btnLike != null) {
-                                    btnLike.setImageResource(R.drawable.ic_heart_filled);
-                                    setLikeButtonTint(btnLike, true);
+                            String uid = holder.boundMyUid;
+                            String rid = holder.boundReel != null ? holder.boundReel.reelId : null;
+                            if (uid == null || rid == null) return true;
+                            if (!holder.boundIsLiked) {
+                                holder.boundIsLiked = true;
+                                if (holder.btnLike != null) {
+                                    holder.btnLike.setImageResource(R.drawable.ic_heart_filled);
+                                    setLikeButtonTint(holder.btnLike, true);
                                 }
-                                FirebaseUtils.writeReelLike(reelId, myUid); // writes reelLikes timestamp + reelLikeMeta denormalized snapshot together
-                                FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId)
+                                FirebaseUtils.writeReelLike(rid, uid); // writes reelLikes timestamp + reelLikeMeta denormalized snapshot together
+                                FirebaseUtils.getReelLikedByUserRef(uid).child(rid)
                                     .setValue(System.currentTimeMillis());
                                 try {
-                                    int cur = Integer.parseInt(tvLikes.getText().toString());
-                                    tvLikes.setText(formatCount(cur + 1));
+                                    int cur = Integer.parseInt(holder.tvLikes.getText().toString());
+                                    holder.tvLikes.setText(formatCount(cur + 1));
                                 } catch (Exception ignored) {}
                             }
-                            showHeartAnimation(frameVideo);
+                            if (holder.frameVideo != null) showHeartAnimation(holder.frameVideo);
                             return true;
                         }
                         /** Single tap (not part of a double-tap) opens this reel in the
@@ -5284,39 +6231,48 @@ public class HomeFragment extends Fragment {
                          *  is no longer reachable via a plain tap; the card still
                          *  autoplays on its own per the feed's autoplay setting. */
                         @Override public boolean onSingleTapConfirmed(MotionEvent e) {
-                            openReelWithContext(currentFeedPosts, reelId, reel.ownerName);
+                            // ✅ Instagram-style resume: carry over exactly how far this
+                            // card's inline preview had already played, so the fullscreen
+                            // player continues from there instead of restarting at 0.
+                            ReelModel curReel = holder.boundReel;
+                            if (curReel == null) return true;
+                            openReelWithContext(currentFeedPosts, curReel.reelId, curReel.ownerName,
+                                capturePreviewPositionMs(holder.boundCardIndex));
                             return true;
                         }
                         /** Press-and-hold = temporary 2x fast-forward. */
                         @Override public void onLongPress(MotionEvent e) {
-                            beginSpeedBoost(cardIndex);
+                            beginSpeedBoost(holder.boundCardIndex);
                         }
                     });
                 dtGesture.setIsLongpressEnabled(true);
-                frameVideo.setOnTouchListener((v, ev) -> {
+                holder.frameVideo.setOnTouchListener((v, ev) -> {
                     boolean handled = dtGesture.onTouchEvent(ev);
                     int action = ev.getActionMasked();
                     if (action == MotionEvent.ACTION_UP
                             || action == MotionEvent.ACTION_CANCEL) {
                         // Releasing the finger always ends a boost, even when the
                         // detector itself consumed neither the up nor the cancel.
-                        endSpeedBoost(cardIndex);
+                        endSpeedBoost(holder.boundCardIndex);
                     }
                     return handled || action == MotionEvent.ACTION_DOWN;
                 });
+                holder.frameVideoGestureBound = true;
             }
             // Play overlay only shows when autoplay is off — tapping it now also
             // jumps straight to the fullscreen player (consistent with the video
             // area itself) instead of starting inline playback.
             if (playOverlay != null) {
-                playOverlay.setOnClickListener(x -> openReelWithContext(currentFeedPosts, reelId, reel.ownerName));
+                playOverlay.setOnClickListener(x -> openReelWithContext(currentFeedPosts, reelId, reel.ownerName,
+                    capturePreviewPositionMs(cardIndex)));
             }
         }
 
-        // ── Saved state ──
-        final boolean[] isSaved = {reel.reelId != null && savedIds.contains(reel.reelId)};
+        // ── Saved state — lives on the holder now (holder.boundIsSaved),
+        // same reasoning as boundIsLiked above. ──
+        holder.boundIsSaved = reel.reelId != null && savedIds.contains(reel.reelId);
         if (btnSave != null) {
-            btnSave.setImageResource(isSaved[0]
+            btnSave.setImageResource(holder.boundIsSaved
                 ? R.drawable.ic_bookmark_filled : R.drawable.ic_bookmark);
         }
 
@@ -5357,286 +6313,348 @@ public class HomeFragment extends Fragment {
 
         final String ownerUid = reel.uid;
 
-        // Tap thumbnail → open this specific reel in the player
-        ivThumb.setOnClickListener(x -> openReelWithContext(currentFeedPosts, reelId, reel.ownerName));
+        // ★ Instagram-level PERF (action-bar pass): every listener below —
+        // thumbnail tap, avatar tap, owner-name tap, like, comment (icon +
+        // count), repost, save, shares-count, send/share, and the "⋮" more
+        // menu — used to be a fresh lambda allocated on EVERY single bind,
+        // each one capturing that bind's reel/reelId/ownerUid/myUid/tvSends
+        // etc. via closure. Registered ONCE per physical holder now (see
+        // actionBarListenersBound on PostRowHolder); every listener below
+        // reads holder.boundReel / holder.boundMyUid — kept fresh by the
+        // cheap field writes in addFeedPostCard() — instead of a captured
+        // local, so a rebind is just those field writes, not N new
+        // allocations. Anything that's genuinely per-bind data (setText,
+        // visibility, image resource) still runs on every bind, unguarded,
+        // below this block exactly as before.
+        if (!holder.actionBarListenersBound) {
+            final TextView    tvLikesRef    = holder.tvLikes;
+            final TextView    tvCommentsRef = holder.tvComments;
+            final TextView    tvRepostsRef  = holder.tvReposts;
+            final ImageButton btnLikeRef    = holder.btnLike;
+            final ImageButton btnSaveRef    = holder.btnSave;
+            final View        btnSendRef    = holder.btnSend;
+            final View        btnMoreRef    = holder.btnMore;
+            final TextView    tvSendsRef    = holder.tvSends;
+            final CircleImageView avatarRef = holder.avatar;
 
-        // Avatar tap → open user's reel profile
-        avatar.setOnClickListener(x -> {
-            if (!isAdded() || getContext() == null) return;
-            Intent i = new Intent(getContext(), UserReelsActivity.class);
-            i.putExtra(UserReelsActivity.EXTRA_UID,   ownerUid);
-            i.putExtra(UserReelsActivity.EXTRA_NAME,  reel.ownerName);
-            i.putExtra(UserReelsActivity.EXTRA_PHOTO, reel.ownerPhoto);
-            startActivity(i);
-        });
+            // Tap thumbnail → open this specific reel in the player
+            holder.ivThumb.setOnClickListener(x -> {
+                ReelModel r = holder.boundReel;
+                if (r == null) return;
+                openReelWithContext(currentFeedPosts, r.reelId, r.ownerName);
+            });
 
-        // ── Like button ──
-        if (btnLike != null) {
-            btnLike.setOnClickListener(x -> {
-                if (myUid == null || reelId == null) return;
-                isLiked[0] = !isLiked[0];
-                if (isLiked[0]) {
-                    btnLike.setImageResource(R.drawable.ic_heart_filled);
-                    setLikeButtonTint(btnLike, true);
-                    FirebaseUtils.writeReelLike(reelId, myUid); // writes reelLikes timestamp + reelLikeMeta denormalized snapshot together
-                    FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId)
-                        .setValue(System.currentTimeMillis());
-                    // Optimistic UI count update
+            // Avatar tap → open user's reel profile
+            avatarRef.setOnClickListener(x -> {
+                ReelModel r = holder.boundReel;
+                if (!isAdded() || getContext() == null || r == null) return;
+                Intent i = new Intent(getContext(), UserReelsActivity.class);
+                i.putExtra(UserReelsActivity.EXTRA_UID,   r.uid);
+                i.putExtra(UserReelsActivity.EXTRA_NAME,  r.ownerName);
+                i.putExtra(UserReelsActivity.EXTRA_PHOTO, r.ownerPhoto);
+                startActivity(i);
+            });
+
+            // Owner-name tap: opens the collab initiator's profile for a
+            // legacy dual-author post, otherwise defers to the avatar tap —
+            // same two behaviors the per-bind version had, just resolved
+            // fresh off holder.boundReel at click time instead of being
+            // picked once, up front, at bind time.
+            if (holder.tvOwner != null) {
+                holder.tvOwner.setOnClickListener(x -> {
+                    ReelModel r = holder.boundReel;
+                    if (!isAdded() || getContext() == null || r == null) return;
+                    boolean isLegacyCollab = r.collabInitiatorUid != null && !r.collabInitiatorUid.isEmpty()
+                        && r.collabColaboratorUid != null && !r.collabColaboratorUid.isEmpty();
+                    if (isLegacyCollab) {
+                        Intent i = new Intent(getContext(), UserReelsActivity.class);
+                        i.putExtra(UserReelsActivity.EXTRA_UID,   r.collabInitiatorUid);
+                        i.putExtra(UserReelsActivity.EXTRA_NAME,  r.collabInitiatorName);
+                        i.putExtra(UserReelsActivity.EXTRA_PHOTO, r.collabInitiatorPhoto);
+                        startActivity(i);
+                    } else {
+                        avatarRef.performClick();
+                    }
+                });
+            }
+
+            // ── Like button ──
+            if (btnLikeRef != null) {
+                btnLikeRef.setOnClickListener(x -> {
+                    ReelModel r = holder.boundReel;
+                    String uid = holder.boundMyUid;
+                    if (uid == null || r == null || r.reelId == null) return;
+                    String rid = r.reelId;
+                    holder.boundIsLiked = !holder.boundIsLiked;
+                    if (holder.boundIsLiked) {
+                        btnLikeRef.setImageResource(R.drawable.ic_heart_filled);
+                        setLikeButtonTint(btnLikeRef, true);
+                        FirebaseUtils.writeReelLike(rid, uid); // writes reelLikes timestamp + reelLikeMeta denormalized snapshot together
+                        FirebaseUtils.getReelLikedByUserRef(uid).child(rid)
+                            .setValue(System.currentTimeMillis());
+                        // Optimistic UI count update
+                        try {
+                            int cur = Integer.parseInt(tvLikesRef.getText().toString()
+                                .replace("K", "000").replace("M", "000000"));
+                            tvLikesRef.setText(formatCount(cur + 1));
+                        } catch (Exception ignored) {}
+                    } else {
+                        btnLikeRef.setImageResource(R.drawable.ic_heart);
+                        setLikeButtonTint(btnLikeRef, false);
+                        FirebaseUtils.removeReelLike(rid, uid);
+                        FirebaseUtils.getReelLikedByUserRef(uid).child(rid).removeValue();
+                    }
+                });
+            }
+
+            // ── Comment button → open ReelCommentActivity ──
+            if (holder.btnComment != null) {
+                holder.btnComment.setOnClickListener(x -> openReelComments(holder));
+            }
+            // ── Comment COUNT tap → same destination as btnComment. Reuses
+            // the immersive player's pattern (ReelSocialController's
+            // tvCommentsCount.setOnClickListener → openCommentsSheet()) so
+            // tapping the number, not just the icon, opens comments here too.
+            if (tvCommentsRef != null) {
+                tvCommentsRef.setOnClickListener(x -> openReelComments(holder));
+            }
+
+            // ── Repost button — show options (Repost / Quote Repost / Undo) ──
+            if (holder.btnRepost != null) {
+                holder.btnRepost.setOnClickListener(x -> {
+                    ReelModel r = holder.boundReel;
+                    String uid = holder.boundMyUid;
+                    if (uid == null || r == null || r.reelId == null || !isAdded() || getContext() == null) return;
+                    final String rid = r.reelId;
+                    final String ownerUidNow = r.uid;
+                    if (uid.equals(ownerUidNow)) {
+                        Toast.makeText(requireContext(),
+                            "You can't repost your own reel", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    // Build options dialog
+                    String[] options = {"Repost", "Quote Repost"};
+                    AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                        .setTitle("Repost options")
+                        .setItems(options, (d, which) -> {
+                            if (which == 0) {
+                                // Instant repost
+                                performRepost(rid, ownerUidNow, r, uid, tvRepostsRef);
+                            } else {
+                                // Quote Repost — open share sheet pre-filled as quote
+                                try {
+                                    ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
+                                        rid,
+                                        r.videoUrl    != null ? r.videoUrl    : (r.video480 != null ? r.video480 : ""),
+                                        r.thumbUrl    != null ? r.thumbUrl    : "",
+                                        r.caption     != null ? r.caption     : "",
+                                        ownerUidNow   != null ? ownerUidNow   : "",
+                                        r.ownerName   != null ? r.ownerName   : "",
+                                        r.ownerPhoto  != null ? r.ownerPhoto  : "",
+                                        true
+                                    );
+                                    sheet.show(getChildFragmentManager(), "quote_sheet");
+                                } catch (Exception e) {
+                                    // Fallback: system share
+                                    Intent share = new Intent(Intent.ACTION_SEND);
+                                    share.setType("text/plain");
+                                    String quote = "\"" + (r.caption != null ? r.caption : "Check this out") + "\" — @" + r.ownerName + " https://callx.app/reel/" + rid;
+                                    share.putExtra(Intent.EXTRA_TEXT, quote);
+                                    startActivity(Intent.createChooser(share, "Quote Repost"));
+                                }
+                            }
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .create());
+                });
+            }
+
+            // ── Save button ──
+            if (btnSaveRef != null) {
+                btnSaveRef.setOnClickListener(x -> {
+                    ReelModel r = holder.boundReel;
+                    String uid = holder.boundMyUid;
+                    if (uid == null || r == null || r.reelId == null) return;
+                    String rid = r.reelId;
+                    holder.boundIsSaved = !holder.boundIsSaved;
+                    if (holder.boundIsSaved) {
+                        btnSaveRef.setImageResource(R.drawable.ic_bookmark_filled);
+                        FirebaseUtils.getReelSavesRef(uid).child(rid).setValue(true);
+                        FirebaseUtils.getReelSavesIndexRef(rid).child(uid).setValue(true);
+                        Toast.makeText(requireContext(), "Saved!", Toast.LENGTH_SHORT).show();
+                    } else {
+                        btnSaveRef.setImageResource(R.drawable.ic_bookmark);
+                        FirebaseUtils.getReelSavesRef(uid).child(rid).removeValue();
+                        FirebaseUtils.getReelSavesIndexRef(rid).child(uid).removeValue();
+                    }
+                });
+            }
+
+            // ── Shares count tap → shares bottom sheet, same
+            // ReelSharesBottomSheet the immersive player opens via
+            // ReelShareController.openSharesSheet() / same pattern as the
+            // tvComments count tap above. ──
+            if (tvSendsRef != null) {
+                tvSendsRef.setOnClickListener(x -> {
+                    ReelModel r = holder.boundReel;
+                    if (r == null || r.reelId == null) return;
+                    ReelSharesBottomSheet sheet = ReelSharesBottomSheet.newInstance(
+                        r.reelId, r.sharesCount, r.repostCount);
+                    sheet.show(getChildFragmentManager(), ReelSharesBottomSheet.TAG);
+                });
+            }
+
+            // ── Send / Share button — open ReelShareSheetFragment ──
+            if (btnSendRef != null) {
+                btnSendRef.setOnClickListener(x -> {
+                    ReelModel r = holder.boundReel;
+                    if (!isAdded() || getContext() == null || r == null || r.reelId == null) return;
                     try {
-                        int cur = Integer.parseInt(tvLikes.getText().toString()
-                            .replace("K", "000").replace("M", "000000"));
-                        tvLikes.setText(formatCount(cur + 1));
-                    } catch (Exception ignored) {}
-                } else {
-                    btnLike.setImageResource(R.drawable.ic_heart);
-                    setLikeButtonTint(btnLike, false);
-                    FirebaseUtils.removeReelLike(reelId, myUid);
-                    FirebaseUtils.getReelLikedByUserRef(myUid).child(reelId).removeValue();
-                }
-            });
-        }
+                        ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
+                            r.reelId,
+                            r.videoUrl  != null ? r.videoUrl  : (r.video480 != null ? r.video480 : ""),
+                            r.thumbUrl  != null ? r.thumbUrl  : "",
+                            r.caption   != null ? r.caption   : "",
+                            r.uid       != null ? r.uid       : "",
+                            r.ownerName != null ? r.ownerName : "",
+                            r.ownerPhoto != null ? r.ownerPhoto : "",
+                            true
+                        );
+                        sheet.show(getChildFragmentManager(), "share_sheet");
+                    } catch (Exception e) {
+                        // Fallback to system share if bottom sheet fails
+                        Intent share = new Intent(Intent.ACTION_SEND);
+                        share.setType("text/plain");
+                        share.putExtra(Intent.EXTRA_TEXT,
+                            "Check out this reel on CallX! @" + r.ownerName);
+                        startActivity(Intent.createChooser(share, "Share reel"));
+                    }
+                });
+            }
 
-        // ── Comment button → open ReelCommentActivity ──
-        if (btnComment != null) {
-            btnComment.setOnClickListener(x -> {
-                if (!isAdded() || getContext() == null || reelId == null) return;
-                Intent ci = new Intent(getContext(), ReelCommentActivity.class);
-                ci.putExtra(ReelCommentActivity.EXTRA_REEL_ID,  reelId);
-                ci.putExtra(ReelCommentActivity.EXTRA_REEL_UID, ownerUid != null ? ownerUid : "");
-                startActivity(ci);
-            });
-        }
-        // ── Comment COUNT tap → same destination as btnComment. Reuses
-        // the immersive player's pattern (ReelSocialController's
-        // tvCommentsCount.setOnClickListener → openCommentsSheet()) so
-        // tapping the number, not just the icon, opens comments here too.
-        if (tvComments != null) {
-            tvComments.setOnClickListener(x -> {
-                if (!isAdded() || getContext() == null || reelId == null) return;
-                Intent ci = new Intent(getContext(), ReelCommentActivity.class);
-                ci.putExtra(ReelCommentActivity.EXTRA_REEL_ID,  reelId);
-                ci.putExtra(ReelCommentActivity.EXTRA_REEL_UID, ownerUid != null ? ownerUid : "");
-                startActivity(ci);
-            });
-        }
-
-        // ── Repost button — show options (Repost / Quote Repost / Undo) ──
-        if (btnRepost != null) {
-            btnRepost.setOnClickListener(x -> {
-                if (myUid == null || reelId == null || !isAdded() || getContext() == null) return;
-                if (myUid.equals(ownerUid)) {
-                    Toast.makeText(requireContext(),
-                        "You can't repost your own reel", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                // Build options dialog
-                String[] options = {"Repost", "Quote Repost"};
-                AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                    .setTitle("Repost options")
-                    .setItems(options, (d, which) -> {
-                        if (which == 0) {
-                            // Instant repost
-                            performRepost(reelId, ownerUid, reel, myUid, tvReposts);
-                        } else {
-                            // Quote Repost — open share sheet pre-filled as quote
-                            try {
-                                ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
-                                    reelId,
-                                    reel.videoUrl    != null ? reel.videoUrl    : (reel.video480 != null ? reel.video480 : ""),
-                                    reel.thumbUrl    != null ? reel.thumbUrl    : "",
-                                    reel.caption     != null ? reel.caption     : "",
-                                    ownerUid         != null ? ownerUid         : "",
-                                    reel.ownerName   != null ? reel.ownerName   : "",
-                                    reel.ownerPhoto  != null ? reel.ownerPhoto  : "",
-                                    true
-                                );
-                                sheet.show(getChildFragmentManager(), "quote_sheet");
-                            } catch (Exception e) {
-                                // Fallback: system share
-                                Intent share = new Intent(Intent.ACTION_SEND);
-                                share.setType("text/plain");
-                                String quote = "\"" + (reel.caption != null ? reel.caption : "Check this out") + "\" — @" + reel.ownerName + " https://callx.app/reel/" + reelId;
-                                share.putExtra(Intent.EXTRA_TEXT, quote);
-                                startActivity(Intent.createChooser(share, "Quote Repost"));
-                            }
-                        }
-                    })
-                    .setNegativeButton("Cancel", null)
-                    .create());
-            });
-        }
-
-        // ── Save button ──
-        if (btnSave != null) {
-            btnSave.setOnClickListener(x -> {
-                if (myUid == null || reelId == null) return;
-                isSaved[0] = !isSaved[0];
-                if (isSaved[0]) {
-                    btnSave.setImageResource(R.drawable.ic_bookmark_filled);
-                    FirebaseUtils.getReelSavesRef(myUid).child(reelId).setValue(true);
-                    FirebaseUtils.getReelSavesIndexRef(reelId).child(myUid).setValue(true);
-                    Toast.makeText(requireContext(), "Saved!", Toast.LENGTH_SHORT).show();
-                } else {
-                    btnSave.setImageResource(R.drawable.ic_bookmark);
-                    FirebaseUtils.getReelSavesRef(myUid).child(reelId).removeValue();
-                    FirebaseUtils.getReelSavesIndexRef(reelId).child(myUid).removeValue();
-                }
-            });
-        }
-
-        // ── Shares count tap → shares bottom sheet, same
-        // ReelSharesBottomSheet the immersive player opens via
-        // ReelShareController.openSharesSheet() / same pattern as the
-        // tvComments count tap above. ──
-        TextView tvSends = holder.tvSends;
-        if (tvSends != null) {
-            tvSends.setText(formatCount(reel.sharesCount));
-            tvSends.setOnClickListener(x -> {
-                if (reelId == null) return;
-                ReelSharesBottomSheet sheet = ReelSharesBottomSheet.newInstance(
-                    reelId, reel.sharesCount, reel.repostCount);
-                sheet.show(getChildFragmentManager(), ReelSharesBottomSheet.TAG);
-            });
-        }
-
-        // ── Send / Share button — open ReelShareSheetFragment ──
-        View btnSend = holder.btnSend;
-        if (btnSend != null) {
-            btnSend.setOnClickListener(x -> {
-                if (!isAdded() || getContext() == null || reelId == null) return;
-                try {
-                    ReelShareSheetFragment sheet = ReelShareSheetFragment.newInstance(
-                        reelId,
-                        reel.videoUrl  != null ? reel.videoUrl  : (reel.video480 != null ? reel.video480 : ""),
-                        reel.thumbUrl  != null ? reel.thumbUrl  : "",
-                        reel.caption   != null ? reel.caption   : "",
-                        ownerUid       != null ? ownerUid       : "",
-                        reel.ownerName != null ? reel.ownerName : "",
-                        reel.ownerPhoto != null ? reel.ownerPhoto : "",
-                        true
-                    );
-                    sheet.show(getChildFragmentManager(), "share_sheet");
-                } catch (Exception e) {
-                    // Fallback to system share if bottom sheet fails
-                    Intent share = new Intent(Intent.ACTION_SEND);
-                    share.setType("text/plain");
-                    share.putExtra(Intent.EXTRA_TEXT,
-                        "Check out this reel on CallX! @" + reel.ownerName);
-                    startActivity(Intent.createChooser(share, "Share reel"));
-                }
-            });
-        }
-
-        // ── More options (⋮) button ──
-        View btnMore = holder.btnMore;
-        if (btnMore != null) {
-            btnMore.setOnClickListener(x -> {
-                if (!isAdded() || getContext() == null) return;
-                PopupMenu popup = new PopupMenu(requireContext(), btnMore);
-                popup.getMenu().add(0, 1, 0, "Not interested");
-                popup.getMenu().add(0, 2, 0, "Report");
-                popup.getMenu().add(0, 3, 0, "Copy link");
-                if (myUid != null && !myUid.equals(ownerUid)) {
-                    popup.getMenu().add(0, 4, 0, "Mute @" + (reel.ownerName != null ? reel.ownerName : "user"));
-                    popup.getMenu().add(0, 5, 0, "Block");
-                }
-                popup.getMenu().add(0, 6, 0, "Open original");
-                // Reuses the same ReelOfflineManager the Reels swipe feed's
-                // "more" sheet calls (ReelPlayerController.saveReelOffline) —
-                // same singleton cache, so a reel saved from either tab is
-                // available offline in both.
-                popup.getMenu().add(0, 7, 0, "Save for offline");
-                 popup.getMenu().add(0, 8, 0, "Share to Story");
-                 popup.getMenu().add(0, 9, 0, "Share to Close Friends Story");
-                 if ((reel.videoUrl != null && !reel.videoUrl.isEmpty())
-                         || (reel.video480 != null && !reel.video480.isEmpty())) {
-                     popup.getMenu().add(0, 10, 0, "Remix this reel");
-                 }
-                popup.setOnMenuItemClickListener(item -> {
-                    switch (item.getItemId()) {
-                        case 1: // Not interested — remove from feed optimistically
-                            removeFeedRowByReelId(reelId);
-                            if (myUid != null && reelId != null) {
-                                FirebaseUtils.db().getReference("userNotInterested")
-                                    .child(myUid).child(reelId).setValue(true);
-                            }
-                            return true;
-                        case 2: // Report
-                            if (myUid == null || reelId == null) return true;
-                            String[] reportReasons = {"Spam", "Inappropriate content",
-                                "Harassment", "Misinformation", "Kuch aur"};
-                            AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                                .setTitle("Report this reel")
-                                .setItems(reportReasons, (d, which) -> {
-                                    String reportKey = FirebaseUtils.db()
-                                        .getReference("reelReports").child(reelId).push().getKey();
-                                    if (reportKey != null) {
-                                        Map<String, Object> report = new HashMap<>();
-                                        report.put("reporterUid", myUid);
-                                        report.put("reelId",      reelId);
-                                        report.put("ownerUid",    ownerUid != null ? ownerUid : "");
-                                        report.put("reason",      reportReasons[which]);
-                                        report.put("timestamp",   System.currentTimeMillis());
-                                        FirebaseUtils.db().getReference("reelReports")
-                                            .child(reelId).child(reportKey).setValue(report);
-                                    }
-                                    Toast.makeText(requireContext(),
-                                        "Report submitted — thanks!", Toast.LENGTH_SHORT).show();
-                                })
-                                .setNegativeButton("Cancel", null).create());
-                            return true;
-                        case 3: // Copy link
-                            ClipboardManager clipboard = (ClipboardManager)
-                                requireContext().getSystemService(Context.CLIPBOARD_SERVICE);
-                            if (clipboard != null) {
-                                String link = "https://callx.app/reel/" + reelId;
-                                clipboard.setPrimaryClip(ClipData.newPlainText("Reel link", link));
-                                Toast.makeText(requireContext(),
-                                    "Link copied!", Toast.LENGTH_SHORT).show();
-                            }
-                            return true;
-                        case 4: // Mute
-                            if (myUid != null && ownerUid != null) {
-                                FirebaseUtils.db().getReference("muted")
-                                    .child(myUid).child(ownerUid).setValue(true);
-                                Toast.makeText(requireContext(),
-                                    "Muted @" + reel.ownerName, Toast.LENGTH_SHORT).show();
-                            }
-                            return true;
-                        case 5: // Block
-                            if (myUid != null && ownerUid != null) {
+            // ── More options (⋮) button ──
+            if (btnMoreRef != null) {
+                btnMoreRef.setOnClickListener(x -> {
+                    ReelModel r = holder.boundReel;
+                    String uid = holder.boundMyUid;
+                    if (!isAdded() || getContext() == null || r == null) return;
+                    final String rid = r.reelId;
+                    final String ownerUidNow = r.uid;
+                    PopupMenu popup = new PopupMenu(requireContext(), btnMoreRef);
+                    popup.getMenu().add(0, 1, 0, "Not interested");
+                    popup.getMenu().add(0, 2, 0, "Report");
+                    popup.getMenu().add(0, 3, 0, "Copy link");
+                    if (uid != null && !uid.equals(ownerUidNow)) {
+                        popup.getMenu().add(0, 4, 0, "Mute @" + (r.ownerName != null ? r.ownerName : "user"));
+                        popup.getMenu().add(0, 5, 0, "Block");
+                    }
+                    popup.getMenu().add(0, 6, 0, "Open original");
+                    // Reuses the same ReelOfflineManager the Reels swipe feed's
+                    // "more" sheet calls (ReelPlayerController.saveReelOffline) —
+                    // same singleton cache, so a reel saved from either tab is
+                    // available offline in both.
+                    popup.getMenu().add(0, 7, 0, "Save for offline");
+                    popup.getMenu().add(0, 8, 0, "Share to Story");
+                    popup.getMenu().add(0, 9, 0, "Share to Close Friends Story");
+                    if ((r.videoUrl != null && !r.videoUrl.isEmpty())
+                            || (r.video480 != null && !r.video480.isEmpty())) {
+                        popup.getMenu().add(0, 10, 0, "Remix this reel");
+                    }
+                    popup.setOnMenuItemClickListener(item -> {
+                        switch (item.getItemId()) {
+                            case 1: // Not interested — remove from feed optimistically
+                                removeFeedRowByReelId(rid);
+                                if (uid != null && rid != null) {
+                                    FirebaseUtils.db().getReference("userNotInterested")
+                                        .child(uid).child(rid).setValue(true);
+                                }
+                                return true;
+                            case 2: // Report
+                                if (uid == null || rid == null) return true;
+                                String[] reportReasons = {"Spam", "Inappropriate content",
+                                    "Harassment", "Misinformation", "Kuch aur"};
                                 AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                                    .setTitle("Block @" + reel.ownerName + "?")
-                                    .setMessage("They won't be able to find your profile or reels.")
-                                    .setPositiveButton("Block", (d, w) -> {
-                                        FirebaseUtils.getBlocksRef(myUid).child(ownerUid).setValue(true);
-                                        removeFeedRowByReelId(reelId);
+                                    .setTitle("Report this reel")
+                                    .setItems(reportReasons, (d, which) -> {
+                                        String reportKey = FirebaseUtils.db()
+                                            .getReference("reelReports").child(rid).push().getKey();
+                                        if (reportKey != null) {
+                                            Map<String, Object> report = new HashMap<>();
+                                            report.put("reporterUid", uid);
+                                            report.put("reelId",      rid);
+                                            report.put("ownerUid",    ownerUidNow != null ? ownerUidNow : "");
+                                            report.put("reason",      reportReasons[which]);
+                                            report.put("timestamp",   System.currentTimeMillis());
+                                            FirebaseUtils.db().getReference("reelReports")
+                                                .child(rid).child(reportKey).setValue(report);
+                                        }
                                         Toast.makeText(requireContext(),
-                                            "Blocked", Toast.LENGTH_SHORT).show();
+                                            "Report submitted — thanks!", Toast.LENGTH_SHORT).show();
                                     })
                                     .setNegativeButton("Cancel", null).create());
-                            }
-                            return true;
-                        case 6: // Open original
-                            openReelWithContext(currentFeedPosts, reelId, reel.ownerName);
-                            return true;
-                        case 7: // Save for offline
-                            saveHomeReelOffline(reel);
-                            return true;
-                         case 8:
-                             launchHomeStoryShare(reel, false);
-                             return true;
-                         case 9:
-                             launchHomeStoryShare(reel, true);
-                             return true;
-                         case 10:
-                             launchHomeRemix(reel);
-                             return true;
-                    }
-                    return false;
+                                return true;
+                            case 3: // Copy link
+                                ClipboardManager clipboard = (ClipboardManager)
+                                    requireContext().getSystemService(Context.CLIPBOARD_SERVICE);
+                                if (clipboard != null) {
+                                    String link = "https://callx.app/reel/" + rid;
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Reel link", link));
+                                    Toast.makeText(requireContext(),
+                                        "Link copied!", Toast.LENGTH_SHORT).show();
+                                }
+                                return true;
+                            case 4: // Mute
+                                if (uid != null && ownerUidNow != null) {
+                                    FirebaseUtils.db().getReference("muted")
+                                        .child(uid).child(ownerUidNow).setValue(true);
+                                    Toast.makeText(requireContext(),
+                                        "Muted @" + r.ownerName, Toast.LENGTH_SHORT).show();
+                                }
+                                return true;
+                            case 5: // Block
+                                if (uid != null && ownerUidNow != null) {
+                                    AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                                        .setTitle("Block @" + r.ownerName + "?")
+                                        .setMessage("They won't be able to find your profile or reels.")
+                                        .setPositiveButton("Block", (d, w) -> {
+                                            FirebaseUtils.getBlocksRef(uid).child(ownerUidNow).setValue(true);
+                                            removeFeedRowByReelId(rid);
+                                            Toast.makeText(requireContext(),
+                                                "Blocked", Toast.LENGTH_SHORT).show();
+                                        })
+                                        .setNegativeButton("Cancel", null).create());
+                                }
+                                return true;
+                            case 6: // Open original
+                                openReelWithContext(currentFeedPosts, rid, r.ownerName);
+                                return true;
+                            case 7: // Save for offline
+                                saveHomeReelOffline(r);
+                                return true;
+                            case 8:
+                                launchHomeStoryShare(r, false);
+                                return true;
+                            case 9:
+                                launchHomeStoryShare(r, true);
+                                return true;
+                            case 10:
+                                launchHomeRemix(r);
+                                return true;
+                        }
+                        return false;
+                    });
+                    popup.show();
                 });
-                popup.show();
-            });
+            }
+
+            holder.actionBarListenersBound = true;
+        }
+
+        // tvSends' COUNT text is genuinely per-bind data (changes with the
+        // reel), so it's still refreshed on every bind, unguarded — only
+        // the listener above was the one-time part.
+        if (holder.tvSends != null) {
+            holder.tvSends.setText(formatCount(reel.sharesCount));
         }
 
         // ★ Register with the off-screen media windower BEFORE the card is
@@ -5656,27 +6674,75 @@ public class HomeFragment extends Fragment {
         if (holder == null || reel == null) return;
         TextView likedBy = holder.tvLikedBy;
         TextView commentPreview = holder.tvCommentPreview;
+        // PERF: likedBy/commentPreview/tvTranslate listeners used to be a
+        // fresh lambda (capturing that bind's `reel`) allocated on EVERY
+        // bind. Registered ONCE per physical holder now — reads
+        // holder.boundReel at click time instead, same pattern as the
+        // action-bar buttons in addFeedPostCard(). clickListenersBound is
+        // already true by the time this method is called on the 2nd+ bind
+        // of a given holder (it's flipped true earlier in the very first
+        // bind's addFeedPostCard() call), so this correctly registers once.
+        boolean registerOnce = !holder.clickListenersBound;
         if (likedBy != null) {
-            likedBy.setVisibility(View.GONE);
-            likedBy.setText("");
-            likedBy.setOnClickListener(v -> openLikes(reel));
+            if (registerOnce) {
+                likedBy.setOnClickListener(v -> {
+                    ReelModel currentReel = holder.boundReel;
+                    if (currentReel != null) openLikes(currentReel);
+                });
+            }
+            // ★ Instagram-level PERF: this used to setVisibility(GONE) +
+            // setText("") unconditionally on EVERY bind, then always fire a
+            // fresh reelLikeMeta network read a few lines below — even when
+            // the exact same reel was just rebinding onto this same holder
+            // (a like-tap's notifyItemChanged, or scrolling a half-screen
+            // and back). Now: same reel as last time this holder fetched →
+            // reapply the cached label instead of re-clearing + re-fetching;
+            // different reel → clear now, fetch runs further down.
+            boolean sameLikedByReel = reel.reelId != null && reel.reelId.equals(holder.lastLikedByReelId);
+            if (sameLikedByReel) {
+                if (holder.lastLikedByLabel != null) {
+                    likedBy.setText(holder.lastLikedByLabel);
+                    likedBy.setVisibility(View.VISIBLE);
+                } else {
+                    likedBy.setVisibility(View.GONE);
+                }
+            } else {
+                likedBy.setVisibility(View.GONE);
+                likedBy.setText("");
+            }
         }
         if (commentPreview != null) {
             commentPreview.setVisibility(View.GONE);
             commentPreview.setText("");
-            commentPreview.setOnClickListener(v -> openCommentsForCard(reel));
+            if (registerOnce) {
+                commentPreview.setOnClickListener(v -> {
+                    ReelModel currentReel = holder.boundReel;
+                    if (currentReel != null) openCommentsForCard(currentReel);
+                });
+            }
         }
 
+        // PERF: no more removeAllViews() here — bindTaggedPeople()/
+        // bindProductTags() now reuse a per-holder pill POOL (create once,
+        // refresh text/tag/visibility on every bind) instead of tearing the
+        // whole row down and reinflating it from scratch every single bind.
+        // Each of those two methods hides any pool pills it doesn't need
+        // for THIS reel, so nothing stale from a previous, longer row stays
+        // visible; the rows still start hidden here and only reappear once
+        // bindTaggedPeople()/bindProductTags() actually populate a pill.
         if (holder.scrollTaggedPeople != null) holder.scrollTaggedPeople.setVisibility(View.GONE);
-        if (holder.layoutTaggedPeople != null) holder.layoutTaggedPeople.removeAllViews();
         if (holder.scrollProductTags != null) holder.scrollProductTags.setVisibility(View.GONE);
-        if (holder.layoutProductTags != null) holder.layoutProductTags.removeAllViews();
 
         if (holder.tvTranslate != null) {
             boolean hasCaption = reel.caption != null && !reel.caption.trim().isEmpty();
             holder.tvTranslate.setVisibility(hasCaption ? View.VISIBLE : View.GONE);
             holder.tvTranslate.setText("See translation");
-            holder.tvTranslate.setOnClickListener(v -> showCaptionLanguageChooser(holder, reel));
+            if (registerOnce) {
+                holder.tvTranslate.setOnClickListener(v -> {
+                    ReelModel currentReel = holder.boundReel;
+                    if (currentReel != null) showCaptionLanguageChooser(holder, currentReel);
+                });
+            }
         }
         if (holder.tvTranslation != null) {
             holder.tvTranslation.setVisibility(View.GONE);
@@ -5686,7 +6752,13 @@ public class HomeFragment extends Fragment {
         // Social proof: reelLikeMeta contains the denormalized display name
         // written by FirebaseUtils.writeReelLike(). It avoids one user read
         // per card and naturally handles legacy likes with no metadata.
-        if (reel.reelId != null && !reel.reelId.isEmpty() && likedBy != null) {
+        //
+        // ★ Instagram-level PERF: skip the read entirely when this holder
+        // already fetched it for THIS exact reel (holder.lastLikedByReelId
+        // guard above already reapplied the cached label in that case) —
+        // same "same-URL skip" principle as the thumb/avatar Glide loads.
+        if (reel.reelId != null && !reel.reelId.isEmpty() && likedBy != null
+                && !reel.reelId.equals(holder.lastLikedByReelId)) {
             FirebaseUtils.getReelLikeMetaRef(reel.reelId).limitToFirst(2)
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot s) {
@@ -5697,10 +6769,15 @@ public class HomeFragment extends Fragment {
                             if (n == null || n.trim().isEmpty()) n = child.child("username").getValue(String.class);
                             if (n != null && !n.trim().isEmpty()) names.add(n.trim());
                         }
-                        if (names.isEmpty()) return;
+                        holder.lastLikedByReelId = reel.reelId;
+                        if (names.isEmpty()) {
+                            holder.lastLikedByLabel = null;
+                            return;
+                        }
                         String label = names.size() == 1
                             ? "Liked by " + names.get(0) + " and others"
                             : "Liked by " + names.get(0) + ", " + names.get(1) + " and others";
+                        holder.lastLikedByLabel = label;
                         likedBy.setText(label);
                         likedBy.setVisibility(View.VISIBLE);
                     }
@@ -5716,21 +6793,40 @@ public class HomeFragment extends Fragment {
                 commentPreview.setText("💬 " + (author.isEmpty() ? "" : author + ": ") +
                     reel.pinnedCommentText.trim());
                 commentPreview.setVisibility(View.VISIBLE);
+                // Pinned path is synchronous (no network read), so it never
+                // needs the fetch-cache below — invalidate it so a LATER
+                // reel that lacks a pinned comment doesn't wrongly reuse a
+                // stale fetched value from a much earlier bind.
+                holder.lastCommentPreviewReelId = null;
             } else if (reel.reelId != null && !reel.reelId.isEmpty()) {
-                FirebaseUtils.getReelCommentsRef(reel.reelId).orderByKey().limitToLast(1)
-                    .addListenerForSingleValueEvent(new ValueEventListener() {
-                        @Override public void onDataChange(@NonNull DataSnapshot s) {
-                            if (holder.boundReel != reel || !isAdded()) return;
-                            for (DataSnapshot child : s.getChildren()) {
-                                String text = child.child("text").getValue(String.class);
-                                if (text == null || text.trim().isEmpty()) continue;
-                                String author = child.child("ownerName").getValue(String.class);
-                                commentPreview.setText("💬 " + (author == null || author.isEmpty() ? "" : author + ": ") + text.trim());
-                                commentPreview.setVisibility(View.VISIBLE);
+                // ★ Instagram-level PERF: same same-reel skip as likedBy
+                // above — reuse the cached comment text/visibility instead
+                // of re-hitting Firebase on a rebind of the same reel.
+                if (reel.reelId.equals(holder.lastCommentPreviewReelId)) {
+                    if (holder.lastCommentPreviewText != null) {
+                        commentPreview.setText(holder.lastCommentPreviewText);
+                        commentPreview.setVisibility(View.VISIBLE);
+                    }
+                } else {
+                    FirebaseUtils.getReelCommentsRef(reel.reelId).orderByKey().limitToLast(1)
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override public void onDataChange(@NonNull DataSnapshot s) {
+                                if (holder.boundReel != reel || !isAdded()) return;
+                                holder.lastCommentPreviewReelId = reel.reelId;
+                                holder.lastCommentPreviewText = null;
+                                for (DataSnapshot child : s.getChildren()) {
+                                    String text = child.child("text").getValue(String.class);
+                                    if (text == null || text.trim().isEmpty()) continue;
+                                    String author = child.child("ownerName").getValue(String.class);
+                                    String label = "💬 " + (author == null || author.isEmpty() ? "" : author + ": ") + text.trim();
+                                    holder.lastCommentPreviewText = label;
+                                    commentPreview.setText(label);
+                                    commentPreview.setVisibility(View.VISIBLE);
+                                }
                             }
-                        }
-                        @Override public void onCancelled(@NonNull DatabaseError e) {}
-                    });
+                            @Override public void onCancelled(@NonNull DatabaseError e) {}
+                        });
+                }
             }
         }
 
@@ -5738,52 +6834,109 @@ public class HomeFragment extends Fragment {
         bindProductTags(holder, reel);
     }
 
+    /** Shared by btnComment and the comment-COUNT tap (tvComments) — both
+     *  open the same ReelCommentActivity for whatever reel is CURRENTLY
+     *  bound to this holder. Pulled out so the two once-registered
+     *  listeners don't each need their own copy of this logic. */
+    private void openReelComments(PostRowHolder holder) {
+        ReelModel r = holder.boundReel;
+        if (!isAdded() || getContext() == null || r == null || r.reelId == null) return;
+        Intent ci = new Intent(getContext(), ReelCommentActivity.class);
+        ci.putExtra(ReelCommentActivity.EXTRA_REEL_ID,  r.reelId);
+        ci.putExtra(ReelCommentActivity.EXTRA_REEL_UID, r.uid != null ? r.uid : "");
+        startActivity(ci);
+    }
+
+    /** Returns the pool pill at `index`, creating (and adding to `container`
+     *  + registering `sharedClickListener` on) a new one only the FIRST time
+     *  that index is needed for this physical holder — every later bind that
+     *  needs `index` again just gets the same View back, still attached,
+     *  still listening. This is the same "cache-the-view, refresh-the-data"
+     *  principle as PostRowHolder.cacheViews(), applied to a variable-length
+     *  row of chips instead of a fixed set of fields. */
+    private TextView obtainPoolPill(java.util.List<TextView> pool, LinearLayout container,
+                                     int index, View.OnClickListener sharedClickListener) {
+        if (index < pool.size()) return pool.get(index);
+        TextView pill = metadataPill("");
+        pill.setOnClickListener(sharedClickListener);
+        pool.add(pill);
+        container.addView(pill);
+        return pill;
+    }
+
     private void bindTaggedPeople(PostRowHolder holder, ReelModel reel) {
-        if (holder.layoutTaggedPeople == null || reel.taggedPeopleUids == null) return;
-        int max = Math.min(5, reel.taggedPeopleUids.size());
+        if (holder.layoutTaggedPeople == null) return;
+        java.util.List<String> uids = reel.taggedPeopleUids;
+        int max = uids == null ? 0 : Math.min(5, uids.size());
+        int used = 0;
         for (int i = 0; i < max; i++) {
-            String uid = reel.taggedPeopleUids.get(i);
+            String uid = uids.get(i);
             if (uid == null || uid.trim().isEmpty()) continue;
-            final TextView pill = metadataPill("…");
+            final TextView pill = obtainPoolPill(holder.taggedPeoplePillPool,
+                holder.layoutTaggedPeople, used, taggedPersonPillClickListener);
             pill.setTag(uid);
-            holder.layoutTaggedPeople.addView(pill);
+            pill.setVisibility(View.VISIBLE);
             if (holder.scrollTaggedPeople != null) holder.scrollTaggedPeople.setVisibility(View.VISIBLE);
-            FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot s) {
-                    if (holder.boundReel != reel || !isAdded()) return;
-                    String name = s.child("username").getValue(String.class);
-                    if (name == null || name.isEmpty()) name = s.child("handle").getValue(String.class);
-                    if (name == null || name.isEmpty()) name = s.child("name").getValue(String.class);
-                    pill.setText("@" + (name == null || name.isEmpty() ? "user" : name));
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
-            pill.setOnClickListener(v -> openUserProfile(uid));
+            // ★ Instagram-level PERF: this used to fire a fresh
+            // getUserRef(uid) network read for EVERY tagged pill on EVERY
+            // single bind — even though the same person is tagged across
+            // many different reels, and the same reel rebinds on the same
+            // holder repeatedly while scrolling. Resolved names basically
+            // never change mid-session, so check the fragment-level
+            // taggedUserNameCache first; only hit Firebase on a genuine
+            // cache miss (first time this user is ever seen this session).
+            String cached = taggedUserNameCache.get(uid);
+            if (cached != null) {
+                pill.setText(cached);
+            } else {
+                pill.setText("…");
+                FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot s) {
+                        String name = s.child("username").getValue(String.class);
+                        if (name == null || name.isEmpty()) name = s.child("handle").getValue(String.class);
+                        if (name == null || name.isEmpty()) name = s.child("name").getValue(String.class);
+                        String label = "@" + (name == null || name.isEmpty() ? "user" : name);
+                        taggedUserNameCache.put(uid, label);
+                        // Bail on applying to the VIEW if this holder moved on to a
+                        // different reel, OR this exact pool slot got reused for a
+                        // different tag, while the Firebase read was in flight — the
+                        // cache write above still happens either way.
+                        if (holder.boundReel != reel || !isAdded() || !uid.equals(pill.getTag())) return;
+                        pill.setText(label);
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                });
+            }
+            used++;
+        }
+        // Any pool pills left over from a previous, longer-tagged reel that
+        // landed on this same physical holder — hide, don't destroy, so
+        // they're ready to reuse the next time a reel needs that many.
+        for (int i = used; i < holder.taggedPeoplePillPool.size(); i++) {
+            holder.taggedPeoplePillPool.get(i).setVisibility(View.GONE);
         }
     }
 
     private void bindProductTags(PostRowHolder holder, ReelModel reel) {
-        if (holder.layoutProductTags == null || reel.productTags == null) return;
-        for (ReelModel.ProductTag product : reel.productTags) {
-            if (product == null || product.name == null || product.name.trim().isEmpty()) continue;
-            String label = "🛍 " + product.name.trim();
-            if (product.price != null && !product.price.trim().isEmpty()) label += " · " + product.price.trim();
-            TextView pill = metadataPill(label);
-            holder.layoutProductTags.addView(pill);
-            if (holder.scrollProductTags != null) holder.scrollProductTags.setVisibility(View.VISIBLE);
-            pill.setOnClickListener(v -> {
-                if (product.productUrl != null && !product.productUrl.trim().isEmpty()) {
-                    try {
-                        startActivity(new Intent(Intent.ACTION_VIEW,
-                            android.net.Uri.parse(product.productUrl.trim())));
-                    } catch (Exception e) {
-                        Toast.makeText(requireContext(), "Couldn't open product link",
-                            Toast.LENGTH_SHORT).show();
-                    }
-                } else {
-                    Toast.makeText(requireContext(), product.name, Toast.LENGTH_SHORT).show();
-                }
-            });
+        if (holder.layoutProductTags == null) return;
+        java.util.List<ReelModel.ProductTag> products = reel.productTags;
+        int used = 0;
+        if (products != null) {
+            for (ReelModel.ProductTag product : products) {
+                if (product == null || product.name == null || product.name.trim().isEmpty()) continue;
+                TextView pill = obtainPoolPill(holder.productTagPillPool,
+                    holder.layoutProductTags, used, productTagPillClickListener);
+                String label = "🛍 " + product.name.trim();
+                if (product.price != null && !product.price.trim().isEmpty()) label += " · " + product.price.trim();
+                pill.setText(label);
+                pill.setTag(product);
+                pill.setVisibility(View.VISIBLE);
+                if (holder.scrollProductTags != null) holder.scrollProductTags.setVisibility(View.VISIBLE);
+                used++;
+            }
+        }
+        for (int i = used; i < holder.productTagPillPool.size(); i++) {
+            holder.productTagPillPool.get(i).setVisibility(View.GONE);
         }
     }
 
@@ -6120,6 +7273,22 @@ public class HomeFragment extends Fragment {
         openReelWithContext(null, reelId, ownerName);
     }
 
+    /** Returns how far (ms) the given card's inline preview has actually
+     *  played right now — only meaningful when the SHARED feedPlayer is
+     *  currently attached to that exact card (feedPlayer plays at most one
+     *  card at a time; every other card is just a static thumbnail). Returns
+     *  0 for any other card, or if nothing is attached/playing yet — which
+     *  correctly falls back to a normal from-the-start open. */
+    private long capturePreviewPositionMs(int cardIndex) {
+        if (feedPlayer == null || cardIndex != currentPlayingIndex) return 0;
+        try {
+            long pos = feedPlayer.getCurrentPosition();
+            return pos > 0 ? pos : 0;
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
     /** Opens SingleReelPlayerActivity with the full ordered list of reel IDs
      *  the tapped reel was part of (contextList), starting at that reel's
      *  position — so scrolling down in the fullscreen player keeps advancing
@@ -6129,7 +7298,30 @@ public class HomeFragment extends Fragment {
      *                     tapped from; pass null (or empty) to fall back to
      *                     a single-item list when no such list exists. */
     private void openReelWithContext(List<ReelModel> contextList, String reelId, String ownerName) {
+        openReelWithContext(contextList, reelId, ownerName, 0);
+    }
+
+    /** Same as {@link #openReelWithContext(List, String, String)}, plus an
+     *  Instagram-style resume position: when the tapped card's inline
+     *  preview had already played {@code resumeAtMs} into the video,
+     *  the fullscreen player picks up from exactly there instead of
+     *  restarting at 0. Pass 0 for a normal open (thumbnail tap before
+     *  playback started, etc.). */
+    private void openReelWithContext(List<ReelModel> contextList, String reelId, String ownerName, long resumeAtMs) {
         if (!isAdded() || getContext() == null || reelId == null) return;
+
+        // Stamp the resume position onto the exact ReelModel instance that's
+        // about to be primed into ReelModelCache below — SingleReelPlayerActivity
+        // reads this same object back out of that cache, so the value survives
+        // the activity hop without needing its own Intent extra.
+        if (resumeAtMs > 0 && contextList != null) {
+            for (ReelModel r : contextList) {
+                if (r != null && reelId.equals(r.reelId)) {
+                    r.pendingStartPositionMs = resumeAtMs;
+                    break;
+                }
+            }
+        }
 
         // PERF: prime the shared in-memory ReelModelCache with every
         // ReelModel we already have in hand right now — HomeFragment fetched
@@ -6195,42 +7387,97 @@ public class HomeFragment extends Fragment {
             });
     }
 
+    /** Cached child-view refs + click-target state for one pooled Trending
+     *  card — see obtainTrendingCard(). The click listener is registered
+     *  once per pooled card and reads reelId/ownerName/rowContext off THIS
+     *  tag at click time, same allocation-free rule as
+     *  SuggestedCreatorCardTag. */
+    private static class TrendingCardTag {
+        ImageView thumb;
+        TextView tvLikes, tvOwner;
+        String reelId, ownerName;
+        List<ReelModel> rowContext;
+    }
+
+    /** Returns the pooled Trending card at index i, inflating (and adding to
+     *  containerTrending) a new one only the first time this index is
+     *  needed. Child-view lookups + the click listener are done exactly
+     *  once per index for the life of the fragment; every later refresh
+     *  only updates text/image/tag on the SAME View. */
+    private View obtainTrendingCard(int index) {
+        if (index < trendingCardPool.size()) return trendingCardPool.get(index);
+
+        View card = LayoutInflater.from(requireContext())
+            .inflate(R.layout.item_home_trending, containerTrending, false);
+        TrendingCardTag tag = new TrendingCardTag();
+        tag.thumb   = card.findViewById(R.id.iv_trending_thumb);
+        tag.tvLikes = card.findViewById(R.id.tv_trending_likes);
+        tag.tvOwner = card.findViewById(R.id.tv_trending_owner);
+        card.setTag(tag);
+
+        // ✅ Open specific reel in the player — allocation-free: reads
+        // whatever TrendingCardTag is CURRENTLY on `card`'s tag at click
+        // time, so this single listener instance stays correct across
+        // every future refresh of this slot.
+        card.setOnClickListener(v -> {
+            if (!isAdded() || getContext() == null) return;
+            TrendingCardTag t = (TrendingCardTag) v.getTag();
+            if (t == null || t.reelId == null) return;
+            openReelWithContext(t.rowContext, t.reelId, t.ownerName);
+        });
+
+        trendingCardPool.add(card);
+        containerTrending.addView(card);
+        return card;
+    }
+
     private void renderTrending(List<ReelModel> reels) {
         if (!isAdded() || getContext() == null) return;
         requireActivity().runOnUiThread(() -> {
             if (containerTrending == null || !isAdded()) return;
             if (pbTrending != null) pbTrending.setVisibility(View.GONE);
 
+            int i = 0;
             for (ReelModel reel : reels) {
-                View card = LayoutInflater.from(requireContext())
-                    .inflate(R.layout.item_home_trending, containerTrending, false);
+                View card = obtainTrendingCard(i);
+                TrendingCardTag tag = (TrendingCardTag) card.getTag();
+                tag.reelId     = reel.reelId;
+                tag.ownerName  = reel.ownerName;
+                tag.rowContext = reels;
 
-                ImageView thumb  = card.findViewById(R.id.iv_trending_thumb);
-                TextView tvLikes = card.findViewById(R.id.tv_trending_likes);
-                TextView tvOwner = card.findViewById(R.id.tv_trending_owner);
-
-                tvLikes.setText("❤ " + formatCount(reel.likesCount));
-                tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
-
+                tag.tvLikes.setText("❤ " + formatCount(reel.likesCount));
+                tag.tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
                 if (reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
                     Glide.with(requireContext()).load(reel.thumbUrl).apply(FEED_IMAGE_OPTS)
-                        .centerCrop().override(STRIP_THUMB_DECODE_PX, STRIP_THUMB_DECODE_PX).into(thumb);
+                        .centerCrop().override(STRIP_THUMB_DECODE_PX, STRIP_THUMB_DECODE_PX).into(tag.thumb);
+                } else {
+                    Glide.with(requireContext()).clear(tag.thumb);
                 }
-
-                // ✅ Open specific reel in the player (not just showReelFeed)
-                final String reelId = reel.reelId;
-                final String name   = reel.ownerName;
-                card.setOnClickListener(v -> openReelWithContext(reels, reelId, name));
-
-                containerTrending.addView(card);
+                card.setVisibility(View.VISIBLE);
+                i++;
             }
 
+            // Any pool slots left over from a previous, longer trending
+            // list — hidden, not destroyed, so they're ready to reuse next
+            // refresh (same rule as suggestedCreatorCardPool).
+            for (; i < trendingCardPool.size(); i++) {
+                trendingCardPool.get(i).setVisibility(View.GONE);
+            }
+
+            View existingEmpty = containerTrending.findViewWithTag("trending_empty");
             if (reels.isEmpty()) {
-                TextView empty = new TextView(requireContext());
-                empty.setText("No trending reels yet");
-                empty.setTextColor(0xFF888888);
-                empty.setPadding(0, 8, 0, 8);
-                containerTrending.addView(empty);
+                if (existingEmpty == null) {
+                    TextView empty = new TextView(requireContext());
+                    empty.setTag("trending_empty");
+                    empty.setText("No trending reels yet");
+                    empty.setTextColor(0xFF888888);
+                    empty.setPadding(0, 8, 0, 8);
+                    containerTrending.addView(empty);
+                } else {
+                    existingEmpty.setVisibility(View.VISIBLE);
+                }
+            } else if (existingEmpty != null) {
+                existingEmpty.setVisibility(View.GONE);
             }
         });
     }
@@ -6282,6 +7529,77 @@ public class HomeFragment extends Fragment {
             });
     }
 
+    /** One pooled Friends Activity slot — the content row (avatar/icon/
+     *  message/time) plus its trailing divider, built once and reused
+     *  across refreshes. See obtainFriendsActivityCard(). */
+    private static class FriendsActivityCard {
+        final LinearLayout    row;
+        final View            divider;
+        final CircleImageView avatar;
+        final ImageView       icon;
+        final TextView        tvMsg;
+        final TextView        tvTime;
+        FriendsActivityCard(LinearLayout row, View divider, CircleImageView avatar,
+                             ImageView icon, TextView tvMsg, TextView tvTime) {
+            this.row = row; this.divider = divider; this.avatar = avatar;
+            this.icon = icon; this.tvMsg = tvMsg; this.tvTime = tvTime;
+        }
+    }
+
+    /** Returns the pooled Friends Activity card at index i, building (and
+     *  adding row+divider to containerFriendsActivity) a new one only the
+     *  first time this index is needed. Every later refresh only updates
+     *  text/image on the SAME row — no fresh Views, no new listeners. */
+    private FriendsActivityCard obtainFriendsActivityCard(int index) {
+        if (index < friendsActivityCardPool.size()) return friendsActivityCardPool.get(index);
+
+        Context ctx = requireContext();
+        LinearLayout row = new LinearLayout(ctx);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        int dp12 = dpToPx(12);
+        int dp8  = dpToPx(8);
+        row.setPadding(0, dp8, 0, dp8);
+
+        CircleImageView miniAvatar = new CircleImageView(ctx);
+        int sz = dpToPx(32);
+        LinearLayout.LayoutParams avLp = new LinearLayout.LayoutParams(sz, sz);
+        avLp.setMarginEnd(dp12);
+        miniAvatar.setLayoutParams(avLp);
+        row.addView(miniAvatar);
+
+        ImageView icon = new ImageView(ctx);
+        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dpToPx(16), dpToPx(16));
+        iconLp.setMarginEnd(dpToPx(6));
+        icon.setLayoutParams(iconLp);
+        row.addView(icon);
+
+        TextView tvMsg = new TextView(ctx);
+        tvMsg.setTextColor(0xFFDDDDDD);
+        tvMsg.setTextSize(12.5f);
+        LinearLayout.LayoutParams msgLp = new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        tvMsg.setLayoutParams(msgLp);
+        row.addView(tvMsg);
+
+        TextView tvTime = new TextView(ctx);
+        tvTime.setTextColor(0xFF888888);
+        tvTime.setTextSize(11f);
+        row.addView(tvTime);
+
+        View divider = new View(ctx);
+        divider.setBackgroundColor(0x1AFFFFFF);
+        divider.setLayoutParams(new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 1));
+
+        containerFriendsActivity.addView(row);
+        containerFriendsActivity.addView(divider);
+
+        FriendsActivityCard card = new FriendsActivityCard(row, divider, miniAvatar, icon, tvMsg, tvTime);
+        friendsActivityCardPool.add(card);
+        return card;
+    }
+
     @SuppressWarnings("unchecked")
     private void renderFriendsActivity(List<Map<String, Object>> activities) {
         if (!isAdded() || getContext() == null) return;
@@ -6289,79 +7607,61 @@ public class HomeFragment extends Fragment {
             if (containerFriendsActivity == null || !isAdded()) return;
             if (pbActivity != null) pbActivity.setVisibility(View.GONE);
 
-            if (activities.isEmpty()) {
-                TextView empty = new TextView(requireContext());
-                empty.setText("No recent activity from friends");
-                empty.setTextColor(0xFF888888);
-                empty.setTextSize(12f);
-                empty.setPadding(0, 8, 0, 8);
-                containerFriendsActivity.addView(empty);
-                return;
-            }
-
+            int i = 0;
             for (Map<String, Object> act : activities) {
                 String message  = (String) act.get("message");
                 Long   ts       = (Long)   act.get("timestamp");
                 String type     = (String) act.get("type");
                 String fromPhoto= (String) act.get("from_photo");
 
-                LinearLayout row = new LinearLayout(requireContext());
-                row.setOrientation(LinearLayout.HORIZONTAL);
-                row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-                int dp12 = dpToPx(12);
-                int dp8  = dpToPx(8);
-                row.setPadding(0, dp8, 0, dp8);
+                FriendsActivityCard card = obtainFriendsActivityCard(i);
 
-                // Mini avatar
-                CircleImageView miniAvatar = new CircleImageView(requireContext());
-                int sz = dpToPx(32);
-                LinearLayout.LayoutParams avLp = new LinearLayout.LayoutParams(sz, sz);
-                avLp.setMarginEnd(dp12);
-                miniAvatar.setLayoutParams(avLp);
-                miniAvatar.setImageResource(R.drawable.ic_person);
+                card.avatar.setImageResource(R.drawable.ic_person);
                 if (fromPhoto != null && !fromPhoto.isEmpty()) {
                     Glide.with(requireContext()).load(fromPhoto)
                         .apply(RequestOptions.circleCropTransform())
-                        .placeholder(R.drawable.ic_person).into(miniAvatar);
+                        .placeholder(R.drawable.ic_person).into(card.avatar);
+                } else {
+                    Glide.with(requireContext()).clear(card.avatar);
                 }
-                row.addView(miniAvatar);
 
-                // Type icon
-                ImageView icon = new ImageView(requireContext());
                 int iconRes = "repost".equals(type) ? R.drawable.ic_repost
                     : "comment".equals(type) ? R.drawable.ic_comment_reel
                     : "follow".equals(type) ? R.drawable.ic_person
                     : R.drawable.ic_heart_filled;
-                icon.setImageResource(iconRes);
-                LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dpToPx(16), dpToPx(16));
-                iconLp.setMarginEnd(dpToPx(6));
-                icon.setLayoutParams(iconLp);
-                row.addView(icon);
+                card.icon.setImageResource(iconRes);
 
-                // Message
-                TextView tvMsg = new TextView(requireContext());
-                tvMsg.setText(message);
-                tvMsg.setTextColor(0xFFDDDDDD);
-                tvMsg.setTextSize(12.5f);
-                LinearLayout.LayoutParams msgLp = new LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-                tvMsg.setLayoutParams(msgLp);
-                row.addView(tvMsg);
+                card.tvMsg.setText(message);
+                card.tvTime.setText(ts != null ? formatAgo(ts) : "");
 
-                // Time
-                TextView tvTime = new TextView(requireContext());
-                tvTime.setText(ts != null ? formatAgo(ts) : "");
-                tvTime.setTextColor(0xFF888888);
-                tvTime.setTextSize(11f);
-                row.addView(tvTime);
+                card.row.setVisibility(View.VISIBLE);
+                card.divider.setVisibility(View.VISIBLE);
+                i++;
+            }
 
-                containerFriendsActivity.addView(row);
+            // Leftover pool slots from a previous, longer activity list —
+            // hidden, not destroyed (same rule as trendingCardPool).
+            for (; i < friendsActivityCardPool.size(); i++) {
+                FriendsActivityCard c = friendsActivityCardPool.get(i);
+                c.row.setVisibility(View.GONE);
+                c.divider.setVisibility(View.GONE);
+            }
 
-                View divider = new View(requireContext());
-                divider.setBackgroundColor(0x1AFFFFFF);
-                divider.setLayoutParams(new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 1));
-                containerFriendsActivity.addView(divider);
+            View existingEmpty = containerFriendsActivity.findViewWithTag("friends_activity_empty");
+            if (activities.isEmpty()) {
+                if (existingEmpty == null) {
+                    TextView empty = new TextView(requireContext());
+                    empty.setTag("friends_activity_empty");
+                    empty.setText("No recent activity from friends");
+                    empty.setTextColor(0xFF888888);
+                    empty.setTextSize(12f);
+                    empty.setPadding(0, 8, 0, 8);
+                    containerFriendsActivity.addView(empty);
+                } else {
+                    existingEmpty.setVisibility(View.VISIBLE);
+                }
+            } else if (existingEmpty != null) {
+                existingEmpty.setVisibility(View.GONE);
             }
         });
     }
@@ -6385,17 +7685,8 @@ public class HomeFragment extends Fragment {
                     for (DataSnapshot s : snap.getChildren()) reelIds.add(s.getKey());
                     Collections.reverse(reelIds);
                     if (reelIds.isEmpty()) {
-                        requireActivity().runOnUiThread(() -> {
-                            if (pbContinue != null) pbContinue.setVisibility(View.GONE);
-                            if (!isAdded() || getContext() == null) return;
-                            TextView empty = new TextView(requireContext());
-                            empty.setText("No watch history yet");
-                            empty.setTextColor(0xFF888888);
-                            empty.setTextSize(12f);
-                            empty.setPadding(0, 8, 0, 8);
-                            if (containerContinueWatching != null)
-                                containerContinueWatching.addView(empty);
-                        });
+                        requireActivity().runOnUiThread(() ->
+                            renderContinueWatching(new ArrayList<>(), "No watch history yet"));
                         return;
                     }
                     loadReelsByIds(reelIds, 0);
@@ -6461,66 +7752,132 @@ public class HomeFragment extends Fragment {
         for (ReelModel r : slots) {
             if (r != null) watched.add(r);
         }
-        for (ReelModel r : watched) {
-            addContinueWatchingCard(r, watched);
-        }
+        requireActivity().runOnUiThread(() -> renderContinueWatching(watched, "No watch history yet"));
     }
 
-    private void addContinueWatchingCard(ReelModel reel, List<ReelModel> rowContext) {
-        if (!isAdded() || getContext() == null || containerContinueWatching == null) return;
-        requireActivity().runOnUiThread(() -> {
+    /** Cached child-view refs + click-target state for one pooled Continue
+     *  Watching card — see obtainContinueWatchingCard(). bindToken is
+     *  bumped every time this slot is reused for a different reel, and the
+     *  in-flight watch-progress read below checks it before writing to
+     *  pbWatch — exactly the same stale-callback guard
+     *  SuggestedCreatorsTileAdapter uses for its mutual-followers lookup —
+     *  so a slow progress read for slot i's PREVIOUS reel can never land on
+     *  the WRONG reel's progress bar after a refresh reuses that slot. */
+    private static class ContinueWatchingCardTag {
+        ImageView thumb;
+        TextView tvOwner;
+        ProgressBar pbWatch;
+        String reelId, ownerName;
+        List<ReelModel> rowContext;
+        int bindToken = 0;
+    }
+
+    /** Returns the pooled Continue Watching card at index i, inflating (and
+     *  adding to containerContinueWatching) a new one only the first time
+     *  this index is needed. Child-view lookups + the click listener are
+     *  done exactly once per index; every later refresh only updates
+     *  text/image/progress/tag on the SAME View. */
+    private View obtainContinueWatchingCard(int index) {
+        if (index < continueWatchingCardPool.size()) return continueWatchingCardPool.get(index);
+
+        View card = LayoutInflater.from(requireContext())
+            .inflate(R.layout.item_home_continue_watching, containerContinueWatching, false);
+        ContinueWatchingCardTag tag = new ContinueWatchingCardTag();
+        tag.thumb   = card.findViewById(R.id.iv_cw_thumb);
+        tag.tvOwner = card.findViewById(R.id.tv_cw_owner);
+        tag.pbWatch = card.findViewById(R.id.pb_cw_progress);
+        card.setTag(tag);
+
+        card.setOnClickListener(v -> {
             if (!isAdded() || getContext() == null) return;
-            View card = LayoutInflater.from(requireContext())
-                .inflate(R.layout.item_home_continue_watching, containerContinueWatching, false);
+            ContinueWatchingCardTag t = (ContinueWatchingCardTag) v.getTag();
+            if (t == null || t.reelId == null) return;
+            openReelWithContext(t.rowContext, t.reelId, t.ownerName);
+        });
 
-            ImageView ivThumb   = card.findViewById(R.id.iv_cw_thumb);
-            TextView  tvOwner   = card.findViewById(R.id.tv_cw_owner);
-            ProgressBar pbWatch = card.findViewById(R.id.pb_cw_progress);
+        continueWatchingCardPool.add(card);
+        containerContinueWatching.addView(card);
+        return card;
+    }
 
-            tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
+    /** ★ Instagram-level PERF: pooled cards for Continue Watching — same
+     *  obtain-by-index pattern as Trending/Suggested Creators. Replaces the
+     *  old one-fresh-inflate-per-card, one-runOnUiThread-per-card approach
+     *  with a single batch render, reusing pooled Views and guarding each
+     *  card's watch-progress listener with a bindToken (see
+     *  ContinueWatchingCardTag doc). emptyMessage lets clearWatchHistory()
+     *  reuse this same pooled empty-state text with its own wording instead
+     *  of allocating a brand-new TextView on every "Clear" tap. */
+    private void renderContinueWatching(List<ReelModel> watched, String emptyMessage) {
+        if (!isAdded() || getContext() == null || containerContinueWatching == null) return;
+        if (pbContinue != null) pbContinue.setVisibility(View.GONE);
 
+        int i = 0;
+        String myUid = safeMyUid();
+        for (ReelModel reel : watched) {
+            View card = obtainContinueWatchingCard(i);
+            ContinueWatchingCardTag tag = (ContinueWatchingCardTag) card.getTag();
+            tag.reelId     = reel.reelId;
+            tag.ownerName  = reel.ownerName;
+            tag.rowContext = watched;
+            final int token = ++tag.bindToken;
+
+            tag.tvOwner.setText(reel.ownerName != null ? "@" + reel.ownerName : "@user");
             if (reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
                 Glide.with(requireContext()).load(reel.thumbUrl).apply(FEED_IMAGE_OPTS)
-                    .centerCrop().override(STRIP_THUMB_DECODE_PX, STRIP_THUMB_DECODE_PX).into(ivThumb);
+                    .centerCrop().override(STRIP_THUMB_DECODE_PX, STRIP_THUMB_DECODE_PX).into(tag.thumb);
+            } else {
+                Glide.with(requireContext()).clear(tag.thumb);
             }
+            if (tag.pbWatch != null) tag.pbWatch.setProgress(0);
 
-            final String reelId = reel.reelId;
-            final String name   = reel.ownerName;
-            String myUid = safeMyUid();
-            if (pbWatch != null && myUid != null && reelId != null) {
+            String reelId = reel.reelId;
+            if (tag.pbWatch != null && myUid != null && reelId != null) {
                 FirebaseUtils.getReelWatchProgressRef(myUid).child(reelId)
                     .addListenerForSingleValueEvent(new ValueEventListener() {
                         @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                            if (!isAdded() || getContext() == null) return;
+                            if (!isAdded() || getContext() == null || token != tag.bindToken) return; // stale — slot reused
                             Integer pct = snap.getValue(Integer.class);
-                            if (pct != null && pct > 0) {
-                                requireActivity().runOnUiThread(() -> {
-                                    if (pbWatch != null) pbWatch.setProgress(pct);
-                                });
-                            }
+                            if (pct != null && pct > 0) tag.pbWatch.setProgress(pct);
                         }
                         @Override public void onCancelled(@NonNull DatabaseError e) {}
                     });
             }
 
-            card.setOnClickListener(v -> openReelWithContext(rowContext, reelId, name));
-            containerContinueWatching.addView(card);
-        });
+            card.setVisibility(View.VISIBLE);
+            i++;
+        }
+
+        // Leftover pool slots from a previous, longer watch-history list —
+        // hidden, not destroyed (same rule as trendingCardPool).
+        for (; i < continueWatchingCardPool.size(); i++) {
+            continueWatchingCardPool.get(i).setVisibility(View.GONE);
+        }
+
+        View existingEmpty = containerContinueWatching.findViewWithTag("continue_watching_empty");
+        if (watched.isEmpty()) {
+            if (existingEmpty == null) {
+                TextView empty = new TextView(requireContext());
+                empty.setTag("continue_watching_empty");
+                empty.setText(emptyMessage);
+                empty.setTextColor(0xFF888888);
+                empty.setTextSize(12f);
+                empty.setPadding(0, 8, 0, 8);
+                containerContinueWatching.addView(empty);
+            } else {
+                ((TextView) existingEmpty).setText(emptyMessage);
+                existingEmpty.setVisibility(View.VISIBLE);
+            }
+        } else if (existingEmpty != null) {
+            existingEmpty.setVisibility(View.GONE);
+        }
     }
 
     private void clearWatchHistory() {
         String myUid = safeMyUid();
         if (myUid == null || !isAdded() || getContext() == null) return;
         FirebaseUtils.getReelWatchHistoryRef(myUid).removeValue();
-        if (containerContinueWatching != null) {
-            clearContainerKeepLoader(containerContinueWatching);
-            TextView empty = new TextView(requireContext());
-            empty.setText("Watch history cleared");
-            empty.setTextColor(0xFF888888);
-            empty.setTextSize(12f);
-            empty.setPadding(0, 8, 0, 8);
-            containerContinueWatching.addView(empty);
-        }
+        renderContinueWatching(new ArrayList<>(), "Watch history cleared");
         Toast.makeText(requireContext(), "Watch history cleared", Toast.LENGTH_SHORT).show();
     }
 
@@ -6592,119 +7949,185 @@ public class HomeFragment extends Fragment {
         });
     }
 
+    /** Per-card mutable state, stored via card.setTag() — read fresh by the
+     *  card's ONE allocation-free click listener and the Follow button's ONE
+     *  allocation-free click listener at click time, same pattern the
+     *  action-bar pill pool (v323) already established for taggedPeople/
+     *  productTags. Avoids capturing uid/name/photo/isFollowed in a
+     *  per-bind closure, which is what forced a brand-new listener object on
+     *  every single card rebuild before. */
+    private static class SuggestedCreatorCardTag {
+        String uid, name, photo;
+        boolean isFollowed;
+    }
+
     private void addCreatorCards(List<String[]> creators, Set<String> followedUids) {
         if (containerSuggestedCreators == null || !isAdded() || getContext() == null) return;
-        String myUid = safeMyUid();
 
+        int i = 0;
         for (String[] c : creators) {
             String uid   = c[0];
             String name  = c[1];
             String photo = c[2];
             String sub   = c[3];
+            boolean isFollowed = followedUids.contains(uid);
 
-            LinearLayout card = new LinearLayout(requireContext());
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
-            int w = dpToPx(90);
-            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(w, LinearLayout.LayoutParams.WRAP_CONTENT);
-            cardLp.setMarginEnd(dpToPx(10));
-            card.setLayoutParams(cardLp);
-            card.setPadding(dpToPx(4), dpToPx(8), dpToPx(4), dpToPx(8));
-            card.setBackgroundResource(R.drawable.bg_speed_chip);
+            LinearLayout card = obtainSuggestedCreatorCard(i);
+            SuggestedCreatorCardTag tag = (SuggestedCreatorCardTag) card.getTag();
+            tag.uid = uid; tag.name = name; tag.photo = photo; tag.isFollowed = isFollowed;
 
-            // Avatar
-            CircleImageView av = new CircleImageView(requireContext());
-            LinearLayout.LayoutParams avLp = new LinearLayout.LayoutParams(dpToPx(56), dpToPx(56));
-            av.setLayoutParams(avLp);
+            CircleImageView av   = (CircleImageView) card.getChildAt(0);
+            TextView tvName      = (TextView) card.getChildAt(1);
+            TextView tvSub       = (TextView) card.getChildAt(2);
+            Button   btnFollow   = (Button)   card.getChildAt(3);
+
+            tvName.setText(name);
+            tvSub.setText(sub);
             av.setImageResource(R.drawable.ic_person);
-            if (!photo.isEmpty()) {
+            if (photo != null && !photo.isEmpty()) {
                 Glide.with(requireContext()).load(photo)
                     .apply(RequestOptions.circleCropTransform())
                     .placeholder(R.drawable.ic_person).into(av);
-            }
-            card.addView(av);
-
-            // Name
-            TextView tvName = new TextView(requireContext());
-            tvName.setText(name);
-            tvName.setTextSize(11f);
-            tvName.setTextColor(0xFFFFFFFF);
-            tvName.setMaxLines(1);
-            tvName.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            tvName.setGravity(android.view.Gravity.CENTER);
-            LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            nameLp.topMargin = dpToPx(4);
-            tvName.setLayoutParams(nameLp);
-            card.addView(tvName);
-
-            // Subtitle (reel count)
-            TextView tvSub = new TextView(requireContext());
-            tvSub.setText(sub);
-            tvSub.setTextSize(10f);
-            tvSub.setTextColor(0xFF888888);
-            tvSub.setGravity(android.view.Gravity.CENTER);
-            card.addView(tvSub);
-
-            // Follow / Following button
-            final boolean[] isFollowed = {followedUids.contains(uid)};
-            Button btnFollow = new Button(requireContext());
-            btnFollow.setText(isFollowed[0] ? "Following" : "Follow");
-            btnFollow.setTextSize(10f);
-            btnFollow.setAllCaps(false);
-            btnFollow.setPadding(dpToPx(8), dpToPx(2), dpToPx(8), dpToPx(2));
-            LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(28));
-            btnLp.topMargin = dpToPx(4);
-            btnFollow.setLayoutParams(btnLp);
-            if (isFollowed[0]) {
-                btnFollow.setBackgroundColor(0xFF333333);
-                btnFollow.setTextColor(0xFFCCCCCC);
             } else {
-                btnFollow.setBackgroundColor(getResources().getColor(R.color.brand_primary, null));
-                btnFollow.setTextColor(0xFFFFFFFF);
+                Glide.with(requireContext()).clear(av);
             }
+            applyFollowButtonState(btnFollow, isFollowed);
 
-            final String creatorUid = uid;
-            btnFollow.setOnClickListener(vv -> {
-                if (myUid == null) return;
-                isFollowed[0] = !isFollowed[0];
-                if (isFollowed[0]) {
-                    FirebaseUtils.getReelFollowsRef(myUid).child(creatorUid).setValue(true);
-                    FirebaseUtils.getReelFollowersRef(creatorUid).child(myUid).setValue(true);
-                    btnFollow.setText("Following");
-                    btnFollow.setBackgroundColor(0xFF333333);
-                    btnFollow.setTextColor(0xFFCCCCCC);
-                } else {
-                    FirebaseUtils.getReelFollowsRef(myUid).child(creatorUid).removeValue();
-                    FirebaseUtils.getReelFollowersRef(creatorUid).child(myUid).removeValue();
-                    btnFollow.setText("Follow");
-                    btnFollow.setBackgroundColor(getResources().getColor(R.color.brand_primary, null));
-                    btnFollow.setTextColor(0xFFFFFFFF);
-                }
-            });
-            card.addView(btnFollow);
-
-            // Card click → open user's reels
-            card.setOnClickListener(vv -> {
-                if (!isAdded() || getContext() == null) return;
-                Intent i = new Intent(getContext(), UserReelsActivity.class);
-                i.putExtra(UserReelsActivity.EXTRA_UID,   uid);
-                i.putExtra(UserReelsActivity.EXTRA_NAME,  name);
-                i.putExtra(UserReelsActivity.EXTRA_PHOTO, photo);
-                startActivity(i);
-            });
-
-            containerSuggestedCreators.addView(card);
+            ViewGroup.LayoutParams rawLp = card.getLayoutParams();
+            if (rawLp instanceof ViewGroup.MarginLayoutParams) {
+                ((ViewGroup.MarginLayoutParams) rawLp).setMarginEnd(
+                        i == creators.size() - 1 ? 0 : dpToPx(10));
+            }
+            card.setVisibility(View.VISIBLE);
+            i++;
         }
 
+        // Any pool slots left over from a previous, longer suggestion list —
+        // hidden, not destroyed, so they're ready to reuse next refresh.
+        for (; i < suggestedCreatorCardPool.size(); i++) {
+            suggestedCreatorCardPool.get(i).setVisibility(View.GONE);
+        }
+
+        // Empty-state text: low-frequency enough (only when there are
+        // literally zero suggestions) that it's left as a plain child
+        // rather than pooled — added after the (possibly all-hidden) cards.
+        View existingEmpty = containerSuggestedCreators.findViewWithTag("suggested_creators_empty");
         if (creators.isEmpty()) {
-            TextView empty = new TextView(requireContext());
-            empty.setText("No suggestions yet");
-            empty.setTextColor(0xFF888888);
-            empty.setTextSize(12f);
-            empty.setPadding(0, 8, 0, 8);
-            containerSuggestedCreators.addView(empty);
+            if (existingEmpty == null) {
+                TextView empty = new TextView(requireContext());
+                empty.setTag("suggested_creators_empty");
+                empty.setText("No suggestions yet");
+                empty.setTextColor(0xFF888888);
+                empty.setTextSize(12f);
+                empty.setPadding(0, 8, 0, 8);
+                containerSuggestedCreators.addView(empty);
+            } else {
+                existingEmpty.setVisibility(View.VISIBLE);
+            }
+        } else if (existingEmpty != null) {
+            existingEmpty.setVisibility(View.GONE);
+        }
+    }
+
+    /** Returns the pooled card at index i, creating (and adding to
+     *  containerSuggestedCreators) a new one only the first time this index
+     *  is needed. Every card's View tree — avatar, name, subtitle, Follow
+     *  button — plus BOTH click listeners (card-tap-to-profile, Follow
+     *  toggle) are built exactly once per index, for the life of the
+     *  fragment; every later refresh only updates text/image/tag on the
+     *  SAME objects. */
+    private LinearLayout obtainSuggestedCreatorCard(int index) {
+        if (index < suggestedCreatorCardPool.size()) return suggestedCreatorCardPool.get(index);
+
+        LinearLayout card = new LinearLayout(requireContext());
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+        int w = dpToPx(90);
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(w, LinearLayout.LayoutParams.WRAP_CONTENT);
+        cardLp.setMarginEnd(dpToPx(10));
+        card.setLayoutParams(cardLp);
+        card.setPadding(dpToPx(4), dpToPx(8), dpToPx(4), dpToPx(8));
+        card.setBackgroundResource(R.drawable.bg_speed_chip);
+
+        SuggestedCreatorCardTag tag = new SuggestedCreatorCardTag();
+        card.setTag(tag);
+
+        CircleImageView av = new CircleImageView(requireContext());
+        av.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(56), dpToPx(56)));
+        card.addView(av); // child 0
+
+        TextView tvName = new TextView(requireContext());
+        tvName.setTextSize(11f);
+        tvName.setTextColor(0xFFFFFFFF);
+        tvName.setMaxLines(1);
+        tvName.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        tvName.setGravity(android.view.Gravity.CENTER);
+        LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        nameLp.topMargin = dpToPx(4);
+        tvName.setLayoutParams(nameLp);
+        card.addView(tvName); // child 1
+
+        TextView tvSub = new TextView(requireContext());
+        tvSub.setTextSize(10f);
+        tvSub.setTextColor(0xFF888888);
+        tvSub.setGravity(android.view.Gravity.CENTER);
+        card.addView(tvSub); // child 2
+
+        Button btnFollow = new Button(requireContext());
+        btnFollow.setTextSize(10f);
+        btnFollow.setAllCaps(false);
+        btnFollow.setPadding(dpToPx(8), dpToPx(2), dpToPx(8), dpToPx(2));
+        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(28));
+        btnLp.topMargin = dpToPx(4);
+        btnFollow.setLayoutParams(btnLp);
+        // Allocation-free: reads whatever SuggestedCreatorCardTag is
+        // CURRENTLY on `card`'s tag at click time, so this single listener
+        // instance stays correct across every future refresh of this slot.
+        btnFollow.setOnClickListener(vv -> {
+            String myUid = safeMyUid();
+            SuggestedCreatorCardTag t = (SuggestedCreatorCardTag) card.getTag();
+            if (myUid == null || t == null || t.uid == null) return;
+            t.isFollowed = !t.isFollowed;
+            if (t.isFollowed) {
+                FirebaseUtils.getReelFollowsRef(myUid).child(t.uid).setValue(true);
+                FirebaseUtils.getReelFollowersRef(t.uid).child(myUid).setValue(true);
+            } else {
+                FirebaseUtils.getReelFollowsRef(myUid).child(t.uid).removeValue();
+                FirebaseUtils.getReelFollowersRef(t.uid).child(myUid).removeValue();
+            }
+            applyFollowButtonState(btnFollow, t.isFollowed);
+        });
+        card.addView(btnFollow); // child 3
+
+        // Card tap → open user's reels. Same allocation-free rule: reads
+        // the tag at click time instead of capturing uid/name/photo.
+        card.setOnClickListener(vv -> {
+            if (!isAdded() || getContext() == null) return;
+            SuggestedCreatorCardTag t = (SuggestedCreatorCardTag) card.getTag();
+            if (t == null || t.uid == null) return;
+            Intent i = new Intent(getContext(), UserReelsActivity.class);
+            i.putExtra(UserReelsActivity.EXTRA_UID,   t.uid);
+            i.putExtra(UserReelsActivity.EXTRA_NAME,  t.name);
+            i.putExtra(UserReelsActivity.EXTRA_PHOTO, t.photo);
+            startActivity(i);
+        });
+
+        suggestedCreatorCardPool.add(card);
+        containerSuggestedCreators.addView(card);
+        return card;
+    }
+
+    private void applyFollowButtonState(Button btnFollow, boolean isFollowed) {
+        if (isFollowed) {
+            btnFollow.setText("Following");
+            btnFollow.setBackgroundColor(0xFF333333);
+            btnFollow.setTextColor(0xFFCCCCCC);
+        } else {
+            btnFollow.setText("Follow");
+            btnFollow.setBackgroundColor(getResources().getColor(R.color.brand_primary, null));
+            btnFollow.setTextColor(0xFFFFFFFF);
         }
     }
 
@@ -6815,6 +8238,41 @@ public class HomeFragment extends Fragment {
         return (int)(dp * getContext().getResources().getDisplayMetrics().density);
     }
 
+    /** Active/inactive dot colors for the below-media photo indicator row —
+     *  now that the dots sit on the app's themed background instead of
+     *  overlaid on the video/photo itself, they need theme-aware colors
+     *  (not the old hardcoded translucent-white, which vanishes in light
+     *  mode). PERF: resolved from resources ONCE per fragment instance
+     *  (same "compute once, reuse" pattern as cachedFeedVideoH below)
+     *  instead of a fresh ContextCompat.getColor() + bit-math call on
+     *  every single dot, on every bind AND every page-change — a
+     *  multi-photo feed can easily rebuild/recolor dozens of dots per
+     *  scroll pass. */
+    private int cachedPhotoDotActiveColor   = 0;
+    private int cachedPhotoDotInactiveColor = 0;
+    private boolean photoDotColorsCached = false;
+
+    private void ensurePhotoDotColorsCached() {
+        if (photoDotColorsCached || getContext() == null) return;
+        int primary = androidx.core.content.ContextCompat.getColor(requireContext(), R.color.text_primary);
+        int secondary = androidx.core.content.ContextCompat.getColor(requireContext(), R.color.text_secondary);
+        cachedPhotoDotActiveColor   = primary;
+        // Keep the RGB from text_secondary but dial alpha down to ~30% so the
+        // inactive dots stay visibly secondary to the active one.
+        cachedPhotoDotInactiveColor = (secondary & 0x00FFFFFF) | 0x4D000000;
+        photoDotColorsCached = true;
+    }
+
+    private int photoDotActiveColor() {
+        ensurePhotoDotColorsCached();
+        return photoDotColorsCached ? cachedPhotoDotActiveColor : 0xFF0F172A;
+    }
+
+    private int photoDotInactiveColor() {
+        ensurePhotoDotColorsCached();
+        return photoDotColorsCached ? cachedPhotoDotInactiveColor : 0x4D64748B;
+    }
+
     /** Cached feed-card video-frame height (see addFeedPostCard's comment) —
      *  same value for every card, so it's computed once instead of on every
      *  bind. -1 means "not computed yet / invalidated". */
@@ -6898,12 +8356,58 @@ public class HomeFragment extends Fragment {
                     prh.cacheViews();
                     return prh;
                 }
+                case ROW_SUGGESTED_CREATORS: {
+                    // ★ Chrome + nested adapter built once here — see
+                    // SuggestedCreatorsRowHolder doc.
+                    FrameLayout container = new FrameLayout(parent.getContext());
+                    container.setLayoutParams(new RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
+                    return new SuggestedCreatorsRowHolder(container);
+                }
+                case ROW_SUGGESTED_REELS: {
+                    // ★ Chrome + nested adapter built once here — see
+                    // SuggestedReelsRowHolder doc.
+                    FrameLayout container = new FrameLayout(parent.getContext());
+                    container.setLayoutParams(new RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
+                    return new SuggestedReelsRowHolder(container);
+                }
+                case ROW_SPONSORED: {
+                    // ★ Card chrome built once here — see SponsoredRowHolder doc.
+                    FrameLayout container = new FrameLayout(parent.getContext());
+                    container.setLayoutParams(new RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
+                    return new SponsoredRowHolder(container);
+                }
+                case ROW_NEW_POSTS_BANNER: {
+                    // ★ Pill built once here — see NewPostsBannerHolder doc.
+                    FrameLayout container = new FrameLayout(parent.getContext());
+                    container.setLayoutParams(new RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
+                    return new NewPostsBannerHolder(container);
+                }
+                case ROW_LOADING: {
+                    // ★ Spinner built once here — see LoadingRowHolder doc.
+                    FrameLayout container = new FrameLayout(parent.getContext());
+                    container.setLayoutParams(new RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
+                    return new LoadingRowHolder(container);
+                }
+                case ROW_EMPTY: {
+                    // ★ Empty-state built once here — see EmptyRowHolder doc.
+                    FrameLayout container = new FrameLayout(parent.getContext());
+                    container.setLayoutParams(new RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
+                    return new EmptyRowHolder(container);
+                }
+                case ROW_LOAD_MORE_FOOTER: {
+                    // ★ Footer spinner built once here — see LoadMoreFooterRowHolder doc.
+                    FrameLayout container = new FrameLayout(parent.getContext());
+                    container.setLayoutParams(new RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
+                    return new LoadMoreFooterRowHolder(container);
+                }
                 default: {
-                    // ROW_SUGGESTED_CREATORS / ROW_SUGGESTED_REELS / ROW_NEW_POSTS_BANNER /
-                    // ROW_LOADING / ROW_EMPTY / ROW_LOAD_MORE_FOOTER — all a
-                    // bare FrameLayout whose real content gets built fresh
-                    // into it at bind time by the matching bindXContent()/
-                    // showX-style helper.
                     FrameLayout container = new FrameLayout(parent.getContext());
                     container.setLayoutParams(new RecyclerView.LayoutParams(
                         RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
@@ -6945,13 +8449,13 @@ public class HomeFragment extends Fragment {
                 }
                 case ROW_SUGGESTED_CREATORS: {
                     FeedRow row = feedItems.get(position - FEED_HEADER_OFFSET);
-                    bindSuggestedCreatorsRowContent((ViewGroup) holder.itemView, row.creatorPool);
+                    bindSuggestedCreatorsRowHolder((SuggestedCreatorsRowHolder) holder, row.creatorPool);
                     return;
                 }
                 case ROW_SUGGESTED_REELS: {
                     int feedIdx = position - FEED_HEADER_OFFSET;
                     FeedRow row = feedItems.get(feedIdx);
-                    bindSuggestedReelsRowContent((ViewGroup) holder.itemView, row.reelPool, () -> {
+                    bindSuggestedReelsRowHolder((SuggestedReelsRowHolder) holder, row.reelPool, () -> {
                         int i = feedItems.indexOf(row);
                         if (i >= 0) {
                             feedItems.remove(i);
@@ -6961,50 +8465,23 @@ public class HomeFragment extends Fragment {
                     return;
                 }
                 case ROW_NEW_POSTS_BANNER:
-                    bindNewPostsBannerContent((ViewGroup) holder.itemView);
+                    bindNewPostsBannerHolder((NewPostsBannerHolder) holder);
                     return;
-                case ROW_LOADING: {
-                    ViewGroup c = (ViewGroup) holder.itemView;
-                    c.removeAllViews();
-                    ProgressBar pb = new ProgressBar(c.getContext());
-                    FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                        dpToPx(32), dpToPx(32));
-                    lp.gravity = android.view.Gravity.CENTER;
-                    lp.topMargin = dpToPx(24);
-                    lp.bottomMargin = dpToPx(24);
-                    pb.setLayoutParams(lp);
-                    c.addView(pb);
+                case ROW_SPONSORED: {
+                    FeedRow row = feedItems.get(position - FEED_HEADER_OFFSET);
+                    bindSponsoredRowHolder((SponsoredRowHolder) holder, row.sponsoredAd);
                     return;
                 }
-                case ROW_EMPTY: {
-                    ViewGroup c = (ViewGroup) holder.itemView;
-                    c.removeAllViews();
-                    TextView tv = new TextView(c.getContext());
-                    tv.setText("No posts yet");
-                    tv.setTextColor(0xFF888888);
-                    tv.setTextSize(14f);
-                    tv.setGravity(android.view.Gravity.CENTER);
-                    FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT);
-                    lp.topMargin = dpToPx(48);
-                    lp.bottomMargin = dpToPx(48);
-                    tv.setLayoutParams(lp);
-                    c.addView(tv);
+                case ROW_LOADING:
+                    // Static content; already built once in
+                    // LoadingRowHolder's constructor (see onCreateViewHolder).
                     return;
-                }
-                case ROW_LOAD_MORE_FOOTER: {
-                    ViewGroup c = (ViewGroup) holder.itemView;
-                    c.removeAllViews();
-                    ProgressBar pb = new ProgressBar(c.getContext());
-                    FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT, dpToPx(48));
-                    lp.gravity = android.view.Gravity.CENTER;
-                    lp.topMargin = dpToPx(8);
-                    lp.bottomMargin = dpToPx(8);
-                    pb.setLayoutParams(lp);
-                    c.addView(pb);
+                case ROW_EMPTY:
+                case ROW_LOAD_MORE_FOOTER:
+                    // Static content; already built once in
+                    // EmptyRowHolder's/LoadMoreFooterRowHolder's constructor
+                    // (see onCreateViewHolder).
                     return;
-                }
             }
         }
 
@@ -7128,11 +8605,30 @@ public class HomeFragment extends Fragment {
         TextView        watchAgain;
         ImageButton     btnMute;
         ImageButton     btnAudioCover;
+        ImageButton     btnCollabIcon;
+        // ── Collab-row cache (see the collab block in addFeedPostCard()) —
+        // populated ONCE, the first time this physical holder ever inflates
+        // a collab post's merged row, and reused on every subsequent bind
+        // instead of re-walking the view tree / re-registering listeners.
+        View            llCollabAuthorsHome;
+        com.callx.app.views.CollabAvatarStackView collabStackHome;
+        TextView        tvCollabNameHome;
+        TextView        tvCollabFollowBtnHome;
+        View            llCollabSongRowHome;
+        // PERF (URL/text-skip) caches for the collab row — same rebind-skip
+        // principle as lastAvatarUrl/lastThumbUrl below: a same-post rebind
+        // (live-count tick, like-tap notifyItemChanged) skips re-loading
+        // avatars into the stack / rebuilding the "@owner and N others"
+        // SpannableString when nothing actually changed since last bind.
+        final String[]  lastCollabAvatarUrls = new String[3];
+        int             lastCollabStackCount = -1;
+        String          lastCollabNameTextHome;
         SeekBar         sbProgress;
         TextView        tvPosition;
         TextView        tvSpeedChip;
         View            playOverlay;
         View            collabAvatarContainer;
+        View            llPostOwnerRow;
         View            btnReadMore;
         View            btnSend;
         TextView        tvSends;
@@ -7151,6 +8647,9 @@ public class HomeFragment extends Fragment {
         // cacheViews()/PostRowHolder already uses for every other view.
         ViewPager2 photoPager;
         LinearLayout photoDots;
+        /** New container BELOW frame_video (Instagram-style) that now hosts
+         *  photoDots — replaces the old bottom-overlaid-on-video placement. */
+        FrameLayout framePhotoDotsRow;
         final List<String> photoPagerData = new ArrayList<>();
         RecyclerView.Adapter<RecyclerView.ViewHolder> photoPagerAdapter;
         /** One reusable GradientDrawable per currently-inflated dot — mutated
@@ -7177,6 +8676,48 @@ public class HomeFragment extends Fragment {
         final boolean[] boundIsFollowed = {false};
         boolean clickListenersBound = false;
 
+        // ── Action-bar / header listener-reuse state ─────────────────────
+        // ★ Instagram-level PERF (action-bar pass): avatar/tvOwner/ivThumb
+        // and the like/comment/repost/save/send/more buttons used to get a
+        // brand-new OnClickListener lambda allocated on EVERY single bind
+        // (each one capturing that bind's reel/reelId/ownerUid/myUid via
+        // closure) — exactly the per-bind allocation cost already fixed for
+        // watchMore/watchAgain/btnMute/etc. above. Same fix, same pattern:
+        // registered ONCE per physical holder (see actionBarListenersBound),
+        // the shared listener reads holder.boundReel/boundMyUid at click
+        // time instead of a captured local. This flag is separate from
+        // clickListenersBound because it's set true further down the bind
+        // method (clickListenersBound already flips true earlier, before
+        // this section runs, so it can't be reused as the gate here).
+        boolean actionBarListenersBound = false;
+        // Caption "…more/less" toggle — see the btnReadMore block above.
+        // captionExpanded tracks the CURRENT bind's expand/collapse state
+        // (reset to false at the top of every bind, same as the old local
+        // boolean[]); readMoreListenerBound gates the one-time listener
+        // registration, same pattern as actionBarListenersBound.
+        boolean captionExpanded = false;
+        boolean readMoreListenerBound = false;
+        // Like/save toggle state now lives on the holder (was a per-bind
+        // boolean[] closure) so the once-registered button listeners can
+        // read + flip it directly instead of needing a fresh capture.
+        boolean boundIsLiked = false;
+        boolean boundIsSaved = false;
+        // ★ Instagram-level PERF: gates the video-frame double-tap-like /
+        // tap-to-open / hold-to-2x GestureDetector so it's registered ONCE
+        // per physical holder instead of a fresh GestureDetector + touch
+        // listener on every bind (see the frameVideo.setOnTouchListener
+        // block in bindPostRow()). Same pattern as clickListenersBound
+        // above; the photo-slideshow double-tap listener reuses
+        // firstTimeOnThisHolder as its own equivalent one-time gate.
+        boolean frameVideoGestureBound = false;
+        // Reusable pill pools for tagged-people / product-tag rows — see
+        // bindTaggedPeople()/bindProductTags(): pills are created (and their
+        // click listener registered) ONCE per pool slot, then just have
+        // their text/tag/visibility refreshed on every subsequent bind
+        // instead of removeAllViews()+addView(new TextView) every time.
+        final java.util.List<TextView> taggedPeoplePillPool = new java.util.ArrayList<>();
+        final java.util.List<TextView> productTagPillPool = new java.util.ArrayList<>();
+
         // ── Small per-bind allocation caches ──────────────────────────────
         // ★ Instagram-level PERF (final pass): the three remaining
         // per-bind allocations flagged in the review — owner-name concat,
@@ -7193,6 +8734,62 @@ public class HomeFragment extends Fragment {
         String lastAgoStr;
         String lastThumbUrl;
         String lastAvatarUrl;
+        // ★ Instagram-level PERF: same same-URL-skip principle as
+        // lastThumbUrl/lastAvatarUrl above, for the music/sound cover tile
+        // (btnAudioCover) — see the "Audio-cover tile" block in
+        // addFeedPostCard(). Was allocating a fresh Glide RequestBuilder
+        // chain (load/apply/transform/override/into) on EVERY bind even
+        // when the exact same cover URL was already showing.
+        String lastAudioCoverUrl;
+        // ★ Instagram-level PERF: same same-URL-skip principle, for the
+        // collab-post dual-avatar loads (av2 collaborator photo + the main
+        // avatar's initiator photo) — see the collab branch in
+        // addFeedPostCard(). Was allocating a fresh Glide chain for BOTH
+        // avatars on EVERY bind even when the same reel rebinds unchanged.
+        String lastCollabCollaboratorPhoto;
+        String lastCollabInitiatorPhoto;
+        // ★ Instagram-level PERF: story-ring rebind-skip. The gradient ring
+        // Drawable itself was already a SHARED instance (see
+        // StoryRingGradientDrawable's v42 PERF PASS — computeIfAbsent keyed
+        // by stroke width, never re-allocated), but setBackground()/
+        // setImageDrawable()/setVisibility() were still being called on
+        // EVERY single bind even when the same uid rebinds with the exact
+        // same seen/unseen story state (e.g. a like-tap's
+        // notifyItemChanged) — each call still forces an invalidate +
+        // padding recompute. Skip those calls entirely when nothing
+        // actually changed since this holder's last bind.
+        String lastStoryRingUid;
+        int lastStoryRingState = -1; // -1 = never bound, 0 = none, 1 = seen, 2 = unseen
+        // ★ Instagram-level PERF: guards the RARE fallback branch of the
+        // likes/comments/reposts count text (see the precomputedUi==null
+        // branch below) — the common path already skips recompute via
+        // ReelUiStateCache's precompute, but the fallback used to call
+        // formatCount() + setText() unconditionally on every fallback
+        // bind even when the same reel's counts hadn't changed since this
+        // holder's last fallback bind.
+        int lastFallbackLikesCount = Integer.MIN_VALUE;
+        int lastFallbackCommentsCount = Integer.MIN_VALUE;
+        int lastFallbackRepostCount = Integer.MIN_VALUE;
+        // ★ Instagram-level PERF: caches the legacy dual-author collab
+        // header's "InitiatorName ∧ CollaboratorName" label — see the
+        // isCollab branch in addFeedPostCard(). Same skip principle as
+        // lastOwnerNameSrc/lastOwnerLabel below (that pair only covers the
+        // solo-author path); this pair was still re-concatenating on
+        // every single bind.
+        String lastCollabLabelInitiator;
+        String lastCollabLabelCollaborator;
+        String lastCollabLabelText;
+        // ★ Instagram-level PERF: caches the last reel this holder actually
+        // fetched social-proof / comment-preview data FOR, so a same-reel
+        // rebind (notifyItemChanged from a like tap, or a half-screen
+        // scroll-and-back) reapplies the cached text instead of firing a
+        // fresh Firebase read every single bind. null label/text = "fetched,
+        // nothing to show" (still skips re-fetching). Reset to null only
+        // when a genuinely different reel lands on this holder.
+        String lastLikedByReelId;
+        String lastLikedByLabel;
+        String lastCommentPreviewReelId;
+        String lastCommentPreviewText;
 
         PostRowHolder(@NonNull View itemView) { super(itemView); }
 
@@ -7226,16 +8823,19 @@ public class HomeFragment extends Fragment {
             btnSave               = itemView.findViewById(R.id.btn_post_save);
             pvFeed                = itemView.findViewById(R.id.pv_feed_post);
             frameVideo            = itemView.findViewById(R.id.frame_video);
+            framePhotoDotsRow     = itemView.findViewById(R.id.frame_photo_dots_row);
             endOverlay            = itemView.findViewById(R.id.layout_end_of_reel_card);
             watchMore             = itemView.findViewById(R.id.btn_watch_more_card);
             watchAgain            = itemView.findViewById(R.id.btn_watch_again_card);
             btnMute               = itemView.findViewById(R.id.btn_post_mute);
             btnAudioCover         = itemView.findViewById(R.id.btn_post_audio_cover);
+            btnCollabIcon         = itemView.findViewById(R.id.btn_post_collab_icon);
             sbProgress            = itemView.findViewById(R.id.sb_post_progress);
             tvPosition            = itemView.findViewById(R.id.tv_post_position);
             tvSpeedChip           = itemView.findViewById(R.id.tv_post_speed_chip);
             playOverlay           = itemView.findViewById(R.id.btn_post_play_overlay);
             collabAvatarContainer = itemView.findViewById(R.id.layout_collab_avatar);
+            llPostOwnerRow        = itemView.findViewById(R.id.ll_post_owner_row);
             btnReadMore           = itemView.findViewById(R.id.tv_post_read_more);
             btnSend               = itemView.findViewById(R.id.btn_post_send);
             tvSends               = itemView.findViewById(R.id.tv_post_sends);

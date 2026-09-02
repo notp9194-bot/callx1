@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Content for stub_post_collab_row ViewStub in item_post_feed_photo.xml.
+     Same MERGED ROW as stub_reel_collab_row.xml (overlapping avatar stack +
+     "@owner and N others" + Follow, same ids so PostsFeedActivity can drive
+     it with the same binding pattern as HomeFragment/ReelUiController) — only
+     difference is theme-aware colors, since this header sits on the post's
+     own @color/background_light row instead of being overlaid on a video. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/ll_collab_second_author"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="?attr/selectableItemBackgroundBorderless"
+    android:paddingVertical="2dp">
+    <!-- Instagram-style overlapping avatar stack with a real crescent
+         cutout notch — see CollabAvatarStackView for the notch-cutting logic. -->
+    <com.callx.app.views.CollabAvatarStackView
+        android:id="@+id/collab_avatar_stack"
+        android:layout_width="wrap_content"
+        android:layout_height="28dp"/>
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tv_collab_author_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_primary"
+                android:textSize="13.5sp"
+                android:textStyle="bold"
+                android:fontFamily="sans-serif-medium"/>
+            <TextView
+                android:id="@+id/tv_collab_follow_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:text="Follow"
+                android:textColor="@color/brand_primary"
+                android:textSize="13sp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp"
+                android:background="@drawable/bg_filter_chip_unselected"
+                android:visibility="gone"/>
+        </LinearLayout>
+
+        <!-- Instagram-style bio song-name row — hidden by default on this
+             screen (same as the plain owner row's tv_post_audio, which is
+             also GONE unless set). -->
+        <LinearLayout
+            android:id="@+id/ll_collab_song_row"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+
+            <ImageView
+                android:layout_width="11dp"
+                android:layout_height="11dp"
+                android:src="@drawable/ic_music_note"
+                android:tint="@color/text_secondary"
+                android:contentDescription="Song"/>
+
+            <com.callx.app.views.MusicTickerView
+                android:id="@+id/tv_collab_song_name"
+                android:layout_width="130dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"/>
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

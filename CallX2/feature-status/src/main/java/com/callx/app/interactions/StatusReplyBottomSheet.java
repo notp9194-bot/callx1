@@ -219,6 +219,25 @@ public class StatusReplyBottomSheet {
                                         photo != null ? photo : "",
                                         message, chatId);
                             } catch (Exception ignored) {}
+                            // Instagram-style: also publish a public preview on the
+                            // status node itself so the OWNER sees this commenter's
+                            // avatar + text as a bottom-left overlay next time they
+                            // view this status (StatusViewerActivity), on top of the
+                            // private chat DM above. See FirebaseUtils#getStatusRepliesRef.
+                            if (item.id != null && !item.id.isEmpty()) {
+                                String replyId = FirebaseUtils.getStatusRepliesRef(ownerUid, item.id)
+                                        .push().getKey();
+                                if (replyId != null) {
+                                    Map<String, Object> preview = new HashMap<>();
+                                    preview.put("uid",       myUid);
+                                    preview.put("name",      name != null ? name : "Someone");
+                                    preview.put("avatarUrl", photo != null ? photo : "");
+                                    preview.put("text",      message);
+                                    preview.put("timestamp", ServerValue.TIMESTAMP);
+                                    FirebaseUtils.getStatusRepliesRef(ownerUid, item.id)
+                                            .child(replyId).setValue(preview);
+                                }
+                            }
                         }
                         @Override public void onCancelled(DatabaseError e) {}
                     }));

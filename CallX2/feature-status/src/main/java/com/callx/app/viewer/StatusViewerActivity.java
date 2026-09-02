@@ -122,6 +122,11 @@ import com.callx.app.utils.AlertDialogStyler;
       private long           viewStartTime = 0;
       private String myUid, ownerUid, ownerName;
       private final List<ProgressBar> segmentBars = new ArrayList<>();
+      // ── Latest-reply overlay (owner-only, Instagram-style) ─────────────────
+      private DatabaseReference repliesListenerRef;
+      private ValueEventListener repliesListener;
+      private Runnable          replyOverlayAutoHide;
+      private static final long REPLY_OVERLAY_AUTO_HIDE_MS = 4000;
       private GestureDetector swipeDetector;
       // ── Lifecycle ─────────────────────────────────────────────────────────
       @Override
@@ -198,7 +203,9 @@ import com.callx.app.utils.AlertDialogStyler;
       }
       @Override
       protected void onDestroy() {
+          detachRepliesListener();
           releasePlayer();
+          if (binding.tvStatusSongName != null) binding.tvStatusSongName.release();
           stopProgress();
           handler.removeCallbacksAndMessages(null);
           getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -371,6 +378,7 @@ import com.callx.app.utils.AlertDialogStyler;
           fillSegmentsBefore(idx);
           updateHeaderTimestamp(s);
           updateSeenByInfo(s);
+          updateLastReplyOverlay(s);
           updateExpiryLabel(s);
           playReactionBurstIfAny(s);
           crossFadeIn();
@@ -748,6 +756,33 @@ import com.callx.app.utils.AlertDialogStyler;
           binding.flStickerOverlay.removeAllViews();
           stickerZoomScrim = null; // just got removed along with everything else above
           releaseMusicPlayer(); // stop the previous status's music sticker before the next one renders
+          hideStatusSongTicker(); // reset the below-name audio ticker; renderStickers() re-shows it if this status has one
+      }
+
+      /** Hides + pauses the below-name audio-name ticker (ll_status_song_row /
+       *  tv_status_song_name) — called on every status change before the next
+       *  status's stickers (if any) are rendered. */
+      private void hideStatusSongTicker() {
+          if (binding.llStatusSongRow != null) binding.llStatusSongRow.setVisibility(View.GONE);
+          if (binding.tvStatusSongName != null) binding.tvStatusSongName.pause();
+      }
+
+      /** Shows the below-name audio ticker for a music sticker found on the
+       *  current status — "Song · Artist" (falls back to just the song name
+       *  when no artist is set), same "Song · Artist" join format as the reel
+       *  player's ReelUiController#buildMusicDisplay(). Called once per music
+       *  sticker from renderStickers(); harmless if a status somehow has more
+       *  than one (last one wins, matches "only shows one row" reel behavior). */
+      private void showStatusSongTicker(StatusStickerOverlayView sticker) {
+          if (binding.llStatusSongRow == null || binding.tvStatusSongName == null) return;
+          String song = sticker.getMusicSong();
+          if (song == null || song.isEmpty()) return;
+          String artist = sticker.getMusicArtist();
+          String display = (artist != null && !artist.isEmpty() && !song.contains(artist))
+                  ? song + " · " + artist : song;
+          binding.tvStatusSongName.setText(display);
+          binding.llStatusSongRow.setVisibility(View.VISIBLE);
+          binding.tvStatusSongName.resume();
       }
 
       // ── Music sticker inline autoplay ────────────────────────────────────
@@ -920,6 +955,15 @@ import com.callx.app.utils.AlertDialogStyler;
                   }
 
                   if ("music".equals(sticker.getStickerType())) {
+                      // NEW: below-name audio ticker (ll_status_song_row /
+                      // tv_status_song_name) — Instagram/reel-style, reusing
+                      // core's MusicTickerView, the exact same component the
+                      // reel player's bio song row already uses. Only shown
+                      // when the poster actually attached a music sticker to
+                      // this status; hideStatusSongTicker() (called from
+                      // hideAllContent() on every status change) keeps it
+                      // hidden otherwise.
+                      showStatusSongTicker(sticker);
                       // Autoplay the sticker's preview clip the instant the status
                       // appears — WhatsApp/Instagram-style. Independent of whether
                       // it's linked to a real Reels track (tap-to-open still only
@@ -1947,6 +1991,116 @@ import com.callx.app.utils.AlertDialogStyler;
               }
           }
           updateLikeHeartIcon(s);
+      }
+      /**
+       * Instagram-style bottom-left "recent comments" overlay. Now shown to
+       * EVERY viewer (not just the owner) — matches the requested behavior of
+       * a public comment strip under the story, like Instagram's public post/
+       * reel comments, rather than a private-reply indicator. Attaches a live
+       * listener on status/{ownerUid}/{statusId}/replies for the currently-
+       * shown segment so a comment posted while someone is watching shows up
+       * immediately, and detaches the previous segment's listener first to
+       * avoid leaking one listener per swipe.
+       */
+      private void updateLastReplyOverlay(StatusItem s) {
+          detachRepliesListener();
+          if (binding.llLastReplyBubble == null) return;
+          if (s == null || s.id == null || s.id.isEmpty()) {
+              binding.llLastReplyBubble.setVisibility(View.GONE);
+              return;
+          }
+          repliesListenerRef = FirebaseUtils.getStatusRepliesRef(ownerUid, s.id);
+          repliesListener = new ValueEventListener() {
+              @Override public void onDataChange(DataSnapshot snap) {
+                  Map<String, StatusItem.ReplyPreview> repliesMap = new LinkedHashMap<>();
+                  for (DataSnapshot child : snap.getChildren()) {
+                      StatusItem.ReplyPreview r = child.getValue(StatusItem.ReplyPreview.class);
+                      if (r != null) repliesMap.put(child.getKey(), r);
+                  }
+                  // Keep the StatusItem in sync so a tap on the overlay opens
+                  // StatusRepliesBottomSheet with the exact same data, no re-fetch.
+                  s.replies = repliesMap;
+                  List<StatusItem.ReplyPreview> newestFirst = new ArrayList<>(repliesMap.values());
+                  Collections.sort(newestFirst, (a, b) -> {
+                      long ta = a.timestamp != null ? a.timestamp : 0;
+                      long tb = b.timestamp != null ? b.timestamp : 0;
+                      return Long.compare(tb, ta);
+                  });
+                  bindLastReplyBubble(s, newestFirst);
+              }
+              @Override public void onCancelled(DatabaseError e) { }
+          };
+          repliesListenerRef.addValueEventListener(repliesListener);
+      }
+      /**
+       * Binds up to the 3 most recent commenters as an overlapping avatar stack
+       * (newest frontmost/rightmost, matching Instagram's "recent repliers"
+       * cluster) plus the newest comment's text, then auto-hides the whole
+       * overlay a few seconds later with a fade — same "glance and it goes away"
+       * behavior as Instagram's own story reply indicator. A tap on the bubble
+       * (see {@link #updateLastReplyOverlay}'s click listener setup below)
+       * re-opens it immediately via the full-list bottom sheet, and cancels
+       * any pending auto-hide.
+       */
+      private void bindLastReplyBubble(StatusItem s, List<StatusItem.ReplyPreview> newestFirst) {
+          if (binding.llLastReplyBubble == null) return;
+          if (replyOverlayAutoHide != null) handler.removeCallbacks(replyOverlayAutoHide);
+          if (newestFirst.isEmpty()) {
+              binding.llLastReplyBubble.setVisibility(View.GONE);
+              binding.llLastReplyBubble.setAlpha(1f);
+              return;
+          }
+          android.widget.ImageView[] slots = {
+              binding.ivLastReplyAvatar1, binding.ivLastReplyAvatar2, binding.ivLastReplyAvatar3
+          };
+          // slots[2] (rightmost/top-of-stack) = newest; older ones fill leftward.
+          for (int slot = 0; slot < slots.length; slot++) {
+              int replyIdx = slots.length - 1 - slot; // 2,1,0
+              if (slots[slot] == null) continue;
+              if (replyIdx < newestFirst.size()) {
+                  StatusItem.ReplyPreview r = newestFirst.get(replyIdx);
+                  slots[slot].setVisibility(View.VISIBLE);
+                  if (r.avatarUrl != null && !r.avatarUrl.isEmpty())
+                      Glide.with(this).load(r.avatarUrl).into(slots[slot]);
+                  else
+                      slots[slot].setImageResource(R.drawable.ic_person);
+              } else {
+                  slots[slot].setVisibility(View.GONE);
+              }
+          }
+          StatusItem.ReplyPreview latest = newestFirst.get(0);
+          if (binding.tvLastReplyText != null) {
+              String who = latest.name != null && !latest.name.isEmpty() ? latest.name : "Someone";
+              binding.tvLastReplyText.setText(who + ": " + (latest.text != null ? latest.text : ""));
+          }
+          binding.llLastReplyBubble.animate().cancel();
+          binding.llLastReplyBubble.setAlpha(1f);
+          binding.llLastReplyBubble.setVisibility(View.VISIBLE);
+          binding.llLastReplyBubble.setOnClickListener(v -> {
+              if (replyOverlayAutoHide != null) handler.removeCallbacks(replyOverlayAutoHide);
+              pauseProgress();
+              com.callx.app.interactions.StatusRepliesBottomSheet.show(this, ownerUid, myUid, s, this::resumeProgress);
+          });
+          replyOverlayAutoHide = () -> {
+              if (binding.llLastReplyBubble == null) return;
+              binding.llLastReplyBubble.animate()
+                  .alpha(0f).setDuration(300)
+                  .withEndAction(() -> {
+                      if (binding.llLastReplyBubble != null)
+                          binding.llLastReplyBubble.setVisibility(View.GONE);
+                  }).start();
+          };
+          handler.postDelayed(replyOverlayAutoHide, REPLY_OVERLAY_AUTO_HIDE_MS);
+      }
+      private void detachRepliesListener() {
+          if (repliesListenerRef != null && repliesListener != null)
+              repliesListenerRef.removeEventListener(repliesListener);
+          repliesListenerRef = null;
+          repliesListener = null;
+          if (replyOverlayAutoHide != null) {
+              handler.removeCallbacks(replyOverlayAutoHide);
+              replyOverlayAutoHide = null;
+          }
       }
       /** Keeps the quick-like heart filled/outline in sync with whether I've already ❤️'d this status. */
       private void updateLikeHeartIcon(StatusItem s) {

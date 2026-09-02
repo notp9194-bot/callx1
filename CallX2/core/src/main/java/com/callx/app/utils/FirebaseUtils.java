@@ -408,6 +408,19 @@ public class FirebaseUtils {
         return db().getReference("status").child(ownerUid).child(statusId).child("seenBy");
     }
 
+    /**
+     * status/{ownerUid}/{statusId}/replies/{pushId} — public-on-the-status-node copy
+     * of every text reply sent to that status (Instagram-style). A normal status
+     * reply is otherwise only a private chat DM (see StatusReplyBottomSheet#sendReply),
+     * invisible to the owner unless they open the chat; this node lets
+     * StatusViewerActivity show the latest replier's avatar + comment as a bottom-left
+     * overlay directly on the story when the OWNER reopens it, and lets
+     * StatusRepliesBottomSheet list every replier for that story.
+     */
+    public static DatabaseReference getStatusRepliesRef(String ownerUid, String statusId) {
+        return db().getReference("status").child(ownerUid).child(statusId).child("replies");
+    }
+
     public static DatabaseReference getStatusSeenRef(String viewerUid) {
         return db().getReference("statusSeen").child(viewerUid);
     }

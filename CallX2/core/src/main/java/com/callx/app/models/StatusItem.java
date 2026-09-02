@@ -92,6 +92,44 @@ public class StatusItem {
     public Map<String, String>  reactions;
     /** viewDurations: Map<viewerUid, durationMs> */
     public Map<String, Long>    viewDurations;
+    /**
+     * replies: Map<pushId, ReplyPreview> — public copy of every text reply this
+     * status has received (see FirebaseUtils#getStatusRepliesRef). A pushId key
+     * (not viewerUid) is used, unlike reactions/seenBy, since one viewer can send
+     * several separate comments and Instagram-style each one should be kept, not
+     * overwritten by the next.
+     */
+    public Map<String, ReplyPreview> replies;
+
+    /** One replier's public comment preview on this status. */
+    @IgnoreExtraProperties
+    public static class ReplyPreview {
+        public String uid;
+        public String name;
+        public String avatarUrl;
+        public String text;
+        public Long   timestamp;
+        public ReplyPreview() {}
+        public ReplyPreview(String uid, String name, String avatarUrl, String text, Long timestamp) {
+            this.uid = uid; this.name = name; this.avatarUrl = avatarUrl;
+            this.text = text; this.timestamp = timestamp;
+        }
+    }
+
+    /** Most recent reply (by timestamp), or null if none — drives the owner-only
+     *  bottom-left "who just commented" overlay in StatusViewerActivity. */
+    @Exclude
+    public ReplyPreview getLatestReply() {
+        if (replies == null || replies.isEmpty()) return null;
+        ReplyPreview latest = null;
+        for (ReplyPreview r : replies.values()) {
+            if (r == null) continue;
+            long ts = r.timestamp != null ? r.timestamp : 0;
+            long bestTs = latest != null && latest.timestamp != null ? latest.timestamp : -1;
+            if (latest == null || ts > bestTs) latest = r;
+        }
+        return latest;
+    }
 
     // ── Mentions ──────────────────────────────────────────────────────
     /** mentionNames: Map<username, uid> */
@@ -280,6 +318,7 @@ public class StatusItem {
         if (seenBy != null)           m.put("seenBy", seenBy);
         if (reactions != null)        m.put("reactions", reactions);
         if (viewDurations != null)    m.put("viewDurations", viewDurations);
+        if (replies != null)          m.put("replies", replies);
         if (mentionNames != null)     m.put("mentionNames", mentionNames);
         m.put("isHighlighted",        isHighlighted);
         if (highlightAlbumId != null) m.put("highlightAlbumId", highlightAlbumId);

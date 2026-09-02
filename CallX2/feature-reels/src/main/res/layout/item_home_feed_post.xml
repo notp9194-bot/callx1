@@ -68,94 +68,126 @@
             android:paddingTop="14dp"
             android:paddingBottom="20dp">
 
-            <!-- Avatar + optional gradient ring -->
-            <FrameLayout
-                android:layout_width="46dp"
-                android:layout_height="46dp">
-
-                <ImageView
-                    android:id="@+id/iv_post_story_ring"
-                    android:layout_width="46dp"
-                    android:layout_height="46dp"
-                    android:layout_gravity="center"
-                    android:background="@drawable/story_ring_insta_gradient"
-                    android:visibility="gone"/>
-
-                <de.hdodenhof.circleimageview.CircleImageView
-                    android:id="@+id/iv_post_avatar"
-                    android:layout_width="38dp"
-                    android:layout_height="38dp"
-                    android:layout_gravity="center"
-                    android:src="@drawable/ic_person"
-                    app:civ_border_width="0dp"
-                    app:civ_border_color="@android:color/transparent"/>
-
-                <!-- Collab second avatar — overlaps the first; GONE for solo posts -->
-                <LinearLayout
-                    android:id="@+id/layout_collab_avatar"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="bottom|end"
-                    android:orientation="horizontal"
-                    android:visibility="gone"/>
-            </FrameLayout>
-
-            <!-- Username + Suggested + Audio -->
+            <!-- ── Normal solo-owner row: avatar + username/suggested/audio ──
+                 GONE (in favor of stub_home_collab_row below) when the reel
+                 has collaborators — same merged-row swap ReelUiController
+                 does for the immersive Reels player (ll_owner_row vs
+                 ll_collab_second_author). -->
             <LinearLayout
+                android:id="@+id/ll_post_owner_row"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:orientation="vertical"
-                android:layout_marginStart="10dp">
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <TextView
-                        android:id="@+id/tv_post_owner"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@username"
-                        android:textColor="#FFFFFF"
-                        android:textSize="13sp"
-                        android:fontFamily="sans-serif-medium"/>
+                <!-- Avatar + optional gradient ring -->
+                <FrameLayout
+                    android:layout_width="46dp"
+                    android:layout_height="46dp">
 
                     <ImageView
-                        android:id="@+id/iv_post_verified"
-                        android:layout_width="13dp"
-                        android:layout_height="13dp"
-                        android:layout_marginStart="3dp"
-                        android:src="@drawable/ic_verified_pink"
-                        android:visibility="gone"
-                        android:contentDescription="Verified"/>
+                        android:id="@+id/iv_post_story_ring"
+                        android:layout_width="46dp"
+                        android:layout_height="46dp"
+                        android:layout_gravity="center"
+                        android:background="@drawable/story_ring_insta_gradient"
+                        android:visibility="gone"/>
+
+                    <de.hdodenhof.circleimageview.CircleImageView
+                        android:id="@+id/iv_post_avatar"
+                        android:layout_width="38dp"
+                        android:layout_height="38dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_person"
+                        app:civ_border_width="0dp"
+                        app:civ_border_color="@android:color/transparent"/>
+
+                    <!-- Legacy dual-avatar overlap — only used as a fallback
+                         for old collabInitiatorUid/collabColaboratorUid data
+                         that predates the multi-collaborator stack above.
+                         GONE for solo posts and for the new collab system. -->
+                    <LinearLayout
+                        android:id="@+id/layout_collab_avatar"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="bottom|end"
+                        android:orientation="horizontal"
+                        android:visibility="gone"/>
+                </FrameLayout>
+
+                <!-- Username + Suggested + Audio -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="10dp">
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/tv_post_owner"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@username"
+                            android:textColor="#FFFFFF"
+                            android:textSize="13sp"
+                            android:fontFamily="sans-serif-medium"/>
+
+                        <ImageView
+                            android:id="@+id/iv_post_verified"
+                            android:layout_width="13dp"
+                            android:layout_height="13dp"
+                            android:layout_marginStart="3dp"
+                            android:src="@drawable/ic_verified_pink"
+                            android:visibility="gone"
+                            android:contentDescription="Verified"/>
+                    </LinearLayout>
+
+                    <!-- Shown only for suggested / For You posts -->
+                    <TextView
+                        android:id="@+id/tv_post_suggested"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Suggested for you"
+                        android:textColor="#CCCCCC"
+                        android:textSize="11sp"
+                        android:visibility="gone"/>
+
+                    <!-- Audio track info -->
+                    <TextView
+                        android:id="@+id/tv_post_audio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:drawableStart="@drawable/ic_music"
+                        android:drawablePadding="4dp"
+                        android:drawableTint="#CCCCCC"
+                        android:text="Original audio"
+                        android:textColor="#CCCCCC"
+                        android:textSize="11sp"
+                        android:visibility="gone"/>
                 </LinearLayout>
-
-                <!-- Shown only for suggested / For You posts -->
-                <TextView
-                    android:id="@+id/tv_post_suggested"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Suggested for you"
-                    android:textColor="#CCCCCC"
-                    android:textSize="11sp"
-                    android:visibility="gone"/>
-
-                <!-- Audio track info -->
-                <TextView
-                    android:id="@+id/tv_post_audio"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:drawableStart="@drawable/ic_music"
-                    android:drawablePadding="4dp"
-                    android:drawableTint="#CCCCCC"
-                    android:text="Original audio"
-                    android:textColor="#CCCCCC"
-                    android:textSize="11sp"
-                    android:visibility="gone"/>
             </LinearLayout>
+
+            <!-- ── Collab / multi-collaborator merged row — REUSED as-is from
+                 the Reels play screen (stub_reel_collab_row.xml): overlapping
+                 avatar stack (CollabAvatarStackView) + "@owner and N others"
+                 + Follow, same ids (collab_avatar_stack, tv_collab_author_name,
+                 tv_collab_follow_btn, ll_collab_song_row / tv_collab_song_name)
+                 so HomeFragment can drive it with the exact same binding code
+                 as ReelUiController. GONE unless the reel has collaborators. -->
+            <ViewStub
+                android:id="@+id/stub_home_collab_row"
+                android:inflatedId="@+id/ll_collab_second_author"
+                android:layout="@layout/stub_reel_collab_row"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"/>
 
             <!-- Follow pill — GONE by default -->
             <TextView
@@ -185,6 +217,32 @@
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="More"/>
         </LinearLayout>
+
+        <!-- ── Collab icon — bottom-LEFT corner of the video, mirror of the
+             mute/audio-cover tiles on the bottom-right. Same circular chip
+             look (bg_mute_toggle_circle) so it reads as part of the same
+             video-chrome family. Tapping opens the exact same
+             CollaboratorsBottomSheet as tapping the "@owner and N others"
+             collab row/avatar stack above (see HomeFragment bind logic) —
+             this just gives collab posts a second, always-reachable entry
+             point lower on the card, same idea as Instagram surfacing collab
+             credit in more than one spot on a multi-author post.
+             GONE for solo posts (no collaborators) — shown only when
+             isCollabStackDisplay is true, same condition that inflates
+             stub_home_collab_row above. -->
+        <ImageButton
+            android:id="@+id/btn_post_collab_icon"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_gravity="bottom|start"
+            android:layout_marginStart="10dp"
+            android:layout_marginBottom="34dp"
+            android:src="@drawable/ic_group"
+            android:tint="#FFFFFF"
+            android:background="@drawable/bg_mute_toggle_circle"
+            android:padding="6dp"
+            android:contentDescription="Collaborators"
+            android:visibility="gone"/>
 
         <!-- Mute toggle — sits above the audio-cover tile, bottom-right corner of video -->
         <ImageButton
@@ -365,6 +423,19 @@
 
     </FrameLayout>
     <!-- ═══ End video block ═══ -->
+
+    <!-- ══════════ Multi-photo page-indicator dots ══════════ -->
+    <!-- Sits BELOW the media (Instagram-style), not overlaid on top of it —
+         only shown/populated in Java for multi-photo posts (see
+         HomeFragment holder.photoDots). GONE by default / for video reels
+         and single-photo posts. -->
+    <FrameLayout
+        android:id="@+id/frame_photo_dots_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp"
+        android:visibility="gone"/>
 
     <!-- ══════════ ACTION BAR — Instagram-style spacing ══════════ -->
     <LinearLayout

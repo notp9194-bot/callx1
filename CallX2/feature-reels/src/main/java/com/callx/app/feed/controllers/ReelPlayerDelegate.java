@@ -27,6 +27,15 @@ public interface ReelPlayerDelegate {
     @Nullable Fragment getParentFragment();
     /** True when this reel is the currently-visible reel in the feed. */
     boolean isCurrentlyVisible();
+    /**
+     * Returns (and clears) the one-time initial seek position, in ms, this
+     * reel's player should jump to the first time it's prepared — non-zero
+     * only when this reel was opened from an inline preview that already
+     * had playback progress (e.g. tapping a Home feed card mid-playback).
+     * Returns 0 for a normal open, and every call after the first for the
+     * same fragment instance.
+     */
+    long consumePendingInitialSeekMs();
 
     // ── Utility ──────────────────────────────────────────────────────────
 

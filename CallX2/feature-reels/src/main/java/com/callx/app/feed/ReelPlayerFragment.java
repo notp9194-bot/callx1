@@ -82,6 +82,10 @@ public class ReelPlayerFragment extends Fragment
         ReelPlayerFragment f = new ReelPlayerFragment();
         Bundle args = new Bundle();
         args.putString("reel_id",    reel.reelId);
+        // ✅ Instagram-style resume: only non-zero when this reel was opened
+        // from an inline preview (e.g. Home feed card) that already had
+        // playback progress — see ReelModel.pendingStartPositionMs doc.
+        args.putLong("pending_start_position_ms", reel.pendingStartPositionMs);
         args.putString("reel_uid",   reel.uid);
         args.putString("owner_name", reel.ownerName);
         args.putString("owner_photo",reel.ownerPhoto);
@@ -162,6 +166,7 @@ public class ReelPlayerFragment extends Fragment
         if (getArguments() != null) {
             reel = new ReelModel();
             reel.reelId        = getArguments().getString("reel_id");
+            reel.pendingStartPositionMs = getArguments().getLong("pending_start_position_ms", 0);
             reel.uid           = getArguments().getString("reel_uid");
             reel.ownerName     = getArguments().getString("owner_name");
             reel.ownerPhoto    = getArguments().getString("owner_photo");
@@ -517,6 +522,21 @@ public class ReelPlayerFragment extends Fragment
     // and are inherited directly — no override needed to satisfy ReelPlayerDelegate.
     @Override public Fragment getFragment()        { return this; }
     @Override public boolean isCurrentlyVisible() { return isVisible; }
+
+    /**
+     * ✅ Instagram-style resume: returns the playback position (ms) this
+     * reel should seek to the FIRST time its player is prepared — carried
+     * over from the inline preview it was opened from (Home feed card) — or
+     * 0 for a normal open. Consumed exactly once: after this call the value
+     * resets to 0, so the reel's own STATE_ENDED/REPEAT_MODE_ONE looping
+     * restarts from 0 like any other replay, and swiping away and back
+     * never re-applies the stale offset.
+     */
+    @Override public long consumePendingInitialSeekMs() {
+        long ms = reel != null ? reel.pendingStartPositionMs : 0;
+        if (reel != null) reel.pendingStartPositionMs = 0;
+        return ms;
+    }
 
     // ── Utility ──────────────────────────────────────────────────────────
 

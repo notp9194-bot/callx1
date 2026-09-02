@@ -501,13 +501,41 @@ public class PostsFeedActivity extends AppCompatActivity {
         };
     }
 
+    /** Theme-aware active/inactive dot color — now that the dots sit BELOW
+     *  the image on the app's themed background (Instagram-style) instead
+     *  of overlaid on top of it, hardcoded white/translucent-white would
+     *  vanish in light mode. Same colors as HomeFragment's photo-slideshow
+     *  indicator (see its photoDotActiveColor()/photoDotInactiveColor()).
+     *  PERF: resolved from resources ONCE per activity instance instead of
+     *  a fresh ContextCompat.getColor() (× 2, since the old code looked up
+     *  BOTH primary and secondary even on the active-only branch) on every
+     *  single dot on every bind AND every page-change — a feed screen full
+     *  of multi-photo posts rebuilds/recolors many dots per scroll pass. */
+    private int cachedDotActiveColor   = 0;
+    private int cachedDotInactiveColor = 0;
+    private boolean dotColorsCached = false;
+
+    private void ensureDotColorsCached() {
+        if (dotColorsCached) return;
+        int primary = androidx.core.content.ContextCompat.getColor(this, R.color.text_primary);
+        int secondary = androidx.core.content.ContextCompat.getColor(this, R.color.text_secondary);
+        cachedDotActiveColor   = primary;
+        cachedDotInactiveColor = (secondary & 0x00FFFFFF) | 0x4D000000;
+        dotColorsCached = true;
+    }
+
+    private int carouselDotColor(boolean active) {
+        ensureDotColorsCached();
+        return active ? cachedDotActiveColor : cachedDotInactiveColor;
+    }
+
     /** Solid white when active, translucent white otherwise — same dot
      *  styling as HomeFragment's photo-slideshow indicator, reused here for
      *  PostsFeedActivity's multi-photo carousel. */
     private android.graphics.drawable.GradientDrawable makeCarouselDot(boolean active) {
         android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
         d.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        d.setColor(active ? 0xFFFFFFFF : 0x66FFFFFF);
+        d.setColor(carouselDotColor(active));
         return d;
     }
 
@@ -1286,6 +1314,7 @@ public class PostsFeedActivity extends AppCompatActivity {
                 // active dot is just mutating each drawable's color
                 // in-place instead of swapping in a new Drawable object.
                 h.dotsContainer.setVisibility(View.VISIBLE);
+                if (h.dotsRow != null) h.dotsRow.setVisibility(View.VISIBLE);
                 if (h.dotCount != photoCount) {
                     h.dotsContainer.removeAllViews();
                     h.dotViews = new View[photoCount];
@@ -1307,7 +1336,7 @@ public class PostsFeedActivity extends AppCompatActivity {
                 // Always reset dot colors on bind (pager below is reset to
                 // page 0), even when the array itself was reused as-is.
                 for (int di = 0; di < photoCount; di++) {
-                    h.dotDrawables[di].setColor(di == 0 ? 0xFFFFFFFF : 0x66FFFFFF);
+                    h.dotDrawables[di].setColor(carouselDotColor(di == 0));
                 }
 
                 // PERF: "1/" + photoCount used to re-concatenate a fresh
@@ -1341,6 +1370,9 @@ public class PostsFeedActivity extends AppCompatActivity {
                 // the cache above is reused as-is instead of rebuilding.
                 if (h.dotsContainer != null) {
                     h.dotsContainer.setVisibility(View.GONE);
+                }
+                if (h.dotsRow != null) {
+                    h.dotsRow.setVisibility(View.GONE);
                 }
                 h.ivThumb.setVisibility(View.VISIBLE);
                 if (h.tvCarouselIndex != null) h.tvCarouselIndex.setVisibility(View.GONE);
@@ -1403,12 +1435,182 @@ public class PostsFeedActivity extends AppCompatActivity {
                 }
             }
 
-            // ── Collab / dual-author header — same pattern as HomeFragment's
-            // home feed: when this post is a collab repost (both an
-            // initiator and an accepted collaborator on record), show
-            // "Initiator ∧ Collaborator" as the owner label and overlap a
-            // second circular avatar for the collaborator, instead of the
-            // normal single-owner row.
+            // ── Collab / multi-collaborator header — REUSED from the Reels
+            // play screen / Home feed (ReelUiController / HomeFragment):
+            // overlapping avatar stack + "@owner and N others", opens
+            // CollaboratorsBottomSheet. Checked first; the old two-field
+            // dual-author system below only applies when this has nothing.
+            java.util.List<com.callx.app.models.ReelModel.CollabCollaborator> acceptedPost = r.acceptedCollaborators();
+            boolean legacySingleOnlyPost = acceptedPost.isEmpty() && r.isCollabPost
+                && r.collabUid != null && !r.collabUid.isEmpty();
+            boolean isCollabStackDisplayPost = !acceptedPost.isEmpty() || legacySingleOnlyPost;
+
+            if (h.llCollabAuthors == null && isCollabStackDisplayPost) {
+                View stubPost = h.itemView.findViewById(R.id.stub_post_collab_row);
+                if (stubPost instanceof android.view.ViewStub) {
+                    h.llCollabAuthors = ((android.view.ViewStub) stubPost).inflate();
+                    h.collabStack = h.llCollabAuthors.findViewById(R.id.collab_avatar_stack);
+                    h.tvCollabAuthorName = h.llCollabAuthors.findViewById(R.id.tv_collab_author_name);
+                    View llCollabSongRowPost = h.llCollabAuthors.findViewById(R.id.ll_collab_song_row);
+                    if (llCollabSongRowPost != null) llCollabSongRowPost.setVisibility(View.GONE);
+                    // Follow pill stays hidden here too — same single-user
+                    // filtered screen reasoning as h.btnFollow below.
+                    View tvCollabFollowBtnPost = h.llCollabAuthors.findViewById(R.id.tv_collab_follow_btn);
+                    if (tvCollabFollowBtnPost != null) tvCollabFollowBtnPost.setVisibility(View.GONE);
+
+                    // Avatar-stack tap → Collaborators sheet. Registered
+                    // ONCE (same pattern as setupClickListenersOnce()),
+                    // reads h.boundReel at click time.
+                    h.collabStack.setOnClickListener(v -> {
+                        ReelModel br = h.boundReel;
+                        if (br == null || isFinishing() || isDestroyed()) return;
+                        com.callx.app.social.CollaboratorsBottomSheet.newInstance(
+                                br.reelId, br.uid, br.ownerName, br.ownerPhoto)
+                            .show(getSupportFragmentManager(), com.callx.app.social.CollaboratorsBottomSheet.TAG);
+                    });
+                }
+            }
+
+            if (isCollabStackDisplayPost && h.llCollabAuthors != null) {
+                h.llCollabAuthors.setVisibility(View.VISIBLE);
+                if (h.llPostOwnerRow != null) h.llPostOwnerRow.setVisibility(View.GONE);
+                if (h.collabAvatarContainer != null) h.collabAvatarContainer.setVisibility(View.GONE);
+
+                java.util.List<String> avatarUrlsPost = new java.util.ArrayList<>();
+                avatarUrlsPost.add(r.ownerPhoto);
+                int totalCountPost;
+                if (!acceptedPost.isEmpty()) {
+                    for (com.callx.app.models.ReelModel.CollabCollaborator c : acceptedPost) avatarUrlsPost.add(c.avatarUrl);
+                    totalCountPost = acceptedPost.size();
+                } else {
+                    avatarUrlsPost.add(r.collabAvatarUrl);
+                    totalCountPost = 1;
+                }
+
+                if (h.collabStack != null) {
+                    final com.callx.app.views.CollabAvatarStackView collabStackFinalPost = h.collabStack;
+                    int stackCountPost = Math.min(avatarUrlsPost.size(), 3);
+                    // PERF (URL-skip): a rebind landing on this row with the
+                    // SAME reel/avatars (a live-count tick, a like-tap's
+                    // notifyItemChanged, or the row simply scrolling back
+                    // into view) used to re-run up to 3 fresh Glide
+                    // asBitmap() loads EVERY time even though none of the
+                    // avatar URLs actually changed — same lastAvatarUrl/
+                    // lastThumbUrl URL-skip principle this holder already
+                    // uses elsewhere.
+                    boolean unchangedPost = h.lastCollabStackCountPost == stackCountPost;
+                    if (unchangedPost) {
+                        for (int i = 0; i < stackCountPost; i++) {
+                            if (!java.util.Objects.equals(avatarUrlsPost.get(i), h.lastCollabAvatarUrlsPost[i])) {
+                                unchangedPost = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (!unchangedPost) {
+                        collabStackFinalPost.clearAvatars();
+                        collabStackFinalPost.setAvatarCount(stackCountPost);
+                        for (int i = 0; i < stackCountPost; i++) {
+                            String url = avatarUrlsPost.get(i);
+                            h.lastCollabAvatarUrlsPost[i] = url;
+                            final int index = i;
+                            if (url != null && !url.isEmpty()) {
+                                android.content.Context ctxPost = collabStackFinalPost.getContext();
+                                int stackSizePx = com.callx.app.utils.AvatarUrlBuilder.tierPx(ctxPost, com.callx.app.utils.AvatarSizeTier.TINY);
+                                Glide.with(ctxPost)
+                                    .asBitmap()
+                                    .load(com.callx.app.utils.AvatarUrlBuilder.build(ctxPost, url, com.callx.app.utils.AvatarSizeTier.TINY))
+                                    .apply(new RequestOptions()
+                                        .override(stackSizePx, stackSizePx)
+                                        .format(DecodeFormat.PREFER_ARGB_8888)
+                                        .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
+                                    .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+                                        @Override
+                                        public void onResourceReady(@NonNull android.graphics.Bitmap resource, @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
+                                            collabStackFinalPost.setAvatarBitmap(index, resource);
+                                        }
+                                        @Override
+                                        public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) { }
+                                    });
+                            }
+                        }
+                        for (int i = stackCountPost; i < h.lastCollabAvatarUrlsPost.length; i++) h.lastCollabAvatarUrlsPost[i] = null;
+                        h.lastCollabStackCountPost = stackCountPost;
+                    }
+                }
+
+                if (h.tvCollabAuthorName != null) {
+                    String ownerNamePost = r.ownerName != null && !r.ownerName.isEmpty() ? r.ownerName : "user";
+                    String namePartPost = "@" + ownerNamePost;
+                    String othersPartPost = " and " + totalCountPost + (totalCountPost == 1 ? " other" : " others");
+                    String fullPost = namePartPost + othersPartPost;
+
+                    // PERF: a same-post rebind (live-count tick etc.) repeats
+                    // the exact same "@owner and N others" text for the exact
+                    // same reel — skip rebuilding the SpannableString + both
+                    // ClickableSpans (2 extra allocations per bind) when
+                    // neither the text nor the underlying reel changed since
+                    // this holder's last bind. Keyed on reelId too (not just
+                    // text) since two different reels could coincidentally
+                    // render the same "@owner and N others" string.
+                    if (!fullPost.equals(h.lastCollabNameTextPost) || !java.util.Objects.equals(r.reelId, h.lastCollabNameReelIdPost)) {
+                    h.lastCollabNameTextPost = fullPost;
+                    h.lastCollabNameReelIdPost = r.reelId;
+
+                    final String ownerUidPost = r.uid;
+                    final String ownerNameSpanPost = r.ownerName;
+                    final String ownerPhotoSpanPost = r.ownerPhoto;
+                    final String reelIdSpanPost = r.reelId;
+
+                    android.text.SpannableString spannablePost = new android.text.SpannableString(fullPost);
+                    spannablePost.setSpan(new android.text.style.ClickableSpan() {
+                        @Override public void onClick(@NonNull View widget) {
+                            Intent i = new Intent(widget.getContext(), UserReelsActivity.class);
+                            i.putExtra(UserReelsActivity.EXTRA_UID,   ownerUidPost);
+                            i.putExtra(UserReelsActivity.EXTRA_NAME,  ownerNameSpanPost);
+                            i.putExtra(UserReelsActivity.EXTRA_PHOTO, ownerPhotoSpanPost);
+                            widget.getContext().startActivity(i);
+                        }
+                        @Override public void updateDrawState(@NonNull android.text.TextPaint ds) {
+                            ds.setUnderlineText(false);
+                        }
+                    }, 0, namePartPost.length(), android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    spannablePost.setSpan(new android.text.style.ClickableSpan() {
+                        @Override public void onClick(@NonNull View widget) {
+                            if (isFinishing() || isDestroyed()) return;
+                            com.callx.app.social.CollaboratorsBottomSheet.newInstance(
+                                    reelIdSpanPost, ownerUidPost, ownerNameSpanPost, ownerPhotoSpanPost)
+                                .show(getSupportFragmentManager(), com.callx.app.social.CollaboratorsBottomSheet.TAG);
+                        }
+                        @Override public void updateDrawState(@NonNull android.text.TextPaint ds) {
+                            ds.setUnderlineText(false);
+                        }
+                    }, namePartPost.length(), fullPost.length(), android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+                    h.tvCollabAuthorName.setText(spannablePost);
+                    h.tvCollabAuthorName.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+                    h.tvCollabAuthorName.setHighlightColor(android.graphics.Color.TRANSPARENT);
+                    }
+                }
+
+                // ── Bottom-left collab icon on the image itself — second
+                // entry point into the exact same CollaboratorsBottomSheet as
+                // the "@owner and N others" header row above (same idea as
+                // item_home_feed_post.xml's btn_post_collab_icon). Its click
+                // listener is registered ONCE in the Holder constructor
+                // (fixed view, never lazily inflated) — nothing to wire here,
+                // just visibility.
+                if (h.btnCollabIcon != null) h.btnCollabIcon.setVisibility(View.VISIBLE);
+
+                // Legacy two-field dual-author branch never applies once the
+                // new stack system is showing — nothing further to bind.
+            } else {
+            if (h.llCollabAuthors != null) h.llCollabAuthors.setVisibility(View.GONE);
+            if (h.btnCollabIcon != null) h.btnCollabIcon.setVisibility(View.GONE);
+            if (h.llPostOwnerRow != null) h.llPostOwnerRow.setVisibility(View.VISIBLE);
+
+            // ── Legacy dual-author header (older collabInitiatorUid/
+            // collabColaboratorUid data) — unchanged fallback behavior. ──
             boolean isCollab = r.collabInitiatorUid != null && !r.collabInitiatorUid.isEmpty()
                              && r.collabColaboratorUid != null && !r.collabColaboratorUid.isEmpty();
             if (isCollab && h.collabAvatarContainer instanceof LinearLayout) {
@@ -1480,6 +1682,7 @@ public class PostsFeedActivity extends AppCompatActivity {
                 // Name tap / avatar tap: also handled by the once-registered
                 // listeners in setupClickListenersOnce().
             }
+            } // end legacy/solo fallback (else branch of isCollabStackDisplayPost)
 
             h.tvCaption.setText(r.caption != null ? r.caption : "");
             h.tvCaption.setVisibility(r.caption != null && !r.caption.isEmpty() ? View.VISIBLE : View.GONE);
@@ -1716,6 +1919,9 @@ public class PostsFeedActivity extends AppCompatActivity {
             TextView  tvCarouselIndex;
             androidx.viewpager2.widget.ViewPager2 photoPager;
             LinearLayout dotsContainer;
+            /** Row BELOW frame_video that now hosts dotsContainer (Instagram-
+             *  style) — replaces the old bottom-overlaid-on-image placement. */
+            View dotsRow;
             // ── Carousel dot cache (see the dot-rebuild comment above in
             // onBindViewHolder) — built once per holder, rebuilt only when
             // the photo count for this row actually changes. ──
@@ -1746,9 +1952,17 @@ public class PostsFeedActivity extends AppCompatActivity {
             TextView  tvTime;
             ImageButton btnLike, btnComment, btnMute, btnAudioCover;
             ImageButton btnRepost, btnSave;
+            ImageButton btnCollabIcon;
             View        btnSend;
             View        btnMore;
             View        collabAvatarContainer;
+            View        llPostOwnerRow;
+            // Multi-collaborator merged row — inflated lazily on first bind
+            // that needs it (see bindCollabStackRow()), cached here so its
+            // click listeners only get wired once, not on every bind.
+            View            llCollabAuthors;
+            com.callx.app.views.CollabAvatarStackView collabStack;
+            TextView        tvCollabAuthorName;
             View        frameMedia;
             // v284 — live likes/comments/reposts bookkeeping for this row
             String              boundReelId;
@@ -1778,6 +1992,15 @@ public class PostsFeedActivity extends AppCompatActivity {
             String lastCollabInitiatorName;
             String lastCollabCollaboratorName;
             String lastCollabLabel;
+            // PERF (URL/text-skip) caches for the collab avatar-stack row —
+            // same rebind-skip principle as the caches above: a same-post
+            // rebind (live-count tick, like-tap notifyItemChanged) skips
+            // re-loading avatars into the stack / rebuilding the
+            // "@owner and N others" SpannableString when nothing changed.
+            final String[] lastCollabAvatarUrlsPost = new String[3];
+            int    lastCollabStackCountPost = -1;
+            String lastCollabNameTextPost;
+            String lastCollabNameReelIdPost;
             int    lastLikesCount = Integer.MIN_VALUE;
             String lastLikesStr;
             int    lastCommentsCount = Integer.MIN_VALUE;
@@ -1812,6 +2035,7 @@ public class PostsFeedActivity extends AppCompatActivity {
                 tvCarouselIndex = itemView.findViewById(R.id.tv_post_carousel_index);
                 photoPager  = itemView.findViewById(R.id.post_photo_pager);
                 dotsContainer = itemView.findViewById(R.id.post_photo_dots);
+                dotsRow       = itemView.findViewById(R.id.frame_photo_dots_row);
                 setupPhotoPagerOnce();
                 setupFrameMediaGestureOnce();
                 tvTime      = itemView.findViewById(R.id.tv_post_time);
@@ -1827,8 +2051,23 @@ public class PostsFeedActivity extends AppCompatActivity {
                 btnFollow   = itemView.findViewById(R.id.btn_post_follow);
                 btnMute     = itemView.findViewById(R.id.btn_post_mute);
                 btnAudioCover = itemView.findViewById(R.id.btn_post_audio_cover);
+                btnCollabIcon = itemView.findViewById(R.id.btn_post_collab_icon);
+                // ── Registered ONCE here (fixed view, never lazily inflated)
+                // — reads h.boundReel at click time, same pattern as
+                // h.collabStack's listener above, so it never allocates a
+                // fresh lambda on every single bind/scroll.
+                if (btnCollabIcon != null) {
+                    btnCollabIcon.setOnClickListener(v -> {
+                        ReelModel br = boundReel;
+                        if (br == null || isFinishing() || isDestroyed()) return;
+                        com.callx.app.social.CollaboratorsBottomSheet.newInstance(
+                                br.reelId, br.uid, br.ownerName, br.ownerPhoto)
+                            .show(getSupportFragmentManager(), com.callx.app.social.CollaboratorsBottomSheet.TAG);
+                    });
+                }
                 btnMore     = itemView.findViewById(R.id.btn_post_more);
                 collabAvatarContainer = itemView.findViewById(R.id.layout_collab_avatar);
+                llPostOwnerRow = itemView.findViewById(R.id.ll_post_owner_row);
                 btnRepost   = itemView.findViewById(R.id.btn_post_repost);
                 tvReposts   = itemView.findViewById(R.id.tv_post_reposts);
                 btnSave     = itemView.findViewById(R.id.btn_post_save);
@@ -1875,7 +2114,7 @@ public class PostsFeedActivity extends AppCompatActivity {
                             if (boundPhotoCount <= 1 || dotDrawables == null) return;
                             tvCarouselIndex.setText((position + 1) + "/" + boundPhotoCount);
                             for (int di = 0; di < dotDrawables.length; di++) {
-                                dotDrawables[di].setColor(di == position ? 0xFFFFFFFF : 0x66FFFFFF);
+                                dotDrawables[di].setColor(carouselDotColor(di == position));
                             }
                         }
                     });
