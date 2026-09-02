@@ -12,7 +12,8 @@
   one.
 - Added **Home Feed Scroll Diagnostics** to `UserReelsActivity`'s 3-dot menu.
   It opens a dialog with the newest measured bursts and a plain-language
-  root-cause signal.
+  root-cause signal. The dialog also has **Copy report** so the captured text
+  can be pasted into a bug report or chat.
 
 ## Important behavior
 

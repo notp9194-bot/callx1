@@ -5537,9 +5537,10 @@ public class UserReelsActivity extends AppCompatActivity
      * while it is being reproduced. */
     private void showHomeFeedScrollDiagnostics() {
         HomeFeedScrollDiagnostics diagnostics = HomeFeedScrollDiagnostics.get();
+        final String reportText = diagnostics.buildReportText();
         ScrollView scroll = new ScrollView(this);
         TextView report = new TextView(this);
-        report.setText(diagnostics.buildReportText());
+        report.setText(reportText);
         report.setTextSize(13);
         report.setTextColor(android.graphics.Color.parseColor("#212121"));
         report.setLineSpacing(dpToPx(2f), 1f);
@@ -5552,6 +5553,16 @@ public class UserReelsActivity extends AppCompatActivity
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("🧪 Home Feed Scroll Diagnostics")
                 .setView(scroll)
+                .setNeutralButton("Copy report", (d, which) -> {
+                    ClipboardManager clipboard =
+                            (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (clipboard != null) {
+                        clipboard.setPrimaryClip(ClipData.newPlainText(
+                                "Home Feed Scroll Diagnostics", reportText));
+                        Toast.makeText(this, "Diagnostic report copied",
+                                Toast.LENGTH_SHORT).show();
+                    }
+                })
                 .setNegativeButton("Clear records", (d, which) -> {
                     diagnostics.clear();
                     Toast.makeText(this, "Home-feed diagnostic records cleared",
