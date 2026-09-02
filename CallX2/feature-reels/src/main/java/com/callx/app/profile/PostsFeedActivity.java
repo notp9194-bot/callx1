@@ -129,6 +129,10 @@ public class PostsFeedActivity extends AppCompatActivity {
     private PostsAdapter   adapter;
     private int            startPosition;
     private int            screenWidthPx;
+    /** Held here instead of self-registering via recyclerView.addOnScrollListener()
+     *  — see setupGlidePreloader() + the main scroll listener below for why:
+     *  same duplicate-listener consolidation as HomeFragment's fix. */
+    private RecyclerViewPreloader<String> glidePreloader;
 
     // ── Instagram-style per-post background audio ───────────────────────
     // Photo posts can carry an attached music track (ReelModel.musicUrl —
@@ -269,6 +273,9 @@ public class PostsFeedActivity extends AppCompatActivity {
 
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
                 feedOptimizer.onRecyclerScrolled(dx, dy);
+                // Manually drive Glide's preloader instead of it having its
+                // own separate listener registration — see setupGlidePreloader().
+                if (glidePreloader != null) glidePreloader.onScrolled(rv, dx, dy);
                 updateActiveAudioForVisibleItem();
                 maybeTrimOrReloadPostWindow();
 
@@ -294,6 +301,7 @@ public class PostsFeedActivity extends AppCompatActivity {
             }
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
                 feedOptimizer.onRecyclerScrollStateChanged(newState);
+                if (glidePreloader != null) glidePreloader.onScrollStateChanged(rv, newState);
                 if (newState == RecyclerView.SCROLL_STATE_IDLE) updateActiveAudioForVisibleItem();
             }
         });
@@ -780,9 +788,18 @@ public class PostsFeedActivity extends AppCompatActivity {
     private void setupGlidePreloader() {
         ListPreloader.PreloadSizeProvider<String> sizeProvider =
             (item, adapterPosition, perItemPosition) -> new int[]{ screenWidthPxOrFallback(), screenWidthPxOrFallback() };
-        RecyclerViewPreloader<String> preloader = new RecyclerViewPreloader<>(
+        // ★ CONSOLIDATED: used to be its own recyclerView.addOnScrollListener(preloader)
+        // call — a SECOND independent OnScrollListener on top of the main one
+        // set up in onCreate(), same duplicate-dispatch issue as HomeFragment
+        // had (every scroll event/frame invoked twice, once per listener,
+        // fully unaware of each other). RecyclerViewPreloader is just a plain
+        // RecyclerView.OnScrollListener under the hood (Glide's own class),
+        // so instead of registering it separately, it's stashed in
+        // glidePreloader and driven manually from inside the single main
+        // listener's onScrolled/onScrollStateChanged below — one dispatch,
+        // same preloading behavior.
+        glidePreloader = new RecyclerViewPreloader<>(
             Glide.with(this), adapter, sizeProvider, PRELOAD_AHEAD);
-        recyclerView.addOnScrollListener(preloader);
     }
 
     private int screenWidthPxOrFallback() {

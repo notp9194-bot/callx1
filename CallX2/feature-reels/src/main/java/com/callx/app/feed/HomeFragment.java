@@ -748,6 +748,17 @@ public class HomeFragment extends Fragment {
     private int prefetchThresholdPx = 0;
     /** Reused by playMostVisibleCard() so a scroll never allocates an int[]. */
     private final int[] visibilityLoc = new int[2];
+    /** Reused by playMostVisibleCard() for the RecyclerView's own on-screen
+     *  location, so the visibility % is computed against the actual visible
+     *  viewport (status bar / bottom nav / tab bar excluded) instead of the
+     *  raw display height. */
+    private final int[] rvLocationOnScreen = new int[2];
+    /** True when the current card was paused purely because it scrolled
+     *  below the 50% visibility floor (not a user tap-to-pause). Lets
+     *  playMostVisibleCard() auto-resume it if it scrolls back above the
+     *  floor before anything else takes over — mirrors Instagram's
+     *  symmetric enter/exit behaviour instead of only gating entry. */
+    private boolean pausedForVisibility = false;
     /** Low-pass filtered scroll velocity used by the landing ripple. */
     private long lastHomeScrollSampleNanos = 0L;
     private float lastHomeScrollVelocityPxPerMs = 0f;
@@ -1515,7 +1526,19 @@ public class HomeFragment extends Fragment {
 
     private void playMostVisibleCard() {
         if (!isAdded() || feedPlayer == null || feedCards.isEmpty()) return;
+        // ★ Instagram-level viewport: measure against the RecyclerView's own
+        // on-screen bounds, not the raw display height. Raw heightPixels
+        // includes area the feed never actually occupies (status bar, the
+        // bottom nav/tab bar), so a card sitting partly behind the nav bar
+        // was being counted as "more visible" than it really is on screen.
         int screenH = getResources().getDisplayMetrics().heightPixels;
+        int viewportTop = 0, viewportBottom = screenH, viewportH = screenH;
+        if (recyclerHome != null && recyclerHome.getHeight() > 0) {
+            recyclerHome.getLocationOnScreen(rvLocationOnScreen);
+            viewportTop    = rvLocationOnScreen[1];
+            viewportBottom = viewportTop + recyclerHome.getHeight();
+            viewportH      = recyclerHome.getHeight();
+        }
 
         int scanFrom = 0, scanTo = feedCards.size() - 1;
         if (recyclerHome != null && recyclerHome.getLayoutManager() instanceof LinearLayoutManager) {
@@ -1557,20 +1580,61 @@ public class HomeFragment extends Fragment {
             root.getLocationOnScreen(visibilityLoc);
             int cardTop = visibilityLoc[1];
             int cardBot = cardTop + root.getHeight();
-            int vis     = Math.max(0, Math.min(cardBot, screenH) - Math.max(cardTop, 0));
+            int vis     = Math.max(0, Math.min(cardBot, viewportBottom) - Math.max(cardTop, viewportTop));
             if (vis > bestPx) { bestPx = vis; bestIdx = i; }
         }
-        if (bestIdx < 0) return;
-
-        // Instagram-level 50% floor (see AUTOPLAY_VISIBILITY_THRESHOLD doc):
-        // a challenger must actually cross half the screen before it's
-        // allowed to steal playback from whatever is already playing.
-        boolean crossedHalfScreen = bestPx >= screenH * AUTOPLAY_VISIBILITY_THRESHOLD;
         boolean hasIncumbent = currentPlayingIndex >= 0 && currentPlayingIndex < feedCards.size()
                 && feedCards.get(currentPlayingIndex) != null;
-        if (!crossedHalfScreen && hasIncumbent) return;
+        if (bestIdx < 0) {
+            // Nothing at all is visible in the scanned range (e.g. a fast
+            // fling jumped clean past every loaded post row). Same as
+            // dropping below the floor with no challenger: pause, don't
+            // leave the incumbent playing off-screen.
+            pauseIncumbentForVisibility(hasIncumbent);
+            return;
+        }
 
-        if (bestIdx != currentPlayingIndex) attachPlayerToCard(bestIdx);
+        // Instagram-level 50% rule, applied symmetrically:
+        //  • a challenger must cross half the viewport before it's allowed
+        //    to steal playback from whatever is already playing (entry).
+        //  • the incumbent itself is paused the moment it (and everything
+        //    else on screen) drops back below that same floor (exit) —
+        //    bestPx is the MAX visible-pixel count across every scanned
+        //    card, so "!crossedHalfScreen" already implies the incumbent's
+        //    own visibility is under the floor too, not just that it won.
+        boolean crossedHalfScreen = bestPx >= viewportH * AUTOPLAY_VISIBILITY_THRESHOLD;
+        if (!crossedHalfScreen) {
+            pauseIncumbentForVisibility(hasIncumbent);
+            return;
+        }
+
+        if (bestIdx != currentPlayingIndex) {
+            pausedForVisibility = false;
+            attachPlayerToCard(bestIdx);
+        } else if (pausedForVisibility && hasIncumbent) {
+            // Same card climbed back above the 50% floor before anything
+            // else took over (e.g. a small back-and-forth scroll) — resume
+            // it in place instead of leaving it paused forever, unless the
+            // user explicitly paused it themselves.
+            pausedForVisibility = false;
+            if (!userPausedActiveCard) {
+                feedPlayer.play();
+                startProgressTicker();
+            }
+        }
+    }
+
+    /** Pauses the currently-playing card because it (and every other loaded
+     *  card) has dropped below the 50% visibility floor. No-ops if there's
+     *  no incumbent, playback is already stopped, or the user already
+     *  paused it manually (userPausedActiveCard already covers that case
+     *  and shouldn't be clobbered by a visibility-driven pause/resume). */
+    private void pauseIncumbentForVisibility(boolean hasIncumbent) {
+        if (!hasIncumbent || feedPlayer == null || userPausedActiveCard) return;
+        if (pausedForVisibility) return; // already paused for this reason
+        pausedForVisibility = true;
+        feedPlayer.pause();
+        stopProgressTicker();
     }
 
     /**
@@ -1711,6 +1775,9 @@ public class HomeFragment extends Fragment {
 
     private void attachPlayerToCard(int index) {
         if (!isAdded() || feedPlayer == null || index >= feedCards.size()) return;
+        // A real handoff to a (possibly different) card always supersedes
+        // any pending visibility-driven pause state from the outgoing card.
+        pausedForVisibility = false;
         // Detach old
         if (currentPlayingIndex >= 0 && currentPlayingIndex < feedCards.size()
                 && feedCards.get(currentPlayingIndex) != null) {
@@ -8858,6 +8925,24 @@ public class HomeFragment extends Fragment {
             btnRepost             = itemView.findViewById(R.id.btn_post_repost);
             btnSave               = itemView.findViewById(R.id.btn_post_save);
             pvFeed                = itemView.findViewById(R.id.pv_feed_post);
+            // ★ Instagram-level fix: PlayerView's default shutter is opaque
+            // BLACK. It paints over the surface the instant the player is
+            // attached/prepared and stays until a real frame is decoded —
+            // sitting UNDER ivThumb (z-order: shutter, then thumb on top),
+            // so normally it's invisible. But the thumb's crossfade-out
+            // (revealCardThumbnailAfterFirstFrame) starts exactly on
+            // onRenderedFirstFrame, which is the same instant the shutter
+            // itself is cleared — any tiny scheduling gap between "shutter
+            // cleared" and "thumb alpha starts dropping" exposes a flash of
+            // solid black for a frame, which reads exactly as "thumbnail
+            // hata video baad me play hoti hai" instead of one continuous
+            // image. ReelPlayerController (Reels tab) already sets this to
+            // TRANSPARENT; Home Feed's pvFeed never did, so this row-level
+            // player showed that flash on every card while the Reels tab —
+            // built on the same crossfade mechanism — never did. Same
+            // instance, set once at ViewHolder construction (matches Reels
+            // tab, which sets it once at player-view bind time too).
+            pvFeed.setShutterBackgroundColor(android.graphics.Color.TRANSPARENT);
             frameVideo            = itemView.findViewById(R.id.frame_video);
             framePhotoDotsRow     = itemView.findViewById(R.id.frame_photo_dots_row);
             endOverlay            = itemView.findViewById(R.id.layout_end_of_reel_card);
