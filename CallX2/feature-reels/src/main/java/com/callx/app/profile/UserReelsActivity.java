@@ -34,6 +34,7 @@ import com.callx.app.analytics.ReelCreatorDashboardActivity;
 import com.callx.app.profile.ReelEditProfileActivity;
 import com.callx.app.creator.ReelCreatorHubActivity;
 import com.callx.app.analytics.ReelAnalyticsBottomSheet;
+import com.callx.app.feed.HomeFeedScrollDiagnostics;
 import com.callx.app.models.ReelModel;
   import com.callx.app.models.DuetSeriesModel;
   import com.callx.app.utils.Constants;
@@ -5489,6 +5490,11 @@ public class UserReelsActivity extends AppCompatActivity
             if (isSelf)  menu.getMenu().add(0, 13, 0, "🎵 Song Strip Color");
             if (isSelf)  menu.getMenu().add(0, 14, 0, "🌈 Bio Strip Color");
             if (isSelf)  menu.getMenu().add(0, 9, 0, "Default Colour");
+            // Home-feed diagnostics are available from every profile because
+            // the report belongs to this app session, not to the profile being
+            // viewed. It lets the user reproduce a Home scroll issue first
+            // and inspect the exact reel/render signal afterward.
+            menu.getMenu().add(0, 16, 0, "🧪 Home Feed Scroll Diagnostics");
             if (!isSelf) menu.getMenu().add(0, 3, 0, "Report User");
             if (!isSelf) menu.getMenu().add(0, 7, 0, "About this account");
             menu.setOnMenuItemClickListener(item -> {
@@ -5511,6 +5517,7 @@ public class UserReelsActivity extends AppCompatActivity
                     case 14: openBioStripColorMenuEntry(); break;
                     case 10: openLikedOrSavedFullScreen(1); break; // AllReelsFullActivity.TAB_LIKED
                     case 11: openLikedOrSavedFullScreen(2); break; // AllReelsFullActivity.TAB_SAVED
+                    case 16: showHomeFeedScrollDiagnostics(); break;
                     case 8: {
                         boolean newState = !com.callx.app.docked.DockedPlayerSettings.isEnabled(this);
                         com.callx.app.docked.DockedPlayerSettings.setEnabled(this, newState);
@@ -5524,6 +5531,35 @@ public class UserReelsActivity extends AppCompatActivity
             });
             menu.show();
         });
+    }
+
+    /** Shows measured Home-feed scroll bursts without interrupting the feed
+     * while it is being reproduced. */
+    private void showHomeFeedScrollDiagnostics() {
+        HomeFeedScrollDiagnostics diagnostics = HomeFeedScrollDiagnostics.get();
+        ScrollView scroll = new ScrollView(this);
+        TextView report = new TextView(this);
+        report.setText(diagnostics.buildReportText());
+        report.setTextSize(13);
+        report.setTextColor(android.graphics.Color.parseColor("#212121"));
+        report.setLineSpacing(dpToPx(2f), 1f);
+        int pad = (int) dpToPx(16f);
+        report.setPadding(pad, (int) dpToPx(4f), pad, pad);
+        scroll.addView(report, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("🧪 Home Feed Scroll Diagnostics")
+                .setView(scroll)
+                .setNegativeButton("Clear records", (d, which) -> {
+                    diagnostics.clear();
+                    Toast.makeText(this, "Home-feed diagnostic records cleared",
+                            Toast.LENGTH_SHORT).show();
+                })
+                .setPositiveButton("Close", null)
+                .create();
+        dialog.show();
     }
 
     /** Opens Liked/Saved reels full-screen (they're no longer tabs on this screen). */

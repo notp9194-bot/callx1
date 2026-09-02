@@ -97,7 +97,8 @@ import java.util.concurrent.TimeUnit;
  *  ✅ Avatar tap → UserReelsActivity
  *  ✅ Suggested Creators section with follow button
  */
-public class HomeFragment extends Fragment {
+public class HomeFragment extends Fragment
+        implements HomeFeedScrollDiagnostics.SnapshotProvider {
 
     private SwipeRefreshLayout swipeRefresh;
     private LinearLayout       containerStories;
@@ -219,6 +220,11 @@ public class HomeFragment extends Fragment {
      *  NestedScrollView+LinearLayout — see fragment_home.xml / FeedAdapter. */
     private RecyclerView       recyclerHome;
     private FeedAdapter        feedAdapter;
+    /** Real frame-level scroll diagnostics. Records only during Home-feed
+     * movement and remains available after this view is torn down so
+     * UserReelsActivity can show it from the 3-dot menu. */
+    private final HomeFeedScrollDiagnostics scrollDiagnostics =
+            HomeFeedScrollDiagnostics.get();
     /** Parallel to currentFeedPosts: feedCards.get(i) is the live HomeFeedCard
      *  for post i ONLY while that post's card is actually bound to an
      *  on-screen (or just-off-screen) ViewHolder; null while it's scrolled
@@ -889,6 +895,9 @@ public class HomeFragment extends Fragment {
         bindFooterViews(footerView);
         feedAdapter = new FeedAdapter(headerView, footerView);
         recyclerHome.setAdapter(feedAdapter);
+        // FrameMetrics is attached to the host Activity, while this provider
+        // maps a flagged frame back to the exact visible reel/player state.
+        scrollDiagnostics.attach(requireActivity(), this);
 
         // ── v281: Initialize ultra-advanced performance coordinator ────────
         // Coordinates metadata caching, scroll state, network batching, view
@@ -1250,6 +1259,7 @@ public class HomeFragment extends Fragment {
                     // same idea the old NestedScrollView content root used,
                     // just retargeted at the new scroll container.
                     beginFeedScrollLayer();
+                    scrollDiagnostics.onScrolled(dx, dy, rv.computeVerticalScrollOffset());
                     scrollHandler.removeCallbacks(scrollSettleRunnable);
                     scrollHandler.postDelayed(scrollSettleRunnable, 180);
 
@@ -1307,6 +1317,7 @@ public class HomeFragment extends Fragment {
                     if (ultraOptimizer != null) {
                         ultraOptimizer.onRecyclerScrollStateChanged(newState);
                     }
+                    scrollDiagnostics.onScrollStateChanged(newState);
 
                     // Definitive settle check: guarantees the truly-final
                     // resting position is evaluated with zero delay the
@@ -2633,6 +2644,7 @@ public class HomeFragment extends Fragment {
 
     @Override public void onDestroyView() {
         super.onDestroyView();
+        scrollDiagnostics.detach();
         stopRealtimeNewPostsListener();
         scrollHandler.removeCallbacks(playVisibleRunnable);
         android.view.Choreographer.getInstance().removeFrameCallback(playVisibleFrameCallback);
@@ -2698,6 +2710,42 @@ public class HomeFragment extends Fragment {
             ultraOptimizer.shutdown();
             ultraOptimizer = null;
         }
+    }
+
+    /**
+     * Snapshot consumed only when FrameMetrics flags an over-budget frame.
+     * Keeping this out of the ordinary scroll path preserves the existing
+     * allocation-free hot path.
+     */
+    @Override
+    public HomeFeedScrollDiagnostics.Snapshot captureScrollSnapshot() {
+        int firstVisible = RecyclerView.NO_POSITION;
+        int lastVisible = RecyclerView.NO_POSITION;
+        if (recyclerHome != null
+                && recyclerHome.getLayoutManager() instanceof LinearLayoutManager) {
+            LinearLayoutManager lm = (LinearLayoutManager) recyclerHome.getLayoutManager();
+            firstVisible = lm.findFirstVisibleItemPosition();
+            lastVisible = lm.findLastVisibleItemPosition();
+        }
+
+        HomeFeedCard card = currentPlayingIndex >= 0
+                && currentPlayingIndex < feedCards.size()
+                ? feedCards.get(currentPlayingIndex) : null;
+        int playerState = feedPlayer != null ? feedPlayer.getPlaybackState() : -1;
+        boolean playerAttached = card != null && card.playerView != null
+                && card.playerView.getPlayer() != null;
+        float thumbnailAlpha = card != null && card.thumbView != null
+                ? card.thumbView.getAlpha() : -1f;
+        String reelId = card != null && card.reelId != null ? card.reelId : "";
+        long positionMs = feedPlayer != null ? feedPlayer.getCurrentPosition() : -1L;
+        return new HomeFeedScrollDiagnostics.Snapshot(
+                recyclerHome != null ? recyclerHome.getScrollState()
+                        : RecyclerView.SCROLL_STATE_IDLE,
+                currentPlayingIndex, firstVisible, lastVisible,
+                feedItems.size(), playerState, playerAttached,
+                card != null && card.firstFramePtsGatePending,
+                card != null && card.firstFrameRevealed,
+                isHwLayerOn, thumbnailAlpha, positionMs, reelId);
     }
 
     /**
