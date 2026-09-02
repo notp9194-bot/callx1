@@ -120,6 +120,26 @@ public class CallxMessagingService extends FirebaseMessagingService {
         }
         // ────────────────────────────────────────────────────────────────────
 
+        // ── GROUP E2EE — Sender Keys re-sync nudge ────────────────────────────
+        // Sent by the server's POST /notify/group_key_rotate (see PushNotify
+        // #notifyGroupKeyRotate, called from GroupInfoActivity right after a
+        // member is added/removed/leaves). Data-only, no visible notification —
+        // just re-runs GroupE2EManager#ensureGroupCrypto for this group right
+        // now instead of waiting for the user to next open that group's chat,
+        // which is what actually distributes/rotates Sender Keys promptly.
+        // Background/killed-state safe: ensureGroupCrypto only touches
+        // Firebase + local EncryptedSharedPreferences, no UI needed.
+        if ("group_key_resync".equals(data.getOrDefault("type", ""))) {
+            String groupId = data.get("groupId");
+            String currentUid = FirebaseUtils.getCurrentUid();
+            if (groupId != null && currentUid != null) {
+                com.callx.app.utils.GroupE2EManager.getInstance(this)
+                        .ensureGroupCrypto(groupId, currentUid, null);
+            }
+            return;
+        }
+        // ────────────────────────────────────────────────────────────────────
+
         String type = data.getOrDefault("type", "message");
         if ("call".equals(type) || "video_call".equals(type)) {
             showIncomingCall(data, "video_call".equals(type));

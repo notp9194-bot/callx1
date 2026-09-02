@@ -465,56 +465,91 @@ public class GroupInfoActivity extends AppCompatActivity {
     }
 
     // ── Firebase: Members listener ────────────────────────────────────────
+    // PERF FIX (N² thrashing): the old version fired one addListenerForSingleValueEvent
+    // per member, and on EACH of those N async completions did
+    // members.removeIf() (O(N) scan) + sortAndUpdateMembers() (O(N log N)
+    // sort + full notifyDataSetChanged() rebind of every visible row,
+    // avatar re-decode included) — an M-member group did O(M^2 log M) work
+    // and Glide re-decoded every visible avatar M times over. Root cause
+    // was structural, not the adapter: incremental "update the shared list
+    // and rebind everything" on every one of N parallel async completions.
+    // Fixed the same way FollowConnectionsActivity/ReelCommentsAdapter
+    // batch their loads: buffer all N results, then do exactly ONE sort +
+    // ONE submitList() (diffed off the main thread by AsyncListDiffer —
+    // see GroupMemberAdapter v4) after the LAST fetch lands.
+    private int membersLoadToken = 0;
+
     private void listenMembers() {
         membersListener = new ValueEventListener() {
             @Override
             public void onDataChange(DataSnapshot snap) {
-                members.clear();
+                final int token = ++membersLoadToken; // invalidates any still in-flight prior batch
                 long onlineMs = com.callx.app.utils.Constants.ONLINE_WINDOW_MS;
                 long now = System.currentTimeMillis();
-                
-                // Fetch all member UIDs first
+
                 List<String> memberUids = new ArrayList<>();
                 for (DataSnapshot c : snap.getChildren()) {
                     memberUids.add(c.getKey());
                 }
-                
-                // Now fetch user data for each member to get photoUrl + thumbUrl
+
+                if (memberUids.isEmpty()) {
+                    members.clear();
+                    sortAndUpdateMembers();
+                    return;
+                }
+
+                // name/role/lastSeen are already local (part of this same
+                // snapshot) — only photoUrl/thumbUrl/avatarVersion need a
+                // per-uid network round-trip.
+                final Map<String, GroupMemberAdapter.MemberItem> basics = new HashMap<>();
                 for (String uid : memberUids) {
                     DataSnapshot memberSnap = snap.child(uid);
                     String name     = memberSnap.child("name").getValue(String.class);
                     String role     = memberSnap.child("role").getValue(String.class);
                     Long   lastSeen = memberSnap.child("lastSeen").getValue(Long.class);
                     boolean online  = lastSeen != null && (now - lastSeen) < onlineMs;
-                    
-                    // Fetch user profile to get photoUrl + thumbUrl
+                    basics.put(uid, new GroupMemberAdapter.MemberItem(
+                            uid, name != null ? name : "Member", role != null ? role : "member",
+                            null, null, online, lastSeen, 0L));
+                }
+
+                final Map<String, GroupMemberAdapter.MemberItem> resolved = new java.util.concurrent.ConcurrentHashMap<>();
+                final java.util.concurrent.atomic.AtomicInteger remaining =
+                        new java.util.concurrent.atomic.AtomicInteger(memberUids.size());
+
+                for (String uid : memberUids) {
                     FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
                         @Override
                         public void onDataChange(DataSnapshot userSnap) {
-                            if (userSnap.exists()) {
-                                String photo = userSnap.child("photoUrl").getValue(String.class);
-                                String thumb = userSnap.child("thumbUrl").getValue(String.class);
-                                Long avatarVer = userSnap.child("avatarVersion").getValue(Long.class);
+                            if (token == membersLoadToken) {
+                                GroupMemberAdapter.MemberItem b = basics.get(uid);
+                                if (b != null && userSnap.exists()) {
+                                    String photo = userSnap.child("photoUrl").getValue(String.class);
+                                    String thumb = userSnap.child("thumbUrl").getValue(String.class);
+                                    Long avatarVer = userSnap.child("avatarVersion").getValue(Long.class);
+                                    // v3 (avatar pipeline parity): avatarVersion passed through so
+                                    // GroupMemberAdapter's ChatAvatarBinder.bind() gets the same
+                                    // ?v= cache-bust every other avatar screen relies on — see
+                                    // AvatarUrlBuilder's class doc for why this matters.
+                                    resolved.put(uid, new GroupMemberAdapter.MemberItem(
+                                            uid, b.name, b.role, photo, thumb, b.online, b.lastSeen,
+                                            avatarVer != null ? avatarVer : 0L));
+                                } else if (b != null) {
+                                    resolved.put(uid, b);
+                                }
+                            }
+                            finishIfDone();
+                        }
+                        @Override
+                        public void onCancelled(DatabaseError e) { finishIfDone(); }
 
-                                // Remove old entry if exists
-                                members.removeIf(m -> m.uid.equals(uid));
-                                
-                                // Add with user's photo data
-                                // v3 (avatar pipeline parity): avatarVersion passed through so
-                                // GroupMemberAdapter's ChatAvatarBinder.bind() gets the same
-                                // ?v= cache-bust every other avatar screen relies on — see
-                                // AvatarUrlBuilder's class doc for why this matters.
-                                members.add(new GroupMemberAdapter.MemberItem(
-                                        uid, name != null ? name : "Member",
-                                        role != null ? role : "member",
-                                        photo, thumb, online, lastSeen,
-                                        avatarVer != null ? avatarVer : 0L));
-                                
-                                // Re-sort and notify
+                        private void finishIfDone() {
+                            if (remaining.decrementAndGet() == 0 && token == membersLoadToken) {
+                                members.clear();
+                                members.addAll(resolved.values());
                                 sortAndUpdateMembers();
                             }
                         }
-                        @Override public void onCancelled(DatabaseError e) {}
                     });
                 }
             }
@@ -524,7 +559,7 @@ public class GroupInfoActivity extends AppCompatActivity {
         };
         FirebaseUtils.getGroupMembersRef(groupId).addValueEventListener(membersListener);
     }
-    
+
     private void sortAndUpdateMembers() {
         // Sort: creator/admin first, then by name
         members.sort((a, b) -> {
@@ -534,7 +569,10 @@ public class GroupInfoActivity extends AppCompatActivity {
             return a.name.compareToIgnoreCase(b.name);
         });
         tvMemberCount.setText(members.size() + " member" + (members.size() == 1 ? "" : "s"));
-        memberAdapter.notifyDataSetChanged();
+        // AsyncListDiffer diffs old vs new off the main thread — one call
+        // for the whole batch, instead of one notifyDataSetChanged() per
+        // member (see listenMembers()'s doc above).
+        memberAdapter.submitList(members);
     }
 
     // ── Firebase: Media messages listener ─────────────────────────────────
@@ -681,6 +719,13 @@ public class GroupInfoActivity extends AppCompatActivity {
                     com.callx.app.utils.GroupE2EManager.getInstance(this)
                             .rotateSenderKey(groupId, currentUid, remaining);
 
+                    // WHATSAPP-LEVEL FIX: push the remaining members right now so
+                    // their apps call ensureGroupCrypto() immediately instead of
+                    // only picking up our new Sender Key the next time they
+                    // happen to reopen this group (see PushNotify#notifyGroupKeyRotate
+                    // + CallxMessagingService's "group_key_resync" handling).
+                    com.callx.app.utils.PushNotify.notifyGroupKeyRotate(groupId, uid);
+
                     // System message
                     DatabaseReference sysRef = FirebaseUtils.getGroupMessagesRef(groupId).push();
                     Map<String, Object> sys = new HashMap<>();
@@ -739,7 +784,20 @@ public class GroupInfoActivity extends AppCompatActivity {
                     public void onSuccess(CloudinaryUploader.Result r) {
                         pd.dismiss();
                         currentIconUrl = r.secureUrl;
-                        Glide.with(GroupInfoActivity.this).load(r.secureUrl).override(720, 720).into(ivGroupIcon);
+                        // FIX (avatar pipeline parity): was a raw
+                        // Glide.load(url).override(720,720) — full 720x720
+                        // decode for a 96dp header circle, no CDN tier/
+                        // format transform, and no L2/L3 cache write, so
+                        // every screen showing this same group icon after
+                        // this point (toolbar, member list rows, list-row
+                        // icon elsewhere) still had to do its own separate
+                        // fetch+decode instead of hitting the warm cache
+                        // this upload could have seeded. Route through
+                        // GroupAvatarBinder like every other bind of this
+                        // icon in the app.
+                        com.callx.app.cache.GroupAvatarBinder.bind(GroupInfoActivity.this, ivGroupIcon,
+                                r.secureUrl, com.callx.app.cache.GroupAvatarBinder.TIER_HEADER,
+                                R.drawable.ic_group);
                         FirebaseUtils.getGroupsRef().child(groupId).child("iconUrl").setValue(r.secureUrl);
                         Toast.makeText(GroupInfoActivity.this, "Icon updated", Toast.LENGTH_SHORT).show();
                     }
@@ -754,57 +812,35 @@ public class GroupInfoActivity extends AppCompatActivity {
     }
 
     // ── Add member ────────────────────────────────────────────────────────
+    // WhatsApp-style: pick from your own contacts (multi-select), not a
+    // raw "type someone's UID" box — see AddGroupMembersBottomSheet.
     private void showAddMemberDialog() {
-        EditText et = new EditText(this);
-        et.setHint("Enter CallX ID or UID");
-        int p = dp(16); et.setPadding(p, p, p, p);
-        com.callx.app.utils.AlertDialogStyler.showRounded(
-            new AlertDialog.Builder(this)
-                .setTitle("Add Member")
-                .setView(et)
-                .setPositiveButton("Add", (d, w) -> {
-                    String uid = et.getText().toString().trim();
-                    if (uid.isEmpty()) return;
-                    addMemberByUid(uid);
-                })
-                .setNegativeButton("Cancel", null)
-        .create(), com.callx.app.utils.AlertDialogStyler.DialogSize.COMPACT);
-    }
+        ArrayList<String> excludedUids = new ArrayList<>();
+        for (GroupMemberAdapter.MemberItem m : members) excludedUids.add(m.uid);
 
-    private void addMemberByUid(String uid) {
-        // Look up user
-        FirebaseUtils.getUserRef(uid)
-                .addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override
-                    public void onDataChange(DataSnapshot snap) {
-                        if (!snap.exists()) {
-                            Toast.makeText(GroupInfoActivity.this,
-                                    "User not found", Toast.LENGTH_SHORT).show();
-                            return;
-                        }
-                        String name = snap.child("name").getValue(String.class);
-                        if (name == null) name = snap.child("displayName").getValue(String.class);
-                        if (name == null) name = "Member";
+        AddGroupMembersBottomSheet sheet = AddGroupMembersBottomSheet.newInstance(groupId, excludedUids);
+        sheet.setListener((addedUids, addedNames) -> {
+            // Single combined system-message line, WhatsApp-style, instead
+            // of one line per person added.
+            String who;
+            if (addedNames.size() == 1) {
+                who = addedNames.get(0);
+            } else if (addedNames.size() == 2) {
+                who = addedNames.get(0) + " and " + addedNames.get(1);
+            } else {
+                who = addedNames.get(0) + ", " + addedNames.get(1)
+                        + " and " + (addedNames.size() - 2) + " other"
+                        + (addedNames.size() - 2 == 1 ? "" : "s");
+            }
+            postSystemMessage(FirebaseUtils.getCurrentName() + " added " + who);
 
-                        final String memberName = name;
-                        Map<String, Object> memberData = new HashMap<>();
-                        memberData.put("name",    memberName);
-                        memberData.put("role",    "member");
-                        memberData.put("addedAt", System.currentTimeMillis());
-
-                        FirebaseUtils.getGroupMembersRef(groupId).child(uid)
-                                .setValue(memberData);
-                        FirebaseUtils.db().getReference("userGroups")
-                                .child(uid).child(groupId).setValue(true);
-
-                        postSystemMessage(memberName + " was added to the group");
-                        Toast.makeText(GroupInfoActivity.this,
-                                memberName + " added", Toast.LENGTH_SHORT).show();
-                    }
-
-                    @Override
-                    public void onCancelled(DatabaseError e) {}
-                });
+            // WHATSAPP-LEVEL FIX: nudge everyone (including the new member)
+            // to run ensureGroupCrypto() right away — existing members then
+            // distribute their current Sender Key to the new member sooner
+            // than waiting for someone to next open this group's chat.
+            com.callx.app.utils.PushNotify.notifyGroupKeyRotate(groupId, null);
+        });
+        sheet.show(getSupportFragmentManager(), AddGroupMembersBottomSheet.TAG);
     }
 
     // ── Invite link ───────────────────────────────────────────────────────
@@ -875,6 +911,14 @@ public class GroupInfoActivity extends AppCompatActivity {
         upd.put("userGroups/" + currentUid + "/" + groupId, null);
         FirebaseUtils.db().getReference().updateChildren(upd);
         postSystemMessage(myName + " left the group");
+
+        // WHATSAPP-LEVEL FIX: we're the one leaving, so OUR device can't
+        // rotate anyone's Sender Key — but every remaining member's device
+        // needs to notice the shrink and rotate its own key (see
+        // GroupE2EManager#ensureGroupCrypto/#rotateSenderKey). Push them so
+        // that happens right away instead of waiting for their next chat open.
+        com.callx.app.utils.PushNotify.notifyGroupKeyRotate(groupId, currentUid);
+
         finish();
     }
 

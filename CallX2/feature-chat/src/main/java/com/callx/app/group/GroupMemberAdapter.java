@@ -5,6 +5,8 @@ import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
+import androidx.recyclerview.widget.AsyncListDiffer;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.cache.ChatAvatarBinder;
 import com.callx.app.chat.R;
@@ -42,6 +44,22 @@ import java.util.*;
  *                  {@link #prefetchAvatarsFrom} (see that method's doc for
  *                  why this list needs its own scroll-velocity source
  *                  instead of RecyclerView's own OnScrollListener).
+ *
+ * v4 — AsyncListDiffer + payload-based bind (perf, mirrors
+ * FollowConnectionsActivity's UserListAdapter / ReelCommentsAdapter): this
+ * list was the one member/user list left doing raw {@code
+ * notifyDataSetChanged()} on every Firebase snapshot — full rebind of every
+ * visible row (avatar re-decode included) even when only one member's
+ * online dot flipped. Now:
+ *   • {@link #submitList} replaces direct list mutation — AsyncListDiffer
+ *     diffs old vs new off the main thread and dispatches minimal
+ *     insert/remove/move, same as {@code UserListAdapter.submitList()}.
+ *   • Stable IDs (uid hash) so the default item animator matches rows by
+ *     identity across diffs, not position.
+ *   • {@code PAYLOAD_STATUS} partial bind — when only online/lastSeen
+ *     changed (name/role/photo/thumb/avatarVersion identical), only the
+ *     online dot + status text repaint; avatar is left untouched (no
+ *     Glide re-decode), mirroring {@code PAYLOAD_FOLLOW_STATE}.
  */
 public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.VH> {
 
@@ -77,21 +95,75 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
         }
     }
 
-    private final List<MemberItem>   items;
+    /** Payload marker for an online/lastSeen-only partial rebind. */
+    private static final String PAYLOAD_STATUS = "status";
+
+    private static final DiffUtil.ItemCallback<MemberItem> DIFF_CALLBACK =
+        new DiffUtil.ItemCallback<MemberItem>() {
+            @Override
+            public boolean areItemsTheSame(@NonNull MemberItem a, @NonNull MemberItem b) {
+                return a.uid != null && a.uid.equals(b.uid);
+            }
+
+            @Override
+            public boolean areContentsTheSame(@NonNull MemberItem a, @NonNull MemberItem b) {
+                return Objects.equals(a.name, b.name)
+                    && Objects.equals(a.role, b.role)
+                    && Objects.equals(a.photoUrl, b.photoUrl)
+                    && Objects.equals(a.thumbUrl, b.thumbUrl)
+                    && a.online == b.online
+                    && Objects.equals(a.lastSeen, b.lastSeen)
+                    && a.avatarVersion == b.avatarVersion;
+            }
+
+            /** Only online/lastSeen changed → partial bind, skip avatar +
+             *  name/badge rebind (mirrors PAYLOAD_FOLLOW_STATE in
+             *  FollowConnectionsActivity's UserListAdapter). */
+            @Override
+            public Object getChangePayload(@NonNull MemberItem a, @NonNull MemberItem b) {
+                boolean onlyStatusChanged =
+                       Objects.equals(a.name, b.name)
+                    && Objects.equals(a.role, b.role)
+                    && Objects.equals(a.photoUrl, b.photoUrl)
+                    && Objects.equals(a.thumbUrl, b.thumbUrl)
+                    && a.avatarVersion == b.avatarVersion
+                    && (a.online != b.online || !Objects.equals(a.lastSeen, b.lastSeen));
+                return onlyStatusChanged ? PAYLOAD_STATUS : null;
+            }
+        };
+
+    private final AsyncListDiffer<MemberItem> differ = new AsyncListDiffer<>(this, DIFF_CALLBACK);
     private final String             currentUid;
     private final OnMemberActionListener listener;
     private boolean isAdmin = false;
 
     public GroupMemberAdapter(List<MemberItem> items, String currentUid,
                               OnMemberActionListener listener) {
-        this.items      = items;
         this.currentUid = currentUid;
         this.listener   = listener;
+        setHasStableIds(true);
+        if (items != null && !items.isEmpty()) differ.submitList(new ArrayList<>(items));
+    }
+
+    /** Diffs against the current list off the main thread and dispatches
+     *  minimal insert/remove/move/change calls instead of a full rebind —
+     *  replaces the old direct-mutation + notifyDataSetChanged() pattern. */
+    public void submitList(List<MemberItem> items) {
+        differ.submitList(items != null ? new ArrayList<>(items) : new ArrayList<>());
     }
 
     public void setIsAdmin(boolean admin) {
+        // isAdmin only gates which options showMemberOptionsMenu() offers,
+        // read fresh from this field at click-time — it doesn't change any
+        // bound row visuals, so (unlike the old notifyDataSetChanged() here)
+        // no rebind is needed at all.
         this.isAdmin = admin;
-        notifyDataSetChanged();
+    }
+
+    @Override
+    public long getItemId(int position) {
+        MemberItem m = differ.getCurrentList().get(position);
+        return (m.uid != null) ? m.uid.hashCode() : RecyclerView.NO_ID;
     }
 
     @NonNull @Override
@@ -101,9 +173,22 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
         return new VH(v);
     }
 
+    /** Payload-aware partial bind — PAYLOAD_STATUS skips avatar reload and
+     *  name/badge rebind, touching only the online dot + status text. Falls
+     *  back to a full bind for a cold bind or any other payload. */
+    @Override
+    public void onBindViewHolder(@NonNull VH h, int pos, @NonNull List<Object> payloads) {
+        if (!payloads.isEmpty() && payloads.contains(PAYLOAD_STATUS)) {
+            MemberItem m = differ.getCurrentList().get(pos);
+            bindStatus(h, m);
+            return;
+        }
+        super.onBindViewHolder(h, pos, payloads);
+    }
+
     @Override
     public void onBindViewHolder(@NonNull VH h, int pos) {
-        MemberItem m   = items.get(pos);
+        MemberItem m   = differ.getCurrentList().get(pos);
         Context ctx    = h.itemView.getContext();
         boolean isMe   = currentUid.equals(m.uid);
 
@@ -114,8 +199,8 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
         boolean showBadge = "admin".equals(m.role) || "creator".equals(m.role);
         h.identityView.setBadge(showBadge ? ("creator".equals(m.role) ? "Creator" : "Admin") : null);
 
-        // Online dot
-        h.onlineDot.setVisibility(m.online ? View.VISIBLE : View.GONE);
+        // Online dot + last seen / status
+        bindStatus(h, m);
 
         // Avatar — thumbUrl preferred (small, fast in a group list), falls back to photoUrl.
         // v3: routed through ChatAvatarBinder — same tiered/versioned URL +
@@ -127,15 +212,6 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
             ? m.thumbUrl
             : (m.photoUrl != null && !m.photoUrl.isEmpty() ? m.photoUrl : null);
         ChatAvatarBinder.bind(ctx, h.ivAvatar, avatarUrl, m.avatarVersion, R.drawable.ic_person);
-
-        // Last seen / status
-        if (m.online) {
-            h.identityView.setStatus("Online");
-        } else if (m.lastSeen != null && m.lastSeen > 0) {
-            h.identityView.setStatus("last seen " + formatLastSeen(m.lastSeen));
-        } else {
-            h.identityView.setStatus("");
-        }
 
         // Options menu
         h.btnOptions.setOnClickListener(v -> {
@@ -149,6 +225,19 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
 
         // Row click = view profile
         h.itemView.setOnClickListener(v -> listener.onAction(m.uid, "view_profile"));
+    }
+
+    /** Online dot + last-seen text only — split out so PAYLOAD_STATUS can
+     *  repaint just this without touching the avatar or name/badge. */
+    private void bindStatus(@NonNull VH h, MemberItem m) {
+        h.onlineDot.setVisibility(m.online ? View.VISIBLE : View.GONE);
+        if (m.online) {
+            h.identityView.setStatus("Online");
+        } else if (m.lastSeen != null && m.lastSeen > 0) {
+            h.identityView.setStatus("last seen " + formatLastSeen(m.lastSeen));
+        } else {
+            h.identityView.setStatus("");
+        }
     }
 
     private void showMemberOptionsMenu(Context ctx, MemberItem m) {
@@ -175,7 +264,7 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
                 .create());
     }
 
-    @Override public int getItemCount() { return items.size(); }
+    @Override public int getItemCount() { return differ.getCurrentList().size(); }
 
     /**
      * v3: cancels an in-flight avatar request for a row leaving the pool —
@@ -196,11 +285,11 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
     private ChatAvatarBinder.AvatarSource avatarSource() {
         return new ChatAvatarBinder.AvatarSource() {
             @Override public String photo(int index) {
-                MemberItem m = items.get(index);
+                MemberItem m = differ.getCurrentList().get(index);
                 return (m.thumbUrl != null && !m.thumbUrl.isEmpty()) ? m.thumbUrl : m.photoUrl;
             }
-            @Override public long avatarVersion(int index) { return items.get(index).avatarVersion; }
-            @Override public int size() { return items.size(); }
+            @Override public long avatarVersion(int index) { return differ.getCurrentList().get(index).avatarVersion; }
+            @Override public int size() { return differ.getCurrentList().size(); }
         };
     }
 

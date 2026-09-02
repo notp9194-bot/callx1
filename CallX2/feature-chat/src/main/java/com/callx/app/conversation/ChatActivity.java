@@ -168,6 +168,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ── Chat identifiers ───────────────────────────────────────────────────
     private String chatId;
     private String partnerUid;
+
+    // WHATSAPP-LEVEL SELF-HEAL: fires when E2EEncryptionManager completes a
+    // fresh handshake with partnerUid, so any of THEIR messages already
+    // stuck on DECRYPT_FAILED_MARKER in Room get re-fetched and retried
+    // instead of staying stuck forever. Registered in onCreate(), removed
+    // in onDestroy() — see redecryptStuckMessagesFrom().
+    private com.callx.app.utils.E2EEncryptionManager.SessionHealedListener sessionHealedListener;
     private String partnerName;
     private String partnerPhoto;
     private String partnerThumb;
@@ -589,6 +596,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                                 + " did not complete yet — will retry on next send/receive");
                     }
                 });
+
+        // WHATSAPP-LEVEL SELF-HEAL: when the session with partnerUid heals
+        // (fresh handshake decrypts successfully), retry every one of their
+        // messages in THIS chat still stuck on DECRYPT_FAILED_MARKER.
+        final String healPartner = partnerUid;
+        sessionHealedListener = healedUid -> {
+            if (healedUid != null && healedUid.equals(healPartner)) {
+                redecryptStuckMessagesFrom(healedUid);
+            }
+        };
+        com.callx.app.utils.E2EEncryptionManager.getInstance(this)
+                .addSessionHealedListener(sessionHealedListener);
 
         // ─────────────────────────────────────────────────────────────────────
         // PERF FIX v8: "Parallel init" — UI aur Firebase listener DB ke
@@ -1221,6 +1240,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         detachPartnerPresenceListener();
         deferredStatusIds.clear();
         optimisticStatusFloor.clear();
+
+        if (sessionHealedListener != null) {
+            com.callx.app.utils.E2EEncryptionManager.getInstance(this)
+                    .removeSessionHealedListener(sessionHealedListener);
+        }
 
         // PERF FIX: flush any buffered Firebase→Room writes immediately
         // instead of losing them if the debounce window hadn't fired yet.
@@ -3428,6 +3452,62 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     /**
+     * WHATSAPP-LEVEL SELF-HEAL: called once the session with {@code senderUid}
+     * heals (see sessionHealedListener above). Old messages from that sender
+     * already saved to Room with {@code DECRYPT_FAILED_MARKER} can never be
+     * re-decrypted from the marker text alone — the original ciphertext is
+     * gone from local storage — so this re-fetches each stuck message's raw
+     * envelope from Firebase, retries the (now-healthy) ratchet decrypt via
+     * the same canonical path as everything else ({@link
+     * com.callx.app.utils.E2EEncryptionManager#decrypt}), and silently
+     * updates Room on success. Room's PagingSource auto-invalidates, so the
+     * open chat updates itself with no extra UI code needed.
+     */
+    private void redecryptStuckMessagesFrom(String senderUid) {
+        if (db == null || senderUid == null || chatId == null) return;
+        ioExecutor.execute(() -> {
+            java.util.List<MessageEntity> stuck;
+            try {
+                stuck = db.messageDao().getStuckMessagesFrom(
+                        chatId, senderUid, com.callx.app.utils.E2EEncryptionManager.DECRYPT_FAILED_MARKER);
+            } catch (Exception e) {
+                android.util.Log.w(TAG, "redecryptStuckMessagesFrom: query failed", e);
+                return;
+            }
+            if (stuck.isEmpty()) return;
+
+            for (MessageEntity stale : stuck) {
+                final String messageId = stale.id;
+                if (messageId == null) continue;
+                FirebaseUtils.getMessagesRef(chatId).child(messageId)
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override public void onDataChange(DataSnapshot snap) {
+                                Message raw = snap.getValue(Message.class);
+                                if (raw == null || raw.text == null) return;
+                                if (!com.callx.app.utils.E2EEncryptionManager.isEncrypted(raw.text)) return;
+
+                                String plaintext = com.callx.app.utils.E2EEncryptionManager.getInstance(ChatActivity.this)
+                                        .decrypt(raw.text, senderUid, messageId);
+                                if (plaintext == null
+                                        || com.callx.app.utils.E2EEncryptionManager.DECRYPT_FAILED_MARKER.equals(plaintext)) {
+                                    return; // still genuinely undecryptable — leave the marker as-is
+                                }
+                                final String finalPlaintext = plaintext;
+                                ioExecutor.execute(() -> {
+                                    try {
+                                        db.messageDao().updateTextSilently(messageId, finalPlaintext);
+                                    } catch (Exception e) {
+                                        android.util.Log.w(TAG, "redecryptStuckMessagesFrom: Room update failed", e);
+                                    }
+                                });
+                            }
+                            @Override public void onCancelled(DatabaseError error) {}
+                        });
+            }
+        });
+    }
+
+    /**
      * PERF FIX: buffers a Firebase add/change event instead of writing it to
      * Room straight away. Everything queued within WRITE_FLUSH_DEBOUNCE_MS
      * gets applied in a single Room transaction — see scheduleWriteFlush()
@@ -4913,9 +4993,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // not the same possibly-stale reference) right before building the
         // sheet's data, so the sheet always reflects the real message.
         String infoId = m.messageId != null ? m.messageId : m.id;
+        String originalSenderId = m.senderId;
         if (pagingAdapter != null && infoId != null) {
             Message fresh = pagingAdapter.findMessageById(infoId);
             if (fresh != null) m = fresh;
+        }
+        // Same guard as GroupChatActivity's group Info sheet: a fresh-but-
+        // partial paging snapshot can carry a null senderId, which would
+        // otherwise mis-flag the sender's own message as "received".
+        if ((m.senderId == null || m.senderId.isEmpty()) && originalSenderId != null) {
+            m.senderId = originalSenderId;
         }
         boolean isOutgoing = m.senderId != null && currentUid != null && m.senderId.equals(currentUid);
 

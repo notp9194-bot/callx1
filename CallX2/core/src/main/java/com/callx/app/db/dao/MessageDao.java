@@ -388,6 +388,28 @@ public interface MessageDao {
     @Query("UPDATE messages SET text = :newText, edited = 1, editedAt = :editedAt WHERE id = :messageId")
     void updateText(String messageId, String newText, long editedAt);
 
+    /**
+     * WHATSAPP-LEVEL SELF-HEAL: finds messages from a specific sender in a
+     * specific chat whose text is still stuck on a decrypt-failure marker —
+     * either 1:1's {@code E2EEncryptionManager.DECRYPT_FAILED_MARKER} or
+     * group's {@code GroupE2EManager.WAITING_FOR_KEY_MARKER} — so they can be
+     * re-fetched and retried the moment that sender's session/key heals,
+     * instead of the marker staying stuck on them forever.
+     */
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND senderId = :senderId AND text = :marker ORDER BY timestamp ASC")
+    List<MessageEntity> getStuckMessagesFrom(String chatId, String senderId, String marker);
+
+    /**
+     * Same as {@link #updateText} but does NOT touch edited/editedAt — used
+     * by the decrypt self-heal path. Re-decrypting a message that was always
+     * this text underneath is not a user edit, so it shouldn't grow an
+     * "edited" label.
+     */
+    @WorkerThread
+    @Query("UPDATE messages SET text = :newText WHERE id = :messageId")
+    void updateTextSilently(String messageId, String newText);
+
     /** Edit message text AND append the pre-edit version to the history
      *  JSON blob in one write — used by MessageEditHistoryController so a
      *  message edited more than once keeps every prior version. */

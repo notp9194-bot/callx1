@@ -135,6 +135,46 @@ public class E2EEncryptionManager {
     private final OkHttpClient http;
 
     /**
+     * WHATSAPP-LEVEL SELF-HEAL: fired when {@link #decryptEnvelope} just
+     * finished a FRESH X3DH handshake (any of the three branches below —
+     * no prior session, near-simultaneous first messages, or a re-key on an
+     * already-established session) AND the message riding on that handshake
+     * decrypted successfully. That combination means the session with
+     * {@code partnerUid} just went from broken/absent to healthy.
+     *
+     * Without this, a message that was permanently stuck on
+     * {@link #DECRYPT_FAILED_MARKER} before the handshake healed stays
+     * stuck forever — the ratchet self-heals for every NEW message going
+     * forward, but nothing ever goes back and retries the old, already-
+     * saved-to-Room ones. Listeners (ChatActivity) use this signal to
+     * re-fetch and retry-decrypt exactly those stuck messages.
+     */
+    public interface SessionHealedListener {
+        void onSessionHealed(String partnerUid);
+    }
+
+    private final java.util.Set<SessionHealedListener> sessionHealedListeners =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+
+    public void addSessionHealedListener(SessionHealedListener l) {
+        if (l != null) sessionHealedListeners.add(l);
+    }
+
+    public void removeSessionHealedListener(SessionHealedListener l) {
+        if (l != null) sessionHealedListeners.remove(l);
+    }
+
+    private void notifySessionHealed(String partnerUid) {
+        for (SessionHealedListener l : sessionHealedListeners) {
+            try {
+                l.onSessionHealed(partnerUid);
+            } catch (Exception e) {
+                Log.w(TAG, "SessionHealedListener threw", e);
+            }
+        }
+    }
+
+    /**
      * CONCURRENCY FIX (root cause of "Unable to decrypt message" appearing
      * intermittently among otherwise-fine messages, in both the open chat
      * screen and background/killed-state notifications):
@@ -731,6 +771,11 @@ public class E2EEncryptionManager {
     /** The actual one-shot ratchet decrypt — see {@link #decrypt(String, String, String)} for why callers should go through the cached wrapper instead of calling this directly. */
     private String decryptEnvelope(String maybeEnvelope, String partnerUid) {
         synchronized (lockFor(partnerUid)) {
+            // WHATSAPP-LEVEL SELF-HEAL: set true in any branch below that
+            // accepts a FRESH handshake (session went from broken/absent to
+            // newly-established). Checked at the bottom, right after a
+            // successful decrypt, to fire notifySessionHealed().
+            boolean freshHandshake = false;
             try {
                 JSONObject header = new JSONObject(maybeEnvelope.substring(ENC_PREFIX.length()));
                 Session s = loadSession(partnerUid);
@@ -761,6 +806,7 @@ public class E2EEncryptionManager {
                         return DECRYPT_FAILED_MARKER;
                     }
                     s = acceptSessionAsResponder(header);
+                    freshHandshake = true; // no prior session at all — this IS the fresh handshake
                 } else if (header.has("ik")) {
                     // THE ACTUAL BUG behind "still failing even after I sent a
                     // new message": this used to only fire when
@@ -799,6 +845,7 @@ public class E2EEncryptionManager {
                         Session responderSide = acceptSessionAsResponder(header);
                         responderSide.sendChainKey = s.sendChainKey;
                         s = responderSide;
+                        freshHandshake = true; // near-simultaneous first messages both ways
                     } else if (!isReplayOfKnownIdentity) {
                         Log.w(TAG, "Re-keying session with " + partnerUid
                                 + " — fresh handshake on an already-established session (partner likely reinstalled)");
@@ -821,6 +868,7 @@ public class E2EEncryptionManager {
                             persistSecurityAlert(partnerUid, s.remoteIdentityPub, incomingIdentity);
                         }
                         s = acceptSessionAsResponder(header);
+                        freshHandshake = true; // re-key on an already-established session (reinstall/new device)
                     }
                     // else: stale replay of a handshake we've already
                     // incorporated — fall through to the normal ratchet path
@@ -866,6 +914,15 @@ public class E2EEncryptionManager {
                 String plaintext = new String(unpadPlaintext(padded), StandardCharsets.UTF_8);
 
                 saveSession(partnerUid, s);
+
+                if (freshHandshake) {
+                    // The session that JUST healed is what let this message
+                    // decrypt at all — notify so any earlier messages from
+                    // this partner still stuck on DECRYPT_FAILED_MARKER get
+                    // retried now. Fired after saveSession() so a listener
+                    // that immediately re-decrypts sees the healed session.
+                    notifySessionHealed(partnerUid);
+                }
                 return plaintext;
             } catch (Exception e) {
                 Log.e(TAG, "decrypt failed for " + partnerUid, e);

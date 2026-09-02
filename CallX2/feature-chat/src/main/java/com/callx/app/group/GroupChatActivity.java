@@ -112,6 +112,13 @@ public class GroupChatActivity extends AppCompatActivity
     // ── Identifiers ────────────────────────────────────────────────────────
     private String groupId, groupName, groupPhoto, currentUid, currentName;
 
+    // WHATSAPP-LEVEL SELF-HEAL: fires when GroupE2EManager imports a
+    // genuinely new/replaced Sender Key for some member of this group, so
+    // any of THEIR messages already stuck on WAITING_FOR_KEY_MARKER in Room
+    // get re-fetched and retried instead of staying stuck forever.
+    // Registered in onCreate(), removed in onDestroy().
+    private com.callx.app.utils.GroupE2EManager.SenderKeyHealedListener senderKeyHealedListener;
+
     // ── Paging 3 (FIX #7) ─────────────────────────────────────────────────
     private MessagePagingAdapter pagingAdapter;
     private AppDatabase          db;
@@ -384,6 +391,18 @@ public class GroupChatActivity extends AppCompatActivity
         // protocol writeup.
         com.callx.app.utils.GroupE2EManager.getInstance(this)
                 .ensureGroupCrypto(groupId, currentUid, null);
+
+        // WHATSAPP-LEVEL SELF-HEAL: when a member's Sender Key heals (new/
+        // replaced key just imported), retry every one of their messages in
+        // THIS group still stuck on WAITING_FOR_KEY_MARKER.
+        final String healGroupId = groupId;
+        senderKeyHealedListener = (healedGroupId, fromUid) -> {
+            if (healedGroupId != null && healedGroupId.equals(healGroupId)) {
+                redecryptStuckGroupMessagesFrom(fromUid);
+            }
+        };
+        com.callx.app.utils.GroupE2EManager.getInstance(this)
+                .addSenderKeyHealedListener(senderKeyHealedListener);
 
         // PERF FIX v8: DB ko background mein init karo, UI turant shuru karo.
         // db is null initially; Firebase events buffer hote hain pendingUpserts mein.
@@ -675,6 +694,10 @@ public class GroupChatActivity extends AppCompatActivity
         // skipped.
         if (historyQuery != null && historyListener != null)
             historyQuery.removeEventListener(historyListener);
+        if (senderKeyHealedListener != null) {
+            com.callx.app.utils.GroupE2EManager.getInstance(this)
+                    .removeSenderKeyHealedListener(senderKeyHealedListener);
+        }
         // PERF FIX: flush any buffered Firebase→Room writes immediately
         // instead of losing them if the debounce window hadn't fired yet.
         writeFlushHandler.removeCallbacks(writeFlushRunnable);
@@ -1525,6 +1548,61 @@ public class GroupChatActivity extends AppCompatActivity
         pendingUpserts.put(m.id, m);
         pendingRemovals.remove(m.id); // a fresh upsert always wins over a stale pending removal
         scheduleWriteFlush();
+    }
+
+    /**
+     * WHATSAPP-LEVEL SELF-HEAL (group side): called once {@code fromUid}'s
+     * Sender Key heals (see senderKeyHealedListener above). Old messages
+     * from that sender already saved to Room with
+     * {@code GroupE2EManager.WAITING_FOR_KEY_MARKER} can't be re-decrypted
+     * from the marker text alone, so this re-fetches each stuck message's
+     * raw envelope from Firebase, retries the (now-possible) sender-key
+     * decrypt, and silently updates Room on success — Room's PagingSource
+     * auto-invalidates so the open group updates itself.
+     */
+    private void redecryptStuckGroupMessagesFrom(String fromUid) {
+        if (db == null || fromUid == null || groupId == null) return;
+        ioExecutor.execute(() -> {
+            java.util.List<MessageEntity> stuck;
+            try {
+                stuck = db.messageDao().getStuckMessagesFrom(
+                        groupId, fromUid, com.callx.app.utils.GroupE2EManager.WAITING_FOR_KEY_MARKER);
+            } catch (Exception e) {
+                android.util.Log.w(TAG, "redecryptStuckGroupMessagesFrom: query failed", e);
+                return;
+            }
+            if (stuck.isEmpty()) return;
+
+            for (MessageEntity stale : stuck) {
+                final String messageId = stale.id;
+                if (messageId == null) continue;
+                FirebaseUtils.getGroupMessagesRef(groupId).child(messageId)
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override public void onDataChange(DataSnapshot snap) {
+                                Message raw = snap.getValue(Message.class);
+                                if (raw == null || raw.text == null) return;
+                                if (!com.callx.app.utils.GroupE2EManager.isEncrypted(raw.text)) return;
+
+                                String plaintext = com.callx.app.utils.GroupE2EManager.getInstance(GroupChatActivity.this)
+                                        .decryptGroupMessage(raw.text, groupId, fromUid, messageId);
+                                if (plaintext == null
+                                        || com.callx.app.utils.GroupE2EManager.DECRYPT_FAILED_MARKER.equals(plaintext)
+                                        || com.callx.app.utils.GroupE2EManager.WAITING_FOR_KEY_MARKER.equals(plaintext)) {
+                                    return; // still genuinely stuck — leave the marker as-is
+                                }
+                                final String finalPlaintext = plaintext;
+                                ioExecutor.execute(() -> {
+                                    try {
+                                        db.messageDao().updateTextSilently(messageId, finalPlaintext);
+                                    } catch (Exception e) {
+                                        android.util.Log.w(TAG, "redecryptStuckGroupMessagesFrom: Room update failed", e);
+                                    }
+                                });
+                            }
+                            @Override public void onCancelled(DatabaseError error) {}
+                        });
+            }
+        });
     }
 
     private void scheduleWriteFlush() {
@@ -2721,6 +2799,22 @@ public class GroupChatActivity extends AppCompatActivity
         // m.readBy/m.deliveredBy, which requires m itself to never be reassigned).
         final Message m = resolved;
         if (m.id == null || m.id.isEmpty()) m.id = infoId;
+        // BUG FIX (root cause of "group Message Info shows nothing"):
+        // findMessageById() can return a fresh-but-still-partial snapshot
+        // (Paging reload mid-flight) whose senderId hasn't been populated
+        // yet, even though every other field is fine. That null senderId
+        // made isOutgoing resolve to false for the sender's OWN message,
+        // which sends it down the early-return "received" branch below —
+        // rendering just a single "Sent" line and skipping the entire
+        // Read By/Delivered To/Pending build (and the live Firebase
+        // correction listener) permanently, since nothing re-evaluates
+        // isOutgoing afterwards. Fall back to mParam's senderId (the value
+        // actually bound on the bubble the user long-pressed) whenever the
+        // resolved copy is missing it, so a real outgoing message can never
+        // be misclassified as received.
+        if ((m.senderId == null || m.senderId.isEmpty()) && mParam.senderId != null) {
+            m.senderId = mParam.senderId;
+        }
         boolean isOutgoing = m.senderId != null && currentUid.equals(m.senderId);
 
         com.callx.app.conversation.info.MessageInfoData data = new com.callx.app.conversation.info.MessageInfoData();

@@ -110,6 +110,42 @@ public class GroupE2EManager {
         return groupLocks.computeIfAbsent(groupId, k -> new Object());
     }
 
+    /**
+     * WHATSAPP-LEVEL SELF-HEAL (group side): fired when
+     * {@link #importIncomingSenderKeys} just saved a GENUINELY NEW or
+     * REPLACED Sender Key for {@code (groupId, fromUid)} — i.e. the exact
+     * moment a conversation that was showing {@link #WAITING_FOR_KEY_MARKER}
+     * for that sender becomes decryptable. Without this, old messages
+     * already saved to Room with that marker stay stuck on it forever, even
+     * though every new incoming message from the same sender decrypts fine
+     * from here on. Listeners (GroupChatActivity) use this to re-fetch and
+     * retry-decrypt exactly those stuck messages.
+     */
+    public interface SenderKeyHealedListener {
+        void onSenderKeyHealed(String groupId, String fromUid);
+    }
+
+    private final java.util.Set<SenderKeyHealedListener> senderKeyHealedListeners =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+
+    public void addSenderKeyHealedListener(SenderKeyHealedListener l) {
+        if (l != null) senderKeyHealedListeners.add(l);
+    }
+
+    public void removeSenderKeyHealedListener(SenderKeyHealedListener l) {
+        if (l != null) senderKeyHealedListeners.remove(l);
+    }
+
+    private void notifySenderKeyHealed(String groupId, String fromUid) {
+        for (SenderKeyHealedListener l : senderKeyHealedListeners) {
+            try {
+                l.onSenderKeyHealed(groupId, fromUid);
+            } catch (Exception e) {
+                Log.w(TAG, "SenderKeyHealedListener threw", e);
+            }
+        }
+    }
+
     private GroupE2EManager(Context ctx) {
         this.context  = ctx.getApplicationContext();
         this.executor = Executors.newFixedThreadPool(2);
@@ -304,6 +340,10 @@ public class GroupE2EManager {
                                     newState.chainKey = chain;
                                     newState.n = n;
                                     saveRecvState(groupId, fromUid, newState);
+                                    // Genuinely new/replaced key just landed — this
+                                    // sender's WAITING_FOR_KEY_MARKER messages can
+                                    // now be retried.
+                                    notifySenderKeyHealed(groupId, fromUid);
                                 } catch (Exception e) {
                                     Log.w(TAG, "importIncomingSenderKeys: import failed for " + fromUid + ": " + e.getMessage());
                                 }

@@ -477,6 +477,28 @@ public class PushNotify {
           }
       }
 
+      // ── GROUP E2EE — Sender Keys re-sync nudge ─────────────────────────────
+      // WHATSAPP-LEVEL FIX: server endpoint /notify/group_key_rotate already
+      // existed but no client code ever called it, and CallxMessagingService
+      // never handled the "group_key_resync" FCM data type it sends — so a
+      // member add/remove never pushed the remaining members to re-sync
+      // Sender Keys right away; they only picked it up the next time they
+      // happened to reopen that group's chat screen. Call this immediately
+      // after a member is added or removed (see GroupInfoActivity). Fire and
+      // forget, same as every other PushNotify call — GroupE2EManager's own
+      // ensureGroupCrypto()/opportunistic re-fetch logic is the correctness
+      // fallback if this never arrives (killed app, no network, etc.).
+      public static void notifyGroupKeyRotate(String groupId, String excludeUid) {
+          try {
+              JSONObject body = new JSONObject()
+                  .put("groupId",    groupId    != null ? groupId : "")
+                  .put("excludeUid", excludeUid != null ? excludeUid : "");
+              postAsync(Constants.SERVER_URL + "/notify/group_key_rotate", body);
+          } catch (Exception e) {
+              Log.w("PushNotify", "notifyGroupKeyRotate err: " + e.getMessage());
+          }
+      }
+
       // ── Reel Notification: Product Tag Sale ────────────────────────────────
       public static void notifyReelProductSale(String toUid, String fromUid,
                                                String reelId, String productName,

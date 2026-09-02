@@ -106,8 +106,15 @@ public class DeepLinkRouterActivity extends AppCompatActivity {
             // ── GROUP JOIN ────────────────────────────────────────────────
             case "join": {
                 if (param1.isEmpty()) { goHome(); return; }
-                // Reuse existing JoinGroupActivity via URI
-                Uri joinUri = Uri.parse("callx://join/" + param1);
+                // BUG FIX: the invite-link's "?t={token}" query param (used by
+                // GroupInfoActivity's Reset Invite Link to invalidate old
+                // links) was being dropped here — rebuilding the URI from
+                // param1 alone threw the token away before JoinGroupActivity
+                // ever saw it, so a reset link could never actually be
+                // enforced. Carry the original query string through.
+                String query = uri.getQuery();
+                Uri joinUri = Uri.parse("callx://join/" + param1
+                        + (query != null && !query.isEmpty() ? "?" + query : ""));
                 Intent i = new Intent(Intent.ACTION_VIEW, joinUri);
                 i.setClass(this, JoinGroupActivity.class);
                 startActivity(i);
