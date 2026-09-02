@@ -344,6 +344,26 @@ public class CallxApp extends Application {
                 Log.w(TAG, "E2E re-key listener attach failed: " + e.getMessage());
             }
 
+            // ── GROUP E2E RE-KEY FIX: self-healing "Waiting for encryption
+            // key…" in group chat — the group counterpart of the listener
+            // right above. Listens for other members telling us they lost
+            // their locally-received copy of OUR Sender Key for a group and
+            // need us to redistribute it (see
+            // GroupE2EManager#listenForGroupKeyRequests / #requestSenderKeyResend
+            // for the full explanation — a member reinstalling/clearing data
+            // is the actual root cause of that marker persisting forever
+            // instead of just failing once). Cheap to attach and only ever
+            // does real work when a groupmate is genuinely stuck.
+            try {
+                if (FirebaseAuth.getInstance().getCurrentUser() != null) {
+                    String myUid = FirebaseUtils.getCurrentUid();
+                    com.callx.app.utils.GroupE2EManager.getInstance(CallxApp.this)
+                            .listenForGroupKeyRequests(myUid);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Group E2E key-resend listener attach failed: " + e.getMessage());
+            }
+
             // Cache system: CacheManager, SyncWorker, StatusCacheManager
             initCacheSystem();
 

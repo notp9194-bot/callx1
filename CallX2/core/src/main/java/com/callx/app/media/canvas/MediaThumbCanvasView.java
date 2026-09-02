@@ -62,6 +62,20 @@ public class MediaThumbCanvasView extends View {
     private String pendingUrl;
     private CustomTarget<Bitmap> pendingTarget;
 
+    // CRASH FIX: cache the RequestManager obtained while the load was
+    // actually issued (view attached, activity alive) instead of calling
+    // Glide.with(getContext()) again later purely to clear() — a fresh
+    // Glide.with() call during teardown (onDetachedFromWindow racing
+    // Activity#onDestroy — see stack trace: handleDestroyActivity ->
+    // removeViewImmediate -> dispatchDetachedFromWindow) asks
+    // RequestManagerRetriever for a manager for an activity that Android
+    // has already marked destroyed, which throws
+    // IllegalArgumentException("You cannot start a load for a destroyed
+    // activity") instead of just clearing. Reusing the manager instance we
+    // already hold sidesteps that lookup entirely — clear() on an existing
+    // RequestManager doesn't re-check the activity's lifecycle state.
+    private com.bumptech.glide.RequestManager requestManager;
+
     private OnThumbClickListener clickListener;
 
     public MediaThumbCanvasView(Context context) { super(context); init(); }
@@ -95,8 +109,7 @@ public class MediaThumbCanvasView extends View {
         pendingUrl = url;
 
         if (pendingTarget != null) {
-            Glide.with(getContext()).clear(pendingTarget);
-            pendingTarget = null;
+            clearPendingTarget();
         }
         bitmap = null;
         matrixDirty = true;
@@ -117,11 +130,31 @@ public class MediaThumbCanvasView extends View {
                 invalidate();
             }
         };
-        Glide.with(getContext())
+        // Grab the manager HERE, while the view is attached and the activity
+        // is alive, and hold onto it — see the field doc above for why we
+        // never call Glide.with(getContext()) again just to clear later.
+        requestManager = Glide.with(getContext());
+        requestManager
                 .asBitmap()
                 .load(url)
                     .override(480, 853)
                 .into(pendingTarget);
+    }
+
+    /** Clears pendingTarget via the RequestManager captured when the load
+     *  was issued — never re-acquires one via Glide.with(). Safe to call
+     *  even if the owning activity has since been destroyed. */
+    private void clearPendingTarget() {
+        if (pendingTarget == null) return;
+        if (requestManager != null) {
+            try {
+                requestManager.clear(pendingTarget);
+            } catch (Exception ignored) {
+                // Belt-and-suspenders: teardown ordering edge cases across
+                // OEMs shouldn't crash a thumbnail cell.
+            }
+        }
+        pendingTarget = null;
     }
 
     @Override
@@ -183,8 +216,6 @@ public class MediaThumbCanvasView extends View {
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
-        if (pendingTarget != null) {
-            Glide.with(getContext()).clear(pendingTarget);
-        }
+        clearPendingTarget();
     }
 }

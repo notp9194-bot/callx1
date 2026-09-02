@@ -382,6 +382,20 @@ public class FirebaseUtils {
         return db().getReference("groupSenderKeys").child(groupId);
     }
 
+    /**
+     * groupSenderKeyRequests/{targetUid}/{groupId}/{requesterUid} =
+     * ServerValue.TIMESTAMP. Mirrors e2e_rekey_requests but for GROUP Sender
+     * Keys (see GroupE2EManager#requestSenderKeyResend /
+     * #listenForGroupKeyRequests). A member who is missing a specific
+     * sender's current Sender Key (e.g. they reinstalled/cleared data and
+     * lost their locally-received copy) writes under that sender's own uid
+     * to ask them to redistribute — carries no key material, just "please
+     * resend your group key to me for this group."
+     */
+    public static DatabaseReference getGroupSenderKeyRequestsRef(String targetUid) {
+        return db().getReference("groupSenderKeyRequests").child(targetUid);
+    }
+
     public static DatabaseReference getStatusRef() {
         return db().getReference("status");
     }

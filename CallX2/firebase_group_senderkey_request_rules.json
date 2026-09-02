@@ -1,0 +1,21 @@
+{
+  "_comment": "Add these rules to your Firebase RTDB security rules — needed for the group-chat 'Waiting for encryption key…' self-heal fix (see UPGRADE_NOTES_v240_GroupSenderKeyResendSelfHeal.md). No plaintext or key material ever goes through this node — just a per-group per-requester timestamp meaning 'please resend your group Sender Key to me'. Mirrors e2e_rekey_requests exactly, one level deeper for the groupId.",
+
+  "rules_explanation": {
+    "groupSenderKeyRequests": "groupSenderKeyRequests/{targetUid}/{groupId}/{requesterUid} = ServerValue.TIMESTAMP. A device writes under the SENDER's uid (targetUid) and the groupId to ask that sender to resend their current Sender Key for that group. Only the target (targetUid) can read their own inbox. A request can be created only by the requester writing as themselves (requesterUid must equal their own auth.uid — can't spoof a request as someone else), and can be deleted (cleanup after processing) only by the target removing entries from their own inbox."
+  },
+
+  "rules": {
+    "groupSenderKeyRequests": {
+      "$targetUid": {
+        ".read": "auth != null && auth.uid === $targetUid",
+        "$groupId": {
+          "$requesterUid": {
+            ".write": "auth != null && (auth.uid === $requesterUid || (auth.uid === $targetUid && newData.val() === null))",
+            ".validate": "newData.val() === now || newData.val() === null"
+          }
+        }
+      }
+    }
+  }
+}

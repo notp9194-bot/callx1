@@ -9,8 +9,11 @@ import androidx.annotation.Nullable;
 import androidx.security.crypto.EncryptedSharedPreferences;
 import androidx.security.crypto.MasterKey;
 
+import com.google.firebase.database.ChildEventListener;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.ServerValue;
 import com.google.firebase.database.ValueEventListener;
 
 import org.json.JSONObject;
@@ -355,6 +358,135 @@ public class GroupE2EManager {
     }
 
     // ═════════════════════════════════════════════════════════════════════
+    // SELF-HEALING RESEND REQUEST — fixes permanent "Waiting for encryption
+    // key…" in group chat (the group-side counterpart to
+    // E2EEncryptionManager's e2e_rekey_requests fix for 1:1).
+    // ═════════════════════════════════════════════════════════════════════
+    //
+    // Scenario: member A reinstalls the app (or clears data / logs into a
+    // new device). Their LOCAL copy of every other member's Sender Key
+    // (recvKeyPrefs) is gone — but nobody else's device knows that. Each
+    // OTHER member's device tracks "who have I already sent my current
+    // Sender Key to" via loadDistributedTo()/markDistributedTo(), keyed by
+    // their OWN keyId, and that record is untouched by A losing their data
+    // — from every other member's point of view A already has their key,
+    // so distributeOwnSenderKey() keeps skipping A forever (the
+    // `alreadySent.contains(memberUid)` check), exactly mirroring the 1:1
+    // `handshakeAcked` staying permanently true on the healthy side. A's
+    // decryptEnvelope() correctly detects "no Sender Key for this sender"
+    // and shows WAITING_FOR_KEY_MARKER — but the only recovery it triggers
+    // is importIncomingSenderKeys(), which just re-checks A's OWN mailbox.
+    // If nothing new has been dropped there (because every other member
+    // thinks A already has the key), that re-check finds nothing and the
+    // marker persists on every message from that sender, forever, even
+    // after the group is reopened repeatedly.
+    //
+    // Fix: A asks the specific sender (over Firebase RTDB — no server
+    // change needed, same pattern as e2e_rekey_requests) to forget that
+    // they already sent A their key and redistribute it fresh.
+    private static final String GROUP_KEY_REQUEST_COOLDOWN_PREFIX = "keyreq_sent_";
+    private static final long GROUP_KEY_REQUEST_COOLDOWN_MS = 5 * 60 * 1000L; // avoid spamming per-message
+
+    /**
+     * Fire-and-forget: tells {@code fromUid}'s device(s) that we don't have
+     * their current Sender Key for {@code groupId} and they should
+     * redistribute it to us. Rate-limited per (group, sender) so a burst of
+     * WAITING_FOR_KEY messages from the same sender only sends one request
+     * per cooldown window.
+     */
+    private void requestSenderKeyResend(String groupId, String fromUid) {
+        try {
+            String myUid = FirebaseUtils.getCurrentUid();
+            if (myUid == null || myUid.isEmpty() || fromUid == null || fromUid.isEmpty()) return;
+
+            String cooldownKey = GROUP_KEY_REQUEST_COOLDOWN_PREFIX + groupId + "_" + fromUid;
+            long last = membersPrefs.getLong(cooldownKey, 0);
+            if (System.currentTimeMillis() - last < GROUP_KEY_REQUEST_COOLDOWN_MS) return;
+            membersPrefs.edit().putLong(cooldownKey, System.currentTimeMillis()).apply();
+
+            FirebaseUtils.getGroupSenderKeyRequestsRef(fromUid)
+                    .child(groupId).child(myUid)
+                    .setValue(ServerValue.TIMESTAMP);
+        } catch (Exception e) {
+            Log.w(TAG, "requestSenderKeyResend failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Starts listening for incoming Sender-Key resend requests addressed to
+     * {@code myUid} — call once per process lifetime (see CallxApp#onCreate,
+     * same lifetime/pattern as E2EEncryptionManager#listenForReKeyRequests).
+     * For each (groupId, requesterUid): forget that we already sent our
+     * current key to that member and redistribute it — self-healing a
+     * stuck-forever "Waiting for encryption key…" from whichever side still
+     * has a working Sender Key, without waiting for that group to be
+     * reopened.
+     */
+    public void listenForGroupKeyRequests(String myUid) {
+        if (myUid == null || myUid.isEmpty()) return;
+        try {
+            DatabaseReference ref = FirebaseUtils.getGroupSenderKeyRequestsRef(myUid);
+            ref.addChildEventListener(new ChildEventListener() {
+                @Override public void onChildAdded(DataSnapshot groupSnap, String prev) { handleGroup(groupSnap); }
+                @Override public void onChildChanged(DataSnapshot groupSnap, String prev) { handleGroup(groupSnap); }
+                @Override public void onChildRemoved(DataSnapshot snap) {}
+                @Override public void onChildMoved(DataSnapshot snap, String prev) {}
+                @Override public void onCancelled(DatabaseError err) {}
+
+                private void handleGroup(DataSnapshot groupSnap) {
+                    String groupId = groupSnap.getKey();
+                    if (groupId == null || groupId.isEmpty()) return;
+                    for (DataSnapshot reqSnap : groupSnap.getChildren()) {
+                        String requesterUid = reqSnap.getKey();
+                        if (requesterUid == null || requesterUid.isEmpty()) continue;
+                        executor.execute(() -> {
+                            try {
+                                forceRedistributeSenderKeyTo(groupId, myUid, requesterUid);
+                            } catch (Exception e) {
+                                Log.w(TAG, "Handling group key request from " + requesterUid
+                                        + " in " + groupId + " failed: " + e.getMessage());
+                            } finally {
+                                // Consumed — remove so it doesn't reprocess on next listener attach.
+                                ref.child(groupId).child(requesterUid).removeValue();
+                            }
+                        });
+                    }
+                }
+            });
+        } catch (Exception e) {
+            Log.w(TAG, "listenForGroupKeyRequests failed to attach: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Forgets that we already sent {@code memberUid} our CURRENT Sender Key
+     * for {@code groupId} and redistributes it — the actual self-heal
+     * action once a resend request comes in. Only resends to someone still
+     * on our known-members list for this group, so a member who genuinely
+     * left/was removed (but still remembers the groupId) can't use this to
+     * re-acquire a key they were deliberately cut off from by rotation.
+     */
+    private void forceRedistributeSenderKeyTo(String groupId, String currentUid, String memberUid) throws Exception {
+        synchronized (lockFor(groupId)) {
+            if (!loadKnownMembers(groupId).contains(memberUid)) {
+                Log.w(TAG, "Ignoring group key resend request from non-member " + memberUid + " in " + groupId);
+                return;
+            }
+            SenderKeyState own = getOrCreateOwnSenderKey(groupId);
+            removeDistributedTo(groupId, own.keyId, memberUid);
+        }
+        distributeOwnSenderKey(groupId, currentUid, java.util.Collections.singletonList(memberUid));
+    }
+
+    /** Removes a single member from a keyId's "already sent" record — the opposite of {@link #markDistributedTo}. */
+    private void removeDistributedTo(String groupId, String keyId, String memberUid) {
+        List<String> list = loadDistributedTo(groupId, keyId);
+        if (list.remove(memberUid)) {
+            membersPrefs.edit().putString("dist_" + groupId + "_" + keyId, String.join(",", list)).apply();
+        }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
     // PUBLIC API — encrypt / decrypt (group text only)
     // ═════════════════════════════════════════════════════════════════════
 
@@ -424,6 +556,15 @@ public class GroupE2EManager {
                 // has a chance to succeed without waiting for the chat to
                 // be reopened.
                 importIncomingSenderKeys(groupId, FirebaseUtils.getCurrentUid());
+                // WHATSAPP-LEVEL SELF-HEAL: the re-fetch above only helps if
+                // the sender's key is ALREADY sitting in our mailbox. If we
+                // lost our local Sender Key state (reinstall/clear data/new
+                // device) the sender's device has no idea — it thinks it
+                // already delivered this key to us and will never resend on
+                // its own (see requestSenderKeyResend's class doc above).
+                // Ask them directly; rate-limited so repeated stuck messages
+                // from the same sender don't spam requests.
+                requestSenderKeyResend(groupId, senderUid);
                 return WAITING_FOR_KEY_MARKER;
             }
 
