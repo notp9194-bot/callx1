@@ -888,22 +888,18 @@ public class HomeFragment extends Fragment {
                 FirebaseUtils.getReelsRef(), scrollHandler);
         }
 
-        // Hook RecyclerView scroll events → ultraOptimizer scroll state machine
-        recyclerHome.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override
-            public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
-                if (ultraOptimizer != null) {
-                    ultraOptimizer.onRecyclerScrollStateChanged(newState);
-                }
-            }
-
-            @Override
-            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                if (ultraOptimizer != null) {
-                    ultraOptimizer.onRecyclerScrolled(dx, dy);
-                }
-            }
-        });
+        // NOTE: ultraOptimizer's scroll hook used to be its own separate
+        // recyclerHome.addOnScrollListener(...) registered right here. That
+        // meant recyclerHome had TWO independent OnScrollListeners firing on
+        // every single scroll event/frame (this one + the autoplay/pagination
+        // one further down in setupHomeFeed()) — double dispatch overhead on
+        // every pixel of scroll, and worse, the two ran with zero awareness
+        // of each other's state. Consolidated into ONE listener (see the
+        // single recyclerHome.addOnScrollListener(...) below) so there's a
+        // single per-event dispatch and a single source of truth for scroll
+        // state — ultraOptimizer's FLING/SETTLE state now directly gates the
+        // instant-play Choreographer callback instead of it firing blind
+        // during a fast fling. See that listener's comments for details.
 
         // ★ Built via AdaptiveStreamingManager.buildBarePlayer() instead of a
         // plain ExoPlayer.Builder() — gets the SAME network-tier-tuned
@@ -1202,13 +1198,38 @@ public class HomeFragment extends Fragment {
         if (recyclerHome != null) {
             paginateThresholdPx = dpToPx(600);
             prefetchThresholdPx = dpToPx(1400);
+            // ★ CONSOLIDATED (was 2 separate addOnScrollListener calls on this
+            // same RecyclerView — one purely for ultraOptimizer's scroll state
+            // machine, one for velocity/autoplay/pagination). Two listeners
+            // meant RecyclerView's dispatchOnScrolled/dispatchOnScrollStateChanged
+            // iterated and invoked BOTH on every single scroll callback, and
+            // neither knew what the other was doing. Now it's one listener,
+            // one dispatch, and ultraOptimizer's state feeds directly into the
+            // autoplay/pagination decisions below instead of running blind.
             recyclerHome.addOnScrollListener(new RecyclerView.OnScrollListener() {
                 @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                    // Drive ultraOptimizer's scroll state machine first (was
+                    // its own separate listener) so its FLING/SETTLE state is
+                    // already up to date for the checks below in this same
+                    // callback — single source of truth, no cross-listener
+                    // ordering ambiguity.
+                    if (ultraOptimizer != null) {
+                        ultraOptimizer.onRecyclerScrolled(dx, dy);
+                    }
+
                     sampleHomeScrollVelocity(dy);
 
                     // Instant-play trigger, frame-synced — see
-                    // playVisibleFrameCallback doc.
-                    if (!playVisibleCheckScheduled) {
+                    // playVisibleFrameCallback doc. Skipped during a fast
+                    // FLING: attempting to swap/play media while the list is
+                    // still flying past is wasted main-thread + decoder work
+                    // that's immediately superseded a few frames later, and
+                    // was a real contributor to the scroll-time flicker —
+                    // Instagram only starts the "instant play" attempt once
+                    // the fling has begun settling, not on every raw frame.
+                    boolean isFlinging = ultraOptimizer != null
+                        && ultraOptimizer.getCurrentScrollState() == HomeFeedUltraOptimizer.SCROLL_FLINGING;
+                    if (!isFlinging && !playVisibleCheckScheduled) {
                         playVisibleCheckScheduled = true;
                         android.view.Choreographer.getInstance().postFrameCallback(playVisibleFrameCallback);
                     }
@@ -1261,6 +1282,21 @@ public class HomeFragment extends Fragment {
                 }
 
                 @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                    // Drive ultraOptimizer's scroll state machine first (was
+                    // its own separate listener — see consolidation note
+                    // above onScrolled()) so its pause/resume of metadata
+                    // fetch, network batching, and aggressive view-recycling
+                    // cleanup has already reacted to IDLE/DRAGGING/FLINGING
+                    // BEFORE playMostVisibleCard() below tries to (re)acquire
+                    // a player for the settled card — avoids a race where
+                    // recyclingOptimizer's fling-triggered cleanup and this
+                    // listener's settle-triggered playback could interleave
+                    // out of order across two separate listener objects and
+                    // cause a visible black-frame/flicker on landing.
+                    if (ultraOptimizer != null) {
+                        ultraOptimizer.onRecyclerScrollStateChanged(newState);
+                    }
+
                     // Definitive settle check: guarantees the truly-final
                     // resting position is evaluated with zero delay the
                     // instant RecyclerView reports IDLE, on top of the
