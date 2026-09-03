@@ -1,4 +1,4 @@
-# v336 — Home Feed Scroll Diagnostics + Instagram-Level Scroll Stability
+# v338 — Home Feed Diagnostics + Instagram-Level Scroll Playback
 
 ## What changed
 
@@ -23,18 +23,31 @@
 - Removed the dynamic full-feed hardware-layer toggle; RecyclerView and
   PlayerView retain their normal hardware-accelerated rendering instead of
   rebuilding a parent GPU texture during scrolling.
-- During drag/fling, the active media is paused in place and its opaque
-  thumbnail remains above the Surface. Thumbnail reveal is deferred until the
-  scroll is idle, preventing a mid-scroll first-frame crossfade.
+- During a fast drag/fling, the active media keeps its Surface attached and
+  fast handoffs are deferred; its opaque thumbnail remains above the Surface
+  until the final card is selected. Gentle drags may hand off immediately
+  once a challenger crosses the visibility floor.
 - Replaced the Home feed's three-decoder active/next/previous promotion path
   with one active ExoPlayer. Neighbour videos are still cache-prefetched, but
   they no longer enter READY/BUFFERING or compete for decoder/network time
   while the visible card is settling.
+- If RecyclerView keeps the old holder cached just outside the viewport, Home
+  now detaches that player once at the exit boundary instead of leaving a
+  hidden active card alive through the whole fling.
+- Replaced the thumbnail alpha animation with a single reveal after the real
+  Surface frame arrives. This removes the measured 47–73 ms animation stalls
+  while preserving the opaque-cover protection against black frames.
+- Removed the blanket pause at the start of every drag/fling. The incumbent
+  video now keeps playing during a small touch drag, and a newly dominant card
+  can take over immediately during gentle scrolling. Fast flings still defer
+  handoff until the final IDLE winner, while an actually off-screen incumbent
+  is detached by the viewport guard.
 
 ## Important behavior
 
-This is diagnostic-only. It does not change playback, scrolling, buffering,
-or preload behavior, and it does not show an interrupting dialog during a
-scroll. Records remain in memory for the current app process so the user can
-reproduce the issue in Home and inspect it from the profile menu afterward.
-No build or automated test was run for this upgrade.
+The diagnostics recorder is non-interrupting and keeps records in memory for
+the current app process so the user can reproduce the issue in Home and
+inspect it from the profile menu afterward. The scroll-stability changes above
+intentionally alter playback handoff, thumbnail reveal, and preloading
+coordination to remove the measured stalls. No build or automated test was run
+for this upgrade.

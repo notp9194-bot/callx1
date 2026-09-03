@@ -450,39 +450,6 @@ public class HomeFragment extends Fragment
         }
     }
 
-    /** Same value ReelPlayerController (Reels tab) uses — short enough that
-     *  the surface hand-off reads as one continuous frame instead of a
-     *  visible cut, matching Instagram's near-zero thumbnail→video swap.
-     *  Used for the default (neither confirmed low- nor high-end) tier —
-     *  see crossfadeDurationForCard()'s per-tier overrides below. */
-    private static final long HOME_THUMB_CROSSFADE_CLOSE_MATCH_MS = 100L;
-    private static final long HOME_THUMB_CROSSFADE_DEFAULT_MS     = 200L;
-    /** Low-end devices always get the longer fade, regardless of perceptual
-     *  hash match — a dropped-frame stutter mid-crossfade reads worse on
-     *  constrained hardware than a slightly-longer-than-strictly-needed fade
-     *  does, so there's no point trimming it even on a close thumbnail match. */
-    private static final long HOME_THUMB_CROSSFADE_LOW_END_MS               = 200L;
-    private static final long HOME_THUMB_CROSSFADE_HIGH_END_CLOSE_MATCH_MS  = 120L;
-    private static final long HOME_THUMB_CROSSFADE_HIGH_END_DEFAULT_MS      = 150L;
-    /** Android's per-app heap budget (MB) — getMemoryClass() — as a cheap
-     *  device-tier proxy without pulling in real CPU/GPU benchmarking; the
-     *  OS already sizes this by device class, so a device above this line
-     *  is comfortably high-end. */
-    private static final int  HIGH_END_MEMORY_CLASS_MB = 256;
-    /** Lazily resolved once per Fragment instance — ActivityManager queries
-     *  are cheap but there's no need to repeat them on every reveal. */
-    private Boolean isLowEndDeviceCache;
-    private Boolean isHighEndDeviceCache;
-    /** Shared pool of ImageViews currently holding a promoted hardware layer
-     *  for the reveal crossfade — see promoteToPooledHardwareLayer(). Only
-     *  one feed card plays (and therefore fades) at a time in the common
-     *  case, so a small cap avoids the RenderThread layer create/destroy
-     *  churn of promoting-then-immediately-reverting on every single reveal;
-     *  a quick scroll-away-and-back can reuse an already-promoted layer
-     *  instead of paying allocation cost again. */
-    private static final int THUMB_HARDWARE_LAYER_POOL_SIZE = 2;
-    private final java.util.ArrayDeque<ImageView> hardwareLayerPool = new java.util.ArrayDeque<>();
-
     private boolean isFollowingMode = true;
 
     // ══════════════════════════════════════════════════════════════════════
@@ -682,14 +649,13 @@ public class HomeFragment extends Fragment
             new com.bumptech.glide.request.RequestOptions()
                     .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
                     .dontAnimate();
-    /** True while the NestedScrollView is actively moving. Used to switch the
-     *  feed content to a hardware layer only while scrolling — GPU-composites
-     *  the whole scrolling subtree as one texture instead of re-drawing every
-     *  child view per frame, which is what makes long feeds feel "buttery"
-     *  instead of stuttery. Reverted to LAYER_TYPE_NONE once idle, since a
-     *  hardware layer left on permanently costs GPU memory for no benefit. */
+    /** True while the RecyclerView is actively moving. This is deliberately
+     *  a state flag only: RecyclerView and PlayerView already own
+     *  hardware-accelerated rendering, and a parent layer would force
+     *  expensive Surface texture rebuilds. */
     private boolean   isFeedScrolling          = false;
-    /** Whether the hardware-layer promotion actually got applied this scroll. */
+    /** Kept for diagnostics compatibility; Home no longer promotes the
+     *  scrolling subtree to a parent hardware layer. */
     private boolean   isHwLayerOn              = false;
     private View      feedScrollContentRoot     = null;
     /** Idle-time pre-inflater for feed cards — see HomeFeedCardPool. */
@@ -737,10 +703,6 @@ public class HomeFragment extends Fragment
      *  floor before anything else takes over — mirrors Instagram's
      *  symmetric enter/exit behaviour instead of only gating entry. */
     private boolean pausedForVisibility = false;
-    /** True when playback was paused deliberately for an active scroll. The
-     * player stays attached under its thumbnail; it is not torn down/rebound
-     * on every intermediate card during a fling. */
-    private boolean pausedForScroll = false;
     /** Decode size for the 36dp card avatar (36dp ≈ 144px at xxhdpi). */
     private static final int AVATAR_DECODE_PX = 144;
     /** ★ Ultra-advanced optimization: Pattern.compile() is far from free —
@@ -800,7 +762,7 @@ public class HomeFragment extends Fragment
         // process still paid for SurfaceView/SurfaceFlinger's one-time
         // per-process setup. This pays that cost now instead, off the first
         // real card's critical path, so its own surfaceCreated() — and
-        // therefore revealCardThumbnailAfterFirstFrame()'s crossfade timing
+        // therefore revealCardThumbnailAfterFirstFrame()'s first-frame reveal
         // — lands sooner and more predictably on a cold start.
         com.callx.app.player.SurfacePrewarmer.warmUpOnce(requireActivity());
         // ── v243: LayoutManager must be attached to recyclerHome BEFORE
@@ -987,7 +949,7 @@ public class HomeFragment extends Fragment
                 // promoted. Only the player currently attached to a visible
                 // PlayerView may reveal the active card.
                 if (player != feedPlayer) return;
-                // Instagram-style handoff: reveal the card's thumbnail crossfade
+                // Instagram-style handoff: remove the opaque thumbnail cover
                 // once the first actually-decoded frame is on screen — but not
                 // blindly on this callback alone. onRenderedFirstFrame can fire
                 // for a transient frame (often the pre-seek position-0 frame)
@@ -1222,13 +1184,15 @@ public class HomeFragment extends Fragment
                         ultraOptimizer.onRecyclerScrolled(dx, dy);
                     }
 
-                    // Do not attach/swap players from this hot path. A fling
-                    // can cross several cards before the final visible card is
-                    // known; attaching here causes repeated Surface/decoder
-                    // work and is a direct source of scroll-time flicker.
-                    // Playback is paused once at scroll start and selected once
-                    // at the IDLE callback below.
+                    // Fast flings still avoid all player handoffs here. For a
+                    // small touch-drag step, however, keep the current video
+                    // playing and promote the card that has just become
+                    // dominant immediately instead of waiting for IDLE.
                     beginFeedScrollLayer();
+                    detachActiveCardIfOutsideViewport();
+                    if (isGentleScrollStep(rv, dy)) {
+                        playMostVisibleCard(true);
+                    }
                     scrollDiagnostics.onScrolled(dx, dy, rv.computeVerticalScrollOffset());
                     scrollHandler.removeCallbacks(scrollSettleRunnable);
                     scrollHandler.postDelayed(scrollSettleRunnable, 180);
@@ -1288,10 +1252,6 @@ public class HomeFragment extends Fragment
                         ultraOptimizer.onRecyclerScrollStateChanged(newState);
                     }
                     scrollDiagnostics.onScrollStateChanged(newState);
-                    if (newState != RecyclerView.SCROLL_STATE_IDLE) {
-                        pauseActivePlaybackForScroll();
-                    }
-
                     // Definitive settle check: guarantees the truly-final
                     // resting position is evaluated with zero delay the
                     // instant RecyclerView reports IDLE, on top of the
@@ -1443,32 +1403,49 @@ public class HomeFragment extends Fragment
     }
 
     /**
-     * Stops active media work for the duration of a drag/fling without
-     * detaching the PlayerView. Detaching/re-attaching a Surface during every
-     * fast scroll is much more expensive than pausing once, and it is what
-     * produces the black-frame/thumbnail handoff seen in the diagnostics.
+     * A RecyclerView may keep a just-off-screen holder cached instead of
+     * recycling it immediately. Do not leave the active Surface/player tied to
+     * that hidden card for the whole fling: cover it, detach once, and let the
+     * IDLE pass choose the new winner. This is different from per-pixel player
+     * switching — it runs only when the incumbent actually exits the viewport.
      */
-    private void pauseActivePlaybackForScroll() {
-        if (userPausedActiveCard || pausedForVisibility
-                || currentPlayingIndex < 0 || currentPlayingIndex >= feedCards.size()) {
-            return;
-        }
+    private void detachActiveCardIfOutsideViewport() {
+        if (recyclerHome == null || currentPlayingIndex < 0
+                || currentPlayingIndex >= feedCards.size()) return;
         HomeFeedCard active = feedCards.get(currentPlayingIndex);
-        if (active == null) return;
+        if (active == null || active.rootView == null
+                || active.rootView.getParent() == null
+                || recyclerHome.getHeight() <= 0) return;
+        int top = active.rootView.getTop();
+        int bottom = active.rootView.getBottom();
+        if (bottom > 0 && top < recyclerHome.getHeight()) return;
 
-        if (active.videoUrl == null || active.videoUrl.isEmpty()) {
-            if (feedPhotoAudioPlayer != null) {
-                pauseFeedPhotoAudio();
-                pausedForScroll = true;
-            }
-            return;
+        flushActiveWatchProgress();
+        endSpeedBoost(currentPlayingIndex);
+        resetCardPlaybackChrome(active);
+        if (active.thumbView != null) {
+            active.thumbView.animate().cancel();
+            active.thumbView.setAlpha(1f);
+            active.thumbView.setVisibility(View.VISIBLE);
         }
-        if (feedPlayer != null && (feedPlayer.isPlaying() || feedPlayer.getPlayWhenReady())) {
+        if (feedPlayer != null) {
             feedPlayer.setPlayWhenReady(false);
             feedPlayer.pause();
-            stopProgressTicker();
-            pausedForScroll = true;
         }
+        stopProgressTicker();
+        if (active.playerView != null) active.playerView.setPlayer(null);
+        if (feedWindowManager != null) feedWindowManager.setProtectedView(null);
+        if (watchTracker != null) watchTracker.onCardInactive();
+        releaseFeedPhotoAudio();
+        active.firstFrameRevealed = false;
+        active.firstFramePtsGatePending = false;
+        active.resumeSeekTargetMs = 0L;
+        active.firstFrameGateStartMs = 0L;
+        active.resumePending = false;
+        attachStartTimeMs = 0L;
+        currentPlayingIndex = -1;
+        pausedForVisibility = false;
+        userPausedActiveCard = false;
     }
 
     private boolean isHomeFeedScrollActive() {
@@ -1516,13 +1493,24 @@ public class HomeFragment extends Fragment
      * handoff point Instagram/Reels use — not a running tug-of-war.
      */
     private static final float AUTOPLAY_VISIBILITY_THRESHOLD = 0.5f;
+    /** A small touch-drag step is a deliberate, slow browse rather than a
+     *  fling. In that mode Instagram keeps the incumbent playing and lets a
+     *  newly dominant card take over without waiting for IDLE. */
+    private static final int GENTLE_SCROLL_MAX_DELTA_DP = 24;
 
     private void playMostVisibleCard() {
+        playMostVisibleCard(false);
+    }
+
+    private void playMostVisibleCard(boolean allowGentleScrollHandoff) {
         if (!isAdded() || feedPlayer == null || feedCards.isEmpty()) return;
         // A stale vsync callback can run after a new gesture has already
-        // started. Never resume or switch media while RecyclerView is moving.
+        // started. During a gentle touch drag, the caller explicitly allows
+        // the newly dominant card to take over; fast movement still waits for
+        // the definitive IDLE winner.
         if (recyclerHome != null
-                && recyclerHome.getScrollState() != RecyclerView.SCROLL_STATE_IDLE) {
+                && recyclerHome.getScrollState() != RecyclerView.SCROLL_STATE_IDLE
+                && !allowGentleScrollHandoff) {
             return;
         }
         // ★ Instagram-level viewport: measure against the RecyclerView's own
@@ -1589,7 +1577,9 @@ public class HomeFragment extends Fragment
             // fling jumped clean past every loaded post row). Same as
             // dropping below the floor with no challenger: pause, don't
             // leave the incumbent playing off-screen.
-            pauseIncumbentForVisibility(hasIncumbent);
+            if (!allowGentleScrollHandoff) {
+                pauseIncumbentForVisibility(hasIncumbent);
+            }
             return;
         }
 
@@ -1603,20 +1593,25 @@ public class HomeFragment extends Fragment
         //    own visibility is under the floor too, not just that it won.
         boolean crossedHalfScreen = bestPx >= viewportH * AUTOPLAY_VISIBILITY_THRESHOLD;
         if (!crossedHalfScreen) {
-            pauseIncumbentForVisibility(hasIncumbent);
+            // During a gentle drag the incumbent is still on-screen. Keep it
+            // running until a challenger decisively occupies the viewport;
+            // pausing at the 50% crossing is the small-scroll freeze users
+            // notice in the feed.
+            if (!allowGentleScrollHandoff) {
+                pauseIncumbentForVisibility(hasIncumbent);
+            }
             return;
         }
 
         if (bestIdx != currentPlayingIndex) {
             pausedForVisibility = false;
-            attachPlayerToCard(bestIdx);
-        } else if ((pausedForVisibility || pausedForScroll) && hasIncumbent) {
-            // The same card either climbed back above the 50% floor or was
-            // paused for a completed scroll. Resume it in place instead of
+            attachPlayerToCard(bestIdx, allowGentleScrollHandoff);
+        } else if (pausedForVisibility && hasIncumbent) {
+            // The same card climbed back above the 50% floor. Resume it in
+            // place instead of
             // detaching/re-preparing the same player. Explicit user pause
             // always wins.
             pausedForVisibility = false;
-            pausedForScroll = false;
             if (!userPausedActiveCard && autoplayPolicy.shouldAutoplay(getContext())) {
                 HomeFeedCard active = feedCards.get(currentPlayingIndex);
                 if (active.videoUrl == null || active.videoUrl.isEmpty()) {
@@ -1629,9 +1624,11 @@ public class HomeFragment extends Fragment
                     if (!active.firstFrameRevealed && active.firstFramePtsGatePending) {
                         if (!active.resumePending && active.resumeSeekTargetMs <= 0L) {
                             // The frame was already rendered before the
-                            // scroll paused playback; there is no pending
-                            // seek to protect here, so reveal immediately at
+                            // scroll kept the opaque cover in place; there is
+                            // no pending seek to protect, so reveal immediately
+                            // at
                             // the safe post-scroll boundary.
+                            active.firstFramePtsGatePending = false;
                             revealCardThumbnailAfterFirstFrame(active);
                         } else {
                             attemptPtsGatedReveal(active, feedPlayer,
@@ -1642,6 +1639,14 @@ public class HomeFragment extends Fragment
                 }
             }
         }
+    }
+
+    private boolean isGentleScrollStep(RecyclerView rv, int dy) {
+        if (rv == null || rv.getScrollState() != RecyclerView.SCROLL_STATE_DRAGGING) {
+            return false;
+        }
+        int maxStepPx = Math.max(dpToPx(GENTLE_SCROLL_MAX_DELTA_DP), 16);
+        return Math.abs(dy) > 0 && Math.abs(dy) <= maxStepPx;
     }
 
     /** Pauses the currently-playing card because it (and every other loaded
@@ -1792,10 +1797,9 @@ public class HomeFragment extends Fragment
 
     private void attachPlayerToCard(int index, boolean userInitiated) {
         if (!isAdded() || feedPlayer == null || index < 0 || index >= feedCards.size()) return;
-        // Automatic selection is intentionally deferred until RecyclerView is
-        // IDLE. A fast fling may pass several cards; every intermediate
-        // Surface/decoder handoff adds work to the exact frames being drawn.
-        // Explicit taps/scrubs are allowed to override this policy.
+        // Automatic selection is deferred until IDLE for fast movement. A
+        // gentle touch drag may explicitly opt in so the newly dominant card
+        // starts immediately; taps/scrubs use the same safe override.
         if (!userInitiated && recyclerHome != null
                 && recyclerHome.getScrollState() != RecyclerView.SCROLL_STATE_IDLE) {
             return;
@@ -1803,7 +1807,6 @@ public class HomeFragment extends Fragment
         // A real handoff to a (possibly different) card always supersedes
         // any pending visibility-driven pause state from the outgoing card.
         pausedForVisibility = false;
-        pausedForScroll = false;
         // Detach old
         if (currentPlayingIndex >= 0 && currentPlayingIndex < feedCards.size()
                 && feedCards.get(currentPlayingIndex) != null) {
@@ -1814,7 +1817,7 @@ public class HomeFragment extends Fragment
             endSpeedBoost(currentPlayingIndex);
             resetCardPlaybackChrome(old);
             // 🐛 FIX: restore the thumbnail BEFORE detaching the player, not
-            // after. revealCardThumbnailAfterFirstFrame() fades this card's
+            // after. revealCardThumbnailAfterFirstFrame() hides this card's
             // thumbView to INVISIBLE once its video starts drawing, so by the
             // time the user scrolls away it's sitting fully transparent with
             // nothing behind it — playerView.setPlayer(null) then rips out
@@ -1826,18 +1829,12 @@ public class HomeFragment extends Fragment
             // covering it, so the swap is invisible instead of a flash of
             // black. firstFrameRevealed resets too so the very next time
             // this card becomes active, revealCardThumbnailAfterFirstFrame()
-            // is armed to crossfade again instead of silently no-op'ing.
+            // is armed for a fresh first-frame reveal instead of silently
+            // remaining hidden.
             if (old.thumbView != null) {
                 old.thumbView.animate().cancel();
                 old.thumbView.setAlpha(1f);
                 old.thumbView.setVisibility(View.VISIBLE);
-                // Cancelling mid-fade can leave the hardware layer promoted
-                // (see revealCardThumbnailAfterFirstFrame/promoteToPooledHardwareLayer)
-                // — evict it from the shared pool now so a scrolled-away card
-                // doesn't keep an idle GPU texture cached for no reason; a
-                // still-visible card stays pooled and just gets its recency
-                // bumped on next use instead of paying promotion cost again.
-                evictFromHardwareLayerPool(old.thumbView);
             }
             old.firstFrameRevealed = false;
             old.firstFramePtsGatePending = false;
@@ -1960,8 +1957,8 @@ public class HomeFragment extends Fragment
         // uses): if this video is already substantially cached, decode its
         // actual frame-0 on a background thread and swap it in over the
         // server-generated thumbnail. When it lands before onRenderedFirstFrame
-        // fires, the thumbnail IS the video's first frame, so the crossfade
-        // below has nothing to visibly change — a true no-jump handoff.
+        // fires, the thumbnail IS the video's first frame, so the direct
+        // reveal below has nothing to visibly change — a true no-jump handoff.
         if (card.videoUrl != null && !card.videoUrl.isEmpty() && card.reelId != null) {
             // Synchronous check first — if thumbPreloader already decoded this
             // reel's frame ahead of time (see ReelThumbnailPreloader), use it
@@ -2242,39 +2239,6 @@ public class HomeFragment extends Fragment
     }
 
     /**
-     * Crossfades a feed card's thumbnail over the now-rendering player
-     * surface. Mirrors ReelPlayerController.revealThumbnailAfterFirstFrame()
-     * in the Reels tab: driven by onRenderedFirstFrame (never a buffering/
-     * ready state, which can arrive a frame or two before anything is
-     * actually drawn), with a short crossfade tight enough to read as a
-     * single continuous frame instead of a visible cut.
-     *
-     * ★ Instagram-level polish:
-     *  - DecelerateInterpolator instead of the default linear alpha ramp —
-     *    an ease-out fade reads as a natural "reveal" instead of a
-     *    mechanical dissolve, which is what actually sells the illusion of
-     *    a continuous frame.
-     *  - Promoted to a hardware layer for the animation's duration via the
-     *    shared pool (see promoteToPooledHardwareLayer) instead of an
-     *    unconditional setLayerType each time. Alpha on a plain ImageView
-     *    normally has to reprocess (measure/draw) the whole view every
-     *    frame of the fade; a hardware layer caches it as a single GPU
-     *    texture once and just cross-fades that texture's opacity, which is
-     *    the difference between a buttery-smooth blend and a fade that
-     *    stutters if the frame lands during any other GPU work (exactly the
-     *    "not ultra smooth" symptom this is fixing). Pooling on top of that
-     *    means a card that fades, gets scrolled past, and fades again soon
-     *    after doesn't pay the promote/revert cost twice — the layer is
-     *    only actually reverted when the pool evicts it for a newer card or
-     *    the card is detached (evictFromHardwareLayerPool).
-     *  - Perceptual-hash-adaptive, device-tier-aware duration (see
-     *    crossfadeDurationForCard): a dHash luma comparison between whatever
-     *    bitmap the thumbnail is currently showing and the video's real
-     *    decoded first frame, plus the device's RAM tier, decides how tight
-     *    the fade can get away with being without reading as a visible cut
-     *    or a stuttery one.
-     */
-    /**
      * PTS gate in front of revealCardThumbnailAfterFirstFrame(). Only lets the
      * reveal through once the frame actually on screen (player.getCurrentPosition())
      * is close to this card's real expected start — 0 for a plain autoplay, or
@@ -2315,141 +2279,13 @@ public class HomeFragment extends Fragment
         card.firstFrameRevealed = true;
         ImageView thumb = card.thumbView;
         if (thumb.getVisibility() != View.VISIBLE) return;
+        // The opaque cover already hides preparation/Surface setup. Remove it
+        // in one property update after a real frame is rendered; a multi-frame
+        // alpha animation adds AnimationDuration work exactly where the report
+        // shows 47–73 ms stalls.
         thumb.animate().cancel();
-        thumb.setAlpha(1f);
-        promoteToPooledHardwareLayer(thumb);
-        thumb.animate()
-            .alpha(0f)
-            .setDuration(crossfadeDurationForCard(card))
-            .setInterpolator(new android.view.animation.DecelerateInterpolator())
-            .withEndAction(() -> {
-                thumb.setVisibility(View.INVISIBLE);
-                thumb.setAlpha(1f);
-                // Layer type deliberately left promoted here — reverting it
-                // is the pool's job (on eviction or card detach), not this
-                // fade's. See promoteToPooledHardwareLayer/evictFromHardwareLayerPool.
-            })
-            .start();
-    }
-
-    /**
-     * Promotes {@code thumb} to a hardware layer via the shared pool instead
-     * of an unconditional setLayerType call. Already-pooled views just get
-     * their recency bumped (layer's still live from last time, nothing to
-     * allocate); a not-yet-pooled view gets promoted and the pool evicts its
-     * least-recently-used entry once over THUMB_HARDWARE_LAYER_POOL_SIZE.
-     */
-    private void promoteToPooledHardwareLayer(ImageView thumb) {
-        if (thumb == null) return;
-        if (hardwareLayerPool.remove(thumb)) {
-            hardwareLayerPool.addLast(thumb); // already promoted — just bump recency
-            return;
-        }
-        thumb.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-        hardwareLayerPool.addLast(thumb);
-        while (hardwareLayerPool.size() > THUMB_HARDWARE_LAYER_POOL_SIZE) {
-            ImageView evicted = hardwareLayerPool.pollFirst();
-            if (evicted != null) evicted.setLayerType(View.LAYER_TYPE_NONE, null);
-        }
-    }
-
-    /**
-     * Drops {@code thumb} from the shared hardware-layer pool and reverts
-     * its layer immediately — used when a card is torn down (scrolled far
-     * away / detached) so a no-longer-relevant view doesn't keep an idle
-     * GPU texture cached inside the pool indefinitely.
-     */
-    private void evictFromHardwareLayerPool(ImageView thumb) {
-        if (thumb != null && hardwareLayerPool.remove(thumb)) {
-            thumb.setLayerType(View.LAYER_TYPE_NONE, null);
-        }
-    }
-
-    /**
-     * ★ Perceptual-hash match: compares the bitmap the thumbnail is
-     * currently showing (server-generated thumb, or — if
-     * ReelThumbnailPreloader's speculative pre-decode already landed —
-     * the video's own first frame) against the video's actual decoded
-     * first frame via a cheap 8×8 luma difference-hash (dHash). A close
-     * match means there's nothing for the eye to catch mid-fade, so the
-     * crossfade can be trimmed without reading as a cut; a real mismatch
-     * (different crop/frame/lighting) keeps the fuller duration so the
-     * swap still reads as smooth rather than a visible pop. "Unknown
-     * similarity" (either bitmap not available yet) is treated the same
-     * as "not close".
-     *
-     * ★ Adaptive by device tier, layered on top of the hash check:
-     *  - Low-end (ActivityManager#isLowRamDevice): always the longer fade,
-     *    match or not — a dropped-frame stutter reads worse on constrained
-     *    hardware than a slightly-longer-than-needed fade does, so there's
-     *    nothing to gain trimming it there.
-     *  - High-end (comfortably above HIGH_END_MEMORY_CLASS_MB, i.e. not
-     *    low-RAM either): tight 120–150ms — the device can reliably land
-     *    every frame of a short fade, so there's no stutter risk to hedge
-     *    against.
-     *  - Everything else: the original mid-tier 100/200ms split.
-     */
-    private long crossfadeDurationForCard(HomeFeedCard card) {
-        if (getContext() == null) return HOME_THUMB_CROSSFADE_DEFAULT_MS;
-        if (isLowEndDevice()) return HOME_THUMB_CROSSFADE_LOW_END_MS;
-        boolean closeMatch = isCloseThumbnailMatch(card);
-        if (isHighEndDevice()) {
-            return closeMatch
-                ? HOME_THUMB_CROSSFADE_HIGH_END_CLOSE_MATCH_MS
-                : HOME_THUMB_CROSSFADE_HIGH_END_DEFAULT_MS;
-        }
-        return closeMatch ? HOME_THUMB_CROSSFADE_CLOSE_MATCH_MS : HOME_THUMB_CROSSFADE_DEFAULT_MS;
-    }
-
-    private boolean isCloseThumbnailMatch(HomeFeedCard card) {
-        if (card.reelId == null) return false;
-        android.graphics.Bitmap shown = bitmapFromImageView(card.thumbView);
-        if (shown == null) return false;
-        Long frameHash = com.callx.app.cache.ReelFirstFrameCache.get(requireContext()).getFrameHash(card.reelId);
-        if (frameHash == null) return false;
-        long thumbHash = com.callx.app.cache.PerceptualHashUtil.dHash(shown);
-        int distance = com.callx.app.cache.PerceptualHashUtil.hammingDistance(thumbHash, frameHash);
-        return distance <= com.callx.app.cache.PerceptualHashUtil.SIMILAR_THRESHOLD;
-    }
-
-    /** ActivityManager#isLowRamDevice() — Android's own official low-memory
-     *  flag, same signal ExoPlayerManager/ReelCacheManager already key their
-     *  cache-size tiering off of elsewhere in this codebase. */
-    private boolean isLowEndDevice() {
-        if (isLowEndDeviceCache == null) {
-            if (getContext() == null) return false;
-            android.app.ActivityManager am = (android.app.ActivityManager)
-                requireContext().getSystemService(Context.ACTIVITY_SERVICE);
-            isLowEndDeviceCache = am != null && am.isLowRamDevice();
-        }
-        return isLowEndDeviceCache;
-    }
-
-    /** Not low-RAM AND comfortably above HIGH_END_MEMORY_CLASS_MB's per-app
-     *  heap budget — deliberately conservative so mid-range devices fall
-     *  through to the default tier rather than getting an overly tight fade. */
-    private boolean isHighEndDevice() {
-        if (isHighEndDeviceCache == null) {
-            if (getContext() == null) return false;
-            android.app.ActivityManager am = (android.app.ActivityManager)
-                requireContext().getSystemService(Context.ACTIVITY_SERVICE);
-            isHighEndDeviceCache = am != null && !am.isLowRamDevice()
-                && am.getMemoryClass() >= HIGH_END_MEMORY_CLASS_MB;
-        }
-        return isHighEndDeviceCache;
-    }
-
-    /** Pulls the currently-drawn Bitmap out of an ImageView, if any — null
-     *  for placeholders/vector drawables/not-yet-loaded, which callers
-     *  treat as "nothing to compare yet". */
-    private static android.graphics.Bitmap bitmapFromImageView(ImageView iv) {
-        if (iv == null) return null;
-        Drawable d = iv.getDrawable();
-        if (d instanceof android.graphics.drawable.BitmapDrawable) {
-            android.graphics.Bitmap b = ((android.graphics.drawable.BitmapDrawable) d).getBitmap();
-            return (b != null && !b.isRecycled()) ? b : null;
-        }
-        return null;
+        thumb.setAlpha(0f);
+        thumb.setVisibility(View.INVISIBLE);
     }
 
     /**
@@ -8710,7 +8546,6 @@ public class HomeFragment extends Fragment
                             if (card.playerView != null) card.playerView.setPlayer(null);
                             currentPlayingIndex = -1;
                             pausedForVisibility = false;
-                            pausedForScroll = false;
                         }
                         // ★ Bitmap downsample + reuse: this ViewHolder's
                         // ImageView is about to be rebound to a totally
@@ -9033,17 +8868,17 @@ public class HomeFragment extends Fragment
             // BLACK. It paints over the surface the instant the player is
             // attached/prepared and stays until a real frame is decoded —
             // sitting UNDER ivThumb (z-order: shutter, then thumb on top),
-            // so normally it's invisible. But the thumb's crossfade-out
-            // (revealCardThumbnailAfterFirstFrame) starts exactly on
+            // so normally it's invisible. But the thumb's direct reveal
+            // (revealCardThumbnailAfterFirstFrame) happens exactly on
             // onRenderedFirstFrame, which is the same instant the shutter
             // itself is cleared — any tiny scheduling gap between "shutter
-            // cleared" and "thumb alpha starts dropping" exposes a flash of
+            // cleared" and "thumb is hidden" exposes a flash of
             // solid black for a frame, which reads exactly as "thumbnail
             // hata video baad me play hoti hai" instead of one continuous
             // image. ReelPlayerController (Reels tab) already sets this to
             // TRANSPARENT; Home Feed's pvFeed never did, so this row-level
             // player showed that flash on every card while the Reels tab —
-            // built on the same crossfade mechanism — never did. Same
+            // which also uses a transparent shutter — never did. Same
             // instance, set once at ViewHolder construction (matches Reels
             // tab, which sets it once at player-view bind time too).
             pvFeed.setShutterBackgroundColor(android.graphics.Color.TRANSPARENT);

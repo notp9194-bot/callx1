@@ -314,7 +314,15 @@ public final class HomeFeedScrollDiagnostics {
                         .append(String.format(Locale.US, "%.2f", snapshot.thumbnailAlpha));
             }
             if (snapshot.firstFramePtsGatePending) out.append(", PTS gate pending");
-            if (snapshot.firstFrameRevealed) out.append(", first-frame reveal started");
+            // firstFrameRevealed is intentionally sticky for the lifetime of
+            // an active card. Only call it an active handoff when the
+            // thumbnail is actually being faded, otherwise an already-finished
+            // reveal would be misreported on every later scroll frame.
+            if (snapshot.firstFrameRevealed
+                    && snapshot.thumbnailAlpha > 0.01f
+                    && snapshot.thumbnailAlpha < 0.99f) {
+                out.append(", first-frame reveal active");
+            }
         }
         return out.toString();
     }
