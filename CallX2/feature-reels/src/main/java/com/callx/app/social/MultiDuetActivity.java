@@ -41,6 +41,7 @@ public class MultiDuetActivity extends AppCompatActivity {
     public static final String EXTRA_VIDEO_URL        = "multi_duet_video_url";
     public static final String EXTRA_OWNER_NAME       = "multi_duet_owner_name";
     public static final String EXTRA_OWNER_UID        = "multi_duet_owner_uid";
+    public static final String EXTRA_ORIGINAL_SOUND_ID = "multi_duet_original_sound_id";
     public static final int    MAX_SLOTS              = 4;
     private static final int   RC_PICK_USER           = 1001;
 
@@ -52,6 +53,7 @@ public class MultiDuetActivity extends AppCompatActivity {
 
     private String myUid, sessionId;
     private String originalReelId, videoUrl, ownerName, ownerUid;
+    private String originalSoundId = "";
     // ✅ FIX (multi-duet gap #1): host UID for the CURRENT session, read from
     // Firebase in resume mode rather than assumed to be participants.get(0).
     private String sessionHostUid;
@@ -105,6 +107,8 @@ public class MultiDuetActivity extends AppCompatActivity {
         videoUrl       = getIntent().getStringExtra(EXTRA_VIDEO_URL);
         ownerName      = getIntent().getStringExtra(EXTRA_OWNER_NAME);
         ownerUid       = getIntent().getStringExtra(EXTRA_OWNER_UID);
+        String origSoundIdExtra = getIntent().getStringExtra(EXTRA_ORIGINAL_SOUND_ID);
+        if (origSoundIdExtra != null) originalSoundId = origSoundIdExtra;
 
         tvTitle.setText("Multi-Person Duet");
 
@@ -208,6 +212,10 @@ public class MultiDuetActivity extends AppCompatActivity {
         // still build the correct final-composite upload without them.
         session.put("ownerUid",       ownerUid  != null ? ownerUid  : "");
         session.put("ownerName",      ownerName != null ? ownerName : "");
+        // ✅ FIX: persist original sound id on the session so every
+        // participant's final duet upload credits the ORIGINAL creator's
+        // sound instead of each composite minting its own new sound entity.
+        session.put("originalSoundId", originalSoundId != null ? originalSoundId : "");
         session.put("maxSlots",       MAX_SLOTS);
         session.put("status",         "waiting");
         session.put("createdAt",      com.google.firebase.database.ServerValue.TIMESTAMP);
@@ -558,6 +566,7 @@ public class MultiDuetActivity extends AppCompatActivity {
         i.putExtra(DuetReelActivity.EXTRA_VIDEO_URL,  videoUrl);
         i.putExtra(DuetReelActivity.EXTRA_OWNER_NAME, ownerName);
         i.putExtra(DuetReelActivity.EXTRA_OWNER_UID,  ownerUid);
+        i.putExtra(DuetReelActivity.EXTRA_DUET_ORIGINAL_SOUND_ID, originalSoundId);
         i.putExtra("multi_duet_session_id", sessionId);
         i.putExtra("multi_duet_slot",       0);
         i.putExtra("multi_duet_total",      participants.size());

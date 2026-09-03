@@ -200,6 +200,23 @@ public final class StatusHighlightManager {
         getAlbumMetaRef(ownerUid, albumId).child("ringMode").removeValue();
     }
 
+    /** Album-level opt-BACK-in for the Story level-stabilizer
+     *  (StorySpinViewController). A story's own per-story stabilizerEnabled
+     *  flag (see StatusItem) is deliberately ignored once that story lives
+     *  inside a Highlight — StatusViewerActivity checks THIS album-wide
+     *  meta flag instead whenever isHighlightMode is true, so the owner can
+     *  turn the effect on (or off) for a whole Highlight after the fact,
+     *  from the long-press "Level Stabilizer" option, independent of
+     *  whatever each individual story was posted with. Defaults to false
+     *  (off) when never set — same opt-in default as a fresh story. */
+    public static void setAlbumStabilizerEnabled(String ownerUid, String albumId, boolean enabled) {
+        if (ownerUid == null || albumId == null) return;
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("stabilizerEnabled", enabled);
+        meta.put("updatedAt", ServerValue.TIMESTAMP);
+        getAlbumMetaRef(ownerUid, albumId).updateChildren(meta);
+    }
+
     /** Deletes the whole album: clears membership flags on every original live status,
      *  then removes the album's items and its settings/meta. */
     public static void deleteAlbum(String ownerUid, String albumId) {

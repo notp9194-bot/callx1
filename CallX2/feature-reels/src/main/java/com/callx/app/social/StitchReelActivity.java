@@ -55,6 +55,7 @@ public class StitchReelActivity extends AppCompatActivity {
     public static final String EXTRA_ORIGINAL_REEL_URL   = "stitch_original_url";
     public static final String EXTRA_ORIGINAL_REEL_ID    = "stitch_original_id";
     public static final String EXTRA_ORIGINAL_OWNER_UID  = "stitch_original_owner_uid";  // ✅ NEW
+    public static final String EXTRA_ORIGINAL_SOUND_ID   = "stitch_original_sound_id";
 
     private static final int REQ_PERMISSIONS = 310;
     private static final int MAX_RECORD_SEC  = 60;
@@ -83,6 +84,7 @@ public class StitchReelActivity extends AppCompatActivity {
     private String  originalUrl;
     private String  originalReelId;
     private String  originalOwnerUid;
+    private String  originalSoundId;
 
     private CountDownTimer recordTimer;
 
@@ -95,6 +97,7 @@ public class StitchReelActivity extends AppCompatActivity {
         originalReelId   = getIntent().getStringExtra(EXTRA_ORIGINAL_REEL_ID);
         originalOwnerUid = getIntent().getStringExtra(EXTRA_ORIGINAL_OWNER_UID);
         if (originalOwnerUid == null) originalOwnerUid = "";
+        originalSoundId  = getIntent().getStringExtra(EXTRA_ORIGINAL_SOUND_ID);
 
         cameraExecutor = Executors.newSingleThreadExecutor();
 
@@ -234,6 +237,7 @@ public class StitchReelActivity extends AppCompatActivity {
         // save stitchOf, increment stitchCount, and notify the original creator.
         if (originalReelId   != null) i.putExtra("stitch_original_id",        originalReelId);
         if (originalOwnerUid != null) i.putExtra("stitch_original_owner_uid", originalOwnerUid);
+        if (originalSoundId  != null) i.putExtra("stitch_original_sound_id",  originalSoundId);
         startActivity(i);
         finish();
     }

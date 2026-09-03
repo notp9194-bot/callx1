@@ -351,6 +351,19 @@
               android:contentDescription="Forward"
               android:visibility="gone"/>
 
+          <!-- Level-stabilizer on/off — global viewer preference, remembered
+               across all stories. Icon reflects current on/off state. -->
+          <ImageButton
+              android:id="@+id/btn_stabilizer"
+              android:layout_width="40dp"
+              android:layout_height="40dp"
+              android:layout_marginTop="8dp"
+              android:src="@android:drawable/ic_menu_compass"
+              android:tint="@color/white"
+              android:background="@drawable/bg_circle_dark"
+              android:padding="8dp"
+              android:contentDescription="Stabilizer"/>
+
           <!-- Repost button — visible for viewers when owner allows sharing -->
           <ImageButton
               android:id="@+id/btn_repost"

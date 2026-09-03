@@ -178,10 +178,38 @@
     },
 
     // ── Status ─────────────────────────────────────────────────────────────
+    // NOTE: the blanket "$uid": { ".write": auth.uid == $uid } below only lets
+    // the STATUS OWNER write anywhere under their own status/{uid} subtree.
+    // That's correct for the status content itself, but seenBy/reactions/
+    // replies are all written by OTHER viewers (someone opening your status,
+    // reacting to it, or commenting on it) — every one of those writes was
+    // being silently rejected, which is why comments never actually reached
+    // status/{ownerUid}/{statusId}/replies for anyone to see. Each viewer-
+    // driven child now has its own override letting a user write only their
+    // own entry (own seenBy flag, own reaction, own reply row); the owner
+    // still has full access via the ancestor rule above.
     "status": {
       ".read":  "auth != null",
       "$uid": {
-        ".write": "auth != null && auth.uid == $uid"
+        ".write": "auth != null && auth.uid == $uid",
+        "$statusId": {
+          "seenBy": {
+            "$viewerUid": {
+              ".write": "auth != null && auth.uid == $viewerUid"
+            }
+          },
+          "reactions": {
+            "$viewerUid": {
+              ".write": "auth != null && auth.uid == $viewerUid"
+            }
+          },
+          "replies": {
+            "$replyId": {
+              ".write": "auth != null && (!data.exists() || data.child('uid').val() == auth.uid)",
+              ".validate": "newData.hasChildren(['uid','name','text','timestamp']) && newData.child('uid').val() == auth.uid"
+            }
+          }
+        }
       }
     },
     "statusSeen": {

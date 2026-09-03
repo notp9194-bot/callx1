@@ -3,6 +3,33 @@
     ".read": "auth != null",
     ".write": "auth != null",
 
+    "e2e_prekeys": {
+      ".read": false,
+      ".write": false
+    },
+
+    "e2e_rekey_requests": {
+      "$targetUid": {
+        ".read": "auth != null && auth.uid === $targetUid",
+        "$requesterUid": {
+          ".write": "auth != null && (auth.uid === $requesterUid || (auth.uid === $targetUid && newData.val() === null))",
+          ".validate": "newData.val() === now || newData.val() === null"
+        }
+      }
+    },
+
+    "groupSenderKeyRequests": {
+      "$targetUid": {
+        ".read": "auth != null && auth.uid === $targetUid",
+        "$groupId": {
+          "$requesterUid": {
+            ".write": "auth != null && (auth.uid === $requesterUid || (auth.uid === $targetUid && newData.val() === null))",
+            ".validate": "newData.val() === now || newData.val() === null"
+          }
+        }
+      }
+    },
+
     "reelSeenDedup": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
@@ -25,9 +52,101 @@
     },
 
     "deliveryPending": {
-      "_comment": "TICK ADVANCE #3 — MessageStatusSync.markPendingDelivery() index: {chatId, toUid, ts}. Sender writes it right after a message becomes 'sent'; backend delivery-fallback cron (index.js) and the client itself remove it once delivered/read is confirmed.",
       "$msgId": {
         ".validate": "!newData.exists() || (newData.hasChildren(['chatId','toUid','ts']) && newData.child('chatId').val().contains(auth.uid))"
+      }
+    },
+
+    "verification_requests": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).val() === true",
+      ".indexOn": ["status"],
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).val() === true)",
+        ".write": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).val() === true)",
+        "status": {
+          ".validate": "root.child('admins').child(auth.uid).val() === true || (auth.uid === $uid && (!data.exists() || data.val() === 'pending' || data.val() === 'rejected'))"
+        }
+      }
+    },
+
+    "admins": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": false
+      }
+    },
+
+    "users": {
+      "$uid": {
+        "isVerified": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
+        }
+      }
+    },
+
+    "crash_reports": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      "$reportId": {
+        ".write": "auth != null && !data.exists() && newData.child('uid').val() === auth.uid",
+        ".validate": "newData.hasChildren(['trace','timestamp','packageName'])"
+      }
+    },
+    "appConfig": {
+      ".read": "auth != null",
+      ".write": false
+    },
+    "admin_announcements": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      ".write": false
+    },
+    "admin_audit": {
+      ".read": false,
+      ".write": false
+    },
+    "admin_session_events": {
+      ".read": false,
+      ".write": false
+    },
+    "payment_admin_cases": {
+      ".read": false,
+      ".write": false
+    },
+
+    "status": {
+      "_comment": "Story comments (Instagram-style bottom-left overlay) were never reaching viewers: the blanket rule below used to let ONLY the status owner write anything under status/{ownerUid}, so when a viewer commented on someone else's story, the write to status/{ownerUid}/{statusId}/replies/{pushId} was silently rejected and never saved. seenBy/reactions/replies now each have their own override so a viewer can write their own row while the owner keeps full access to their own subtree via the ancestor rule.",
+      ".read":  "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid",
+        "$statusId": {
+          "seenBy": {
+            "$viewerUid": {
+              ".write": "auth != null && auth.uid === $viewerUid"
+            }
+          },
+          "reactions": {
+            "$viewerUid": {
+              ".write": "auth != null && auth.uid === $viewerUid"
+            }
+          },
+          "replies": {
+            "$replyId": {
+              ".write": "auth != null && (!data.exists() || data.child('uid').val() === auth.uid)",
+              ".validate": "newData.hasChildren(['uid','name','text','timestamp']) && newData.child('uid').val() === auth.uid"
+            }
+          }
+        }
+      }
+    },
+    "statusSeen": {
+      "$uid": {
+        ".read":  "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "statusHighlights": {
+      "$uid": {
+        ".read":  "auth != null",
+        ".write": "auth != null && auth.uid === $uid"
       }
     }
   }

@@ -99,6 +99,13 @@ import com.callx.app.utils.AlertDialogStyler;
       private int queuePos = 0;
       private String highlightAlbumId;
       private boolean isHighlightMode;
+      // Album-wide opt-back-in flag for the level-stabilizer, read once from
+      // statusHighlightMeta/{owner}/{albumId}/stabilizerEnabled when a
+      // Highlight is opened (see loadHighlightAlbum()). Only consulted while
+      // isHighlightMode is true; ordinary Stories use each item's own
+      // StatusItem.stabilizerEnabled instead. Owner sets this from the
+      // long-press "Level Stabilizer" option in StatusHighlightSettingsBottomSheet.
+      private boolean highlightStabilizerEnabled;
       private String targetStatusId;
       private ActivityStatusViewerBinding binding;
       private final List<StatusItem> items         = new ArrayList<>();
@@ -188,12 +195,13 @@ import com.callx.app.utils.AlertDialogStyler;
               (android.widget.ImageView) findViewById(R.id.iv_owner_verified), ownerUid);
           spinView = new StorySpinViewController(this);
           spinView.attachTargets(binding.ivStatus, binding.playerView);
+          setupStabilizerButton();
           load(ownerUid);
       }
       @Override protected void onPause()  { super.onPause();  pauseProgress(); if (spinView != null) spinView.stop(); }
       @Override protected void onResume() {
           super.onResume();
-          if (spinView != null) spinView.start();
+          startSpinViewIfAllowed();
           StatusStickerOverlayView zoomed = findZoomedSticker();
           if (zoomed != null) settleStickerReaction(zoomed); // shrinks back, then resumes
           else if (paused) resumeProgress();
@@ -317,6 +325,27 @@ import com.callx.app.utils.AlertDialogStyler;
        *  forever, exactly like Instagram, regardless of whether the original
        *  story already expired. */
       private void loadHighlightAlbum(String uid) {
+          // Reset immediately so a moment-long stale "on" from the
+          // PREVIOUS album (while this album's own meta fetch is still
+          // in flight) can't let spinView.start() run against the wrong
+          // album's setting, even briefly.
+          highlightStabilizerEnabled = false;
+          // Album-wide stabilizer opt-in — fetched in parallel with the
+          // album's items below; whichever finishes second calls
+          // startSpinViewIfAllowed() so the very first story shown already
+          // reflects the correct on/off state either way.
+          StatusHighlightManager.getAlbumMetaRef(uid, highlightAlbumId)
+              .child("stabilizerEnabled")
+              .addListenerForSingleValueEvent(new ValueEventListener() {
+                  @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                      Boolean v = snap.getValue(Boolean.class);
+                      highlightStabilizerEnabled = v != null && v;
+                      startSpinViewIfAllowed();
+                  }
+                  @Override public void onCancelled(@NonNull DatabaseError e) {
+                      highlightStabilizerEnabled = false;
+                  }
+              });
           StatusHighlightManager.getAlbumRef(uid, highlightAlbumId)
               .addListenerForSingleValueEvent(new ValueEventListener() {
                   @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -383,6 +412,7 @@ import com.callx.app.utils.AlertDialogStyler;
                           System.currentTimeMillis() - viewStartTime);
           }
           viewStartTime = System.currentTimeMillis();
+          startSpinViewIfAllowed();
           fillSegmentsBefore(idx);
           updateHeaderTimestamp(s);
           updateSeenByInfo(s);
@@ -1813,6 +1843,66 @@ import com.callx.app.utils.AlertDialogStyler;
               startActivity(intent);
           });
       }
+      /**
+       * Level-stabilizer toggle — global viewer preference (persists across
+       * all stories, unlike allowSharing/stabilizerEnabled which are set by
+       * the CREATOR per-story). Tapping flips StoryStabilizerPrefs and
+       * immediately starts/stops the running StorySpinViewController so the
+       * change is felt on the story currently open, no restart needed.
+       */
+      private void setupStabilizerButton() {
+          updateStabilizerIcon();
+          binding.btnStabilizer.setOnClickListener(v -> {
+              boolean nowEnabled = !StoryStabilizerPrefs.isEnabled(this);
+              StoryStabilizerPrefs.setEnabled(this, nowEnabled);
+              updateStabilizerIcon();
+              Toast.makeText(this, nowEnabled ? "Stabilizer on" : "Stabilizer off",
+                      Toast.LENGTH_SHORT).show();
+              startSpinViewIfAllowed();
+          });
+      }
+      private void updateStabilizerIcon() {
+          binding.btnStabilizer.setAlpha(StoryStabilizerPrefs.isEnabled(this) ? 1f : 0.4f);
+      }
+      /** Starts spinView only when: the viewer's own preference allows it,
+       *  the applicable "does the content allow it" flag allows it, AND the
+       *  media itself isn't already landscape/rotated (a landscape video's
+       *  own framing is the "rotation" — counter-rotating it too would
+       *  fight the shot rather than help it). Safe to call any time.
+       *
+       *  Which "content allows it" flag applies depends on where we are:
+       *   - Normal Stories tray (isHighlightMode == false): each story's
+       *     OWN StatusItem.stabilizerEnabled (opt-in per post, default off).
+       *   - Highlight album (isHighlightMode == true): the ALBUM-WIDE
+       *     highlightStabilizerEnabled flag (opt-in per Highlight, default
+       *     off, set later via the long-press "Level Stabilizer" option) —
+       *     the individual story's own flag is deliberately ignored here,
+       *     so turning it on for the album applies uniformly to every
+       *     story inside it regardless of how each was originally posted. */
+      private void startSpinViewIfAllowed() {
+          if (spinView == null) return;
+          StatusItem current = idx < items.size() ? items.get(idx) : null;
+          boolean creatorAllows = isHighlightMode
+                  ? highlightStabilizerEnabled
+                  : (current != null && current.stabilizerEnabled);
+          boolean isLandscapeMedia = current != null
+                  && current.mediaWidth > 0 && current.mediaHeight > 0
+                  && current.mediaWidth > current.mediaHeight;
+          if (StoryStabilizerPrefs.isEnabled(this) && creatorAllows
+                  && !isLandscapeMedia) {
+              // First-time-ever "Tilt your phone" hint (Instagram-style),
+              // shown the moment the stabilizer actually engages. No-op on
+              // every call after the very first, and no-op instantly if
+              // this viewer has already seen it on any earlier story — see
+              // StoryRotateHintPrefs. Fired here rather than unconditionally
+              // in onCreate so it only ever shows on a story that genuinely
+              // has the effect on, never on an ordinary one.
+              StoryRotateHintView.maybeShow(this, (android.view.ViewGroup) binding.getRoot());
+              spinView.start();
+          } else {
+              spinView.stop();
+          }
+      }
       private void setupMoreButton() {
           binding.btnMore.setOnClickListener(v -> {
               pauseProgress();
@@ -2036,7 +2126,11 @@ import com.callx.app.utils.AlertDialogStyler;
                   });
                   bindLastReplyBubble(s, newestFirst);
               }
-              @Override public void onCancelled(DatabaseError e) { }
+              @Override public void onCancelled(DatabaseError e) {
+                  android.util.Log.e("StatusViewer",
+                      "Replies listener cancelled for " + ownerUid + "/" + s.id
+                          + ": " + e.getMessage());
+              }
           };
           repliesListenerRef.addValueEventListener(repliesListener);
       }

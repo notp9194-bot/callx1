@@ -339,6 +339,65 @@ exports.notifyExpiredCountdownStickers = functions.pubsub
   });
 
 /**
+ * 💬 Story comments cleanup on expiry (Instagram-style).
+ * ========================================================
+ * Statuses only "self-expire" client-side today — StatusFragment/
+ * StatusViewerActivity just filter out anything with expiresAt < now, the
+ * underlying status/{ownerUid}/{statusId} node (and its replies) is never
+ * actually removed. That's fine for the story media itself, but it means
+ * public comments (status/{ownerUid}/{statusId}/replies, see
+ * FirebaseUtils#getStatusRepliesRef) would otherwise sit around forever
+ * for a story nobody can even watch anymore.
+ *
+ * Rule (matches Instagram):
+ *   - Story expired AND never added to a Highlight → delete its comments.
+ *   - Story expired but IS in a Highlight (isHighlighted === true, set by
+ *     StatusHighlightManager#addToHighlight) → comments are left alone.
+ *     StatusViewerActivity reads the live comment overlay from this same
+ *     status/{ownerUid}/{statusId}/replies node whether you're watching the
+ *     story live or replaying it from a Highlight album (both use the same
+ *     statusId), so leaving replies in place here is what makes highlighted
+ *     comments keep showing up — no separate copy step needed.
+ *
+ * Only the `replies` child is removed, never the status doc itself — the
+ * client's own expiresAt filtering already hides expired stories from the
+ * feed, so this only needs to clean up the one thing that doesn't
+ * self-hide (the public comment overlay data).
+ */
+exports.cleanupExpiredStatusReplies = functions.pubsub
+  .schedule("every 30 minutes")
+  .onRun(async () => {
+    const db = getDatabase();
+    const statusRootSnap = await db.ref("status").once("value");
+    if (!statusRootSnap.exists()) return null;
+
+    const now = Date.now();
+    const pendingDeletes = [];
+    let deletedCount = 0;
+
+    statusRootSnap.forEach((ownerSnap) => {
+      ownerSnap.forEach((statusSnap) => {
+        const expiresAt = statusSnap.child("expiresAt").val();
+        if (!expiresAt || expiresAt >= now) return; // not expired yet / no expiry set
+
+        const isHighlighted = statusSnap.child("isHighlighted").val() === true;
+        if (isHighlighted) return; // Instagram-style: keep comments for highlighted stories
+
+        const repliesRef = statusSnap.child("replies").ref;
+        if (!statusSnap.child("replies").exists()) return;
+
+        pendingDeletes.push(repliesRef.remove().then(() => { deletedCount++; }));
+      });
+    });
+
+    await Promise.all(pendingDeletes);
+    if (deletedCount > 0) {
+      console.log(`Expired-story comment sweep: cleared replies on ${deletedCount} expired, non-highlighted status(es).`);
+    }
+    return null;
+  });
+
+/**
  * CallX Admin Control Center
  * ==========================
  * All privileged admin operations live behind this callable boundary. The

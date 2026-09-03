@@ -270,6 +270,20 @@ public class StatusItem {
      */
     public boolean allowSharing = true;
 
+    // ── Story level-stabilizer (per-story creator control) ──────────────────
+    /**
+     * When true, viewers see THIS specific story with the level-stabilizer
+     * active (StorySpinViewController counter-rotates the media so it stays
+     * level as the viewer's phone rolls). OPT-IN, default false: the owner
+     * must explicitly flip this toggle in NewStatusActivity before posting
+     * for that one story. Every other story from this owner, and this
+     * story's own entry in Highlights once saved there, stay off — see
+     * StatusViewerActivity#startSpinViewIfAllowed(), which additionally
+     * forces this off whenever isHighlightMode is true regardless of what
+     * this flag says.
+     */
+    public boolean stabilizerEnabled = false;
+
     // ── Custom avatar ring color (mirrors the Highlights ring-color-picker) ──
     /**
      * Optional custom ring color/mode for THIS status, picked in
@@ -339,6 +353,7 @@ public class StatusItem {
         if (locationLat != 0)         m.put("locationLat", locationLat);
         if (locationLng != 0)         m.put("locationLng", locationLng);
         m.put("allowSharing",         allowSharing);
+        m.put("stabilizerEnabled",    stabilizerEnabled);
         if (ringColor != null && !ringColor.isEmpty()) m.put("ringColor", ringColor);
         if (ringMode  != null && !ringMode.isEmpty())  m.put("ringMode",  ringMode);
         // Reshare fields (only written when non-empty)

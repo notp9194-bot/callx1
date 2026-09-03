@@ -56,6 +56,10 @@ public class StatusHighlightSettingsBottomSheet {
             sheet.dismiss();
             showRingColorPicker(ctx, ownerUid, albumId, listener);
         }));
+        root.addView(rowItem(ctx, "\uD83D\uDCF3", "Level Stabilizer", v -> {
+            sheet.dismiss();
+            showStabilizerToggle(ctx, ownerUid, albumId, listener);
+        }));
         root.addView(rowItem(ctx, "\uD83D\uDDD1\uFE0F", "Delete Highlight", v -> {
             sheet.dismiss();
             confirmDelete(ctx, ownerUid, albumId, albumName, listener);
@@ -195,6 +199,51 @@ public class StatusHighlightSettingsBottomSheet {
                                     if (listener != null) listener.onChanged();
                                 }
                             });
+                }
+            });
+    }
+
+    /** Owner-only, from the long-press "Level Stabilizer" row: lets them
+     *  turn the level-stabilizer on (or back off) for THIS WHOLE HIGHLIGHT
+     *  ALBUM after the fact. This is the mechanism that lets a story which
+     *  posted without the effect still gain it once saved to Highlights —
+     *  or lets a highlighted story that had it while live lose it, all
+     *  without touching the individual stories themselves. Reads the
+     *  current album-level flag first so the dialog opens already showing
+     *  the right state. */
+    private static void showStabilizerToggle(Context ctx, String ownerUid, String albumId,
+                                              OnChangedListener listener) {
+        StatusHighlightManager.getAlbumMetaRef(ownerUid, albumId)
+            .child("stabilizerEnabled")
+            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                    Boolean current = snap.getValue(Boolean.class);
+                    renderDialog(current != null && current);
+                }
+                @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
+                    renderDialog(false);
+                }
+                private void renderDialog(boolean currentlyOn) {
+                    LinearLayout row = new LinearLayout(ctx);
+                    row.setOrientation(LinearLayout.HORIZONTAL);
+                    row.setGravity(Gravity.CENTER_VERTICAL);
+                    row.setPadding(dp(ctx, 4), dp(ctx, 8), dp(ctx, 4), dp(ctx, 8));
+                    TextView label = new TextView(ctx);
+                    label.setText("Keep media level while viewing");
+                    label.setTextSize(14);
+                    row.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                    Switch sw = new Switch(ctx);
+                    sw.setChecked(currentlyOn);
+                    row.addView(sw);
+                    AlertDialogStyler.showRounded(new AlertDialog.Builder(ctx)
+                        .setTitle("Level Stabilizer")
+                        .setView(row)
+                        .setPositiveButton("Save", (d, w) -> {
+                            StatusHighlightManager.setAlbumStabilizerEnabled(ownerUid, albumId, sw.isChecked());
+                            if (listener != null) listener.onChanged();
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .create());
                 }
             });
     }

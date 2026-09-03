@@ -120,6 +120,7 @@ public class ReelUploadActivity extends AppCompatActivity {
     public static final String EXTRA_DUET_ORIGINAL_ID = "upload_duet_original_id";
     public static final String EXTRA_DUET_OWNER_UID   = "upload_duet_owner_uid";
     public static final String EXTRA_DUET_LABEL       = "upload_duet_label";
+    public static final String EXTRA_DUET_ORIGINAL_SOUND_ID = "upload_duet_original_sound_id";
     public static final String EXTRA_DUET_ORIGINAL_URL= "upload_duet_original_url";
 
       // Duet Series fields — passed from ReelPostDetailsActivity
@@ -1286,6 +1287,15 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (dLabel != null) duetLabel       = dLabel;
         String dOrigUrl = i.getStringExtra(EXTRA_DUET_ORIGINAL_URL);
         if (dOrigUrl != null) duetOriginalUrl = dOrigUrl;
+        // ✅ FIX: credit the original creator's sound instead of minting a new
+        // "orig_{reelId}" sound entity from the composited duet video. Only
+        // applies if the user didn't already explicitly pick their own sound
+        // above (soundId extra) — that pick always wins.
+        String dOrigSoundId = i.getStringExtra(EXTRA_DUET_ORIGINAL_SOUND_ID);
+        if (isDuet && dOrigSoundId != null && !dOrigSoundId.isEmpty()
+                && preSelectedSoundId.isEmpty()) {
+            preSelectedSoundId = dOrigSoundId;
+        }
         // ✅ FIX GAP #6: read duet layout mode (was never read before → always 0 in Firebase)
         duetLayoutMode = i.getIntExtra("duet_layout_mode", 0);
           // ✅ FIX (CHAIN DUET): read duetRootId so it can be persisted to Firebase
@@ -1308,6 +1318,14 @@ public class ReelUploadActivity extends AppCompatActivity {
         if (sUrl   != null) stitchOriginalUrl = sUrl;
         if (sOwner != null) stitchOwnerUid    = sOwner;
         stitchDurationSec = i.getIntExtra("stitch_duration_sec", 3);
+        // ✅ FIX: credit the original creator's sound for stitches too, same
+        // reasoning as the duet fix — only applies if the user didn't already
+        // explicitly pick their own sound.
+        String stOrigSoundId = i.getStringExtra("stitch_original_sound_id");
+        if (isStitch && stOrigSoundId != null && !stOrigSoundId.isEmpty()
+                && preSelectedSoundId.isEmpty()) {
+            preSelectedSoundId = stOrigSoundId;
+        }
 
         // ── Duet Series ─────────────────────────────────────────────────────
         String sId2   = i.getStringExtra(ReelPostDetailsActivity.RESULT_SERIES_ID);

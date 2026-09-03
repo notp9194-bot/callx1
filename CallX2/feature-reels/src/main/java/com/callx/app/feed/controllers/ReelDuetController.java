@@ -87,6 +87,11 @@ public class ReelDuetController {
         i.putExtra(DuetReelActivity.EXTRA_VIEWER_FOLLOWS,   delegate.isFollowing());
         i.putExtra(DuetReelActivity.EXTRA_CAPTION,          reel.caption);
         i.putExtra(DuetReelActivity.EXTRA_SOUND_NAME,       reel.musicName);
+        // ✅ FIX: carry the original reel's real sound entity id through the
+        // duet chain (Duet → Editor → Upload) so the finished duet links to
+        // the ORIGINAL sound instead of a brand-new one being minted for the
+        // composited duet video — see EXTRA_DUET_ORIGINAL_SOUND_ID.
+        i.putExtra(DuetReelActivity.EXTRA_DUET_ORIGINAL_SOUND_ID, reel.musicId);
         i.putExtra(DuetReelActivity.EXTRA_VERIFIED,         reel.isVerified);
         if (reel.thumbUrl != null) i.putExtra("duet_reel_thumb", reel.thumbUrl);
         try {
@@ -124,6 +129,7 @@ public class ReelDuetController {
         i.putExtra(StitchReelActivity.EXTRA_ORIGINAL_REEL_ID,   reel.reelId);
         i.putExtra(StitchReelActivity.EXTRA_ORIGINAL_REEL_URL,  reel.videoUrl);
         i.putExtra(StitchReelActivity.EXTRA_ORIGINAL_OWNER_UID, reel.uid);
+        i.putExtra(StitchReelActivity.EXTRA_ORIGINAL_SOUND_ID,  reel.musicId != null ? reel.musicId : "");
         delegate.getFragment().startActivity(i);
     }
 
@@ -222,6 +228,7 @@ public class ReelDuetController {
         i.putExtra(MultiDuetActivity.EXTRA_ORIGINAL_REEL_ID, reel.reelId);
         i.putExtra(MultiDuetActivity.EXTRA_VIDEO_URL,        reel.videoUrl  != null ? reel.videoUrl  : "");
         i.putExtra(MultiDuetActivity.EXTRA_OWNER_NAME,       reel.ownerName != null ? reel.ownerName : "");
+        i.putExtra(MultiDuetActivity.EXTRA_ORIGINAL_SOUND_ID, reel.musicId != null ? reel.musicId : "");
         i.putExtra(MultiDuetActivity.EXTRA_OWNER_UID,        reel.uid       != null ? reel.uid       : "");
         delegate.getFragment().startActivity(i);
     }

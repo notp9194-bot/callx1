@@ -414,8 +414,11 @@ public class FirebaseUtils {
      * reply is otherwise only a private chat DM (see StatusReplyBottomSheet#sendReply),
      * invisible to the owner unless they open the chat; this node lets
      * StatusViewerActivity show the latest replier's avatar + comment as a bottom-left
-     * overlay directly on the story when the OWNER reopens it, and lets
-     * StatusRepliesBottomSheet list every replier for that story.
+     * overlay to EVERY viewer of the story (not just the owner), and lets
+     * StatusRepliesBottomSheet list every replier for that story. Requires the
+     * security-rules override in feature-status/.../firebase_security_rules.json
+     * that lets a non-owner write their own reply row under someone else's
+     * status/{ownerUid} subtree — without it this write is silently denied.
      */
     public static DatabaseReference getStatusRepliesRef(String ownerUid, String statusId) {
         return db().getReference("status").child(ownerUid).child(statusId).child("replies");

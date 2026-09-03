@@ -97,6 +97,12 @@ public class NewStatusActivity extends AppCompatActivity {
     private String  selectedTextAlign  = "center";
     /** Whether viewers may repost this status to their own story (mirrors WA "Allow sharing"). Default: on. */
     private boolean allowSharing      = true;
+    // Per-story creator control for the level-stabilizer (see
+    // StorySpinViewController). OPT-IN, default OFF: only a story where the
+    // creator explicitly flips this toggle on gets the stabilizer — every
+    // other story stays off, and it's never carried into Highlights either
+    // (StatusViewerActivity forces it off in highlight mode regardless).
+    private boolean stabilizerEnabled = false;
     /** Custom avatar-ring color/mode for this status (picked via the same
      *  HighlightRingColorPickerBottomSheet used for Highlight albums).
      *  Null = use the app's default seen/unseen ring. */
@@ -198,6 +204,7 @@ public class NewStatusActivity extends AppCompatActivity {
         setupExpiryButton();
         setupCloseFriendsToggle();
         setupAllowSharingToggle();
+        setupStabilizerToggle();
         setupRingColorButton();
         setupTextAlignButtons();
         setupTextInput();
@@ -1439,6 +1446,24 @@ public class NewStatusActivity extends AppCompatActivity {
         }
         // If toggle doesn't exist in the current layout, allowSharing stays true (safe default)
     }
+    // ── Level-stabilizer toggle (per-story opt-IN) ────────────────────────
+    /**
+     * Looks for a CompoundButton with tag "toggle_stabilizer" in the layout.
+     * OFF by default — the story only gets the level-stabilizer when the
+     * creator explicitly switches this on for THIS post. Leaving it off (or
+     * having no such toggle in the layout) means stabilizerEnabled stays
+     * false, so ordinary stories never pick up the effect and it never
+     * shows up in Highlights either.
+     */
+    private void setupStabilizerToggle() {
+        View toggle = binding.getRoot().findViewWithTag("toggle_stabilizer");
+        if (toggle instanceof CompoundButton) {
+            ((CompoundButton) toggle).setChecked(false);
+            ((CompoundButton) toggle).setOnCheckedChangeListener((btn, checked) -> {
+                stabilizerEnabled = checked;
+            });
+        }
+    }
     // ── Ring color button (NEW — reuses the Highlights ring-color-picker) ──
     /**
      * Looks for a Button/View tagged "btn_ring_color" in the layout. Tapping
@@ -1861,6 +1886,7 @@ public class NewStatusActivity extends AppCompatActivity {
         item.privacyList      = privacyUids.isEmpty() ? null : new ArrayList<>(privacyUids);
         item.isCloseFriends   = isCloseFriends;
         item.allowSharing     = allowSharing;
+        item.stabilizerEnabled = stabilizerEnabled;
         item.ringColor        = selectedRingColor != null ? selectedRingColor : "";
         item.ringMode         = selectedRingMode  != null ? selectedRingMode  : "";
         item.expiryHours      = selectedExpiryHours;
@@ -2062,12 +2088,20 @@ public class NewStatusActivity extends AppCompatActivity {
         item.privacyList    = privacyUids.isEmpty() ? null : new ArrayList<>(privacyUids);
         item.isCloseFriends = isCloseFriends;
         item.allowSharing   = allowSharing;
+        item.stabilizerEnabled = stabilizerEnabled;
         item.ringColor      = selectedRingColor != null ? selectedRingColor : "";
         item.ringMode       = selectedRingMode  != null ? selectedRingMode  : "";
         item.expiryHours    = selectedExpiryHours;
         item.timestamp      = now;
         item.expiresAt      = StatusCustomExpiryHelper.computeExpiresAt(selectedExpiryHours);
         item.deleted        = false;
+        // ── v26: Attach interactive sticker JSON (was missing — batch-posted
+        // statuses never carried stickersJson, so the viewer's audio-name
+        // ticker under the owner name never rendered for these items) ──────
+        String stickersJson = buildStickersJson();
+        if (!stickersJson.isEmpty()) {
+            item.stickersJson = stickersJson;
+        }
         // ── Scheduled post? Route to statusScheduled instead of going live now ──
         if (pendingScheduledAt > 0) {
             long scheduledAt = pendingScheduledAt;

@@ -235,7 +235,11 @@ public class StatusReplyBottomSheet {
                                     preview.put("text",      message);
                                     preview.put("timestamp", ServerValue.TIMESTAMP);
                                     FirebaseUtils.getStatusRepliesRef(ownerUid, item.id)
-                                            .child(replyId).setValue(preview);
+                                            .child(replyId).setValue(preview)
+                                            .addOnFailureListener(err ->
+                                                android.util.Log.e("StatusReply",
+                                                    "Failed to publish public reply preview for status "
+                                                        + item.id + ": " + err.getMessage(), err));
                                 }
                             }
                         }

@@ -87,6 +87,7 @@ public class ReelEditorActivity extends AppCompatActivity {
     public static final String EXTRA_DUET_ORIGINAL_URL   = "editor_duet_original_url";
     public static final String EXTRA_DUET_OWNER_UID      = "editor_duet_owner_uid";
     public static final String EXTRA_DUET_LABEL          = "editor_duet_label";
+    public static final String EXTRA_DUET_ORIGINAL_SOUND_ID = "editor_duet_original_sound_id";
 
     // ✅ NEW: Live filter/text/sticker presets carried over from ReelCameraActivity
     public static final String EXTRA_PRESET_FILTER_NAME       = "preset_filter_name";
@@ -288,7 +289,21 @@ public class ReelEditorActivity extends AppCompatActivity {
     private String  duetOwnerUid    = "";
     private String  duetLabel       = "";
     private String  duetOriginalUrl = "";
+    private String  duetOriginalSoundId = "";
     private String  multiDuetSessionId = "";
+    // ── Stitch metadata ──────────────────────────────────────────────────
+    // ✅ FIX: these were being read from the incoming (Stitch→Editor) intent
+    // nowhere in this activity, so the outgoing (Editor→Upload) intent never
+    // carried them either — ReelUploadActivity's isStitch/stitchOriginalId
+    // fields were always false/empty, meaning stitchOf, stitchCount, the
+    // original-creator notification, AND sound credit for stitches were all
+    // silently dead code. Mirrors the duet fields above.
+    private boolean isStitch            = false;
+    private String  stitchOriginalId    = "";
+    private String  stitchOriginalUrl   = "";
+    private String  stitchOwnerUid      = "";
+    private String  stitchOriginalSoundId = "";
+    private int     stitchDurationSec   = 3;
     private int     multiDuetSlot      = -1;
     private int     multiDuetTotal     = 0;
 
@@ -400,6 +415,20 @@ public class ReelEditorActivity extends AppCompatActivity {
         duetLabel      = nvl(getIntent().getStringExtra(EXTRA_DUET_LABEL));
         String dUrl    = getIntent().getStringExtra(EXTRA_DUET_ORIGINAL_URL);
         if (dUrl != null) duetOriginalUrl = dUrl;
+        String dSoundId = getIntent().getStringExtra(EXTRA_DUET_ORIGINAL_SOUND_ID);
+        if (dSoundId != null) duetOriginalSoundId = dSoundId;
+
+        // ✅ FIX: read stitch metadata forwarded from StitchReelActivity — was
+        // never read here before, so it never made it to the outgoing
+        // Editor→Upload intent either (see field comment above).
+        isStitch          = getIntent().getBooleanExtra("is_stitch", false);
+        stitchOriginalId  = nvl(getIntent().getStringExtra("stitch_original_id"));
+        stitchOwnerUid    = nvl(getIntent().getStringExtra("stitch_original_owner_uid"));
+        String sUrl       = getIntent().getStringExtra("stitch_original_url");
+        if (sUrl != null) stitchOriginalUrl = sUrl;
+        String sSoundId   = getIntent().getStringExtra("stitch_original_sound_id");
+        if (sSoundId != null) stitchOriginalSoundId = sSoundId;
+        stitchDurationSec = getIntent().getIntExtra("stitch_duration_sec", 3);
 
         // Multi-duet session passthrough
         String mdsId = getIntent().getStringExtra("multi_duet_session_id");
@@ -3854,12 +3883,25 @@ public class ReelEditorActivity extends AppCompatActivity {
             intent.putExtra(ReelUploadActivity.EXTRA_DUET_ORIGINAL_URL, duetOriginalUrl);
             intent.putExtra(ReelUploadActivity.EXTRA_DUET_OWNER_UID,    duetOwnerUid);
             intent.putExtra(ReelUploadActivity.EXTRA_DUET_LABEL,        duetLabel);
+            intent.putExtra(ReelUploadActivity.EXTRA_DUET_ORIGINAL_SOUND_ID, duetOriginalSoundId);
             // Multi-duet session
             if (!multiDuetSessionId.isEmpty()) {
                 intent.putExtra("multi_duet_session_id", multiDuetSessionId);
                 intent.putExtra("multi_duet_slot",       multiDuetSlot);
                 intent.putExtra("multi_duet_total",      multiDuetTotal);
             }
+        }
+
+        // ✅ FIX: forward stitch metadata to Upload — previously dropped
+        // entirely at this activity, so stitchOf/stitchCount/original-creator
+        // notification/sound-credit never fired for any stitch post.
+        if (isStitch) {
+            intent.putExtra("is_stitch",                  true);
+            intent.putExtra("stitch_original_id",         stitchOriginalId);
+            intent.putExtra("stitch_original_url",        stitchOriginalUrl);
+            intent.putExtra("stitch_original_owner_uid",  stitchOwnerUid);
+            intent.putExtra("stitch_original_sound_id",   stitchOriginalSoundId);
+            intent.putExtra("stitch_duration_sec",        stitchDurationSec);
         }
 
         startActivity(intent);

@@ -92,6 +92,10 @@ public class DuetReelActivity extends AppCompatActivity {
     public static final String EXTRA_DUET_ROOT_ID      = "duet_root_id";
     public static final String EXTRA_CAPTION           = "duet_caption";
     public static final String EXTRA_SOUND_NAME        = "duet_sound_name";
+    // ✅ FIX: real sounds/{id} entity of the original reel being dueted — so
+    // credit/reel-count for the finished duet lands on the original sound
+    // instead of a new one being extracted from the composited video.
+    public static final String EXTRA_DUET_ORIGINAL_SOUND_ID = "duet_original_sound_id";
     public static final String EXTRA_VERIFIED          = "duet_owner_verified";
 
     private static final int MAX_DUET_SEC   = 60;
@@ -174,6 +178,7 @@ public class DuetReelActivity extends AppCompatActivity {
 
     // ── Reel metadata ─────────────────────────────────────────────────────────
     private String  reelId;
+    private String  duetOriginalSoundId = "";
     private String  videoUrl;
     private String  ownerName;
     private String  ownerUid;
@@ -347,6 +352,8 @@ public class DuetReelActivity extends AppCompatActivity {
         allowDuetLevel = getIntent().getStringExtra(EXTRA_ALLOW_DUET_LEVEL);
         duetRootId     = getIntent().getStringExtra(EXTRA_DUET_ROOT_ID);
         if (duetRootId == null || duetRootId.isEmpty()) duetRootId = reelId;
+        String origSoundId = getIntent().getStringExtra(EXTRA_DUET_ORIGINAL_SOUND_ID);
+        if (origSoundId != null) duetOriginalSoundId = origSoundId;
         String cp = getIntent().getStringExtra(EXTRA_CACHED_VIDEO_PATH);
         if (cp != null && new java.io.File(cp).exists()) cachedOriginalPath = cp;
         viewerFollows  = getIntent().getBooleanExtra(EXTRA_VIEWER_FOLLOWS, false);
@@ -1995,6 +2002,7 @@ public class DuetReelActivity extends AppCompatActivity {
         i.putExtra(ReelEditorActivity.EXTRA_DUET_ORIGINAL_ID,  reelId);
         i.putExtra(ReelEditorActivity.EXTRA_DUET_ORIGINAL_URL, videoUrl);
         i.putExtra(ReelEditorActivity.EXTRA_DUET_OWNER_UID,    ownerUid);
+        i.putExtra(ReelEditorActivity.EXTRA_DUET_ORIGINAL_SOUND_ID, duetOriginalSoundId);
         i.putExtra(ReelEditorActivity.EXTRA_DUET_LABEL,
                 ownerName.isEmpty() ? "Duet" : "Duet with @" + ownerName);
         i.putExtra("duet_layout_mode",     layoutMode);

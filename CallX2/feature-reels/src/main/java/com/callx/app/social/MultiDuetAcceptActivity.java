@@ -175,6 +175,7 @@ public class MultiDuetAcceptActivity extends AppCompatActivity {
                     String videoUrl   = snap.child("videoUrl").getValue(String.class);
                     String hostName   = "";
                     String hostUid    = snap.child("hostUid").getValue(String.class);
+                    String origSoundId = snap.child("originalSoundId").getValue(String.class);
                     int    total      = (int) snap.child("participants").getChildrenCount();
 
                     // Determine my slot index
@@ -193,6 +194,7 @@ public class MultiDuetAcceptActivity extends AppCompatActivity {
                     i.putExtra(DuetReelActivity.EXTRA_VIDEO_URL,  videoUrl != null ? videoUrl : "");
                     i.putExtra(DuetReelActivity.EXTRA_OWNER_UID,  hostUid != null ? hostUid : "");
                     i.putExtra(DuetReelActivity.EXTRA_OWNER_NAME, fromName != null ? fromName : "");
+                    i.putExtra(DuetReelActivity.EXTRA_DUET_ORIGINAL_SOUND_ID, origSoundId != null ? origSoundId : "");
                     i.putExtra("multi_duet_session_id", sessionId);
                     i.putExtra("multi_duet_slot",       slot);
                     i.putExtra("multi_duet_total",      total);
