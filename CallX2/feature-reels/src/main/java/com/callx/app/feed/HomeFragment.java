@@ -1257,6 +1257,32 @@ public class HomeFragment extends Fragment
                     if (ultraOptimizer != null) {
                         ultraOptimizer.onRecyclerScrollStateChanged(newState);
                     }
+                    // ★ Instagram-level fast-scroll fix: SCROLL_STATE_SETTLING is a
+                    // fling still coasting under its own momentum — exactly the
+                    // window where onBindViewHolder/addFeedPostCard fires for many
+                    // cards back-to-back as they race past, each one kicking off
+                    // fresh Glide decode chains (thumb, avatar, story ring, audio
+                    // cover) for frames the user never actually stops on. That
+                    // decode work is what was competing with the scroll
+                    // choreographer for CPU/GPU time and running the device hot —
+                    // this is the same "pause image loading during a fling, resume
+                    // on settle" pattern Glide's own RecyclerView guidance
+                    // recommends and Instagram uses. Pausing only queues the
+                    // request; nothing is cancelled, so every card still gets its
+                    // image the moment the fling ends. This never touches
+                    // attachPlayerToCard/playMostVisibleCard/currentPlayingIndex —
+                    // which card is chosen to play is entirely unchanged, only the
+                    // still-image decode work around it is deferred.
+                    if (isAdded() && getContext() != null) {
+                        if (newState == RecyclerView.SCROLL_STATE_SETTLING) {
+                            Glide.with(requireContext()).pauseRequests();
+                        } else {
+                            // DRAGGING (finger still down, not a fast fling) and
+                            // IDLE both resume immediately — only the coasting
+                            // fling itself is gated.
+                            Glide.with(requireContext()).resumeRequests();
+                        }
+                    }
                     scrollDiagnostics.onScrollStateChanged(newState);
                     // Definitive settle check: guarantees the truly-final
                     // resting position is evaluated with zero delay the
@@ -2513,6 +2539,13 @@ public class HomeFragment extends Fragment
 
     @Override public void onDestroyView() {
         super.onDestroyView();
+        // ★ Safety net for the fast-scroll Glide pause/resume gate above: if
+        // the view is torn down while a fling happens to be mid-SETTLING,
+        // don't leave the Activity-wide RequestManager paused for whatever
+        // screen comes next.
+        if (getContext() != null) {
+            try { Glide.with(getContext()).resumeRequests(); } catch (Exception ignored) {}
+        }
         scrollDiagnostics.detach();
         stopRealtimeNewPostsListener();
         scrollHandler.removeCallbacks(playVisibleRunnable);
