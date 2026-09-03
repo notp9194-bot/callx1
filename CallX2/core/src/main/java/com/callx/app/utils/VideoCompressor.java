@@ -444,13 +444,27 @@ public class VideoCompressor {
                 frame = mmr.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
             if (frame == null) throw new IOException("No frame extracted");
 
-            int side = Math.min(frame.getWidth(), frame.getHeight());
-            android.graphics.Bitmap cropped = android.graphics.Bitmap.createBitmap(
-                frame, (frame.getWidth() - side) / 2, (frame.getHeight() - side) / 2, side, side);
+            // Preserve the frame's real aspect ratio (portrait 9:16 for reels)
+            // instead of force-cropping to a 1:1 square. A square thumbnail next
+            // to a 9:16 video is what caused the centerCrop zoom/framing mismatch
+            // between the thumbnail and the actual playing video — same fix
+            // Instagram/Reels use: thumbnail dimensions always match the source
+            // video's aspect ratio, only downscaled, never square-cropped.
+            int frameW = frame.getWidth();
+            int frameH = frame.getHeight();
+            int thumbW, thumbH;
+            if (frameH >= frameW) {
+                // portrait or square source → cap the height, derive width
+                thumbH = thumbSize;
+                thumbW = Math.max(1, Math.round(thumbSize * (frameW / (float) frameH)));
+            } else {
+                // landscape source → cap the width, derive height
+                thumbW = thumbSize;
+                thumbH = Math.max(1, Math.round(thumbSize * (frameH / (float) frameW)));
+            }
             android.graphics.Bitmap thumb =
-                android.graphics.Bitmap.createScaledBitmap(cropped, thumbSize, thumbSize, true);
-            frame.recycle();
-            if (cropped != thumb) cropped.recycle();
+                android.graphics.Bitmap.createScaledBitmap(frame, thumbW, thumbH, true);
+            if (frame != thumb) frame.recycle();
 
             File dir = new File(ctx.getCacheDir(), "vid_out");
             dir.mkdirs();

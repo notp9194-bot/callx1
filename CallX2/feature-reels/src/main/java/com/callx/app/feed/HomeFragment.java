@@ -722,6 +722,38 @@ public class HomeFragment extends Fragment
      *  for a ~140dp tile, wasting decode time and heap on every card. 260px
      *  covers up to xxhdpi (140dp × ~1.9) with headroom. */
     private static final int STRIP_THUMB_DECODE_PX = 260;
+    /** "Suggested reels" tile decode size — matches SuggestedReelsTileAdapter's
+     *  fixed TILE_W_DP×TILE_H_DP (160×284dp) tile exactly. Without an
+     *  .override() here Glide fell back to resolving the ImageView's actual
+     *  measured size via a pre-draw listener on every single bind (extra
+     *  work stacking up as this strip's own horizontal RecyclerView recycles
+     *  tiles during a fling) and, on any bind that raced ahead of layout,
+     *  could decode at the source's full resolution instead of this tile's
+     *  ~160dp width — the same oversized-bitmap heat/GC cost the card thumb
+     *  and avatar overrides above were already added to avoid. xxhdpi
+     *  (~3x) puts 160dp at 480px and 284dp at 852px; rounded up with a little
+     *  headroom the same way STRIP_THUMB_DECODE_PX was.  */
+    private static final int SUGGESTED_TILE_DECODE_W = 500;
+    private static final int SUGGESTED_TILE_DECODE_H = 880;
+    /** setItemViewCacheSize() at idle — keeps enough recently-scrolled-off
+     *  cards fully bound (thumb/avatar already decoded, scrub-bar listeners
+     *  attached) to feel instant if the user scrolls back a little. See
+     *  FLING_ITEM_VIEW_CACHE_SIZE doc for why this shrinks during a fling. */
+    private static final int DEFAULT_ITEM_VIEW_CACHE_SIZE = 6;
+    /** ★ Instagram-level fast-scroll fix: item-view-cache entries are full
+     *  ViewHolders with their bind work already done — RecyclerView keeps up
+     *  to DEFAULT_ITEM_VIEW_CACHE_SIZE of them once they scroll off screen so
+     *  scrolling back doesn't repeat that work. During a fast fling that's
+     *  the wrong trade: cards are racing past and being scrolled off again
+     *  within a frame or two, so a bigger cache just means more of them get
+     *  fully bound (and stay resident) before being discarded anyway — extra
+     *  CPU work for views the user never actually paused on, stacking on top
+     *  of the decode work the Glide pause (SCROLL_STATE_SETTLING handling
+     *  below) already targets. Shrunk to 2 for the duration of the fling —
+     *  still keeps the couple of cards right around the viewport instant-
+     *  cached — and restored to DEFAULT_ITEM_VIEW_CACHE_SIZE the moment the
+     *  fling ends, so ordinary back-and-forth scrolling is unaffected. */
+    private static final int FLING_ITEM_VIEW_CACHE_SIZE = 2;
     /** De-dupes prefetchUpcomingFeedMedia() across a fling's scroll events. */
     private int lastPrefetchFromIndex = -1;
 
@@ -788,7 +820,7 @@ public class HomeFragment extends Fragment
         // settling, at the cost of a little extra idle prefetch work.
         homeLayoutManager.setInitialPrefetchItemCount(2);
         recyclerHome.setLayoutManager(homeLayoutManager);
-        recyclerHome.setItemViewCacheSize(6);
+        recyclerHome.setItemViewCacheSize(DEFAULT_ITEM_VIEW_CACHE_SIZE);
         // ★ Ultra-advanced optimization: item_home_feed_post.xml is a heavy
         // inflate (PlayerView, seek bar, ~28 child views). The default
         // recycled-pool cap is 5 per view type — on a fast fling that's not
@@ -1282,6 +1314,22 @@ public class HomeFragment extends Fragment
                             // fling itself is gated.
                             Glide.with(requireContext()).resumeRequests();
                         }
+                    }
+                    // ★ Instagram-level fast-scroll fix, part 2: shrink the
+                    // item-view cache for the same SCROLL_STATE_SETTLING
+                    // window as the Glide pause above — see
+                    // FLING_ITEM_VIEW_CACHE_SIZE doc. Only touches how many
+                    // scrolled-off ViewHolders RecyclerView keeps fully
+                    // bound; does not evict or rebind anything already on
+                    // screen, and does not touch the RecycledViewPool sizing
+                    // above (that stays fixed — it's the unbound-instance
+                    // pool a fling still needs to avoid re-inflating from
+                    // scratch).
+                    if (recyclerHome != null) {
+                        recyclerHome.setItemViewCacheSize(
+                            newState == RecyclerView.SCROLL_STATE_SETTLING
+                                ? FLING_ITEM_VIEW_CACHE_SIZE
+                                : DEFAULT_ITEM_VIEW_CACHE_SIZE);
                     }
                     scrollDiagnostics.onScrollStateChanged(newState);
                     // Definitive settle check: guarantees the truly-final
@@ -4421,15 +4469,28 @@ public class HomeFragment extends Fragment
 
         holder.nameView.setText(ad.sponsorName != null ? ad.sponsorName : "Sponsored");
         if (ad.sponsorPhotoUrl != null && !ad.sponsorPhotoUrl.isEmpty()) {
+            // 32dp avatar — same decode-size discipline as every other feed
+            // avatar (AVATAR_DECODE_PX); this row scrolls through the main
+            // feed RecyclerView during a fling like any other row, so an
+            // uncapped remote sponsor photo was exactly the same heat/GC
+            // source as the card avatars above.
             Glide.with(this).load(ad.sponsorPhotoUrl)
                 .apply(new RequestOptions().transform(new CenterCrop(), new RoundedCorners(dpToPx(16))))
+                .apply(FEED_IMAGE_OPTS)
+                .override(AVATAR_DECODE_PX, AVATAR_DECODE_PX)
                 .into(holder.avatar);
         } else {
             Glide.with(this).clear(holder.avatar);
         }
 
+        // Ad image is match_parent width × fixed 220dp height — cap the
+        // decode to actual device width instead of whatever resolution the
+        // ad creative was uploaded at (ad images are frequently far higher
+        // res than a 220dp-tall strip needs).
+        int adImgDecodeW = getResources().getDisplayMetrics().widthPixels;
         Glide.with(this).load(ad.imageUrl)
             .apply(new RequestOptions().transform(new CenterCrop()).format(DecodeFormat.PREFER_RGB_565))
+            .override(adImgDecodeW, dpToPx(220))
             .into(holder.image);
 
         holder.headline.setText(ad.headline);
@@ -4671,8 +4732,15 @@ public class HomeFragment extends Fragment
             holder.tvName.setText(name);
             holder.av.setImageResource(R.drawable.ic_person);
             if (photo != null && !photo.isEmpty()) {
+                // Tile avatar is AVATAR_DP (90dp) — cap decode to it instead
+                // of the source profile photo's full resolution; this strip
+                // scrolls (horizontally, and vertically as part of the main
+                // feed) during a fling the same as every card thumbnail.
+                int avPx = dpToPx(AVATAR_DP);
                 Glide.with(requireContext()).load(photo)
                     .apply(RequestOptions.circleCropTransform())
+                    .apply(FEED_IMAGE_OPTS)
+                    .override(avPx, avPx)
                     .placeholder(R.drawable.ic_person).into(holder.av);
             } else {
                 Glide.with(requireContext()).clear(holder.av);
@@ -4695,9 +4763,15 @@ public class HomeFragment extends Fragment
                             return;
                         }
                         if (!photos.isEmpty() && !photos.get(0).isEmpty()) {
+                            // 12dp mini-avatar — the smallest avatar in the
+                            // whole feed and, before this, the only one with
+                            // zero decode cap.
+                            int mutualPx = dpToPx(12);
                             Glide.with(requireContext()).load(photos.get(0))
                                 .placeholder(R.drawable.ic_person)
                                 .apply(RequestOptions.circleCropTransform())
+                                .apply(FEED_IMAGE_OPTS)
+                                .override(mutualPx, mutualPx)
                                 .into(holder.ivMutualAvatar);
                         } else {
                             holder.ivMutualAvatar.setImageResource(R.drawable.ic_person);
@@ -4964,8 +5038,13 @@ public class HomeFragment extends Fragment
             String thumbUrl = r.effectiveThumbUrl();
             if (thumbUrl != null && !thumbUrl.isEmpty()) {
                 // Same RGB_565 + no-crossfade treatment as the rest of the
-                // feed's cheap-decode thumbnails (FEED_IMAGE_OPTS).
-                Glide.with(requireContext()).load(thumbUrl).apply(FEED_IMAGE_OPTS).into(holder.thumb);
+                // feed's cheap-decode thumbnails (FEED_IMAGE_OPTS), plus an
+                // explicit .override() to this tile's fixed decode size —
+                // see SUGGESTED_TILE_DECODE_W/H doc for why this was the one
+                // remaining feed thumbnail load with no decode-size cap.
+                Glide.with(requireContext()).load(thumbUrl).apply(FEED_IMAGE_OPTS)
+                    .override(SUGGESTED_TILE_DECODE_W, SUGGESTED_TILE_DECODE_H)
+                    .centerCrop().into(holder.thumb);
             } else {
                 Glide.with(requireContext()).clear(holder.thumb);
             }
@@ -5850,8 +5929,17 @@ public class HomeFragment extends Fragment
                 if (reel.collabCollaboratorPhoto != null && !reel.collabCollaboratorPhoto.isEmpty()) {
                     if (!reel.collabCollaboratorPhoto.equals(holder.lastCollabCollaboratorPhoto)) {
                         holder.lastCollabCollaboratorPhoto = reel.collabCollaboratorPhoto;
+                        // ★ av2 is a 32dp circle — same AVATAR_DECODE_PX cap
+                        // as the main 36dp card avatar below; this spot had
+                        // no cap at all before (full-res profile photo
+                        // decoded for a 32dp dot), the same oversized-bitmap
+                        // heat/GC cost the other avatar overrides exist to
+                        // avoid, and one more source of it during a fling
+                        // through collab posts specifically.
                         Glide.with(requireContext()).load(reel.collabCollaboratorPhoto)
                             .apply(RequestOptions.circleCropTransform())
+                            .apply(FEED_IMAGE_OPTS)
+                            .override(AVATAR_DECODE_PX, AVATAR_DECODE_PX)
                             .placeholder(R.drawable.ic_person).into(av2);
                     }
                 } else {
@@ -5861,8 +5949,14 @@ public class HomeFragment extends Fragment
                 if (reel.collabInitiatorPhoto != null && !reel.collabInitiatorPhoto.isEmpty()) {
                     if (!reel.collabInitiatorPhoto.equals(holder.lastCollabInitiatorPhoto)) {
                         holder.lastCollabInitiatorPhoto = reel.collabInitiatorPhoto;
+                        // Same AVATAR_DECODE_PX cap the solo-owner avatar
+                        // load below applies to this exact `avatar` view —
+                        // the collab path was loading into the same 36dp
+                        // circle with no size cap.
                         Glide.with(requireContext()).load(reel.collabInitiatorPhoto)
                             .apply(RequestOptions.circleCropTransform())
+                            .apply(FEED_IMAGE_OPTS)
+                            .override(AVATAR_DECODE_PX, AVATAR_DECODE_PX)
                             .placeholder(R.drawable.ic_person).into(avatar);
                     }
                 } else {
