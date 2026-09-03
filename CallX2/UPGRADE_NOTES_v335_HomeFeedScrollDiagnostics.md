@@ -1,4 +1,4 @@
-# v338 — Home Feed Diagnostics + Instagram-Level Scroll Playback
+# v339 — Home Feed Diagnostics + Instagram-Level Scroll Playback
 
 ## What changed
 
@@ -15,18 +15,18 @@
   root-cause signal. The dialog also has **Copy report** so the captured text
   can be pasted into a bug report or chat.
 - Stabilized the playback handoff path after diagnostics showed 61–183 ms
-  stalls: player selection now happens only after RecyclerView becomes idle,
-  active playback pauses without a Surface detach during drag/fling, and an
-  off-screen recycled card cannot keep its player running.
+  stalls: edge-only cards do not trigger a handoff, the incumbent keeps
+  playing while visible, and an off-screen recycled card cannot keep its
+  player running.
 - Standby-player callbacks are ignored until that player is promoted, so a
   neighbour's first decoded frame cannot reveal the active card's thumbnail.
 - Removed the dynamic full-feed hardware-layer toggle; RecyclerView and
   PlayerView retain their normal hardware-accelerated rendering instead of
   rebuilding a parent GPU texture during scrolling.
-- During a fast drag/fling, the active media keeps its Surface attached and
-  fast handoffs are deferred; its opaque thumbnail remains above the Surface
-  until the final card is selected. Gentle drags may hand off immediately
-  once a challenger crosses the visibility floor.
+- During drag/fling, the active media keeps its Surface attached while it
+  remains visible. Any reel that becomes the dominant visible card can take
+  over immediately—even during a fast fling—once it crosses the 50% floor;
+  edge-only cards do not trigger decoder churn.
 - Replaced the Home feed's three-decoder active/next/previous promotion path
   with one active ExoPlayer. Neighbour videos are still cache-prefetched, but
   they no longer enter READY/BUFFERING or compete for decoder/network time
@@ -38,10 +38,9 @@
   Surface frame arrives. This removes the measured 47–73 ms animation stalls
   while preserving the opaque-cover protection against black frames.
 - Removed the blanket pause at the start of every drag/fling. The incumbent
-  video now keeps playing during a small touch drag, and a newly dominant card
-  can take over immediately during gentle scrolling. Fast flings still defer
-  handoff until the final IDLE winner, while an actually off-screen incumbent
-  is detached by the viewport guard.
+  video now keeps playing while visible, and a newly dominant card can take
+  over immediately during both gentle scrolling and fast flings. An actually
+  off-screen incumbent is detached by the viewport guard.
 
 ## Important behavior
 

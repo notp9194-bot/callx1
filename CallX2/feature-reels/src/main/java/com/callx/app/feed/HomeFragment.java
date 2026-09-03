@@ -848,9 +848,9 @@ public class HomeFragment extends Fragment
         // of each other's state. Consolidated into ONE listener (see the
         // single recyclerHome.addOnScrollListener(...) below) so there's a
         // single per-event dispatch and a single source of truth for scroll
-        // state — ultraOptimizer's FLING/SETTLE state now directly gates the
-        // instant-play Choreographer callback instead of it firing blind
-        // during a fast fling. See that listener's comments for details.
+        // state — ultraOptimizer's FLING/SETTLE state still coordinates the
+        // final winner, while the scroll listener can now start a reel as
+        // soon as it crosses the visibility floor during a fast fling.
 
         // ★ Built via AdaptiveStreamingManager.buildBarePlayer() instead of a
         // plain ExoPlayer.Builder() — gets the SAME network-tier-tuned
@@ -964,12 +964,17 @@ public class HomeFragment extends Fragment
                     long nowMs = System.currentTimeMillis();
                     if (isHomeFeedScrollActive()) {
                         // The first frame can arrive while a drag/fling is
-                        // still moving the Surface. Keep the opaque thumbnail
-                        // in place and finish the reveal after IDLE instead of
-                        // animating a handoff inside the scroll.
+                        // still moving the Surface. The reveal itself is a
+                        // single visibility update (not an animation), so
+                        // check it now; this lets fast-scrolling reels become
+                        // visible as soon as their first frame is ready.
                         activeCard.firstFramePtsGatePending = true;
                         if (activeCard.firstFrameGateStartMs <= 0L) {
                             activeCard.firstFrameGateStartMs = nowMs;
+                        }
+                        attemptPtsGatedReveal(activeCard, player, nowMs);
+                        if (!activeCard.firstFrameRevealed) {
+                            scheduleFirstFrameRevealRetry(activeCard);
                         }
                     } else {
                         attemptPtsGatedReveal(activeCard, player, nowMs);
@@ -1184,13 +1189,14 @@ public class HomeFragment extends Fragment
                         ultraOptimizer.onRecyclerScrolled(dx, dy);
                     }
 
-                    // Fast flings still avoid all player handoffs here. For a
-                    // small touch-drag step, however, keep the current video
-                    // playing and promote the card that has just become
-                    // dominant immediately instead of waiting for IDLE.
+                    // Keep the incumbent playing while it remains visible,
+                    // but allow a card that becomes dominant during either a
+                    // slow drag or a fast fling to take over immediately.
+                    // The 50% visibility floor below prevents handoffs for
+                    // cards that only flash past the edge of the viewport.
                     beginFeedScrollLayer();
                     detachActiveCardIfOutsideViewport();
-                    if (isGentleScrollStep(rv, dy)) {
+                    if (dy != 0) {
                         playMostVisibleCard(true);
                     }
                     scrollDiagnostics.onScrolled(dx, dy, rv.computeVerticalScrollOffset());
@@ -1453,16 +1459,19 @@ public class HomeFragment extends Fragment
                 && recyclerHome.getScrollState() != RecyclerView.SCROLL_STATE_IDLE);
     }
 
-    private void schedulePostScrollRevealRetry(HomeFeedCard card) {
+    private void scheduleFirstFrameRevealRetry(HomeFeedCard card) {
         ptsGateHandler.postDelayed(() -> {
-            if (!isAdded() || isHomeFeedScrollActive() || card.firstFrameRevealed
+            if (!isAdded() || card.firstFrameRevealed
                     || feedPlayer == null || currentPlayingIndex < 0
                     || currentPlayingIndex >= feedCards.size()
                     || feedCards.get(currentPlayingIndex) != card) {
                 return;
             }
             attemptPtsGatedReveal(card, feedPlayer, System.currentTimeMillis());
-        }, FIRST_FRAME_PTS_MAX_WAIT_MS);
+            if (!card.firstFrameRevealed && card.firstFramePtsGatePending) {
+                scheduleFirstFrameRevealRetry(card);
+            }
+        }, 32L);
     }
 
     /**
@@ -1493,24 +1502,18 @@ public class HomeFragment extends Fragment
      * handoff point Instagram/Reels use — not a running tug-of-war.
      */
     private static final float AUTOPLAY_VISIBILITY_THRESHOLD = 0.5f;
-    /** A small touch-drag step is a deliberate, slow browse rather than a
-     *  fling. In that mode Instagram keeps the incumbent playing and lets a
-     *  newly dominant card take over without waiting for IDLE. */
-    private static final int GENTLE_SCROLL_MAX_DELTA_DP = 24;
-
     private void playMostVisibleCard() {
         playMostVisibleCard(false);
     }
 
-    private void playMostVisibleCard(boolean allowGentleScrollHandoff) {
+    private void playMostVisibleCard(boolean allowScrollHandoff) {
         if (!isAdded() || feedPlayer == null || feedCards.isEmpty()) return;
         // A stale vsync callback can run after a new gesture has already
-        // started. During a gentle touch drag, the caller explicitly allows
-        // the newly dominant card to take over; fast movement still waits for
-        // the definitive IDLE winner.
+        // started. Scroll callbacks explicitly allow the newly dominant card
+        // to take over; the 50% floor prevents edge-of-viewport churn.
         if (recyclerHome != null
                 && recyclerHome.getScrollState() != RecyclerView.SCROLL_STATE_IDLE
-                && !allowGentleScrollHandoff) {
+                && !allowScrollHandoff) {
             return;
         }
         // ★ Instagram-level viewport: measure against the RecyclerView's own
@@ -1577,7 +1580,7 @@ public class HomeFragment extends Fragment
             // fling jumped clean past every loaded post row). Same as
             // dropping below the floor with no challenger: pause, don't
             // leave the incumbent playing off-screen.
-            if (!allowGentleScrollHandoff) {
+            if (!allowScrollHandoff) {
                 pauseIncumbentForVisibility(hasIncumbent);
             }
             return;
@@ -1597,7 +1600,7 @@ public class HomeFragment extends Fragment
             // running until a challenger decisively occupies the viewport;
             // pausing at the 50% crossing is the small-scroll freeze users
             // notice in the feed.
-            if (!allowGentleScrollHandoff) {
+            if (!allowScrollHandoff) {
                 pauseIncumbentForVisibility(hasIncumbent);
             }
             return;
@@ -1605,7 +1608,7 @@ public class HomeFragment extends Fragment
 
         if (bestIdx != currentPlayingIndex) {
             pausedForVisibility = false;
-            attachPlayerToCard(bestIdx, allowGentleScrollHandoff);
+            attachPlayerToCard(bestIdx, allowScrollHandoff);
         } else if (pausedForVisibility && hasIncumbent) {
             // The same card climbed back above the 50% floor. Resume it in
             // place instead of
@@ -1633,20 +1636,12 @@ public class HomeFragment extends Fragment
                         } else {
                             attemptPtsGatedReveal(active, feedPlayer,
                                     System.currentTimeMillis());
-                            schedulePostScrollRevealRetry(active);
+                            scheduleFirstFrameRevealRetry(active);
                         }
                     }
                 }
             }
         }
-    }
-
-    private boolean isGentleScrollStep(RecyclerView rv, int dy) {
-        if (rv == null || rv.getScrollState() != RecyclerView.SCROLL_STATE_DRAGGING) {
-            return false;
-        }
-        int maxStepPx = Math.max(dpToPx(GENTLE_SCROLL_MAX_DELTA_DP), 16);
-        return Math.abs(dy) > 0 && Math.abs(dy) <= maxStepPx;
     }
 
     /** Pauses the currently-playing card because it (and every other loaded
@@ -1797,9 +1792,10 @@ public class HomeFragment extends Fragment
 
     private void attachPlayerToCard(int index, boolean userInitiated) {
         if (!isAdded() || feedPlayer == null || index < 0 || index >= feedCards.size()) return;
-        // Automatic selection is deferred until IDLE for fast movement. A
-        // gentle touch drag may explicitly opt in so the newly dominant card
-        // starts immediately; taps/scrubs use the same safe override.
+        // Scroll callbacks may opt in so the newly dominant card starts
+        // immediately, even during a fast fling. The caller has already
+        // applied the visibility floor, so edge-only cards cannot churn the
+        // shared player; taps/scrubs use the same safe override.
         if (!userInitiated && recyclerHome != null
                 && recyclerHome.getScrollState() != RecyclerView.SCROLL_STATE_IDLE) {
             return;
