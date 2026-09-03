@@ -92,7 +92,10 @@ package com.callx.app.social;
           rvEpisodes.setAdapter(adapter);
           adapter.setOnEpisodeClickListener((reel, pos) -> {
               Intent i = new Intent(this, SingleReelPlayerActivity.class);
-              i.putExtra("reel_id", reel.reelId);
+              // ✅ FIX: was "reel_id" — SingleReelPlayerActivity actually reads
+              // EXTRA_REEL_ID = "reelId" (no underscore), so the player never
+              // got a reel id and nothing played when tapping an episode.
+              i.putExtra(SingleReelPlayerActivity.EXTRA_REEL_ID, reel.reelId);
               startActivity(i);
           });
       }

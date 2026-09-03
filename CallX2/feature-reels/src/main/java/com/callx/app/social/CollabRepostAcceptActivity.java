@@ -490,6 +490,34 @@ public class CollabRepostAcceptActivity extends AppCompatActivity {
         btnDecline.setEnabled(false);
         progressBar.setVisibility(View.VISIBLE);
 
+        // ✅ FIX: original-audio credit was missing entirely on collab
+        // reposts — the new joint reel copied videoUrl/thumbUrl/caption from
+        // the original but never its musicId, so the repost carried no sound
+        // link at all (no "original sound - X" label, no reel_count on the
+        // sounds/{id} node). Fetch the original reel's music fields first,
+        // then build the joint reel with them attached.
+        com.callx.app.utils.FirebaseUtils.getReelsRef().child(originalReelId)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot s) {
+                    String musicId     = s.child("musicId").getValue(String.class);
+                    String musicName   = s.child("musicName").getValue(String.class);
+                    String musicArtist = s.child("musicArtist").getValue(String.class);
+                    String musicCover  = s.child("musicCoverUrl").getValue(String.class);
+                    finishAccept(myCaption,
+                        musicId     != null ? musicId     : "",
+                        musicName   != null ? musicName   : "",
+                        musicArtist != null ? musicArtist : "",
+                        musicCover  != null ? musicCover  : "");
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) {
+                    finishAccept(myCaption, "", "", "", "");
+                }
+            });
+    }
+
+    private void finishAccept(String myCaption, String musicId, String musicName,
+                               String musicArtist, String musicCoverUrl) {
+
         // Create new collab reel document
         // NOTE: must use the SAME path the rest of the app uses for reels (FirebaseUtils.getReelsRef()
         // = "reels/{reelId}"), NOT "reels/videos/...". Writing to the wrong path silently created the
@@ -519,6 +547,15 @@ public class CollabRepostAcceptActivity extends AppCompatActivity {
         reelData.put("repostCount",        0);
         reelData.put("collabRepostCount",  0);
         reelData.put("allowReposts",       true);
+        // ✅ FIX: carry the original reel's sound over so the collab repost
+        // credits the original creator, same as any other reel that reuses
+        // an existing sound.
+        if (!musicId.isEmpty()) {
+            reelData.put("musicId",         musicId);
+            reelData.put("musicName",       musicName);
+            reelData.put("musicArtist",     musicArtist);
+            reelData.put("musicCoverUrl",   musicCoverUrl);
+        }
         // Collab repost flags
         reelData.put("isCollabRepost",         true);
         reelData.put("collabRepostId",         collabRepostId);
@@ -624,6 +661,28 @@ public class CollabRepostAcceptActivity extends AppCompatActivity {
                 }
                 @Override public void onComplete(DatabaseError e, boolean b, DataSnapshot s) {}
             });
+
+        // ✅ FIX: link the new reel under the original sound's own node too —
+        // mirrors registerOrLinkSound() in ReelUploadActivity — so
+        // SoundDetailActivity's "Reels with this sound" grid + reel_count
+        // include this collab repost instead of silently missing it.
+        if (!musicId.isEmpty()) {
+            DatabaseReference soundRef = root.child("sounds").child(musicId);
+            Map<String, Object> soundReelEntry = new HashMap<>();
+            soundReelEntry.put("thumbnailUrl", thumbUrl != null ? thumbUrl : "");
+            soundReelEntry.put("videoUrl",     videoUrl != null ? videoUrl : "");
+            soundReelEntry.put("ownerUid",     initiatorUid != null ? initiatorUid : "");
+            soundReelEntry.put("viewsCount",   0);
+            updates.put("sounds/" + musicId + "/reels/" + newReelId, soundReelEntry);
+            soundRef.child("reel_count").runTransaction(new Transaction.Handler() {
+                @NonNull @Override public Transaction.Result doTransaction(@NonNull MutableData d) {
+                    Long cur = d.getValue(Long.class);
+                    d.setValue((cur != null ? cur : 0) + 1);
+                    return Transaction.success(d);
+                }
+                @Override public void onComplete(DatabaseError e, boolean b, DataSnapshot s) {}
+            });
+        }
 
         root.updateChildren(updates)
             .addOnSuccessListener(v -> {

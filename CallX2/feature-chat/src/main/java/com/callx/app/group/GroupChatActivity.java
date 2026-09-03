@@ -183,6 +183,10 @@ public class GroupChatActivity extends AppCompatActivity
     // (fired before the post()-delayed restore runs) to scrollToPosition(end)
     // and produce a visible top→bottom scroll on every chat open.
     private boolean isUserAtBottom            = false;
+    // FLICKER FIX: true only while the user's finger is actually down on
+    // rvMessages. This gates the fling-only hardware layer and Glide pause
+    // strategy, so a programmatic insert/reveal never rebuilds the RV layer.
+    private boolean isUserTouchOnMessages     = false;
     private int     pendingNewMsgCount        = 0;
     private DatabaseReference  typingRef;
     private ValueEventListener typingListener;
@@ -1005,7 +1009,12 @@ public class GroupChatActivity extends AppCompatActivity
             }
         };
         llm.setStackFromEnd(true);
-        llm.setInitialPrefetchItemCount(6);
+        llm.setReverseLayout(false);
+        // PERF: an aggressive prefetch window for group bubbles. They are
+        // taller and more varied than 1:1 bubbles, so 10 gives the main
+        // thread enough runway before a fast fling reaches a new row.
+        llm.setItemPrefetchEnabled(true);
+        llm.setInitialPrefetchItemCount(10);
         binding.rvMessages.setLayoutManager(llm);
         // PERF: build the 4 bubble-drawable combos now, before the first
         // layout pass — see ChatThemeManager.preWarm() for why.
@@ -1018,23 +1027,33 @@ public class GroupChatActivity extends AppCompatActivity
         binding.rvMessages.setAdapter(pagingAdapter);
         // PERF: fixed-size RV, large view cache, shared RecycledViewPool
         binding.rvMessages.setHasFixedSize(true);
-        binding.rvMessages.setItemViewCacheSize(20);
+        // Group messages use the same MessagePagingAdapter view types, but
+        // sender labels/avatars make a group row costlier to recreate.
+        // Keep a slightly larger detached-view cache so a rapid fling mostly
+        // rebinds existing rows instead of inflating them.
+        binding.rvMessages.setItemViewCacheSize(32);
         androidx.recyclerview.widget.RecyclerView.RecycledViewPool groupPool =
                 new androidx.recyclerview.widget.RecyclerView.RecycledViewPool();
-        // PERF: pool sizes 5→10 for sent/received — same reasoning as 1:1 chat.
-        groupPool.setMaxRecycledViews(1, 10);
-        groupPool.setMaxRecycledViews(2, 10);
-        groupPool.setMaxRecycledViews(3,  3);
-        groupPool.setMaxRecycledViews(4,  3);
-        groupPool.setMaxRecycledViews(5,  3);
-        // PERF FIX: TYPE_CANVAS_SENT/RECEIVED (11/12) were missing here too —
-        // same gap as 1:1 ChatActivity. isCanvasEligible() covers almost every
-        // bubble type now, so these two were silently falling back to the
-        // RecyclerView default pool size of 5 despite being the hottest types
-        // in a group chat's fast-scroll path. Sized same as sent/received.
-        groupPool.setMaxRecycledViews(11 /* TYPE_CANVAS_SENT */,     10);
-        groupPool.setMaxRecycledViews(12 /* TYPE_CANVAS_RECEIVED */, 10);
+        // Hot group bubble types get a little more headroom than 1:1 chat.
+        // This avoids a new Canvas/Paint allocation in the middle of a fling.
+        groupPool.setMaxRecycledViews(1  /* TYPE_SENT */,        24);
+        groupPool.setMaxRecycledViews(2  /* TYPE_RECEIVED */,    24);
+        groupPool.setMaxRecycledViews(3  /* TYPE_STATUS_SEEN */,  8);
+        groupPool.setMaxRecycledViews(4  /* TYPE_REEL_SEEN */,    8);
+        groupPool.setMaxRecycledViews(5  /* TYPE_CALL_ENTRY */,   8);
+        groupPool.setMaxRecycledViews(6  /* TYPE_HIDDEN */,       8);
+        groupPool.setMaxRecycledViews(7  /* TYPE_DATE_SEPARATOR */, 12);
+        groupPool.setMaxRecycledViews(8  /* TYPE_VIEW_ONCE_SENT */, 8);
+        groupPool.setMaxRecycledViews(9  /* TYPE_VIEW_ONCE_EXPIRED */, 8);
+        groupPool.setMaxRecycledViews(10 /* TYPE_VIEW_ONCE_SENT_WAITING */, 8);
+        groupPool.setMaxRecycledViews(11 /* TYPE_CANVAS_SENT */,     24);
+        groupPool.setMaxRecycledViews(12 /* TYPE_CANVAS_RECEIVED */, 24);
         binding.rvMessages.setRecycledViewPool(groupPool);
+        // PERF: warm the two hottest holder types after the cold-open frame.
+        // The first user fling should reuse already-created Canvas bubbles
+        // instead of inflating them on the UI thread mid-gesture.
+        binding.rvMessages.post(() ->
+                pagingAdapter.warmUpRecycledViewPool(binding.rvMessages, groupPool, 6));
         // PERF: scroll-ahead image preloading — same helper/size as 1:1
         // ChatActivity, keeps cache-key size consistent with bind().
         com.callx.app.utils.ChatMediaPreloader.attach(this, binding.rvMessages, 200, 200,
@@ -1054,7 +1073,6 @@ public class GroupChatActivity extends AppCompatActivity
                     }
                 });
         com.callx.app.chat.performance.SwipeOptimizer.disableChangeAnimations(binding.rvMessages);
-        binding.rvMessages.setItemAnimator(null);
         binding.rvMessages.setNestedScrollingEnabled(false);
         // PERF OPT: same three micro-opts as 1:1 ChatActivity
         // Rubber-band overscroll: native GPU stretch on Android 12+, lightweight
@@ -1063,6 +1081,44 @@ public class GroupChatActivity extends AppCompatActivity
         binding.rvMessages.setEdgeEffectFactory(new com.callx.app.chat.performance.RubberBandEdgeEffectFactory());
         binding.rvMessages.setLayerType(android.view.View.LAYER_TYPE_NONE, null);
         binding.rvMessages.setSaveEnabled(false);
+        // PERF: use the same zero-duration, payload-friendly animator as 1:1
+        // chat. It avoids move/change animations while Paging applies rows,
+        // which otherwise makes neighboring group bubbles flash or jump.
+        androidx.recyclerview.widget.DefaultItemAnimator groupAnimator =
+                new androidx.recyclerview.widget.DefaultItemAnimator() {
+            @Override
+            public boolean canReuseUpdatedViewHolder(
+                    @NonNull RecyclerView.ViewHolder viewHolder,
+                    @NonNull java.util.List<Object> payloads) {
+                return !payloads.isEmpty();
+            }
+
+            @Override public long getAddDuration()    { return 0; }
+            @Override public long getRemoveDuration() { return 0; }
+            @Override public long getMoveDuration()   { return 0; }
+        };
+        groupAnimator.setSupportsChangeAnimations(false);
+        binding.rvMessages.setItemAnimator(groupAnimator);
+
+        // FLICKER/JUNK FIX: only enable the temporary hardware layer for a
+        // real finger-driven drag/fling. Programmatic Paging inserts and
+        // bottom reveals must stay on the normal layer while their children
+        // are changing, otherwise the layer can show a stale frame.
+        binding.rvMessages.addOnItemTouchListener(
+                new RecyclerView.SimpleOnItemTouchListener() {
+            @Override
+            public boolean onInterceptTouchEvent(@NonNull RecyclerView rv,
+                                                  @NonNull android.view.MotionEvent e) {
+                int action = e.getActionMasked();
+                if (action == android.view.MotionEvent.ACTION_DOWN) {
+                    isUserTouchOnMessages = true;
+                } else if (action == android.view.MotionEvent.ACTION_UP
+                        || action == android.view.MotionEvent.ACTION_CANCEL) {
+                    isUserTouchOnMessages = false;
+                }
+                return false;
+            }
+        });
 
         // PERF: Glide RecyclerViewPreloader — group chats are media-heavy (photos,
         // memes, forwarded images), so prefetching the next few media bubbles in the
@@ -1108,7 +1164,7 @@ public class GroupChatActivity extends AppCompatActivity
                         com.bumptech.glide.Glide.with(this),
                         groupModelProvider,
                         groupSizeProvider,
-                        5 /* preload 5 items in the scroll direction */);
+                        8 /* preload 8 items in the scroll direction */);
         binding.rvMessages.addOnScrollListener(groupGlidePreloader);
 
         binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
@@ -1133,19 +1189,42 @@ public class GroupChatActivity extends AppCompatActivity
             }
 
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
-                // PERF: Glide pause during fling — avoids decoding images for items
-                // that scroll past before becoming visible; resume on idle/drag so
-                // images load as soon as the user stops or slows down.
-                if (newState == RecyclerView.SCROLL_STATE_SETTLING) {
-                    // SETTLING = user released, list is flinging — pause Glide.
-                    com.bumptech.glide.Glide.with(GroupChatActivity.this).pauseRequests();
+                // RecyclerView can emit IDLE while its view is being detached
+                // during Activity teardown. Do not ask Glide for a destroyed
+                // Activity in that callback.
+                if (isFinishing() || isDestroyed()) return;
+
+                // PERF: mirror 1:1 chat's fling layer. A hardware layer makes
+                // repeated rounded-bubble drawing cheaper while the user is
+                // physically scrolling, but never enable it for a
+                // programmatic insert/reveal.
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    rv.setLayerType(View.LAYER_TYPE_NONE, null);
+                } else if (isUserTouchOnMessages
+                        && rv.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+                    rv.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+                }
+
+                // PERF: pause all Glide descendants only during a genuine
+                // finger-driven drag/fling. Resume only once the list is
+                // fully idle; resuming during DRAGGING causes image decodes
+                // to compete with the scroll frame.
+                if (isUserTouchOnMessages
+                        && (newState == RecyclerView.SCROLL_STATE_SETTLING
+                        || newState == RecyclerView.SCROLL_STATE_DRAGGING)) {
+                    com.bumptech.glide.Glide.with(GroupChatActivity.this)
+                            .pauseRequestsRecursive();
                     com.callx.app.utils.LinkPreviewFetcher.setScrolling(true);
-                } else if (newState == RecyclerView.SCROLL_STATE_IDLE
-                        || newState == RecyclerView.SCROLL_STATE_DRAGGING) {
-                    // IDLE/DRAGGING = stopped or slow drag — resume Glide.
-                    com.bumptech.glide.Glide.with(GroupChatActivity.this).resumeRequests();
-                    com.callx.app.utils.LinkPreviewFetcher.setScrolling(
-                            newState == RecyclerView.SCROLL_STATE_DRAGGING);
+                } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    com.bumptech.glide.Glide.with(GroupChatActivity.this)
+                            .resumeRequestsRecursive();
+                    com.callx.app.utils.LinkPreviewFetcher.setScrolling(false);
+                }
+
+                // Let the adapter skip expensive send-animation/bind polish
+                // while the group list is moving, just like 1:1 chat.
+                if (pagingAdapter != null) {
+                    pagingAdapter.setRecyclerViewScrollState(newState);
                 }
                 if (newState != RecyclerView.SCROLL_STATE_IDLE) return;
                 if (watchingController == null) return;
