@@ -128,6 +128,11 @@ import com.callx.app.utils.AlertDialogStyler;
       private Runnable          replyOverlayAutoHide;
       private static final long REPLY_OVERLAY_AUTO_HIDE_MS = 4000;
       private GestureDetector swipeDetector;
+      // Instagram-style "Spin View" — pans the Story media (never the whole
+      // screen) in response to phone rotation. Fully independent of `player`
+      // (see StorySpinViewController's class doc). Lazily built in onCreate,
+      // started/stopped with the activity's own visibility lifecycle.
+      private StorySpinViewController spinView;
       // ── Lifecycle ─────────────────────────────────────────────────────────
       @Override
       protected void onCreate(Bundle savedInstanceState) {
@@ -181,11 +186,14 @@ import com.callx.app.utils.AlertDialogStyler;
               binding.tvOwner.setText("\u2B50 " + (ownerName != null ? ownerName : "Status"));
           com.callx.app.utils.VerifiedBadgeUtils.bindForUid(
               (android.widget.ImageView) findViewById(R.id.iv_owner_verified), ownerUid);
+          spinView = new StorySpinViewController(this);
+          spinView.attachTargets(binding.ivStatus, binding.playerView);
           load(ownerUid);
       }
-      @Override protected void onPause()  { super.onPause();  pauseProgress(); }
+      @Override protected void onPause()  { super.onPause();  pauseProgress(); if (spinView != null) spinView.stop(); }
       @Override protected void onResume() {
           super.onResume();
+          if (spinView != null) spinView.start();
           StatusStickerOverlayView zoomed = findZoomedSticker();
           if (zoomed != null) settleStickerReaction(zoomed); // shrinks back, then resumes
           else if (paused) resumeProgress();
