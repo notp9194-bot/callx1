@@ -2,6 +2,7 @@ package com.callx.app.feed;
 
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -37,6 +38,8 @@ public class HomeFeedScrollStateManager {
     private final StateChangeListener listener;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private Runnable settleRunnable = null;
+    private long lastScrollSampleMs = -1L;
+    private float lastVelocityPxPerSecond = 0f;
 
     public HomeFeedScrollStateManager(@NonNull StateChangeListener listener) {
         this.listener = listener;
@@ -99,12 +102,24 @@ public class HomeFeedScrollStateManager {
 
     /**
      * Fired repeatedly by RecyclerView.OnScrollListener.onScrolled as the list
-     * moves. Can be used to detect "slow scroll" vs "fast fling" and tune work
-     * priority accordingly, but mostly a no-op.
+     * moves. Keeps a lightweight signed velocity estimate so prefetch can
+     * follow the user's direction instead of warming content behind a fling.
      */
     public void onRecyclerScrolled(int dx, int dy) {
-        // Could compute velocity here if needed, but RecyclerView scroll state
-        // transition is usually sufficient signal.
+        // RecyclerView does not expose its current fling velocity. A cheap
+        // timestamped delta gives the prefetch coordinator enough signal to
+        // avoid preparing behind-the-user content during a fast fling.
+        long now = SystemClock.uptimeMillis();
+        if (lastScrollSampleMs > 0L && now > lastScrollSampleMs) {
+            long dt = now - lastScrollSampleMs;
+            lastVelocityPxPerSecond = (dy * 1000f) / dt;
+        }
+        lastScrollSampleMs = now;
+    }
+
+    /** Signed velocity estimate in px/s; positive means scrolling downward. */
+    public float getLastVelocityPxPerSecond() {
+        return lastVelocityPxPerSecond;
     }
 
     private void fireStateChange(int newState) {
@@ -138,5 +153,7 @@ public class HomeFeedScrollStateManager {
 
     public void shutdown() {
         cancelSettleTimer();
+        lastScrollSampleMs = -1L;
+        lastVelocityPxPerSecond = 0f;
     }
 }
