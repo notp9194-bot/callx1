@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ✅ NEW (Instagram-style editor): same rail chip as bg_editor_rail_icon.xml
+     but for whichever tool is currently open — filled with the shared brand
+     gradient (same tokens as bg_trim_gradient_button) so the active tool
+     reads clearly against the video behind it. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <gradient
+        android:type="linear"
+        android:angle="45"
+        android:startColor="@color/trim_gradient_start"
+        android:endColor="@color/trim_gradient_end"/>
+    <stroke android:color="#40FFFFFF" android:width="1dp"/>
+</shape>

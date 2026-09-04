@@ -394,9 +394,7 @@ public class HomeFragment extends Fragment
     };
 
     private static class FeedRow {
-        private static long nextStableId = 1L;
         final int type;
-        final long stableId = nextStableId++;
         /** For ROW_POST: index into currentFeedPosts/feedCards. */
         int postIndex = -1;
         /** For ROW_SUGGESTED_CREATORS: candidate pool (uid,name,photo). */
@@ -1223,15 +1221,16 @@ public class HomeFragment extends Fragment
                         ultraOptimizer.onRecyclerScrolled(dx, dy);
                     }
 
-                    // Keep the player handoff out of this hot path. A fling
-                    // can cross several cards between frames; asking
-                    // ExoPlayer to detach/attach on each dominant-card
-                    // change competes directly with RecyclerView draw/layout.
-                    // The outside-viewport guard still stops an off-screen
-                    // player; the IDLE/vsync pass below chooses one landing
-                    // card.
+                    // Keep the incumbent playing while it remains visible,
+                    // but allow a card that becomes dominant during either a
+                    // slow drag or a fast fling to take over immediately.
+                    // The 50% visibility floor below prevents handoffs for
+                    // cards that only flash past the edge of the viewport.
                     beginFeedScrollLayer();
                     detachActiveCardIfOutsideViewport();
+                    if (dy != 0) {
+                        playMostVisibleCard(true);
+                    }
                     scrollDiagnostics.onScrolled(dx, dy, rv.computeVerticalScrollOffset());
                     scrollHandler.removeCallbacks(scrollSettleRunnable);
                     scrollHandler.postDelayed(scrollSettleRunnable, 180);
@@ -5162,8 +5161,7 @@ public class HomeFragment extends Fragment
             feedItems.add(0, new FeedRow(ROW_NEW_POSTS_BANNER));
             feedAdapter.notifyItemInserted(FEED_HEADER_OFFSET);
         } else {
-            feedAdapter.notifyItemChanged(FEED_HEADER_OFFSET + existing,
-                    "banner_count");
+            feedAdapter.notifyItemChanged(FEED_HEADER_OFFSET + existing);
         }
     }
 
@@ -8469,44 +8467,14 @@ public class HomeFragment extends Fragment
     private class FeedAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         private final View headerView;
         private final View footerView;
-        private static final long HEADER_ID = Long.MIN_VALUE + 1L;
-        private static final long FOOTER_ID = Long.MIN_VALUE + 2L;
 
         FeedAdapter(View headerView, View footerView) {
             this.headerView = headerView;
             this.footerView = footerView;
-            // Stable identities keep a visible holder attached to the same
-            // reel when DiffUtil moves rows after pagination/front trimming.
-            // Otherwise RecyclerView may fully rebind a heavy PlayerView row
-            // even though it is still the same reel.
-            setHasStableIds(true);
+            setHasStableIds(false);
         }
 
         @Override public int getItemCount() { return feedItems.size() + 2; }
-
-        @Override public long getItemId(int position) {
-            if (position == 0) return HEADER_ID;
-            if (position == getItemCount() - 1) return FOOTER_ID;
-
-            FeedRow row = feedItems.get(position - FEED_HEADER_OFFSET);
-            if (row.type == ROW_POST
-                    && row.postIndex >= 0
-                    && row.postIndex < currentFeedPosts.size()) {
-                ReelModel reel = currentFeedPosts.get(row.postIndex);
-                if (reel != null && reel.reelId != null && !reel.reelId.isEmpty()) {
-                    // Deterministic long identity without allocating a
-                    // wrapper object for every adapter row.
-                    long hash = 0xcbf29ce484222325L;
-                    for (int i = 0; i < reel.reelId.length(); i++) {
-                        hash ^= reel.reelId.charAt(i);
-                        hash *= 0x100000001b3L;
-                    }
-                    return hash;
-                }
-            }
-            // Non-post rows preserve their row object through DiffUtil.
-            return row.stableId;
-        }
 
         @Override public int getItemViewType(int position) {
             if (position == 0) return VT_HEADER;
@@ -8663,20 +8631,6 @@ public class HomeFragment extends Fragment
                     // (see onCreateViewHolder).
                     return;
             }
-        }
-
-        @Override
-        public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder,
-                                     int position, @NonNull List<Object> payloads) {
-            // The new-post banner only changes its counter. Avoid routing this
-            // tiny update through the generic bind path (and avoid resetting
-            // any neighboring heavy row) when the feed receives a live tick.
-            if (!payloads.isEmpty()
-                    && getItemViewType(position) == ROW_NEW_POSTS_BANNER) {
-                bindNewPostsBannerHolder((NewPostsBannerHolder) holder);
-                return;
-            }
-            super.onBindViewHolder(holder, position, payloads);
         }
 
         @Override

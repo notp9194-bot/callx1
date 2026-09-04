@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ✅ NEW (Instagram-style editor): soft black-to-transparent gradient sitting
+     behind the overlay top bar (back / Done) now that the video preview runs
+     full-screen behind it, so those controls stay readable over bright video
+     frames without needing an opaque bar. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="90"
+        android:startColor="#99000000"
+        android:endColor="#00000000"/>
+</shape>

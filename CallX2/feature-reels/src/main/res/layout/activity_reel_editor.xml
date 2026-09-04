@@ -1,70 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- ✅ INSTAGRAM-STYLE REDESIGN: the old version of this screen was a single
+     vertical column — a fixed-height video box on top, then a numbered
+     "Step 1 of 5 / Trim → Text → Look → Motion & Sound → Finishing" wizard
+     card below it, with its own Back/Next buttons and a dot-stepper. New
+     testers found that wizard confusing (it reads like a form, and hides
+     most of the video while editing). This screen now follows the same
+     pattern Instagram/Reels-style editors use:
+       • the video preview runs edge-to-edge, full screen, at all times —
+         so every tool's effect is visible live, in place, immediately
+       • the 5 tool groups (still the same underlying steps — trim, text,
+         look, motion & sound, finishing) are exposed as a single column of
+         round icon buttons fixed to the right edge, instead of a linear
+         Back/Next wizard — tap any icon to jump straight to that tool
+       • that tool's controls slide up as a compact panel anchored to the
+         bottom edge, over the video, instead of pushing the video into a
+         small box
+     All of the underlying step content (trim filmstrip, text input, filter/
+     sticker/subtitle chips, transitions/voice/audio-mix chips, thumbnail/
+     music chips) is unchanged — same views, same ids — only the surrounding
+     chrome (stepper dots, Back/Next bar, fixed-height video box) is gone,
+     since the rail on the right replaces it. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="@color/trim_screen_bg">
 
-    <!-- Top bar -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp">
-
-        <ImageButton
-            android:id="@+id/btn_editor_back"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:src="@drawable/ic_arrow_back"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="@color/trim_text_primary"
-            android:contentDescription="Back"/>
-
-        <TextView
-            android:id="@+id/tv_editor_title"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Edit Reel"
-            android:textColor="@color/trim_text_primary"
-            android:textSize="18sp"
-            android:fontFamily="sans-serif-medium"
-            android:gravity="center"/>
-
-        <TextView
-            android:id="@+id/btn_editor_next"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="Done"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:fontFamily="sans-serif-medium"
-            android:gravity="center"
-            android:paddingStart="18dp"
-            android:paddingEnd="18dp"
-            android:background="@drawable/bg_trim_gradient_button_ripple"/>
-    </LinearLayout>
-
-    <!-- Video Preview (9:16 aspect) -->
-    <!-- ✅ FIX: rounded corners now hug the ACTUAL video rect instead of the whole
-         placeholder box. Previously the outer FrameLayout always filled the full
-         weighted area, so a video whose aspect ratio didn't match that area (e.g.
-         a non-9:16 clip) showed rounded corners on empty black letterbox space
-         while the video itself stayed square inside. Fix: an outer, unrounded
-         FrameLayout now just centers the content; the rounded/clipped inner
-         FrameLayout (video_preview_container) is resized in Java at runtime —
-         once the real video width/height is known from the player — to exactly
-         match the video's own aspect ratio, so the rounded corners sit directly
-         on the video's edges in whatever ratio the video actually is. -->
+    <!-- ══════════════════ Full-screen live video preview ══════════════════ -->
     <FrameLayout
         android:id="@+id/video_preview_outer"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_height="match_parent"
         android:gravity="center">
 
     <FrameLayout
@@ -137,244 +103,268 @@
     </FrameLayout>
     </FrameLayout>
 
+    <!-- ══════════════════ Top overlay bar (back / Done) ══════════════════ -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="110dp"
+        android:layout_gravity="top"
+        android:background="@drawable/bg_editor_top_scrim"/>
 
-    <!-- ── Card panel (reused from ReelAudioMixerActivity's bg_trim_card —
-         rounded-top-corner bottom panel, now shared via :core) — wraps the
-         step indicator + editing-tools ViewFlipper + step-nav bar so the
-         whole editing-tools area below the preview reads as one card,
-         same visual language as the Audio Mixer screen. ── -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:background="@drawable/bg_trim_card">
+        android:layout_height="56dp"
+        android:layout_gravity="top"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
 
-    <!-- ── Editing-tools step indicator ──────────────────────────────────
-         Reused from the Add Status / Reel Upload screens' dot-stepper UI
-         (same bg_trim_gradient_button / bg_trim_circle_btn drawables from
-         :core, same active/inactive coloring logic) instead of the old
-         thin horizontal pb_editor_step ProgressBar — same numbered-circle +
-         connecting-line look, just 5 dots here (this wizard has 5 steps:
-         Trim → Text → Look → Motion & Sound → Finishing). -->
+        <ImageButton
+            android:id="@+id/btn_editor_back"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_arrow_back"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#FFFFFF"
+            android:contentDescription="Back"/>
+
+        <!-- ✅ Title is kept (Java still sets "Edit Reel" / "Edit Status" /
+             "Edit video" on it via tv_editor_title) but hidden — Instagram's
+             own editor doesn't show a title bar, just back + Done, now that
+             the current tool is already named on the bottom panel. -->
+        <TextView
+            android:id="@+id/tv_editor_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:visibility="gone"
+            android:text="Edit Reel"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"/>
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1"/>
+
+        <TextView
+            android:id="@+id/btn_editor_next"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Done"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:background="@drawable/bg_trim_gradient_button_ripple"/>
+    </LinearLayout>
+
+    <!-- ══════════════════ Right-edge vertical tool rail ══════════════════
+         Instagram-style: one column of round icon buttons, vertically
+         centered on the right edge, floating directly over the live video.
+         Tapping an icon opens that tool's panel at the bottom (see
+         goToEditorStep() / updateEditorRailUi() in ReelEditorActivity) —
+         the currently-open tool's icon is filled with the brand gradient
+         (bg_editor_rail_icon_active), every other icon stays a plain
+         translucent disc (bg_editor_rail_icon). -->
     <LinearLayout
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical|end"
+        android:layout_marginEnd="12dp"
         android:orientation="vertical"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingTop="10dp"
-        android:paddingBottom="10dp">
+        android:gravity="center_horizontal">
 
-        <!-- ✅ "Step X of Y" strip: shared premium gradient pill
-             (@drawable/bg_step_indicator_pill, in :core) + an uppercase step-name
-             label (tv_editor_step_name) shown after the pill, no background of its
-             own, sized bigger than the (now smaller) pill text so it reads as the
-             headline and the pill reads as a small status chip. Pill padding/text
-             size come from @dimen/step_pill_* in :core, so resizing the pill here
-             applies to Reel Upload / Add Status / Photo Editor too. -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="12dp">
-
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:layout_marginBottom="22dp">
+            <ImageButton
+                android:id="@+id/rail_icon_trim"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:src="@drawable/ic_editor_crop"
+                android:scaleType="center"
+                android:padding="12dp"
+                android:tint="#FFFFFF"
+                android:background="@drawable/bg_editor_rail_icon"
+                android:contentDescription="Trim and crop"/>
             <TextView
-                android:id="@+id/tv_editor_step_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Step 1 of 5"
+                android:layout_marginTop="4dp"
+                android:text="Trim"
                 android:textColor="#FFFFFF"
-                android:textSize="@dimen/step_pill_text_size"
-                android:textStyle="bold"
-                android:letterSpacing="0.02"
+                android:textSize="10sp"
                 android:fontFamily="sans-serif-medium"
-                android:gravity="center"
-                android:background="@drawable/bg_step_indicator_pill"
-                android:paddingStart="@dimen/step_pill_padding_h"
-                android:paddingEnd="@dimen/step_pill_padding_h"
-                android:paddingTop="@dimen/step_pill_padding_v"
-                android:paddingBottom="@dimen/step_pill_padding_v"
-                android:maxLines="1"
-                android:ellipsize="end"/>
-
-            <TextView
-                android:id="@+id/tv_editor_step_name"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:text="Trim and Crop"
-                android:textAllCaps="true"
-                android:textColor="@color/trim_text_primary"
-                android:textSize="@dimen/step_name_text_size"
-                android:textStyle="bold"
-                android:letterSpacing="0.02"
-                android:fontFamily="sans-serif-medium"
-                android:maxLines="1"
-                android:ellipsize="end"/>
-
+                android:shadowColor="#B0000000"
+                android:shadowRadius="4"
+                android:shadowDx="0"
+                android:shadowDy="0"/>
         </LinearLayout>
 
         <LinearLayout
-            android:id="@+id/editor_stepper"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <FrameLayout
-                android:layout_width="48dp"
-                android:layout_height="48dp">
-
-                <ImageView
-                    android:id="@+id/step_ring_1"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:src="@drawable/bg_step_active_ring_orange"
-                    android:contentDescription="@null"
-                    android:visibility="gone"/>
-
-                <TextView
-                    android:id="@+id/step_dot_1"
-                    android:layout_gravity="center"
-                    android:layout_width="26dp"
-                    android:layout_height="26dp"
-                    android:gravity="center"
-                    android:text="1"
-                    android:textSize="11sp"
-                    android:textColor="@color/white"
-                    android:textStyle="bold"
-                    android:background="@drawable/bg_trim_gradient_button"/>
-            </FrameLayout>
-            <View
-                android:id="@+id/step_line_1"
-                android:layout_width="0dp"
-                android:layout_height="4dp"
-                android:layout_weight="1"
-                android:layout_marginHorizontal="4dp"
-                android:background="@color/trim_divider"/>
-            <FrameLayout
-                android:layout_width="48dp"
-                android:layout_height="48dp">
-
-                <ImageView
-                    android:id="@+id/step_ring_2"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:src="@drawable/bg_step_active_ring_orange"
-                    android:contentDescription="@null"
-                    android:visibility="gone"/>
-
-                <TextView
-                    android:id="@+id/step_dot_2"
-                    android:layout_gravity="center"
-                    android:layout_width="26dp"
-                    android:layout_height="26dp"
-                    android:gravity="center"
-                    android:text="2"
-                    android:textSize="11sp"
-                    android:textColor="@color/trim_text_secondary"
-                    android:textStyle="bold"
-                    android:background="@drawable/bg_trim_circle_btn"/>
-            </FrameLayout>
-            <View
-                android:id="@+id/step_line_2"
-                android:layout_width="0dp"
-                android:layout_height="4dp"
-                android:layout_weight="1"
-                android:layout_marginHorizontal="4dp"
-                android:background="@color/trim_divider"/>
-            <FrameLayout
-                android:layout_width="48dp"
-                android:layout_height="48dp">
-
-                <ImageView
-                    android:id="@+id/step_ring_3"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:src="@drawable/bg_step_active_ring_orange"
-                    android:contentDescription="@null"
-                    android:visibility="gone"/>
-
-                <TextView
-                    android:id="@+id/step_dot_3"
-                    android:layout_gravity="center"
-                    android:layout_width="26dp"
-                    android:layout_height="26dp"
-                    android:gravity="center"
-                    android:text="3"
-                    android:textSize="11sp"
-                    android:textColor="@color/trim_text_secondary"
-                    android:textStyle="bold"
-                    android:background="@drawable/bg_trim_circle_btn"/>
-            </FrameLayout>
-            <View
-                android:id="@+id/step_line_3"
-                android:layout_width="0dp"
-                android:layout_height="4dp"
-                android:layout_weight="1"
-                android:layout_marginHorizontal="4dp"
-                android:background="@color/trim_divider"/>
-            <FrameLayout
-                android:layout_width="48dp"
-                android:layout_height="48dp">
-
-                <ImageView
-                    android:id="@+id/step_ring_4"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:src="@drawable/bg_step_active_ring_orange"
-                    android:contentDescription="@null"
-                    android:visibility="gone"/>
-
-                <TextView
-                    android:id="@+id/step_dot_4"
-                    android:layout_gravity="center"
-                    android:layout_width="26dp"
-                    android:layout_height="26dp"
-                    android:gravity="center"
-                    android:text="4"
-                    android:textSize="11sp"
-                    android:textColor="@color/trim_text_secondary"
-                    android:textStyle="bold"
-                    android:background="@drawable/bg_trim_circle_btn"/>
-            </FrameLayout>
-            <View
-                android:id="@+id/step_line_4"
-                android:layout_width="0dp"
-                android:layout_height="4dp"
-                android:layout_weight="1"
-                android:layout_marginHorizontal="4dp"
-                android:background="@color/trim_divider"/>
-            <FrameLayout
-                android:layout_width="48dp"
-                android:layout_height="48dp">
-
-                <ImageView
-                    android:id="@+id/step_ring_5"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:src="@drawable/bg_step_active_ring_orange"
-                    android:contentDescription="@null"
-                    android:visibility="gone"/>
-
-                <TextView
-                    android:id="@+id/step_dot_5"
-                    android:layout_gravity="center"
-                    android:layout_width="26dp"
-                    android:layout_height="26dp"
-                    android:gravity="center"
-                    android:text="5"
-                    android:textSize="11sp"
-                    android:textColor="@color/trim_text_secondary"
-                    android:textStyle="bold"
-                    android:background="@drawable/bg_trim_circle_btn"/>
-            </FrameLayout>
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:layout_marginBottom="22dp">
+            <ImageButton
+                android:id="@+id/rail_icon_text"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:src="@drawable/ic_status_btn_text"
+                android:scaleType="center"
+                android:padding="12dp"
+                android:tint="#FFFFFF"
+                android:background="@drawable/bg_editor_rail_icon"
+                android:contentDescription="Text overlay"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Text"
+                android:textColor="#FFFFFF"
+                android:textSize="10sp"
+                android:fontFamily="sans-serif-medium"
+                android:shadowColor="#B0000000"
+                android:shadowRadius="4"
+                android:shadowDx="0"
+                android:shadowDy="0"/>
         </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:layout_marginBottom="22dp">
+            <ImageButton
+                android:id="@+id/rail_icon_look"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:src="@drawable/ic_filter"
+                android:scaleType="center"
+                android:padding="12dp"
+                android:tint="#FFFFFF"
+                android:background="@drawable/bg_editor_rail_icon"
+                android:contentDescription="Filters, stickers and subtitles"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Look"
+                android:textColor="#FFFFFF"
+                android:textSize="10sp"
+                android:fontFamily="sans-serif-medium"
+                android:shadowColor="#B0000000"
+                android:shadowRadius="4"
+                android:shadowDx="0"
+                android:shadowDy="0"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:layout_marginBottom="22dp">
+            <ImageButton
+                android:id="@+id/rail_icon_sound"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:src="@drawable/ic_music"
+                android:scaleType="center"
+                android:padding="12dp"
+                android:tint="#FFFFFF"
+                android:background="@drawable/bg_editor_rail_icon"
+                android:contentDescription="Transitions, voice effects and audio mix"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Sound"
+                android:textColor="#FFFFFF"
+                android:textSize="10sp"
+                android:fontFamily="sans-serif-medium"
+                android:shadowColor="#B0000000"
+                android:shadowRadius="4"
+                android:shadowDx="0"
+                android:shadowDy="0"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
+            <ImageButton
+                android:id="@+id/rail_icon_finish"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:src="@drawable/ic_gallery"
+                android:scaleType="center"
+                android:padding="12dp"
+                android:tint="#FFFFFF"
+                android:background="@drawable/bg_editor_rail_icon"
+                android:contentDescription="Thumbnail and music"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Finish"
+                android:textColor="#FFFFFF"
+                android:textSize="10sp"
+                android:fontFamily="sans-serif-medium"
+                android:shadowColor="#B0000000"
+                android:shadowRadius="4"
+                android:shadowDx="0"
+                android:shadowDy="0"/>
+        </LinearLayout>
+
     </LinearLayout>
 
-    <!-- Editor controls -->
+    <!-- ══════════════════ Bottom tool panel (floats over the video) ══════════════════
+         Compact card anchored to the bottom edge instead of a fixed-height
+         section that pushes the video preview up — the video stays visible
+         and live everywhere above/around this panel while a tool is open. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:background="@drawable/bg_trim_card">
+
+        <!-- Drag-handle affordance (decorative) -->
+        <View
+            android:layout_width="36dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="8dp"
+            android:background="@color/trim_divider"/>
+
+        <!-- Current tool name — same tv_editor_step_name Java already updates
+             on every goToEditorStep() call (see updateEditorStepUi()); the
+             numbered "Step X of 5" pill is gone since the rail on the right
+             is now the primary navigation, not a linear sequence. -->
+        <TextView
+            android:id="@+id/tv_editor_step_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="10dp"
+            android:text="Trim and Crop"
+            android:textAllCaps="true"
+            android:textColor="@color/trim_text_primary"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.08"
+            android:fontFamily="sans-serif-medium"/>
+
     <ViewFlipper
         android:id="@+id/editor_step_flipper"
         android:layout_width="match_parent"
@@ -726,41 +716,6 @@
 
     </ViewFlipper>
 
-    <!-- ── Fixed bottom step-nav bar for the editing-tools wizard (separate
-         from the top-right "Next" which moves on to Upload) ── -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingTop="4dp"
-        android:paddingBottom="14dp">
-
-        <Button
-            android:id="@+id/btn_editor_step_back"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:layout_marginEnd="8dp"
-            android:text="Back"
-            android:textColor="@color/trim_text_primary"
-            android:backgroundTint="@color/trim_chip_bg"
-            android:visibility="invisible"/>
-
-        <Button
-            android:id="@+id/btn_editor_step_next"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:text="Next"
-            android:textColor="#FFFFFF"
-            android:drawableEnd="@drawable/ic_arrow_forward"
-            android:drawableTint="#FFFFFF"
-            android:drawablePadding="6dp"
-            android:backgroundTint="@color/brand_primary"/>
     </LinearLayout>
 
-    </LinearLayout>
-
-</LinearLayout>
+</FrameLayout>

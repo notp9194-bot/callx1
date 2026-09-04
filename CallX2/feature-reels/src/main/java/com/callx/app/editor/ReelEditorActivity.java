@@ -149,6 +149,12 @@ public class ReelEditorActivity extends AppCompatActivity {
     // the video's actual width/height is known (see onVideoSizeChanged below).
     private View videoPreviewOuter, videoPreviewContainer;
     private ImageButton   btnPlayPause, btnBack;
+    /** ✅ NEW (Instagram-style editor): right-edge vertical tool rail — one
+     *  icon per editing-tools step (Trim/Text/Look/Sound/Finish), replacing
+     *  the old numbered dot-stepper + Back/Next bar. Index matches
+     *  editorCurrentStep / EDITOR_STEP_NAMES. See setupEditorRail() /
+     *  updateEditorRailUi(). */
+    private ImageButton[] editorRailIcons;
     private com.callx.app.views.VideoTrimFilmstripView trimFilmstripView;
     private TextView      tvTrimStart, tvTrimEnd, tvDuration;
     private EditText      etTextOverlay;
@@ -464,6 +470,7 @@ public class ReelEditorActivity extends AppCompatActivity {
         applyPresetsFromCamera(); // ✅ NEW: re-apply live filter/text/sticker chosen during recording
         setupListeners();
         setupEditorStepWizard();
+        setupEditorRail();
     }
 
     /**
@@ -2964,6 +2971,45 @@ public class ReelEditorActivity extends AppCompatActivity {
         boolean isLastStep = editorCurrentStep == EDITOR_STEP_TITLES.length - 1;
         if (btnEditorStepNext != null) {
             btnEditorStepNext.setVisibility(isLastStep ? View.INVISIBLE : View.VISIBLE);
+        }
+        updateEditorRailUi();
+    }
+
+    /**
+     * ✅ NEW (Instagram-style editor): wires the right-edge vertical tool
+     * rail — tapping any icon jumps straight to that tool's step, same
+     * underlying goToEditorStep() the old dot-stepper used, just without the
+     * "already reached steps only" restriction StepDotsNavigationHelper
+     * enforced — the rail is the primary navigation now, not a linear
+     * wizard, so every tool is reachable at any time.
+     */
+    private void setupEditorRail() {
+        editorRailIcons = new ImageButton[] {
+                findViewById(R.id.rail_icon_trim),
+                findViewById(R.id.rail_icon_text),
+                findViewById(R.id.rail_icon_look),
+                findViewById(R.id.rail_icon_sound),
+                findViewById(R.id.rail_icon_finish)
+        };
+        for (int i = 0; i < editorRailIcons.length; i++) {
+            if (editorRailIcons[i] == null) continue;
+            final int step = i;
+            editorRailIcons[i].setOnClickListener(v -> goToEditorStep(step));
+        }
+        updateEditorRailUi();
+    }
+
+    /** Fills whichever rail icon matches editorCurrentStep with the brand
+     *  gradient (bg_editor_rail_icon_active); every other icon stays the
+     *  plain translucent disc (bg_editor_rail_icon). */
+    private void updateEditorRailUi() {
+        if (editorRailIcons == null) return;
+        for (int i = 0; i < editorRailIcons.length; i++) {
+            if (editorRailIcons[i] == null) continue;
+            boolean active = i == editorCurrentStep;
+            editorRailIcons[i].setBackgroundResource(active
+                    ? R.drawable.bg_editor_rail_icon_active
+                    : R.drawable.bg_editor_rail_icon);
         }
     }
 
