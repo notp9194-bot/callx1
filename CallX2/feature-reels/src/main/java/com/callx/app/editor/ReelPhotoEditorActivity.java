@@ -253,23 +253,41 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
     private TextView    tvCaption;
 
     // Tool tabs
+    // ✅ Old horizontal tab bar (tab_filters/tab_effects/tab_caption/
+    // tab_stickers/tab_adjust) is gone from the Instagram-style layout —
+    // these fields stay declared (findViewById below now just yields null)
+    // purely so the still-present null-guarded references elsewhere in this
+    // file remain harmless no-ops; see setupPhotoEditorRail() for the
+    // replacement navigation.
     private View tabFilters, tabEffects, tabCaption, tabStickers, tabAdjust;
 
-    // ── 5-step wizard (Filter → Effect → Caption → Sticker → Adjust).
-    //    Wraps the existing tab bar: Back/Next moves through the same tabs
-    //    in order, and tapping a tab directly still works and keeps the
-    //    step indicator in sync. ────────────────────────────────────────
+    // ── Old 5-step wizard chrome (Filter → Effect → Caption → Sticker →
+    //    Adjust). The "Step X of Y" pill, dot-stepper and fixed Back/Next
+    //    bar are gone from the Instagram-style layout (see
+    //    activity_reel_photo_editor.xml) — the right-edge rail
+    //    (setupPhotoEditorRail()) is the primary navigation now. These
+    //    fields/methods stay in place, fully null-guarded, exactly like
+    //    ReelEditorActivity's equivalent wizard fields, so nothing else in
+    //    this file needs to change. tv_photo_editor_step_name is the one
+    //    view from this group still present — it now shows the current
+    //    tool's name inside the bottom panel. ────────────────────────────
     private TextView            tvPhotoEditorStepTitle;
     private TextView            tvPhotoEditorStepName;
     // Dot-stepper (reused from Add Status / Reel Upload / Reel Editor's
-    // stepper UI — see updatePhotoEditorStepDots() below) — replaces the
-    // old thin horizontal pb_photo_editor_step ProgressBar.
+    // stepper UI — see updatePhotoEditorStepDots() below) — no longer in
+    // the layout; kept null-safe for compatibility.
     private TextView[]          photoEditorStepDots;
     private View[]              photoEditorStepLines;
     private ImageView[]         photoEditorStepRings;
     private ObjectAnimator      photoEditorActiveStepRingSpin;
     private View                btnPhotoEditorStepBack, btnPhotoEditorStepNext;
     private int                 photoEditorCurrentStep = 0;
+
+    /** ✅ NEW (Instagram-style editor): right-edge vertical tool rail —
+     *  Filter / Effect / Caption / Sticker / Adjust, same pattern as
+     *  ReelEditorActivity#editorRailIcons. See setupPhotoEditorRail() /
+     *  updatePhotoEditorRailUi(). */
+    private ImageButton[]       photoEditorRailIcons;
     private static final String[] PHOTO_EDITOR_STEP_TITLES = {
             "Step 1 of 5 · Filter",
             "Step 2 of 5 · Effect",
@@ -398,6 +416,7 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         registerCropLauncher();
         bindViews();
         setupPhotoEditorStepWizard();
+        setupPhotoEditorRail();
         loadPreviewImage();
         applyCurrentState();
         populateFilterChips();
@@ -408,7 +427,7 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         setupAdjustPanel();
         setupDurationSlider();
         setupListeners();
-        showPanel(panelFilters, tabFilters);
+        goToPhotoEditorStep(0);
 
         // Auto-attach a Music sticker if the camera had a track pre-selected.
         // Delayed by one frame so flStickerLayer has measured its dimensions.
@@ -1390,6 +1409,60 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
 
     // ── Tab navigation ────────────────────────────────────────────────────────
 
+    /**
+     * ✅ NEW (Instagram-style editor): jumps straight to a tool's panel by
+     * index — the same underlying panel-visibility switch showPanel() used
+     * to do, just driven by the right-edge rail instead of the old
+     * horizontal tab bar. Mirrors ReelEditorActivity#goToEditorStep().
+     */
+    private void goToPhotoEditorStep(int step) {
+        View[] panels = {panelFilters, panelEffects, panelCaption, panelStickers, panelAdjust};
+        if (step < 0 || step >= panels.length) return;
+        photoEditorCurrentStep = step;
+        for (int i = 0; i < panels.length; i++) {
+            if (panels[i] != null) panels[i].setVisibility(i == step ? View.VISIBLE : View.GONE);
+        }
+        updatePhotoEditorStepUi();
+        updatePhotoEditorRailUi();
+    }
+
+    /**
+     * ✅ NEW (Instagram-style editor): wires the right-edge vertical tool
+     * rail — tapping any icon jumps straight to that tool's panel, same
+     * pattern as ReelEditorActivity#setupEditorRail(). Every tool is
+     * reachable at any time, not a linear wizard.
+     */
+    private void setupPhotoEditorRail() {
+        photoEditorRailIcons = new ImageButton[] {
+                findViewById(R.id.rail_icon_filter),
+                findViewById(R.id.rail_icon_effect),
+                findViewById(R.id.rail_icon_caption),
+                findViewById(R.id.rail_icon_sticker),
+                findViewById(R.id.rail_icon_adjust)
+        };
+        for (int i = 0; i < photoEditorRailIcons.length; i++) {
+            if (photoEditorRailIcons[i] == null) continue;
+            final int step = i;
+            photoEditorRailIcons[i].setOnClickListener(v -> goToPhotoEditorStep(step));
+        }
+        updatePhotoEditorRailUi();
+    }
+
+    /** Fills whichever rail icon matches photoEditorCurrentStep with the
+     *  brand gradient (bg_editor_rail_icon_active); every other icon stays
+     *  the plain translucent disc (bg_editor_rail_icon). Mirrors
+     *  ReelEditorActivity#updateEditorRailUi(). */
+    private void updatePhotoEditorRailUi() {
+        if (photoEditorRailIcons == null) return;
+        for (int i = 0; i < photoEditorRailIcons.length; i++) {
+            if (photoEditorRailIcons[i] == null) continue;
+            boolean active = i == photoEditorCurrentStep;
+            photoEditorRailIcons[i].setBackgroundResource(active
+                    ? R.drawable.bg_editor_rail_icon_active
+                    : R.drawable.bg_editor_rail_icon);
+        }
+    }
+
     private void showPanel(View panel, View tab) {
         View[] panels = {panelFilters, panelEffects, panelCaption, panelStickers, panelAdjust};
         View[] tabs   = {tabFilters,   tabEffects,   tabCaption,   tabStickers,   tabAdjust};
@@ -1542,14 +1615,11 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         }
     }
 
-    /** Physical/gesture back steps backward through the wizard before closing the editor. */
+    /** Physical/gesture back steps backward through the rail tools before closing the editor. */
     @Override
     public void onBackPressed() {
-        if (tvPhotoEditorStepTitle != null && photoEditorCurrentStep > 0) {
-            View[] panels = {panelFilters, panelEffects, panelCaption, panelStickers, panelAdjust};
-            View[] tabs   = {tabFilters,   tabEffects,   tabCaption,   tabStickers,   tabAdjust};
-            int prev = photoEditorCurrentStep - 1;
-            showPanel(panels[prev], tabs[prev]);
+        if (photoEditorCurrentStep > 0) {
+            goToPhotoEditorStep(photoEditorCurrentStep - 1);
             return;
         }
         if (allowMediaEditFallback) {
