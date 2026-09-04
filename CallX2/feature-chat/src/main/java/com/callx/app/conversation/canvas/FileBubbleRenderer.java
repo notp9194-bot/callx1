@@ -46,6 +46,13 @@ final class FileBubbleRenderer {
     private float lastMetaColW = -1f;
     private String cachedMetaDisplay;
 
+    // ── Action-button geometry, cached for drawIndeterminateSpinnerOnly() ──
+    // Set at the top of every draw() call (cheap — a few float ops derived
+    // from host.bubbleRect + fixed dp constants), read back by
+    // drawIndeterminateSpinnerOnly() so it draws the live ring at the exact
+    // same spot without recomputing the whole layout.
+    private float lastActionCx, lastActionCy, lastActionR;
+
     FileBubbleRenderer(MessageBubbleCanvasView host) {
         this.host = host;
         // Colors/styles that never change frame-to-frame are set once here.
@@ -55,6 +62,19 @@ final class FileBubbleRenderer {
     }
 
     void draw(Canvas canvas) {
+        draw(canvas, false);
+    }
+
+    /**
+     * @param spinnerHandledSeparately when true, skips drawing the LIVE
+     *        indeterminate progress ring (fileDownloadPercent < 0) inline —
+     *        the action-button circle behind it is still drawn (static).
+     *        Caller must then call drawIndeterminateSpinnerOnly() every
+     *        frame on top of a cached Picture/RenderNode — see
+     *        MessageBubbleCanvasView#drawFileBubbleWithOptionalCache().
+     *        Mirrors MediaRenderer's spinnerHandledSeparately split.
+     */
+    void draw(Canvas canvas, boolean spinnerHandledSeparately) {
         int hPad = Math.round(MessageBubbleCanvasView.H_PADDING_DP * host.density);
         int vPad = Math.round(MessageBubbleCanvasView.V_PADDING_DP * host.density);
         int replyGap = host.hasReply ? Math.round(MessageBubbleCanvasView.REPLY_GAP_TO_MESSAGE_DP * host.density) : 0;
@@ -97,13 +117,23 @@ final class FileBubbleRenderer {
         canvas.drawCircle(actCx, actCy, actR, actionBgPaint);
         // Store tap rect
         host.fileActionRect.set(actCx - actR, actCy - actR, actCx + actR, actCy + actR);
+        // Cache geometry for drawIndeterminateSpinnerOnly()
+        lastActionCx = actCx;
+        lastActionCy = actCy;
+        lastActionR  = actR;
 
         // Draw icon glyph: ⬇ (download arrow) or ⬗ (open/share square)
         actionIconPaint.setColor(host.sent ? 0xFF555555 : 0xFF008069);
         actionIconPaint.setStyle(Paint.Style.FILL);
         if (host.fileIsDownloading) {
-            // Progress ring
-            host.drawProgressRing(canvas, actCx, actCy, actR * 1.4f, actionIconPaint, host.fileDownloadPercent);
+            // Progress ring. Indeterminate (<0) is skipped here ONLY when the
+            // caller is recording this into a cached Picture/RenderNode
+            // (spinnerHandledSeparately) — it will draw the ring itself,
+            // live, every frame, via drawIndeterminateSpinnerOnly() on top
+            // of that cache.
+            if (host.fileDownloadPercent >= 0 || !spinnerHandledSeparately) {
+                host.drawProgressRing(canvas, actCx, actCy, actR * 1.4f, actionIconPaint, host.fileDownloadPercent);
+            }
         } else if (host.fileIsCached) {
             // Open icon — simple right-pointing arrow
             actionArrowPath.reset();
@@ -184,5 +214,21 @@ final class FileBubbleRenderer {
         // ── Footer ─────────────────────────────────────────────────────────────
         int footerH = Math.round(host.spToPx(MessageBubbleCanvasView.FOOTER_TEXT_SP) + MessageBubbleCanvasView.FOOTER_GAP_DP * host.density);
         host.drawFooter(canvas, host.bubbleRect.bottom - vPad * 0.4f, host.bubbleRect.right - hPad);
+    }
+
+    /**
+     * Draws ONLY the live indeterminate spinner ring, at the exact position
+     * the last draw(canvas, true) call computed and cached in
+     * lastActionCx/lastActionCy/lastActionR. Meant to be called every frame
+     * on top of a cached Picture/RenderNode that has everything else
+     * (icon circle, action-button circle, name/meta text, footer) already
+     * baked in — see MessageBubbleCanvasView#drawFileBubbleWithOptionalCache().
+     * No-ops unless still actually in the indeterminate-downloading state.
+     */
+    void drawIndeterminateSpinnerOnly(Canvas canvas) {
+        if (!host.fileIsDownloading || host.fileDownloadPercent >= 0) return;
+        actionIconPaint.setColor(host.sent ? 0xFF555555 : 0xFF008069);
+        actionIconPaint.setStyle(Paint.Style.FILL);
+        host.drawProgressRing(canvas, lastActionCx, lastActionCy, lastActionR * 1.4f, actionIconPaint, host.fileDownloadPercent);
     }
 }

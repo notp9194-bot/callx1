@@ -28,6 +28,7 @@ import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.ListUpdateCallback;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
+import androidx.media3.common.VideoSize;
 import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.MediaSource;
@@ -38,12 +39,17 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewpager2.widget.ViewPager2;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.Priority;
 import com.bumptech.glide.request.RequestOptions;
+import com.bumptech.glide.request.RequestListener;
 import com.bumptech.glide.request.target.CustomTarget;
+import com.bumptech.glide.request.target.Target;
 import com.bumptech.glide.request.transition.Transition;
 import com.bumptech.glide.load.MultiTransformation;
 import com.bumptech.glide.load.DecodeFormat;
+import com.bumptech.glide.load.DataSource;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.engine.GlideException;
 import com.bumptech.glide.load.resource.bitmap.CenterCrop;
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.callx.app.utils.AvatarUrlBuilder;
@@ -101,52 +107,40 @@ public class HomeFragment extends Fragment
         implements HomeFeedScrollDiagnostics.SnapshotProvider {
 
     private SwipeRefreshLayout swipeRefresh;
-    private LinearLayout       containerStories;
     private LinearLayout       containerNotes;
     private HorizontalScrollView scrollNotes;
-    // FIX (Stories tray deep avatar pipeline): the HorizontalScrollView
-    // wrapping containerStories — needed to compute which story rows are
-    // inside the initial visible viewport (HomeStoryAvatarBinder#bind) vs.
-    // outside it (HomeStoryAvatarBinder#bindGated), and to drive
-    // promote()/prefetch() as the user scrolls the tray. See
-    // bindHeaderViews() and attachStoriesScrollListener().
-    private HorizontalScrollView scrollStories;
-    // Rows currently in containerStories, in tray order — index 0 is
-    // always the "Add Story" button (never gated/tracked here, it has its
-    // own ivMyStoryAvatar handled by loadMyAvatar()). Rebuilt every
-    // loadStories()/bindStoryRow() cycle.
-    private final List<StoryRow> storyRows = new ArrayList<>();
-    /** ★ Instagram-level PERF: pooled row Views for the Stories tray — same
-     *  fresh-inflate-every-load problem trendingCardPool/suggestedCreatorCardPool
-     *  fixed elsewhere in this header, now applied here. Index 0 in
-     *  containerStories is still the separate "Add Story" button (never
-     *  pooled here, handled by loadMyAvatar()); pool index i backs tray
-     *  position i+1. See obtainStoryRowView()/bindStoryRow(). */
-    private final List<View> storyRowPool = new ArrayList<>();
-    /** Cached child-view refs + current entry for one pooled Stories-tray
-     *  row — see obtainStoryRowView(). Click listener registered once per
-     *  pooled row; reads uid/name off THIS tag at click time, same
-     *  allocation-free rule as TrendingCardTag. */
-    private static class StoryRowTag {
-        CircleImageView avatar;
-        TextView tvName;
-        ImageView ivSeenRing;
-        ImageView ivGradientRing;
-        StoryEntry entry;
-    }
-    // Last-seen scrollX + timestamp on scroll_stories, for the same
-    // velocity-based prefetch depth every other avatar list in the app uses.
-    private int lastStoriesScrollX = 0;
-    private long lastStoriesScrollTimeMs = 0L;
+    /** PERF (RecyclerView conversion): the Stories tray's real
+     *  RecyclerView — replaces the old HorizontalScrollView+LinearLayout
+     *  (scroll_stories/container_stories) that kept every row's View
+     *  permanently inflated/attached with a hand-rolled index-based pool.
+     *  See StoriesAdapter, setupStoriesRecyclerView(), STORIES_TILE_POOL. */
+    private RecyclerView       rvStories;
+    private StoriesAdapter     storiesAdapter;
+    /** Backing data for {@link #storiesAdapter} — position i+1 in the
+     *  adapter is storyEntries.get(i) (position 0 is the "Add Story" item).
+     *  Rebuilt every loadStories() cycle; diffed via notifyDataSetChanged()
+     *  since the whole tray always reloads together (contacts + seen-state
+     *  are fetched as one batch, never incrementally). */
+    private final List<StoryEntry> storyEntries = new ArrayList<>();
+    /** My-story avatar data resolved by loadMyAvatar() — kept here (not just
+     *  painted directly into a View) because the "Add Story" row is now a
+     *  normal RecyclerView item: its ViewHolder can be recycled/recreated,
+     *  so onBindViewHolder needs somewhere durable to re-read this from
+     *  rather than relying on a single long-lived ImageView field. */
+    private String  myAvatarPhotoUrl;
+    private long    myAvatarVersion;
+    private boolean myAvatarLoaded = false;
+    /** Shared across every Stories-tray RecyclerView instance (this
+     *  fragment's view can be recreated e.g. on tab re-select) — same
+     *  "one process-wide pool per row shape" rule as SUGGESTED_CREATORS_TILE_POOL
+     *  / SUGGESTED_REELS_TILE_POOL elsewhere in this header. */
+    private static final RecyclerView.RecycledViewPool STORIES_TILE_POOL =
+            new RecyclerView.RecycledViewPool();
+    private static final int STORIES_VIEW_TYPE_ADD_STORY = 0;
+    private static final int STORIES_VIEW_TYPE_STORY     = 1;
+    /** Guards attachStoriesScrollListener() against double-registration —
+     *  setupStoriesRecyclerView() can run again if the header is re-inflated. */
     private boolean storiesScrollListenerAttached = false;
-
-    /** One inflated Stories-tray row plus the data its avatar bind needs — tracked so the scroll listener can gate/promote/prefetch by tray position. */
-    private static class StoryRow {
-        final View rowView;   // direct child of containerStories — its getLeft() is in the same coordinate space scrollX uses
-        final ImageView avatar;
-        final StoryEntry entry;
-        StoryRow(View rowView, ImageView avatar, StoryEntry entry) { this.rowView = rowView; this.avatar = avatar; this.entry = entry; }
-    }
     private LinearLayout       containerTrending;
     private LinearLayout       containerFriendsActivity;
     private LinearLayout       containerContinueWatching;
@@ -187,9 +181,7 @@ public class HomeFragment extends Fragment
     private View               vFeedIndicator;
     private TextView           btnSeeAllTrending;
     private TextView           btnClearHistory;
-    private LinearLayout       btnAddStory;
     private ImageButton        btnHomeUpload;
-    private CircleImageView    ivMyStoryAvatar;
     // ── New Instagram-style header ──
     private TextView           tvFeedTitle;
     private ImageButton        btnNewPost;
@@ -304,6 +296,8 @@ public class HomeFragment extends Fragment
         View      rootView;
         PlayerView playerView;
         ImageView  thumbView;
+        ImageView  backdropView;
+        View       mediaFrame;
         View       endOverlay;
         String     videoUrl;
         String     reelId;
@@ -649,6 +643,27 @@ public class HomeFragment extends Fragment
             new com.bumptech.glide.request.RequestOptions()
                     .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
                     .dontAnimate();
+    /** Exact foreground-media request options shared by visible cards and
+     *  thumbnail prefetch, so prefetches warm the same transformed cache key
+     *  the card consumes instead of decoding a second copy. */
+    private static final com.bumptech.glide.request.RequestOptions FEED_MEDIA_OPTS =
+            new com.bumptech.glide.request.RequestOptions()
+                    .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
+                    .dontAnimate()
+                    .fitCenter();
+    /** The backdrop is deliberately much smaller than the foreground media:
+     *  it is blurred and only fills letterbox pixels, so decoding it at card
+     *  resolution wastes CPU, heap, and upload bandwidth. */
+    private static final int BACKDROP_DECODE_W = 180;
+    private static final int BACKDROP_DECODE_H = 225;
+    private static final CenterCrop FEED_BACKDROP_CROP = new CenterCrop();
+    private static final ReelBlurTransformation FEED_BACKDROP_BLUR =
+            new ReelBlurTransformation(20);
+    private static final com.bumptech.glide.request.RequestOptions FEED_BACKDROP_OPTS =
+            new com.bumptech.glide.request.RequestOptions()
+                    .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
+                    .dontAnimate()
+                    .transform(FEED_BACKDROP_CROP, FEED_BACKDROP_BLUR);
     /** True while the RecyclerView is actively moving. This is deliberately
      *  a state flag only: RecyclerView and PlayerView already own
      *  hardware-accelerated rendering, and a parent layer would force
@@ -712,10 +727,12 @@ public class HomeFragment extends Fragment
      *  compiling it per-bind was not. */
     private static final java.util.regex.Pattern HASHTAG_PATTERN =
         java.util.regex.Pattern.compile("([#@])(\\w+)");
-    /** Card thumbnail decode size — 9:16, matching the card frame. Shared by
-     *  the card load and the prefetch so both hit the same Glide cache key. */
+    /** Card thumbnail decode size — 4:5, matching the tallest Home-feed
+     *  container. Shared by the card load and the prefetch so both hit the same
+     *  Glide cache key. FIT keeps wider/taller source media uncropped inside it.
+     */
     private static final int THUMB_DECODE_W = 540;
-    private static final int THUMB_DECODE_H = 960;
+    private static final int THUMB_DECODE_H = 675;
     /** Trending strip / Continue Watching tiles render at ~120–140dp — the
      *  fixed 720x720 decode those two spots used was sized for a full-width
      *  card, roughly 3-5x more pixels than any device density actually needs
@@ -846,7 +863,7 @@ public class HomeFragment extends Fragment
         recyclerHome.setItemAnimator(null);
         feedScrollContentRoot = recyclerHome;
         // Header/footer are inflated ONCE here (not lazily by the adapter) so
-        // every existing method that reaches for containerStories,
+        // every existing method that reaches for rvStories,
         // btnHomeFollowing, containerTrending, etc. keeps working exactly as
         // before — those fields are populated immediately, same timing as
         // when fragment_home.xml held them directly. FeedAdapter just wraps
@@ -1025,6 +1042,16 @@ public class HomeFragment extends Fragment
                 } catch (Exception ignored) {}
             }
             @Override
+            public void onVideoSizeChanged(@NonNull VideoSize videoSize) {
+                if (player != feedPlayer || videoSize.width <= 0 || videoSize.height <= 0) return;
+                if (currentPlayingIndex < 0 || currentPlayingIndex >= feedCards.size()) return;
+                HomeFeedCard activeCard = feedCards.get(currentPlayingIndex);
+                if (activeCard != null) {
+                    applyFeedMediaAspect(activeCard.mediaFrame,
+                        videoSize.width / (float) videoSize.height);
+                }
+            }
+            @Override
             public void onPositionDiscontinuity(Player.PositionInfo oldPosition,
                     Player.PositionInfo newPosition, int reason) {
                 if (player != feedPlayer) return;
@@ -1058,12 +1085,13 @@ public class HomeFragment extends Fragment
     }
 
     /**
-     * Refreshes the Stories tray. loadStories()/bindStoryRow() now rebind
-     * pooled rows by index in place (see storyRowPool) instead of appending
-     * fresh views, so no clear-first step is needed here any more —
-     * onResume() and storyRingObserver just call this directly and the
-     * new fetch overwrites last session's rows once it resolves, same
-     * no-blank-flash rule as trendingCardPool/etc.
+     * Refreshes the Stories tray. loadStories() swaps storyEntries and calls
+     * StoriesAdapter#notifyDataSetChanged once the new fetch resolves (see
+     * collectStoryEntriesParallel), so no clear-first step is needed here —
+     * onResume() and storyRingObserver just call this directly and the old
+     * rows keep showing (real RecyclerView-recycled Views, not a manual
+     * pool) until the new data lands, same no-blank-flash rule as
+     * trendingCardPool/etc.
      */
     private void refreshStoryRow() {
         loadStories();
@@ -1080,19 +1108,40 @@ public class HomeFragment extends Fragment
      *  touches these fields (loadStories, updateFeedToggleUI, switchFeedMode,
      *  showFeedFilterDropdown, loadMyAvatar, ...) is unchanged. */
     private void bindHeaderViews(View v) {
-        containerStories   = v.findViewById(R.id.container_stories);
         containerNotes     = v.findViewById(R.id.container_notes);
         scrollNotes        = v.findViewById(R.id.scroll_notes);
-        scrollStories      = v.findViewById(R.id.scroll_stories);
+        rvStories          = v.findViewById(R.id.rv_stories);
         btnHomeFollowing   = v.findViewById(R.id.btn_home_following);
         btnHomeForYou      = v.findViewById(R.id.btn_home_for_you);
         vFeedIndicator     = v.findViewById(R.id.v_feed_indicator);
-        btnAddStory        = v.findViewById(R.id.btn_add_story);
         btnHomeUpload      = v.findViewById(R.id.btn_home_upload);
-        ivMyStoryAvatar    = v.findViewById(R.id.iv_my_story_avatar);
         tvFeedTitle        = v.findViewById(R.id.tv_feed_title);
         btnNewPost         = v.findViewById(R.id.btn_new_post);
         btnNotifications   = v.findViewById(R.id.btn_notifications);
+        setupStoriesRecyclerView();
+    }
+
+    /**
+     * PERF (RecyclerView conversion): wires rv_stories up exactly once per
+     * inflated header — LinearLayoutManager(HORIZONTAL), a shared
+     * RecycledViewPool (STORIES_TILE_POOL) so row Views survive a header
+     * re-inflate instead of being thrown away, a small item view cache so a
+     * quick back-and-forth scroll doesn't immediately re-hit the pool, and
+     * no item animator (same reasoning as recyclerHome: this tray reloads
+     * wholesale on every refresh, a fade/shift per row would just read as
+     * flicker). Mirrors SuggestedCreatorsRowHolder's chipsRecycler setup.
+     */
+    private void setupStoriesRecyclerView() {
+        if (rvStories == null || !isAdded() || getContext() == null) return;
+        LinearLayoutManager lm = new LinearLayoutManager(getContext(), LinearLayoutManager.HORIZONTAL, false);
+        rvStories.setLayoutManager(lm);
+        rvStories.setRecycledViewPool(STORIES_TILE_POOL);
+        rvStories.setItemViewCacheSize(6);
+        rvStories.setHasFixedSize(true);
+        rvStories.setItemAnimator(null);
+        storiesAdapter = new StoriesAdapter();
+        rvStories.setAdapter(storiesAdapter);
+        attachStoriesScrollListener();
     }
 
     /** v243: same idea as bindHeaderViews(), for the trailing sections. */
@@ -1125,18 +1174,6 @@ public class HomeFragment extends Fragment
         });
 
         btnClearHistory.setOnClickListener(v -> clearWatchHistory());
-
-        if (btnAddStory != null) {
-            btnAddStory.setOnClickListener(v -> {
-                if (!isAdded() || getContext() == null) return;
-                try {
-                    Class<?> cls = Class.forName("com.callx.app.compose.NewStatusActivity");
-                    startActivity(new Intent(getContext(), cls));
-                } catch (ClassNotFoundException e) {
-                    startActivity(new Intent(getContext(), ReelCameraActivity.class));
-                }
-            });
-        }
 
         if (btnHomeUpload != null) {
             btnHomeUpload.setOnClickListener(v -> {
@@ -1403,8 +1440,9 @@ public class HomeFragment extends Fragment
                 // MUST match the card's own override() — Glide keys its cache
                 // on the requested size, so a differently-sized preload warms
                 // an entry the card never reads and decodes the bitmap twice.
-                Glide.with(requireContext()).load(thumb).apply(FEED_IMAGE_OPTS)
-                        .override(THUMB_DECODE_W, THUMB_DECODE_H).preload();
+                Glide.with(requireContext()).load(thumb).apply(FEED_MEDIA_OPTS)
+                        .override(THUMB_DECODE_W, THUMB_DECODE_H)
+                        .preload();
             }
         }
         // Reuses the same byte-range video preloader the Reels swipe feed
@@ -2814,41 +2852,23 @@ public class HomeFragment extends Fragment
     private void clearAllSections() {
         cancelStagedFeedRender();
         clearFeedRows();
-        // containerStories / containerTrending / containerFriendsActivity /
+        // containerTrending / containerFriendsActivity /
         // containerContinueWatching / containerSuggestedCreators: deliberately
-        // NOT cleared here — each render*()/addCreatorCards()/bindStoryRow()
+        // NOT cleared here — each render*()/addCreatorCards()
         // now reuses/hides its own pooled cards in place instead of being
         // handed an emptied container to rebuild from scratch every refresh
         // (see trendingCardPool / friendsActivityCardPool /
-        // continueWatchingCardPool / suggestedCreatorCardPool / storyRowPool
-        // docs). Stale cards just sit there, still showing last session's
-        // data, until the new fetch resolves and overwrites them in place —
-        // no blank flash.
+        // continueWatchingCardPool / suggestedCreatorCardPool docs). Stale
+        // cards just sit there, still showing last session's data, until
+        // the new fetch resolves and overwrites them in place — no blank
+        // flash. The Stories tray (rv_stories/StoriesAdapter) is a real
+        // RecyclerView now, so its equivalent "don't blank on refresh"
+        // behavior is just: don't clear storyEntries until loadStories()'s
+        // new data is ready to swap in (see collectStoryEntriesParallel).
         if (pbTrending != null)   pbTrending.setVisibility(View.VISIBLE);
         if (pbActivity != null)   pbActivity.setVisibility(View.VISIBLE);
         if (pbContinue != null)   pbContinue.setVisibility(View.VISIBLE);
         if (pbSuggested != null)  pbSuggested.setVisibility(View.VISIBLE);
-    }
-
-    /**
-     * Hides pooled Stories-tray rows beyond the current story count — same
-     * "hidden, not destroyed, ready to reuse" rule as trendingCardPool's
-     * tail-hide loop in renderTrending(). Each hidden row's in-flight avatar
-     * request is cancelled via HomeStoryAvatarBinder#cancel first (a gated
-     * row whose promote() never got the chance to finish could otherwise
-     * keep running for a row nobody's tracking in storyRows any more).
-     */
-    private void hideExtraStoryRows(int activeCount) {
-        if (!isAdded() || getContext() == null || containerStories == null) return;
-        for (int i = activeCount; i < storyRowPool.size(); i++) {
-            View row = storyRowPool.get(i);
-            StoryRowTag tag = (StoryRowTag) row.getTag();
-            if (tag != null) {
-                HomeStoryAvatarBinder.cancel(requireContext(), tag.avatar);
-                tag.entry = null;
-            }
-            row.setVisibility(View.GONE);
-        }
     }
 
     private void loadAllSections() {
@@ -3127,19 +3147,19 @@ public class HomeFragment extends Fragment
                     if (!isAdded() || getContext() == null) return;
                     for (StoryEntry e : slots) if (e != null) collected.add(e);
                     collected.sort((a, b) -> Boolean.compare(!a.hasUnseen, !b.hasUnseen));
-                    // ★ Pooled rebuild (see storyRowPool doc): the active
-                    // gating list is reset here, then each row is rebound —
-                    // not re-inflated — by index. hideExtraStoryRows() is
-                    // queued after every bindStoryRow() runnable so it runs
-                    // last on the main-thread queue, once this load's rows
-                    // are all rebound.
-                    storyRows.clear();
-                    for (int i = 0; i < collected.size(); i++) bindStoryRow(collected.get(i), i);
-                    final int activeCount = collected.size();
-                    if (isAdded() && getContext() != null) {
-                        requireActivity().runOnUiThread(() -> hideExtraStoryRows(activeCount));
-                    }
-                    attachStoriesScrollListener();
+                    // PERF (RecyclerView conversion): swap the whole list in
+                    // and let the adapter's real diffing^H^H^H^Hnotify do the
+                    // rest — no manual per-row bind/hide dance any more.
+                    // The tray always reloads wholesale (contacts + seen
+                    // state are fetched as one batch above), so a single
+                    // notifyDataSetChanged() here is the right tool: this
+                    // path runs once per pull-to-refresh, not per frame.
+                    requireActivity().runOnUiThread(() -> {
+                        if (!isAdded() || getContext() == null || storiesAdapter == null) return;
+                        storyEntries.clear();
+                        storyEntries.addAll(collected);
+                        storiesAdapter.notifyDataSetChanged();
+                    });
                 }
             };
 
@@ -3177,167 +3197,227 @@ public class HomeFragment extends Fragment
     }
 
     /**
-     * Returns the pooled Stories-tray row at index i, inflating (and adding
-     * to containerStories) a new one only the first time this index is
-     * needed — same pattern as obtainTrendingCard(). Child-view lookups and
-     * the click listener are done exactly once per index for the life of
-     * the fragment; every later refresh only updates text/image/tag on the
-     * SAME View via bindStoryRow().
+     * PERF (RecyclerView conversion): backs rv_stories with real
+     * ViewHolder recycling — position 0 is the "Add Story" item
+     * (item_home_story_add.xml), positions 1..storyEntries.size() are
+     * contact rows (item_home_story.xml). Unlike the old
+     * obtainStoryRowView()/bindStoryRow() pair, onBindViewHolder is only
+     * ever called by RecyclerView for a row that's actually about to be
+     * laid out (on-screen, or within its prefetch/cache window) — every
+     * row past that simply has no View at all, instead of the old
+     * approach's "every row inflated and disk-cache-bound up front,
+     * upgraded on scroll" gate. That removes the need for the old
+     * STORIES_EAGER_COUNT / HomeStoryAvatarBinder#bindGated /
+     * HomeStoryAvatarBinder#promote split entirely — a plain
+     * HomeStoryAvatarBinder#bind() here already only runs for rows
+     * RecyclerView decided are worth having a View for.
      */
-    private View obtainStoryRowView(int index) {
-        if (index < storyRowPool.size()) return storyRowPool.get(index);
+    private final class StoriesAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+        @Override
+        public int getItemViewType(int position) {
+            return position == 0 ? STORIES_VIEW_TYPE_ADD_STORY : STORIES_VIEW_TYPE_STORY;
+        }
 
-        View storyView = LayoutInflater.from(requireContext())
-            .inflate(R.layout.item_home_story, containerStories, false);
+        @Override
+        public int getItemCount() {
+            return 1 + storyEntries.size();
+        }
 
-        StoryRowTag tag = new StoryRowTag();
-        tag.avatar         = storyView.findViewById(R.id.iv_story_avatar);
-        tag.tvName         = storyView.findViewById(R.id.tv_story_name);
-        tag.ivSeenRing     = storyView.findViewById(R.id.iv_story_seen_ring);
-        tag.ivGradientRing = storyView.findViewById(R.id.iv_reel_story_gradient_ring);
-        storyView.setTag(tag);
+        @NonNull
+        @Override
+        public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            LayoutInflater inflater = LayoutInflater.from(parent.getContext());
+            if (viewType == STORIES_VIEW_TYPE_ADD_STORY) {
+                View v = inflater.inflate(R.layout.item_home_story_add, parent, false);
+                AddStoryViewHolder holder = new AddStoryViewHolder(v);
+                // Click listener registered once per ViewHolder — same
+                // allocation-free "one listener for the life of the View"
+                // rule as every other pooled row in this header.
+                v.setOnClickListener(vw -> openAddStory());
+                return holder;
+            }
+            View v = inflater.inflate(R.layout.item_home_story, parent, false);
+            StoryViewHolder holder = new StoryViewHolder(v);
+            v.setOnClickListener(vw -> {
+                StoryEntry entry = holder.entry;
+                if (entry == null) return;
+                openStatusViewer(entry.uid, entry.name);
+            });
+            return holder;
+        }
 
-        // ✅ Open StatusViewerActivity (cross-module via Class.forName) —
-        // allocation-free: reads whatever StoryRowTag is CURRENTLY on this
-        // row's tag at click time, so this single listener instance stays
-        // correct across every future refresh of this slot.
-        storyView.setOnClickListener(v -> {
-            StoryRowTag t = (StoryRowTag) v.getTag();
-            if (t == null || t.entry == null) return;
-            openStatusViewer(t.entry.uid, t.entry.name);
-        });
+        @Override
+        public void onBindViewHolder(@NonNull RecyclerView.ViewHolder vh, int position) {
+            if (vh instanceof AddStoryViewHolder) {
+                bindAddStoryHolder((AddStoryViewHolder) vh);
+            } else {
+                bindStoryHolder((StoryViewHolder) vh, storyEntries.get(position - 1));
+            }
+        }
 
-        storyRowPool.add(storyView);
-        containerStories.addView(storyView);
-        return storyView;
+        @Override
+        public void onViewRecycled(@NonNull RecyclerView.ViewHolder vh) {
+            // FIX (lifecycle-aware cancel — same reasoning as the old
+            // HomeStoryAvatarBinder#cancel call in hideExtraStoryRows): a
+            // row that's being recycled might have an in-flight Glide
+            // request; stop it and clear the tag so a stale async result
+            // can never paint into whatever this recycled View gets
+            // rebound to next.
+            if (vh instanceof StoryViewHolder && isAdded() && getContext() != null) {
+                StoryViewHolder svh = (StoryViewHolder) vh;
+                HomeStoryAvatarBinder.cancel(requireContext(), svh.avatar);
+                svh.entry = null;
+            }
+        }
+    }
+
+    /** ViewHolder for the leading "Add Story" row (position 0). */
+    private static class AddStoryViewHolder extends RecyclerView.ViewHolder {
+        final CircleImageView avatar;
+        AddStoryViewHolder(View v) {
+            super(v);
+            avatar = v.findViewById(R.id.iv_my_story_avatar);
+        }
+    }
+
+    /** ViewHolder for a contact's story row (position 1..N). */
+    private static class StoryViewHolder extends RecyclerView.ViewHolder {
+        final CircleImageView avatar;
+        final TextView tvName;
+        final ImageView ivSeenRing;
+        final ImageView ivGradientRing;
+        StoryEntry entry;
+        StoryViewHolder(View v) {
+            super(v);
+            avatar         = v.findViewById(R.id.iv_story_avatar);
+            tvName         = v.findViewById(R.id.tv_story_name);
+            ivSeenRing     = v.findViewById(R.id.iv_story_seen_ring);
+            ivGradientRing = v.findViewById(R.id.iv_reel_story_gradient_ring);
+        }
+    }
+
+    /** Binds the "Add Story" row from the data loadMyAvatar() resolved —
+     *  see {@link #myAvatarPhotoUrl} doc for why this reads from fields
+     *  instead of a single long-lived ImageView. */
+    private void bindAddStoryHolder(AddStoryViewHolder holder) {
+        if (!isAdded() || getContext() == null) return;
+        if (myAvatarLoaded) {
+            // FIX (deep avatar pipeline): always inside the tray's initial
+            // viewport (it's the very first row) — real IMMEDIATE bind via
+            // HomeStoryAvatarBinder, same tier/L2/L3/blur-up as every other
+            // Stories-tray row instead of the old flat override(96,96).
+            HomeStoryAvatarBinder.bind(requireContext(), holder.avatar, myAvatarPhotoUrl,
+                    myAvatarVersion, R.drawable.ic_person);
+        } else {
+            holder.avatar.setImageResource(R.drawable.ic_person);
+        }
+    }
+
+    private void bindStoryHolder(StoryViewHolder holder, StoryEntry entry) {
+        if (!isAdded() || getContext() == null) return;
+        holder.entry = entry;
+        holder.tvName.setText(entry.name != null ? entry.name : "User");
+
+        // ★ Instagram-style: gradient ring for ALL stories that have unseen content
+        // FIX v39: story_ring_insta_gradient.xml had a visible seam (XML sweep
+        // gradient only supports 3 stops, doesn't loop back cleanly) — swapped
+        // for the seamless StoryRingGradientDrawable used across the app.
+        // v42 PERF: withStrokeDp() returns a SHARED cached Drawable instance
+        // for this stroke width (see StoryRingGradientDrawable), so this is
+        // a plain map lookup on every bind, not a per-row allocation.
+        if (holder.ivGradientRing != null) {
+            holder.ivGradientRing.setImageDrawable(
+                    com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3f,
+                            getResources().getDisplayMetrics().density));
+        }
+
+        CircleImageView avatar = holder.avatar;
+        if (entry.hasUnseen) {
+            // Gradient pink/orange ring — same as Instagram, for any unseen story
+            if (holder.ivGradientRing != null) holder.ivGradientRing.setVisibility(View.VISIBLE);
+            avatar.setBorderColor(0xFFFFFFFF);
+            avatar.setBorderWidth(dpToPx(3));
+            if (holder.ivSeenRing != null) holder.ivSeenRing.setVisibility(View.GONE);
+        } else {
+            // Gray ring for all-seen stories
+            if (holder.ivGradientRing != null) holder.ivGradientRing.setVisibility(View.GONE);
+            avatar.setBorderColor(0xFF888888);
+            avatar.setBorderWidth(dpToPx(2));
+            if (holder.ivSeenRing != null) {
+                holder.ivSeenRing.setVisibility(View.VISIBLE);
+                holder.ivSeenRing.setColorFilter(0xFF888888, android.graphics.PorterDuff.Mode.SRC_IN);
+            }
+        }
+
+        // FIX (deep avatar pipeline): shared AvatarSizeTier + density-aware
+        // WebP/AVIF URL, L2/L3 bitmap reuse, blur-up thumbnail — see
+        // HomeStoryAvatarBinder's class doc. No eager/gated split needed
+        // here any more (see StoriesAdapter doc): RecyclerView itself only
+        // calls onBindViewHolder for a row worth having a View for.
+        HomeStoryAvatarBinder.bind(requireContext(), avatar, entry.photo, entry.avatarVersion, R.drawable.ic_person);
     }
 
     /**
-     * FIX (Stories tray deep avatar pipeline / isVisible gate): rows within
-     * {@link #STORIES_EAGER_COUNT} of the tray start are bound for real
-     * immediately (HomeStoryAvatarBinder#bind, IMMEDIATE priority) — that's
-     * the initial visible viewport before any horizontal scroll happens.
-     * Rows past that are bound gated (disk-cache-only, never touches the
-     * network) and get upgraded to a real load by
-     * attachStoriesScrollListener()'s OnScrollChangeListener once the user
-     * actually scrolls them into view — same "bind cheap now, promote once
-     * truly visible" shape StatusAvatarBinder uses for a real RecyclerView,
-     * adapted to this tray's plain-LinearLayout/no-recycling shape.
-     *
-     * ★ Instagram-level PERF: pooled the same way trendingCardPool /
-     * suggestedCreatorCardPool are — obtainStoryRowView() reuses row N's
-     * View across refreshes instead of inflating fresh every loadStories();
-     * this method only ever updates text/image/tag on that existing View.
-     */
-    private void bindStoryRow(StoryEntry entry, int index) {
-        if (!isAdded() || getContext() == null || containerStories == null) return;
-        requireActivity().runOnUiThread(() -> {
-            if (!isAdded() || getContext() == null || containerStories == null) return;
-            View storyView = obtainStoryRowView(index);
-            StoryRowTag tag = (StoryRowTag) storyView.getTag();
-            tag.entry = entry;
-
-            tag.tvName.setText(entry.name != null ? entry.name : "User");
-
-            // ★ Instagram-style: gradient ring for ALL stories that have unseen content
-            // FIX v39: story_ring_insta_gradient.xml had a visible seam (XML sweep
-            // gradient only supports 3 stops, doesn't loop back cleanly) — swapped
-            // for the seamless StoryRingGradientDrawable used across the app.
-            if (tag.ivGradientRing != null) {
-                tag.ivGradientRing.setImageDrawable(
-                        com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3f,
-                                getResources().getDisplayMetrics().density));
-            }
-
-            CircleImageView avatar = tag.avatar;
-            if (entry.hasUnseen) {
-                // Gradient pink/orange ring — same as Instagram, for any unseen story
-                if (tag.ivGradientRing != null) tag.ivGradientRing.setVisibility(View.VISIBLE);
-                avatar.setBorderColor(0xFFFFFFFF);
-                avatar.setBorderWidth(dpToPx(3));
-                if (tag.ivSeenRing != null) tag.ivSeenRing.setVisibility(View.GONE);
-            } else {
-                // Gray ring for all-seen stories
-                if (tag.ivGradientRing != null) tag.ivGradientRing.setVisibility(View.GONE);
-                avatar.setBorderColor(0xFF888888);
-                avatar.setBorderWidth(dpToPx(2));
-                if (tag.ivSeenRing != null) {
-                    tag.ivSeenRing.setVisibility(View.VISIBLE);
-                    tag.ivSeenRing.setColorFilter(0xFF888888, android.graphics.PorterDuff.Mode.SRC_IN);
-                }
-            }
-
-            // FIX (deep avatar pipeline): shared AvatarSizeTier + density-aware
-            // WebP/AVIF URL, L2/L3 bitmap reuse, blur-up thumbnail, and an
-            // isVisible gate for rows outside the tray's initial viewport —
-            // see HomeStoryAvatarBinder's class doc.
-            if (index < STORIES_EAGER_COUNT) {
-                HomeStoryAvatarBinder.bind(requireContext(), avatar, entry.photo, entry.avatarVersion, R.drawable.ic_person);
-            } else {
-                HomeStoryAvatarBinder.bindGated(requireContext(), avatar, entry.photo, entry.avatarVersion, R.drawable.ic_person);
-            }
-            storyRows.add(new StoryRow(storyView, avatar, entry));
-            storyView.setVisibility(View.VISIBLE);
-        });
-    }
-
-    /** Rows inside this many tray positions of the start are assumed to be
-     *  in the initial visible viewport (scroll_stories is roughly
-     *  screen-width wide, each row ~96dp incl. the leading "Add Story"
-     *  button) — see bindStoryRow()'s isVisible-gate doc. */
-    private static final int STORIES_EAGER_COUNT = 4;
-
-    /**
-     * FIX (Stories tray deep avatar pipeline): drives HomeStoryAvatarBinder's
-     * isVisible gate off real scroll position instead of the
-     * attach/recycle callbacks a RecyclerView would give for free — every
-     * row here is already attached to the window (see obtainStoryRowView()), so the
-     * signal StatusAvatarBinder/ChatAvatarBinder normally use isn't
-     * available. Promotes any gated row whose bounds now intersect the
-     * visible viewport, and forwards scroll velocity into
-     * HomeStoryAvatarBinder#prefetch for the rows just past what's visible —
-     * same "fast fling skips, slow scroll warms ahead" behavior every other
-     * avatar list in the app already has.
+     * PERF (RecyclerView conversion): same velocity-based "fast fling
+     * skips, slow scroll warms several rows ahead" prefetch every other
+     * avatar list in the app uses (see AvatarScrollPrefetchHelper, the
+     * canonical version of this for a plain vertical avatar RecyclerView),
+     * adapted to LinearLayoutManager(HORIZONTAL) here: velocity is derived
+     * from dx/dt exactly like AvatarScrollPrefetchHelper does from dy/dt,
+     * and the warm target is whatever sits just past
+     * findLastVisibleItemPosition() — the rows RecyclerView hasn't already
+     * decided to lay out for real.
      */
     private void attachStoriesScrollListener() {
-        if (scrollStories == null || storiesScrollListenerAttached) return;
+        if (rvStories == null || storiesScrollListenerAttached) return;
         storiesScrollListenerAttached = true;
-        lastStoriesScrollX = scrollStories.getScrollX();
-        lastStoriesScrollTimeMs = System.currentTimeMillis();
-        scrollStories.setOnScrollChangeListener((View v, int scrollX, int scrollY, int oldScrollX, int oldScrollY) -> {
-            long now = System.currentTimeMillis();
-            long dt = now - lastStoriesScrollTimeMs;
-            float velocity = dt > 0 ? Math.abs(scrollX - oldScrollX) / (float) dt : 0f;
-            lastStoriesScrollX = scrollX;
-            lastStoriesScrollTimeMs = now;
+        rvStories.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            long lastTimeMs = 0L;
+            @Override
+            public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                if (!isAdded() || getContext() == null) return;
+                RecyclerView.LayoutManager raw = recyclerView.getLayoutManager();
+                if (!(raw instanceof LinearLayoutManager)) return;
+                LinearLayoutManager lm = (LinearLayoutManager) raw;
+                int lastVisible = lm.findLastVisibleItemPosition();
+                if (lastVisible < 0) return;
 
-            int viewportLeft = scrollX;
-            int viewportRight = scrollX + scrollStories.getWidth();
-            int firstOffscreenIndex = -1;
-            for (int i = 0; i < storyRows.size(); i++) {
-                StoryRow row = storyRows.get(i);
-                int left = row.rowView.getLeft();
-                int right = row.rowView.getRight();
-                boolean visible = right >= viewportLeft && left <= viewportRight;
-                if (visible) {
-                    HomeStoryAvatarBinder.promote(requireContext(), row.avatar, row.entry.photo, row.entry.avatarVersion, R.drawable.ic_person);
-                } else if (left > viewportRight && firstOffscreenIndex < 0) {
-                    firstOffscreenIndex = i;
+                long now = System.currentTimeMillis();
+                float velocity = 0f; // treated as DEPTH_DEFAULT on the very first callback
+                if (lastTimeMs != 0L) {
+                    long dt = Math.max(1L, now - lastTimeMs);
+                    velocity = Math.abs(dx) / (float) dt; // px/ms
                 }
-            }
-            if (firstOffscreenIndex >= 0) {
-                HomeStoryAvatarBinder.prefetch(requireContext(), storyRowsAvatarSource(), firstOffscreenIndex, velocity);
+                lastTimeMs = now;
+
+                // lastVisible is an adapter position (0 = Add Story); map to
+                // a storyEntries index for the AvatarSource below.
+                int fromIndex = lastVisible; // lastVisible+1 in adapter terms == lastVisible in storyEntries terms (offset by the Add Story slot)
+                HomeStoryAvatarBinder.prefetch(requireContext(), storyEntriesAvatarSource(), fromIndex, velocity);
             }
         });
     }
 
-    /** Read-only view over {@link #storyRows} for {@link HomeStoryAvatarBinder#prefetch}. */
-    private HomeStoryAvatarBinder.AvatarSource storyRowsAvatarSource() {
+    /** Read-only view over {@link #storyEntries} for {@link HomeStoryAvatarBinder#prefetch}. */
+    private HomeStoryAvatarBinder.AvatarSource storyEntriesAvatarSource() {
         return new HomeStoryAvatarBinder.AvatarSource() {
-            @Override public String photo(int index) { return storyRows.get(index).entry.photo; }
-            @Override public long avatarVersion(int index) { return storyRows.get(index).entry.avatarVersion; }
-            @Override public int size() { return storyRows.size(); }
+            @Override public String photo(int index) { return storyEntries.get(index).photo; }
+            @Override public long avatarVersion(int index) { return storyEntries.get(index).avatarVersion; }
+            @Override public int size() { return storyEntries.size(); }
         };
+    }
+
+    /** Opens NewStatusActivity (cross-module via Class.forName), falling
+     *  back to the reel camera — same behavior as the old btnAddStory
+     *  click listener, now shared by every AddStoryViewHolder instance. */
+    private void openAddStory() {
+        if (!isAdded() || getContext() == null) return;
+        try {
+            Class<?> cls = Class.forName("com.callx.app.compose.NewStatusActivity");
+            startActivity(new Intent(getContext(), cls));
+        } catch (ClassNotFoundException e) {
+            startActivity(new Intent(getContext(), ReelCameraActivity.class));
+        }
     }
 
     /**
@@ -5396,16 +5476,10 @@ public class HomeFragment extends Fragment
 
         // ── Instagram-level approach: Home Feed vs Reels tab ─────────────────
         // Reels tab (fragment_reel_player.xml) is a dedicated fullscreen
-        // experience — full device height, full 9:16 video visible.
-        // Home Feed is a scrolling list where the reel shares screen space
-        // with the header, action bar, caption, and the next card peeking
-        // in below — so Instagram deliberately caps the video frame well
-        // below full device height (~75% of screen height) rather than
-        // giving it the whole 16:9. Width still fills the screen, so with
-        // resize_mode="zoom" (center-crop-and-fill) the video is cropped
-        // top/bottom to fit that shorter frame — same visual effect as the
-        // real Instagram app. This does NOT touch the Reels tab; that stays
-        // full 9:16 via fragment_reel_player.xml, untouched by this cap.
+        // experience. Home Feed is a scrolling post list, so its media frame
+        // stays within Instagram's feed bounds instead of forcing every post
+        // into a 9:16 rectangle. FIT then keeps the complete source visible;
+        // the blurred backdrop fills any intentional letterbox area.
         // ★ Ultra-advanced optimization: this height is identical for every
         // card (same screen, same 0.75 cap) — it was being recomputed AND
         // re-applied via setLayoutParams() on every single bind, which
@@ -5416,7 +5490,7 @@ public class HomeFragment extends Fragment
         // differs (first bind of a given recycled view, or a config change
         // that invalidated the cache).
         if (frameVideo != null) {
-            int videoH = feedCardVideoHeightPx();
+            int videoH = feedCardMediaHeightPx(reel);
             android.view.ViewGroup.LayoutParams lp = frameVideo.getLayoutParams();
             if (lp.height != videoH) {
                 lp.height = videoH;
@@ -5467,6 +5541,8 @@ public class HomeFragment extends Fragment
         feedCard.rootView   = card;
         feedCard.playerView = pvFeed;
         feedCard.thumbView  = ivThumb;
+        feedCard.backdropView = holder.ivBackdrop;
+        feedCard.mediaFrame = frameVideo;
         feedCard.endOverlay = endOverlay;
         feedCard.videoUrl   = (reel.videoUrl != null && !reel.videoUrl.isEmpty())
                               ? reel.videoUrl
@@ -5714,6 +5790,14 @@ public class HomeFragment extends Fragment
                 holder.tvCollabNameHome = llCollabAuthorsHome.findViewById(R.id.tv_collab_author_name);
                 holder.tvCollabFollowBtnHome = llCollabAuthorsHome.findViewById(R.id.tv_collab_follow_btn);
                 holder.llCollabSongRowHome = llCollabAuthorsHome.findViewById(R.id.ll_collab_song_row);
+                 // stub_reel_collab_row is shared with the dark Reels player,
+                 // where its default white name is correct. Home places this
+                 // row above the media, so use the feed theme color here.
+                 if (holder.tvCollabNameHome != null) {
+                     holder.tvCollabNameHome.setTextColor(
+                         androidx.core.content.ContextCompat.getColor(
+                             requireContext(), R.color.text_primary));
+                 }
                 // No bio/song ticker in the compact feed header — audio
                 // already shows via tv_post_audio elsewhere on the card.
                 if (holder.llCollabSongRowHome != null) holder.llCollabSongRowHome.setVisibility(View.GONE);
@@ -6150,10 +6234,9 @@ public class HomeFragment extends Fragment
             if (firstTimeOnThisHolder) {
                 holder.photoPager = new ViewPager2(requireContext());
                 holder.photoPager.setOrientation(ViewPager2.ORIENTATION_HORIZONTAL);
-                int screenW  = getResources().getDisplayMetrics().widthPixels;
-                int photoH   = (int) (screenW * 16f / 9f);
                 FrameLayout.LayoutParams pagerLp = new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT, photoH);
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT);
                 holder.photoPager.setLayoutParams(pagerLp);
 
                 // Adapter reads holder.photoPagerData directly (not a
@@ -6166,13 +6249,13 @@ public class HomeFragment extends Fragment
                         ImageView iv = new ImageView(parent.getContext());
                         iv.setLayoutParams(new ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-                        iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                         iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
                         return new RecyclerView.ViewHolder(iv) {};
                     }
                     @Override public void onBindViewHolder(@NonNull RecyclerView.ViewHolder h, int pos) {
                         Glide.with(requireContext())
                             .load(holder.photoPagerData.get(pos))
-                            .centerCrop()
+                             .fitCenter()
                             .placeholder(R.drawable.ic_reels)
                             .into((ImageView) h.itemView);
                     }
@@ -6316,15 +6399,16 @@ public class HomeFragment extends Fragment
             if (holder.framePhotoDotsRow != null) holder.framePhotoDotsRow.setVisibility(View.VISIBLE);
 
             if (firstTimeOnThisHolder && frameVideo != null) {
-                // Same z-order fix as before — insert at the bottom of
-                // frame_video's children so the header overlay (defined
-                // after it in XML) stays on top. Only ever added ONCE per
+                 // Same z-order fix as before — insert immediately above the
+                 // blurred backdrop and below the PlayerView/thumbnail so the
+                 // header overlay (defined after them in XML) stays on top.
+                 // Only ever added ONCE per
                 // holder now; later binds just toggle visibility (see
                 // above, and the video-branch below).
                 // ✅ photoDots is no longer added here — it now lives in
                 // frame_photo_dots_row BELOW the video block (added at
                 // creation time above), not overlaid on top of the media.
-                frameVideo.addView(holder.photoPager, 0);
+                 frameVideo.addView(holder.photoPager, 1);
             }
         } else {
             // This (recycled) holder previously showed a photo slideshow —
@@ -6424,11 +6508,38 @@ public class HomeFragment extends Fragment
                 ? R.drawable.ic_bookmark_filled : R.drawable.ic_bookmark);
         }
 
-        if (reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
-            // THUMB_DECODE_* matches the card's 9:16 frame instead of decoding a
-            // square 720x720 and throwing away a third of it — ~44% less
-            // bitmap memory per card, which is what bounds GC pressure while
-            // flinging through a long feed.
+        String feedThumbUrl = reel.effectiveThumbUrl();
+        boolean hasFeedThumb = feedThumbUrl != null && !feedThumbUrl.isEmpty();
+        boolean needsBackdrop = feedNeedsBackdrop(reel);
+        if (hasFeedThumb) {
+            // Keep the backdrop GONE for square/ordinary landscape media:
+            // their source aspect already matches the bounded frame, so a
+            // blurred second image would only add decode and draw work.
+            if (holder.ivBackdrop != null) {
+                if (!needsBackdrop) {
+                    if (holder.lastBackdropNeeded) {
+                        Glide.with(requireContext()).clear(holder.ivBackdrop);
+                    }
+                    holder.lastBackdropNeeded = false;
+                    holder.lastBackdropUrl = feedThumbUrl;
+                    holder.ivBackdrop.setVisibility(View.GONE);
+                } else {
+                    holder.ivBackdrop.setVisibility(View.VISIBLE);
+                    if (!holder.lastBackdropNeeded
+                            || !feedThumbUrl.equals(holder.lastBackdropUrl)) {
+                        holder.lastBackdropNeeded = true;
+                        holder.lastBackdropUrl = feedThumbUrl;
+                        Glide.with(requireContext()).load(feedThumbUrl)
+                            .apply(FEED_BACKDROP_OPTS)
+                            .override(BACKDROP_DECODE_W, BACKDROP_DECODE_H)
+                            .priority(Priority.LOW)
+                            .into(holder.ivBackdrop);
+                    }
+                }
+            }
+            // Decode into the tallest supported Home-feed canvas. FIT keeps the
+            // source's complete aspect ratio; unlike the old centerCrop chain,
+            // no photo or video pixels are thrown away.
             //
             // PERF: Glide already dedupes the actual decode/network work
             // when the same URL is requested into a target it's already
@@ -6437,13 +6548,29 @@ public class HomeFragment extends Fragment
             // allocation on EVERY bind — including a same-reel rebind onto
             // this same holder. Skip the whole chain when this holder is
             // already showing this exact thumb URL.
-            if (!reel.thumbUrl.equals(holder.lastThumbUrl)) {
-                holder.lastThumbUrl = reel.thumbUrl;
-                Glide.with(requireContext()).load(reel.thumbUrl)
-                    .apply(FEED_IMAGE_OPTS)
+            if (!feedThumbUrl.equals(holder.lastThumbUrl)) {
+                holder.lastThumbUrl = feedThumbUrl;
+
+                Glide.with(requireContext()).load(feedThumbUrl)
+                    .apply(FEED_MEDIA_OPTS)
                     .override(THUMB_DECODE_W, THUMB_DECODE_H)
-                    .centerCrop().placeholder(R.drawable.ic_reels).into(ivThumb);
+                    .placeholder(R.drawable.ic_reels)
+                    .priority(Priority.HIGH)
+                    .listener(holder.thumbLoadListener)
+                    .into(ivThumb);
             }
+        } else {
+            holder.lastThumbUrl = null;
+            if (holder.ivBackdrop != null) {
+                if (holder.lastBackdropNeeded) {
+                    Glide.with(requireContext()).clear(holder.ivBackdrop);
+                }
+                holder.lastBackdropNeeded = false;
+                holder.lastBackdropUrl = null;
+                holder.ivBackdrop.setVisibility(View.GONE);
+                holder.ivBackdrop.setImageDrawable(null);
+            }
+            if (ivThumb != null) ivThumb.setImageResource(R.drawable.ic_reels);
         }
         if (reel.ownerPhoto != null && !reel.ownerPhoto.isEmpty()) {
             // The avatar is 36dp; without an override Glide decoded the
@@ -8283,7 +8410,7 @@ public class HomeFragment extends Fragment
 
     private void loadMyAvatar() {
         String myUid = safeMyUid();
-        if (myUid == null || ivMyStoryAvatar == null) return;
+        if (myUid == null) return;
         // Reels profile avatar load karo (reels/users/{uid})
         com.google.firebase.database.FirebaseDatabase.getInstance()
             .getReference("reels/users").child(myUid)
@@ -8294,12 +8421,16 @@ public class HomeFragment extends Fragment
                 String photo = snap.child("photoUrl").getValue(String.class);
                 String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
                 Long ver = snap.child("avatarVersion").getValue(Long.class);
-                // FIX (deep avatar pipeline): always inside the tray's initial
-                // viewport (it's the very first row) — real IMMEDIATE bind via
-                // HomeStoryAvatarBinder, same tier/L2/L3/blur-up as every other
-                // Stories-tray row instead of the old flat override(96,96).
-                HomeStoryAvatarBinder.bind(requireContext(), ivMyStoryAvatar, url,
-                        ver != null ? ver : 0L, R.drawable.ic_person);
+                // PERF (RecyclerView conversion): the "Add Story" row is now
+                // a normal position-0 adapter item — its ViewHolder can be
+                // recycled/recreated, so the resolved data is stored here
+                // and re-read by StoriesAdapter#bindAddStoryHolder on every
+                // (re)bind, rather than painted once into a single
+                // long-lived ImageView field.
+                myAvatarPhotoUrl = url;
+                myAvatarVersion = ver != null ? ver : 0L;
+                myAvatarLoaded = true;
+                if (storiesAdapter != null) storiesAdapter.notifyItemChanged(0);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });
@@ -8421,20 +8552,65 @@ public class HomeFragment extends Fragment
         return photoDotColorsCached ? cachedPhotoDotInactiveColor : 0x4D64748B;
     }
 
-    /** Cached feed-card video-frame height (see addFeedPostCard's comment) —
-     *  same value for every card, so it's computed once instead of on every
-     *  bind. -1 means "not computed yet / invalidated". */
-    private int cachedFeedVideoH = -1;
-
-    private int feedCardVideoHeightPx() {
-        if (cachedFeedVideoH > 0 || getContext() == null) {
-            return cachedFeedVideoH > 0 ? cachedFeedVideoH : 0;
-        }
+    /**
+     * Returns the Home-feed media height for a source aspect ratio.
+     *
+     * Instagram's feed has a bounded post canvas: portrait media is not
+     * allowed to grow past 4:5, and very wide media is not allowed to become
+     * a paper-thin strip. The source itself is still rendered with FIT, so
+     * clamping the container never crops the actual photo/video. Any remaining
+     * space is filled by the blurred media backdrop.
+     */
+    private int feedCardMediaHeightPx(ReelModel reel) {
+        if (getContext() == null) return 0;
         android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
-        int full916H = (int) (dm.widthPixels * 16f / 9f);
+        int mediaWidth = recyclerHome != null && recyclerHome.getWidth() > 0
+                ? recyclerHome.getWidth() : dm.widthPixels;
+        if (mediaWidth <= 0) mediaWidth = dm.widthPixels;
+
+        float sourceAspect = 0f; // width / height
+        if (reel != null && reel.width > 0 && reel.height > 0) {
+            sourceAspect = reel.width / (float) reel.height;
+        }
+
+        // Instagram feed bounds: portrait 4:5 through landscape 1.91:1.
+        // Unknown legacy photo dimensions use the tallest supported frame;
+        // the Glide listener below tightens it once the thumbnail is decoded.
+        float displayAspect = sourceAspect > 0f ? sourceAspect : (4f / 5f);
+        displayAspect = Math.max(4f / 5f, Math.min(1.91f, displayAspect));
+
+        int ratioHeight = Math.round(mediaWidth / displayAspect);
         int feedCapH = (int) (dm.heightPixels * 0.75f);
-        cachedFeedVideoH = Math.min(full916H, feedCapH);
-        return cachedFeedVideoH;
+        return Math.max(1, Math.min(ratioHeight, feedCapH));
+    }
+
+    /** A backdrop is only visible when the source aspect is outside the
+     *  bounded feed range. Square, normal landscape, and normal 4:5-or-taller
+     *  feed media already fills the frame exactly, so skipping their blur load
+     *  removes a second decode/transform/draw from the hot path. */
+    private static boolean feedNeedsBackdrop(ReelModel reel) {
+        if (reel == null || reel.width <= 0 || reel.height <= 0) return true;
+        float sourceAspect = reel.width / (float) reel.height;
+        return sourceAspect < (4f / 5f) || sourceAspect > 1.91f;
+    }
+
+    /** Re-applies the frame height after Glide reveals dimensions for a legacy
+     *  photo/video whose ReelModel did not carry width/height metadata. */
+    private void applyFeedMediaAspect(View frameVideo, float sourceAspect) {
+        if (frameVideo == null || sourceAspect <= 0f || getContext() == null) return;
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        int mediaWidth = frameVideo.getWidth() > 0 ? frameVideo.getWidth()
+                : (recyclerHome != null && recyclerHome.getWidth() > 0
+                    ? recyclerHome.getWidth() : dm.widthPixels);
+        if (mediaWidth <= 0) return;
+        float displayAspect = Math.max(4f / 5f, Math.min(1.91f, sourceAspect));
+        int targetHeight = Math.round(mediaWidth / displayAspect);
+        targetHeight = Math.max(1, Math.min(targetHeight, (int) (dm.heightPixels * 0.75f)));
+        ViewGroup.LayoutParams lp = frameVideo.getLayoutParams();
+        if (lp != null && lp.height != targetHeight) {
+            lp.height = targetHeight;
+            frameVideo.setLayoutParams(lp);
+        }
     }
 
     /** Same red used by the full-screen reel player's like button (#FF416C) —
@@ -8764,6 +8940,7 @@ public class HomeFragment extends Fragment
         ImageButton     btnRepost;
         ImageButton     btnSave;
         PlayerView      pvFeed;
+        ImageView       ivBackdrop;
         FrameLayout     frameVideo;
         View            endOverlay;
         View            watchMore;
@@ -8898,7 +9075,10 @@ public class HomeFragment extends Fragment
         long   lastAgoComputedAtMs = -1;
         String lastAgoStr;
         String lastThumbUrl;
+        String lastBackdropUrl;
+        boolean lastBackdropNeeded;
         String lastAvatarUrl;
+        RequestListener<Drawable> thumbLoadListener;
         // ★ Instagram-level PERF: same same-URL-skip principle as
         // lastThumbUrl/lastAvatarUrl above, for the music/sound cover tile
         // (btnAudioCover) — see the "Audio-cover tile" block in
@@ -9005,7 +9185,52 @@ public class HomeFragment extends Fragment
             // instance, set once at ViewHolder construction (matches Reels
             // tab, which sets it once at player-view bind time too).
             pvFeed.setShutterBackgroundColor(android.graphics.Color.TRANSPARENT);
+            pvFeed.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+            ivBackdrop            = itemView.findViewById(R.id.iv_feed_media_backdrop);
+            if (ivBackdrop != null) ivBackdrop.setVisibility(View.GONE);
             frameVideo            = itemView.findViewById(R.id.frame_video);
+            // Instagram-style Home cards keep the author header ABOVE the
+            // media. The XML keeps this row inside frame_video so all existing
+            // cached IDs/ViewStub bindings remain intact; move it once when
+            // the physical holder is created, before the first bind.
+            View homeHeader = itemView.findViewById(R.id.overlay_post_header);
+            if (homeHeader != null && homeHeader.getParent() == frameVideo
+                    && itemView instanceof ViewGroup) {
+                ViewGroup cardRoot = (ViewGroup) itemView;
+                int mediaIndex = cardRoot.indexOfChild(frameVideo);
+                frameVideo.removeView(homeHeader);
+                homeHeader.setLayoutParams(new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT));
+                cardRoot.addView(homeHeader, Math.max(0, mediaIndex));
+            }
+            // Reuse one listener for this physical holder. Creating a new
+            // anonymous RequestListener for every new thumbnail URL causes
+            // avoidable churn during a long feed fling.
+            thumbLoadListener = new RequestListener<Drawable>() {
+                @Override
+                public boolean onLoadFailed(@Nullable GlideException e, Object model,
+                        Target<Drawable> target, boolean isFirstResource) {
+                    return false;
+                }
+
+                @Override
+                public boolean onResourceReady(Drawable resource, Object model,
+                        Target<Drawable> target, DataSource dataSource,
+                        boolean isFirstResource) {
+                    // Ignore a late decode from a previous bind after this
+                    // recycled holder has already requested another URL.
+                    if (resource != null
+                            && java.util.Objects.equals(String.valueOf(model), lastThumbUrl)
+                            && resource.getIntrinsicWidth() > 0
+                            && resource.getIntrinsicHeight() > 0) {
+                        applyFeedMediaAspect(frameVideo,
+                                resource.getIntrinsicWidth()
+                                    / (float) resource.getIntrinsicHeight());
+                    }
+                    return false;
+                }
+            };
             framePhotoDotsRow     = itemView.findViewById(R.id.frame_photo_dots_row);
             endOverlay            = itemView.findViewById(R.id.layout_end_of_reel_card);
             watchMore             = itemView.findViewById(R.id.btn_watch_more_card);

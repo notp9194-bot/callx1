@@ -7996,8 +7996,29 @@ public class MessagePagingAdapter
         this.seenByClickListener = l;
     }
 
+    /**
+     * PERF FIX (v341): this used to call notifyDataSetChanged() on every
+     * call — a full rebind (destroy+recreate every visible ViewHolder,
+     * losing in-flight item animations) triggered whenever GroupChatActivity
+     * syncs member photos.
+     *
+     * Traced where `memberPhotos` is actually read: nowhere. bindSeenByStrip()
+     * below is a no-op stub ("canvas view renders its own read-by overlay —
+     * no extra work needed here") — the seen-by-strip avatar rendering this
+     * field's javadoc/call-site comment ("Keep pagingAdapter in sync so
+     * avatar circles in 'Seen by' strip stay fresh", see GroupChatActivity)
+     * describes was never actually wired up. So the notify was forcing a
+     * full-list rebind for a field the bind path never consumes — zero
+     * visual effect, all of the cost.
+     *
+     * The field is still stored (and the public setter kept, so the
+     * existing GroupChatActivity call site keeps compiling) in case a
+     * future pass finishes that seen-by-avatar wiring — but that work
+     * should call notifyItemChanged(pos, PAYLOAD) targeted at just the
+     * affected sent-message rows once it reads memberPhotos in bind, not
+     * reintroduce a blanket notifyDataSetChanged() here.
+     */
     public void setMemberPhotos(java.util.Map<String, String> photos) {
         this.memberPhotos = photos;
-        notifyDataSetChanged();
     }
 }

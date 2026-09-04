@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  item_home_feed_post.xml — Instagram-style Reels home feed card
-  ■ Video fills 9:16 aspect (height set in Java from screen width)
-  ■ Header (avatar + username + suggested + audio) overlaid on video — top gradient
+  item_home_feed_post.xml — Instagram-style mixed-media home feed card
+  ■ Media keeps its source aspect ratio inside Instagram's feed bounds
+  ■ Header (avatar + username + suggested + audio) sits above the media
   ■ Mute button overlaid — bottom-right of video
   ■ End-of-reel overlay — "Watch more reels" pill + "Watch again" text — GONE by default
   ■ Action bar (❤ | 💬 | 🔄 | ▷ | 🔖) below video with counts — theme-aware
@@ -17,16 +17,16 @@
     android:orientation="vertical"
     android:layout_marginBottom="12dp"><!-- 🐛 FIX: was 2dp — Post feed's separate header row adds
         ~10dp of its own top padding before the next card's content starts, so its
-        cards read as visibly separated. Home feed's header is overlaid ON the video
-        (no such padding), so 2dp made back-to-back reels look like one continuous
-        video with no boundary — bumped to 12dp to match Post feed's effective gap.
+        cards read as visibly separated. Home feed's header now sits ABOVE the
+        media, so this margin keeps consecutive cards visibly separated instead
+        of making the header and previous card look fused.
         PERF: no background here on purpose.
         fragment_home's root is already @color/background_light, so painting
         the same colour again per card is a full extra overdraw pass over the
         entire feed area on every frame. The video block below draws its own
         opaque black, and the text/action rows sit on the fragment colour. -->
 
-    <!-- ══════════ VIDEO BLOCK ══════════ -->
+    <!-- ══════════ MEDIA BLOCK ══════════ -->
     <!-- Always solid black, in both light & dark mode — the video itself
          should never switch to a light background (Instagram behaves the
          same way). Only the content BELOW the video (action bar, counts,
@@ -36,15 +36,26 @@
         android:layout_width="match_parent"
         android:layout_height="600dp"
         android:background="#000000">
-        <!-- height overridden in Java: screenWidth × 16/9 for exact 9:16 -->
+        <!-- height is overridden in Java from the media aspect ratio -->
+
+        <!-- Blurred fill makes FIT letterboxing intentional instead of empty. -->
+        <ImageView
+            android:id="@+id/iv_feed_media_backdrop"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:background="#000000"
+            android:visibility="gone"
+            android:contentDescription=""/>
 
         <!-- ExoPlayer surface — MediaItem set in HomeFragment -->
         <androidx.media3.ui.PlayerView
             android:id="@+id/pv_feed_post"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:background="@android:color/transparent"
             app:use_controller="false"
-            app:resize_mode="zoom"
+            app:resize_mode="fit"
             app:surface_type="surface_view"/>
 
         <!-- Thumbnail — shown until video starts, fades out -->
@@ -52,10 +63,13 @@
             android:id="@+id/iv_post_thumb"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:scaleType="centerCrop"
-            android:background="#111111"/>
+            android:scaleType="fitCenter"
+            android:background="@android:color/transparent"/>
 
-        <!-- ── Overlaid header strip at top of video ── -->
+        <!-- ── Header strip ──
+             HomeFragment moves this row above frame_video at holder creation,
+             matching Instagram's post layout. It remains declared here so
+             existing cached view IDs and the ViewStub continue to work. -->
         <!-- PERF: was a horizontal LinearLayout with THREE layout_weight="1"
              siblings (ll_post_owner_row, stub_home_collab_row, and — one
              level down — the username/suggested/audio column). Every
@@ -65,14 +79,15 @@
              ConstraintLayout: same visual result via matchConstraint (0dp)
              widths, single measure pass, one fewer view-tree level. -->
         <androidx.constraintlayout.widget.ConstraintLayout
-            android:id="@+id/overlay_post_header"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top"
-            android:paddingStart="12dp"
-            android:paddingEnd="8dp"
-            android:paddingTop="14dp"
-            android:paddingBottom="20dp">
+             android:id="@+id/overlay_post_header"
+             android:layout_width="match_parent"
+             android:layout_height="wrap_content"
+             android:layout_gravity="top"
+             android:paddingStart="12dp"
+             android:paddingEnd="8dp"
+             android:paddingTop="6dp"
+             android:paddingBottom="6dp"
+             android:background="@color/background_light">
 
             <!-- ── Normal solo-owner row: avatar + username/suggested/audio ──
                  GONE (in favor of stub_home_collab_row below) when the reel
@@ -149,9 +164,9 @@
                         <TextView
                             android:id="@+id/tv_post_owner"
                             android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@username"
-                            android:textColor="#FFFFFF"
+                             android:layout_height="wrap_content"
+                             android:text="@username"
+                             android:textColor="@color/text_primary"
                             android:textSize="13sp"
                             android:fontFamily="sans-serif-medium"/>
 
@@ -169,9 +184,9 @@
                     <TextView
                         android:id="@+id/tv_post_suggested"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Suggested for you"
-                        android:textColor="#CCCCCC"
+                         android:layout_height="wrap_content"
+                         android:text="Suggested for you"
+                         android:textColor="@color/text_secondary"
                         android:textSize="11sp"
                         android:visibility="gone"/>
 
@@ -182,9 +197,9 @@
                         android:layout_height="wrap_content"
                         android:drawableStart="@drawable/ic_music"
                         android:drawablePadding="4dp"
-                        android:drawableTint="#CCCCCC"
+                        android:drawableTint="@color/text_secondary"
                         android:text="Original audio"
-                        android:textColor="#CCCCCC"
+                        android:textColor="@color/text_secondary"
                         android:textSize="11sp"
                         android:visibility="gone"/>
                 </LinearLayout>
@@ -233,9 +248,9 @@
             <ImageButton
                 android:id="@+id/btn_post_more"
                 android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:src="@drawable/ic_more_vert"
-                android:tint="#FFFFFF"
+                 android:layout_height="36dp"
+                 android:src="@drawable/ic_more_vert"
+                 android:tint="@color/text_primary"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="More"
                 app:layout_constraintEnd_toEndOf="parent"

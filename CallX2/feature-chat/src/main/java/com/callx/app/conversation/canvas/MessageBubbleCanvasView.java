@@ -1888,6 +1888,121 @@ public class MessageBubbleCanvasView extends View {
         mediaRenderer.drawIndeterminateSpinnerOnly(canvas);
     }
 
+    /**
+     * Media-group (album grid) counterpart to drawMediaWithOptionalCache():
+     * while at least one cell is in the live indeterminate-spinner state
+     * (mediaGroupRenderer.hasActiveIndeterminateSpinner()), the static grid
+     * content (thumbnails, borders, captions, dim overlays, badge circles —
+     * everything except the moving arcs) is recorded once into the same
+     * cachedMediaPicture/cachedMediaRenderNode used by the single-media
+     * case, and only the live arcs are redrawn every frame on top via
+     * mediaGroupRenderer.drawIndeterminateSpinnersOnly(). Reuses those
+     * fields rather than adding parallel ones because exactly one of
+     * isMedia/isMediaGroup/isFileBubble is ever true for a given bound
+     * view, so there's no risk of the two caches colliding.
+     */
+    private void drawMediaGroupWithOptionalCache(Canvas canvas, float vPad) {
+        boolean indeterminateActive = mediaGroupRenderer.hasActiveIndeterminateSpinner();
+        if (!indeterminateActive) {
+            mediaGroupRenderer.draw(canvas, vPad, false);
+            staticPictureDirty = true;
+            return;
+        }
+        int w = getWidth(), h = getHeight();
+        if (w <= 0 || h <= 0) {
+            mediaGroupRenderer.draw(canvas, vPad, true);
+            mediaGroupRenderer.drawIndeterminateSpinnersOnly(canvas);
+            return;
+        }
+        boolean sizeChanged = w != cachedMediaPictureWidth || h != cachedMediaPictureHeight;
+
+        if (SUPPORTS_RENDER_NODE && canvas.isHardwareAccelerated()) {
+            if (cachedMediaRenderNode == null) {
+                cachedMediaRenderNode = new android.graphics.RenderNode("media");
+            }
+            boolean hit = !staticPictureDirty && !sizeChanged && cachedMediaRenderNode.hasDisplayList();
+            if (!hit) {
+                cachedMediaRenderNode.setPosition(0, 0, w, h);
+                android.graphics.RecordingCanvas rc = cachedMediaRenderNode.beginRecording();
+                mediaGroupRenderer.draw(rc, vPad, true /* spinnerHandledSeparately */);
+                cachedMediaRenderNode.endRecording();
+                staticPictureDirty = false;
+                cachedMediaPictureWidth = w;
+                cachedMediaPictureHeight = h;
+            }
+            canvas.drawRenderNode(cachedMediaRenderNode);
+            mediaGroupRenderer.drawIndeterminateSpinnersOnly(canvas);
+            return;
+        }
+
+        if (staticPictureDirty || cachedMediaPicture == null || sizeChanged) {
+            if (cachedMediaPicture == null) cachedMediaPicture = new android.graphics.Picture();
+            Canvas pictureCanvas = cachedMediaPicture.beginRecording(w, h);
+            mediaGroupRenderer.draw(pictureCanvas, vPad, true /* spinnerHandledSeparately */);
+            cachedMediaPicture.endRecording();
+            staticPictureDirty = false;
+            cachedMediaPictureWidth = w;
+            cachedMediaPictureHeight = h;
+        }
+        canvas.drawPicture(cachedMediaPicture);
+        mediaGroupRenderer.drawIndeterminateSpinnersOnly(canvas);
+    }
+
+    /**
+     * File-bubble counterpart to drawMediaWithOptionalCache() — same
+     * split, same reused cachedMediaPicture/cachedMediaRenderNode fields.
+     * While fileIsDownloading && fileDownloadPercent < 0, the static card
+     * (icon circle, action-button circle, name/meta text, footer) is
+     * cached once and only the live ring is redrawn every frame via
+     * fileBubbleRenderer.drawIndeterminateSpinnerOnly().
+     */
+    private void drawFileBubbleWithOptionalCache(Canvas canvas) {
+        boolean indeterminateActive = fileIsDownloading && fileDownloadPercent < 0;
+        if (!indeterminateActive) {
+            fileBubbleRenderer.draw(canvas, false);
+            staticPictureDirty = true;
+            return;
+        }
+        int w = getWidth(), h = getHeight();
+        if (w <= 0 || h <= 0) {
+            fileBubbleRenderer.draw(canvas, true);
+            fileBubbleRenderer.drawIndeterminateSpinnerOnly(canvas);
+            return;
+        }
+        boolean sizeChanged = w != cachedMediaPictureWidth || h != cachedMediaPictureHeight;
+
+        if (SUPPORTS_RENDER_NODE && canvas.isHardwareAccelerated()) {
+            if (cachedMediaRenderNode == null) {
+                cachedMediaRenderNode = new android.graphics.RenderNode("media");
+            }
+            boolean hit = !staticPictureDirty && !sizeChanged && cachedMediaRenderNode.hasDisplayList();
+            if (!hit) {
+                cachedMediaRenderNode.setPosition(0, 0, w, h);
+                android.graphics.RecordingCanvas rc = cachedMediaRenderNode.beginRecording();
+                fileBubbleRenderer.draw(rc, true /* spinnerHandledSeparately */);
+                cachedMediaRenderNode.endRecording();
+                staticPictureDirty = false;
+                cachedMediaPictureWidth = w;
+                cachedMediaPictureHeight = h;
+            }
+            canvas.drawRenderNode(cachedMediaRenderNode);
+            fileBubbleRenderer.drawIndeterminateSpinnerOnly(canvas);
+            return;
+        }
+
+        if (staticPictureDirty || cachedMediaPicture == null || sizeChanged) {
+            if (cachedMediaPicture == null) cachedMediaPicture = new android.graphics.Picture();
+            Canvas pictureCanvas = cachedMediaPicture.beginRecording(w, h);
+            fileBubbleRenderer.draw(pictureCanvas, true /* spinnerHandledSeparately */);
+            cachedMediaPicture.endRecording();
+            staticPictureDirty = false;
+            cachedMediaPictureWidth = w;
+            cachedMediaPictureHeight = h;
+        }
+        canvas.drawPicture(cachedMediaPicture);
+        fileBubbleRenderer.drawIndeterminateSpinnerOnly(canvas);
+    }
+
     // v38 PERF: RenderNode display lists live on the GPU side, not the
     // Java heap — the JVM heap dump/GC never sees or reclaims that
     // memory. A view sitting unused in RecyclerView's RecycledViewPool
@@ -2790,6 +2905,7 @@ public class MessageBubbleCanvasView extends View {
         if (requestLayoutIfSizeChanged()) {
             groupCaptionLayout = null; // recomputed in onMeasure
         }
+        staticPictureDirty = true;
         invalidate();
     }
 
@@ -3256,6 +3372,7 @@ public class MessageBubbleCanvasView extends View {
             lastCacheKey = cacheKey;
         }
 
+        staticPictureDirty = true;
         requestLayoutIfSizeChanged();
         invalidate();
     }
@@ -3264,6 +3381,7 @@ public class MessageBubbleCanvasView extends View {
     public void setFileDownloadState(boolean downloading, int percent) {
         this.fileIsDownloading   = downloading;
         this.fileDownloadPercent = percent;
+        staticPictureDirty = true;
         invalidate();
     }
 
@@ -3271,6 +3389,7 @@ public class MessageBubbleCanvasView extends View {
     public void setFileCached(boolean cached) {
         this.fileIsCached      = cached;
         this.fileIsDownloading = false;
+        staticPictureDirty = true;
         invalidate();
     }
 
@@ -3481,6 +3600,7 @@ public class MessageBubbleCanvasView extends View {
         }
         this.groupGatePendingCount = pending;
         this.groupGateActive = pending > 0;
+        staticPictureDirty = true;
         invalidate();
     }
 
@@ -3492,6 +3612,7 @@ public class MessageBubbleCanvasView extends View {
         if (index < 0 || index >= groupCellDownloading.length) return;
         groupCellDownloading[index] = downloading;
         if (downloading && index < groupCellProgress.length) groupCellProgress[index] = -1;
+        staticPictureDirty = true;
         invalidate();
     }
 
@@ -3501,6 +3622,14 @@ public class MessageBubbleCanvasView extends View {
         if (index < 0 || index >= groupCellDownloading.length) return;
         groupCellDownloading[index] = true;
         if (index < groupCellProgress.length) groupCellProgress[index] = percent;
+        // A determinate tick (percent >= 0) is drawn straight into the cache
+        // recording next time it's built (see MediaRenderer's identical
+        // comment) — mark dirty so that recording actually happens; an
+        // indeterminate tick (percent < 0) is handled live by
+        // drawIndeterminateSpinnersOnly() every frame without needing a
+        // fresh recording, but marking dirty here too is cheap and correct
+        // since a cell can flip from determinate back to indeterminate.
+        staticPictureDirty = true;
         invalidate();
     }
 
@@ -3512,6 +3641,7 @@ public class MessageBubbleCanvasView extends View {
         groupCellPending[index] = false;
         if (index < groupCellDownloading.length) groupCellDownloading[index] = false;
         if (index < groupCellProgress.length) groupCellProgress[index] = -1;
+        staticPictureDirty = true;
         invalidate();
     }
 
@@ -5092,10 +5222,15 @@ public class MessageBubbleCanvasView extends View {
 
         // PERF #5: Full-bubble Picture cache.
         // Bypass for animation cases that redraw every frame:
-        //   • indeterminate download/upload spinner (handled inside
-        //     drawMediaWithOptionalCache via the nested cachedMediaPicture)
+        //   • indeterminate download/upload spinner — single media, media
+        //     group, or file bubble (each handled inside its own
+        //     drawXWithOptionalCache() via the nested cachedMediaPicture/
+        //     cachedMediaRenderNode; see those methods' javadocs)
         //   • audio waveform progress bar (~60fps redraws during playback)
-        boolean indeterminate = isMedia && mediaGated && mediaDownloading && mediaDownloadProgress < 0;
+        boolean indeterminate =
+                (isMedia && mediaGated && mediaDownloading && mediaDownloadProgress < 0)
+                || (isMediaGroup && mediaGroupRenderer.hasActiveIndeterminateSpinner())
+                || (isFileBubble && fileIsDownloading && fileDownloadPercent < 0);
         boolean skipFullCache = isAudio || indeterminate;
 
         int w = getWidth(), h = getHeight();
@@ -5207,13 +5342,13 @@ public class MessageBubbleCanvasView extends View {
         } else if (isPoll) {
             pollRenderer.draw(canvas);
         } else if (isMediaGroup) {
-            mediaGroupRenderer.draw(canvas, vPad);
+            drawMediaGroupWithOptionalCache(canvas, vPad);
         } else if (isMedia) {
             drawMediaWithOptionalCache(canvas, hPad, vPad);
         } else if (isAudio) {
             audioRenderer.draw(canvas, hPad, vPad);
         } else if (isFileBubble) {
-            fileBubbleRenderer.draw(canvas);
+            drawFileBubbleWithOptionalCache(canvas);
         } else {
             int replyGap = hasReply ? Math.round(REPLY_GAP_TO_MESSAGE_DP * density) : 0;
             float textBlockTop = bubbleTop + replyBoxHeight + replyGap + vPad;
@@ -5649,27 +5784,31 @@ public class MessageBubbleCanvasView extends View {
      * indeterminate spinner on a custom View without a Handler/ValueAnimator.
      */
     /**
-     * PERF: the indeterminate spinner's postInvalidateOnAnimation() forces a
-     * *full* onDraw() re-execution of the whole bubble (grid cells, borders,
-     * captions — everything, not just this arc) at up to 60fps for as long
-     * as a download/upload's progress is unknown. Investigated caching this
-     * bubble's static content to a Picture so only the arc redraws live, but
-     * MediaGroupRenderer/MediaRenderer/FileBubbleRenderer would each need
-     * splitting into "static part" + "spinner part" — a real refactor across
-     * three renderer classes that draw the spinner interleaved with their
-     * normal content, not as a separable last step. That's not something to
-     * do blind without a build to verify against, and the most expensive
-     * piece per redraw (BitmapShader/gradient construction) is already
-     * cached at the renderer level per the class javadocs, so the remaining
-     * win is smaller than a full cache would suggest.
+     * PERF: the indeterminate spinner's postInvalidateOnAnimation() used to
+     * force a *full* onDraw() re-execution of the whole bubble (grid cells,
+     * borders, captions — everything, not just this arc) at up to 60fps for
+     * as long as a download/upload's progress was unknown.
      *
-     * What's safe and still real: a spinner doesn't need 60 redraws/sec to
-     * read as smooth — 30fps is visually indistinguishable for a simple
-     * rotating arc. This field throttles the full-bubble invalidate to
-     * ~30fps, halving how often every other draw call in the bubble
-     * (shaders, captions, borders, all of it) gets re-issued while a
-     * download/upload of unknown progress is in flight. Per-instance (not
-     * static) since each bubble's spinner phase is independent.
+     * DONE: MediaRenderer, MediaGroupRenderer, and FileBubbleRenderer are
+     * all now split into a "static part" + "spinner part" (spinnerHandled-
+     * Separately param on each draw(); each pairs with its own
+     * drawIndeterminateSpinner[s]Only()). The static part is recorded once
+     * into a Picture/RenderNode (drawMediaWithOptionalCache() /
+     * drawMediaGroupWithOptionalCache() / drawFileBubbleWithOptionalCache()
+     * on the host) and replayed essentially for free every frame; only the
+     * moving arc(s) actually re-issue draw calls while the spinner runs. The
+     * BitmapShader/gradient construction each renderer already cached at
+     * the renderer level (per those classes' javadocs) is preserved as-is —
+     * this sits on top of that, isolating the *drawing*, not just the
+     * shader/bitmap prep.
+     *
+     * What's still true and worth keeping: a spinner doesn't need 60
+     * redraws/sec to read as smooth — 30fps is visually indistinguishable
+     * for a simple rotating arc. This field throttles the *arc's own*
+     * postInvalidateOnAnimation() to ~30fps — now a much cheaper throttle
+     * since each frame it triggers only re-runs the isolated spinner draw,
+     * not the whole bubble. Per-instance (not static) since each bubble's
+     * spinner phase is independent.
      */
     private long lastIndeterminateInvalidateUptimeMs = 0L;
     private static final long INDETERMINATE_INVALIDATE_MIN_INTERVAL_MS = 32L; // ~30fps

@@ -24,7 +24,7 @@ import com.callx.app.utils.AvatarUrlBuilder;
  * sheet (ReelCommentAvatarBinder), and the Status tray (StatusAvatarBinder)
  * already have to HomeFragment's Stories bar (the row of contact status
  * avatars at the top of the Home feed, item_home_story.xml rows inside
- * container_stories/scroll_stories).
+ * rv_stories/StoriesAdapter).
  *
  * GAP THIS CLOSES: HomeFragment#addStoryView (and #loadMyAvatar for the
  * leading "My Story" avatar) previously did a flat
@@ -32,21 +32,23 @@ import com.callx.app.utils.AvatarUrlBuilder;
  * straight off the raw stored photoUrl/thumbUrl — no shared
  * {@link AvatarSizeTier} bucketing (a different Cloudinary URL/cache-key per
  * screen for the SAME user), no density-aware sizing, no WebP/AVIF transform,
- * no L2/L3 bitmap reuse, no blur-up thumbnail, no prefetch, and no isVisible
- * gate for the entries sitting past the initial horizontal-scroll viewport.
+ * no L2/L3 bitmap reuse, no blur-up thumbnail, and no prefetch.
  *
- * UNLIKE a RecyclerView adapter, the Stories bar is a plain LinearLayout
- * inside a HorizontalScrollView — every row is inflated and attached to the
- * window up front (see HomeFragment#addStoryView, called once per resolved
- * contact), so there's no natural "row not bound yet" signal the way
- * View#isAttachedToWindow() gives StatusAvatarBinder/ChatAvatarBinder for a
- * real RecyclerView. The isVisible gate here is therefore driven by the
- * caller: HomeFragment knows which index range fits the tray's initial
- * viewport width and calls {@link #bindGated} for anything past it, then
- * {@link #promote} as the user actually scrolls those into view (see
- * HomeFragment's scroll_stories OnScrollChangeListener) — same shape as
- * StatusAvatarBinder#bindGated/#promote, just fed by scroll position instead
- * of attach/recycle callbacks.
+ * UPDATE (RecyclerView conversion): the Stories bar used to be a plain
+ * LinearLayout inside a HorizontalScrollView — every row was inflated and
+ * attached to the window up front, so there was no natural "row not bound
+ * yet" signal the way View#isAttachedToWindow() gives
+ * StatusAvatarBinder/ChatAvatarBinder for a real RecyclerView. That gap is
+ * why {@link #bindGated} / {@link #promote} existed: HomeFragment drove an
+ * isVisible gate itself off scroll position, bound anything past the
+ * initial viewport disk-cache-only, then promoted it for real once scrolled
+ * into view. rv_stories is now a genuine RecyclerView (see
+ * HomeFragment#StoriesAdapter), so that signal comes for free —
+ * onBindViewHolder is only ever called for a row RecyclerView actually laid
+ * out a View for. HomeFragment now calls {@link #bind} unconditionally from
+ * onBindViewHolder; {@link #bindGated} and {@link #promote} are kept here
+ * (unused by HomeFragment) in case another still-LinearLayout-based avatar
+ * list in the app needs the same isVisible-gate shape later.
  *
  * Reuses {@link ReelsAvatarL2Cache} (and its L3 disk tier) rather than
  * standing up a dedicated cache for a fifth spot in the same module — the
@@ -62,25 +64,23 @@ import com.callx.app.utils.AvatarUrlBuilder;
  *                    a real Glide decode, stale hit dropped if the tag no
  *                    longer matches) → Glide decode chained with a
  *                    TINY-tier .thumbnail() blur-up, decode result written
- *                    back into L2+L3.
- *  • bindGated()   — FIX (isVisible gate): disk-cache-only
- *                    (DiskCacheStrategy.DATA + onlyRetrieveFromCache), never
- *                    touches the network, for a row that's inflated but
- *                    outside the tray's initial visible window.
- *  • promote()     — upgrades a still-pending gated bind to the real
- *                    HIGH-priority network-capable load once the row
- *                    actually scrolls into view. No-op if bind() already
- *                    resolved it (tag no longer matches expectations, or has
- *                    already been consumed).
- *  • cancel()      — Glide.clear() for a row removed by
- *                    HomeFragment#clearStoriesKeepAddButton before the tray
- *                    rebuilds, so a still-in-flight request for a torn-down
- *                    row never lands into whatever view gets inflated next
- *                    at that same child index.
+ *                    back into L2+L3. Called from StoriesAdapter#onBindViewHolder
+ *                    for every row RecyclerView lays out a View for.
+ *  • bindGated()   — legacy isVisible-gate path (disk-cache-only,
+ *                    DiskCacheStrategy.DATA + onlyRetrieveFromCache, never
+ *                    touches the network) — see UPDATE note above.
+ *  • promote()     — legacy isVisible-gate path, upgrades a still-pending
+ *                    gated bind to a real HIGH-priority load — see UPDATE
+ *                    note above.
+ *  • cancel()      — Glide.clear() for a row RecyclerView is recycling
+ *                    (StoriesAdapter#onViewRecycled), so a still-in-flight
+ *                    request for a torn-down row never lands into whatever
+ *                    the recycled View gets rebound to next.
  *  • prefetch()    — velocity-based depth (same thresholds/depths as every
  *                    other binder in the app), DiskCacheStrategy.DATA only
  *                    (bytes, decode deferred to a real bind), called from
- *                    the same scroll listener that drives promote().
+ *                    HomeFragment's RecyclerView.OnScrollListener for
+ *                    whatever sits just past findLastVisibleItemPosition().
  *
  * ETag/Last-Modified conditional requests are NOT re-implemented here — same
  * as every other binder, every Glide request app-wide already gets that for

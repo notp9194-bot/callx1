@@ -67,6 +67,22 @@ final class MediaGroupRenderer {
     private final CharSequence[] cellCaptionDisplay = new CharSequence[MessageBubbleCanvasView.GROUP_MAX_VISIBLE];
 
     void draw(Canvas canvas, float vPad) {
+        draw(canvas, vPad, false);
+    }
+
+    /**
+     * @param spinnerHandledSeparately when true, skips drawing any cell's
+     *        LIVE indeterminate spinner ring (progress < 0) inline — the
+     *        dim overlay + badge circle behind it are still drawn (static),
+     *        only the moving arc is left out. Caller is then responsible for
+     *        calling drawIndeterminateSpinnersOnly() on top, every frame,
+     *        while recording this into a cached Picture/RenderNode — see
+     *        MessageBubbleCanvasView#drawMediaGroupWithOptionalCache().
+     *        Determinate cells (progress >= 0) are unaffected — they only
+     *        change on real progress events, not every frame, so there's no
+     *        repeated-redraw problem for those to solve.
+     */
+    void draw(Canvas canvas, float vPad, boolean spinnerHandledSeparately) {
         float cellR = MessageBubbleCanvasView.GROUP_CORNER_R * host.density;
         for (int i = 0; i < host.groupVisibleCount; i++) {
             RectF rect = host.groupRects[i];
@@ -237,7 +253,14 @@ final class MediaGroupRenderer {
                 boolean downloading = i < host.groupCellDownloading.length && host.groupCellDownloading[i];
                 if (downloading) {
                     int prog = i < host.groupCellProgress.length ? host.groupCellProgress[i] : -1;
-                    host.drawProgressRing(canvas, cx, cy, MessageBubbleCanvasView.GROUP_CELL_GATE_ICON_DP * host.density, host.groupCellGateIconPaint, prog);
+                    // Indeterminate (<0) is skipped here ONLY when the caller is
+                    // recording this into a cached Picture/RenderNode
+                    // (spinnerHandledSeparately) — it will draw the ring itself,
+                    // live, every frame, via drawIndeterminateSpinnersOnly() on
+                    // top of that cache.
+                    if (prog >= 0 || !spinnerHandledSeparately) {
+                        host.drawProgressRing(canvas, cx, cy, MessageBubbleCanvasView.GROUP_CELL_GATE_ICON_DP * host.density, host.groupCellGateIconPaint, prog);
+                    }
                 } else {
                     host.drawGateIcon(canvas, cx, cy, MessageBubbleCanvasView.GROUP_CELL_GATE_ICON_DP * host.density, host.groupCellGateIconPaint);
                 }
@@ -361,6 +384,55 @@ final class MediaGroupRenderer {
             fileOrAudioGlyphPath.lineTo(fx + fw - fold, fy);
             fileOrAudioGlyphPath.close();
             canvas.drawPath(fileOrAudioGlyphPath, host.groupFileGlyphPaint);
+        }
+    }
+
+    /**
+     * True while at least one visible cell is in the live indeterminate-
+     * spinner state (downloading, progress unknown, master gate already
+     * dismissed). Read by MessageBubbleCanvasView#onDraw() to decide
+     * whether the outer full-bubble Picture/RenderNode cache must be
+     * bypassed for this frame, same role isMedia's mediaGated/
+     * mediaDownloading/mediaDownloadProgress<0 check already plays for a
+     * single-media bubble.
+     */
+    boolean hasActiveIndeterminateSpinner() {
+        if (host.groupGateActive) return false;
+        int last = host.groupVisibleCount - 1;
+        boolean lastIsOverlay = host.groupRemaining > 0;
+        for (int i = 0; i < host.groupVisibleCount; i++) {
+            if (lastIsOverlay && i == last) continue;
+            if (i >= host.groupCellPending.length || !host.groupCellPending[i]) continue;
+            if (i >= host.groupCellDownloading.length || !host.groupCellDownloading[i]) continue;
+            int prog = i < host.groupCellProgress.length ? host.groupCellProgress[i] : -1;
+            if (prog < 0) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Draws ONLY the live indeterminate spinner arc for each cell currently
+     * in that state, at the same cx/cy the main draw() loop computes from
+     * host.groupRects[i]. Meant to be called every frame on top of a cached
+     * Picture/RenderNode that already has the dim overlay + badge circle
+     * for these cells baked in (drawn via draw(canvas, vPad, true)) — see
+     * MessageBubbleCanvasView#drawMediaGroupWithOptionalCache(). Mirrors
+     * MediaRenderer#drawIndeterminateSpinnerOnly() for the single-media case.
+     */
+    void drawIndeterminateSpinnersOnly(Canvas canvas) {
+        if (host.groupGateActive) return;
+        int last = host.groupVisibleCount - 1;
+        boolean lastIsOverlay = host.groupRemaining > 0;
+        for (int i = 0; i < host.groupVisibleCount; i++) {
+            if (lastIsOverlay && i == last) continue;
+            if (i >= host.groupCellPending.length || !host.groupCellPending[i]) continue;
+            if (i >= host.groupCellDownloading.length || !host.groupCellDownloading[i]) continue;
+            int prog = i < host.groupCellProgress.length ? host.groupCellProgress[i] : -1;
+            if (prog >= 0) continue;
+            RectF rect = host.groupRects[i];
+            host.drawProgressRing(canvas, rect.centerX(), rect.centerY(),
+                    MessageBubbleCanvasView.GROUP_CELL_GATE_ICON_DP * host.density,
+                    host.groupCellGateIconPaint, prog);
         }
     }
 }

@@ -19,11 +19,13 @@ import java.security.MessageDigest;
  * the bitmap, then scales back up. Pure Java — no RenderScript, works on all API
  * levels. Designed for the background "letterbox fill" layer in photo slideshow
  * reels: the foreground photo uses fitCenter (never cropped); this blurred layer
- * fills the full 9:16 frame behind it, exactly like Instagram's approach.
+ * fills the full bounded feed/player frame behind it, exactly like
+ * Instagram's approach.
  *
  * Performance: the bitmap is scaled to 1/4 before blurring, so even with
- * radius=20 the inner loops operate on ~120×213 pixels — very fast on the main
- * thread (but Glide runs transforms on a background thread anyway).
+ * radius=20 the Home feed's low-resolution backdrop makes the inner loops
+ * operate on roughly 45×56 pixels — very fast on the main thread (but Glide
+ * runs transforms on a background thread anyway).
  *
  * Usage:
  *   Glide.with(ctx)

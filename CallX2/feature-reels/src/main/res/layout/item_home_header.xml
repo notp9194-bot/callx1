@@ -83,68 +83,25 @@
         android:paddingTop="12dp"
         android:paddingBottom="8dp">
 
-        <HorizontalScrollView
-            android:id="@+id/scroll_stories"
+        <!-- PERF (RecyclerView conversion): was a HorizontalScrollView
+             wrapping a plain LinearLayout, with every row's View
+             inflated/attached for the tray's whole lifetime and manually
+             pooled/hidden by index (HomeFragment#obtainStoryRowView). A
+             real RecyclerView gives genuine ViewHolder recycling — only
+             the rows actually on/near screen ever exist as inflated Views
+             — via HomeFragment#StoriesAdapter, LinearLayoutManager(HORIZONTAL)
+             and a shared RecycledViewPool. "Add Story" is position 0
+             (item_home_story_add.xml), contact rows are position 1..N
+             (item_home_story.xml) — see StoriesAdapter#getItemViewType. -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_stories"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:clipToPadding="false"
+            android:overScrollMode="never"
             android:scrollbars="none"
             android:paddingStart="8dp"
-            android:paddingEnd="8dp">
-
-            <LinearLayout
-                android:id="@+id/container_stories"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-
-                <!-- Add Story (My story) — always first -->
-                <LinearLayout
-                    android:id="@+id/btn_add_story"
-                    android:layout_width="96dp"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="6dp"
-                    android:clickable="true"
-                    android:focusable="true">
-
-                    <FrameLayout
-                        android:layout_width="88dp"
-                        android:layout_height="88dp">
-
-                        <de.hdodenhof.circleimageview.CircleImageView
-                            android:id="@+id/iv_my_story_avatar"
-                            android:layout_width="78dp"
-                            android:layout_height="78dp"
-                            android:layout_gravity="center"
-                            android:src="@drawable/ic_person"
-                            app:civ_border_width="1dp"
-                            app:civ_border_color="@color/divider"/>
-
-                        <!-- "+" overlay -->
-                        <ImageView
-                            android:layout_width="26dp"
-                            android:layout_height="26dp"
-                            android:layout_gravity="bottom|end"
-                            android:src="@drawable/ic_status_add"
-                            android:background="@color/brand_primary"
-                            android:padding="3dp"
-                            android:tint="@color/text_primary"/>
-                    </FrameLayout>
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:text="Your story"
-                        android:textColor="@color/text_primary"
-                        android:textSize="11sp"
-                        android:gravity="center"/>
-                </LinearLayout>
-
-                <!-- Contact story avatars injected here by HomeFragment -->
-            </LinearLayout>
-        </HorizontalScrollView>
+            android:paddingEnd="8dp"/>
     </LinearLayout>
 
     <!-- Divider -->

@@ -19,6 +19,10 @@ import android.widget.ProgressBar;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.bitmap.CenterCrop;
+import com.bumptech.glide.request.RequestOptions;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.OptIn;
 import androidx.dynamicanimation.animation.DynamicAnimation;
@@ -38,6 +42,7 @@ import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.fragment.app.Fragment;
 
 import com.callx.app.analytics.ReelQoEAnalyticsActivity;
+import com.callx.app.feed.ReelBlurTransformation;
 import com.callx.app.feed.ReelsFragment;
 import com.callx.app.library.WatchHistoryManager;
 import com.callx.app.models.ReelModel;
@@ -79,6 +84,8 @@ public class ReelPlayerController {
 
     // ── Views ────────────────────────────────────────────────────────────────
     private PlayerView  playerView;
+    /** Blurred letterbox fill behind landscape/square videos. */
+    private ImageView   ivVideoBackdrop;
     private ImageView   ivThumb;
     private ImageView   ivPlayPauseIndicator;
     private SeekBar      progressVideo;
@@ -204,7 +211,7 @@ public class ReelPlayerController {
     // ── Comments-sheet dock: corner radius + spring settle ─────────────────────
     private static final float MAX_DOCK_CORNER_RADIUS_DP = 28f;
     private float dockCornerRadiusPx = 0f;
-    private final SpringAnimation[] activeSprings = new SpringAnimation[6]; // scaleX/Y/transY for playerView + ivThumb
+    private final SpringAnimation[] activeSprings = new SpringAnimation[9]; // playerView + backdrop + ivThumb
     /** Status bar height in px, captured once from window insets — used so the
      *  docked (shrunk) video's top edge lands right BELOW the status bar
      *  instead of bleeding behind it (full-bleed is only correct undocked). */
@@ -219,6 +226,7 @@ public class ReelPlayerController {
     public void bindViews(View root) {
         rootView              = root;
         playerView           = root.findViewById(R.id.player_view);
+        ivVideoBackdrop       = root.findViewById(R.id.iv_video_backdrop);
         ivThumb              = root.findViewById(R.id.iv_thumb);
         ivPlayPauseIndicator = root.findViewById(R.id.iv_play_pause_indicator);
         progressVideo        = root.findViewById(R.id.progress_video);
@@ -250,6 +258,7 @@ public class ReelPlayerController {
         // disappearing and the first decoded frame. Keep the surface
         // transparent and retain the last frame while a player is rebound.
         playerView.setShutterBackgroundColor(android.graphics.Color.TRANSPARENT);
+        playerView.setBackgroundColor(android.graphics.Color.TRANSPARENT);
         playerView.setKeepContentOnPlayerReset(true);
         playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER);
 
@@ -345,7 +354,10 @@ public class ReelPlayerController {
         if (p > 0.001f) {
             playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
         } else {
-            playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+            // The full-screen feed must also preserve landscape/square source
+            // frames. ZOOM here used to crop every non-9:16 reel as soon as the
+            // comments sheet was dismissed.
+            playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
         }
 
         // At the final sheet stage the reference keeps a compact, complete
@@ -372,6 +384,13 @@ public class ReelPlayerController {
             ivThumb.setScaleX(scale);
             ivThumb.setScaleY(scale);
             ivThumb.setTranslationY(dockTranslationY);
+        }
+        if (ivVideoBackdrop != null) {
+            ivVideoBackdrop.setPivotX(ivVideoBackdrop.getWidth() / 2f);
+            ivVideoBackdrop.setPivotY(0f);
+            ivVideoBackdrop.setScaleX(scale);
+            ivVideoBackdrop.setScaleY(scale);
+            ivVideoBackdrop.setTranslationY(dockTranslationY);
         }
 
         // Full radius the instant the video starts docking — no gradual
@@ -410,6 +429,13 @@ public class ReelPlayerController {
             activeSprings[3] = springTo(ivThumb, SpringAnimation.SCALE_X, targetScale);
             activeSprings[4] = springTo(ivThumb, SpringAnimation.SCALE_Y, targetScale);
             activeSprings[5] = springTo(ivThumb, SpringAnimation.TRANSLATION_Y, targetTranslationY);
+        }
+        if (ivVideoBackdrop != null) {
+            ivVideoBackdrop.setPivotX(ivVideoBackdrop.getWidth() / 2f);
+            ivVideoBackdrop.setPivotY(0f);
+            activeSprings[6] = springTo(ivVideoBackdrop, SpringAnimation.SCALE_X, targetScale);
+            activeSprings[7] = springTo(ivVideoBackdrop, SpringAnimation.SCALE_Y, targetScale);
+            activeSprings[8] = springTo(ivVideoBackdrop, SpringAnimation.TRANSLATION_Y, targetTranslationY);
         }
 
         // Same instant rounding on settle — never lags behind the spring.
@@ -463,6 +489,19 @@ public class ReelPlayerController {
 
         // Progressive loading: show thumbnail instantly while video buffers
         if (ivThumb != null && reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
+            // Instagram-style letterbox fill. Keep this layer visible even after
+            // the foreground thumbnail/video appears so landscape and square
+            // reels get a polished background instead of black bars.
+            if (ivVideoBackdrop != null) {
+                Glide.with(ivVideoBackdrop.getContext())
+                        .load(reel.thumbUrl)
+                        .apply(new RequestOptions()
+                                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                                .transform(new CenterCrop(), new ReelBlurTransformation(20))
+                                .override(200, 356))
+                        .into(ivVideoBackdrop);
+            }
+
             ivThumb.setVisibility(View.VISIBLE);
             ivThumb.animate().cancel();
             ivThumb.setAlpha(1f);

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Extracted from item_home_header.xml's old inline "Add Story" block
+     (PERF: RecyclerView conversion) — same ids/dimensions, now a
+     standalone row layout so StoriesAdapter can inflate it as
+     VIEW_TYPE_ADD_STORY at position 0. See HomeFragment#StoriesAdapter. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="96dp"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="6dp"
+    android:clickable="true"
+    android:focusable="true"
+    android:background="?attr/selectableItemBackground">
+
+    <FrameLayout
+        android:layout_width="88dp"
+        android:layout_height="88dp">
+
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_my_story_avatar"
+            android:layout_width="78dp"
+            android:layout_height="78dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_person"
+            app:civ_border_width="1dp"
+            app:civ_border_color="@color/divider"/>
+
+        <!-- "+" overlay -->
+        <ImageView
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:layout_gravity="bottom|end"
+            android:src="@drawable/ic_status_add"
+            android:background="@color/brand_primary"
+            android:padding="3dp"
+            android:tint="@color/text_primary"/>
+    </FrameLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="Your story"
+        android:textColor="@color/text_primary"
+        android:textSize="11sp"
+        android:gravity="center"/>
+</LinearLayout>
