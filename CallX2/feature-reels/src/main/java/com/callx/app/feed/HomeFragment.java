@@ -8602,10 +8602,25 @@ public class HomeFragment extends Fragment
         int mediaWidth = frameVideo.getWidth() > 0 ? frameVideo.getWidth()
                 : (recyclerHome != null && recyclerHome.getWidth() > 0
                     ? recyclerHome.getWidth() : dm.widthPixels);
-        if (mediaWidth <= 0) return;
+        applyFeedMediaAspectStatic(frameVideo, sourceAspect, mediaWidth, dm.heightPixels);
+    }
+
+    // FIX: static-context-safe twin of applyFeedMediaAspect(). PostRowHolder
+    // is a static nested class (by design, so it never implicitly holds a
+    // Fragment reference), so its Glide RequestListener — itself an inner
+    // class of that static holder — cannot call the non-static
+    // applyFeedMediaAspect() (it has no enclosing HomeFragment instance to
+    // call it on: "non-static method ... cannot be referenced from a static
+    // context"). This variant takes the width/height it needs as plain
+    // params (sourced from the View itself) instead of reading them off the
+    // Fragment, so it works from anywhere without needing a Fragment
+    // instance. Same math as applyFeedMediaAspect().
+    private static void applyFeedMediaAspectStatic(View frameVideo, float sourceAspect,
+            int mediaWidth, int screenHeightPx) {
+        if (frameVideo == null || sourceAspect <= 0f || mediaWidth <= 0) return;
         float displayAspect = Math.max(4f / 5f, Math.min(1.91f, sourceAspect));
         int targetHeight = Math.round(mediaWidth / displayAspect);
-        targetHeight = Math.max(1, Math.min(targetHeight, (int) (dm.heightPixels * 0.75f)));
+        targetHeight = Math.max(1, Math.min(targetHeight, (int) (screenHeightPx * 0.75f)));
         ViewGroup.LayoutParams lp = frameVideo.getLayoutParams();
         if (lp != null && lp.height != targetHeight) {
             lp.height = targetHeight;
@@ -9223,10 +9238,18 @@ public class HomeFragment extends Fragment
                     if (resource != null
                             && java.util.Objects.equals(String.valueOf(model), lastThumbUrl)
                             && resource.getIntrinsicWidth() > 0
-                            && resource.getIntrinsicHeight() > 0) {
-                        applyFeedMediaAspect(frameVideo,
+                            && resource.getIntrinsicHeight() > 0
+                            && frameVideo != null
+                            && frameVideo.getContext() != null) {
+                        int fvWidth = frameVideo.getWidth() > 0 ? frameVideo.getWidth()
+                                : frameVideo.getContext().getResources()
+                                    .getDisplayMetrics().widthPixels;
+                        int screenHeightPx = frameVideo.getContext().getResources()
+                                .getDisplayMetrics().heightPixels;
+                        applyFeedMediaAspectStatic(frameVideo,
                                 resource.getIntrinsicWidth()
-                                    / (float) resource.getIntrinsicHeight());
+                                    / (float) resource.getIntrinsicHeight(),
+                                fvWidth, screenHeightPx);
                     }
                     return false;
                 }
