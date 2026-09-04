@@ -760,11 +760,11 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
         tvPhotoIndexLabel   = findViewById(R.id.tv_photo_editor_index);
         tvCaption           = findViewById(R.id.tv_photo_editor_caption);
 
-        tabFilters  = findViewById(R.id.tab_filters);
-        tabEffects  = findViewById(R.id.tab_effects);
-        tabCaption  = findViewById(R.id.tab_caption);
-        tabStickers = findViewById(R.id.tab_stickers);
-        tabAdjust   = findViewById(R.id.tab_adjust);
+        // ✅ tab_filters/tab_effects/tab_caption/tab_stickers/tab_adjust no
+        // longer exist as resource ids at all (old horizontal tab bar is
+        // gone from the Instagram-style layout) — tabFilters etc. stay
+        // declared but unassigned (null), which every null-guarded
+        // reference elsewhere in this file already handles safely.
 
         panelFilters  = findViewById(R.id.panel_filters);
         panelEffects  = findViewById(R.id.panel_effects);
@@ -1481,7 +1481,13 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
      * the Reel Upload and Reel Editor screens.
      */
     private void setupPhotoEditorStepWizard() {
-        tvPhotoEditorStepTitle = findViewById(R.id.tv_photo_editor_step_title);
+        // ✅ tv_photo_editor_step_title / btn_photo_editor_step_back /
+        // btn_photo_editor_step_next no longer exist as resource ids (the
+        // "Step X of Y" pill and fixed Back/Next bar are gone from the
+        // Instagram-style layout) — these fields stay declared but
+        // unassigned (null), which is exactly what makes the early-return
+        // below a safe, permanent no-op now that setupPhotoEditorRail() is
+        // the real navigation.
         tvPhotoEditorStepName = findViewById(R.id.tv_photo_editor_step_name);
         photoEditorStepDots  = new TextView[] {
                 findViewById(R.id.step_dot_1), findViewById(R.id.step_dot_2),
@@ -1499,9 +1505,6 @@ public class ReelPhotoEditorActivity extends AppCompatActivity {
                 findViewById(R.id.step_ring_3), findViewById(R.id.step_ring_4),
                 findViewById(R.id.step_ring_5)
         };
-        btnPhotoEditorStepBack = findViewById(R.id.btn_photo_editor_step_back);
-        btnPhotoEditorStepNext = findViewById(R.id.btn_photo_editor_step_next);
-
         if (tvPhotoEditorStepTitle == null) return; // layout not the wizard version — no-op safety
 
         View[] panels = {panelFilters, panelEffects, panelCaption, panelStickers, panelAdjust};
