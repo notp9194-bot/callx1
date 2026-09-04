@@ -82,7 +82,7 @@ public final class HomeFeedWindowManager {
     /** Must stay identical to HomeFragment's card-thumbnail override, or the
      *  reload misses the cache entry the card originally decoded. */
     private static final int THUMB_W = 540;
-    private static final int THUMB_H = 675;
+    private static final int THUMB_H = 960;
 
     private static final int PLACEHOLDER_COLOR = 0xFF1A1A1A;
 

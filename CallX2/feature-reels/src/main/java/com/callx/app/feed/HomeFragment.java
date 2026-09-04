@@ -28,7 +28,6 @@ import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.ListUpdateCallback;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
-import androidx.media3.common.VideoSize;
 import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.MediaSource;
@@ -39,17 +38,12 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewpager2.widget.ViewPager2;
 
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.Priority;
 import com.bumptech.glide.request.RequestOptions;
-import com.bumptech.glide.request.RequestListener;
 import com.bumptech.glide.request.target.CustomTarget;
-import com.bumptech.glide.request.target.Target;
 import com.bumptech.glide.request.transition.Transition;
 import com.bumptech.glide.load.MultiTransformation;
 import com.bumptech.glide.load.DecodeFormat;
-import com.bumptech.glide.load.DataSource;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
-import com.bumptech.glide.load.engine.GlideException;
 import com.bumptech.glide.load.resource.bitmap.CenterCrop;
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.callx.app.utils.AvatarUrlBuilder;
@@ -296,8 +290,6 @@ public class HomeFragment extends Fragment
         View      rootView;
         PlayerView playerView;
         ImageView  thumbView;
-        ImageView  backdropView;
-        View       mediaFrame;
         View       endOverlay;
         String     videoUrl;
         String     reelId;
@@ -643,27 +635,6 @@ public class HomeFragment extends Fragment
             new com.bumptech.glide.request.RequestOptions()
                     .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
                     .dontAnimate();
-    /** Exact foreground-media request options shared by visible cards and
-     *  thumbnail prefetch, so prefetches warm the same transformed cache key
-     *  the card consumes instead of decoding a second copy. */
-    private static final com.bumptech.glide.request.RequestOptions FEED_MEDIA_OPTS =
-            new com.bumptech.glide.request.RequestOptions()
-                    .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
-                    .dontAnimate()
-                    .fitCenter();
-    /** The backdrop is deliberately much smaller than the foreground media:
-     *  it is blurred and only fills letterbox pixels, so decoding it at card
-     *  resolution wastes CPU, heap, and upload bandwidth. */
-    private static final int BACKDROP_DECODE_W = 180;
-    private static final int BACKDROP_DECODE_H = 225;
-    private static final CenterCrop FEED_BACKDROP_CROP = new CenterCrop();
-    private static final ReelBlurTransformation FEED_BACKDROP_BLUR =
-            new ReelBlurTransformation(20);
-    private static final com.bumptech.glide.request.RequestOptions FEED_BACKDROP_OPTS =
-            new com.bumptech.glide.request.RequestOptions()
-                    .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
-                    .dontAnimate()
-                    .transform(FEED_BACKDROP_CROP, FEED_BACKDROP_BLUR);
     /** True while the RecyclerView is actively moving. This is deliberately
      *  a state flag only: RecyclerView and PlayerView already own
      *  hardware-accelerated rendering, and a parent layer would force
@@ -727,12 +698,10 @@ public class HomeFragment extends Fragment
      *  compiling it per-bind was not. */
     private static final java.util.regex.Pattern HASHTAG_PATTERN =
         java.util.regex.Pattern.compile("([#@])(\\w+)");
-    /** Card thumbnail decode size — 4:5, matching the tallest Home-feed
-     *  container. Shared by the card load and the prefetch so both hit the same
-     *  Glide cache key. FIT keeps wider/taller source media uncropped inside it.
-     */
+    /** Card thumbnail decode size — 9:16, matching the card frame. Shared by
+     *  the card load and the prefetch so both hit the same Glide cache key. */
     private static final int THUMB_DECODE_W = 540;
-    private static final int THUMB_DECODE_H = 675;
+    private static final int THUMB_DECODE_H = 960;
     /** Trending strip / Continue Watching tiles render at ~120–140dp — the
      *  fixed 720x720 decode those two spots used was sized for a full-width
      *  card, roughly 3-5x more pixels than any device density actually needs
@@ -1040,16 +1009,6 @@ public class HomeFragment extends Fragment
                     com.callx.app.player.AdaptiveStreamingManager.get(requireContext())
                         .persistQoeSession(0, 0, 0, 0, ttffMs);
                 } catch (Exception ignored) {}
-            }
-            @Override
-            public void onVideoSizeChanged(@NonNull VideoSize videoSize) {
-                if (player != feedPlayer || videoSize.width <= 0 || videoSize.height <= 0) return;
-                if (currentPlayingIndex < 0 || currentPlayingIndex >= feedCards.size()) return;
-                HomeFeedCard activeCard = feedCards.get(currentPlayingIndex);
-                if (activeCard != null) {
-                    applyFeedMediaAspect(activeCard.mediaFrame,
-                        videoSize.width / (float) videoSize.height);
-                }
             }
             @Override
             public void onPositionDiscontinuity(Player.PositionInfo oldPosition,
@@ -1440,9 +1399,8 @@ public class HomeFragment extends Fragment
                 // MUST match the card's own override() — Glide keys its cache
                 // on the requested size, so a differently-sized preload warms
                 // an entry the card never reads and decodes the bitmap twice.
-                Glide.with(requireContext()).load(thumb).apply(FEED_MEDIA_OPTS)
-                        .override(THUMB_DECODE_W, THUMB_DECODE_H)
-                        .preload();
+                Glide.with(requireContext()).load(thumb).apply(FEED_IMAGE_OPTS)
+                        .override(THUMB_DECODE_W, THUMB_DECODE_H).preload();
             }
         }
         // Reuses the same byte-range video preloader the Reels swipe feed
@@ -5476,10 +5434,16 @@ public class HomeFragment extends Fragment
 
         // ── Instagram-level approach: Home Feed vs Reels tab ─────────────────
         // Reels tab (fragment_reel_player.xml) is a dedicated fullscreen
-        // experience. Home Feed is a scrolling post list, so its media frame
-        // stays within Instagram's feed bounds instead of forcing every post
-        // into a 9:16 rectangle. FIT then keeps the complete source visible;
-        // the blurred backdrop fills any intentional letterbox area.
+        // experience — full device height, full 9:16 video visible.
+        // Home Feed is a scrolling list where the reel shares screen space
+        // with the header, action bar, caption, and the next card peeking
+        // in below — so Instagram deliberately caps the video frame well
+        // below full device height (~75% of screen height) rather than
+        // giving it the whole 16:9. Width still fills the screen, so with
+        // resize_mode="zoom" (center-crop-and-fill) the video is cropped
+        // top/bottom to fit that shorter frame — same visual effect as the
+        // real Instagram app. This does NOT touch the Reels tab; that stays
+        // full 9:16 via fragment_reel_player.xml, untouched by this cap.
         // ★ Ultra-advanced optimization: this height is identical for every
         // card (same screen, same 0.75 cap) — it was being recomputed AND
         // re-applied via setLayoutParams() on every single bind, which
@@ -5490,7 +5454,7 @@ public class HomeFragment extends Fragment
         // differs (first bind of a given recycled view, or a config change
         // that invalidated the cache).
         if (frameVideo != null) {
-            int videoH = feedCardMediaHeightPx(reel);
+            int videoH = feedCardVideoHeightPx();
             android.view.ViewGroup.LayoutParams lp = frameVideo.getLayoutParams();
             if (lp.height != videoH) {
                 lp.height = videoH;
@@ -5541,8 +5505,6 @@ public class HomeFragment extends Fragment
         feedCard.rootView   = card;
         feedCard.playerView = pvFeed;
         feedCard.thumbView  = ivThumb;
-        feedCard.backdropView = holder.ivBackdrop;
-        feedCard.mediaFrame = frameVideo;
         feedCard.endOverlay = endOverlay;
         feedCard.videoUrl   = (reel.videoUrl != null && !reel.videoUrl.isEmpty())
                               ? reel.videoUrl
@@ -5790,14 +5752,6 @@ public class HomeFragment extends Fragment
                 holder.tvCollabNameHome = llCollabAuthorsHome.findViewById(R.id.tv_collab_author_name);
                 holder.tvCollabFollowBtnHome = llCollabAuthorsHome.findViewById(R.id.tv_collab_follow_btn);
                 holder.llCollabSongRowHome = llCollabAuthorsHome.findViewById(R.id.ll_collab_song_row);
-                 // stub_reel_collab_row is shared with the dark Reels player,
-                 // where its default white name is correct. Home places this
-                 // row above the media, so use the feed theme color here.
-                 if (holder.tvCollabNameHome != null) {
-                     holder.tvCollabNameHome.setTextColor(
-                         androidx.core.content.ContextCompat.getColor(
-                             requireContext(), R.color.text_primary));
-                 }
                 // No bio/song ticker in the compact feed header — audio
                 // already shows via tv_post_audio elsewhere on the card.
                 if (holder.llCollabSongRowHome != null) holder.llCollabSongRowHome.setVisibility(View.GONE);
@@ -6234,9 +6188,10 @@ public class HomeFragment extends Fragment
             if (firstTimeOnThisHolder) {
                 holder.photoPager = new ViewPager2(requireContext());
                 holder.photoPager.setOrientation(ViewPager2.ORIENTATION_HORIZONTAL);
+                int screenW  = getResources().getDisplayMetrics().widthPixels;
+                int photoH   = (int) (screenW * 16f / 9f);
                 FrameLayout.LayoutParams pagerLp = new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT);
+                    FrameLayout.LayoutParams.MATCH_PARENT, photoH);
                 holder.photoPager.setLayoutParams(pagerLp);
 
                 // Adapter reads holder.photoPagerData directly (not a
@@ -6249,13 +6204,13 @@ public class HomeFragment extends Fragment
                         ImageView iv = new ImageView(parent.getContext());
                         iv.setLayoutParams(new ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-                         iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                        iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
                         return new RecyclerView.ViewHolder(iv) {};
                     }
                     @Override public void onBindViewHolder(@NonNull RecyclerView.ViewHolder h, int pos) {
                         Glide.with(requireContext())
                             .load(holder.photoPagerData.get(pos))
-                             .fitCenter()
+                            .centerCrop()
                             .placeholder(R.drawable.ic_reels)
                             .into((ImageView) h.itemView);
                     }
@@ -6399,16 +6354,15 @@ public class HomeFragment extends Fragment
             if (holder.framePhotoDotsRow != null) holder.framePhotoDotsRow.setVisibility(View.VISIBLE);
 
             if (firstTimeOnThisHolder && frameVideo != null) {
-                 // Same z-order fix as before — insert immediately above the
-                 // blurred backdrop and below the PlayerView/thumbnail so the
-                 // header overlay (defined after them in XML) stays on top.
-                 // Only ever added ONCE per
+                // Same z-order fix as before — insert at the bottom of
+                // frame_video's children so the header overlay (defined
+                // after it in XML) stays on top. Only ever added ONCE per
                 // holder now; later binds just toggle visibility (see
                 // above, and the video-branch below).
                 // ✅ photoDots is no longer added here — it now lives in
                 // frame_photo_dots_row BELOW the video block (added at
                 // creation time above), not overlaid on top of the media.
-                 frameVideo.addView(holder.photoPager, 1);
+                frameVideo.addView(holder.photoPager, 0);
             }
         } else {
             // This (recycled) holder previously showed a photo slideshow —
@@ -6508,38 +6462,11 @@ public class HomeFragment extends Fragment
                 ? R.drawable.ic_bookmark_filled : R.drawable.ic_bookmark);
         }
 
-        String feedThumbUrl = reel.effectiveThumbUrl();
-        boolean hasFeedThumb = feedThumbUrl != null && !feedThumbUrl.isEmpty();
-        boolean needsBackdrop = feedNeedsBackdrop(reel);
-        if (hasFeedThumb) {
-            // Keep the backdrop GONE for square/ordinary landscape media:
-            // their source aspect already matches the bounded frame, so a
-            // blurred second image would only add decode and draw work.
-            if (holder.ivBackdrop != null) {
-                if (!needsBackdrop) {
-                    if (holder.lastBackdropNeeded) {
-                        Glide.with(requireContext()).clear(holder.ivBackdrop);
-                    }
-                    holder.lastBackdropNeeded = false;
-                    holder.lastBackdropUrl = feedThumbUrl;
-                    holder.ivBackdrop.setVisibility(View.GONE);
-                } else {
-                    holder.ivBackdrop.setVisibility(View.VISIBLE);
-                    if (!holder.lastBackdropNeeded
-                            || !feedThumbUrl.equals(holder.lastBackdropUrl)) {
-                        holder.lastBackdropNeeded = true;
-                        holder.lastBackdropUrl = feedThumbUrl;
-                        Glide.with(requireContext()).load(feedThumbUrl)
-                            .apply(FEED_BACKDROP_OPTS)
-                            .override(BACKDROP_DECODE_W, BACKDROP_DECODE_H)
-                            .priority(Priority.LOW)
-                            .into(holder.ivBackdrop);
-                    }
-                }
-            }
-            // Decode into the tallest supported Home-feed canvas. FIT keeps the
-            // source's complete aspect ratio; unlike the old centerCrop chain,
-            // no photo or video pixels are thrown away.
+        if (reel.thumbUrl != null && !reel.thumbUrl.isEmpty()) {
+            // THUMB_DECODE_* matches the card's 9:16 frame instead of decoding a
+            // square 720x720 and throwing away a third of it — ~44% less
+            // bitmap memory per card, which is what bounds GC pressure while
+            // flinging through a long feed.
             //
             // PERF: Glide already dedupes the actual decode/network work
             // when the same URL is requested into a target it's already
@@ -6548,29 +6475,13 @@ public class HomeFragment extends Fragment
             // allocation on EVERY bind — including a same-reel rebind onto
             // this same holder. Skip the whole chain when this holder is
             // already showing this exact thumb URL.
-            if (!feedThumbUrl.equals(holder.lastThumbUrl)) {
-                holder.lastThumbUrl = feedThumbUrl;
-
-                Glide.with(requireContext()).load(feedThumbUrl)
-                    .apply(FEED_MEDIA_OPTS)
+            if (!reel.thumbUrl.equals(holder.lastThumbUrl)) {
+                holder.lastThumbUrl = reel.thumbUrl;
+                Glide.with(requireContext()).load(reel.thumbUrl)
+                    .apply(FEED_IMAGE_OPTS)
                     .override(THUMB_DECODE_W, THUMB_DECODE_H)
-                    .placeholder(R.drawable.ic_reels)
-                    .priority(Priority.HIGH)
-                    .listener(holder.thumbLoadListener)
-                    .into(ivThumb);
+                    .centerCrop().placeholder(R.drawable.ic_reels).into(ivThumb);
             }
-        } else {
-            holder.lastThumbUrl = null;
-            if (holder.ivBackdrop != null) {
-                if (holder.lastBackdropNeeded) {
-                    Glide.with(requireContext()).clear(holder.ivBackdrop);
-                }
-                holder.lastBackdropNeeded = false;
-                holder.lastBackdropUrl = null;
-                holder.ivBackdrop.setVisibility(View.GONE);
-                holder.ivBackdrop.setImageDrawable(null);
-            }
-            if (ivThumb != null) ivThumb.setImageResource(R.drawable.ic_reels);
         }
         if (reel.ownerPhoto != null && !reel.ownerPhoto.isEmpty()) {
             // The avatar is 36dp; without an override Glide decoded the
@@ -8552,80 +8463,20 @@ public class HomeFragment extends Fragment
         return photoDotColorsCached ? cachedPhotoDotInactiveColor : 0x4D64748B;
     }
 
-    /**
-     * Returns the Home-feed media height for a source aspect ratio.
-     *
-     * Instagram's feed has a bounded post canvas: portrait media is not
-     * allowed to grow past 4:5, and very wide media is not allowed to become
-     * a paper-thin strip. The source itself is still rendered with FIT, so
-     * clamping the container never crops the actual photo/video. Any remaining
-     * space is filled by the blurred media backdrop.
-     */
-    private int feedCardMediaHeightPx(ReelModel reel) {
-        if (getContext() == null) return 0;
-        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
-        int mediaWidth = recyclerHome != null && recyclerHome.getWidth() > 0
-                ? recyclerHome.getWidth() : dm.widthPixels;
-        if (mediaWidth <= 0) mediaWidth = dm.widthPixels;
+    /** Cached feed-card video-frame height (see addFeedPostCard's comment) —
+     *  same value for every card, so it's computed once instead of on every
+     *  bind. -1 means "not computed yet / invalidated". */
+    private int cachedFeedVideoH = -1;
 
-        float sourceAspect = 0f; // width / height
-        if (reel != null && reel.width > 0 && reel.height > 0) {
-            sourceAspect = reel.width / (float) reel.height;
+    private int feedCardVideoHeightPx() {
+        if (cachedFeedVideoH > 0 || getContext() == null) {
+            return cachedFeedVideoH > 0 ? cachedFeedVideoH : 0;
         }
-
-        // Instagram feed bounds: portrait 4:5 through landscape 1.91:1.
-        // Unknown legacy photo dimensions use the tallest supported frame;
-        // the Glide listener below tightens it once the thumbnail is decoded.
-        float displayAspect = sourceAspect > 0f ? sourceAspect : (4f / 5f);
-        displayAspect = Math.max(4f / 5f, Math.min(1.91f, displayAspect));
-
-        int ratioHeight = Math.round(mediaWidth / displayAspect);
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        int full916H = (int) (dm.widthPixels * 16f / 9f);
         int feedCapH = (int) (dm.heightPixels * 0.75f);
-        return Math.max(1, Math.min(ratioHeight, feedCapH));
-    }
-
-    /** A backdrop is only visible when the source aspect is outside the
-     *  bounded feed range. Square, normal landscape, and normal 4:5-or-taller
-     *  feed media already fills the frame exactly, so skipping their blur load
-     *  removes a second decode/transform/draw from the hot path. */
-    private static boolean feedNeedsBackdrop(ReelModel reel) {
-        if (reel == null || reel.width <= 0 || reel.height <= 0) return true;
-        float sourceAspect = reel.width / (float) reel.height;
-        return sourceAspect < (4f / 5f) || sourceAspect > 1.91f;
-    }
-
-    /** Re-applies the frame height after Glide reveals dimensions for a legacy
-     *  photo/video whose ReelModel did not carry width/height metadata. */
-    private void applyFeedMediaAspect(View frameVideo, float sourceAspect) {
-        if (frameVideo == null || sourceAspect <= 0f || getContext() == null) return;
-        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
-        int mediaWidth = frameVideo.getWidth() > 0 ? frameVideo.getWidth()
-                : (recyclerHome != null && recyclerHome.getWidth() > 0
-                    ? recyclerHome.getWidth() : dm.widthPixels);
-        applyFeedMediaAspectStatic(frameVideo, sourceAspect, mediaWidth, dm.heightPixels);
-    }
-
-    // FIX: static-context-safe twin of applyFeedMediaAspect(). PostRowHolder
-    // is a static nested class (by design, so it never implicitly holds a
-    // Fragment reference), so its Glide RequestListener — itself an inner
-    // class of that static holder — cannot call the non-static
-    // applyFeedMediaAspect() (it has no enclosing HomeFragment instance to
-    // call it on: "non-static method ... cannot be referenced from a static
-    // context"). This variant takes the width/height it needs as plain
-    // params (sourced from the View itself) instead of reading them off the
-    // Fragment, so it works from anywhere without needing a Fragment
-    // instance. Same math as applyFeedMediaAspect().
-    private static void applyFeedMediaAspectStatic(View frameVideo, float sourceAspect,
-            int mediaWidth, int screenHeightPx) {
-        if (frameVideo == null || sourceAspect <= 0f || mediaWidth <= 0) return;
-        float displayAspect = Math.max(4f / 5f, Math.min(1.91f, sourceAspect));
-        int targetHeight = Math.round(mediaWidth / displayAspect);
-        targetHeight = Math.max(1, Math.min(targetHeight, (int) (screenHeightPx * 0.75f)));
-        ViewGroup.LayoutParams lp = frameVideo.getLayoutParams();
-        if (lp != null && lp.height != targetHeight) {
-            lp.height = targetHeight;
-            frameVideo.setLayoutParams(lp);
-        }
+        cachedFeedVideoH = Math.min(full916H, feedCapH);
+        return cachedFeedVideoH;
     }
 
     /** Same red used by the full-screen reel player's like button (#FF416C) —
@@ -8955,7 +8806,6 @@ public class HomeFragment extends Fragment
         ImageButton     btnRepost;
         ImageButton     btnSave;
         PlayerView      pvFeed;
-        ImageView       ivBackdrop;
         FrameLayout     frameVideo;
         View            endOverlay;
         View            watchMore;
@@ -9090,10 +8940,7 @@ public class HomeFragment extends Fragment
         long   lastAgoComputedAtMs = -1;
         String lastAgoStr;
         String lastThumbUrl;
-        String lastBackdropUrl;
-        boolean lastBackdropNeeded;
         String lastAvatarUrl;
-        RequestListener<Drawable> thumbLoadListener;
         // ★ Instagram-level PERF: same same-URL-skip principle as
         // lastThumbUrl/lastAvatarUrl above, for the music/sound cover tile
         // (btnAudioCover) — see the "Audio-cover tile" block in
@@ -9200,60 +9047,7 @@ public class HomeFragment extends Fragment
             // instance, set once at ViewHolder construction (matches Reels
             // tab, which sets it once at player-view bind time too).
             pvFeed.setShutterBackgroundColor(android.graphics.Color.TRANSPARENT);
-            pvFeed.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-            ivBackdrop            = itemView.findViewById(R.id.iv_feed_media_backdrop);
-            if (ivBackdrop != null) ivBackdrop.setVisibility(View.GONE);
             frameVideo            = itemView.findViewById(R.id.frame_video);
-            // Instagram-style Home cards keep the author header ABOVE the
-            // media. The XML keeps this row inside frame_video so all existing
-            // cached IDs/ViewStub bindings remain intact; move it once when
-            // the physical holder is created, before the first bind.
-            View homeHeader = itemView.findViewById(R.id.overlay_post_header);
-            if (homeHeader != null && homeHeader.getParent() == frameVideo
-                    && itemView instanceof ViewGroup) {
-                ViewGroup cardRoot = (ViewGroup) itemView;
-                int mediaIndex = cardRoot.indexOfChild(frameVideo);
-                frameVideo.removeView(homeHeader);
-                homeHeader.setLayoutParams(new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT));
-                cardRoot.addView(homeHeader, Math.max(0, mediaIndex));
-            }
-            // Reuse one listener for this physical holder. Creating a new
-            // anonymous RequestListener for every new thumbnail URL causes
-            // avoidable churn during a long feed fling.
-            thumbLoadListener = new RequestListener<Drawable>() {
-                @Override
-                public boolean onLoadFailed(@Nullable GlideException e, Object model,
-                        Target<Drawable> target, boolean isFirstResource) {
-                    return false;
-                }
-
-                @Override
-                public boolean onResourceReady(Drawable resource, Object model,
-                        Target<Drawable> target, DataSource dataSource,
-                        boolean isFirstResource) {
-                    // Ignore a late decode from a previous bind after this
-                    // recycled holder has already requested another URL.
-                    if (resource != null
-                            && java.util.Objects.equals(String.valueOf(model), lastThumbUrl)
-                            && resource.getIntrinsicWidth() > 0
-                            && resource.getIntrinsicHeight() > 0
-                            && frameVideo != null
-                            && frameVideo.getContext() != null) {
-                        int fvWidth = frameVideo.getWidth() > 0 ? frameVideo.getWidth()
-                                : frameVideo.getContext().getResources()
-                                    .getDisplayMetrics().widthPixels;
-                        int screenHeightPx = frameVideo.getContext().getResources()
-                                .getDisplayMetrics().heightPixels;
-                        applyFeedMediaAspectStatic(frameVideo,
-                                resource.getIntrinsicWidth()
-                                    / (float) resource.getIntrinsicHeight(),
-                                fvWidth, screenHeightPx);
-                    }
-                    return false;
-                }
-            };
             framePhotoDotsRow     = itemView.findViewById(R.id.frame_photo_dots_row);
             endOverlay            = itemView.findViewById(R.id.layout_end_of_reel_card);
             watchMore             = itemView.findViewById(R.id.btn_watch_more_card);

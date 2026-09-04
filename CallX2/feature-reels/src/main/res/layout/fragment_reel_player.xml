@@ -5,31 +5,15 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!--
-         Instagram-style video composition:
-         - the blurred backdrop fills the 9:16 canvas
-         - PlayerView keeps the source aspect ratio and never crops it
-         - iv_thumb is the uncropped first-frame placeholder above the player
-    -->
-    <ImageView
-        android:id="@+id/iv_video_backdrop"
-        android:saveEnabled="false"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:scaleType="centerCrop"
-        android:contentDescription=""
-        android:background="#000000"/>
-
-    <!-- Full-screen video surface; FIT preserves landscape/square content -->
+    <!-- Full-screen video surface -->
     <androidx.media3.ui.PlayerView
         android:id="@+id/player_view"
         android:saveEnabled="false"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:focusable="false"
-        android:background="@android:color/transparent"
         app:use_controller="false"
-        app:resize_mode="fit"
+        app:resize_mode="zoom"
          app:surface_type="texture_view"/>
 
     <!-- ── Photo Slideshow ViewPager2 ───────────────────────────────────────
@@ -50,8 +34,7 @@
         android:saveEnabled="false"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:scaleType="fitCenter"
-        android:background="@android:color/transparent"
+        android:scaleType="centerCrop"
         android:contentDescription="Reel thumbnail"/>
 
     <!-- ── Interactive sticker overlay layer (VIDEO reels) ──────────────────
