@@ -132,7 +132,9 @@ final class SeenBubbleRenderer {
         String iconGlyph = host.seenIsReel ? MessageBubbleCanvasView.SEEN_REEL_ICON_GLYPH : MessageBubbleCanvasView.SEEN_STATUS_ICON_GLYPH;
         canvas.drawText(iconGlyph, left, rowCenterY - (ifm.ascent + ifm.descent) / 2f, host.seenIconPaint);
         float labelX = left + host.seenIconPaint.measureText(iconGlyph) + MessageBubbleCanvasView.SEEN_ICON_LABEL_GAP_DP * host.density;
-        String labelText = host.seenIsReel ? MessageBubbleCanvasView.SEEN_REEL_LABEL_TEXT : MessageBubbleCanvasView.SEEN_STATUS_LABEL_TEXT;
+        String labelText = host.seenLabelOverride != null
+                ? host.seenLabelOverride
+                : (host.seenIsReel ? MessageBubbleCanvasView.SEEN_REEL_LABEL_TEXT : MessageBubbleCanvasView.SEEN_STATUS_LABEL_TEXT);
         float labelMaxW = Math.max(1, right - labelX);
         String labelToDraw;
         if (cachedLabelDisplay != null && labelText.equals(lastLabelRaw) && labelMaxW == lastLabelMaxW) {

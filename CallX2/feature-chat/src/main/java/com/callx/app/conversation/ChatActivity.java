@@ -473,6 +473,89 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private ChatExportController   exportController;
     private ChatMediaController    mediaController;
     private ChatMessageSender      messageSender;
+
+    // ── WhatsApp-style aggressive lazy init ──────────────────────────────
+    // Pure action-triggered controllers (poll create, edit, star, reaction,
+    // contact/location share, search, export). Never touched by an average
+    // chat-open — no reason to pay their allocation cost on every screen
+    // open. Created on first real use, not before. viewOnceController is
+    // already lazy-safe (see its usage sites, all null-guarded except at
+    // release time) so it's included here too instead of onCreate.
+    private ChatReactionController getReactionController() {
+        if (reactionController == null) reactionController = new ChatReactionController(this);
+        return reactionController;
+    }
+    private MessageEditHistoryController getEditHistoryController() {
+        if (editHistoryController == null) editHistoryController = new MessageEditHistoryController(this);
+        return editHistoryController;
+    }
+    private ChatPollController getPollController() {
+        if (pollController == null) pollController = new ChatPollController(this);
+        return pollController;
+    }
+    private ChatStarredController getStarredController() {
+        if (starredController == null) starredController = new ChatStarredController(this);
+        return starredController;
+    }
+    private ChatContactShareController getContactShareController() {
+        if (contactShareController == null) {
+            contactShareController = new ChatContactShareController(this, this::buildOutgoing, this::pushMessage);
+        }
+        return contactShareController;
+    }
+    private ChatLocationShareController getLocationShareController() {
+        if (locationShareController == null) {
+            locationShareController = new ChatLocationShareController(this, this::buildOutgoing, this::pushMessage);
+        }
+        return locationShareController;
+    }
+    private ChatSearchController getSearchController() {
+        if (searchController == null) searchController = new ChatSearchController(this);
+        return searchController;
+    }
+    private ChatExportController getExportController() {
+        if (exportController == null) exportController = new ChatExportController(this);
+        return exportController;
+    }
+    private ChatEmojiBurstController getEmojiBurstController() {
+        if (emojiBurstController == null) emojiBurstController = new ChatEmojiBurstController(this);
+        return emojiBurstController;
+    }
+    private ChatViewOnceController getViewOnceController() {
+        if (viewOnceController == null) viewOnceController = new ChatViewOnceController(this);
+        return viewOnceController;
+    }
+    private ChatBlockController getBlockController() {
+        if (blockController == null) blockController = new ChatBlockController(this);
+        return blockController;
+    }
+    // Group A: allocation deferred to 300ms/600ms post-open handlers (see
+    // onCreate), but exposed via getter too so a user action firing BEFORE
+    // that deferred window still works safely instead of racing/NPE-ing.
+    private ChatPinController getPinController() {
+        if (pinController == null) pinController = new ChatPinController(this);
+        return pinController;
+    }
+    private ChatScheduledSendController getScheduledSendController() {
+        if (scheduledSendController == null) scheduledSendController = new ChatScheduledSendController(this);
+        return scheduledSendController;
+    }
+    private RecordingPreviewController getRecordingPreviewController() {
+        if (recordingPreviewController == null) recordingPreviewController = new RecordingPreviewController(this);
+        return recordingPreviewController;
+    }
+    private ChatPlaybackPresenceController getPlaybackPresenceController() {
+        if (playbackPresenceController == null) playbackPresenceController = new ChatPlaybackPresenceController(this);
+        return playbackPresenceController;
+    }
+    private ChatLiveTypingController getLiveTypingController() {
+        if (liveTypingController == null) liveTypingController = new ChatLiveTypingController(this);
+        return liveTypingController;
+    }
+    private ChatScreenshotNotifier getScreenshotNotifier() {
+        if (screenshotNotifier == null) screenshotNotifier = new ChatScreenshotNotifier(this);
+        return screenshotNotifier;
+    }
     private ChatScreenshotNotifier screenshotNotifier;
 
     // ─────────────────────────────────────────────────────────────────────
@@ -633,9 +716,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         // STEP 1 [IMMEDIATE, MAIN THREAD]: Controllers + UI init
         // Yeh sab DB-independent hain
-        blockController    = new ChatBlockController(this);
         presenceController = new ChatPresenceController(this);
-        recordingPreviewController = new RecordingPreviewController(this);
         mediaController.setRecordingListener(recording -> {
             // Publish voice-note recording state to Firebase so the partner
             // sees "Rahul is recording a voice message" on their screen.
@@ -652,33 +733,27 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 recordingPreviewController.onOurAmplitudeSample(level);
             }
         });
-        playbackPresenceController = new ChatPlaybackPresenceController(this);
-        liveTypingController = new ChatLiveTypingController(this);
-        emojiBurstController = new ChatEmojiBurstController(this);
-        pinController      = new ChatPinController(this);
-        editHistoryController = new MessageEditHistoryController(this);
-        reactionController = new ChatReactionController(this);
-        pollController     = new ChatPollController(this);
-        starredController  = new ChatStarredController(this);
-        contactShareController  = new ChatContactShareController(
-                this, this::buildOutgoing, this::pushMessage);
-        locationShareController = new ChatLocationShareController(
-                this, this::buildOutgoing, this::pushMessage);
-        scheduledSendController = new ChatScheduledSendController(this);
-        viewOnceController = new ChatViewOnceController(this);
         // NOTE: pagingAdapter.setViewOnceOpenListener(...) is wired in
         // setupPagingRecyclerView() right after pagingAdapter is constructed —
         // it CANNOT be set here because pagingAdapter is still null at this
         // point in onCreate, which was crashing ChatActivity with an NPE
         // every time the chat screen was opened.
 
-        searchController   = new ChatSearchController(this);
         themeController    = new ChatThemeController(this);
         // mentionController is initialized later in setupMentionController() once
         // partnerUid / partnerName / partnerPhoto are known (after profile load).
-        exportController   = new ChatExportController(this);
         messageSender      = new ChatMessageSender(this);
-        screenshotNotifier = new ChatScreenshotNotifier(this);
+        // blockController, pinController, scheduledSendController,
+        // recordingPreviewController, playbackPresenceController,
+        // liveTypingController, screenshotNotifier: allocation moved into the
+        // existing 300ms/600ms deferredTaskHandler posts below (WhatsApp-style
+        // aggressive lazy init — was previously `new`'d here unconditionally
+        // on every chat open even though their real work already waited).
+        // reactionController, editHistoryController, pollController,
+        // starredController, contactShareController, locationShareController,
+        // searchController, exportController, emojiBurstController,
+        // viewOnceController: now fully on-demand via getXController(), see
+        // the lazy-getter block near the field declarations above.
 
         setupToolbar();
         setupProfileCard();
@@ -797,17 +872,39 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // Non-critical 300ms baad
         deferredTaskHandler.postDelayed(() -> {
             if (isFinishing() || isDestroyed()) return;
-            playbackPresenceController.init();
-            recordingPreviewController.init();
-            liveTypingController.init();
-            screenshotNotifier.init();
+            getPlaybackPresenceController().init();
+            getRecordingPreviewController().init();
+            getLiveTypingController().init();
+            getScreenshotNotifier().init();
         }, 300);
 
         // Low-priority 600ms baad
         deferredTaskHandler.postDelayed(() -> {
             if (isFinishing() || isDestroyed()) return;
-            pinController.init();
-            scheduledSendController.init();
+            getPinController().init();
+            getScheduledSendController().init();
+            if (deferredIconPartnerUid != null && !deferredIconPartnerUid.isEmpty()) {
+                FirebaseUtils.getUserRef(deferredIconPartnerUid).addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot s) {
+                        if (isFinishing() || isDestroyed()) return;
+                        Boolean hasReel = s.child("hasReelProfile").getValue(Boolean.class);
+                        String xHandle = s.child("xHandle").getValue(String.class);
+                        String ytChannel = s.child("youtubeChannelId").getValue(String.class);
+
+                        if (Boolean.TRUE.equals(hasReel)) {
+                            binding.llReelHanging.setVisibility(View.VISIBLE);
+                            binding.btnToolbarReel.setVisibility(View.VISIBLE);
+                        }
+                        if (xHandle != null && !xHandle.isEmpty()) {
+                            binding.btnToolbarX.setVisibility(View.VISIBLE);
+                        }
+                        if (ytChannel != null && !ytChannel.isEmpty()) {
+                            binding.btnToolbarYoutube.setVisibility(View.VISIBLE);
+                        }
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                });
+            }
         }, 600);
 
         // Background cleanup (10s baad — load se compete na kare)
@@ -852,7 +949,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         super.onNewIntent(intent);
         setIntent(intent);
         if (intent.getBooleanExtra("show_unblock_joy", false)) {
-            binding.getRoot().postDelayed(() -> blockController.checkAndShowUnblockJoy(), 600);
+            binding.getRoot().postDelayed(() -> getBlockController().checkAndShowUnblockJoy(), 600);
         }
     }
 
@@ -1350,9 +1447,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override public void refreshWallpaper()                 { themeController.applyWallpaper(); }
     @Override public void launchWallpaperPicker()            { mediaController.launchWallpaperPicker(); }
     @Override public void onWallpaperImagePicked(android.net.Uri uri) { themeController.onWallpaperImagePicked(uri); }
-    @Override public void launchPollCreator()                { pollController.showCreatePollDialog(); }
-    @Override public void launchContactSharePicker()         { contactShareController.launch(); }
-    @Override public void launchLocationSharePicker()        { locationShareController.launch(); }
+    @Override public void launchPollCreator()                { getPollController().showCreatePollDialog(); }
+    @Override public void launchContactSharePicker()         { getContactShareController().launch(); }
+    @Override public void launchLocationSharePicker()        { getLocationShareController().launch(); }
     @Override public void navigateToOriginal(String messageId) { navigateToOriginalMsg(messageId, null); }
     // ChatSearchController.SearchDelegate — search jumps to a match the same
     // way reply-tap jumps to the original: navigateToOriginalMsg() already
@@ -2058,27 +2155,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // NOTE: field names below (hasReelProfile/xHandle/youtubeChannelId)
         // are a placeholder guess at your users/{uid} schema — rename the
         // .child(...) keys to whatever your actual DB uses.
-        if (partnerUid != null && !partnerUid.isEmpty()) {
-            FirebaseUtils.getUserRef(partnerUid).addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot s) {
-                    Boolean hasReel = s.child("hasReelProfile").getValue(Boolean.class);
-                    String xHandle = s.child("xHandle").getValue(String.class);
-                    String ytChannel = s.child("youtubeChannelId").getValue(String.class);
-
-                    if (Boolean.TRUE.equals(hasReel)) {
-                        binding.llReelHanging.setVisibility(View.VISIBLE);
-                        binding.btnToolbarReel.setVisibility(View.VISIBLE);
-                    }
-                    if (xHandle != null && !xHandle.isEmpty()) {
-                        binding.btnToolbarX.setVisibility(View.VISIBLE);
-                    }
-                    if (ytChannel != null && !ytChannel.isEmpty()) {
-                        binding.btnToolbarYoutube.setVisibility(View.VISIBLE);
-                    }
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
-        }
+        // PERF (advanced): purely cosmetic toolbar-icon reveal, not needed
+        // for first paint — was firing a full partner-node Firebase read
+        // synchronously on every chat open. Moved into the existing 600ms
+        // deferred lambda alongside pin/scheduledSend init so it no longer
+        // competes with the message-list load for network/IO at open time.
+        final String deferredIconPartnerUid = partnerUid;
 
         // Reel button
         binding.btnToolbarReel.setOnClickListener(v -> {
@@ -2175,10 +2257,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         // Feature 13: View Once — wire adapter listener to controller + viewer launch
         // (Moved here from early onCreate block — pagingAdapter must exist first.)
-        pagingAdapter.setViewOnceOpenListener(message -> {
-            if (viewOnceController == null) return;
-            viewOnceController.openViewOnce(message, () -> showViewOnceDialog(message));
-        });
+        pagingAdapter.setViewOnceOpenListener(message ->
+            getViewOnceController().openViewOnce(message, () -> showViewOnceDialog(message)));
 
         // Feature 3: long-press on sender's lock bubble → revoke confirm dialog
         pagingAdapter.setViewOnceRevokeListener(message -> {
@@ -2190,8 +2270,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 "Remove message?",
                 "This will permanently delete the message before your partner opens it. They will see \"Removed\".",
                 "Remove", () -> {
-                    if (viewOnceController != null && msgId != null) {
-                        viewOnceController.revokeViewOnce(msgId,
+                    if (msgId != null) {
+                        getViewOnceController().revokeViewOnce(msgId,
                             () -> Toast.makeText(this, "Message removed", Toast.LENGTH_SHORT).show(),
                             () -> Toast.makeText(this, "Failed to remove, try again", Toast.LENGTH_SHORT).show());
                     }
@@ -2203,9 +2283,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pagingAdapter.setActionListener(new MessagePagingAdapter.ActionListener() {
             @Override public void onReply(Message m)               { startReply(m); }
             @Override public void onDelete(Message m)              { confirmDeleteMessage(m); }
-            @Override public void onReact(Message m, String emoji) { reactionController.toggleReaction(m, emoji); }
-            @Override public void onReactionTap(Message m)        { reactionController.showReactedUsers(m); }
-            @Override public void onStar(Message m)                { starredController.toggleStar(m); }
+            @Override public void onReact(Message m, String emoji) { getReactionController().toggleReaction(m, emoji); }
+            @Override public void onReactionTap(Message m)        { getReactionController().showReactedUsers(m); }
+            @Override public void onStar(Message m)                { getStarredController().toggleStar(m); }
             @Override public void onCopy(Message m)                { copyText(m); }
             @Override public void onTranslate(Message m)           { translateMessage(m); }
             @Override public void onForward(Message m)             { forwardMessage(m); }
@@ -2225,11 +2305,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 String preview = m.text != null ? m.text : (m.type != null ? "[" + m.type + "]" : "[message]");
                 messageSender.firebasePushMessage(m, m.id, preview);
             }
-            @Override public void onEdit(Message m)                { editHistoryController.editMessage(m); }
-            @Override public void onShowEditHistory(Message m)     { editHistoryController.showHistory(m); }
-            @Override public void onPin(Message m)                 { pinController.pinMessage(m); }
-            @Override public void onPollVote(Message m, int idx)   { pollController.castVote(m, idx); }
-            @Override public void onPollToggleClose(Message m)    { pollController.toggleClosed(m); }
+            @Override public void onEdit(Message m)                { getEditHistoryController().editMessage(m); }
+            @Override public void onShowEditHistory(Message m)     { getEditHistoryController().showHistory(m); }
+            @Override public void onPin(Message m)                 { getPinController().pinMessage(m); }
+            @Override public void onPollVote(Message m, int idx)   { getPollController().castVote(m, idx); }
+            @Override public void onPollToggleClose(Message m)    { getPollController().toggleClosed(m); }
             @Override public void onPlaybackStateChanged(Message m, boolean playing) {
                 if (playbackPresenceController != null && m != null) {
                     String mid = m.messageId != null ? m.messageId : m.id;
@@ -3014,7 +3094,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         // genuinely rare, one-off cases where the chat is NOT open —
                         // CallxMessagingService (FCM push) and GlobalDeliveryAckManager.
                         presenceController.markRead(m);
-                        if (emojiBurstController != null) emojiBurstController.onMessageReceived(m);
+                        getEmojiBurstController().onMessageReceived(m);
                     });
                 });
             }
@@ -3952,7 +4032,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         binding.chatIconBar.setOnSendLongClickListener(() -> {
             binding.chatIconBar.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
             String text = binding.etMessage.getText().toString().trim();
-            scheduledSendController.showSchedulePicker(text, () -> {
+            getScheduledSendController().showSchedulePicker(text, () -> {
                 binding.etMessage.setText("");
                 if (presenceController != null) presenceController.clearOurTypingStatus();
                 if (liveTypingController != null) liveTypingController.clearOurPreview();
@@ -4946,7 +5026,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         });
         View btnStar = binding.getRoot().findViewById(com.callx.app.chat.R.id.btn_selection_star);
         if (btnStar != null) btnStar.setOnClickListener(v -> {
-            for (Message m : pagingAdapter.getSelectedMessages()) starredController.toggleStar(m);
+            for (Message m : pagingAdapter.getSelectedMessages()) getStarredController().toggleStar(m);
             pagingAdapter.exitMultiSelectMode(); hideMultiSelectBar();
         });
         View btnReply = binding.getRoot().findViewById(com.callx.app.chat.R.id.btn_selection_reply);
@@ -5801,18 +5881,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (id == R.id.action_view_profile)          { openAvatarZoom();                          return true; }
         if (id == R.id.action_edit_profile)           { openEditProfile();                          return true; }
         if (id == R.id.action_starred) {
-            starredController.openManageList();
+            getStarredController().openManageList();
             return true;
         }
-        if (id == R.id.action_search)                { searchController.openSearch();             return true; }
+        if (id == R.id.action_search)                { getSearchController().openSearch();             return true; }
         if (id == R.id.action_mute)                  { presenceController.toggleMute();           return true; }
-        if (id == R.id.action_block)                 { blockController.confirmBlockUser();        return true; }
+        if (id == R.id.action_block)                 { getBlockController().confirmBlockUser();        return true; }
         if (id == R.id.action_clear_chat)            { confirmClearChat();                         return true; }
         if (id == R.id.action_chat_customization)    { themeController.showChatCustomizationMenu(); return true; }
         if (id == R.id.action_media_links_docs)      { openAllMediaLinksDocs();                   return true; }
         if (id == R.id.action_security)              { themeController.showChatSecuritySheet();   return true; }
         if (id == R.id.action_chat_privacy)          { themeController.showChatPrivacySheet();    return true; }
-        if (id == R.id.action_export_chat)           { exportController.showExportSheet();        return true; }
+        if (id == R.id.action_export_chat)           { getExportController().showExportSheet();        return true; }
         if (id == R.id.action_chat_backup) {
             Intent bi = new Intent(this, ChatBackupActivity.class);
             bi.putExtra(ChatBackupActivity.EXTRA_CHAT_ID,   chatId);
@@ -5942,8 +6022,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable android.content.Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (contactShareController.handleResult(requestCode, resultCode, data)) return;
-        if (locationShareController.handleResult(requestCode, resultCode, data)) return;
+        if (getContactShareController().handleResult(requestCode, resultCode, data)) return;
+        if (getLocationShareController().handleResult(requestCode, resultCode, data)) return;
     }
 
     // ─────────────────────────────────────────────────────────────────────

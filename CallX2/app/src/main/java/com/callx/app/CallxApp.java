@@ -499,6 +499,13 @@ public class CallxApp extends Application {
                 // are reopened (which re-primes it) — no data loss.
                 com.callx.app.cache.LastMessagesCache.getInstance().trimMemory(level);
                 com.callx.app.cache.ReelFirstFrameCache.get(this).trimMemory();
+                // PERF/STABILITY FIX: chat's static StaticLayout/audio-levels
+                // caches (sTextLayoutCache, sPollOptionLayoutCache,
+                // sReplyLayoutCache, sAudioLevelsCache) were previously only
+                // size-bounded, never memory-pressure-bounded — see
+                // MessageBubbleCanvasView#trimMemory doc. Full clear here,
+                // same tier as the Glide/video-cache wipe above.
+                com.callx.app.conversation.canvas.MessageBubbleCanvasView.trimMemory(level);
                 Log.w(TAG, "onTrimMemory COMPLETE — full memory cache + video caches cleared");
 
             } else if (level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
@@ -510,6 +517,9 @@ public class CallxApp extends Application {
                 // cache ko touch karta hai — reels + chat/status/x sab modules ke liye.
                 UnifiedVideoCacheManager.trimMemory();
                 com.callx.app.cache.LastMessagesCache.getInstance().trimMemory(level);
+                // MODERATE: partial trim only (keep hottest quarter) — see
+                // MessageBubbleCanvasView#trimMemory doc.
+                com.callx.app.conversation.canvas.MessageBubbleCanvasView.trimMemory(level);
                 Log.d(TAG, "onTrimMemory MODERATE — low priority + unified video cache trimmed");
             }
         } catch (Exception e) {

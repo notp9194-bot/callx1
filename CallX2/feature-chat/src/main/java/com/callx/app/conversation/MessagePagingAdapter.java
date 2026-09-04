@@ -2541,7 +2541,14 @@ public class MessagePagingAdapter
             final boolean hasThumb = !thumbUrl.isEmpty();
             final String senderNameForSeen = (isGroup && m.senderName != null && !m.senderName.isEmpty())
                     ? m.senderName : null;
-            cv.bindSeenBubble(isReelSeen, null, null, hasThumb, senderNameForSeen, seenTime);
+            // Batched reel-seen bubbles carry their display text directly in
+            // m.text (e.g. "Watched 5 of your reels" — see ReelSeenTracker).
+            // status_seen and legacy single-reel rows leave m.text as the
+            // plain default, so we only pass it through as an override for
+            // reel_seen — everything else keeps the static label.
+            final String seenLabelOverride = (isReelSeen && m.text != null && !m.text.isEmpty())
+                    ? m.text : null;
+            cv.bindSeenBubble(isReelSeen, null, null, hasThumb, senderNameForSeen, seenTime, seenLabelOverride);
             cv.setDeletedStyle(false);
 
             final String avatarUrl = m.senderPhoto != null ? m.senderPhoto : "";

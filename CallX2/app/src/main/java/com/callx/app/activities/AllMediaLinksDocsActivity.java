@@ -204,8 +204,18 @@ public class AllMediaLinksDocsActivity extends AppCompatActivity {
             String url = "video".equals(e.type) && e.thumbnailUrl != null
                 ? e.thumbnailUrl : e.mediaUrl;
 
+            // PERF: explicit hardware-bitmap opt-in for this grid. Glide's
+            // default already allows hardware configs UNLESS something in
+            // the chain disables it — centerCrop() here is matrix-based and
+            // GPU-safe on 4.16, but leaving this implicit means it silently
+            // falls back to a software ARGB_8888 decode (extra main-thread
+            // copy + heap alloc + GC pressure) the moment anyone adds a
+            // pixel-reading transform later. Setting it explicitly makes the
+            // intent permanent instead of "true by accident today."
             Glide.with(AllMediaLinksDocsActivity.this)
                 .load(url)
+                .apply(new com.bumptech.glide.request.RequestOptions()
+                        .set(com.bumptech.glide.load.resource.bitmap.Downsampler.ALLOW_HARDWARE_CONFIG, true))
                 .centerCrop()
                 .placeholder(R.drawable.ic_gallery)
                     .override(720, 720)

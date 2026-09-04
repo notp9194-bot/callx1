@@ -880,6 +880,47 @@ public class MessageBubbleCanvasView extends View {
         CachedTextLayout(StaticLayout layout) { this.layout = layout; }
     }
 
+    // ── PERF/STABILITY: onTrimMemory hook for all four static layout caches ──
+    // Previously these four LinkedHashMaps were ONLY size-bounded (LRU via
+    // removeEldestEntry) — capacity, not memory pressure, was the sole
+    // eviction trigger. Every StaticLayout/float[] entry lives for the rest
+    // of the process regardless of what Android is telling the app about
+    // available memory, so on a real low-memory signal (background app
+    // getting killed for RAM, or a foreground RUNNING_CRITICAL warning) this
+    // was pure dead weight competing with everything else for the same
+    // headroom — no different from the exact class of bug already fixed for
+    // Glide/video caches in CallxApp#onTrimMemory. Wired into that same
+    // dispatch (see CallxApp#onTrimMemory) so this follows the identical
+    // MODERATE=partial / COMPLETE=full convention used there and in
+    // LastMessagesCache#trimMemory. Nothing here is a correctness
+    // dependency — every entry is trivially rebuilt (StaticLayout.Builder /
+    // generateAudioLevels) the next time that row binds, so clearing is
+    // always safe, just a one-frame cost on next bind for whatever was
+    // evicted.
+    public static void trimMemory(int level) {
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE) {
+            synchronized (sTextLayoutCacheLock) { sTextLayoutCache.clear(); }
+            synchronized (sPollOptionLayoutCacheLock) { sPollOptionLayoutCache.clear(); }
+            synchronized (sReplyLayoutCacheLock) { sReplyLayoutCache.clear(); }
+            synchronized (sAudioLevelsCacheLock) { sAudioLevelsCache.clear(); }
+        } else if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
+            trimToQuarter(sTextLayoutCacheLock, sTextLayoutCache, TEXT_LAYOUT_CACHE_CAPACITY);
+            trimToQuarter(sPollOptionLayoutCacheLock, sPollOptionLayoutCache, POLL_OPTION_LAYOUT_CACHE_CAPACITY);
+            trimToQuarter(sReplyLayoutCacheLock, sReplyLayoutCache, REPLY_LAYOUT_CACHE_CAPACITY);
+            trimToQuarter(sAudioLevelsCacheLock, sAudioLevelsCache, AUDIO_LEVELS_CACHE_CAPACITY);
+        }
+    }
+
+    /** Drops the least-recently-used 3/4 of a bounded access-ordered LinkedHashMap, keeping only its hottest quarter. */
+    private static void trimToQuarter(Object lock, java.util.LinkedHashMap<?, ?> map, int fullCapacity) {
+        synchronized (lock) {
+            int target = Math.max(1, fullCapacity / 4);
+            java.util.Iterator<?> it = map.entrySet().iterator();
+            int toRemove = map.size() - target;
+            while (toRemove-- > 0 && it.hasNext()) { it.next(); it.remove(); }
+        }
+    }
+
     // Self-calibrating: updated from the real onMeasure() below every time
     // any canvas bubble is actually measured, so background precompute
     // always targets the width real bubbles are really being built at —
@@ -1680,6 +1721,9 @@ public class MessageBubbleCanvasView extends View {
     final TextPaint callEntryDotPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     final TextPaint callEntryTimePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     boolean seenIsReel = false; // true = reel_seen (🎬), false = status_seen (👁)
+    /** Overrides the static "Watched your reel" label — used for batched
+     *  reel-seen bubbles ("Watched 5 of your reels"). Null = use default. */
+    @Nullable String seenLabelOverride;
     Bitmap seenAvatarBitmap;
     Bitmap seenThumbBitmap;
     boolean seenHasThumb = false;
@@ -3142,7 +3186,8 @@ public class MessageBubbleCanvasView extends View {
      * @param senderName  optional sender name shown in groups; null/empty to hide (tv_..._name GONE)
      */
     public void bindSeenBubble(boolean isReel, @Nullable Bitmap avatar, @Nullable Bitmap thumb,
-                                boolean hasThumb, @Nullable String senderName, String timeText) {
+                                boolean hasThumb, @Nullable String senderName, String timeText,
+                                @Nullable String labelOverride) {
         this.isMedia = false;
         this.isMediaGroup = false;
         this.isReelShare = false;
@@ -3165,6 +3210,11 @@ public class MessageBubbleCanvasView extends View {
         this.seenHasThumb = hasThumb;
         this.seenName = senderName != null ? senderName : "";
         this.seenHasName = !this.seenName.isEmpty();
+        // Batched "Watched N of your reels" text (see ReelSeenTracker) — null
+        // for status_seen and legacy/unbatched single-reel bubbles, which
+        // keep the static SEEN_REEL_LABEL_TEXT/SEEN_STATUS_LABEL_TEXT drawn
+        // by SeenBubbleRenderer.
+        this.seenLabelOverride = (labelOverride != null && !labelOverride.isEmpty()) ? labelOverride : null;
         this.footerTimeText = timeText != null ? timeText : "";
         this.sent = false;
 
@@ -3425,6 +3475,7 @@ public class MessageBubbleCanvasView extends View {
         locationMapBitmap = null;
         seenAvatarBitmap  = null;
         seenThumbBitmap   = null;
+        seenLabelOverride = null;
         linkThumbBitmap   = null;
     }
 
