@@ -883,8 +883,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             if (isFinishing() || isDestroyed()) return;
             getPinController().init();
             getScheduledSendController().init();
-            if (deferredIconPartnerUid != null && !deferredIconPartnerUid.isEmpty()) {
-                FirebaseUtils.getUserRef(deferredIconPartnerUid).addListenerForSingleValueEvent(new ValueEventListener() {
+            if (partnerUid != null && !partnerUid.isEmpty()) {
+                FirebaseUtils.getUserRef(partnerUid).addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot s) {
                         if (isFinishing() || isDestroyed()) return;
                         Boolean hasReel = s.child("hasReelProfile").getValue(Boolean.class);
@@ -2160,7 +2160,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // synchronously on every chat open. Moved into the existing 600ms
         // deferred lambda alongside pin/scheduledSend init so it no longer
         // competes with the message-list load for network/IO at open time.
-        final String deferredIconPartnerUid = partnerUid;
+        // (Actual deferred read now lives in onDbReady()'s 600ms block,
+        // using the partnerUid field directly.)
 
         // Reel button
         binding.btnToolbarReel.setOnClickListener(v -> {
