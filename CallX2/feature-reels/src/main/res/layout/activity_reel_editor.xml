@@ -347,6 +347,28 @@
             android:layout_marginTop="8dp"
             android:background="@color/trim_divider"/>
 
+        <!-- ✅ Kept as hidden 0dp views purely so their R.id constants still
+             exist (Java's setupEditorStepWizard()/onCreate() still call
+             findViewById(R.id...) on these — always null-checked before use,
+             so they're harmless no-ops now, but the symbols must exist for
+             the module to compile). The rail + this panel's own tool-name
+             label replace what these used to show. -->
+        <TextView
+            android:id="@+id/tv_editor_step_title"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone"/>
+        <Button
+            android:id="@+id/btn_editor_step_back"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone"/>
+        <Button
+            android:id="@+id/btn_editor_step_next"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone"/>
+
         <!-- Current tool name — same tv_editor_step_name Java already updates
              on every goToEditorStep() call (see updateEditorStepUi()); the
              numbered "Step X of 5" pill is gone since the rail on the right
