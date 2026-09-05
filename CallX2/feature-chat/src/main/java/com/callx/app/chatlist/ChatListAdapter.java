@@ -425,7 +425,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
                     .inflate(R.layout.item_chat, parent, false);
         }
         applyCachedRowHeight(v, parent);
-        VH h = new VH(v);
+        VH h = new VH(v, this);
         // v92: install every click/long-click listener ONCE per VH here,
         // instead of re-allocating them on every bind — see installStaticListeners().
         installStaticListeners(h);
@@ -574,14 +574,14 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         // never pays either cost. A row the user actually stops on (list
         // idle, or just slow-scrolling past it) settles for 180ms and then
         // gets its typing listener + preload exactly as before.
+        // WhatsApp-level fix: no per-bind Runnable/lambda allocation anymore.
+        // h.pendingBindRunnable is created exactly ONCE per VH (see VH ctor)
+        // and just reads h.boundUser / h.nextBoundUser at fire time, same as
+        // installStaticListeners() does for click listeners. A bind now only
+        // updates two plain fields and re-posts the SAME Runnable instance —
+        // zero allocations on the hot scroll path, even during a fast fling.
         cancelPendingBindWork(h);
-        final User boundUser = u;
-        final User nextUser = (pos + 1 < list.size()) ? list.get(pos + 1) : null;
-        h.pendingBindRunnable = () -> {
-            attachTypingListener(h, boundUser);
-            preloadChatIfDue(ctx, boundUser);
-            preloadAdjacentAvatar(ctx, nextUser);
-        };
+        h.nextBoundUser = (pos + 1 < list.size()) ? list.get(pos + 1) : null;
         h.itemView.postDelayed(h.pendingBindRunnable, BIND_SETTLE_DELAY_MS);
 
         // v92: call-buttons / avatar / item click+long-click listeners are
@@ -1103,14 +1103,21 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         ValueEventListener typingListener;
         boolean isTypingNow = false;
         // PERF: deferred typing-attach/preload runnable — see
-        // cancelPendingBindWork() / BIND_SETTLE_DELAY_MS below.
+        // cancelPendingBindWork() / BIND_SETTLE_DELAY_MS below. Allocated
+        // ONCE in the constructor (see below) instead of a new lambda per
+        // bind — this is the field that used to hold a freshly-built
+        // Runnable on every single onBindViewHolder() call.
         Runnable pendingBindRunnable;
         // v92: current row state, read by listeners installed ONCE in
         // installStaticListeners() instead of being re-captured every bind.
         User boundUser;
         boolean hasStoryNow = false;
+        // WhatsApp-level fix: the row after this one, read by
+        // pendingBindRunnable at fire time instead of being captured fresh
+        // (as a final local) on every bind.
+        User nextBoundUser;
 
-        VH(View v) {
+        VH(View v, ChatListAdapter adapter) {
             super(v);
             ChatRowContentView rowContent = v.findViewById(R.id.view_row_content);
             nameTimeView    = rowContent;
@@ -1122,6 +1129,17 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             flSelectOverlay = v.findViewById(R.id.fl_select_overlay);
             ivCheck         = v.findViewById(R.id.iv_check);
             vCheckRing      = v.findViewById(R.id.v_check_ring);
+
+            // WhatsApp-level fix: built exactly once per VH (its whole
+            // RecyclerView lifetime), not once per bind. Reads boundUser /
+            // nextBoundUser off `this` at fire time, so it stays correct
+            // across rebinds/recycling without ever being reallocated.
+            pendingBindRunnable = () -> {
+                Context ctx = itemView.getContext();
+                adapter.attachTypingListener(this, boundUser);
+                adapter.preloadChatIfDue(ctx, boundUser);
+                adapter.preloadAdjacentAvatar(ctx, nextBoundUser);
+            };
         }
     }
 }

@@ -398,6 +398,29 @@ public class ChatPresenceController {
         });
     }
 
+    // ── PERF (WhatsApp-level formatter caching) ─────────────────────────────
+    // formatLastSeenRelative() used to build 3 fresh SimpleDateFormat
+    // instances (pattern parse + locale resolution) EVERY call — and this
+    // isn't a "once per chat open" call site: ChatPresenceRepo replays this
+    // callback for every change to the shared users/{partnerUid} node, so
+    // an unrelated field flipping (e.g. the partner going online/offline)
+    // re-invokes this with the exact same, unchanged lastSeen timestamp,
+    // over and over, for as long as the chat stays open. Static final
+    // formatters (built once ever, not per ChatPresenceController instance)
+    // plus a minute-bucketed result cache — same exact pattern as
+    // MessagePagingAdapter#formatTime() — turns a repeat call with the same
+    // lastSeen value into a single LongSparseArray lookup: no formatter
+    // work, no Date allocation.
+    private static final SimpleDateFormat TIME_FMT     = new SimpleDateFormat("hh:mm a", Locale.getDefault());
+    private static final SimpleDateFormat DAY_TIME_FMT = new SimpleDateFormat("EEE, hh:mm a", Locale.getDefault());
+    private static final SimpleDateFormat DATE_FMT     = new SimpleDateFormat("dd MMM", Locale.getDefault());
+    private static final Date REUSE_DATE = new Date();
+    // Composite key packs which of the 3 patterns above was used together
+    // with the minute-bucketed timestamp, so cache entries from the 3
+    // different date-format branches below can never collide with each other.
+    private static final android.util.LongSparseArray<String> lastSeenCache =
+            new android.util.LongSparseArray<>(32);
+
     private String formatLastSeenRelative(long ts) {
         long diff = System.currentTimeMillis() - ts;
         if (diff < 0) diff = 0;
@@ -407,12 +430,31 @@ public class ChatPresenceController {
             long mins = diff / 60_000L;
             return "last seen " + mins + " min" + (mins == 1 ? "" : "s") + " ago";
         } else if (diff < 86_400_000L) {
-            return "last seen at " + new SimpleDateFormat("hh:mm a", Locale.getDefault()).format(new Date(ts));
+            return "last seen at " + cachedFormat(1, ts, TIME_FMT);
         } else if (diff < 7 * 86_400_000L) {
-            return "last seen " + new SimpleDateFormat("EEE, hh:mm a", Locale.getDefault()).format(new Date(ts));
+            return "last seen " + cachedFormat(2, ts, DAY_TIME_FMT);
         } else {
-            return "last seen " + new SimpleDateFormat("dd MMM", Locale.getDefault()).format(new Date(ts));
+            return "last seen " + cachedFormat(3, ts, DATE_FMT);
         }
+    }
+
+    /**
+     * Main-thread only — REUSE_DATE and the SimpleDateFormat fields above
+     * are shared mutable state, which is fine here for the same reason
+     * every other Firebase snapshot callback in this class already runs
+     * unsynchronized: ChatPresenceRepo (like the Firebase SDK itself)
+     * always delivers these callbacks on the main thread.
+     */
+    private static String cachedFormat(int branch, long ts, SimpleDateFormat fmt) {
+        long minuteBucket = ts / 60_000L;
+        long key = (((long) branch) << 48) | (minuteBucket & 0xFFFFFFFFFFFFL);
+        String cached = lastSeenCache.get(key);
+        if (cached != null) return cached;
+        REUSE_DATE.setTime(ts);
+        String s = fmt.format(REUSE_DATE);
+        if (lastSeenCache.size() >= 256) lastSeenCache.clear();
+        lastSeenCache.put(key, s);
+        return s;
     }
 
     // ── In-chat-screen presence ("watching banner") ───────────────────────

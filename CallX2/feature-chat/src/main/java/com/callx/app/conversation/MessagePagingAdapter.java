@@ -1806,6 +1806,11 @@ public class MessagePagingAdapter
             cv.setSaveEnabled(false);
             VH vh = new VH(cv);
             vh.canvasView = cv;
+            // WhatsApp-level fix: OnBubbleClickListener built ONCE per VH,
+            // here at creation, instead of a brand-new ~570-line anonymous
+            // class on every bindCanvasMessage() call. See
+            // createBubbleClickListener() doc for details.
+            cv.setOnBubbleClickListener(createBubbleClickListener(vh));
             return vh;
         }
         int layout;
@@ -2478,6 +2483,715 @@ public class MessagePagingAdapter
                 || "status_seen".equals(type) || "reel_seen".equals(type)
                 || "view_once".equals(type);
     }
+
+    // WhatsApp-level fix: this OnBubbleClickListener used to be a brand-new
+    // anonymous class (15 overridden methods, ~570 lines of bytecode)
+    // allocated on EVERY single bindCanvasMessage() call — i.e. on every
+    // bind of every canvas-rendered bubble, which is now almost every
+    // message in the chat (see isCanvasEligible()). That's the real
+    // "chat item allocates on every open/bind" hot spot — far bigger than
+    // the legacy bindMessage() view-based listeners, which isCanvasEligible()
+    // routes around for the overwhelming majority of messages.
+    //
+    // Fix: build this listener exactly ONCE per VH, at onCreateViewHolder
+    // time (see TYPE_CANVAS_SENT/TYPE_CANVAS_RECEIVED branch), same pattern
+    // ChatListAdapter's installStaticListeners() uses. Every method below
+    // reads the CURRENT message off h.boundMessage (already kept up to date
+    // by onBindViewHolder — see "Store reference for height caching on
+    // recycle") and re-derives whatever per-message state it needs (type
+    // flags, sent/received, the current canvasBindToken) at CLICK time
+    // instead of at BIND time — clicks are rare, binds happen on every
+    // scroll frame, so recomputing a few booleans per tap is free while
+    // skipping a 570-line object allocation per scroll-bound row is not.
+    private com.callx.app.conversation.canvas.OnBubbleClickListener createBubbleClickListener(final VH h) {
+        return new com.callx.app.conversation.canvas.OnBubbleClickListener() {
+            @Override
+            public void onBubbleClick() {
+                Message m = h.boundMessage;
+                if (m == null) return;
+                if (multiSelectMode) {
+                    String id = m.messageId != null ? m.messageId : m.id;
+                    if (id != null) {
+                        if (selectedMessageIds.contains(id)) selectedMessageIds.remove(id);
+                        else selectedMessageIds.add(id);
+                        // FIX: don't rely on h.getAdapterPosition() here — it can
+                        // return NO_POSITION right after a long-press-triggered
+                        // notifyItemRangeChanged (ViewHolder in a transient
+                        // state), silently dropping the highlight refresh so the
+                        // bubble LOOKS still-selected even though it was removed
+                        // from selectedMessageIds. h/m are already in scope, so
+                        // update this row's highlight directly instead.
+                        applySelectionHighlight(h, m);
+                        if (multiSelectListener != null) multiSelectListener.onSelectionChanged(selectedMessageIds.size());
+                        if (selectedMessageIds.isEmpty()) exitMultiSelectMode();
+                    }
+                }
+            }
+
+            @Override
+            public void onBubbleLongClick() {
+                Message m = h.boundMessage;
+                if (m == null) return;
+                Context ctx = h.itemView.getContext();
+                com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
+                cv.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                if (!multiSelectMode) {
+                    enterMultiSelectMode(m);
+                } else if (actionListener != null) {
+                    showActionBottomSheet(ctx, m);
+                }
+            }
+
+            @Override
+            public boolean onLinkClick(String url) {
+                // Tapping the link-preview CARD (setLinkPreview/drawLinkPreview)
+                // fires here — mirrors the legacy ll_link_preview click
+                // listener that opens the URL in a browser. Tap-on-a-URL-
+                // SPAN-inside-the-text-itself (Linkify-equivalent) is still
+                // not modeled — this method is only ever invoked for the
+                // card's whole-card tap right now, never for an in-text span.
+                if (url == null || url.isEmpty()) return false;
+                Context ctx = h.itemView.getContext();
+                android.content.Intent browserIntent = new android.content.Intent(
+                        android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
+                browserIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(browserIntent);
+                return true;
+            }
+
+            @Override
+            public void onReplyPreviewClick() {
+                Message m = h.boundMessage;
+                if (m == null) return;
+                if (actionListener != null && m.replyToId != null) {
+                    actionListener.onNavigateToOriginal(m.replyToId, m.senderId);
+                }
+            }
+
+            @Override
+            public void onReactionsClick() {
+                Message m = h.boundMessage;
+                if (m == null) return;
+                if (actionListener != null) actionListener.onReactionTap(m);
+            }
+
+            @Override
+            public void onForwardClick() {
+                Message m = h.boundMessage;
+                if (m == null) return;
+                if (actionListener != null) actionListener.onForward(m);
+            }
+
+            @Override
+            public void onImageClick() {
+                final Message m = h.boundMessage;
+                if (m == null) return;
+                final Context ctx = h.itemView.getContext();
+                final com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
+                final boolean sent = currentUid != null && currentUid.equals(m.senderId);
+                final String type = m.type != null ? m.type : "text";
+                final boolean isImage = "image".equals(type);
+                final boolean isVideo = "video".equals(type);
+                final boolean isReelShare = "reel_share".equals(type) || "reel_link".equals(type);
+                final int myToken = h.canvasBindToken;
+                if (isReelShare) {
+                    // Shared reel cards open the full reel on a normal tap.
+                    // A 3-second hold is handled separately by
+                    // onReelPeekPreview() below.
+                    String reelId = m.reelId != null ? m.reelId : "";
+                    String reelUrl = m.reelShareUrl != null ? m.reelShareUrl : "";
+                    if (reelId.isEmpty() && reelUrl.isEmpty()) return;
+                    String deepLink = !reelId.isEmpty()
+                            ? com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/reel/" + reelId
+                            : reelUrl;
+                    try {
+                        android.content.Intent ri = new android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse(deepLink));
+                        ri.setPackage(ctx.getPackageName());
+                        ri.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                        ctx.startActivity(ri);
+                    } catch (Exception ignored) {}
+                } else if (isImage) {
+                    // Still uploading / failed local-first bubble — no
+                    // remote URL to open yet; the gate tap (onMediaDownloadClick)
+                    // handles the failed-retry case instead.
+                    if (sent && m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
+                            && (m.mediaUrl == null || m.mediaUrl.isEmpty())) {
+                        return;
+                    }
+                    String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
+                    // Telegram-style close animation — capture this bubble's
+                    // on-screen image rect now (while `cv` is still laid
+                    // out here) so the sheet's "View" action can hand it to
+                    // MediaViewerActivity (see MediaViewerSourceRect).
+                    showImageActionSheet(ctx, m, fullUrl, fullUrl, cv.getMediaRectOnScreen());
+                } else if (isVideo) {
+                    // WhatsApp-style video tap, now mirroring the single-image
+                    // flow exactly:
+                    //   Sender / already-cached → open the same action sheet
+                    //   an image tap opens (Play/Edit/Save/Share/Forward/
+                    //   Star/Delete) instead of jumping straight into the
+                    //   player — a video bubble used to have none of those
+                    //   options reachable except via the long-press sheet
+                    //   (which has no View/Edit/Save at all).
+                    //   Receiver + not yet cached → this branch isn't even
+                    //   reached (the bubble is showing the download gate —
+                    //   see bindVideo's WhatsApp-style gate — so the tap
+                    //   goes to onMediaDownloadClick instead); the fallback
+                    //   download-then-open path below only covers the rare
+                    //   edge case where this fires before the gate state
+                    //   settles, and now opens the sheet too once ready
+                    //   rather than force-launching the player.
+                    final String vUrl2 = m.mediaUrl != null ? m.mediaUrl : m.text;
+                    if (vUrl2 == null || vUrl2.isEmpty()) return;
+
+                    // Check local availability: sender's original file or
+                    // a previously downloaded cached copy.
+                    boolean vHasLocal = m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
+                            && Boolean.TRUE.equals(checkLocalAvailabilityAsync(ctx,
+                                    m.mediaLocalPath, m.messageId != null ? m.messageId : m.id));
+                    java.io.File vCachedFile = vHasLocal ? null
+                            : com.callx.app.utils.MediaCache.getCached(ctx, vUrl2);
+
+                    if (sent || vHasLocal || vCachedFile != null) {
+                        // Already on device — same advanced-action sheet a
+                        // single-image bubble gets.
+                        String vLocalPath = vHasLocal ? m.mediaLocalPath
+                                : (vCachedFile != null ? vCachedFile.getAbsolutePath() : null);
+                        showMediaActionSheet(ctx, m, vUrl2, vUrl2, "video", vLocalPath,
+                                null, -1, cv.getMediaRectOnScreen());
+                    } else if (downloadingMediaUrls.contains(vUrl2)) {
+                        // Already downloading — the gate shows progress; nothing to do.
+                    } else {
+                        // Not cached → download first, then play.
+                        // (Same as tapping the download pill but initiated via the
+                        // play-button tap so the UX feels seamless.)
+                        downloadingMediaUrls.add(vUrl2);
+                        cv.setMediaDownloadGate(true, 0, null);
+                        MediaDownloadQueue.getInstance(ctx).enqueue(vUrl2, null, () -> {
+                            com.callx.app.utils.MediaCache.getWithProgress(ctx, vUrl2,
+                                    new com.callx.app.utils.MediaCache.ProgressCallback() {
+                                @Override public void onProgress(int percent) {
+                                    if (h.canvasBindToken != myToken) return;
+                                    cv.setMediaDownloadGate(true, percent, null);
+                                }
+                                @Override public void onReady(java.io.File file) {
+                                    downloadingMediaUrls.remove(vUrl2);
+                                    if (h.canvasBindToken != myToken) return;
+                                    cv.clearMediaDownloadGate();
+                                    ((android.app.Activity) ctx).runOnUiThread(() -> {
+                                        android.content.Intent i2 = new android.content.Intent()
+                                                .setClassName(ctx.getPackageName(),
+                                                        "com.callx.app.activities.MediaViewerActivity");
+                                        i2.putExtra("url", vUrl2);
+                                        i2.putExtra("type", "video");
+                                        i2.putExtra("localPath", file.getAbsolutePath());
+                                        i2.putExtra("chatId", chatId);
+                                        i2.putExtra("messageId",
+                                                m.messageId != null ? m.messageId : m.id);
+                                        com.callx.app.utils.MediaViewerSourceRect.attach(i2, cv.getMediaRectOnScreen());
+                                        ctx.startActivity(i2);
+                                    });
+                                }
+                                @Override public void onError(String reason) {
+                                    downloadingMediaUrls.remove(vUrl2);
+                                    if (h.canvasBindToken != myToken) return;
+                                    cv.setMediaDownloadGate(false, Integer.MIN_VALUE,
+                                            "Tap to retry");
+                                }
+                            });
+                        });
+                    }
+                }
+            }
+
+            @Override
+            public void onReelPeekPreview(android.view.View sourceView) {
+                Message m = h.boundMessage;
+                if (m == null) return;
+                Context ctx = h.itemView.getContext();
+                String type = m.type != null ? m.type : "text";
+                boolean isReelShare = "reel_share".equals(type) || "reel_link".equals(type);
+                if (isReelShare) {
+                    ReelSharePeekBridge.show(ctx, m, sourceView);
+                }
+            }
+
+            @Override
+            public void onMediaDownloadClick() {
+                final Message m = h.boundMessage;
+                if (m == null) return;
+                final Context ctx = h.itemView.getContext();
+                final com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
+                final boolean sent = currentUid != null && currentUid.equals(m.senderId);
+                final String type = m.type != null ? m.type : "text";
+                final boolean isImage = "image".equals(type);
+                final boolean isVideo = "video".equals(type);
+                final boolean isGif = "gif".equals(type);
+                final int myToken = h.canvasBindToken;
+                // WhatsApp-style local-first media bubble: this is a SENT
+                // image whose gate is showing "Tap to retry" (upload failed)
+                // rather than a RECEIVED download pill — route to the retry
+                // flow instead of treating it as a download tap.
+                if (isImage && sent && m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
+                        && (m.mediaUrl == null || m.mediaUrl.isEmpty())) {
+                    if (actionListener != null) actionListener.onRetry(m);
+                    return;
+                }
+                if (isGif) {
+                    // FIX: previously wired via a separate setOnBubbleClickListener()
+                    // set inside the isGif branch — always clobbered by this
+                    // single unconditional call, so the GIF download-gate
+                    // pill silently did nothing.
+                    final String gifUrl = m.mediaUrl != null ? m.mediaUrl : "";
+                    if (gifUrl.isEmpty() || !downloadingMediaUrls.add(gifUrl)) return;
+                    cv.setMediaDownloadGate(true, 0, null);
+                    com.callx.app.utils.MediaCache.getWithProgress(ctx, gifUrl,
+                            new com.callx.app.utils.MediaCache.ProgressCallback() {
+                        @Override public void onProgress(int percent) {
+                            if (h.canvasBindToken != myToken) return;
+                            cv.setMediaDownloadProgress(percent);
+                        }
+                        @Override public void onReady(java.io.File file) {
+                            downloadingMediaUrls.remove(gifUrl);
+                            CACHED_FILE_CHECK.put(gifUrl, file);
+                            if (h.canvasBindToken != myToken) return;
+                            cv.clearMediaDownloadGate();
+                            glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
+                                    .override(gifStickerPx(ctx), gifStickerPx(ctx)) // PERF: match 180dp slot, avoid oversized decode
+                                    .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+                                        @Override public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
+                                                @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> t) {
+                                            if (h.canvasBindToken != myToken) return;
+                                            cv.setGifBitmap(bmp);
+                                        }
+                                        @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
+                                    });
+                        }
+                        @Override public void onError(String reason) {
+                            downloadingMediaUrls.remove(gifUrl);
+                            if (h.canvasBindToken != myToken) return;
+                            cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Tap to retry");
+                        }
+                    });
+                    return;
+                }
+                // ── Video download gate tap ──────────────────────────────────
+                // Receiver taps the "Video / file-size" pill → download the
+                // full video via MediaDownloadQueue, show progress, then open
+                // the player from the cached local file.
+                if (isVideo) {
+                    final String vDlUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
+                    if (vDlUrl == null || vDlUrl.isEmpty() || downloadingMediaUrls.contains(vDlUrl)) return;
+                    downloadingMediaUrls.add(vDlUrl);
+                    cv.setMediaDownloadGate(true, 0, null);
+                    MediaDownloadQueue.getInstance(ctx).enqueue(vDlUrl, null, () -> {
+                        com.callx.app.utils.MediaCache.getWithProgress(ctx, vDlUrl,
+                                new com.callx.app.utils.MediaCache.ProgressCallback() {
+                            @Override public void onProgress(int percent) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setMediaDownloadGate(true, percent, null);
+                            }
+                            @Override public void onReady(java.io.File file) {
+                                downloadingMediaUrls.remove(vDlUrl);
+                                if (h.canvasBindToken != myToken) return;
+                                cv.clearMediaDownloadGate();
+                                ((android.app.Activity) ctx).runOnUiThread(() -> {
+                                    android.content.Intent i3 = new android.content.Intent()
+                                            .setClassName(ctx.getPackageName(),
+                                                    "com.callx.app.activities.MediaViewerActivity");
+                                    i3.putExtra("url", vDlUrl);
+                                    i3.putExtra("type", "video");
+                                    i3.putExtra("localPath", file.getAbsolutePath());
+                                    i3.putExtra("chatId", chatId);
+                                    i3.putExtra("messageId",
+                                            m.messageId != null ? m.messageId : m.id);
+                                    ctx.startActivity(i3);
+                                });
+                            }
+                            @Override public void onError(String reason) {
+                                downloadingMediaUrls.remove(vDlUrl);
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Tap to retry");
+                            }
+                        });
+                    });
+                    return;
+                }
+
+                if (!isImage) return;
+                final String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
+                if (fullUrl == null || fullUrl.isEmpty() || downloadingMediaUrls.contains(fullUrl)) return;
+                downloadingMediaUrls.add(fullUrl);
+                cv.setMediaDownloadGate(true, 0, null);
+
+                // Media E2E (image) — see the matching comment on the
+                // auto-download path above.
+                final com.callx.app.utils.MediaE2ECrypto.KeyEnvelope tapDlEnv =
+                        (!sent && m.mediaKeyEnc != null)
+                        ? com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, m.mediaKeyEnc,
+                                m.senderId, m.messageId != null ? m.messageId : m.id)
+                        : null;
+                final byte[] tapDlKey    = (tapDlEnv != null) ? tapDlEnv.fullKey() : null;
+                final byte[] tapDlDigest = (tapDlEnv != null) ? tapDlEnv.fullDigest : null;
+                com.callx.app.utils.MediaCache.getWithProgress(ctx, fullUrl, tapDlKey, tapDlDigest,
+                        new com.callx.app.utils.MediaCache.ProgressCallback() {
+                    @Override public void onProgress(int percent) {
+                        if (h.canvasBindToken != myToken) return;
+                        cv.setMediaDownloadProgress(percent);
+                    }
+                    @Override public void onReady(java.io.File file) {
+                        downloadingMediaUrls.remove(fullUrl);
+                        if (h.canvasBindToken != myToken) return;
+                        cv.clearMediaDownloadGate();
+                        // PERF #4 + #1: density-aware size, store in pool on decode
+                        glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
+                                .override(thumbPx(ctx), thumbPx(ctx))
+                                .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                                    @Override
+                                    public void onResourceReady(@NonNull Bitmap resource,
+                                            @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                                        if (resource.getHeight() > 0) {
+                                            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                                                    .cacheAspectRatio(fullUrl, (float) resource.getWidth() / resource.getHeight());
+                                        }
+                                        // PERF #1: pool the decoded bitmap
+                                        if (fullUrl != null && !fullUrl.isEmpty())
+                                            DECODED_BITMAP_CACHE.put(fullUrl, resource);
+                                        if (h.canvasBindToken != myToken) return;
+                                        cv.setMediaBitmap(resource);
+                                    }
+                                    @Override
+                                    public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
+                                });
+                    }
+                    @Override public void onError(String reason) {
+                        downloadingMediaUrls.remove(fullUrl);
+                        if (h.canvasBindToken != myToken) return;
+                        cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Tap to retry");
+                    }
+                });
+            }
+
+            @Override
+            public void onMediaCellClick(int index) {
+                Message m = h.boundMessage;
+                if (m == null) return;
+                Context ctx = h.itemView.getContext();
+                String type = m.type != null ? m.type : "text";
+                boolean isMultiMedia = "multi_media".equals(type);
+                if (!isMultiMedia || m.mediaItems == null || index < 0 || index >= m.mediaItems.size()) return;
+                java.util.Map<String, Object> item = m.mediaItems.get(index);
+                Object urlObj = item.get("url");
+                Object thumbObj = item.get("thumbUrl");
+                Object mtObj = item.get("mediaType");
+                String url = urlObj instanceof String ? (String) urlObj : "";
+                String thumbUrl = thumbObj instanceof String ? (String) thumbObj : "";
+                String mediaType = mtObj instanceof String ? (String) mtObj : "image";
+                if (url.isEmpty()) return;
+                // Audio/file cells have their own dedicated tap handling
+                // elsewhere (no image/video viewer applies to them) — this
+                // sheet is only for image/video cells, same restriction the
+                // single-media bubble already has.
+                if ("audio".equals(mediaType) || "file".equals(mediaType)) return;
+                try {
+                    String mediaItemsJson = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems);
+                    showMediaActionSheet(ctx, m, url, !thumbUrl.isEmpty() ? thumbUrl : url,
+                            mediaType, null, mediaItemsJson, index);
+                } catch (Exception ignored) {}
+            }
+
+            @Override
+            public void onGroupDownloadAllClick() {
+                Message m = h.boundMessage;
+                if (m == null) return;
+                Context ctx = h.itemView.getContext();
+                com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
+                String type = m.type != null ? m.type : "text";
+                boolean isMultiMedia = "multi_media".equals(type);
+                int myToken = h.canvasBindToken;
+                if (!isMultiMedia || m.mediaItems == null) return;
+                int visible = Math.min(m.mediaItems.size(), 9);
+                for (int i = 0; i < visible; i++) {
+                    downloadGroupCell(ctx, h, cv, myToken, m.mediaItems.get(i), i);
+                }
+            }
+
+            @Override
+            public void onGroupCellDownloadClick(int index) {
+                Message m = h.boundMessage;
+                if (m == null) return;
+                Context ctx = h.itemView.getContext();
+                com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
+                String type = m.type != null ? m.type : "text";
+                boolean isMultiMedia = "multi_media".equals(type);
+                int myToken = h.canvasBindToken;
+                if (!isMultiMedia || m.mediaItems == null || index < 0 || index >= m.mediaItems.size()) return;
+                downloadGroupCell(ctx, h, cv, myToken, m.mediaItems.get(index), index);
+            }
+
+            @Override
+            public void onAudioPlayPauseClick() {
+                Message m = h.boundMessage;
+                if (m == null) return;
+                String type = m.type != null ? m.type : "text";
+                boolean isAudio = "audio".equals(type);
+                if (!isAudio) return;
+                String aUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
+                toggleAudio(h, aUrl, h.getAdapterPosition());
+            }
+
+            @Override
+            public void onAudioSeek(float fraction) {
+                Message m = h.boundMessage;
+                if (m == null) return;
+                String type = m.type != null ? m.type : "text";
+                boolean isAudio = "audio".equals(type);
+                if (!isAudio) return;
+                // Only meaningful if THIS bubble is the one actually
+                // playing right now — mirrors seekAudio.setOnSeekListener's
+                // player.seekTo() call, just resolved dynamically here
+                // since the canvas click callback doesn't capture durationMs.
+                if (playingPos == h.getAdapterPosition() && player != null) {
+                    try {
+                        int durationMs = player.getDuration();
+                        if (durationMs > 0) player.seekTo((int) (fraction * durationMs));
+                    } catch (Exception ignored) {}
+                }
+            }
+
+            @Override
+            public void onContactViewClick() {
+                // Mirrors ChatContactShareController.bindBubble's
+                // btnViewContact click listener exactly: open the system
+                // Contacts app filtered to this phone number, falling back
+                // to the dial pad if nothing can resolve that lookup intent.
+                Message m = h.boundMessage;
+                if (m == null) return;
+                Context ctx = h.itemView.getContext();
+                String type = m.type != null ? m.type : "text";
+                boolean isContact = "contact".equals(type);
+                if (!isContact || m.contactPhone == null) return;
+                android.net.Uri uri = android.net.Uri.withAppendedPath(
+                        android.provider.ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                        android.net.Uri.encode(m.contactPhone));
+                android.content.Intent viewIntent = new android.content.Intent(android.content.Intent.ACTION_VIEW, uri);
+                if (viewIntent.resolveActivity(ctx.getPackageManager()) != null) {
+                    ctx.startActivity(viewIntent);
+                } else {
+                    android.content.Intent dial = new android.content.Intent(
+                            android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:" + m.contactPhone));
+                    ctx.startActivity(dial);
+                }
+            }
+
+            @Override
+            public void onLocationOpenMapsClick() {
+                // Mirrors ChatLocationShareController.bindBubble's
+                // btnOpenMaps click listener exactly: try the Google Maps
+                // app via a geo: intent first, falling back to a plain
+                // maps.google.com URL if it isn't installed/resolvable.
+                Message m = h.boundMessage;
+                if (m == null) return;
+                Context ctx = h.itemView.getContext();
+                String type = m.type != null ? m.type : "text";
+                boolean isLocation = "location".equals(type);
+                if (!isLocation) return;
+                double lat = m.locationLat != null ? m.locationLat : 0;
+                double lng = m.locationLng != null ? m.locationLng : 0;
+                String geoUri = String.format(java.util.Locale.US, "geo:%.6f,%.6f?q=%.6f,%.6f", lat, lng, lat, lng);
+                android.content.Intent mapIntent = new android.content.Intent(
+                        android.content.Intent.ACTION_VIEW, android.net.Uri.parse(geoUri));
+                mapIntent.setPackage("com.google.android.apps.maps");
+                if (mapIntent.resolveActivity(ctx.getPackageManager()) != null) {
+                    ctx.startActivity(mapIntent);
+                } else {
+                    android.content.Intent fallback = new android.content.Intent(android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(String.format(java.util.Locale.US,
+                                    "https://maps.google.com/?q=%.6f,%.6f", lat, lng)));
+                    ctx.startActivity(fallback);
+                }
+            }
+
+            @Override
+            public void onViewOnceClick() {
+                // Fires for every variant — mirrors the legacy path's null
+                // click listener on WAITING/EXPIRED (nothing happens) and
+                // only actually opens the viewer for the RECEIVED
+                // tap-to-open state, with the same 800ms debounce tag
+                // bindViewOnceSent() used to guard against a rebind/
+                // rapid-multi-tap double-fire.
+                Message m = h.boundMessage;
+                if (m == null) return;
+                com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
+                boolean sent = currentUid != null && currentUid.equals(m.senderId);
+                boolean isViewOnceMsg = Boolean.TRUE.equals(m.viewOnce);
+                boolean isViewOnceExpiredState = isViewOnceMsg
+                        && com.callx.app.conversation.controllers.ChatViewOnceController.isExpired(m);
+                boolean isViewOnceWaiting = isViewOnceMsg && !isViewOnceExpiredState && sent;
+                if (!isViewOnceMsg || isViewOnceExpiredState || isViewOnceWaiting) return;
+                Object lastClick = cv.getTag(com.callx.app.chat.R.id.ll_bubble);
+                long now = System.currentTimeMillis();
+                if (lastClick instanceof Long && now - (Long) lastClick < 800) return;
+                cv.setTag(com.callx.app.chat.R.id.ll_bubble, now);
+                if (viewOnceOpenListener != null) viewOnceOpenListener.onOpenViewOnce(m);
+            }
+
+            @Override
+            public void onSeenBubbleClick() {
+                // Mirrors bindStatusSeenBubble/bindReelSeenBubble's
+                // openStatus/openReel click listeners exactly — same
+                // deep-link intents, just fired from the canvas card tap.
+                Message m = h.boundMessage;
+                if (m == null) return;
+                Context ctx = h.itemView.getContext();
+                boolean isReelSeen = "reel_seen".equals(m.type);
+                boolean isStatusSeen = "status_seen".equals(m.type);
+                boolean isSeen = isStatusSeen || isReelSeen;
+                if (!isSeen) return;
+                if (isReelSeen) {
+                    if (m.reelId == null || m.reelId.isEmpty()) return;
+                    android.content.Intent intent = new android.content.Intent(
+                            com.callx.app.utils.Constants.ACTION_OPEN_REEL);
+                    intent.putExtra("reelId", m.reelId);
+                    intent.setPackage(ctx.getPackageName());
+                    ctx.startActivity(intent);
+                } else {
+                    String ownerUid = (m.statusOwnerUid != null && !m.statusOwnerUid.isEmpty())
+                            ? m.statusOwnerUid : m.senderId;
+                    String ownerName = m.statusOwnerName != null ? m.statusOwnerName
+                            : (m.senderName != null ? m.senderName : "");
+                    if (ownerUid == null || ownerUid.isEmpty()) return;
+                    android.content.Intent intent = new android.content.Intent(
+                            com.callx.app.utils.Constants.ACTION_OPEN_STATUS);
+                    intent.putExtra("ownerUid", ownerUid);
+                    intent.putExtra("ownerName", ownerName);
+                    intent.setPackage(ctx.getPackageName());
+                    try {
+                        ctx.startActivity(intent);
+                    } catch (android.content.ActivityNotFoundException e) {
+                        android.widget.Toast.makeText(ctx, "Status viewer not available",
+                                android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                }
+            }
+
+            @Override
+            public void onGifClick() {
+                // FIX: see the NOTE left in the isGif branch above — this
+                // used to be wired via a listener that always got clobbered.
+                Message m = h.boundMessage;
+                if (m == null) return;
+                Context ctx = h.itemView.getContext();
+                com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
+                String type = m.type != null ? m.type : "text";
+                boolean isGif = "gif".equals(type);
+                if (!isGif) return;
+                final String gifUrl = m.mediaUrl != null ? m.mediaUrl : "";
+                android.content.Intent i = new android.content.Intent().setClassName(
+                        ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
+                i.putExtra("url", gifUrl);
+                i.putExtra("type", "gif");
+                if (chatId != null) i.putExtra("chatId", chatId);
+                String mid = m.messageId != null ? m.messageId : m.id;
+                if (mid != null) i.putExtra("messageId", mid);
+                com.callx.app.utils.MediaViewerSourceRect.attach(i, cv.getMediaRectOnScreen());
+                i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                try { ctx.startActivity(i); } catch (Exception ignored) {}
+            }
+
+            @Override
+            public void onFileDownloadClick() {
+                // FIX: see the NOTE left in the isFile branch above — this
+                // used to be wired via a listener that always got clobbered.
+                final Message m = h.boundMessage;
+                if (m == null) return;
+                final Context ctx = h.itemView.getContext();
+                final com.callx.app.conversation.canvas.MessageBubbleCanvasView cv = h.canvasView;
+                String type = m.type != null ? m.type : "text";
+                boolean isFile = "file".equals(type);
+                final int myToken = h.canvasBindToken;
+                if (!isFile) return;
+                final String fileUrl = m.mediaUrl != null ? m.mediaUrl : "";
+                if (fileUrl.isEmpty() || !downloadingMediaUrls.add(fileUrl)) return;
+                cv.setFileDownloadState(true, -1);
+                com.callx.app.utils.MediaCache.getWithProgress(ctx, fileUrl,
+                        new com.callx.app.utils.MediaCache.ProgressCallback() {
+                    @Override public void onProgress(int percent) {
+                        if (h.canvasBindToken == myToken) cv.setFileDownloadState(true, percent);
+                    }
+                    @Override public void onReady(java.io.File file) {
+                        downloadingMediaUrls.remove(fileUrl);
+                        if (h.canvasBindToken == myToken) cv.setFileCached(true);
+                    }
+                    @Override public void onError(String reason) {
+                        downloadingMediaUrls.remove(fileUrl);
+                        if (h.canvasBindToken == myToken) cv.setFileDownloadState(false, 0);
+                    }
+                });
+            }
+
+            @Override
+            public void onFileOpenClick() {
+                // FIX: see the NOTE left in the isFile branch above — this
+                // used to be wired via a listener that always got clobbered.
+                Message m = h.boundMessage;
+                if (m == null) return;
+                Context ctx = h.itemView.getContext();
+                String type = m.type != null ? m.type : "text";
+                boolean isFile = "file".equals(type);
+                if (!isFile) return;
+                final String fileUrl = m.mediaUrl != null ? m.mediaUrl : "";
+                java.io.File cached = MediaCache.getCached(ctx, fileUrl);
+                if (cached == null) return;
+                try {
+                    final String fileNameForOpen = m.fileName != null ? m.fileName : "File";
+                    final String mimeForOpen = guessMimeFromFileName(fileNameForOpen);
+                    android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                            ctx, ctx.getPackageName() + ".provider", cached);
+                    android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
+                    intent.setDataAndType(uri, mimeForOpen.isEmpty() ? "*/*" : mimeForOpen);
+                    intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            | android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                    ctx.startActivity(intent);
+                } catch (Exception ignored) { /* no app handles this type */ }
+            }
+
+            @Override
+            public void onEditedTagClick() {
+                // Mirrors the legacy tv_time click listener — tapping the
+                // "✏️ edited" tag opens the edit-history sheet.
+                Message m = h.boundMessage;
+                if (m == null) return;
+                if (actionListener != null) actionListener.onShowEditHistory(m);
+            }
+
+            @Override
+            public void onPollOptionClick(int optionIndex) {
+                // FIX: this used to be wired via a SECOND, poll-only
+                // setOnBubbleClickListener() call made earlier in the
+                // isPoll branch above — but this single unconditional
+                // setOnBubbleClickListener() call (which runs for every
+                // message type, poll included) always ran after it and
+                // silently replaced it, so poll votes never fired. Voting
+                // now lives here, in the one listener that actually stays
+                // attached.
+                Message m = h.boundMessage;
+                if (m == null) return;
+                Context ctx = h.itemView.getContext();
+                String type = m.type != null ? m.type : "text";
+                boolean isPoll = "poll".equals(type);
+                if (!isPoll) return;
+                if (Boolean.TRUE.equals(m.pollClosed)) {
+                    android.widget.Toast.makeText(ctx, "This poll is closed", android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                if (actionListener != null) actionListener.onPollVote(m, optionIndex);
+            }
+        };
+    }
+
 
     private void bindCanvasMessage(@NonNull VH h, @NonNull Message m) {
         final Context ctx = h.itemView.getContext();
@@ -4057,578 +4771,6 @@ public class MessagePagingAdapter
         // it only touches h.itemView's alpha/background/tag, which is cv itself. ──
         applySelectionHighlight(h, m);
 
-        cv.setOnBubbleClickListener(new com.callx.app.conversation.canvas.OnBubbleClickListener() {
-            @Override
-            public void onBubbleClick() {
-                if (multiSelectMode) {
-                    String id = m.messageId != null ? m.messageId : m.id;
-                    if (id != null) {
-                        if (selectedMessageIds.contains(id)) selectedMessageIds.remove(id);
-                        else selectedMessageIds.add(id);
-                        // FIX: don't rely on h.getAdapterPosition() here — it can
-                        // return NO_POSITION right after a long-press-triggered
-                        // notifyItemRangeChanged (ViewHolder in a transient
-                        // state), silently dropping the highlight refresh so the
-                        // bubble LOOKS still-selected even though it was removed
-                        // from selectedMessageIds. h/m are already in scope, so
-                        // update this row's highlight directly instead.
-                        applySelectionHighlight(h, m);
-                        if (multiSelectListener != null) multiSelectListener.onSelectionChanged(selectedMessageIds.size());
-                        if (selectedMessageIds.isEmpty()) exitMultiSelectMode();
-                    }
-                }
-            }
-
-            @Override
-            public void onBubbleLongClick() {
-                cv.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
-                if (!multiSelectMode) {
-                    enterMultiSelectMode(m);
-                } else if (actionListener != null) {
-                    showActionBottomSheet(ctx, m);
-                }
-            }
-
-            @Override
-            public boolean onLinkClick(String url) {
-                // Tapping the link-preview CARD (setLinkPreview/drawLinkPreview)
-                // fires here — mirrors the legacy ll_link_preview click
-                // listener that opens the URL in a browser. Tap-on-a-URL-
-                // SPAN-inside-the-text-itself (Linkify-equivalent) is still
-                // not modeled — this method is only ever invoked for the
-                // card's whole-card tap right now, never for an in-text span.
-                if (url == null || url.isEmpty()) return false;
-                android.content.Intent browserIntent = new android.content.Intent(
-                        android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
-                browserIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                ctx.startActivity(browserIntent);
-                return true;
-            }
-
-            @Override
-            public void onReplyPreviewClick() {
-                if (actionListener != null && m.replyToId != null) {
-                    actionListener.onNavigateToOriginal(m.replyToId, m.senderId);
-                }
-            }
-
-            @Override
-            public void onReactionsClick() {
-                if (actionListener != null) actionListener.onReactionTap(m);
-            }
-
-            @Override
-            public void onForwardClick() {
-                if (actionListener != null) actionListener.onForward(m);
-            }
-
-            @Override
-            public void onImageClick() {
-                if (isReelShare) {
-                    // Shared reel cards open the full reel on a normal tap.
-                    // A 3-second hold is handled separately by
-                    // onReelPeekPreview() below.
-                    String reelId = m.reelId != null ? m.reelId : "";
-                    String reelUrl = m.reelShareUrl != null ? m.reelShareUrl : "";
-                    if (reelId.isEmpty() && reelUrl.isEmpty()) return;
-                    String deepLink = !reelId.isEmpty()
-                            ? com.callx.app.utils.Constants.DEEP_LINK_BASE_URL + "/reel/" + reelId
-                            : reelUrl;
-                    try {
-                        android.content.Intent ri = new android.content.Intent(
-                                android.content.Intent.ACTION_VIEW,
-                                android.net.Uri.parse(deepLink));
-                        ri.setPackage(ctx.getPackageName());
-                        ri.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                        ctx.startActivity(ri);
-                    } catch (Exception ignored) {}
-                } else if (isImage) {
-                    // Still uploading / failed local-first bubble — no
-                    // remote URL to open yet; the gate tap (onMediaDownloadClick)
-                    // handles the failed-retry case instead.
-                    if (sent && m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
-                            && (m.mediaUrl == null || m.mediaUrl.isEmpty())) {
-                        return;
-                    }
-                    String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
-                    // Telegram-style close animation — capture this bubble's
-                    // on-screen image rect now (while `cv` is still laid
-                    // out here) so the sheet's "View" action can hand it to
-                    // MediaViewerActivity (see MediaViewerSourceRect).
-                    showImageActionSheet(ctx, m, fullUrl, fullUrl, cv.getMediaRectOnScreen());
-                } else if (isVideo) {
-                    // WhatsApp-style video tap, now mirroring the single-image
-                    // flow exactly:
-                    //   Sender / already-cached → open the same action sheet
-                    //   an image tap opens (Play/Edit/Save/Share/Forward/
-                    //   Star/Delete) instead of jumping straight into the
-                    //   player — a video bubble used to have none of those
-                    //   options reachable except via the long-press sheet
-                    //   (which has no View/Edit/Save at all).
-                    //   Receiver + not yet cached → this branch isn't even
-                    //   reached (the bubble is showing the download gate —
-                    //   see bindVideo's WhatsApp-style gate — so the tap
-                    //   goes to onMediaDownloadClick instead); the fallback
-                    //   download-then-open path below only covers the rare
-                    //   edge case where this fires before the gate state
-                    //   settles, and now opens the sheet too once ready
-                    //   rather than force-launching the player.
-                    final String vUrl2 = m.mediaUrl != null ? m.mediaUrl : m.text;
-                    if (vUrl2 == null || vUrl2.isEmpty()) return;
-
-                    // Check local availability: sender's original file or
-                    // a previously downloaded cached copy.
-                    boolean vHasLocal = m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
-                            && Boolean.TRUE.equals(checkLocalAvailabilityAsync(ctx,
-                                    m.mediaLocalPath, m.messageId != null ? m.messageId : m.id));
-                    java.io.File vCachedFile = vHasLocal ? null
-                            : com.callx.app.utils.MediaCache.getCached(ctx, vUrl2);
-
-                    if (sent || vHasLocal || vCachedFile != null) {
-                        // Already on device — same advanced-action sheet a
-                        // single-image bubble gets.
-                        String vLocalPath = vHasLocal ? m.mediaLocalPath
-                                : (vCachedFile != null ? vCachedFile.getAbsolutePath() : null);
-                        showMediaActionSheet(ctx, m, vUrl2, vUrl2, "video", vLocalPath,
-                                null, -1, cv.getMediaRectOnScreen());
-                    } else if (downloadingMediaUrls.contains(vUrl2)) {
-                        // Already downloading — the gate shows progress; nothing to do.
-                    } else {
-                        // Not cached → download first, then play.
-                        // (Same as tapping the download pill but initiated via the
-                        // play-button tap so the UX feels seamless.)
-                        downloadingMediaUrls.add(vUrl2);
-                        cv.setMediaDownloadGate(true, 0, null);
-                        MediaDownloadQueue.getInstance(ctx).enqueue(vUrl2, null, () -> {
-                            com.callx.app.utils.MediaCache.getWithProgress(ctx, vUrl2,
-                                    new com.callx.app.utils.MediaCache.ProgressCallback() {
-                                @Override public void onProgress(int percent) {
-                                    if (h.canvasBindToken != myToken) return;
-                                    cv.setMediaDownloadGate(true, percent, null);
-                                }
-                                @Override public void onReady(java.io.File file) {
-                                    downloadingMediaUrls.remove(vUrl2);
-                                    if (h.canvasBindToken != myToken) return;
-                                    cv.clearMediaDownloadGate();
-                                    ((android.app.Activity) ctx).runOnUiThread(() -> {
-                                        android.content.Intent i2 = new android.content.Intent()
-                                                .setClassName(ctx.getPackageName(),
-                                                        "com.callx.app.activities.MediaViewerActivity");
-                                        i2.putExtra("url", vUrl2);
-                                        i2.putExtra("type", "video");
-                                        i2.putExtra("localPath", file.getAbsolutePath());
-                                        i2.putExtra("chatId", chatId);
-                                        i2.putExtra("messageId",
-                                                m.messageId != null ? m.messageId : m.id);
-                                        com.callx.app.utils.MediaViewerSourceRect.attach(i2, cv.getMediaRectOnScreen());
-                                        ctx.startActivity(i2);
-                                    });
-                                }
-                                @Override public void onError(String reason) {
-                                    downloadingMediaUrls.remove(vUrl2);
-                                    if (h.canvasBindToken != myToken) return;
-                                    cv.setMediaDownloadGate(false, Integer.MIN_VALUE,
-                                            "Tap to retry");
-                                }
-                            });
-                        });
-                    }
-                }
-            }
-
-            @Override
-            public void onReelPeekPreview(android.view.View sourceView) {
-                if (isReelShare) {
-                    ReelSharePeekBridge.show(ctx, m, sourceView);
-                }
-            }
-
-            @Override
-            public void onMediaDownloadClick() {
-                // WhatsApp-style local-first media bubble: this is a SENT
-                // image whose gate is showing "Tap to retry" (upload failed)
-                // rather than a RECEIVED download pill — route to the retry
-                // flow instead of treating it as a download tap.
-                if (isImage && sent && m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
-                        && (m.mediaUrl == null || m.mediaUrl.isEmpty())) {
-                    if (actionListener != null) actionListener.onRetry(m);
-                    return;
-                }
-                if (isGif) {
-                    // FIX: previously wired via a separate setOnBubbleClickListener()
-                    // set inside the isGif branch — always clobbered by this
-                    // single unconditional call, so the GIF download-gate
-                    // pill silently did nothing.
-                    final String gifUrl = m.mediaUrl != null ? m.mediaUrl : "";
-                    if (gifUrl.isEmpty() || !downloadingMediaUrls.add(gifUrl)) return;
-                    cv.setMediaDownloadGate(true, 0, null);
-                    com.callx.app.utils.MediaCache.getWithProgress(ctx, gifUrl,
-                            new com.callx.app.utils.MediaCache.ProgressCallback() {
-                        @Override public void onProgress(int percent) {
-                            if (h.canvasBindToken != myToken) return;
-                            cv.setMediaDownloadProgress(percent);
-                        }
-                        @Override public void onReady(java.io.File file) {
-                            downloadingMediaUrls.remove(gifUrl);
-                            CACHED_FILE_CHECK.put(gifUrl, file);
-                            if (h.canvasBindToken != myToken) return;
-                            cv.clearMediaDownloadGate();
-                            glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
-                                    .override(gifStickerPx(ctx), gifStickerPx(ctx)) // PERF: match 180dp slot, avoid oversized decode
-                                    .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
-                                        @Override public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
-                                                @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> t) {
-                                            if (h.canvasBindToken != myToken) return;
-                                            cv.setGifBitmap(bmp);
-                                        }
-                                        @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {}
-                                    });
-                        }
-                        @Override public void onError(String reason) {
-                            downloadingMediaUrls.remove(gifUrl);
-                            if (h.canvasBindToken != myToken) return;
-                            cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Tap to retry");
-                        }
-                    });
-                    return;
-                }
-                // ── Video download gate tap ──────────────────────────────────
-                // Receiver taps the "Video / file-size" pill → download the
-                // full video via MediaDownloadQueue, show progress, then open
-                // the player from the cached local file.
-                if (isVideo) {
-                    final String vDlUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
-                    if (vDlUrl == null || vDlUrl.isEmpty() || downloadingMediaUrls.contains(vDlUrl)) return;
-                    downloadingMediaUrls.add(vDlUrl);
-                    cv.setMediaDownloadGate(true, 0, null);
-                    MediaDownloadQueue.getInstance(ctx).enqueue(vDlUrl, null, () -> {
-                        com.callx.app.utils.MediaCache.getWithProgress(ctx, vDlUrl,
-                                new com.callx.app.utils.MediaCache.ProgressCallback() {
-                            @Override public void onProgress(int percent) {
-                                if (h.canvasBindToken != myToken) return;
-                                cv.setMediaDownloadGate(true, percent, null);
-                            }
-                            @Override public void onReady(java.io.File file) {
-                                downloadingMediaUrls.remove(vDlUrl);
-                                if (h.canvasBindToken != myToken) return;
-                                cv.clearMediaDownloadGate();
-                                ((android.app.Activity) ctx).runOnUiThread(() -> {
-                                    android.content.Intent i3 = new android.content.Intent()
-                                            .setClassName(ctx.getPackageName(),
-                                                    "com.callx.app.activities.MediaViewerActivity");
-                                    i3.putExtra("url", vDlUrl);
-                                    i3.putExtra("type", "video");
-                                    i3.putExtra("localPath", file.getAbsolutePath());
-                                    i3.putExtra("chatId", chatId);
-                                    i3.putExtra("messageId",
-                                            m.messageId != null ? m.messageId : m.id);
-                                    ctx.startActivity(i3);
-                                });
-                            }
-                            @Override public void onError(String reason) {
-                                downloadingMediaUrls.remove(vDlUrl);
-                                if (h.canvasBindToken != myToken) return;
-                                cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Tap to retry");
-                            }
-                        });
-                    });
-                    return;
-                }
-
-                if (!isImage) return;
-                final String fullUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
-                if (fullUrl == null || fullUrl.isEmpty() || downloadingMediaUrls.contains(fullUrl)) return;
-                downloadingMediaUrls.add(fullUrl);
-                cv.setMediaDownloadGate(true, 0, null);
-
-                // Media E2E (image) — see the matching comment on the
-                // auto-download path above.
-                final com.callx.app.utils.MediaE2ECrypto.KeyEnvelope tapDlEnv =
-                        (!sent && m.mediaKeyEnc != null)
-                        ? com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, m.mediaKeyEnc,
-                                m.senderId, m.messageId != null ? m.messageId : m.id)
-                        : null;
-                final byte[] tapDlKey    = (tapDlEnv != null) ? tapDlEnv.fullKey() : null;
-                final byte[] tapDlDigest = (tapDlEnv != null) ? tapDlEnv.fullDigest : null;
-                com.callx.app.utils.MediaCache.getWithProgress(ctx, fullUrl, tapDlKey, tapDlDigest,
-                        new com.callx.app.utils.MediaCache.ProgressCallback() {
-                    @Override public void onProgress(int percent) {
-                        if (h.canvasBindToken != myToken) return;
-                        cv.setMediaDownloadProgress(percent);
-                    }
-                    @Override public void onReady(java.io.File file) {
-                        downloadingMediaUrls.remove(fullUrl);
-                        if (h.canvasBindToken != myToken) return;
-                        cv.clearMediaDownloadGate();
-                        // PERF #4 + #1: density-aware size, store in pool on decode
-                        glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
-                                .override(thumbPx(ctx), thumbPx(ctx))
-                                .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                                    @Override
-                                    public void onResourceReady(@NonNull Bitmap resource,
-                                            @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                        if (resource.getHeight() > 0) {
-                                            com.callx.app.conversation.canvas.MessageBubbleCanvasView
-                                                    .cacheAspectRatio(fullUrl, (float) resource.getWidth() / resource.getHeight());
-                                        }
-                                        // PERF #1: pool the decoded bitmap
-                                        if (fullUrl != null && !fullUrl.isEmpty())
-                                            DECODED_BITMAP_CACHE.put(fullUrl, resource);
-                                        if (h.canvasBindToken != myToken) return;
-                                        cv.setMediaBitmap(resource);
-                                    }
-                                    @Override
-                                    public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
-                                });
-                    }
-                    @Override public void onError(String reason) {
-                        downloadingMediaUrls.remove(fullUrl);
-                        if (h.canvasBindToken != myToken) return;
-                        cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Tap to retry");
-                    }
-                });
-            }
-
-            @Override
-            public void onMediaCellClick(int index) {
-                if (!isMultiMedia || m.mediaItems == null || index < 0 || index >= m.mediaItems.size()) return;
-                java.util.Map<String, Object> item = m.mediaItems.get(index);
-                Object urlObj = item.get("url");
-                Object thumbObj = item.get("thumbUrl");
-                Object mtObj = item.get("mediaType");
-                String url = urlObj instanceof String ? (String) urlObj : "";
-                String thumbUrl = thumbObj instanceof String ? (String) thumbObj : "";
-                String mediaType = mtObj instanceof String ? (String) mtObj : "image";
-                if (url.isEmpty()) return;
-                // Audio/file cells have their own dedicated tap handling
-                // elsewhere (no image/video viewer applies to them) — this
-                // sheet is only for image/video cells, same restriction the
-                // single-media bubble already has.
-                if ("audio".equals(mediaType) || "file".equals(mediaType)) return;
-                try {
-                    String mediaItemsJson = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems);
-                    showMediaActionSheet(ctx, m, url, !thumbUrl.isEmpty() ? thumbUrl : url,
-                            mediaType, null, mediaItemsJson, index);
-                } catch (Exception ignored) {}
-            }
-
-            @Override
-            public void onGroupDownloadAllClick() {
-                if (!isMultiMedia || m.mediaItems == null) return;
-                int visible = Math.min(m.mediaItems.size(), 9);
-                for (int i = 0; i < visible; i++) {
-                    downloadGroupCell(ctx, h, cv, myToken, m.mediaItems.get(i), i);
-                }
-            }
-
-            @Override
-            public void onGroupCellDownloadClick(int index) {
-                if (!isMultiMedia || m.mediaItems == null || index < 0 || index >= m.mediaItems.size()) return;
-                downloadGroupCell(ctx, h, cv, myToken, m.mediaItems.get(index), index);
-            }
-
-            @Override
-            public void onAudioPlayPauseClick() {
-                if (!isAudio) return;
-                String aUrl = m.mediaUrl != null ? m.mediaUrl : m.text;
-                toggleAudio(h, aUrl, h.getAdapterPosition());
-            }
-
-            @Override
-            public void onAudioSeek(float fraction) {
-                if (!isAudio) return;
-                // Only meaningful if THIS bubble is the one actually
-                // playing right now — mirrors seekAudio.setOnSeekListener's
-                // player.seekTo() call, just resolved dynamically here
-                // since the canvas click callback doesn't capture durationMs.
-                if (playingPos == h.getAdapterPosition() && player != null) {
-                    try {
-                        int durationMs = player.getDuration();
-                        if (durationMs > 0) player.seekTo((int) (fraction * durationMs));
-                    } catch (Exception ignored) {}
-                }
-            }
-
-            @Override
-            public void onContactViewClick() {
-                // Mirrors ChatContactShareController.bindBubble's
-                // btnViewContact click listener exactly: open the system
-                // Contacts app filtered to this phone number, falling back
-                // to the dial pad if nothing can resolve that lookup intent.
-                if (!isContact || m.contactPhone == null) return;
-                android.net.Uri uri = android.net.Uri.withAppendedPath(
-                        android.provider.ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
-                        android.net.Uri.encode(m.contactPhone));
-                android.content.Intent viewIntent = new android.content.Intent(android.content.Intent.ACTION_VIEW, uri);
-                if (viewIntent.resolveActivity(ctx.getPackageManager()) != null) {
-                    ctx.startActivity(viewIntent);
-                } else {
-                    android.content.Intent dial = new android.content.Intent(
-                            android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:" + m.contactPhone));
-                    ctx.startActivity(dial);
-                }
-            }
-
-            @Override
-            public void onLocationOpenMapsClick() {
-                // Mirrors ChatLocationShareController.bindBubble's
-                // btnOpenMaps click listener exactly: try the Google Maps
-                // app via a geo: intent first, falling back to a plain
-                // maps.google.com URL if it isn't installed/resolvable.
-                if (!isLocation) return;
-                double lat = m.locationLat != null ? m.locationLat : 0;
-                double lng = m.locationLng != null ? m.locationLng : 0;
-                String geoUri = String.format(java.util.Locale.US, "geo:%.6f,%.6f?q=%.6f,%.6f", lat, lng, lat, lng);
-                android.content.Intent mapIntent = new android.content.Intent(
-                        android.content.Intent.ACTION_VIEW, android.net.Uri.parse(geoUri));
-                mapIntent.setPackage("com.google.android.apps.maps");
-                if (mapIntent.resolveActivity(ctx.getPackageManager()) != null) {
-                    ctx.startActivity(mapIntent);
-                } else {
-                    android.content.Intent fallback = new android.content.Intent(android.content.Intent.ACTION_VIEW,
-                            android.net.Uri.parse(String.format(java.util.Locale.US,
-                                    "https://maps.google.com/?q=%.6f,%.6f", lat, lng)));
-                    ctx.startActivity(fallback);
-                }
-            }
-
-            @Override
-            public void onViewOnceClick() {
-                // Fires for every variant — mirrors the legacy path's null
-                // click listener on WAITING/EXPIRED (nothing happens) and
-                // only actually opens the viewer for the RECEIVED
-                // tap-to-open state, with the same 800ms debounce tag
-                // bindViewOnceSent() used to guard against a rebind/
-                // rapid-multi-tap double-fire.
-                if (!isViewOnceMsg || isViewOnceExpiredState || isViewOnceWaiting) return;
-                Object lastClick = cv.getTag(com.callx.app.chat.R.id.ll_bubble);
-                long now = System.currentTimeMillis();
-                if (lastClick instanceof Long && now - (Long) lastClick < 800) return;
-                cv.setTag(com.callx.app.chat.R.id.ll_bubble, now);
-                if (viewOnceOpenListener != null) viewOnceOpenListener.onOpenViewOnce(m);
-            }
-
-            @Override
-            public void onSeenBubbleClick() {
-                // Mirrors bindStatusSeenBubble/bindReelSeenBubble's
-                // openStatus/openReel click listeners exactly — same
-                // deep-link intents, just fired from the canvas card tap.
-                if (!isSeen) return;
-                if (isReelSeen) {
-                    if (m.reelId == null || m.reelId.isEmpty()) return;
-                    android.content.Intent intent = new android.content.Intent(
-                            com.callx.app.utils.Constants.ACTION_OPEN_REEL);
-                    intent.putExtra("reelId", m.reelId);
-                    intent.setPackage(ctx.getPackageName());
-                    ctx.startActivity(intent);
-                } else {
-                    String ownerUid = (m.statusOwnerUid != null && !m.statusOwnerUid.isEmpty())
-                            ? m.statusOwnerUid : m.senderId;
-                    String ownerName = m.statusOwnerName != null ? m.statusOwnerName
-                            : (m.senderName != null ? m.senderName : "");
-                    if (ownerUid == null || ownerUid.isEmpty()) return;
-                    android.content.Intent intent = new android.content.Intent(
-                            com.callx.app.utils.Constants.ACTION_OPEN_STATUS);
-                    intent.putExtra("ownerUid", ownerUid);
-                    intent.putExtra("ownerName", ownerName);
-                    intent.setPackage(ctx.getPackageName());
-                    try {
-                        ctx.startActivity(intent);
-                    } catch (android.content.ActivityNotFoundException e) {
-                        android.widget.Toast.makeText(ctx, "Status viewer not available",
-                                android.widget.Toast.LENGTH_SHORT).show();
-                    }
-                }
-            }
-
-            @Override
-            public void onGifClick() {
-                // FIX: see the NOTE left in the isGif branch above — this
-                // used to be wired via a listener that always got clobbered.
-                if (!isGif) return;
-                final String gifUrl = m.mediaUrl != null ? m.mediaUrl : "";
-                android.content.Intent i = new android.content.Intent().setClassName(
-                        ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
-                i.putExtra("url", gifUrl);
-                i.putExtra("type", "gif");
-                if (chatId != null) i.putExtra("chatId", chatId);
-                String mid = m.messageId != null ? m.messageId : m.id;
-                if (mid != null) i.putExtra("messageId", mid);
-                com.callx.app.utils.MediaViewerSourceRect.attach(i, cv.getMediaRectOnScreen());
-                i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                try { ctx.startActivity(i); } catch (Exception ignored) {}
-            }
-
-            @Override
-            public void onFileDownloadClick() {
-                // FIX: see the NOTE left in the isFile branch above — this
-                // used to be wired via a listener that always got clobbered.
-                if (!isFile) return;
-                final String fileUrl = m.mediaUrl != null ? m.mediaUrl : "";
-                if (fileUrl.isEmpty() || !downloadingMediaUrls.add(fileUrl)) return;
-                cv.setFileDownloadState(true, -1);
-                com.callx.app.utils.MediaCache.getWithProgress(ctx, fileUrl,
-                        new com.callx.app.utils.MediaCache.ProgressCallback() {
-                    @Override public void onProgress(int percent) {
-                        if (h.canvasBindToken == myToken) cv.setFileDownloadState(true, percent);
-                    }
-                    @Override public void onReady(java.io.File file) {
-                        downloadingMediaUrls.remove(fileUrl);
-                        if (h.canvasBindToken == myToken) cv.setFileCached(true);
-                    }
-                    @Override public void onError(String reason) {
-                        downloadingMediaUrls.remove(fileUrl);
-                        if (h.canvasBindToken == myToken) cv.setFileDownloadState(false, 0);
-                    }
-                });
-            }
-
-            @Override
-            public void onFileOpenClick() {
-                // FIX: see the NOTE left in the isFile branch above — this
-                // used to be wired via a listener that always got clobbered.
-                if (!isFile) return;
-                final String fileUrl = m.mediaUrl != null ? m.mediaUrl : "";
-                java.io.File cached = MediaCache.getCached(ctx, fileUrl);
-                if (cached == null) return;
-                try {
-                    final String fileNameForOpen = m.fileName != null ? m.fileName : "File";
-                    final String mimeForOpen = guessMimeFromFileName(fileNameForOpen);
-                    android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
-                            ctx, ctx.getPackageName() + ".provider", cached);
-                    android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
-                    intent.setDataAndType(uri, mimeForOpen.isEmpty() ? "*/*" : mimeForOpen);
-                    intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-                            | android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                    ctx.startActivity(intent);
-                } catch (Exception ignored) { /* no app handles this type */ }
-            }
-
-            @Override
-            public void onEditedTagClick() {
-                // Mirrors the legacy tv_time click listener — tapping the
-                // "✏️ edited" tag opens the edit-history sheet.
-                if (actionListener != null) actionListener.onShowEditHistory(m);
-            }
-
-            @Override
-            public void onPollOptionClick(int optionIndex) {
-                // FIX: this used to be wired via a SECOND, poll-only
-                // setOnBubbleClickListener() call made earlier in the
-                // isPoll branch above — but this single unconditional
-                // setOnBubbleClickListener() call (which runs for every
-                // message type, poll included) always ran after it and
-                // silently replaced it, so poll votes never fired. Voting
-                // now lives here, in the one listener that actually stays
-                // attached.
-                if (!isPoll) return;
-                if (Boolean.TRUE.equals(m.pollClosed)) {
-                    android.widget.Toast.makeText(ctx, "This poll is closed", android.widget.Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                if (actionListener != null) actionListener.onPollVote(m, optionIndex);
-            }
-        });
 
         // PERF #8: Hardware layer — selectively promote complex bubbles to a
         // GPU-resident RenderNode texture.  On complex items (reactions badge
