@@ -62,6 +62,8 @@ public class AdaptiveStreamingManager {
     // ── Quality cap constants (max resolution the user may lock to) ─────────
     public enum QualityCap {
         AUTO,    // ABR decides (default)
+        Q144P,   // ≤ 144p  (≤256×144)  — tiny preview tiles on very slow networks
+        Q240P,   // ≤ 240p  (≤426×240)  — small preview tiles on slow networks
         Q360P,   // ≤ 360p  (≤640×360)
         Q480P,   // ≤ 480p  (≤854×480)
         Q720P,   // ≤ 720p  (≤1280×720)
@@ -73,6 +75,16 @@ public class AdaptiveStreamingManager {
     private static final long BW_LOW_KBPS      = 800;    // force 480p
     private static final long BW_MED_KBPS      = 2_000;  // force 720p
     // above 2 Mbps → AUTO / 1080p
+
+    // ── Bandwidth thresholds for TILE-scoped caps (recommendedTileCap) ──────
+    // A small, muted preview tile (e.g. the Suggested-reels strip) never
+    // needs anywhere near Q360P's 800Kbps floor to look acceptable at its
+    // actual on-screen size — these two extra tiers let it degrade further
+    // than any full-screen player ever would, instead of stalling/buffering
+    // at Q360P on a genuinely slow connection.
+    private static final long BW_TILE_ULTRA_LOW_KBPS = 100;  // below this: 144p
+    private static final long BW_TILE_LOW_KBPS        = 250;  // below this: 240p
+    // 250Kbps+ → Q360P (the pre-existing tile ceiling — never higher)
 
     // ── Minimum EWMA bandwidth needed to justify each upgrade target ─────────
     // Must have sustained bandwidth headroom over the target bitrate before
@@ -344,6 +356,14 @@ public class AdaptiveStreamingManager {
             selector.getParameters().buildUpon();
 
         switch (cap) {
+            case Q144P:
+                params.setMaxVideoSize(256, 144)
+                      .setMaxVideoBitrate((int) (100 * 1000));
+                break;
+            case Q240P:
+                params.setMaxVideoSize(426, 240)
+                      .setMaxVideoBitrate((int) (300 * 1000));
+                break;
             case Q360P:
                 params.setMaxVideoSize(640, 360)
                       .setMaxVideoBitrate((int) (800 * 1000));
@@ -391,6 +411,12 @@ public class AdaptiveStreamingManager {
         DefaultTrackSelector selector = (DefaultTrackSelector) ts;
         TrackSelectionParameters.Builder params = selector.getParameters().buildUpon();
         switch (cap) {
+            case Q144P:
+                params.setMaxVideoSize(256, 144).setMaxVideoBitrate((int) (100 * 1000));
+                break;
+            case Q240P:
+                params.setMaxVideoSize(426, 240).setMaxVideoBitrate((int) (300 * 1000));
+                break;
             case Q360P:
                 params.setMaxVideoSize(640, 360).setMaxVideoBitrate((int) (800 * 1000));
                 break;
@@ -583,6 +609,26 @@ public class AdaptiveStreamingManager {
         return QualityCap.AUTO;
     }
 
+    /**
+     * Network-aware cap for a small, always-muted PREVIEW TILE (e.g. a
+     * Suggested-reels strip tile) — NOT for full-screen playback. A tile
+     * never needs more than Q360P (see the Q360P doc at every call site
+     * that already caps tiles there), but on a genuinely slow connection
+     * even Q360P's 800Kbps floor can mean the tiny preview spends more time
+     * buffering than a viewer will ever look at it for. This adds two
+     * lower floors — Q144P/Q240P — that only apply to tile-scoped callers;
+     * {@link #recommendedCap} (full-screen) is untouched so normal reel
+     * playback quality never regresses.
+     */
+    public QualityCap recommendedTileCap(Context ctx) {
+        long bwKbps = getEwmaBandwidthKbps();
+        if (bwKbps <= 0) bwKbps = estimateBandwidthFromNetworkType(ctx);
+
+        if (bwKbps < BW_TILE_ULTRA_LOW_KBPS) return QualityCap.Q144P;
+        if (bwKbps < BW_TILE_LOW_KBPS)       return QualityCap.Q240P;
+        return QualityCap.Q360P;
+    }
+
     /** Fallback estimate when EWMA has no data yet */
     private long estimateBandwidthFromNetworkType(Context ctx) {
         ConnectivityManager cm =
@@ -673,6 +719,8 @@ public class AdaptiveStreamingManager {
     /** Human-readable label for current QualityCap */
     public static String capLabel(QualityCap cap) {
         switch (cap) {
+            case Q144P:  return "144p";
+            case Q240P:  return "240p";
             case Q360P:  return "360p";
             case Q480P:  return "480p";
             case Q720P:  return "720p";

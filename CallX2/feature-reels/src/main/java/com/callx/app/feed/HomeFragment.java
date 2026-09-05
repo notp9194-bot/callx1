@@ -6531,6 +6531,18 @@ public class HomeFragment extends Fragment
             String boundThumbUrl;
             String boundViewsText;
             int boundMarginEndPx = -1;
+            /** ★ Stale-player guard, tightened: bumped every startTileAt()
+             *  call for this holder. The revealListener below captures the
+             *  generation it was created for and checks it alongside
+             *  `holder.player != p` — reference equality on the ExoPlayer
+             *  alone isn't quite enough under fast-scroll, since a released
+             *  player can be handed straight back out by ExoPlayerPool
+             *  (LIFO free-list) to a DIFFERENT tile's very next
+             *  startTileAt() call, or in principle back to this same holder
+             *  for a second, newer start before the first one's callback
+             *  has fired. A monotonically increasing int can't collide the
+             *  way object identity theoretically could. */
+            int playGeneration = 0;
 
             TileHolder(FrameLayout tile, ImageView thumb, PlayerView playerView, TextView tvViews) {
                 super(tile);
@@ -6696,7 +6708,29 @@ public class HomeFragment extends Fragment
          */
         void refreshActiveTile(RecyclerView rv) {
             if (!isAdded() || getContext() == null) return;
+            // ★ Data-saver respect — CONFIRMED already correctly applied:
+            // `autoplayPolicy` is the SAME HomeFeedAutoplayPolicy instance
+            // the main feed cards use (loaded once per Home session), and
+            // this strip's own scroll/visibility listeners call THIS
+            // refreshActiveTile() independently of the main feed's own
+            // play/pause decisions — so Off/Wi-Fi-only is honoured for the
+            // strip on its own, not merely inherited from whatever the main
+            // feed card happened to decide. No change needed here.
             if (!autoplayPolicy.shouldAutoplay(getContext())) { pauseActive(rv); return; }
+            // ★ Battery/thermal gating: this strip previously only checked
+            // scroll/visibility before autoplaying a tile — never thermal
+            // state, unlike the main Reels feed (ReelThermalManager already
+            // gates ITS N+1 prewarm/preload there). Unlike the main feed's
+            // single currently-visible reel (which always plays — it IS the
+            // content the user asked to see), a Suggested-reels tile's
+            // autoplay is a secondary/optional decoder the app is choosing
+            // to spin up on top of whatever's already playing elsewhere in
+            // Home — exactly the kind of "extra" work canPrewarmExoPlayer()
+            // exists to gate off once the device is genuinely warm, so it's
+            // reused here rather than adding a separate threshold.
+            com.callx.app.player.ReelThermalManager thermal =
+                    com.callx.app.player.ReelThermalManager.get(getContext());
+            if (!thermal.canPrewarmExoPlayer()) { pauseActive(rv); return; }
             int childCount = rv.getChildCount();
             if (childCount == 0) return;
             int centerX = rv.getWidth() / 2;
@@ -6710,7 +6744,24 @@ public class HomeFragment extends Fragment
             }
             if (best == null) return;
             int pos = rv.getChildAdapterPosition(best);
-            if (pos == RecyclerView.NO_POSITION || pos == activePosition) return;
+            if (pos == RecyclerView.NO_POSITION) return;
+            // ★ Prefetch next tile: warms the byte cache for whichever
+            // tile(s) sit just ahead of the newly-active one — same
+            // "buffer the next one ahead of time" idea the main feed's
+            // standby player uses (prepareStandbyNext), just via the
+            // lighter byte-range preloader instead of a second full
+            // ExoPlayer, since this is a small muted preview rather than
+            // the primary watch surface. Reuses HomeFragment's existing
+            // videoPreloader instance — same thermal/network gating and
+            // in-flight dedupe by URL as its main-feed prefetch already
+            // has — so tapping into the strip (or fast-scrolling to the
+            // next tile) hits a warm CacheDataSource entry instead of a
+            // cold network start. Safe to call even when pos == activePosition
+            // (already-playing tile): preloadFrom() only warms pos+1 onward.
+            if (videoPreloader != null) {
+                videoPreloader.preloadFrom(items, pos);
+            }
+            if (pos == activePosition) return;
             stopTileAt(activePosition, rv);
             activePosition = pos;
             startTileAt(pos, rv);
@@ -6747,16 +6798,72 @@ public class HomeFragment extends Fragment
             ExoPlayer p = pool.acquire();
             holder.player = p;
 
-            // Q360P — a small, always-muted background preview never needs
-            // the full-screen player's adaptive/1080p ceiling; same
-            // reasoning ReelPeekPreviewController's long-press mini player
-            // already uses for the same "small preview, not the main watch"
-            // case.
+            // ★ Network-aware cap: a small, always-muted background preview
+            // never needs the full-screen player's adaptive/1080p ceiling
+            // (same reasoning ReelPeekPreviewController's long-press mini
+            // player already uses for the same "small preview, not the main
+            // watch" case) — but a flat Q360P floor still meant a genuinely
+            // slow connection spent longer buffering a 160×284dp tile than
+            // any viewer would ever look at it for. recommendedTileCap()
+            // adds Q144P/Q240P floors below Q360P for exactly that case;
+            // Q360P remains the CEILING regardless of how fast the network
+            // is (a tiny tile still never needs more).
             com.callx.app.player.AdaptiveStreamingManager mgr =
                     com.callx.app.player.AdaptiveStreamingManager.get(requireContext());
-            Player.Listener abrListener = mgr.attachToPlayer(p, r.videoUrl,
-                    com.callx.app.player.AdaptiveStreamingManager.QualityCap.Q360P, null);
+            com.callx.app.player.AdaptiveStreamingManager.QualityCap tileCap =
+                    mgr.recommendedTileCap(requireContext());
+            Player.Listener abrListener = mgr.attachToPlayer(p, r.videoUrl, tileCap, null);
             pool.trackListener(p, abrListener);
+
+            // ★ Size-based decode: Q360P (640×360) above is just the
+            // streaming-quality FLOOR every player uses — it isn't aware
+            // this particular player is driving a tiny 160×284dp preview
+            // tile, not a full-screen card. Without this, ExoPlayer decodes
+            // up to a full 640×360 frame for every suggested-reel tile on
+            // every device, regardless of how few real pixels that tile
+            // ever occupies on screen — wasted decoder throughput/memory,
+            // worse on higher-density screens where 640×360 is furthest
+            // from the tile's true render size. Tighten the track
+            // selector's own max video size down to this tile's actual
+            // pixel dimensions (never wider than the Q360P cap already
+            // applied above), same idea as ReelPeekPreviewController's
+            // mini player sizing its own decode target.
+            //
+            // ★ TRUE per-device sizing: dpToPx(TILE_W_DP/H_DP) is still the
+            // same math on every device at a given density — it does not
+            // account for the tile actually being laid out slightly
+            // differently (rounding, the FrameLayout's own measured bounds)
+            // or a future layout change to TILE_W_DP/H_DP being missed
+            // here. holder.playerView.getWidth()/getHeight() reflect what
+            // this exact tile measured to on THIS device, so prefer those
+            // once the view has actually been laid out; dp-based values are
+            // only the fallback for the very first bind, before onLayout
+            // has run and getWidth()/getHeight() would still read 0.
+            int measuredW = holder.playerView.getWidth();
+            int measuredH = holder.playerView.getHeight();
+            int tileW = measuredW > 0 ? measuredW : dpToPx(TILE_W_DP);
+            int tileH = measuredH > 0 ? measuredH : dpToPx(TILE_H_DP);
+            androidx.media3.exoplayer.trackselection.TrackSelector ts = p.getTrackSelector();
+            if (ts instanceof androidx.media3.exoplayer.trackselection.DefaultTrackSelector) {
+                androidx.media3.exoplayer.trackselection.DefaultTrackSelector dts =
+                        (androidx.media3.exoplayer.trackselection.DefaultTrackSelector) ts;
+                // ★ Decode ceiling now tracks tileCap instead of a hardcoded
+                // 640×360 — on a Q144P/Q240P network the whole point of the
+                // lower streaming cap is a smaller decode target too, not
+                // just a smaller download.
+                int capMaxW, capMaxH;
+                switch (tileCap) {
+                    case Q144P: capMaxW = 256; capMaxH = 144; break;
+                    case Q240P: capMaxW = 426; capMaxH = 240; break;
+                    default:    capMaxW = 640; capMaxH = 360; break; // Q360P
+                }
+                int tileDecodeW = Math.min(capMaxW, tileW);
+                int tileDecodeH = Math.min(capMaxH, tileH);
+                dts.setParameters(dts.getParameters().buildUpon()
+                        .setMaxVideoSize(tileDecodeW, tileDecodeH)
+                        .build());
+            }
+
             p.setVolume(0f); // suggested-reel previews are always muted, like Instagram's — tapping opens the real player for sound
             p.setRepeatMode(Player.REPEAT_MODE_ONE);
 
@@ -6772,11 +6879,24 @@ public class HomeFragment extends Fragment
             holder.playerView.setAlpha(0f);
             holder.playerView.setVisibility(View.VISIBLE);
             holder.playerView.setPlayer(p);
+            // ★ Tightened stale-player guard for fast-scroll start/release
+            // races: `holder.player != p` alone stayed correct as long as
+            // ExoPlayerPool never handed the same released instance BACK to
+            // this exact holder before the callback fired. myGeneration
+            // closes that gap explicitly — see TileHolder.playGeneration
+            // doc — and the listener now strips itself once it's actually
+            // fired, instead of sitting on the (looping, repeat-mode-ONE)
+            // player re-checking a now-irrelevant condition on every future
+            // loop restart for the rest of this tile's active lifetime.
+            final int myGeneration = ++holder.playGeneration;
             Player.Listener revealListener = new Player.Listener() {
                 @Override public void onRenderedFirstFrame() {
-                    if (holder.player != p) return; // stale — this tile moved on since
+                    if (holder.player != p || holder.playGeneration != myGeneration) {
+                        return; // stale — this tile moved on since
+                    }
                     holder.playerView.animate().alpha(1f).setDuration(150).start();
                     holder.thumb.animate().alpha(0f).setDuration(150).start();
+                    p.removeListener(this);
                 }
             };
             p.addListener(revealListener);
@@ -6802,6 +6922,12 @@ public class HomeFragment extends Fragment
             holder.thumb.setAlpha(1f);
             holder.thumb.setVisibility(View.VISIBLE);
             holder.player = null;
+            // Belt-and-braces alongside holder.player==null above — see
+            // TileHolder.playGeneration doc — makes any in-flight
+            // revealListener for whatever this holder was just playing
+            // fail its generation check even in the (already-guarded)
+            // window before that listener is stripped by the pool.
+            holder.playGeneration++;
         }
     }
 
