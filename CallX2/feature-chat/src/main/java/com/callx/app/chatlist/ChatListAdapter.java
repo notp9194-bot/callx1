@@ -998,13 +998,12 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             if (unwrapActivity(ctx) == null) {
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             }
-            // WhatsApp-style smooth push: chat screen slides in from the
-            // right while the list parallaxes back underneath, instead of
-            // the previous instant/no-anim swap.
-            androidx.core.app.ActivityOptionsCompat opts =
-                androidx.core.app.ActivityOptionsCompat.makeCustomAnimation(
-                    ctx, R.anim.chat_slide_in_right, R.anim.chat_slide_out_left);
-            ctx.startActivity(i, opts.toBundle());
+            // Simplified to match GroupChatActivity's plain open (no custom
+            // ActivityOptions anim) — was stacking with ChatActivity's own
+            // Window.setEnterTransition(Slide) + postponeEnterTransition,
+            // which made 1:1 open feel heavier than group's single default
+            // transition. ChatActivity's own Slide transition still applies.
+            ctx.startActivity(i);
         };
         if (chatId == null) { navigate.run(); return; }
 
