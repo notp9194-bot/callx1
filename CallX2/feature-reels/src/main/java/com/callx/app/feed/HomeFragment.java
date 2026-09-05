@@ -5947,7 +5947,7 @@ public class HomeFragment extends Fragment
                 int i = feedItems.indexOf(rowForHolder());
                 if (i >= 0) {
                     feedItems.remove(i);
-                    notifyItemRemoved(FEED_HEADER_OFFSET + i);
+                    if (feedAdapter != null) feedAdapter.notifyItemRemoved(FEED_HEADER_OFFSET + i);
                 }
             });
             headerRow.addView(overflow);
