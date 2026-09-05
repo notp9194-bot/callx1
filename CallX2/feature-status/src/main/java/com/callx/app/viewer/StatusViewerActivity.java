@@ -196,7 +196,55 @@ import com.callx.app.utils.AlertDialogStyler;
           spinView = new StorySpinViewController(this);
           spinView.attachTargets(binding.ivStatus, binding.playerView);
           setupStabilizerButton();
+          setupMediaRoundedCorners();
           load(ownerUid);
+      }
+
+      // Rounds the visible corners of the story media itself (photo/gif/video),
+      // 14dp, matching the reply-thumb rounding used in chat. Outline clipping
+      // (rather than a Glide bitmap transform) is used so it works uniformly
+      // for the ImageView (image/gif) AND the Media3 PlayerView (video), which
+      // can't take a Glide transform, and costs nothing extra at draw time
+      // once set (GPU-clipped via RenderNode, no per-frame bitmap work).
+      //
+      // PERF (ultra): provider + resolved px are static/shared across every
+      // StatusViewerActivity instance (density is constant per device/process),
+      // so opening a new story never re-allocates the outline callback —
+      // onCreate only attaches the one already-built provider to this
+      // activity's two views.
+      private static volatile float sMediaCornerPx = -1f;
+      private static final ViewOutlineProvider MEDIA_OUTLINE = new ViewOutlineProvider() {
+          @Override
+          public void getOutline(View view, android.graphics.Outline outline) {
+              outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), sMediaCornerPx);
+          }
+      };
+      // Reuses the SAME advanced avatar pipeline FollowConnectionsActivity's
+      // row avatar gets from FollowAvatarBinder — here it's StatusAvatarBinder
+      // (already local to this module, used by the status tray/carousel), so
+      // no new cross-module dependency is introduced. Replaces the old flat
+      // Glide.load(ownerPhoto).circleCrop() with: L2 memory cache check → L3
+      // disk cache check → a density-aware tiered decode chained with a TINY
+      // blur-up thumbnail, RGB_565 (opaque avatar, no alpha byte wasted), and
+      // a write-back into L2+L3 so reopening the same person's story (or the
+      // tray row painting it first) is an instant cache hit instead of a
+      // fresh network/decode every time.
+      private void bindOwnerAvatar(StatusItem item) {
+          if (item.ownerPhoto == null || item.ownerPhoto.isEmpty()) return;
+          long version = com.callx.app.cache.AvatarVersionSyncManager
+                  .getInstance(this).getCachedVersion(ownerUid);
+          com.callx.app.cache.StatusAvatarBinder.bind(
+                  this, binding.ivOwner, item.ownerPhoto, version, R.drawable.ic_person);
+      }
+
+      private void setupMediaRoundedCorners() {
+          if (sMediaCornerPx < 0f) {
+              sMediaCornerPx = 14f * getResources().getDisplayMetrics().density;
+          }
+          binding.ivStatus.setOutlineProvider(MEDIA_OUTLINE);
+          binding.ivStatus.setClipToOutline(true);
+          binding.playerView.setOutlineProvider(MEDIA_OUTLINE);
+          binding.playerView.setClipToOutline(true);
       }
       @Override protected void onPause()  { super.onPause();  pauseProgress(); if (spinView != null) spinView.stop(); }
       @Override protected void onResume() {
@@ -302,9 +350,7 @@ import com.callx.app.utils.AlertDialogStyler;
                           }
                       }
                       StatusItem first = items.get(0);
-                      if (first.ownerPhoto != null && !first.ownerPhoto.isEmpty())
-                          Glide.with(StatusViewerActivity.this).load(first.ownerPhoto)
-                               .circleCrop().into(binding.ivOwner);
+                      bindOwnerAvatar(first);
                       buildSegmentBars();
                       showCurrent();
                       // FIX: show download+forward for viewer, hide for owner
@@ -363,9 +409,7 @@ import com.callx.app.utils.AlertDialogStyler;
                               a.timestamp == null ? 0 : a.timestamp,
                               b.timestamp == null ? 0 : b.timestamp));
                       StatusItem first = items.get(0);
-                      if (first.ownerPhoto != null && !first.ownerPhoto.isEmpty())
-                          Glide.with(StatusViewerActivity.this).load(first.ownerPhoto)
-                               .circleCrop().into(binding.ivOwner);
+                      bindOwnerAvatar(first);
                       buildSegmentBars();
                       showCurrent();
                       boolean isOwner = myUid != null && myUid.equals(ownerUid);

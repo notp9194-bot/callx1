@@ -445,6 +445,23 @@ public class MessagePagingAdapter
             .format(DecodeFormat.PREFER_RGB_565)
             .diskCacheStrategy(DiskCacheStrategy.ALL);
 
+    // Corner radius for the swipe-reply media thumbnail (iv_reply_thumb).
+    // PERF (ultra): rounding is done via ViewOutlineProvider/clipToOutline,
+    // set ONCE per pooled ViewHolder in VH's constructor — not a Glide
+    // RoundedCorners bitmap transform recomputed on every bind/rebind/scroll.
+    // This avoids an extra bitmap allocation + draw per load, and lets the
+    // thumbnail share Glide's plain centerCrop() memory/disk cache entry
+    // with other centerCrop thumbnails (video/link/reel) instead of a
+    // separate transformed-bitmap cache key per corner radius.
+    private static final float REPLY_THUMB_CORNER_DP = 14f;
+    private static volatile float sReplyThumbCornerPx = -1f;
+    private static final ViewOutlineProvider REPLY_THUMB_OUTLINE = new ViewOutlineProvider() {
+        @Override
+        public void getOutline(View view, android.graphics.Outline outline) {
+            outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), sReplyThumbCornerPx);
+        }
+    };
+
     // ── PERF ADV: Shared avatar bitmap LruCache ───────────────────────────
     // In group chats the same sender photo URL appears for every message from
     // that person.  Without this cache every cell makes a separate Glide
@@ -7796,6 +7813,14 @@ public class MessagePagingAdapter
             tvReplySender  = v.findViewById(R.id.tv_reply_sender);
             tvReplyText    = v.findViewById(R.id.tv_reply_text);
             ivReplyThumb   = v.findViewById(R.id.iv_reply_thumb);
+            if (ivReplyThumb != null) {
+                if (sReplyThumbCornerPx < 0f) {
+                    sReplyThumbCornerPx = REPLY_THUMB_CORNER_DP
+                            * v.getResources().getDisplayMetrics().density;
+                }
+                ivReplyThumb.setOutlineProvider(REPLY_THUMB_OUTLINE);
+                ivReplyThumb.setClipToOutline(true);
+            }
             // Reactions
             llReactions    = v.findViewById(R.id.ll_reactions);
             tvReactions    = v.findViewById(R.id.tv_reactions);
