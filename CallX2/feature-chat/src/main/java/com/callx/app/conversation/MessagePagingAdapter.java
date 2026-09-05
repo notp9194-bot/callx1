@@ -492,6 +492,24 @@ public class MessagePagingAdapter
         return url + "@" + w + "x" + h;
     }
 
+    // ── FIX (decode reel-share thumbnail at its actual render size) ──────
+    // Root cause: the reel-share card's thumbnail was decoded at a
+    // hardcoded 330x474px regardless of device density — that pair isn't
+    // even this card's real 9:16 aspect (165dp x 293dp, see
+    // MessageBubbleCanvasView.REEL_CARD_WIDTH_DP/HEIGHT_DP), so on a
+    // high-density phone (xxxhdpi, density=4 → card renders at 660x1173px)
+    // it under-decoded and looked soft, while on a low-density device it
+    // over-decoded and wasted memory/bandwidth for pixels never shown.
+    // This computes the card's real density-scaled pixel size once and
+    // decodes/caches at exactly that — sharp on every density, never
+    // bigger than what's actually drawn.
+    private static int[] reelCardPx(android.content.Context ctx) {
+        float density = ctx.getResources().getDisplayMetrics().density;
+        int w = Math.round(com.callx.app.conversation.canvas.MessageBubbleCanvasView.REEL_CARD_WIDTH_DP * density);
+        int h = Math.round(com.callx.app.conversation.canvas.MessageBubbleCanvasView.REEL_CARD_HEIGHT_DP * density);
+        return new int[]{w, h};
+    }
+
     // ── PERF: in-memory "already on disk" File cache ──────────────────────
     // MediaCache.getCached(url) does a real File.exists()+length() disk
     // stat() every time it's called — cheap once, but GIF/sticker/media-
@@ -3201,36 +3219,23 @@ public class MessagePagingAdapter
                     m.reelShareCaption, timeStr, sent, isRead, isDelivered);
             cv.setDeletedStyle(false);
 
-            // Avatar
+            // Avatar — FIX (advance avatar optimization): reused/connected
+            // to the same pipeline FollowConnectionsActivity's avatar rows
+            // use (see ChatAvatarBinder.bindBitmap's doc) instead of a flat
+            // un-tiered Glide load into a plain LruCache — responsive/
+            // version-tagged URL, L2+L3 tier reuse (shared with the
+            // legacy non-canvas reel-share row below), and CDN/cache-tier
+            // analytics.
             String avatarUrl = m.reelShareOwnerPhoto != null ? m.reelShareOwnerPhoto : "";
             if (avatarUrl.isEmpty() && !rUsername.isEmpty()) {
                 String cachedAvatar = reelOwnerAvatarCache.get(rUsername);
                 if (cachedAvatar != null) avatarUrl = cachedAvatar;
             }
             if (!avatarUrl.isEmpty()) {
-                // PERF ADV: check shared avatar pool — reel-share owners repeat
-                final String finalAvatarUrl = avatarUrl;
-                android.graphics.Bitmap reelAvatarHit = AVATAR_BITMAP_CACHE.get(finalAvatarUrl);
-                if (reelAvatarHit != null && !reelAvatarHit.isRecycled()) {
-                    dashboardRecordHit(ctx, finalAvatarUrl);
-                    cv.setReelShareAvatarBitmap(reelAvatarHit);
-                } else {
-                glide(ctx).asBitmap().load(finalAvatarUrl).apply(THUMB_RGB565).override(96, 96).circleCrop()
-                        .listener(com.callx.app.cache.CacheDashboardStats.glideListener(
-                                ctx, finalAvatarUrl))
-                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                            @Override
-                            public void onResourceReady(@NonNull Bitmap resource,
-                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                AVATAR_BITMAP_CACHE.put(finalAvatarUrl, resource);
-                                dashboardRecordDecoded(ctx, finalAvatarUrl, resource);
-                                if (h.canvasBindToken != myToken) return;
-                                cv.setReelShareAvatarBitmap(resource);
-                            }
-                            @Override
-                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
-                        });
-                }
+                com.callx.app.cache.ChatAvatarBinder.bindBitmap(ctx, avatarUrl, 0L, resource -> {
+                    if (h.canvasBindToken != myToken) return;
+                    cv.setReelShareAvatarBitmap(resource);
+                });
             } else if (!rUsername.isEmpty() && reelAvatarFetchInFlight.add(rUsername)) {
                 final String fUKey = rUsername;
                 final android.content.Context fCtxA = ctx.getApplicationContext();
@@ -3249,17 +3254,10 @@ public class MessagePagingAdapter
                                 }
                                 if (photo == null || photo.isEmpty()) return;
                                 reelOwnerAvatarCache.put(fUKey, photo);
-                                glide(fCtxA).asBitmap().load(photo).apply(THUMB_RGB565).override(96, 96).circleCrop()
-                                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                                            @Override
-                                            public void onResourceReady(@NonNull Bitmap resource,
-                                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                                if (h.canvasBindToken != myToken) return;
-                                                cv.setReelShareAvatarBitmap(resource);
-                                            }
-                                            @Override
-                                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
-                                        });
+                                com.callx.app.cache.ChatAvatarBinder.bindBitmap(fCtxA, photo, 0L, resource -> {
+                                    if (h.canvasBindToken != myToken) return;
+                                    cv.setReelShareAvatarBitmap(resource);
+                                });
                             }
                             @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
                                 reelAvatarFetchInFlight.remove(fUKey);
@@ -3285,17 +3283,18 @@ public class MessagePagingAdapter
             }
             if (!thumb.isEmpty()) {
                 final String finalThumbUrl = thumb;
-                android.graphics.Bitmap reelThumbHit = DECODED_BITMAP_CACHE.get(poolKey(finalThumbUrl, 330, 474));
+                final int[] cardPx = reelCardPx(ctx);
+                android.graphics.Bitmap reelThumbHit = DECODED_BITMAP_CACHE.get(poolKey(finalThumbUrl, cardPx[0], cardPx[1]));
                 if (reelThumbHit != null && !reelThumbHit.isRecycled()) {
                     dashboardRecordHit(ctx, finalThumbUrl);
                     cv.setReelShareThumbBitmap(reelThumbHit);
                 } else {
-                glide(ctx).asBitmap().load(finalThumbUrl).apply(THUMB_RGB565).override(330, 474).centerCrop()
+                glide(ctx).asBitmap().load(finalThumbUrl).apply(THUMB_RGB565).override(cardPx[0], cardPx[1]).centerCrop()
                         .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                             @Override
                             public void onResourceReady(@NonNull Bitmap resource,
                                     @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                DECODED_BITMAP_CACHE.put(poolKey(finalThumbUrl, 330, 474), resource);
+                                DECODED_BITMAP_CACHE.put(poolKey(finalThumbUrl, cardPx[0], cardPx[1]), resource);
                                 dashboardRecordDecoded(ctx, finalThumbUrl, resource);
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setReelShareThumbBitmap(resource);
@@ -3306,6 +3305,7 @@ public class MessagePagingAdapter
                 }
             } else if (!rKey.isEmpty() && reelThumbFetchInFlight.add(rKey)) {
                 final android.content.Context fCtxT = ctx.getApplicationContext();
+                final int[] cardPxFb = reelCardPx(ctx);
                 com.google.firebase.database.FirebaseDatabase.getInstance()
                         .getReference("reels").child(rKey)
                         .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
@@ -3316,7 +3316,7 @@ public class MessagePagingAdapter
                                 if (t == null || t.isEmpty()) t = snap.child("thumbnailUrl").getValue(String.class);
                                 if (t != null && !t.isEmpty()) {
                                     reelThumbCache.put(rKey, t);
-                                    glide(fCtxT).asBitmap().load(t).apply(THUMB_RGB565).override(330, 474).centerCrop()
+                                    glide(fCtxT).asBitmap().load(t).apply(THUMB_RGB565).override(cardPxFb[0], cardPxFb[1]).centerCrop()
                                             .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                                                 @Override
                                                 public void onResourceReady(@NonNull Bitmap resource,
@@ -5388,13 +5388,16 @@ public class MessagePagingAdapter
                         }
                     }
                     if (!avatarUrl.isEmpty()) {
-                        glide(ctx)
-                                .load(avatarUrl)
-                                .apply(THUMB_RGB565)
-                                .override(48, 48)
-                                .circleCrop()
-                                .placeholder(android.R.drawable.ic_menu_camera)
-                                .into(h.ivReelShareAvatar);
+                        // FIX (advance avatar optimization): reused/connected
+                        // to the same ChatAvatarBinder pipeline
+                        // FollowConnectionsActivity-style rows use — L2/L3
+                        // tier reuse, responsive URL, CDN/cache analytics —
+                        // instead of a flat un-tiered Glide load, and shares
+                        // its L2/L3 cache entries with the canvas reel-share
+                        // path above for the same photo.
+                        com.callx.app.cache.ChatAvatarBinder.bind(ctx, h.ivReelShareAvatar,
+                                avatarUrl, 0L, android.R.drawable.ic_menu_camera,
+                                com.callx.app.utils.AvatarSizeTier.forViewSizeDp(24));
                     } else if (!uKey.isEmpty()) {
                         h.ivReelShareAvatar.setImageResource(android.R.drawable.ic_menu_camera);
                         if (reelAvatarFetchInFlight.add(uKey)) {
@@ -5428,13 +5431,9 @@ public class MessagePagingAdapter
                                                 ? fhA.tvReelShareUsername.getText() : null;
                                         if (fhA.ivReelShareAvatar != null && curName != null
                                                 && curName.toString().equals("@" + fUKey)) {
-                                            glide(fCtxA)
-                                                    .load(photo)
-                                                    .apply(THUMB_RGB565)
-                                                    .override(48, 48)
-                                                    .circleCrop()
-                                                    .placeholder(android.R.drawable.ic_menu_camera)
-                                                    .into(fhA.ivReelShareAvatar);
+                                            com.callx.app.cache.ChatAvatarBinder.bind(fCtxA, fhA.ivReelShareAvatar,
+                                                    photo, 0L, android.R.drawable.ic_menu_camera,
+                                                    com.callx.app.utils.AvatarSizeTier.forViewSizeDp(24));
                                         }
                                     }
                                     @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
@@ -5474,10 +5473,11 @@ public class MessagePagingAdapter
                         }
                     }
                     if (!thumb.isEmpty()) {
+                        int[] cardPx = reelCardPx(ctx);
                         glide(ctx)
                                 .load(thumb)
                                 .apply(THUMB_RGB565)
-                                .override(330, 474) // PERF: match ~165x237dp bubble, avoid full-res decode
+                                .override(cardPx[0], cardPx[1]) // PERF: decode at the card's real density-scaled size, not a fixed guess
                                 .centerCrop()
                                 .placeholder(android.R.color.darker_gray)
                                 .into(h.ivReelShareThumb);
@@ -5485,6 +5485,7 @@ public class MessagePagingAdapter
                         final VH fh = h;
                         final String fRKey = rKey;
                         final android.content.Context fCtxT = ctx.getApplicationContext();
+                        final int[] cardPxFb = reelCardPx(ctx);
                         com.google.firebase.database.FirebaseDatabase.getInstance()
                             .getReference("reels").child(rKey)
                             .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
@@ -5500,7 +5501,7 @@ public class MessagePagingAdapter
                                         if (fh.ivReelShareThumb != null && rowStillMatches) {
                                             glide(fCtxT).load(t)
                                                 .apply(THUMB_RGB565)
-                                                .override(330, 474)
+                                                .override(cardPxFb[0], cardPxFb[1])
                                                 .centerCrop()
                                                 .into(fh.ivReelShareThumb);
                                         }

@@ -75,8 +75,7 @@
                     app:resize_mode="zoom"
                     app:surface_type="texture_view"
                     app:keep_content_on_player_reset="true"
-                    app:show_buffering="never"
-                    android:background="#000000"/>
+                    app:show_buffering="never"/>
                 <!--
                     surface_type="texture_view": card_peek's cardCornerRadius
                     clip ONLY affects normal View drawing. The default
@@ -91,7 +90,17 @@
                     child. keep_content_on_player_reset avoids a black flash
                     on fast-switch player swaps; show_buffering="never" keeps
                     PlayerView's own spinner off since peek_loading below
-                    already covers that. -->
+                    already covers that.
+
+                    BUG FIX (corners still poking out, black this time):
+                    this PlayerView also had its own android:background=
+                    "#000000" — a second opaque black rect drawn on top of
+                    card_peek's already-black, correctly-rounded
+                    cardBackgroundColor. Removed: card_peek's own background
+                    already shows through everywhere the video hasn't drawn
+                    yet, with no separate unclipped layer to leak past the
+                    rounded corners.
+                -->
 
                 <ProgressBar
                     android:id="@+id/peek_loading"

@@ -5514,9 +5514,15 @@ public class HomeFragment extends Fragment
      *     same trick as the settle-delay Runnable below.
      */
     private class SuggestedAccountsTileAdapter extends RecyclerView.Adapter<SuggestedAccountsTileAdapter.CardHolder> {
-        private static final int CARD_W_DP    = 168;
-        private static final int AVATAR_DP    = 84;
-        private static final int MUTUAL_AV_DP = 16;
+        // ENLARGED (screenshot parity): bumped from 168/84/16 to match the
+        // bigger Instagram-style "Suggested popular accounts" card size in
+        // the reference screenshot — wider card, noticeably larger avatar
+        // relative to the card, everything else (name/mutuals/Follow
+        // button) scaled up to match instead of looking undersized inside
+        // the new card footprint.
+        private static final int CARD_W_DP    = 210;
+        private static final int AVATAR_DP    = 112;
+        private static final int MUTUAL_AV_DP = 18;
         private static final long BIND_SETTLE_DELAY_MS = 120L;
 
         private List<String[]> items;
@@ -5581,6 +5587,9 @@ public class HomeFragment extends Fragment
              *  handed to a different candidate. */
             int bindToken = 0;
             boolean avatarBindPending;
+            /** Guards the follow click against a double-tap racing itself
+             *  while a write is in flight (see btnFollow's click doc). */
+            boolean followPending;
 
             /** Single Runnable for this holder's whole lifetime — reads
              *  this.entry / this.bindToken at RUN time, so no lambda is
@@ -5660,7 +5669,7 @@ public class HomeFragment extends Fragment
             LinearLayout content = new LinearLayout(ctx);
             content.setOrientation(LinearLayout.VERTICAL);
             content.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
-            content.setPadding(dpToPx(10), dpToPx(14), dpToPx(10), dpToPx(10));
+            content.setPadding(dpToPx(12), dpToPx(16), dpToPx(12), dpToPx(12));
             content.setBackgroundResource(R.drawable.bg_speed_chip);
             content.setLayoutParams(new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -5674,20 +5683,20 @@ public class HomeFragment extends Fragment
             nameRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
             LinearLayout.LayoutParams nameRowLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            nameRowLp.topMargin = dpToPx(8);
+            nameRowLp.topMargin = dpToPx(10);
             nameRow.setLayoutParams(nameRowLp);
 
             TextView tvName = new TextView(ctx);
-            tvName.setTextSize(12.5f);
+            tvName.setTextSize(14.5f);
             tvName.setTextColor(0xFFFFFFFF);
             tvName.setTypeface(null, android.graphics.Typeface.BOLD);
             tvName.setMaxLines(1);
             tvName.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            tvName.setMaxWidth(dpToPx(CARD_W_DP - 40));
+            tvName.setMaxWidth(dpToPx(CARD_W_DP - 44));
             nameRow.addView(tvName);
 
             ImageView ivVerified = new ImageView(ctx);
-            LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(dpToPx(13), dpToPx(13));
+            LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(dpToPx(15), dpToPx(15));
             badgeLp.setMarginStart(dpToPx(3));
             ivVerified.setLayoutParams(badgeLp);
             ivVerified.setImageResource(R.drawable.ic_verified_pink);
@@ -5703,7 +5712,7 @@ public class HomeFragment extends Fragment
             llMutual.setGravity(android.view.Gravity.CENTER_VERTICAL);
             LinearLayout.LayoutParams mutualRowLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            mutualRowLp.topMargin = dpToPx(4);
+            mutualRowLp.topMargin = dpToPx(6);
             llMutual.setLayoutParams(mutualRowLp);
             llMutual.setVisibility(View.GONE);
 
@@ -5724,26 +5733,26 @@ public class HomeFragment extends Fragment
             llMutual.addView(avatarStack);
 
             TextView tvMutual = new TextView(ctx);
-            tvMutual.setTextSize(10.5f);
+            tvMutual.setTextSize(12f);
             tvMutual.setTextColor(0xFFAAAAAA);
             tvMutual.setMaxLines(1);
             tvMutual.setEllipsize(android.text.TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams mutualTextLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            mutualTextLp.setMarginStart(dpToPx(5));
+            mutualTextLp.setMarginStart(dpToPx(6));
             tvMutual.setLayoutParams(mutualTextLp);
             llMutual.addView(tvMutual);
 
             content.addView(llMutual);
 
             Button btnFollow = new Button(ctx);
-            btnFollow.setTextSize(12f);
+            btnFollow.setTextSize(13.5f);
             btnFollow.setAllCaps(false);
             btnFollow.setPadding(0, 0, 0, 0);
             btnFollow.setStateListAnimator(null);
             LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(30));
-            btnLp.topMargin = dpToPx(10);
+                    LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(36));
+            btnLp.topMargin = dpToPx(12);
             btnFollow.setLayoutParams(btnLp);
             content.addView(btnFollow);
 
@@ -5753,7 +5762,7 @@ public class HomeFragment extends Fragment
             // bg_icon_semi (translucent circular chip) exactly as used
             // elsewhere in the app for a circular icon-on-content button.
             ImageView btnClose = new ImageView(ctx);
-            int closeSize = dpToPx(22);
+            int closeSize = dpToPx(26);
             FrameLayout.LayoutParams closeLp = new FrameLayout.LayoutParams(closeSize, closeSize);
             closeLp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
             closeLp.topMargin = dpToPx(6);
@@ -5769,23 +5778,37 @@ public class HomeFragment extends Fragment
 
             // ★ Allocated exactly once — reads holder.entry at click time
             // instead of a per-bind captured uid/name (see class doc, point 3).
+            // FIX (real working follow button) + ADV OPTIMIZATION: same
+            // atomic single-write + pending-guard + revert-on-failure as
+            // DiscoverPeopleActivity's toggleFollow (see FirebaseUtils
+            // .setFollowState's doc) — was two independent fire-and-forget
+            // writes with no failure handling and no guard against a
+            // double-tap racing itself mid-write.
             holder.btnFollow.setOnClickListener(v -> {
                 String[] c = holder.entry;
-                if (c == null) return;
+                if (c == null || holder.followPending) return;
                 String uid = c[0];
                 String my = safeMyUid();
                 if (my == null) return;
                 boolean nowFollowed = !(cachedFollowedUids != null && cachedFollowedUids.contains(uid));
-                if (nowFollowed) {
-                    FirebaseUtils.getReelFollowsRef(my).child(uid).setValue(true);
-                    FirebaseUtils.getReelFollowersRef(uid).child(my).setValue(true);
-                    if (cachedFollowedUids != null) cachedFollowedUids.add(uid);
-                } else {
-                    FirebaseUtils.getReelFollowsRef(my).child(uid).removeValue();
-                    FirebaseUtils.getReelFollowersRef(uid).child(my).removeValue();
-                    if (cachedFollowedUids != null) cachedFollowedUids.remove(uid);
+                if (cachedFollowedUids != null) {
+                    if (nowFollowed) cachedFollowedUids.add(uid); else cachedFollowedUids.remove(uid);
                 }
                 applyFollowButtonState(holder.btnFollow, nowFollowed);
+                holder.followPending = true;
+                holder.btnFollow.setEnabled(false);
+                FirebaseUtils.setFollowState(my, uid, nowFollowed, error -> {
+                    if (!isAdded() || getContext() == null) return;
+                    holder.followPending = false;
+                    holder.btnFollow.setEnabled(true);
+                    if (error != null) {
+                        if (cachedFollowedUids != null) {
+                            if (nowFollowed) cachedFollowedUids.remove(uid); else cachedFollowedUids.add(uid);
+                        }
+                        applyFollowButtonState(holder.btnFollow, !nowFollowed);
+                        Toast.makeText(getContext(), "Couldn't update follow, try again", Toast.LENGTH_SHORT).show();
+                    }
+                });
             });
 
             holder.btnClose.setOnClickListener(v -> {
@@ -5862,6 +5885,11 @@ public class HomeFragment extends Fragment
             }
             holder.bindToken++; // invalidate any in-flight lookup for this holder
             holder.entry = null;
+            // Card reused before its in-flight follow write finished — re-
+            // enable so a NEW candidate landing on this holder isn't stuck
+            // with a disabled button from the OLD candidate's request.
+            holder.followPending = false;
+            holder.btnFollow.setEnabled(true);
         }
 
         @Override public int getItemCount() { return items.size(); }

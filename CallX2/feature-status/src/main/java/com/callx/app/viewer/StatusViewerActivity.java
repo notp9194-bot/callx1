@@ -237,14 +237,43 @@ import com.callx.app.utils.AlertDialogStyler;
                   this, binding.ivOwner, item.ownerPhoto, version, R.drawable.ic_person);
       }
 
-      private void setupMediaRoundedCorners() {
+      /** 14dp, resolved once against device density and cached — shared by
+       *  the Glide RoundedCorners transform (image/gif) and the video's
+       *  inner-frame outline clip below. */
+      private int mediaCornerPx() {
           if (sMediaCornerPx < 0f) {
               sMediaCornerPx = 14f * getResources().getDisplayMetrics().density;
           }
-          binding.ivStatus.setOutlineProvider(MEDIA_OUTLINE);
-          binding.ivStatus.setClipToOutline(true);
-          binding.playerView.setOutlineProvider(MEDIA_OUTLINE);
-          binding.playerView.setClipToOutline(true);
+          return (int) sMediaCornerPx;
+      }
+
+      // BUG FIX (corners not visible): iv_status/player_view are match_parent
+      // full-screen containers, but the actual photo/video is letterboxed
+      // (fitCenter / RESIZE_MODE_FIT) INSIDE them. Outline-clipping the
+      // full-screen container only rounds the corners of the screen itself
+      // (invisible — nothing but backdrop sits there); it never touched the
+      // photo/video's real edge. Fixed by:
+      //  • image/gif — Glide RoundedCorners bitmap transform in
+      //    showImageStatusFromUrl()/showGifStatus() bakes the rounding into
+      //    the decoded pixels, so it shows exactly where the photo ends,
+      //    letterboxed or not.
+      //  • video — PlayerView contains its own inner AspectRatioFrameLayout
+      //    (exo_content_frame) that PlayerView itself resizes to the video's
+      //    real on-screen rect; clip THAT view instead of the outer
+      //    match_parent PlayerView.
+      private void setupMediaRoundedCorners() {
+          mediaCornerPx(); // ensure sMediaCornerPx resolved before MEDIA_OUTLINE reads it
+          View contentFrame = binding.playerView.findViewById(
+                  androidx.media3.ui.R.id.exo_content_frame);
+          if (contentFrame != null) {
+              contentFrame.setOutlineProvider(MEDIA_OUTLINE);
+              contentFrame.setClipToOutline(true);
+          } else {
+              // Fallback for a PlayerView layout without the standard frame id
+              // (custom exo layout) — still better than nothing.
+              binding.playerView.setOutlineProvider(MEDIA_OUTLINE);
+              binding.playerView.setClipToOutline(true);
+          }
       }
       @Override protected void onPause()  { super.onPause();  pauseProgress(); if (spinView != null) spinView.stop(); }
       @Override protected void onResume() {
@@ -749,6 +778,8 @@ import com.callx.app.utils.AlertDialogStyler;
                .into(binding.ivStatusBg);
           Glide.with(this).load(url)
                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+               .apply(new com.bumptech.glide.request.RequestOptions()
+                       .transform(new com.bumptech.glide.load.resource.bitmap.RoundedCorners(mediaCornerPx())))
                .placeholder(android.R.drawable.screen_background_dark)
                .into(binding.ivStatus);
           showCaption(caption);
@@ -772,6 +803,8 @@ import com.callx.app.utils.AlertDialogStyler;
           if (url != null)
               Glide.with(this).asGif().load(url)
                    .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.DATA)
+                   .apply(new com.bumptech.glide.request.RequestOptions()
+                           .transform(new com.bumptech.glide.load.resource.bitmap.RoundedCorners(mediaCornerPx())))
                    .placeholder(android.R.drawable.screen_background_dark)
                    .into(binding.ivStatus);
           showCaption(s.caption);

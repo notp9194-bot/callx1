@@ -319,6 +319,11 @@ public class DiscoverPeopleActivity extends AppCompatActivity {
             }
             h.bindToken++; // invalidate any in-flight lookup for this holder
             h.person = null;
+            // Row reused before its in-flight follow write finished —
+            // re-enable so a NEW person landing on this holder isn't
+            // stuck with a disabled button from the OLD person's request.
+            h.followPending = false;
+            h.btnFollow.setEnabled(true);
         }
 
         private void updateFollowBtn(VH h, PersonItem u) {
@@ -326,20 +331,43 @@ public class DiscoverPeopleActivity extends AppCompatActivity {
             h.btnFollow.setSelected(u.followed);
         }
 
+        /**
+         * FIX (real working follow button): was two independent
+         * fire-and-forget Firebase writes with no failure handling and no
+         * guard against a second tap landing mid-write — a flaky network
+         * or a fast double-tap could leave the button showing "Following"
+         * while the write never actually reached the server, or fire the
+         * toggle twice and undo itself. Now: (1) single atomic
+         * multi-path write via FirebaseUtils.setFollowState — see its own
+         * doc; (2) button disabled for the duration of the pending write
+         * so a spam-tap can't race itself; (3) UI reverts + a toast fires
+         * on failure instead of trusting an optimistic update that didn't
+         * land.
+         */
         private void toggleFollow(PersonItem u, VH h) {
             String myUid = myUid();
-            if (myUid == null) return;
-            u.followed = !u.followed;
-            if (u.followed) {
-                FirebaseUtils.getReelFollowsRef(myUid).child(u.uid).setValue(true);
-                FirebaseUtils.getReelFollowersRef(u.uid).child(myUid).setValue(true);
-                myFollowing.add(u.uid);
-            } else {
-                FirebaseUtils.getReelFollowsRef(myUid).child(u.uid).removeValue();
-                FirebaseUtils.getReelFollowersRef(u.uid).child(myUid).removeValue();
-                myFollowing.remove(u.uid);
-            }
+            if (myUid == null || h.followPending) return;
+
+            boolean nowFollowed = !u.followed;
+            u.followed = nowFollowed;
+            if (nowFollowed) myFollowing.add(u.uid); else myFollowing.remove(u.uid);
             updateFollowBtn(h, u);
+            h.followPending = true;
+            h.btnFollow.setEnabled(false);
+
+            FirebaseUtils.setFollowState(myUid, u.uid, nowFollowed, error -> {
+                if (isFinishing() || isDestroyed()) return;
+                h.followPending = false;
+                h.btnFollow.setEnabled(true);
+                if (error != null) {
+                    // Revert — the write didn't land, don't lie to the user.
+                    u.followed = !nowFollowed;
+                    if (u.followed) myFollowing.add(u.uid); else myFollowing.remove(u.uid);
+                    updateFollowBtn(h, u);
+                    Toast.makeText(DiscoverPeopleActivity.this,
+                            "Couldn't update follow, try again", Toast.LENGTH_SHORT).show();
+                }
+            });
         }
 
         @Override public int getItemCount() { return items.size(); }
@@ -360,6 +388,9 @@ public class DiscoverPeopleActivity extends AppCompatActivity {
              *  HomeFragment's SuggestedAccountsTileAdapter.CardHolder. */
             int bindToken = 0;
             boolean bindPending;
+            /** Guards toggleFollow() against a double-tap racing itself
+             *  while a write is in flight (see toggleFollow's doc). */
+            boolean followPending;
 
             /** Single Runnable for this holder's whole lifetime — reads
              *  this.person / this.bindToken at RUN time, so no lambda is

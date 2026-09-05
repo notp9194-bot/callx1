@@ -58,6 +58,12 @@ public final class ChatAvatarBinder {
     /** Chat list row avatar (~50dp, item_chat row) — SMALL(48) under-resolves it, so this rounds up to MEDIUM(64). */
     private static final AvatarSizeTier TIER = AvatarSizeTier.forViewSizeDp(50);
 
+    /** Small inline avatars drawn straight onto a canvas (reel-share card
+     *  header, 24dp) — TINY tier, same bucket every other ~24-32dp avatar
+     *  in the app shares (see AvatarSizeTier class doc on cross-screen
+     *  cache reuse). */
+    private static final AvatarSizeTier TIER_INLINE = AvatarSizeTier.forViewSizeDp(24);
+
     // Same thresholds/depths as AvatarPrefetcher/FollowAvatarBinder — kept in
     // sync deliberately so "fast fling" and "slow scroll" mean the same
     // thing across every avatar list in the app.
@@ -94,6 +100,79 @@ public final class ChatAvatarBinder {
     }
 
     /**
+     * FIX (advance avatar optimization — reused from FollowAvatarBinder /
+     * this class's own ImageView bind()): canvas-drawn avatars (e.g. the
+     * chat reel-share card header, rendered by MessageBubbleCanvasView —
+     * NOT an ImageView, so Glide can't .into() it directly) used to go
+     * through a flat, un-tiered {@code glide().asBitmap().load(rawUrl)}
+     * into a plain process-wide LruCache — no responsive/version-tagged
+     * URL (AvatarUrlBuilder#buildResponsive), no L2/L3 tier reuse with the
+     * REST of chat's avatars, and none of the CDN/cache-tier analytics
+     * every other avatar surface feeds into.
+     *
+     * This brings the exact same pipeline bind() above already gives
+     * ImageView targets to a raw-Bitmap callback instead, so canvas
+     * consumers get identical L2 memory fast-path, L2+L3 write-through on
+     * a fresh decode, and AvatarCacheAnalytics recording — sharing the
+     * SAME ChatAvatarL2Cache entries an ImageView-bound avatar for the
+     * same photo/tier would have populated (e.g. the legacy non-canvas
+     * reel-share ViewHolder path, which now also calls bind() with
+     * TIER_INLINE — see MessagePagingAdapter).
+     */
+    public interface BitmapCallback {
+        void onBitmap(Bitmap bitmap);
+    }
+
+    public static void bindBitmap(Context ctx, String photo, long avatarVersion, BitmapCallback callback) {
+        if (photo == null || photo.isEmpty()) return;
+        String url = AvatarUrlBuilder.buildResponsive(ctx, photo, TIER_INLINE, avatarVersion);
+        if (url == null) return;
+
+        Bitmap l2Hit = ChatAvatarL2Cache.get(ctx).get(url);
+        if (l2Hit != null && !l2Hit.isRecycled()) {
+            AvatarCacheAnalytics.getInstance(ctx).record(AvatarCacheAnalytics.Tier.L2_MEMORY);
+            callback.onBitmap(l2Hit);
+            return;
+        }
+
+        int px = AvatarUrlBuilder.tierPx(ctx, TIER_INLINE);
+        Glide.with(ctx)
+            .asBitmap()
+            .load(url)
+            .apply(new RequestOptions()
+                    .override(px, px)
+                    .format(AVATAR_FORMAT)
+                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
+            .circleCrop()
+            .listener(new com.bumptech.glide.request.RequestListener<Bitmap>() {
+                @Override
+                public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model,
+                                             com.bumptech.glide.request.target.Target<Bitmap> target, boolean isFirstResource) {
+                    return false;
+                }
+                @Override
+                public boolean onResourceReady(Bitmap resource, Object model,
+                                                com.bumptech.glide.request.target.Target<Bitmap> target,
+                                                com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
+                    AvatarCacheAnalytics.getInstance(ctx)
+                        .record(AvatarCacheAnalytics.fromGlideDataSource(dataSource));
+                    ChatAvatarL2Cache.get(ctx).put(url, resource);
+                    ChatAvatarL2Cache.l3(ctx).put(url, resource);
+                    return false; // let Glide still deliver the bitmap into the target below
+                }
+            })
+            .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                @Override
+                public void onResourceReady(@androidx.annotation.NonNull Bitmap resource,
+                        @androidx.annotation.Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                    callback.onBitmap(resource);
+                }
+                @Override
+                public void onLoadCleared(@androidx.annotation.Nullable android.graphics.drawable.Drawable placeholder) {}
+            });
+    }
+
+    /**
      * Bind a VISIBLE row's avatar. Checks L2 memory first (instant paint,
      * survives MODERATE trim); otherwise a full RESOURCE-cached Glide
      * decode, analytics-wrapped so this row's hits feed the same
@@ -102,11 +181,20 @@ public final class ChatAvatarBinder {
      * next bind of this exact URL (re-scroll, warm restart) is instant.
      */
     public static void bind(Context ctx, ImageView iv, String photo, long avatarVersion, int placeholderRes) {
+        bind(ctx, iv, photo, avatarVersion, placeholderRes, TIER);
+    }
+
+    /** Same as {@link #bind(Context, ImageView, String, long, int)} but for
+     *  a caller-specified tier — e.g. TIER_INLINE for the ~24dp reel-share
+     *  avatar, so it shares L2/L3 cache entries with bindBitmap()'s canvas
+     *  path for the same photo instead of decoding/caching a second,
+     *  differently-sized copy under the chat-list row's MEDIUM tier. */
+    public static void bind(Context ctx, ImageView iv, String photo, long avatarVersion, int placeholderRes, AvatarSizeTier tier) {
         if (photo == null || photo.isEmpty()) {
             iv.setImageResource(placeholderRes);
             return;
         }
-        String url = url(ctx, photo, avatarVersion);
+        String url = AvatarUrlBuilder.buildResponsive(ctx, photo, tier, avatarVersion);
         Bitmap l2Hit = ChatAvatarL2Cache.get(ctx).get(url);
         if (l2Hit != null) {
             iv.setImageBitmap(l2Hit);
@@ -131,7 +219,7 @@ public final class ChatAvatarBinder {
                                              boolean isFirstResource) {
                     CacheDashboardStats.getInstance(ctx).recordMemoryMiss("avatar:" + url);
                     CacheDashboardStats.getInstance(ctx).recordDiskMiss("avatar:" + url);
-                    return false; // let Glide still apply the error placeholder
+                    return false;
                 }
                 @Override
                 public boolean onResourceReady(android.graphics.drawable.Drawable resource, Object model,
@@ -139,25 +227,14 @@ public final class ChatAvatarBinder {
                                                 com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
                     CacheDashboardStats.getInstance(ctx)
                             .recordGlideResult("avatar:" + url, dataSource, resource);
-                    // CDN/cache split monitoring — same analytics every other
-                    // avatar screen feeds into (see FollowAvatarBinder /
-                    // ReelUiController). NOTE: a single Glide request only
-                    // keeps its LAST-set listener(), so this is folded into
-                    // one listener alongside the L2/L3 write-through below
-                    // instead of chaining two .listener() calls.
                     AvatarCacheAnalytics.getInstance(ctx)
                         .record(AvatarCacheAnalytics.fromGlideDataSource(dataSource));
-                    // FIX (L2/L3 write-through): same "feed L2 + L3 so a
-                    // future bind/warm-restart skips Glide entirely" pattern
-                    // ReelUiController#loadOwnerAvatarNow already uses — the
-                    // instanceof guard naturally skips anything Glide didn't
-                    // hand back as a plain BitmapDrawable.
                     if (resource instanceof android.graphics.drawable.BitmapDrawable) {
                         Bitmap bmp = ((android.graphics.drawable.BitmapDrawable) resource).getBitmap();
                         ChatAvatarL2Cache.get(ctx).put(url, bmp);
                         ChatAvatarL2Cache.l3(ctx).put(url, bmp);
                     }
-                    return false; // let Glide still deliver the drawable into the ImageView
+                    return false;
                 }
             })
             .into(iv);

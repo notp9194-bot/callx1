@@ -258,6 +258,36 @@ public class FirebaseUtils {
         return db().getReference("trendingHashtags");
     }
 
+    /**
+     * ADV OPTIMIZATION + FIX (atomic follow/unfollow): every follow-toggle
+     * call site (DiscoverPeopleActivity, HomeFragment's "Suggested popular
+     * accounts" tiles, etc.) used to fire TWO separate writes —
+     * getReelFollowsRef(my).child(target).setValue()/removeValue() AND
+     * getReelFollowersRef(target).child(my).setValue()/removeValue() — as
+     * two independent round trips. On a slow/flaky connection the second
+     * write could silently fail (or land out of order) while the UI had
+     * already flipped to "Following", leaving the two sides of the follow
+     * graph out of sync with no error surfaced — this is why the button
+     * could look like it "did nothing" or reverted itself on next screen
+     * load.
+     *
+     * This collapses both paths into a SINGLE multi-path
+     * updateChildren() call on the root ref — one network round trip
+     * instead of two, and Firebase applies both paths together so there's
+     * no window where only one side is written. The caller's
+     * onComplete callback fires with the real success/failure so the UI
+     * can revert its optimistic state on failure instead of trusting a
+     * write that never landed.
+     */
+    public static void setFollowState(String myUid, String targetUid, boolean follow,
+                                       DatabaseReference.CompletionListener onComplete) {
+        if (myUid == null || myUid.isEmpty() || targetUid == null || targetUid.isEmpty()) return;
+        java.util.Map<String, Object> updates = new java.util.HashMap<>();
+        updates.put("reelFollows/" + myUid + "/" + targetUid, follow ? true : null);
+        updates.put("reelFollowers/" + targetUid + "/" + myUid, follow ? true : null);
+        db().getReference().updateChildren(updates, onComplete);
+    }
+
     public static DatabaseReference getMusicLibraryRef() {
         return db().getReference("musicLibrary");
     }

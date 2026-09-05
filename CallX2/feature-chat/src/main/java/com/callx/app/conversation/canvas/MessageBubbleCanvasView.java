@@ -482,7 +482,7 @@ public class MessageBubbleCanvasView extends View {
     // next to the app's other cards (link-preview, seen-bubble thumb, media
     // bubbles all sit closer to 16-20dp). Bumped to 20dp for a softer,
     // more "pill-ish" modern card look on the reel-share bubble.
-    static final float REEL_CORNER_RADIUS_DP     = 20f;
+    static final float REEL_CORNER_RADIUS_DP     = 14f;
     static final float REEL_TOP_GRADIENT_DP      = 60f;
     static final float REEL_BOTTOM_GRADIENT_DP   = 80f;
     static final float REEL_HEADER_PAD_H_DP      = 8f;
