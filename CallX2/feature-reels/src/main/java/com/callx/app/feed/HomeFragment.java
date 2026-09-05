@@ -11025,6 +11025,16 @@ public class HomeFragment extends Fragment
             // instance, set once at ViewHolder construction (matches Reels
             // tab, which sets it once at player-view bind time too).
             pvFeed.setShutterBackgroundColor(android.graphics.Color.TRANSPARENT);
+            // ★ Other fix (surface_view kept — texture_view regressed
+            // fast-scroll-then-settle playback): keep the SurfaceView's last
+            // decoded picture alive across a setPlayer(null)/setPlayer(new)
+            // swap instead of letting it reset to solid black the instant
+            // the ExoPlayer detaches. This is what actually happens on this
+            // shared-player feed every settle: old row's surface goes black
+            // for the split second between detach and the new row's first
+            // frame — the transparent shutter only helps once a player is
+            // attached again, not during the gap itself.
+            pvFeed.setKeepContentOnPlayerReset(true);
             frameVideo            = itemView.findViewById(R.id.frame_video);
             framePhotoDotsRow     = itemView.findViewById(R.id.frame_photo_dots_row);
             endOverlay            = itemView.findViewById(R.id.layout_end_of_reel_card);
