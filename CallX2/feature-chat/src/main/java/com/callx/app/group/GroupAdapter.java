@@ -32,6 +32,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import de.hdodenhof.circleimageview.CircleImageView;
 
@@ -41,6 +42,29 @@ import de.hdodenhof.circleimageview.CircleImageView;
  * time, and long-press selection for batch list actions.
  */
 public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
+
+    // PERF FIX — predictive pre-warm (mirrors ChatListAdapter's identical
+    // mechanism for 1:1 chats): while the user scrolls the groups list,
+    // once a row settles on screen for BIND_SETTLE_DELAY_MS (i.e. it wasn't
+    // just flung past), kick off a background Room read of that group's
+    // last messages and seed LastMessagesCache with it — so by the time the
+    // user actually taps the group, GroupChatActivity's onCreate() already
+    // has real data ready instead of racing Paging/Firebase from a blank
+    // screen. Same 180ms settle window and 30s per-chat cooldown as the
+    // 1:1 list, so a fast fling still costs nothing.
+    private static final long BIND_SETTLE_DELAY_MS = 180L;
+    private static final ConcurrentHashMap<String, Long> sLastPreloadAt = new ConcurrentHashMap<>();
+    private static final long PRELOAD_COOLDOWN_MS = 30_000L;
+
+    private void preloadGroupIfDue(Context ctx, Group g) {
+        if (g == null || g.id == null) return;
+        long now = System.currentTimeMillis();
+        Long last = sLastPreloadAt.get(g.id);
+        if (last != null && (now - last) < PRELOAD_COOLDOWN_MS) return;
+        sLastPreloadAt.put(g.id, now);
+        com.callx.app.repository.ChatRepository.getInstance(ctx.getApplicationContext())
+                .warmLastMessagesCache(g.id);
+    }
 
     public interface SelectionListener {
         void onSelectionStarted();
@@ -225,6 +249,16 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
         bindContent(h, g);
         attachTypingListener(h, g);
         applySelection(h, g);
+
+        // Predictive pre-warm — see BIND_SETTLE_DELAY_MS doc above. Cancel
+        // any not-yet-fired pre-warm from this VH's previous bind first
+        // (row got recycled/rebound before settling).
+        if (h.pendingPrewarmRunnable != null) {
+            h.itemView.removeCallbacks(h.pendingPrewarmRunnable);
+        }
+        final Group boundGroup = g;
+        h.pendingPrewarmRunnable = () -> preloadGroupIfDue(ctx, boundGroup);
+        h.itemView.postDelayed(h.pendingPrewarmRunnable, BIND_SETTLE_DELAY_MS);
     }
 
     private void bindContent(VH h, Group g) {
@@ -309,6 +343,10 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
     @Override public void onViewRecycled(@NonNull VH h) {
         super.onViewRecycled(h);
         detachTypingListener(h);
+        if (h.pendingPrewarmRunnable != null) {
+            h.itemView.removeCallbacks(h.pendingPrewarmRunnable);
+            h.pendingPrewarmRunnable = null;
+        }
         try { Glide.with(h.avatar.getContext()).clear(h.avatar); } catch (Exception ignored) { }
         h.typingNow = false;
     }
@@ -326,6 +364,7 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
         ValueEventListener typingListener;
         Group boundGroup;
         boolean typingNow;
+        Runnable pendingPrewarmRunnable;
 
         VH(View v) {
             super(v);

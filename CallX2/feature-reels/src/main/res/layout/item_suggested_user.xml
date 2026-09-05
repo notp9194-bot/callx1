@@ -28,23 +28,58 @@
         android:layout_marginStart="12dp"
         android:layout_marginEnd="8dp">
 
-        <TextView android:id="@+id/tv_name"
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Username"
-            android:textSize="14sp"
-            android:fontFamily="sans-serif-medium"
-            android:textColor="?attr/colorOnSurface"
-            android:maxLines="1"
-            android:ellipsize="end"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-        <TextView android:id="@+id/tv_subtitle"
+            <TextView android:id="@+id/tv_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Username"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif-medium"
+                android:textColor="?attr/colorOnSurface"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+
+            <!-- Verified badge — VerifiedBadgeUtils.bindForUid() shows/hides
+                 this (same badge/cache the Home feed post row uses). -->
+            <ImageView android:id="@+id/iv_verified"
+                android:layout_width="13dp"
+                android:layout_height="13dp"
+                android:layout_marginStart="3dp"
+                android:src="@drawable/ic_verified_pink"
+                android:visibility="gone"
+                android:contentDescription="Verified"/>
+        </LinearLayout>
+
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Instagram Suggested"
-            android:textSize="12sp"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:maxLines="1"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="2dp">
+
+            <!-- Mutual-followers mini avatar — shown alongside tv_subtitle
+                 when this row has a resolved mutual count (see
+                 DiscoverPeopleActivity); left gone/collapsed otherwise so
+                 existing SuggestedListActivity rows are unaffected. -->
+            <de.hdodenhof.circleimageview.CircleImageView android:id="@+id/iv_mutual_avatar"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_marginEnd="4dp"
+                android:visibility="gone"/>
+
+            <TextView android:id="@+id/tv_subtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Instagram Suggested"
+                android:textSize="12sp"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:maxLines="1"/>
+        </LinearLayout>
     </LinearLayout>
 
     <Button android:id="@+id/btn_follow"

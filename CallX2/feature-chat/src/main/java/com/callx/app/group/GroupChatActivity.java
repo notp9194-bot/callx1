@@ -101,9 +101,15 @@ public class GroupChatActivity extends AppCompatActivity
         com.callx.app.conversation.info.MessageInfoBottomSheet.HostRecyclerPauseListener {
 
     private static final String TAG           = "GroupChatActivity";
-    private static final int    PAGE_SIZE     = 20;
-    private static final int    INITIAL_LOAD  = 30; // PERF: 30 matches 1:1 chat; 40 was wasteful on cold open
-    private static final int    PREFETCH_DIST = 10;
+    // PERF FIX: these had drifted out of sync with 1:1 ChatActivity's later
+    // tuning pass (PAGE_SIZE 20→15, PREFETCH_DIST 10→30, INITIAL_LOAD 30→25)
+    // — the comment below still claimed "30 matches 1:1 chat" but 1:1 had
+    // since moved to 25. Re-synced to the same values: smaller PAGE_SIZE
+    // means less DiffUtil work per scroll, PREFETCH_DIST=2x PAGE_SIZE, and
+    // INITIAL_LOAD=25 means less cold-open work than before.
+    private static final int    PAGE_SIZE     = 15;
+    private static final int    INITIAL_LOAD  = 25; // matches 1:1 ChatActivity
+    private static final int    PREFETCH_DIST = 30;
     private static final int    REQ_AUDIO     = 200;
 
     // ── View binding ───────────────────────────────────────────────────────
@@ -190,7 +196,14 @@ public class GroupChatActivity extends AppCompatActivity
     private ValueEventListener typingReplyListener;
     private DatabaseReference  membersRef;
     private ValueEventListener membersListener;
-    private final Map<String, ValueEventListener> presenceListeners = new HashMap<>();
+    // PERF FIX: replaced the per-member Firebase presence fan-out (one
+    // ValueEventListener per group member, subscribed on group open — see
+    // mirrorUserPresence() Cloud Function doc in functions/index.js for the
+    // full story) with a single listener on the server-mirrored
+    // groups/{groupId}/memberPresence node. presenceListeners/subscribePresence
+    // are gone; memberPresenceRef/memberPresenceListener replace them.
+    private DatabaseReference  memberPresenceRef;
+    private ValueEventListener memberPresenceListener;
 
     // ── State ──────────────────────────────────────────────────────────────
     private boolean isAdmin    = false;
@@ -225,6 +238,14 @@ public class GroupChatActivity extends AppCompatActivity
     private Runnable expiryRunnable;
     private final Runnable           stopTyping     = () -> setMyTyping(false);
     private final android.os.Handler subtitleHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    // PERF FIX: shared handler for non-critical, deferred group-open inits
+    // (members/presence, admin status, pinned message, bot support, export,
+    // admin settings, watching controller, recent-chat preload) — mirrors
+    // ChatActivity's 300ms/600ms deferredTaskHandler pattern for 1:1. These
+    // used to run synchronously in onCreate(), competing with the message
+    // list's Firebase/Room load for network+IO at the exact moment the user
+    // is watching the chat open.
+    private final android.os.Handler deferredTaskHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable subtitleTick = new Runnable() {
         @Override public void run() {
             refreshSubtitle();
@@ -419,11 +440,12 @@ public class GroupChatActivity extends AppCompatActivity
         restoreGroupDraft();
         setupPinnedBanner();
         setupReplyCancel();
-        setupRealtimeHeader();
-        setupGroupWatching();
-        checkAdminStatus();
-        watchPinnedMessage();
         setupNetworkMonitor();
+        // PERF FIX: typing-only header wiring stays immediate (cheap, and
+        // gives the "X is typing" feel right away); the heavy member-list +
+        // per-member presence subscription part of the old setupRealtimeHeader()
+        // is split out into setupGroupMembersAndPresence() below and deferred.
+        setupTypingHeader();
 
         // Shimmer show karo taaki user blank screen na dekhe
         if (binding.shimmerContainer != null) {
@@ -446,12 +468,41 @@ public class GroupChatActivity extends AppCompatActivity
         // Disappearing messages — expired messages cleanup
         scheduleExpiryCleanup();
 
-        // Analytics + delta sync + predictive preload
+        // Analytics is cheap (local record write) — stays immediate.
         CacheManager.getInstance(this).getAnalytics().recordChatOpen(groupId);
-        loadGroupAdminSettings();   // slow mode + anonymous posting settings
-        initBotSupport();
-        initExportController();
-        ChatRepository.getInstance(this).preloadRecentChats(groupId);
+
+        // PERF FIX: everything below this point is non-critical to the
+        // first frame — none of it is needed for the message list to
+        // paint. Previously all ran synchronously in onCreate(), each
+        // firing its own Firebase read/listener at the exact moment the
+        // message Pager + Room + Firebase delta-sync are also competing
+        // for network/IO — the same class of bug already fixed in 1:1
+        // ChatActivity's onDbReady() 300ms/600ms deferred blocks.
+        //
+        // 300ms tier: things a user might plausibly want within the first
+        // second of looking at the screen (pinned banner, who's-watching).
+        deferredTaskHandler.postDelayed(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            watchPinnedMessage();
+            setupGroupWatching();
+        }, 300);
+
+        // 600ms tier: lower-priority — admin badge, member list + presence
+        // fan-out (this used to subscribe a presence listener PER MEMBER
+        // the instant the group opened — the single biggest avoidable
+        // Firebase read burst on group open, now pushed well past first
+        // paint), bot suggestions, export controller, admin settings, and
+        // the cross-chat preload (which by definition isn't about this
+        // screen at all).
+        deferredTaskHandler.postDelayed(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            checkAdminStatus();
+            setupGroupMembersAndPresence();
+            loadGroupAdminSettings();   // slow mode + anonymous posting settings
+            initBotSupport();
+            initExportController();
+            ChatRepository.getInstance(this).preloadRecentChats(groupId);
+        }, 600);
 
         // Fix 10: Group unread counter reset karo jab chat khulo
         // Server pe increment hota tha lekin reset call missing tha — badge badhta rehta tha
@@ -680,6 +731,7 @@ public class GroupChatActivity extends AppCompatActivity
         com.callx.app.cache.GroupAvatarBinder.cancel(this, binding.ivPartnerAvatar);
         if (activeReadByObserver != null) { activeReadByObserver.detach(); activeReadByObserver = null; }
         subtitleHandler.removeCallbacks(subtitleTick);
+        deferredTaskHandler.removeCallbacksAndMessages(null);
         typingHandler.removeCallbacks(stopTyping);
         if (expiryRunnable != null) expiryHandler.removeCallbacks(expiryRunnable);
         // GROUP TICK FIX v61: cancel any pending delayed read-acks so a
@@ -708,9 +760,8 @@ public class GroupChatActivity extends AppCompatActivity
             typingReplyRef.removeEventListener(typingReplyListener);
         if (membersRef != null && membersListener != null)
             membersRef.removeEventListener(membersListener);
-        for (Map.Entry<String, ValueEventListener> e : presenceListeners.entrySet())
-            FirebaseUtils.getUserRef(e.getKey()).removeEventListener(e.getValue());
-        presenceListeners.clear();
+        if (memberPresenceRef != null && memberPresenceListener != null)
+            memberPresenceRef.removeEventListener(memberPresenceListener);
         if (watchingController != null) watchingController.release();
         if (binding.llTypingStrip != null) binding.llTypingStrip.stopDots();
         if (connMgr != null && netCallback != null) {
@@ -3088,9 +3139,8 @@ public class GroupChatActivity extends AppCompatActivity
     // REAL-TIME HEADER (typing + member count)
     // ─────────────────────────────────────────────────────────────────────
 
-    private void setupRealtimeHeader() {
+    private void setupTypingHeader() {
         typingRef  = FirebaseUtils.getGroupTypingRef(groupId);
-        membersRef = FirebaseUtils.getGroupMembersRef(groupId);
 
         typingListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -3129,6 +3179,23 @@ public class GroupChatActivity extends AppCompatActivity
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         typingReplyRef.addValueEventListener(typingReplyListener);
+        subtitleHandler.post(subtitleTick);
+    }
+
+    /**
+     * PERF FIX: split out of the old setupRealtimeHeader() and deferred
+     * (see onCreate()'s 600ms block). This is the expensive half — a
+     * membersRef listener whose very first callback used to fan out into
+     * an individual presence ValueEventListener PER GROUP MEMBER
+     * (subscribePresence()), all fired synchronously during onCreate().
+     * For a large group that's dozens of simultaneous Firebase reads
+     * racing the message list's own load. Delaying this ~600ms costs
+     * nothing the user notices (member list / online dots aren't visible
+     * in the first moment anyway) and lets the message list win the race
+     * for network+IO on open.
+     */
+    private void setupGroupMembersAndPresence() {
+        membersRef = FirebaseUtils.getGroupMembersRef(groupId);
 
         membersListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
@@ -3153,10 +3220,6 @@ public class GroupChatActivity extends AppCompatActivity
                 memberNames.keySet().retainAll(latest);
                 memberRoles.keySet().retainAll(latest);
                 totalMembers = latest.size();
-                for (String uid : latest) {
-                    if (!presenceListeners.containsKey(uid) && !uid.equals(currentUid))
-                        subscribePresence(uid);
-                }
                 refreshSubtitle();
                 // Keep @mention suggestion list in sync with live membership
                 if (groupMentionController != null)
@@ -3165,25 +3228,29 @@ public class GroupChatActivity extends AppCompatActivity
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         membersRef.addValueEventListener(membersListener);
-        subtitleHandler.post(subtitleTick);
-    }
 
-    private void subscribePresence(String uid) {
-        ValueEventListener l = new ValueEventListener() {
+        // Single presence listener for the WHOLE group (see class field doc
+        // + mirrorUserPresence() in functions/index.js). One snapshot here
+        // contains every member's online/lastSeen/photoUrl — replaces what
+        // used to be one live Firebase listener PER MEMBER.
+        memberPresenceRef = FirebaseUtils.getGroupsRef().child(groupId).child("memberPresence");
+        memberPresenceListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                Long ls = snap.child("lastSeen").getValue(Long.class);
-                memberLastSeen.put(uid, ls != null ? ls : 0L);
-                String photo = snap.child("photoUrl").getValue(String.class);
-                if (photo != null) memberPhotos.put(uid, photo);
+                for (DataSnapshot c : snap.getChildren()) {
+                    String uid = c.getKey();
+                    if (uid == null || uid.equals(currentUid)) continue;
+                    Long ls = c.child("lastSeen").getValue(Long.class);
+                    memberLastSeen.put(uid, ls != null ? ls : 0L);
+                    String photo = c.child("photoUrl").getValue(String.class);
+                    if (photo != null) memberPhotos.put(uid, photo);
+                }
                 refreshSubtitle();
-                // Update @mention photos live (avatar loads asynchronously)
                 if (groupMentionController != null)
                     groupMentionController.updateMembers(memberNames, memberPhotos);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
-        presenceListeners.put(uid, l);
-        FirebaseUtils.getUserRef(uid).addValueEventListener(l);
+        memberPresenceRef.addValueEventListener(memberPresenceListener);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -3457,7 +3524,7 @@ public class GroupChatActivity extends AppCompatActivity
     // ── Typing strip (floating bottom-left, avatar + name + animated dots) ──
     // Mirrors ChatPresenceController's 1:1 typing strip, but aggregates
     // potentially multiple simultaneous typers from typingNames (uid -> name,
-    // populated by the existing typingListener in setupRealtimeHeader()).
+    // populated by the existing typingListener in setupTypingHeader()).
 
 
     /** Mirrors ChatPresenceController's same-named flag — true while this

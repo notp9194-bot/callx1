@@ -151,7 +151,57 @@ exports.assignMessageSeq = functions.database
 
 
 /**
- * Periodic sweep for stale Linked Devices pairing sessions — e.g. a QR
+ * PERF FIX — group presence fan-out reduction (N listeners → 1 listener).
+ *
+ * Previously every client viewing a group attached its OWN
+ * ValueEventListener on users/{memberUid} for EVERY member of that group,
+ * the instant the group screen opened — for a 50-member group with 10
+ * simultaneous viewers, that's 500 live Firebase listeners doing the exact
+ * same job. This trigger moves that fan-out server-side, ONCE, regardless
+ * of how many clients are watching: whenever a user's online/lastSeen/
+ * photoUrl changes, mirror it into groups/{groupId}/memberPresence/{uid}
+ * for every group that user belongs to (from users/{uid}/groups). Clients
+ * then attach exactly ONE listener — on groups/{groupId}/memberPresence —
+ * to get every member's presence in a single snapshot/single callback.
+ */
+async function mirrorUserPresence(uid) {
+  const db = getDatabase();
+  const [onlineSnap, lastSeenSnap, photoSnap, groupsSnap] = await Promise.all([
+    db.ref(`users/${uid}/online`).once("value"),
+    db.ref(`users/${uid}/lastSeen`).once("value"),
+    db.ref(`users/${uid}/photoUrl`).once("value"),
+    db.ref(`users/${uid}/groups`).once("value"),
+  ]);
+  if (!groupsSnap.exists()) return null;
+
+  const updates = {};
+  groupsSnap.forEach((child) => {
+    const groupId = child.key;
+    updates[`groups/${groupId}/memberPresence/${uid}/online`] = onlineSnap.val() === true;
+    updates[`groups/${groupId}/memberPresence/${uid}/lastSeen`] = lastSeenSnap.val() || 0;
+    updates[`groups/${groupId}/memberPresence/${uid}/photoUrl`] = photoSnap.val() || null;
+  });
+  return db.ref().update(updates);
+}
+
+exports.mirrorPresenceOnOnlineChange = functions.database
+  .ref("/users/{uid}/online")
+  .onWrite((change, context) => mirrorUserPresence(context.params.uid));
+
+exports.mirrorPresenceOnLastSeenChange = functions.database
+  .ref("/users/{uid}/lastSeen")
+  .onWrite((change, context) => mirrorUserPresence(context.params.uid));
+
+/**
+ * Also mirror the instant someone JOINS a group (users/{uid}/groups/{gid}
+ * write) — otherwise a newly-added member wouldn't appear in
+ * memberPresence until their online/lastSeen next happened to change.
+ */
+exports.mirrorPresenceOnGroupJoin = functions.database
+  .ref("/users/{uid}/groups/{groupId}")
+  .onCreate((snapshot, context) => mirrorUserPresence(context.params.uid));
+
+
  * code that sat around without ever being approved (the web client
  * regenerates its QR locally long before this runs — this just keeps the
  * database tidy).

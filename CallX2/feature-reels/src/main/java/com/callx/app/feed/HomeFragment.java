@@ -175,6 +175,25 @@ public class HomeFragment extends Fragment
     private View               vFeedIndicator;
     private TextView           btnSeeAllTrending;
     private TextView           btnClearHistory;
+    // ── Drip-fed footer blocks (now inline FeedRows — see ROW_TRENDING_REELS
+    // doc above). Each *RowView is inflated exactly once, lazily, the first
+    // time its FeedRow actually scrolls into view (ensure*RowViewCreated()),
+    // same singleton-reuse pattern as headerView/footerView. The cached*ForRow
+    // fields hold whatever the corresponding load*()/render*() call already
+    // fetched from Firebase in the background — Firebase can resolve before
+    // the user has even scrolled to the post-count threshold, so
+    // ensure*RowViewCreated() replays the cached data into the freshly-built
+    // view instead of that data being silently lost.
+    private View               trendingRowView;
+    private View               topCreatorsRowView;
+    private View               friendsActivityRowView;
+    private View               continueWatchingRowView;
+    private List<ReelModel>    cachedTrendingReelsForRow;
+    private List<String[]>     cachedTopCreatorsForRow;
+    private String             cachedTopCreatorsMyUidForRow;
+    private List<Map<String, Object>> cachedFriendsActivityForRow;
+    private List<ReelModel>    cachedContinueWatchingForRow;
+    private String             cachedContinueWatchingEmptyMsgForRow = "No watch history yet";
     private ImageButton        btnHomeUpload;
     // ── New Instagram-style header ──
     private TextView           tvFeedTitle;
@@ -347,6 +366,46 @@ public class HomeFragment extends Fragment
      *  paid placements into the organic ranking and this app previously had
      *  no such slot at all. */
     private static final int ROW_SPONSORED           = 9;
+    /** ★ Instagram-style "Expiring Stories" row mixed into the feed —
+     *  a horizontal tray of story circles resurfaced a little way down the
+     *  feed (not just at the very top), so contacts' 24h stories get a
+     *  second chance at visibility for anyone who scrolled past the header
+     *  tray without noticing. Same interleaving pattern as
+     *  ROW_SUGGESTED_CREATORS/ROW_SPONSORED. Reuses the header Stories
+     *  tray's own item_home_story.xml tile layout, ring drawables
+     *  (StoryRingGradientDrawable), avatar binder, and even its
+     *  RecycledViewPool (STORIES_TILE_POOL) — see ExpiringStoriesRowHolder. */
+    private static final int ROW_EXPIRING_STORIES    = 10;
+    /** ★ Instagram-style "Suggested popular accounts" card block mixed into
+     *  the feed — bigger grid-style cards (avatar, verified badge, mutual
+     *  followers stack, Follow button, dismiss ✕) than the plain
+     *  ROW_SUGGESTED_CREATORS chip strip, with a "See all" link that opens
+     *  {@link com.callx.app.followers.DiscoverPeopleActivity}'s full list.
+     *  Same interleaving pattern as every other inline row above; reuses
+     *  the same suggestedCreatorPool candidate source (no extra Firebase
+     *  query), MutualFollowersCache for the mutuals stack (same cache the
+     *  reel bio row and SuggestedCreatorsTileAdapter already use), and
+     *  VerifiedBadgeUtils for the badge. See SuggestedAccountsRowHolder. */
+    private static final int ROW_SUGGESTED_ACCOUNTS  = 11;
+    /** ★ Instagram-level feed-mixing (this round): the 4 blocks that used to
+     *  live in a single static footer (item_home_footer.xml →
+     *  bindFooterViews(), always rendered at the very bottom of the feed —
+     *  a position an infinite-scroll feed practically never reaches) are now
+     *  inline FeedRow types, mixed into the scroll at a periodic post-count
+     *  cadence exactly like ROW_SUGGESTED_CREATORS/ROW_SUGGESTED_ACCOUNTS
+     *  above. Each one is a SINGLETON row (unlike ROW_SUGGESTED_CREATORS,
+     *  which repeats every SUGGESTED_EVERY_N_POSTS posts by cutting a fresh
+     *  slice from a shared candidate pool) — it is inserted exactly once,
+     *  the first time its post-count threshold is reached, and never
+     *  reappears later in the same feed session. See
+     *  maybeInsertTrendingRow()/maybeInsertTopCreatorsFooterRow()/
+     *  maybeInsertFriendsActivityRow()/maybeInsertContinueWatchingRow() and
+     *  the ensure*RowViewCreated() singleton-view builders (same
+     *  build-once/reuse pattern VT_HEADER/VT_FOOTER already use). */
+    private static final int ROW_TRENDING_REELS      = 12;
+    private static final int ROW_TOP_CREATORS_FOOTER = 13;
+    private static final int ROW_FRIENDS_ACTIVITY    = 14;
+    private static final int ROW_CONTINUE_WATCHING   = 15;
     /** Home-feed caption collapsed line count before "…more" kicks in. */
     private static final int CAPTION_MAX_LINES        = 2;
 
@@ -389,6 +448,11 @@ public class HomeFragment extends Fragment
         List<ReelModel> reelPool;
         /** For ROW_SPONSORED: the single ad being shown in this slot. */
         SponsoredAd sponsoredAd;
+        /** For ROW_EXPIRING_STORIES: candidate story pool (subset of storyEntries). */
+        List<StoryEntry> storyPool;
+        /** For ROW_SUGGESTED_ACCOUNTS: candidate pool (uid,name,photo) — same
+         *  shape as creatorPool, drawn from the same suggestedCreatorPool. */
+        List<String[]> accountPool;
         FeedRow(int type) { this.type = type; }
     }
 
@@ -429,6 +493,21 @@ public class HomeFragment extends Fragment
             FeedRow row = feedItems.get(i);
             if (row.type == ROW_POST && row.postIndex >= 0 && row.postIndex < currentFeedPosts.size()
                     && reelId.equals(currentFeedPosts.get(row.postIndex).reelId)) {
+                feedItems.remove(i);
+                feedAdapter.notifyItemRemoved(FEED_HEADER_OFFSET + i);
+                return;
+            }
+        }
+    }
+
+    /** ★ v334: removes whichever FeedRow entry of `rowType` currently sits
+     *  in feedItems — there's at most one at a time for each of the 4
+     *  ex-footer singleton rows (see ROW_TRENDING_REELS class doc), so this
+     *  is what each row's own ✕ dismiss button calls. */
+    private void removeFeedRowByType(int rowType) {
+        if (feedAdapter == null) return;
+        for (int i = feedItems.size() - 1; i >= 0; i--) {
+            if (feedItems.get(i).type == rowType) {
                 feedItems.remove(i);
                 feedAdapter.notifyItemRemoved(FEED_HEADER_OFFSET + i);
                 return;
@@ -519,6 +598,73 @@ public class HomeFragment extends Fragment
      *  feed — same interleaving idea as the creators row above, offset so
      *  the two don't always land on the same post (feels organic, like IG). */
     private static final int SUGGESTED_REELS_EVERY_N_POSTS = 4;
+    /** How often the bigger "Suggested popular accounts" card block
+     *  (ROW_SUGGESTED_ACCOUNTS) is mixed into the feed — deliberately much
+     *  rarer ("khi khi") than the plain creators strip above, and offset
+     *  from it/SPONSORED_EVERY_N_POSTS so they don't always land together. */
+    private static final int SUGGESTED_ACCOUNTS_EVERY_N_POSTS = 14;
+
+    /** ★ One-shot drip-feed thresholds for the 4 ex-footer blocks (see
+     *  ROW_TRENDING_REELS doc) — post-count range each row's FIRST (and
+     *  only) insertion is due, picked once per feed session so it doesn't
+     *  land on exactly the same post every single time (same "feels organic"
+     *  reasoning as the offsets between SUGGESTED_EVERY_N_POSTS/
+     *  SUGGESTED_REELS_EVERY_N_POSTS above). Unlike those, these are never
+     *  re-armed after firing once — see maybeInsertTrendingRow() etc. */
+    private static final int TRENDING_ROW_AFTER_POST_MIN         = 3;
+    private static final int TRENDING_ROW_AFTER_POST_MAX         = 4;
+    private static final int TOP_CREATORS_ROW_AFTER_POST_MIN     = 8;
+    private static final int TOP_CREATORS_ROW_AFTER_POST_MAX     = 10;
+    private static final int FRIENDS_ACTIVITY_ROW_AFTER_POST_MIN = 15;
+    private static final int FRIENDS_ACTIVITY_ROW_AFTER_POST_MAX = 18;
+    private static final int CONTINUE_WATCHING_ROW_AFTER_POST_MIN = 20;
+    private static final int CONTINUE_WATCHING_ROW_AFTER_POST_MAX = 25;
+    /** ★ v334: RECURRING cadence for every row above, once it has fired for
+     *  the first time — real Instagram keeps re-interleaving these shelves
+     *  (with refreshed content) for as long as the user keeps scrolling,
+     *  instead of showing each one exactly once and then leaving the rest
+     *  of a long session with nothing but plain posts. Each repeat re-fetches
+     *  fresh data (loadTrending()/loadSuggestedCreators()/etc.) so a repeat
+     *  is a genuinely different snapshot, not a replay of the same cards —
+     *  see maybeInsertTrendingRow() etc. Deliberately much rarer than the
+     *  row's own FIRST appearance (and rarer the "heavier"/more-committal the
+     *  row is — Continue Watching repeats least often), and still subject to
+     *  the daily shown-count cap + ✕-dismiss cooldown in
+     *  InlineFooterRowStore so a very long session can't spam any of them. */
+    private static final int TRENDING_ROW_REPEAT_MIN          = 12;
+    private static final int TRENDING_ROW_REPEAT_MAX          = 16;
+    private static final int TOP_CREATORS_ROW_REPEAT_MIN      = 20;
+    private static final int TOP_CREATORS_ROW_REPEAT_MAX      = 26;
+    private static final int FRIENDS_ACTIVITY_ROW_REPEAT_MIN  = 26;
+    private static final int FRIENDS_ACTIVITY_ROW_REPEAT_MAX  = 32;
+    /** ★ v343: no longer read — Continue Watching is now one-shot (see
+     *  maybeInsertContinueWatchingRow()). Left in place only so a future
+     *  diff doesn't misread their removal as an unrelated behavior change;
+     *  safe to delete outright next time this file is touched. */
+    private static final int CONTINUE_WATCHING_ROW_REPEAT_MIN = 40;
+    private static final int CONTINUE_WATCHING_ROW_REPEAT_MAX = 50;
+    /** ★ v334: max times each row may render in a single calendar day,
+     *  persisted across app restarts via InlineFooterRowStore (gap: "no
+     *  frequency-capping across sessions" — this used to live only in an
+     *  in-memory boolean that reset the moment the process died). */
+    private static final int TRENDING_ROW_MAX_PER_DAY          = 6;
+    private static final int TOP_CREATORS_ROW_MAX_PER_DAY      = 4;
+    private static final int FRIENDS_ACTIVITY_ROW_MAX_PER_DAY  = 4;
+    private static final int CONTINUE_WATCHING_ROW_MAX_PER_DAY = 3;
+    /** ★ v334: how long a ✕-dismissed row stays hidden from the drip-feed —
+     *  persisted (see InlineFooterRowStore), so dismissing one of these
+     *  actually sticks past the current process, not just the current
+     *  scroll session. */
+    private static final long INLINE_ROW_DISMISS_COOLDOWN_MS = 24L * 60 * 60 * 1000; // 24h
+    private int trendingRowTargetPostCount         = -1; // -1 = not yet picked
+    private int topCreatorsRowTargetPostCount       = -1;
+    private int friendsActivityRowTargetPostCount   = -1;
+    private int continueWatchingRowTargetPostCount  = -1;
+    /** ★ v343: Continue Watching is the one exception to the "all 4 rows
+     *  recur" rule above — once it has actually been inserted into the feed
+     *  a single time this session, it never fires again (no repeat window
+     *  at all, unlike the other 3). See maybeInsertContinueWatchingRow(). */
+    private boolean continueWatchingRowFired        = false;
 
     // ══════════════════════════════════════════════════════════════════════
     // ── v280: list cap / windowing ──────────────────────────────────────────
@@ -612,6 +758,11 @@ public class HomeFragment extends Fragment
     private int               postsSincePeopleYouMayLike = 0;
     private List<String[]>   suggestedCreatorPool = null; // uid,name,photo,sub — fetched once/session
     private int               postsSinceSuggestedReels   = 0;
+    private int               postsSinceSuggestedAccounts = 0;
+    /** uids the user ✕-dismissed from a "Suggested popular accounts" card
+     *  this session — filtered out of every future insertion of that row
+     *  (session-only, same scope as the rest of this in-memory feed state). */
+    private final Set<String> dismissedSuggestedAccountUids = new HashSet<>();
     private List<ReelModel>   suggestedReelsPool   = null; // fetched once/session, reused for every insertion
     /** Every SPONSORED_EVERY_N_POSTS organic posts (For-You mode only), one
      *  inline ad slot is mixed in — see insertSponsoredRowIfDue(). */
@@ -833,11 +984,16 @@ public class HomeFragment extends Fragment
         feedScrollContentRoot = recyclerHome;
         // Header/footer are inflated ONCE here (not lazily by the adapter) so
         // every existing method that reaches for rvStories,
-        // btnHomeFollowing, containerTrending, etc. keeps working exactly as
-        // before — those fields are populated immediately, same timing as
-        // when fragment_home.xml held them directly. FeedAdapter just wraps
-        // these same two View instances as VT_HEADER (position 0) / VT_FOOTER
-        // (last position) so they scroll as part of the one RecyclerView.
+        // btnHomeFollowing, etc. keeps working exactly as before — those
+        // fields are populated immediately, same timing as when
+        // fragment_home.xml held them directly. FeedAdapter just wraps these
+        // same two View instances as VT_HEADER (position 0) / VT_FOOTER (last
+        // position, now just a bottom-nav clearance spacer) so they scroll as
+        // part of the one RecyclerView. The Trending/Suggested Creators/
+        // Friends Activity/Continue Watching blocks that used to live in
+        // this footer are inline FeedRows now (ROW_TRENDING_REELS etc.),
+        // each lazily inflating its own singleton View the first time it's
+        // actually due — see ensureTrendingRowViewCreated() doc.
         View headerView = inflater.inflate(R.layout.item_home_header, recyclerHome, false);
         View footerView = inflater.inflate(R.layout.item_home_footer, recyclerHome, false);
         bindHeaderViews(headerView);
@@ -1104,17 +1260,153 @@ public class HomeFragment extends Fragment
     }
 
     /** v243: same idea as bindHeaderViews(), for the trailing sections. */
+    /** v-drip-feed: item_home_footer.xml is now just the bottom-nav
+     *  clearance spacer (the Trending/Suggested Creators/Friends Activity/
+     *  Continue Watching blocks it used to hold are inline FeedRows now —
+     *  see ROW_TRENDING_REELS class doc) — nothing left to wire up here. */
     private void bindFooterViews(View v) {
-        containerTrending          = v.findViewById(R.id.container_trending);
-        containerFriendsActivity   = v.findViewById(R.id.container_friends_activity);
-        containerContinueWatching  = v.findViewById(R.id.container_continue_watching);
-        containerSuggestedCreators = v.findViewById(R.id.container_suggested_creators);
-        pbTrending                 = v.findViewById(R.id.pb_trending);
-        pbActivity                 = v.findViewById(R.id.pb_activity);
-        pbContinue                 = v.findViewById(R.id.pb_continue);
-        pbSuggested                = v.findViewById(R.id.pb_suggested);
-        btnSeeAllTrending          = v.findViewById(R.id.btn_see_all_trending);
-        btnClearHistory            = v.findViewById(R.id.btn_clear_history);
+        // Intentionally empty.
+    }
+
+    /** Builds (once) the Trending Reels row's own singleton View — same
+     *  build-once/reuse-forever pattern as headerView/footerView, just for
+     *  an inline row instead of position 0/last. If Firebase's trending
+     *  fetch already resolved before the user scrolled this row into
+     *  existence, replays the cached result immediately so nothing fetched
+     *  in the background is lost. */
+    /** ★ v334: small ✕ added into a singleton row's existing header (next to
+     *  its "See All"/"Clear" action), wired to a persisted dismiss cooldown
+     *  (InlineFooterRowStore) + immediate removal from the feed. All 4
+     *  layouts share the same header shape (title + trailing action inside
+     *  one horizontal LinearLayout), so this one helper covers all of them
+     *  instead of editing 4 XML files. */
+    private void addDismissButtonToHeader(View anchorAction, Runnable onDismiss) {
+        if (anchorAction == null || !(anchorAction.getParent() instanceof LinearLayout)) return;
+        LinearLayout header = (LinearLayout) anchorAction.getParent();
+        if (header.findViewWithTag("inline_row_dismiss") != null) return; // already added
+        ImageView btnClose = new ImageView(header.getContext());
+        int sz = dpToPx(18);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(sz, sz);
+        lp.setMarginStart(dpToPx(10));
+        btnClose.setLayoutParams(lp);
+        btnClose.setTag("inline_row_dismiss");
+        btnClose.setImageResource(R.drawable.ic_close);
+        btnClose.setColorFilter(0xFF888888);
+        btnClose.setPadding(dpToPx(2), dpToPx(2), dpToPx(2), dpToPx(2));
+        btnClose.setContentDescription("Dismiss");
+        btnClose.setOnClickListener(v -> onDismiss.run());
+        header.addView(btnClose);
+    }
+
+    private View ensureTrendingRowViewCreated() {
+        if (trendingRowView == null) {
+            trendingRowView = LayoutInflater.from(requireContext())
+                .inflate(R.layout.item_home_trending_row, recyclerHome, false);
+            containerTrending = trendingRowView.findViewById(R.id.container_trending);
+            pbTrending        = trendingRowView.findViewById(R.id.pb_trending);
+            btnSeeAllTrending = trendingRowView.findViewById(R.id.btn_see_all_trending);
+            if (btnSeeAllTrending != null) {
+                btnSeeAllTrending.setOnClickListener(v -> {
+                    if (isAdded() && getContext() != null)
+                        startActivity(new Intent(getContext(), ReelExploreActivity.class));
+                });
+            }
+            addDismissButtonToHeader(btnSeeAllTrending, () -> {
+                if (isAdded() && getContext() != null) {
+                    InlineFooterRowStore.dismissFor(requireContext(),
+                        InlineFooterRowStore.ROW_TRENDING, INLINE_ROW_DISMISS_COOLDOWN_MS);
+                }
+                removeFeedRowByType(ROW_TRENDING_REELS);
+            });
+            if (cachedTrendingReelsForRow != null) renderTrending(cachedTrendingReelsForRow);
+        }
+        return trendingRowView;
+    }
+
+    /** Builds (once) the "Suggested Creators" footer block's singleton View
+     *  — the bigger, top-creators-by-reelCount rail (renderSuggestedCreators/
+     *  addCreatorCards), distinct from the plain interleaved
+     *  ROW_SUGGESTED_CREATORS chip strip already mixed into the feed
+     *  elsewhere. See ensureTrendingRowViewCreated() doc for the
+     *  build-once/replay-cache pattern. */
+    private View ensureTopCreatorsRowViewCreated() {
+        if (topCreatorsRowView == null) {
+            topCreatorsRowView = LayoutInflater.from(requireContext())
+                .inflate(R.layout.item_home_top_creators_row, recyclerHome, false);
+            containerSuggestedCreators = topCreatorsRowView.findViewById(R.id.container_suggested_creators);
+            pbSuggested                = topCreatorsRowView.findViewById(R.id.pb_suggested);
+            View btnSeeAllSug = topCreatorsRowView.findViewById(R.id.btn_see_all_suggested);
+            if (btnSeeAllSug != null) {
+                btnSeeAllSug.setOnClickListener(v -> {
+                    if (isAdded() && getContext() != null)
+                        startActivity(new Intent(getContext(), ReelExploreActivity.class));
+                });
+            }
+            addDismissButtonToHeader(btnSeeAllSug, () -> {
+                if (isAdded() && getContext() != null) {
+                    InlineFooterRowStore.dismissFor(requireContext(),
+                        InlineFooterRowStore.ROW_TOP_CREATORS, INLINE_ROW_DISMISS_COOLDOWN_MS);
+                }
+                removeFeedRowByType(ROW_TOP_CREATORS_FOOTER);
+            });
+            if (cachedTopCreatorsForRow != null) renderSuggestedCreators(cachedTopCreatorsForRow, cachedTopCreatorsMyUidForRow);
+        }
+        return topCreatorsRowView;
+    }
+
+    /** Builds (once) the Friends Activity row's singleton View. See
+     *  ensureTrendingRowViewCreated() doc for the build-once/replay-cache
+     *  pattern. */
+    private View ensureFriendsActivityRowViewCreated() {
+        if (friendsActivityRowView == null) {
+            friendsActivityRowView = LayoutInflater.from(requireContext())
+                .inflate(R.layout.item_home_friends_activity_row, recyclerHome, false);
+            containerFriendsActivity = friendsActivityRowView.findViewById(R.id.container_friends_activity);
+            pbActivity               = friendsActivityRowView.findViewById(R.id.pb_activity);
+            View btnSeeAllAct = friendsActivityRowView.findViewById(R.id.btn_see_all_activity);
+            if (btnSeeAllAct != null) {
+                btnSeeAllAct.setOnClickListener(v -> {
+                    if (isAdded() && getContext() != null)
+                        startActivity(new Intent(getContext(), ReelNotificationsActivity.class));
+                });
+            }
+            addDismissButtonToHeader(btnSeeAllAct, () -> {
+                if (isAdded() && getContext() != null) {
+                    InlineFooterRowStore.dismissFor(requireContext(),
+                        InlineFooterRowStore.ROW_FRIENDS_ACTIVITY, INLINE_ROW_DISMISS_COOLDOWN_MS);
+                }
+                removeFeedRowByType(ROW_FRIENDS_ACTIVITY);
+            });
+            if (cachedFriendsActivityForRow != null) renderFriendsActivity(cachedFriendsActivityForRow);
+        }
+        return friendsActivityRowView;
+    }
+
+    /** Builds (once) the Continue Watching row's singleton View. See
+     *  ensureTrendingRowViewCreated() doc for the build-once/replay-cache
+     *  pattern. */
+    private View ensureContinueWatchingRowViewCreated() {
+        if (continueWatchingRowView == null) {
+            continueWatchingRowView = LayoutInflater.from(requireContext())
+                .inflate(R.layout.item_home_continue_watching_row, recyclerHome, false);
+            containerContinueWatching = continueWatchingRowView.findViewById(R.id.container_continue_watching);
+            pbContinue                = continueWatchingRowView.findViewById(R.id.pb_continue);
+            btnClearHistory           = continueWatchingRowView.findViewById(R.id.btn_clear_history);
+            if (btnClearHistory != null) {
+                btnClearHistory.setOnClickListener(v -> clearWatchHistory());
+            }
+            addDismissButtonToHeader(btnClearHistory, () -> {
+                if (isAdded() && getContext() != null) {
+                    InlineFooterRowStore.dismissFor(requireContext(),
+                        InlineFooterRowStore.ROW_CONTINUE_WATCHING, INLINE_ROW_DISMISS_COOLDOWN_MS);
+                }
+                removeFeedRowByType(ROW_CONTINUE_WATCHING);
+            });
+            if (cachedContinueWatchingForRow != null) {
+                renderContinueWatching(cachedContinueWatchingForRow, cachedContinueWatchingEmptyMsgForRow);
+            }
+        }
+        return continueWatchingRowView;
     }
 
     private void setupListeners() {
@@ -1127,12 +1419,10 @@ public class HomeFragment extends Fragment
         // Apply initial active state
         updateFeedToggleUI();
 
-        btnSeeAllTrending.setOnClickListener(v -> {
-            if (isAdded() && getContext() != null)
-                startActivity(new Intent(getContext(), ReelExploreActivity.class));
-        });
-
-        btnClearHistory.setOnClickListener(v -> clearWatchHistory());
+        // btnSeeAllTrending / btnClearHistory: wired inside
+        // ensureTrendingRowViewCreated() / ensureContinueWatchingRowViewCreated()
+        // now that Trending/Continue Watching are lazily-created inline rows
+        // instead of always-present static footer views.
 
         if (btnHomeUpload != null) {
             btnHomeUpload.setOnClickListener(v -> {
@@ -1171,21 +1461,10 @@ public class HomeFragment extends Fragment
             });
         }
 
-        View btnSeeAllAct = getView() != null ? getView().findViewById(R.id.btn_see_all_activity) : null;
-        if (btnSeeAllAct != null) {
-            btnSeeAllAct.setOnClickListener(v -> {
-                if (isAdded() && getContext() != null)
-                    startActivity(new Intent(getContext(), ReelNotificationsActivity.class));
-            });
-        }
-
-        View btnSeeAllSug = getView() != null ? getView().findViewById(R.id.btn_see_all_suggested) : null;
-        if (btnSeeAllSug != null) {
-            btnSeeAllSug.setOnClickListener(v -> {
-                if (isAdded() && getContext() != null)
-                    startActivity(new Intent(getContext(), ReelExploreActivity.class));
-            });
-        }
+        // btnSeeAllAct / btnSeeAllSug: wired inside
+        // ensureFriendsActivityRowViewCreated() / ensureTopCreatorsRowViewCreated()
+        // now that Friends Activity/Suggested Creators are lazily-created
+        // inline rows instead of always-present static footer views.
 
         loadMyAvatar();
         loadNotes();
@@ -1748,6 +2027,7 @@ public class HomeFragment extends Fragment
     private void performFeedRefresh() {
         unseenOwnerUids.clear();
         resetFeedPaginationState();
+        resetInlineFooterDripFeedState(); // genuinely new scroll session
         clearAllSections();
         loadAllSections();
     }
@@ -2755,6 +3035,9 @@ public class HomeFragment extends Fragment
         feedCards.clear();
         currentFeedPosts = new ArrayList<>();
         currentPlayingIndex = -1;
+        // Let a fresh pull-to-refresh/mode-switch queue the Expiring Stories
+        // row again once storyEntries reloads.
+        expiringStoriesRowQueued = false;
         if (feedAdapter != null && oldSize > 0) {
             feedAdapter.notifyItemRangeRemoved(FEED_HEADER_OFFSET, oldSize);
         }
@@ -2774,10 +3057,32 @@ public class HomeFragment extends Fragment
         lastPrefetchFromIndex = -1;
         postsSincePeopleYouMayLike = 0;
         postsSinceSuggestedReels = 0;
+        postsSinceSuggestedAccounts = 0;
         postsSinceSponsored = 0;
+        // ★ v334: the 4 ex-footer rows' own drip-feed cadence (Trending /
+        // Top Creators / Friends Activity / Continue Watching) is
+        // DELIBERATELY NOT reset here any more — see
+        // resetInlineFooterDripFeedState() doc. This method is also called
+        // from switchFeedMode() (Following <-> For You), which doesn't start
+        // a new scroll session; resetting these here used to mean flipping
+        // the filter back and forth could re-trigger the exact same row on
+        // the exact same early post every time.
         newPostsPending = 0;
         feedLoadMoreFooter = null;
         hideNewPostsBanner();
+    }
+
+    /** ★ v334: restarts the 4 ex-footer rows' drip-feed cadence back to their
+     *  original first-fire windows (*_ROW_AFTER_POST_MIN/MAX) — call this
+     *  ONLY alongside a genuinely NEW scroll session: pull-to-refresh, the
+     *  "N new posts" banner tap, or a Firebase reconcile that actually
+     *  replaces the rendered top of the feed. Do NOT call this from
+     *  switchFeedMode() — see resetFeedPaginationState()'s note above. */
+    private void resetInlineFooterDripFeedState() {
+        trendingRowTargetPostCount = -1;
+        topCreatorsRowTargetPostCount = -1;
+        friendsActivityRowTargetPostCount = -1;
+        continueWatchingRowTargetPostCount = -1;
     }
 
     private void updateFeedToggleUI() {
@@ -3117,6 +3422,9 @@ public class HomeFragment extends Fragment
                         storyEntries.clear();
                         storyEntries.addAll(collected);
                         storiesAdapter.notifyDataSetChanged();
+                        // ★ Resurface a subset of the same stories a bit
+                        // further down the feed — see addExpiringStoriesRowIfAny().
+                        addExpiringStoriesRowIfAny(collected);
                     });
                 }
             };
@@ -3274,7 +3582,22 @@ public class HomeFragment extends Fragment
     private void bindStoryHolder(StoryViewHolder holder, StoryEntry entry) {
         if (!isAdded() || getContext() == null) return;
         holder.entry = entry;
-        holder.tvName.setText(entry.name != null ? entry.name : "User");
+        bindStoryTileViews(holder.avatar, holder.tvName, holder.ivSeenRing, holder.ivGradientRing, entry);
+    }
+
+    /**
+     * ★ Drawable/logic reuse: extracted out of bindStoryHolder() so the same
+     * gradient-ring / seen-ring / avatar-binding logic (and the exact same
+     * StoryRingGradientDrawable + drawable resources) backs BOTH the header
+     * Stories tray AND the inline "Expiring Stories" feed row below —
+     * ExpiringStoriesTileAdapter calls this too. No new ring/avatar drawing
+     * code, no new drawable resources — same tile visuals, two placements.
+     */
+    private void bindStoryTileViews(CircleImageView avatar, TextView tvName,
+                                     ImageView ivSeenRing, ImageView ivGradientRing,
+                                     StoryEntry entry) {
+        if (!isAdded() || getContext() == null) return;
+        tvName.setText(entry.name != null ? entry.name : "User");
 
         // ★ Instagram-style: gradient ring for ALL stories that have unseen content
         // FIX v39: story_ring_insta_gradient.xml had a visible seam (XML sweep
@@ -3283,27 +3606,26 @@ public class HomeFragment extends Fragment
         // v42 PERF: withStrokeDp() returns a SHARED cached Drawable instance
         // for this stroke width (see StoryRingGradientDrawable), so this is
         // a plain map lookup on every bind, not a per-row allocation.
-        if (holder.ivGradientRing != null) {
-            holder.ivGradientRing.setImageDrawable(
+        if (ivGradientRing != null) {
+            ivGradientRing.setImageDrawable(
                     com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3f,
                             getResources().getDisplayMetrics().density));
         }
 
-        CircleImageView avatar = holder.avatar;
         if (entry.hasUnseen) {
             // Gradient pink/orange ring — same as Instagram, for any unseen story
-            if (holder.ivGradientRing != null) holder.ivGradientRing.setVisibility(View.VISIBLE);
+            if (ivGradientRing != null) ivGradientRing.setVisibility(View.VISIBLE);
             avatar.setBorderColor(0xFFFFFFFF);
             avatar.setBorderWidth(dpToPx(3));
-            if (holder.ivSeenRing != null) holder.ivSeenRing.setVisibility(View.GONE);
+            if (ivSeenRing != null) ivSeenRing.setVisibility(View.GONE);
         } else {
             // Gray ring for all-seen stories
-            if (holder.ivGradientRing != null) holder.ivGradientRing.setVisibility(View.GONE);
+            if (ivGradientRing != null) ivGradientRing.setVisibility(View.GONE);
             avatar.setBorderColor(0xFF888888);
             avatar.setBorderWidth(dpToPx(2));
-            if (holder.ivSeenRing != null) {
-                holder.ivSeenRing.setVisibility(View.VISIBLE);
-                holder.ivSeenRing.setColorFilter(0xFF888888, android.graphics.PorterDuff.Mode.SRC_IN);
+            if (ivSeenRing != null) {
+                ivSeenRing.setVisibility(View.VISIBLE);
+                ivSeenRing.setColorFilter(0xFF888888, android.graphics.PorterDuff.Mode.SRC_IN);
             }
         }
 
@@ -3689,7 +4011,12 @@ public class HomeFragment extends Fragment
             renderedReelIds.clear();
             postsSincePeopleYouMayLike = 0;
             postsSinceSuggestedReels = 0;
+            postsSinceSuggestedAccounts = 0;
             postsSinceSponsored = 0;
+            // Content actually changed here (not just confirming what's on
+            // screen — see the isSameTopOfFeedOrder() branch above), so this
+            // genuinely is a new scroll session for the 4 ex-footer rows too.
+            resetInlineFooterDripFeedState();
             currentFeedPosts = posts;
             currentPlayingIndex = -1;
             // v243: with real RecyclerView recycling, building a page's worth
@@ -3958,11 +4285,199 @@ public class HomeFragment extends Fragment
             postsSinceSuggestedReels = 0;
             insertInlineSuggestedReelsRow();
         }
+        postsSinceSuggestedAccounts++;
+        if (postsSinceSuggestedAccounts >= SUGGESTED_ACCOUNTS_EVERY_N_POSTS) {
+            postsSinceSuggestedAccounts = 0;
+            insertInlineSuggestedAccountsRow();
+        }
         postsSinceSponsored++;
         if (postsSinceSponsored >= SPONSORED_EVERY_N_POSTS) {
             postsSinceSponsored = 0;
             insertSponsoredRowIfDue();
         }
+        // ★ Instagram-level drip-feed: the 4 ex-footer blocks, each inserted
+        // exactly once, the first time its post-count threshold is crossed —
+        // see ROW_TRENDING_REELS class doc + the *_ROW_AFTER_POST_MIN/MAX
+        // constants above.
+        int postsSoFar = postIndex + 1;
+        maybeInsertTrendingRow(postsSoFar);
+        maybeInsertTopCreatorsFooterRow(postsSoFar);
+        maybeInsertFriendsActivityRow(postsSoFar);
+        maybeInsertContinueWatchingRow(postsSoFar);
+    }
+
+    /** Picks (once) a random target within [min, max] inclusive — same
+     *  "not always the exact same post" reasoning as the offsets between
+     *  the periodic SUGGESTED_*_EVERY_N_POSTS cadences. */
+    private int pickRowTarget(int min, int max) {
+        return min + (int) (Math.random() * (max - min + 1));
+    }
+
+    /** ★ v334: shared "is it OK to (re)show this singleton row right now"
+     *  gate — persisted daily cap + persisted ✕-dismiss cooldown (see
+     *  InlineFooterRowStore doc). Both survive past this process's
+     *  lifetime, unlike the old plain in-memory booleans. */
+    private boolean canShowInlineFooterRow(String rowKey, int maxPerDay) {
+        if (!isAdded() || getContext() == null) return false;
+        Context ctx = requireContext();
+        if (InlineFooterRowStore.isDismissed(ctx, rowKey)) return false;
+        return InlineFooterRowStore.getShownCountToday(ctx, rowKey) < maxPerDay;
+    }
+
+    /** Inserts `rowType` into the feed and records the impression — both
+     *  the day-scoped cap counter (recordShown) AND the lifetime-with-decay
+     *  engagement counter (recordImpression) that getEngagementMultiplier()
+     *  reads from. Shared tail end of all 4 maybeInsert*Row() methods below.
+     *
+     *  ★ v343 GAP FIX — single shared View instance: all 4 of these rows
+     *  are backed by exactly one lazily-built singleton View per type (see
+     *  ensure*RowViewCreated()/trendingRowView etc.), the same pattern
+     *  VT_HEADER/VT_FOOTER use. That pattern only works as long as at most
+     *  ONE FeedRow of a given rowType exists in feedItems at any moment —
+     *  RecyclerView cannot bind the same View object to two ViewHolders at
+     *  once, so if a repeat fired while an earlier instance of the same row
+     *  was still sitting un-dismissed further up feedItems, the adapter
+     *  would eventually be asked for a second ViewHolder of that singleton
+     *  View (e.g. on a fling that lays out both simultaneously) and crash.
+     *  Old behavior relied on the user having dismissed (or scrolled far
+     *  enough past) the previous instance before a repeat could ever land,
+     *  which a real long session doesn't guarantee. This now enforces the
+     *  invariant the singleton View pattern actually needs: whichever
+     *  earlier instance of `rowType` is still present is removed first, so
+     *  a repeat always *replaces* rather than *duplicates*. A true
+     *  side-by-side "two Trending shelves on screen at once" would still
+     *  need each row converted to its own freshly-inflated View per
+     *  ViewHolder (own child-view/card-pool fields moved off the fragment
+     *  and onto the holder) instead of a fragment-level singleton — flag if
+     *  that's ever actually wanted; it isn't needed for the current
+     *  Instagram-style behavior (Instagram itself replaces a shelf, it
+     *  doesn't stack two of the same one). */
+    private void insertInlineFooterRow(int rowType, String rowKey) {
+        removeFeedRowByType(rowType);
+        InlineFooterRowStore.recordShown(requireContext(), rowKey);
+        InlineFooterRowStore.recordImpression(requireContext(), rowKey);
+        FeedRow row = new FeedRow(rowType);
+        feedItems.add(row);
+        if (feedAdapter != null) feedAdapter.notifyItemInserted(FEED_HEADER_OFFSET + feedItems.size() - 1);
+    }
+
+    /** ★ Instagram-level engagement-based repositioning: scales a row's own
+     *  base [min, max] cadence range by how much THIS user engages with
+     *  THIS row (InlineFooterRowStore.getEngagementMultiplier()). A row the
+     *  user keeps tapping gets a multiplier &gt;1 => divides the range down
+     *  => shows up sooner/tighter together; a row the user keeps scrolling
+     *  past gets &lt;1 => divides the range up => shows up later/further
+     *  apart. min is floored at 1 post and max is always kept at least
+     *  min+1 so the range can never collapse to zero width or invert. The
+     *  base constants remain the static "neutral" reference point — this
+     *  only moves a row within (and slightly beyond) them, it doesn't
+     *  replace them, so behavior degrades gracefully to the old static
+     *  ranges for a brand-new user with no engagement history yet
+     *  (multiplier starts at exactly 1.0). */
+    private int[] effectiveRowRange(int baseMin, int baseMax, float engagementMultiplier) {
+        int min = Math.max(1, Math.round(baseMin / engagementMultiplier));
+        int max = Math.max(min + 1, Math.round(baseMax / engagementMultiplier));
+        return new int[]{min, max};
+    }
+
+    /** Same idea as effectiveRowRange() but for the daily shown-count cap —
+     *  an engaged-with row earns up to 3 extra impressions/day above its
+     *  base cap, an ignored one is throttled down, but never below 1/day
+     *  (see InlineFooterRowStore doc on why a row is spaced out, not
+     *  silenced). */
+    private int effectiveMaxPerDay(int baseMaxPerDay, float engagementMultiplier) {
+        int scaled = Math.round(baseMaxPerDay * engagementMultiplier);
+        return Math.max(1, Math.min(baseMaxPerDay + 3, scaled));
+    }
+
+    /** ★ v334: RECURRING — first fire uses TRENDING_ROW_AFTER_POST_MIN/MAX,
+     *  every fire after that re-arms itself TRENDING_ROW_REPEAT_MIN/MAX posts
+     *  later (see class doc above the *_REPEAT_MIN/MAX constants) and
+     *  re-fetches (loadTrending()) so a repeat shows fresh trending reels,
+     *  not the exact same 8 cards replayed. A dismissed/daily-capped hit
+     *  still re-arms the NEXT target so the check isn't repeated on every
+     *  single following post for the rest of the session. ★ Both the
+     *  cadence range and the daily cap are now scaled by this row's own
+     *  engagement multiplier (see effectiveRowRange()/effectiveMaxPerDay())
+     *  instead of the old fixed static ranges. */
+    private void maybeInsertTrendingRow(int postsSoFar) {
+        if (!isAdded() || getContext() == null) return;
+        float mult = InlineFooterRowStore.getEngagementMultiplier(requireContext(), InlineFooterRowStore.ROW_TRENDING);
+        if (trendingRowTargetPostCount < 0) {
+            int[] range = effectiveRowRange(TRENDING_ROW_AFTER_POST_MIN, TRENDING_ROW_AFTER_POST_MAX, mult);
+            trendingRowTargetPostCount = pickRowTarget(range[0], range[1]);
+        }
+        if (postsSoFar < trendingRowTargetPostCount) return;
+        int[] repeatRange = effectiveRowRange(TRENDING_ROW_REPEAT_MIN, TRENDING_ROW_REPEAT_MAX, mult);
+        trendingRowTargetPostCount = postsSoFar + pickRowTarget(repeatRange[0], repeatRange[1]);
+        if (!canShowInlineFooterRow(InlineFooterRowStore.ROW_TRENDING, effectiveMaxPerDay(TRENDING_ROW_MAX_PER_DAY, mult))) return;
+        loadTrending(); // fresh variation for this occurrence
+        insertInlineFooterRow(ROW_TRENDING_REELS, InlineFooterRowStore.ROW_TRENDING);
+    }
+
+    /** ★ v334: RECURRING — same shape as maybeInsertTrendingRow() above, see
+     *  its doc. Re-fetches via loadSuggestedCreators(). ★ Engagement-scaled
+     *  cadence + cap, same as maybeInsertTrendingRow(). */
+    private void maybeInsertTopCreatorsFooterRow(int postsSoFar) {
+        if (!isAdded() || getContext() == null) return;
+        float mult = InlineFooterRowStore.getEngagementMultiplier(requireContext(), InlineFooterRowStore.ROW_TOP_CREATORS);
+        if (topCreatorsRowTargetPostCount < 0) {
+            int[] range = effectiveRowRange(TOP_CREATORS_ROW_AFTER_POST_MIN, TOP_CREATORS_ROW_AFTER_POST_MAX, mult);
+            topCreatorsRowTargetPostCount = pickRowTarget(range[0], range[1]);
+        }
+        if (postsSoFar < topCreatorsRowTargetPostCount) return;
+        int[] repeatRange = effectiveRowRange(TOP_CREATORS_ROW_REPEAT_MIN, TOP_CREATORS_ROW_REPEAT_MAX, mult);
+        topCreatorsRowTargetPostCount = postsSoFar + pickRowTarget(repeatRange[0], repeatRange[1]);
+        if (!canShowInlineFooterRow(InlineFooterRowStore.ROW_TOP_CREATORS, effectiveMaxPerDay(TOP_CREATORS_ROW_MAX_PER_DAY, mult))) return;
+        loadSuggestedCreators();
+        insertInlineFooterRow(ROW_TOP_CREATORS_FOOTER, InlineFooterRowStore.ROW_TOP_CREATORS);
+    }
+
+    /** ★ v334: RECURRING — same shape as maybeInsertTrendingRow() above, see
+     *  its doc. Re-fetches via loadFriendsActivity() (newer notifications
+     *  will naturally have landed by the time this repeats deep in a scroll
+     *  session). ★ Engagement-scaled cadence + cap, same as
+     *  maybeInsertTrendingRow(). */
+    private void maybeInsertFriendsActivityRow(int postsSoFar) {
+        if (!isAdded() || getContext() == null) return;
+        float mult = InlineFooterRowStore.getEngagementMultiplier(requireContext(), InlineFooterRowStore.ROW_FRIENDS_ACTIVITY);
+        if (friendsActivityRowTargetPostCount < 0) {
+            int[] range = effectiveRowRange(FRIENDS_ACTIVITY_ROW_AFTER_POST_MIN, FRIENDS_ACTIVITY_ROW_AFTER_POST_MAX, mult);
+            friendsActivityRowTargetPostCount = pickRowTarget(range[0], range[1]);
+        }
+        if (postsSoFar < friendsActivityRowTargetPostCount) return;
+        int[] repeatRange = effectiveRowRange(FRIENDS_ACTIVITY_ROW_REPEAT_MIN, FRIENDS_ACTIVITY_ROW_REPEAT_MAX, mult);
+        friendsActivityRowTargetPostCount = postsSoFar + pickRowTarget(repeatRange[0], repeatRange[1]);
+        if (!canShowInlineFooterRow(InlineFooterRowStore.ROW_FRIENDS_ACTIVITY, effectiveMaxPerDay(FRIENDS_ACTIVITY_ROW_MAX_PER_DAY, mult))) return;
+        loadFriendsActivity();
+        insertInlineFooterRow(ROW_FRIENDS_ACTIVITY, InlineFooterRowStore.ROW_FRIENDS_ACTIVITY);
+    }
+
+    /** ★ v343: ONE-SHOT — unlike the other 3 rows, Continue Watching never
+     *  repeats once it has actually appeared in this session. It's the
+     *  most committal rail ("pick up where you left off"), and resurfacing
+     *  it again later just replays state the user already acted on (or
+     *  ignored) once. First-fire window is still engagement-scaled exactly
+     *  like the other rows (effectiveRowRange()); there is deliberately no
+     *  repeat range/re-arm any more. If it's blocked the moment its window
+     *  is reached (daily cap already hit some other way, or a still-active
+     *  ✕-dismiss cooldown from a previous session), it keeps retrying on
+     *  every following post — same as before — but the instant it does
+     *  fire, continueWatchingRowFired latches true and it's done for the
+     *  rest of this scroll session. */
+    private void maybeInsertContinueWatchingRow(int postsSoFar) {
+        if (!isAdded() || getContext() == null) return;
+        if (continueWatchingRowFired) return;
+        float mult = InlineFooterRowStore.getEngagementMultiplier(requireContext(), InlineFooterRowStore.ROW_CONTINUE_WATCHING);
+        if (continueWatchingRowTargetPostCount < 0) {
+            int[] range = effectiveRowRange(CONTINUE_WATCHING_ROW_AFTER_POST_MIN, CONTINUE_WATCHING_ROW_AFTER_POST_MAX, mult);
+            continueWatchingRowTargetPostCount = pickRowTarget(range[0], range[1]);
+        }
+        if (postsSoFar < continueWatchingRowTargetPostCount) return;
+        if (!canShowInlineFooterRow(InlineFooterRowStore.ROW_CONTINUE_WATCHING, effectiveMaxPerDay(CONTINUE_WATCHING_ROW_MAX_PER_DAY, mult))) return;
+        continueWatchingRowFired = true;
+        loadContinueWatching();
+        insertInlineFooterRow(ROW_CONTINUE_WATCHING, InlineFooterRowStore.ROW_CONTINUE_WATCHING);
     }
 
     /**
@@ -4587,6 +5102,51 @@ public class HomeFragment extends Fragment
         feedAdapter.notifyItemInserted(FEED_HEADER_OFFSET + feedItems.size() - 1);
     }
 
+    /** Queues a "Suggested popular accounts" card block — deliberately reuses
+     *  suggestedCreatorPool (the exact same session-cached candidate list
+     *  ROW_SUGGESTED_CREATORS already fetched/fetches), so this row never
+     *  costs an extra Firebase read of its own. If the pool hasn't loaded
+     *  yet this insertion is simply skipped (the next cadence hit will find
+     *  it warm, same "skip this insertion" tolerance as every other inline
+     *  row's cold-start case). */
+    private void insertInlineSuggestedAccountsRow() {
+        if (!isAdded() || getContext() == null || feedAdapter == null) return;
+        if (suggestedCreatorPool != null) {
+            addSuggestedAccountsRowIfAny(suggestedCreatorPool);
+        }
+    }
+
+    /** Same filter shape as addSuggestedCreatorsRowIfAny (unfollowed, capped)
+     *  plus this row's own ✕-dismissed set, and reversed relative to the
+     *  creators strip's own slice of the pool so back-to-back insertions of
+     *  the two rows don't show the exact same faces in the exact same order.
+     *
+     *  ★ PERF: walks the pool back-to-front by INDEX instead of allocating
+     *  a reversed copy (the old `new ArrayList<>(pool)` + Collections.reverse)
+     *  on every single cadence hit — this fires once per
+     *  SUGGESTED_ACCOUNTS_EVERY_N_POSTS posts for the life of the session,
+     *  so that was two disposable list allocations (plus an O(n) reverse)
+     *  every time, for the exact same resulting candidates. Also uses
+     *  Collections.emptySet() instead of `new HashSet<>()` for the "no
+     *  followed-uids yet" fallback (same shared-singleton trick already
+     *  used for addFeedPostCard's cached-set fallbacks) and pre-sizes the
+     *  candidates list to its 6-item cap so it never has to grow/reallocate. */
+    private void addSuggestedAccountsRowIfAny(List<String[]> pool) {
+        if (!isAdded() || getContext() == null || feedAdapter == null || pool.isEmpty()) return;
+        Set<String> followed = cachedFollowedUids != null ? cachedFollowedUids : java.util.Collections.emptySet();
+        List<String[]> candidates = new ArrayList<>(6);
+        for (int i = pool.size() - 1; i >= 0 && candidates.size() < 6; i--) {
+            String[] c = pool.get(i);
+            if (followed.contains(c[0]) || dismissedSuggestedAccountUids.contains(c[0])) continue;
+            candidates.add(c);
+        }
+        if (candidates.isEmpty()) return;
+        FeedRow row = new FeedRow(ROW_SUGGESTED_ACCOUNTS);
+        row.accountPool = candidates;
+        feedItems.add(row);
+        feedAdapter.notifyItemInserted(FEED_HEADER_OFFSET + feedItems.size() - 1);
+    }
+
     /** ★ View-holder caching for the "Suggested for you" row — same pattern
      *  as PostRowHolder/SponsoredRowHolder. The old
      *  bindSuggestedCreatorsRowContent() did container.removeAllViews() and
@@ -4842,7 +5402,776 @@ public class HomeFragment extends Fragment
         @Override public int getItemCount() { return items.size(); }
     }
 
+    /** Shared across every "Suggested popular accounts" block mixed into the
+     *  Home feed — same reasoning as SUGGESTED_CREATORS_TILE_POOL above. */
+    private static final RecyclerView.RecycledViewPool SUGGESTED_ACCOUNTS_TILE_POOL =
+            new RecyclerView.RecycledViewPool();
+
+    /** ★ View-holder caching for the "Suggested popular accounts" card block
+     *  — same chrome-built-once-in-onCreateViewHolder pattern as
+     *  SuggestedCreatorsRowHolder, just with a header row that also carries
+     *  a "See all" link opening DiscoverPeopleActivity's full list. */
+    private class SuggestedAccountsRowHolder extends RecyclerView.ViewHolder {
+        final RecyclerView cardsRecycler;
+        final SuggestedAccountsTileAdapter adapter;
+
+        SuggestedAccountsRowHolder(FrameLayout container) {
+            super(container);
+            Context ctx = container.getContext();
+
+            LinearLayout section = new LinearLayout(ctx);
+            section.setOrientation(LinearLayout.VERTICAL);
+            int dp16 = dpToPx(16);
+            section.setPadding(dp16, dpToPx(12), dp16, dpToPx(4));
+
+            LinearLayout headerRow = new LinearLayout(ctx);
+            headerRow.setOrientation(LinearLayout.HORIZONTAL);
+            headerRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+            TextView header = new TextView(ctx);
+            header.setText("Suggested popular accounts");
+            header.setTextColor(0xFFFFFFFF);
+            header.setTextSize(13f);
+            header.setTypeface(null, android.graphics.Typeface.BOLD);
+            LinearLayout.LayoutParams headerLp = new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            header.setLayoutParams(headerLp);
+            headerRow.addView(header);
+
+            TextView seeAll = new TextView(ctx);
+            seeAll.setText("See all");
+            seeAll.setTextSize(12.5f);
+            seeAll.setTextColor(ctx.getResources().getColor(R.color.brand_primary, null));
+            seeAll.setPadding(dpToPx(8), dpToPx(4), 0, dpToPx(4));
+            seeAll.setOnClickListener(v -> {
+                if (!isAdded() || getContext() == null) return;
+                startActivity(new Intent(getContext(), com.callx.app.followers.DiscoverPeopleActivity.class));
+            });
+            headerRow.addView(seeAll);
+
+            section.addView(headerRow);
+
+            cardsRecycler = new RecyclerView(ctx);
+            cardsRecycler.setLayoutManager(
+                    new LinearLayoutManager(ctx, LinearLayoutManager.HORIZONTAL, false));
+            cardsRecycler.setRecycledViewPool(SUGGESTED_ACCOUNTS_TILE_POOL);
+            cardsRecycler.setItemViewCacheSize(4);
+            cardsRecycler.setHasFixedSize(true);
+            cardsRecycler.setItemAnimator(null);
+            LinearLayout.LayoutParams recyclerLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            recyclerLp.topMargin = dpToPx(8);
+            cardsRecycler.setLayoutParams(recyclerLp);
+
+            adapter = new SuggestedAccountsTileAdapter(new ArrayList<>());
+            cardsRecycler.setAdapter(adapter);
+
+            section.addView(cardsRecycler);
+            container.addView(section);
+        }
+    }
+
+    /** Swaps candidates into a pooled SuggestedAccountsRowHolder's existing
+     *  adapter — no view creation, no removeAllViews(). Mirrors
+     *  bindSuggestedCreatorsRowHolder. */
+    private void bindSuggestedAccountsRowHolder(SuggestedAccountsRowHolder holder, List<String[]> candidates) {
+        holder.itemView.setVisibility(candidates == null || candidates.isEmpty() ? View.GONE : View.VISIBLE);
+        holder.adapter.updateItems(candidates != null ? candidates : java.util.Collections.emptyList());
+    }
+
+    /** Bigger, Instagram "Suggested popular accounts" grid-card version of
+     *  SuggestedCreatorsTileAdapter above — same candidate shape (uid,name,
+     *  photo), same MutualFollowersCache-backed mutuals row (here shown as
+     *  an up-to-3 overlapping avatar stack instead of one mini avatar), plus
+     *  a verified badge (VerifiedBadgeUtils — the same cached lookup the
+     *  Home feed post row already uses) and a ✕ dismiss button that removes
+     *  the candidate from this row (and remembers it for the rest of the
+     *  session via dismissedSuggestedAccountUids) instead of just hiding it.
+     *
+     *  ── ULTRA-ADVANCED PERF PASS (mirrors ExpiringStoriesTileAdapter) ──
+     *  1) setHasStableIds + DiffUtil: updateItems() used to be a blind
+     *     notifyDataSetChanged() on every single cadence insertion — a full
+     *     unbind/rebind of every visible card (fresh Glide decode, fresh
+     *     MutualFollowersCache lookup, fresh verified-badge lookup) even
+     *     when the incoming candidate list was identical to what was
+     *     already showing. DiffUtil now only touches cards whose uid/name/
+     *     photo actually changed; stable IDs let RecyclerView track a
+     *     card's identity across the diff instead of treating every rebind
+     *     as "new item at this position".
+     *  2) Settle-delay bind: this grid lives INSIDE the main vertical feed
+     *     RecyclerView, so a fast vertical fling can bind/recycle a card in
+     *     single-digit milliseconds. Name text + follow-button state are
+     *     free (no I/O) and stay immediate; the Glide avatar decode +
+     *     verified-badge lookup + mutual-followers cache call are deferred
+     *     and only fire if the card is still bound to the same candidate
+     *     BIND_SETTLE_DELAY_MS later — a fling that blows straight past
+     *     this card no longer pays for any of that work at all.
+     *  3) Zero per-bind listener allocations: btnFollow / btnClose / card
+     *     click listeners used to be fresh lambdas built in every single
+     *     onBindViewHolder call (capturing that bind's uid/name). They are
+     *     now allocated exactly ONCE per ViewHolder, in onCreateViewHolder,
+     *     and read the holder's own mutable `entry` field at click time —
+     *     same trick as the settle-delay Runnable below.
+     */
+    private class SuggestedAccountsTileAdapter extends RecyclerView.Adapter<SuggestedAccountsTileAdapter.CardHolder> {
+        private static final int CARD_W_DP    = 168;
+        private static final int AVATAR_DP    = 84;
+        private static final int MUTUAL_AV_DP = 16;
+        private static final long BIND_SETTLE_DELAY_MS = 120L;
+
+        private List<String[]> items;
+
+        SuggestedAccountsTileAdapter(List<String[]> items) {
+            this.items = items;
+            setHasStableIds(true);
+        }
+
+        @Override public long getItemId(int position) {
+            String uid = items.get(position)[0];
+            return uid != null ? uid.hashCode() : RecyclerView.NO_ID;
+        }
+
+        /** DiffUtil replaces the old blind notifyDataSetChanged() — see class doc. */
+        void updateItems(List<String[]> newItems) {
+            final List<String[]> old = this.items;
+            final List<String[]> next = newItems != null ? newItems : java.util.Collections.emptyList();
+            DiffUtil.DiffResult result = DiffUtil.calculateDiff(new DiffUtil.Callback() {
+                @Override public int getOldListSize() { return old.size(); }
+                @Override public int getNewListSize() { return next.size(); }
+                @Override public boolean areItemsTheSame(int oldPos, int newPos) {
+                    String a = old.get(oldPos)[0], b = next.get(newPos)[0];
+                    return a != null && a.equals(b);
+                }
+                @Override public boolean areContentsTheSame(int oldPos, int newPos) {
+                    return Arrays.equals(old.get(oldPos), next.get(newPos));
+                }
+            });
+            this.items = next;
+            result.dispatchUpdatesTo(this);
+        }
+
+        class CardHolder extends RecyclerView.ViewHolder {
+            final FrameLayout card;
+            final CircleImageView av;
+            final TextView tvName;
+            final ImageView ivVerified;
+            final LinearLayout llMutual;
+            final LinearLayout avatarStack;
+            final CircleImageView[] mutualAvatars;
+            final TextView tvMutual;
+            final Button btnFollow;
+            final ImageView btnClose;
+
+            /** Current candidate this holder is showing — read by the
+             *  once-allocated listeners/Runnable below instead of a fresh
+             *  per-bind captured local (see class doc, point 3). */
+            String[] entry;
+            /** Bumped on every bind; guards the deferred avatar/mutual bind
+             *  below (and the async mutual-followers callback it fires)
+             *  against landing on a ViewHolder the shared pool has since
+             *  handed to a different candidate. */
+            int bindToken = 0;
+            boolean avatarBindPending;
+
+            /** Single Runnable for this holder's whole lifetime — reads
+             *  this.entry / this.bindToken at RUN time, so no lambda is
+             *  allocated on every bind (see class doc, point 2). Carries
+             *  the Glide avatar decode, the verified-badge lookup, and the
+             *  mutual-followers cache call — everything that touches I/O
+             *  or a cache lookup, deferred past fast-fling rebinds. */
+            final Runnable avatarBindRunnable = () -> {
+                avatarBindPending = false;
+                String[] c = entry;
+                if (c == null || !isAdded() || getContext() == null) return;
+                final String uid = c[0], photo = c[2];
+                final int token = bindToken;
+
+                av.setImageResource(R.drawable.ic_person);
+                if (photo != null && !photo.isEmpty()) {
+                    int avPx = dpToPx(AVATAR_DP);
+                    Glide.with(requireContext()).load(photo)
+                        .apply(RequestOptions.circleCropTransform())
+                        .apply(FEED_IMAGE_OPTS)
+                        .override(avPx, avPx)
+                        .placeholder(R.drawable.ic_person).into(av);
+                } else {
+                    Glide.with(requireContext()).clear(av);
+                }
+
+                com.callx.app.utils.VerifiedBadgeUtils.bindForUid(ivVerified, uid);
+
+                llMutual.setVisibility(View.GONE);
+                for (CircleImageView mAv : mutualAvatars) mAv.setVisibility(View.GONE);
+                String myUid = safeMyUid();
+                if (myUid != null && !myUid.isEmpty() && !myUid.equals(uid)) {
+                    com.callx.app.cache.MutualFollowersCache.getInstance()
+                        .getMutualFollowers(myUid, uid, (uids, names, photos) -> {
+                            if (token != bindToken || !isAdded() || getContext() == null) return; // stale — recycled
+                            int count = uids.size();
+                            if (count <= 0) return;
+                            int shown = Math.min(count, mutualAvatars.length);
+                            int mutualPx = dpToPx(MUTUAL_AV_DP);
+                            for (int i = 0; i < shown; i++) {
+                                CircleImageView mAv = mutualAvatars[i];
+                                mAv.setVisibility(View.VISIBLE);
+                                if (i < photos.size() && photos.get(i) != null && !photos.get(i).isEmpty()) {
+                                    Glide.with(requireContext()).load(photos.get(i))
+                                        .placeholder(R.drawable.ic_person)
+                                        .apply(RequestOptions.circleCropTransform())
+                                        .apply(FEED_IMAGE_OPTS)
+                                        .override(mutualPx, mutualPx)
+                                        .into(mAv);
+                                } else {
+                                    mAv.setImageResource(R.drawable.ic_person);
+                                }
+                            }
+                            tvMutual.setText(count == 1 ? "1 mutual" : count + " mutuals");
+                            llMutual.setVisibility(View.VISIBLE);
+                        });
+                }
+            };
+
+            CardHolder(FrameLayout card, CircleImageView av, TextView tvName, ImageView ivVerified,
+                       LinearLayout llMutual, LinearLayout avatarStack, CircleImageView[] mutualAvatars,
+                       TextView tvMutual, Button btnFollow, ImageView btnClose) {
+                super(card);
+                this.card = card; this.av = av; this.tvName = tvName; this.ivVerified = ivVerified;
+                this.llMutual = llMutual; this.avatarStack = avatarStack; this.mutualAvatars = mutualAvatars;
+                this.tvMutual = tvMutual; this.btnFollow = btnFollow; this.btnClose = btnClose;
+            }
+        }
+
+        @NonNull @Override
+        public CardHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            Context ctx = requireContext();
+
+            FrameLayout card = new FrameLayout(ctx);
+            card.setLayoutParams(new ViewGroup.MarginLayoutParams(dpToPx(CARD_W_DP), ViewGroup.LayoutParams.WRAP_CONTENT));
+
+            LinearLayout content = new LinearLayout(ctx);
+            content.setOrientation(LinearLayout.VERTICAL);
+            content.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+            content.setPadding(dpToPx(10), dpToPx(14), dpToPx(10), dpToPx(10));
+            content.setBackgroundResource(R.drawable.bg_speed_chip);
+            content.setLayoutParams(new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+            CircleImageView av = new CircleImageView(ctx);
+            av.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(AVATAR_DP), dpToPx(AVATAR_DP)));
+            content.addView(av);
+
+            LinearLayout nameRow = new LinearLayout(ctx);
+            nameRow.setOrientation(LinearLayout.HORIZONTAL);
+            nameRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            LinearLayout.LayoutParams nameRowLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            nameRowLp.topMargin = dpToPx(8);
+            nameRow.setLayoutParams(nameRowLp);
+
+            TextView tvName = new TextView(ctx);
+            tvName.setTextSize(12.5f);
+            tvName.setTextColor(0xFFFFFFFF);
+            tvName.setTypeface(null, android.graphics.Typeface.BOLD);
+            tvName.setMaxLines(1);
+            tvName.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            tvName.setMaxWidth(dpToPx(CARD_W_DP - 40));
+            nameRow.addView(tvName);
+
+            ImageView ivVerified = new ImageView(ctx);
+            LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(dpToPx(13), dpToPx(13));
+            badgeLp.setMarginStart(dpToPx(3));
+            ivVerified.setLayoutParams(badgeLp);
+            ivVerified.setImageResource(R.drawable.ic_verified_pink);
+            ivVerified.setVisibility(View.GONE);
+            nameRow.addView(ivVerified);
+
+            content.addView(nameRow);
+
+            // "N mutuals" row — up to 3 overlapping mini avatars + count,
+            // resolved via the shared MutualFollowersCache (see class doc).
+            LinearLayout llMutual = new LinearLayout(ctx);
+            llMutual.setOrientation(LinearLayout.HORIZONTAL);
+            llMutual.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            LinearLayout.LayoutParams mutualRowLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            mutualRowLp.topMargin = dpToPx(4);
+            llMutual.setLayoutParams(mutualRowLp);
+            llMutual.setVisibility(View.GONE);
+
+            LinearLayout avatarStack = new LinearLayout(ctx);
+            avatarStack.setOrientation(LinearLayout.HORIZONTAL);
+            CircleImageView[] mutualAvatars = new CircleImageView[3];
+            for (int i = 0; i < mutualAvatars.length; i++) {
+                CircleImageView mAv = new CircleImageView(ctx);
+                LinearLayout.LayoutParams mAvLp = new LinearLayout.LayoutParams(dpToPx(MUTUAL_AV_DP), dpToPx(MUTUAL_AV_DP));
+                if (i > 0) mAvLp.setMarginStart(-dpToPx(6)); // overlap
+                mAv.setLayoutParams(mAvLp);
+                mAv.setBorderWidth(dpToPx(1));
+                mAv.setBorderColor(0xFF1A1A1A);
+                mAv.setVisibility(View.GONE);
+                mutualAvatars[i] = mAv;
+                avatarStack.addView(mAv);
+            }
+            llMutual.addView(avatarStack);
+
+            TextView tvMutual = new TextView(ctx);
+            tvMutual.setTextSize(10.5f);
+            tvMutual.setTextColor(0xFFAAAAAA);
+            tvMutual.setMaxLines(1);
+            tvMutual.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams mutualTextLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            mutualTextLp.setMarginStart(dpToPx(5));
+            tvMutual.setLayoutParams(mutualTextLp);
+            llMutual.addView(tvMutual);
+
+            content.addView(llMutual);
+
+            Button btnFollow = new Button(ctx);
+            btnFollow.setTextSize(12f);
+            btnFollow.setAllCaps(false);
+            btnFollow.setPadding(0, 0, 0, 0);
+            btnFollow.setStateListAnimator(null);
+            LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(30));
+            btnLp.topMargin = dpToPx(10);
+            btnFollow.setLayoutParams(btnLp);
+            content.addView(btnFollow);
+
+            card.addView(content);
+
+            // ✕ dismiss — top-right corner overlay, reusing ic_close +
+            // bg_icon_semi (translucent circular chip) exactly as used
+            // elsewhere in the app for a circular icon-on-content button.
+            ImageView btnClose = new ImageView(ctx);
+            int closeSize = dpToPx(22);
+            FrameLayout.LayoutParams closeLp = new FrameLayout.LayoutParams(closeSize, closeSize);
+            closeLp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
+            closeLp.topMargin = dpToPx(6);
+            closeLp.rightMargin = dpToPx(6);
+            btnClose.setLayoutParams(closeLp);
+            btnClose.setBackgroundResource(R.drawable.bg_icon_semi);
+            btnClose.setImageResource(R.drawable.ic_close);
+            btnClose.setColorFilter(0xFFFFFFFF);
+            btnClose.setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4));
+            card.addView(btnClose);
+
+            final CardHolder holder = new CardHolder(card, av, tvName, ivVerified, llMutual, avatarStack, mutualAvatars, tvMutual, btnFollow, btnClose);
+
+            // ★ Allocated exactly once — reads holder.entry at click time
+            // instead of a per-bind captured uid/name (see class doc, point 3).
+            holder.btnFollow.setOnClickListener(v -> {
+                String[] c = holder.entry;
+                if (c == null) return;
+                String uid = c[0];
+                String my = safeMyUid();
+                if (my == null) return;
+                boolean nowFollowed = !(cachedFollowedUids != null && cachedFollowedUids.contains(uid));
+                if (nowFollowed) {
+                    FirebaseUtils.getReelFollowsRef(my).child(uid).setValue(true);
+                    FirebaseUtils.getReelFollowersRef(uid).child(my).setValue(true);
+                    if (cachedFollowedUids != null) cachedFollowedUids.add(uid);
+                } else {
+                    FirebaseUtils.getReelFollowsRef(my).child(uid).removeValue();
+                    FirebaseUtils.getReelFollowersRef(uid).child(my).removeValue();
+                    if (cachedFollowedUids != null) cachedFollowedUids.remove(uid);
+                }
+                applyFollowButtonState(holder.btnFollow, nowFollowed);
+            });
+
+            holder.btnClose.setOnClickListener(v -> {
+                String[] c = holder.entry;
+                if (c == null) return;
+                dismissedSuggestedAccountUids.add(c[0]);
+                int p = holder.getAdapterPosition();
+                if (p == RecyclerView.NO_POSITION || p >= items.size()) return;
+                items.remove(p);
+                notifyItemRemoved(p);
+                if (items.isEmpty()) {
+                    // Whole card block collapses when the last suggestion in
+                    // this slot is dismissed — same "no empty box" rule as
+                    // addSuggestedCreatorsRowIfAny's empty-pool early-return.
+                    for (int i = feedItems.size() - 1; i >= 0; i--) {
+                        if (feedItems.get(i).type == ROW_SUGGESTED_ACCOUNTS && feedItems.get(i).accountPool == items) {
+                            feedItems.remove(i);
+                            if (feedAdapter != null) feedAdapter.notifyItemRemoved(FEED_HEADER_OFFSET + i);
+                            break;
+                        }
+                    }
+                }
+            });
+
+            holder.card.setOnClickListener(v -> {
+                String[] c = holder.entry;
+                if (c == null || !isAdded() || getContext() == null) return;
+                Intent i = new Intent(getContext(), UserReelsActivity.class);
+                i.putExtra(UserReelsActivity.EXTRA_UID, c[0]);
+                i.putExtra(UserReelsActivity.EXTRA_NAME, c[1]);
+                startActivity(i);
+            });
+
+            return holder;
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull CardHolder holder, int position) {
+            String[] c = items.get(position);
+            holder.entry = c;
+
+            ViewGroup.LayoutParams rawLp = holder.card.getLayoutParams();
+            if (rawLp instanceof ViewGroup.MarginLayoutParams) {
+                ((ViewGroup.MarginLayoutParams) rawLp).setMarginEnd(
+                        position == items.size() - 1 ? 0 : dpToPx(10));
+            }
+
+            // Cheap, instant part: name text + follow-button state (no I/O).
+            holder.tvName.setText(c[1]);
+            boolean isFollowed = cachedFollowedUids != null && cachedFollowedUids.contains(c[0]);
+            applyFollowButtonState(holder.btnFollow, isFollowed);
+
+            // Deferred part: Glide avatar decode + verified badge + mutual-
+            // followers lookup (see avatarBindRunnable doc). Cancel any
+            // stale pending bind from this holder's previous candidate
+            // first (row recycled/rebound before the delay fired).
+            if (holder.avatarBindPending) {
+                holder.itemView.removeCallbacks(holder.avatarBindRunnable);
+            }
+            holder.bindToken++; // invalidates any in-flight mutual-followers lookup for the old candidate
+            holder.avatarBindPending = true;
+            holder.itemView.postDelayed(holder.avatarBindRunnable, BIND_SETTLE_DELAY_MS);
+        }
+
+        @Override
+        public void onViewRecycled(@NonNull CardHolder holder) {
+            if (holder.avatarBindPending) {
+                holder.itemView.removeCallbacks(holder.avatarBindRunnable);
+                holder.avatarBindPending = false;
+            }
+            if (isAdded() && getContext() != null) {
+                Glide.with(requireContext()).clear(holder.av);
+                for (CircleImageView mAv : holder.mutualAvatars) Glide.with(requireContext()).clear(mAv);
+            }
+            holder.bindToken++; // invalidate any in-flight lookup for this holder
+            holder.entry = null;
+        }
+
+        @Override public int getItemCount() { return items.size(); }
+    }
+
+    // ── Inline "Expiring Stories" — resurfaced stories tray mixed into feed ──
+
+    /** Insert cadence tracking so this row is only queued once per feed
+     *  load (mirrors insertInlineSuggestedCreatorsRow's one-shot pattern). */
+    private boolean expiringStoriesRowQueued = false;
+
+    /** Called right after the header Stories tray's storyEntries are
+     *  (re)loaded (see collectStoryEntriesParallel's runOnUiThread). Reuses
+     *  the SAME pool the header tray just built — no separate Firebase
+     *  read, no separate seen-state computation — just a second placement
+     *  of a subset of it further down the feed, Instagram-style. */
+    private void addExpiringStoriesRowIfAny(List<StoryEntry> pool) {
+        if (!isAdded() || getContext() == null || feedAdapter == null) return;
+        if (expiringStoriesRowQueued || pool == null || pool.isEmpty()) return;
+        // Cap at 10 tiles — same spirit as ROW_SUGGESTED_CREATORS' cap of 6,
+        // scaled up slightly since story tiles are narrower than creator chips.
+        List<StoryEntry> candidates = pool.size() > 10 ? pool.subList(0, 10) : pool;
+        expiringStoriesRowQueued = true;
+        FeedRow row = new FeedRow(ROW_EXPIRING_STORIES);
+        row.storyPool = new ArrayList<>(candidates);
+        // A few posts down rather than position 0 — this is a RESURFACE of
+        // stories the user may have scrolled past in the header tray, not a
+        // duplicate of it, so it shouldn't compete with the header tray for
+        // the very first thing the user sees.
+        int insertAt = Math.min(3, feedItems.size());
+        feedItems.add(insertAt, row);
+        feedAdapter.notifyItemInserted(FEED_HEADER_OFFSET + insertAt);
+    }
+
+    /** ★ View-holder caching for the "Expiring Stories" row — same
+     *  build-chrome-once / rebind-lightweight pattern as
+     *  SuggestedCreatorsRowHolder. Deliberately reuses:
+     *    - item_home_story.xml (same tile layout the header tray inflates)
+     *    - StoryRingGradientDrawable + ic_person + every ring drawable
+     *      (via bindStoryTileViews(), shared with StoriesAdapter)
+     *    - STORIES_TILE_POOL (same RecycledViewPool as the header tray, so
+     *      a tile scrolled off in one tray can be recycled into the other)
+     *  — no new drawables or layouts created for this feature.
+     */
+    private class ExpiringStoriesRowHolder extends RecyclerView.ViewHolder {
+        final View itemViewRoot;
+        final RecyclerView tilesRecycler;
+        final ExpiringStoriesTileAdapter adapter;
+
+        ExpiringStoriesRowHolder(FrameLayout container) {
+            super(container);
+            itemViewRoot = container;
+            Context ctx = container.getContext();
+
+            LinearLayout section = new LinearLayout(ctx);
+            section.setOrientation(LinearLayout.VERTICAL);
+            int dp16 = dpToPx(16);
+            section.setPadding(0, dpToPx(12), 0, dpToPx(4));
+
+            // Header row: "Expiring Stories" title + overflow menu icon —
+            // reuses the existing ic_more_vert drawable (same icon already
+            // used elsewhere in the app for row-level overflow menus), not
+            // a new icon asset.
+            LinearLayout headerRow = new LinearLayout(ctx);
+            headerRow.setOrientation(LinearLayout.HORIZONTAL);
+            headerRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            LinearLayout.LayoutParams headerLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            headerLp.setMargins(dp16, 0, dp16, 0);
+            headerRow.setLayoutParams(headerLp);
+
+            TextView header = new TextView(ctx);
+            header.setText("Expiring Stories");
+            header.setTextColor(0xFFFFFFFF);
+            header.setTextSize(13f);
+            header.setTypeface(null, android.graphics.Typeface.BOLD);
+            LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            header.setLayoutParams(titleLp);
+            headerRow.addView(header);
+
+            ImageView overflow = new ImageView(ctx);
+            overflow.setImageResource(R.drawable.ic_more_vert);
+            overflow.setColorFilter(0xFFFFFFFF, android.graphics.PorterDuff.Mode.SRC_IN);
+            int overflowPx = dpToPx(20);
+            LinearLayout.LayoutParams overflowLp = new LinearLayout.LayoutParams(overflowPx, overflowPx);
+            overflow.setLayoutParams(overflowLp);
+            overflow.setOnClickListener(v -> {
+                // Same "dismiss this suggestion" affordance as other
+                // inline feed rows — no new dialog/menu UI, just removes
+                // this instance of the row from the feed.
+                int i = feedItems.indexOf(rowForHolder());
+                if (i >= 0) {
+                    feedItems.remove(i);
+                    notifyItemRemoved(FEED_HEADER_OFFSET + i);
+                }
+            });
+            headerRow.addView(overflow);
+            section.addView(headerRow);
+
+            tilesRecycler = new RecyclerView(ctx);
+            tilesRecycler.setLayoutManager(
+                    new LinearLayoutManager(ctx, LinearLayoutManager.HORIZONTAL, false));
+            // ★ Shares the header Stories tray's own pool — genuine
+            // cross-tray ViewHolder reuse, not just a "same-shaped" pool.
+            tilesRecycler.setRecycledViewPool(STORIES_TILE_POOL);
+            tilesRecycler.setItemViewCacheSize(4);
+            tilesRecycler.setHasFixedSize(true);
+            tilesRecycler.setItemAnimator(null);
+            LinearLayout.LayoutParams recyclerLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            recyclerLp.topMargin = dpToPx(8);
+            recyclerLp.leftMargin = dp16;
+            tilesRecycler.setLayoutParams(recyclerLp);
+            tilesRecycler.setPadding(0, 0, dp16, 0);
+            tilesRecycler.setClipToPadding(false);
+
+            adapter = new ExpiringStoriesTileAdapter(new ArrayList<>());
+            tilesRecycler.setAdapter(adapter);
+
+            section.addView(tilesRecycler);
+            container.addView(section);
+        }
+
+        private FeedRow rowForHolder() {
+            int pos = getBindingAdapterPosition();
+            if (pos == RecyclerView.NO_POSITION) return null;
+            int idx = pos - FEED_HEADER_OFFSET;
+            return (idx >= 0 && idx < feedItems.size()) ? feedItems.get(idx) : null;
+        }
+    }
+
+    private void bindExpiringStoriesRowHolder(ExpiringStoriesRowHolder holder, List<StoryEntry> entries) {
+        holder.itemViewRoot.setVisibility(entries == null || entries.isEmpty() ? View.GONE : View.VISIBLE);
+        holder.adapter.updateItems(entries != null ? entries : java.util.Collections.emptyList());
+    }
+
+    /** Tile adapter for the inline "Expiring Stories" row. Inflates the
+     *  SAME item_home_story.xml the header tray uses (skips the leading
+     *  "Add Story" tile — that only makes sense at the very top of the
+     *  screen) and binds via bindStoryTileViews(), the exact same method
+     *  StoriesAdapter uses — same ring drawables, same avatar binder, same
+     *  click behavior (openStatusViewer). */
+    private class ExpiringStoriesTileAdapter
+            extends RecyclerView.Adapter<ExpiringStoriesTileAdapter.TileHolder> {
+
+        // ── ULTRA-ADVANCED PERF PASS ─────────────────────────────────────
+        // 1) setHasStableIds + DiffUtil: updateItems() used to be a blind
+        //    notifyDataSetChanged() — full unbind/rebind of every visible
+        //    tile even when the incoming list is identical (e.g. a
+        //    pull-to-refresh that resolves to the same top stories). DiffUtil
+        //    now only touches rows that actually changed, and stable IDs let
+        //    RecyclerView track/animate a tile's identity across that diff
+        //    instead of treating every rebind as "new item at this position".
+        // 2) Settle-delay avatar bind: this horizontal tray lives INSIDE the
+        //    main vertical feed RecyclerView, so a fast vertical fling can
+        //    bind/recycle these tiles in single-digit milliseconds — same
+        //    root cause ChatListAdapter's BIND_SETTLE_DELAY_MS fixed for the
+        //    chat list. Text/ring drawables are free (already-cached
+        //    Drawable instances) and stay immediate; only the Glide avatar
+        //    decode is deferred, and only fires if the tile is still bound
+        //    to the same entry BIND_SETTLE_DELAY_MS later.
+        // 3) v45 PERF: the settle-delay Runnable itself used to be a fresh
+        //    lambda allocated in EVERY onBindViewHolder call (capturing that
+        //    bind's `entry`) — real allocation on every rebind, not just on
+        //    a genuinely new avatar URL. Each TileHolder now owns exactly
+        //    one Runnable for its whole lifetime (see TileHolder#
+        //    avatarBindRunnable) that reads the holder's own mutable `entry`
+        //    field at run time — zero Runnable allocations on rebind.
+        //    HomeStoryAvatarBinder itself also caches its Glide RequestOptions
+        //    per (size, priority, placeholder) instead of building two fresh
+        //    ones on every genuinely-new-URL bind (see HomeStoryAvatarBinder
+        //    v44 PERF PASS) — this tray and the header Stories tray both
+        //    benefit since they share that binder.
+        private static final long BIND_SETTLE_DELAY_MS = 120L;
+
+        private List<StoryEntry> items = new ArrayList<>();
+
+        ExpiringStoriesTileAdapter(List<StoryEntry> items) {
+            this.items = items;
+            setHasStableIds(true);
+        }
+
+        @Override public long getItemId(int position) {
+            String uid = items.get(position).uid;
+            return uid != null ? uid.hashCode() : RecyclerView.NO_ID;
+        }
+
+        void updateItems(List<StoryEntry> newItems) {
+            List<StoryEntry> old = this.items;
+            List<StoryEntry> next = newItems != null ? newItems : java.util.Collections.emptyList();
+            DiffUtil.DiffResult result = DiffUtil.calculateDiff(new DiffUtil.Callback() {
+                @Override public int getOldListSize() { return old.size(); }
+                @Override public int getNewListSize() { return next.size(); }
+                @Override public boolean areItemsTheSame(int oldPos, int newPos) {
+                    String a = old.get(oldPos).uid, b = next.get(newPos).uid;
+                    return a != null && a.equals(b);
+                }
+                @Override public boolean areContentsTheSame(int oldPos, int newPos) {
+                    StoryEntry a = old.get(oldPos), b = next.get(newPos);
+                    return a.hasUnseen == b.hasUnseen
+                            && a.avatarVersion == b.avatarVersion
+                            && java.util.Objects.equals(a.name, b.name)
+                            && java.util.Objects.equals(a.photo, b.photo);
+                }
+            });
+            this.items = next;
+            result.dispatchUpdatesTo(this);
+        }
+
+        class TileHolder extends RecyclerView.ViewHolder {
+            final CircleImageView avatar;
+            final TextView tvName;
+            final ImageView ivSeenRing;
+            final ImageView ivGradientRing;
+            StoryEntry entry;
+            /** True once a settle-delay avatar bind is scheduled for the
+             *  CURRENT entry and hasn't fired or been cancelled yet. */
+            boolean avatarBindPending;
+            /** v45 PERF: a single Runnable instance for the lifetime of this
+             *  ViewHolder — reads this.entry at RUN time instead of the old
+             *  `holder.pendingAvatarBind = () -> {...}`, which allocated a
+             *  fresh lambda (capturing `entry`) on every single
+             *  onBindViewHolder call, including every settle-delay rebind
+             *  the horizontal tray's own scroll triggers. Cancelling still
+             *  works exactly the same (removeCallbacks by instance
+             *  identity); onBindViewHolder always removes any pending
+             *  callback before rescheduling, so this can never fire against
+             *  a stale entry.
+             */
+            final Runnable avatarBindRunnable = () -> {
+                avatarBindPending = false;
+                StoryEntry e = entry;
+                if (e == null) return;
+                if (!isAdded() || getContext() == null) return;
+                HomeStoryAvatarBinder.bind(requireContext(), avatar,
+                        e.photo, e.avatarVersion, R.drawable.ic_person);
+            };
+            TileHolder(View v) {
+                super(v);
+                avatar         = v.findViewById(R.id.iv_story_avatar);
+                tvName         = v.findViewById(R.id.tv_story_name);
+                ivSeenRing     = v.findViewById(R.id.iv_story_seen_ring);
+                ivGradientRing = v.findViewById(R.id.iv_reel_story_gradient_ring);
+            }
+        }
+
+        @NonNull @Override
+        public TileHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            // Same layout resource as the header tray's STORY tile — real
+            // drawable/layout reuse, not a re-implementation of it.
+            View v = LayoutInflater.from(parent.getContext())
+                    .inflate(R.layout.item_home_story, parent, false);
+            TileHolder holder = new TileHolder(v);
+            v.setOnClickListener(vw -> {
+                StoryEntry entry = holder.entry;
+                if (entry == null) return;
+                openStatusViewer(entry.uid, entry.name);
+            });
+            return holder;
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull TileHolder holder, int position) {
+            StoryEntry entry = items.get(position);
+            holder.entry = entry;
+
+            // Cheap, instant part: name text + ring visuals (shared cached
+            // Drawable instances — see bindStoryTileViews/StoryRingGradientDrawable).
+            holder.tvName.setText(entry.name != null ? entry.name : "User");
+            if (entry.hasUnseen) {
+                if (holder.ivGradientRing != null) {
+                    holder.ivGradientRing.setImageDrawable(
+                            com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3f,
+                                    getResources().getDisplayMetrics().density));
+                    holder.ivGradientRing.setVisibility(View.VISIBLE);
+                }
+                holder.avatar.setBorderColor(0xFFFFFFFF);
+                holder.avatar.setBorderWidth(dpToPx(3));
+                if (holder.ivSeenRing != null) holder.ivSeenRing.setVisibility(View.GONE);
+            } else {
+                if (holder.ivGradientRing != null) holder.ivGradientRing.setVisibility(View.GONE);
+                holder.avatar.setBorderColor(0xFF888888);
+                holder.avatar.setBorderWidth(dpToPx(2));
+                if (holder.ivSeenRing != null) {
+                    holder.ivSeenRing.setVisibility(View.VISIBLE);
+                    holder.ivSeenRing.setColorFilter(0xFF888888, android.graphics.PorterDuff.Mode.SRC_IN);
+                }
+            }
+
+            // Deferred part: the actual Glide avatar decode. Cancel any
+            // stale pending bind from this VH's previous entry first (row
+            // recycled/rebound before the delay fired). v45 PERF: reuses
+            // the single per-holder avatarBindRunnable instance (see
+            // TileHolder doc) instead of allocating a new lambda here.
+            if (holder.avatarBindPending) {
+                holder.itemView.removeCallbacks(holder.avatarBindRunnable);
+            }
+            holder.avatarBindPending = true;
+            holder.itemView.postDelayed(holder.avatarBindRunnable, BIND_SETTLE_DELAY_MS);
+        }
+
+        @Override
+        public void onViewRecycled(@NonNull TileHolder holder) {
+            if (holder.avatarBindPending) {
+                holder.itemView.removeCallbacks(holder.avatarBindRunnable);
+                holder.avatarBindPending = false;
+            }
+            if (isAdded() && getContext() != null) {
+                HomeStoryAvatarBinder.cancel(requireContext(), holder.avatar);
+            }
+            holder.entry = null;
+        }
+
+        @Override public int getItemCount() { return items.size(); }
+    }
+
     // ── Inline "Suggested reels" — Instagram-style thumbnail row ──────────
+
 
     /**
      * Inserts a horizontal row of suggested-reel thumbnail cards directly
@@ -4913,6 +6242,24 @@ public class HomeFragment extends Fragment
         final SuggestedReelsTileAdapter adapter;
         Runnable onNotInterested;
 
+        /** Registered on the OUTER vertical feed (recyclerHome) only while
+         *  this strip's itemView is attached to the window — see the
+         *  attach/detach listener below. Re-evaluates whether THIS strip is
+         *  still visible enough in the vertical feed to keep autoplaying on
+         *  every outer scroll tick, and tears itself off recyclerHome the
+         *  moment RecyclerView detaches this ViewHolder (scrolled far enough
+         *  away to be recycled) — so a strip that's left the screen never
+         *  keeps a scroll listener (or a playing ExoPlayer) alive. */
+        private RecyclerView.OnScrollListener outerVisibilityListener;
+
+        /** ★ PERF: reused across every refreshOuterVisibility() call instead
+         *  of a fresh `new Rect()` per outer-feed scroll tick (onScrolled
+         *  fires on every scroll delta while this strip is attached, so this
+         *  was a hot allocation on every scroll frame). getLocalVisibleRect()
+         *  only ever writes into it — never reads stale state across calls —
+         *  so one shared instance per strip is safe. */
+        private final android.graphics.Rect visibilityRect = new android.graphics.Rect();
+
         SuggestedReelsRowHolder(FrameLayout container) {
             super(container);
             Context ctx = container.getContext();
@@ -4973,6 +6320,79 @@ public class HomeFragment extends Fragment
 
             section.addView(tilesRecycler);
             container.addView(section);
+
+            // ── Instagram-style inline autoplay for this strip ────────────
+            // 1) Horizontal: whichever tile sits closest to the strip's own
+            //    center is the "active" one — re-picked once the horizontal
+            //    fling actually settles (SCROLL_STATE_IDLE), same "don't
+            //    react to every mid-fling frame" restraint the outer feed's
+            //    own autoplay decision already uses.
+            tilesRecycler.addOnScrollListener(new RecyclerView.OnScrollListener() {
+                @Override
+                public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
+                    if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                        adapter.refreshActiveTile(tilesRecycler);
+                    }
+                }
+            });
+
+            // 2) Vertical: this strip is one row mixed into the much longer
+            //    main feed (recyclerHome), so it must stop autoplaying the
+            //    instant it scrolls out of the visible viewport — otherwise
+            //    a strip several screens away would keep decoding video
+            //    nobody can see. onViewAttachedToWindow/onViewDetachedFromWindow
+            //    fire exactly when RecyclerView lays this ViewHolder's itemView
+            //    out for real / tears it down for recycling, so a scroll
+            //    listener on the OUTER recyclerHome only ever exists while
+            //    this exact strip is actually part of the visible tree.
+            container.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+                @Override
+                public void onViewAttachedToWindow(@NonNull View v) {
+                    if (outerVisibilityListener == null && recyclerHome != null) {
+                        outerVisibilityListener = new RecyclerView.OnScrollListener() {
+                            @Override
+                            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                                refreshOuterVisibility();
+                            }
+                        };
+                        recyclerHome.addOnScrollListener(outerVisibilityListener);
+                    }
+                    // Initial check — a strip can land already-visible (e.g.
+                    // it was the first thing laid out after a feed reload),
+                    // so don't wait for the user to scroll before it can play.
+                    tilesRecycler.post(() -> refreshOuterVisibility());
+                }
+
+                @Override
+                public void onViewDetachedFromWindow(@NonNull View v) {
+                    if (outerVisibilityListener != null && recyclerHome != null) {
+                        recyclerHome.removeOnScrollListener(outerVisibilityListener);
+                    }
+                    outerVisibilityListener = null;
+                    // Strip is gone from the tree — never leave a tile
+                    // silently decoding video off-screen.
+                    adapter.pauseActive(tilesRecycler);
+                }
+
+                /** True once at least ~50% of this strip's own height sits
+                 *  inside recyclerHome's visible viewport — same "must be
+                 *  genuinely on screen, not just technically laid out"
+                 *  threshold the main feed card uses for its own autoplay
+                 *  gate, just measured against a nested row instead of a
+                 *  full-screen card. */
+                private void refreshOuterVisibility() {
+                    if (!isAdded() || getContext() == null) return;
+                    // ★ PERF: shared `visibilityRect` field, not a fresh Rect
+                    // per call — see field doc above.
+                    boolean visibleEnough = container.getLocalVisibleRect(visibilityRect)
+                            && visibilityRect.height() >= container.getHeight() * 0.5f;
+                    if (visibleEnough) {
+                        adapter.refreshActiveTile(tilesRecycler);
+                    } else {
+                        adapter.pauseActive(tilesRecycler);
+                    }
+                }
+            });
         }
     }
 
@@ -4983,6 +6403,13 @@ public class HomeFragment extends Fragment
                                               Runnable onNotInterested) {
         holder.onNotInterested = onNotInterested;
         holder.itemView.setVisibility(candidates == null || candidates.isEmpty() ? View.GONE : View.VISIBLE);
+        // Data is about to be replaced wholesale — release whatever this
+        // strip thought was "the active" autoplaying tile now, BEFORE
+        // updateItems()'s notifyDataSetChanged() rebinds ViewHolders onto
+        // entirely different reels underneath it (a still-attached
+        // ViewHolder at the same position gets rebound in place, not
+        // recycled, so onViewRecycled's cleanup wouldn't fire for it).
+        holder.adapter.pauseActive(holder.tilesRecycler);
         if (candidates == null || candidates.isEmpty()) {
             holder.adapter.updateItems(java.util.Collections.emptyList(), new ArrayList<>());
             return;
@@ -4990,6 +6417,12 @@ public class HomeFragment extends Fragment
         final ArrayList<String> reelIds = new ArrayList<>();
         for (ReelModel r : candidates) reelIds.add(r.reelId);
         holder.adapter.updateItems(candidates, reelIds);
+        // A (re)bind means the underlying data may have changed (e.g. the
+        // feed reloaded a fresh candidate pool into a strip that scrolled
+        // back into view), so whatever tile was "active" before this bind
+        // no longer means anything — pick fresh once RecyclerView finishes
+        // laying the new items out.
+        holder.tilesRecycler.post(() -> holder.adapter.refreshActiveTile(holder.tilesRecycler));
     }
 
     /** Shared across every "Suggested reels" strip mixed into the Home feed —
@@ -5001,17 +6434,44 @@ public class HomeFragment extends Fragment
     /** Backs one "Suggested reels" strip's tiles with real ViewHolder
      *  recycling (see SuggestedReelsRowHolder). ~9:16 tile, bigger
      *  than a grid cell so only ~2 tiles + a peek of the 3rd fit per screen
-     *  (matches reference screenshot) — same sizing as the old manual row. */
+     *  (matches reference screenshot) — same sizing as the old manual row.
+     *
+     *  ★ Instagram-style inline autoplay: exactly one tile per strip ever
+     *  holds a live (always-muted, looping) ExoPlayer at a time — whichever
+     *  one sits closest to the strip's own horizontal center once a fling
+     *  settles (see refreshActiveTile), gated off entirely when this strip
+     *  itself scrolls out of the outer vertical feed's viewport (see
+     *  SuggestedReelsRowHolder's outer-visibility listener) or the user's
+     *  autoplay preference is Off/Wi-Fi-only-and-metered (autoplayPolicy —
+     *  same setting the main feed card already honours). Players are pulled
+     *  from the SAME ExoPlayerPool the main feed and the long-press peek
+     *  preview share, so this never stands up dedicated decoder capacity of
+     *  its own. */
     private class SuggestedReelsTileAdapter extends RecyclerView.Adapter<SuggestedReelsTileAdapter.TileHolder> {
         private static final int TILE_W_DP = 160;
         private static final int TILE_H_DP = 284;
 
+        /** ★ PERF: resolved once when the adapter is created instead of
+         *  calling dpToPx(8) (a density lookup through getContext()) on
+         *  every single onBindViewHolder — density can't change without the
+         *  Activity being recreated, so a per-bind recompute was pure waste
+         *  on the hottest path in this row (fires on every scroll-in tile). */
+        private final int marginEndPx = dpToPx(8);
+
         private List<ReelModel> items;
         private ArrayList<String> reelIds;
+
+        /** ★ PERF: Glide.with(context) does a lifecycle-fragment lookup
+         *  every call — cheap but non-zero, and this adapter used to call it
+         *  on every single onBindViewHolder AND onViewRecycled (i.e. every
+         *  tile that scrolls through, in both directions). Resolved once
+         *  here and reused for every load/clear this adapter ever issues. */
+        private final com.bumptech.glide.RequestManager glide;
 
         SuggestedReelsTileAdapter(List<ReelModel> items, ArrayList<String> reelIds) {
             this.items = items;
             this.reelIds = reelIds;
+            this.glide = Glide.with(HomeFragment.this);
         }
 
         /** ★ Same reuse trick as SuggestedCreatorsTileAdapter.updateItems() —
@@ -5023,13 +6483,45 @@ public class HomeFragment extends Fragment
             notifyDataSetChanged();
         }
 
+        /** Adapter position of the ONE tile in THIS strip currently allowed
+         *  to hold a live ExoPlayer — mirrors the outer feed's own
+         *  "exactly one active player" invariant, just scoped to a single
+         *  horizontal strip. RecyclerView.NO_POSITION when nothing in this
+         *  strip is autoplaying (off-screen, autoplay disabled, or no tile
+         *  centered yet). */
+        private int activePosition = RecyclerView.NO_POSITION;
+
         class TileHolder extends RecyclerView.ViewHolder {
             final FrameLayout tile;
             final ImageView thumb;
+            final PlayerView playerView;
             final TextView tvViews;
-            TileHolder(FrameLayout tile, ImageView thumb, TextView tvViews) {
+            /** Non-null only while THIS tile is the strip's active,
+             *  autoplaying one — see startTileAt/releaseTilePlayer. */
+            ExoPlayer player;
+            /** ★ PERF: mutable state the ONE listener registered in
+             *  onCreateViewHolder reads at click/long-press time, instead of
+             *  onBindViewHolder building a brand new click + long-click
+             *  lambda (each capturing position/reel) on every single rebind
+             *  — the exact "bar-bar allocation on bind" pattern this pass
+             *  targets. Click always resolves the CURRENT adapter position
+             *  via getBindingAdapterPosition() rather than trusting a value
+             *  captured at some earlier bind, so it can never fire with a
+             *  stale index after the strip's data changes underneath it. */
+            ReelModel currentReel;
+            /** Last values actually pushed to the views below — lets
+             *  onBindViewHolder skip a redundant setText/Glide-load/layout
+             *  write when a rebind (e.g. notifyDataSetChanged from a fresh
+             *  updateItems() call) hands back data identical to what this
+             *  holder already shows, same "skip unchanged writes" pattern
+             *  used elsewhere in this feed (see formatCount() call sites). */
+            String boundThumbUrl;
+            String boundViewsText;
+            int boundMarginEndPx = -1;
+
+            TileHolder(FrameLayout tile, ImageView thumb, PlayerView playerView, TextView tvViews) {
                 super(tile);
-                this.tile = tile; this.thumb = thumb; this.tvViews = tvViews;
+                this.tile = tile; this.thumb = thumb; this.playerView = playerView; this.tvViews = tvViews;
             }
         }
 
@@ -5046,6 +6538,20 @@ public class HomeFragment extends Fragment
             thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
             tile.addView(thumb);
 
+            // Instagram-style inline autoplay surface — GONE until this tile
+            // is picked as the strip's active one (see startTileAt). No
+            // controller chrome (setUseController(false)): tapping the tile
+            // still opens SingleReelPlayerActivity via the FrameLayout's own
+            // click listener below, exactly like the static-thumbnail tap
+            // target always has.
+            PlayerView playerView = new PlayerView(requireContext());
+            playerView.setLayoutParams(new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            playerView.setUseController(false);
+            playerView.setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+            playerView.setVisibility(View.GONE);
+            tile.addView(playerView);
+
             // Views count pill, bottom-left, with a small play glyph — same
             // read-at-a-glance treatment Instagram uses on its reel tiles.
             TextView tvViews = new TextView(requireContext());
@@ -5059,46 +6565,84 @@ public class HomeFragment extends Fragment
             tvViews.setLayoutParams(viewsLp);
             tile.addView(tvViews);
 
-            return new TileHolder(tile, thumb, tvViews);
+            TileHolder holder = new TileHolder(tile, thumb, playerView, tvViews);
+
+            // ★ PERF: registered ONCE per recycled view instead of once per
+            // bind — see TileHolder.currentReel doc. Both listeners resolve
+            // position/reel fresh at click time off the holder/adapter, so a
+            // holder recycled into a different position never fires with
+            // stale captured state.
+            tile.setOnClickListener(v -> {
+                if (!isAdded() || getContext() == null) return;
+                int pos = holder.getBindingAdapterPosition();
+                if (pos == RecyclerView.NO_POSITION) return;
+                Intent i = new Intent(getContext(), SingleReelPlayerActivity.class);
+                i.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, reelIds);
+                i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, pos);
+                startActivity(i);
+            });
+            tile.setOnLongClickListener(v -> {
+                if (holder.currentReel == null) return true;
+                showSuggestedReelPeek(holder.currentReel, holder.tile);
+                return true;
+            });
+
+            return holder;
         }
 
         @Override
         public void onBindViewHolder(@NonNull TileHolder holder, int position) {
-            ReelModel r = items.get(position);
-            holder.tvViews.setText("▶ " + formatCount(r.viewsCount));
+            // A fresh bind always means fresh data underneath this holder.
+            // For a position that's still attached (notifyDataSetChanged
+            // rebinds in place rather than recycling), this holder may still
+            // be holding a player for whatever reel WAS at this index —
+            // release it before overwriting entry/click-target state below.
+            // The normal off-screen case (holder actually recycled first)
+            // already went through onViewRecycled, so this is a no-op there.
+            if (holder.player != null) releaseTilePlayer(holder);
 
-            ViewGroup.LayoutParams rawLp = holder.tile.getLayoutParams();
-            if (rawLp instanceof ViewGroup.MarginLayoutParams) {
-                ((ViewGroup.MarginLayoutParams) rawLp).setMarginEnd(
-                        position == items.size() - 1 ? 0 : dpToPx(8));
+            ReelModel r = items.get(position);
+            holder.currentReel = r; // read by the click/long-click listeners set once in onCreateViewHolder
+
+            String viewsText = "▶ " + formatCount(r.viewsCount);
+            // ★ PERF: skip the setText/invalidate when this rebind hands back
+            // the exact same label already on screen (e.g. notifyDataSetChanged
+            // rebinding a still-attached holder to unchanged data).
+            if (!viewsText.equals(holder.boundViewsText)) {
+                holder.tvViews.setText(viewsText);
+                holder.boundViewsText = viewsText;
+            }
+
+            int wantMarginEndPx = position == items.size() - 1 ? 0 : marginEndPx;
+            if (wantMarginEndPx != holder.boundMarginEndPx) {
+                ViewGroup.LayoutParams rawLp = holder.tile.getLayoutParams();
+                if (rawLp instanceof ViewGroup.MarginLayoutParams) {
+                    ((ViewGroup.MarginLayoutParams) rawLp).setMarginEnd(wantMarginEndPx);
+                    holder.boundMarginEndPx = wantMarginEndPx;
+                }
             }
 
             String thumbUrl = r.effectiveThumbUrl();
-            if (thumbUrl != null && !thumbUrl.isEmpty()) {
-                // Same RGB_565 + no-crossfade treatment as the rest of the
-                // feed's cheap-decode thumbnails (FEED_IMAGE_OPTS), plus an
-                // explicit .override() to this tile's fixed decode size —
-                // see SUGGESTED_TILE_DECODE_W/H doc for why this was the one
-                // remaining feed thumbnail load with no decode-size cap.
-                Glide.with(requireContext()).load(thumbUrl).apply(FEED_IMAGE_OPTS)
-                    .override(SUGGESTED_TILE_DECODE_W, SUGGESTED_TILE_DECODE_H)
-                    .centerCrop().into(holder.thumb);
-            } else {
-                Glide.with(requireContext()).clear(holder.thumb);
+            boolean urlIsEmpty = thumbUrl == null || thumbUrl.isEmpty();
+            // ★ PERF: skip re-issuing the exact same Glide request this
+            // holder is already showing/loading — a plain rebind (position
+            // shift without a data change) used to kick off a fresh decode
+            // pipeline for a thumbnail that was already correct.
+            if (!java.util.Objects.equals(thumbUrl, holder.boundThumbUrl)) {
+                holder.boundThumbUrl = thumbUrl;
+                if (!urlIsEmpty) {
+                    // Same RGB_565 + no-crossfade treatment as the rest of the
+                    // feed's cheap-decode thumbnails (FEED_IMAGE_OPTS), plus an
+                    // explicit .override() to this tile's fixed decode size —
+                    // see SUGGESTED_TILE_DECODE_W/H doc for why this was the one
+                    // remaining feed thumbnail load with no decode-size cap.
+                    glide.load(thumbUrl).apply(FEED_IMAGE_OPTS)
+                        .override(SUGGESTED_TILE_DECODE_W, SUGGESTED_TILE_DECODE_H)
+                        .centerCrop().into(holder.thumb);
+                } else {
+                    glide.clear(holder.thumb);
+                }
             }
-
-            final int startPos = position;
-            holder.tile.setOnClickListener(v -> {
-                if (!isAdded() || getContext() == null) return;
-                Intent i = new Intent(getContext(), SingleReelPlayerActivity.class);
-                i.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, reelIds);
-                i.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, startPos);
-                startActivity(i);
-            });
-            holder.tile.setOnLongClickListener(v -> {
-                showSuggestedReelPeek(r, holder.tile);
-                return true;
-            });
         }
 
         @Override
@@ -5106,11 +6650,146 @@ public class HomeFragment extends Fragment
             // Cancel/clear this Glide load before the ViewHolder goes back to
             // the SHARED pool — otherwise a slow in-flight load from strip A
             // could land its bitmap into an ImageView strip B has since reused
-            // for a different reel.
-            Glide.with(requireContext()).clear(holder.thumb);
+            // for a different reel. Also reset the "already bound" markers so
+            // the next bind (a different reel, once recycled) can't be
+            // mistaken for a no-op skip.
+            glide.clear(holder.thumb);
+            holder.boundThumbUrl = null;
+            holder.boundViewsText = null;
+            holder.boundMarginEndPx = -1;
+            holder.currentReel = null;
+            if (holder.player != null) {
+                releaseTilePlayer(holder);
+                // This holder no longer exists at whatever position it was
+                // playing — force the next refreshActiveTile to actually
+                // (re)start something rather than treating a coincidentally
+                // equal position number as "still playing".
+                activePosition = RecyclerView.NO_POSITION;
+            }
         }
 
         @Override public int getItemCount() { return items.size(); }
+
+        // ── Instagram-style inline autoplay (single active tile per strip) ──
+
+        /**
+         * Re-picks whichever currently-laid-out tile sits closest to this
+         * strip's own horizontal center and makes it the active, autoplaying
+         * one — a no-op if that tile is already active. Called on horizontal
+         * scroll-idle, on the outer feed re-confirming this strip is still
+         * visible, and once after a fresh bind. Always reads live child
+         * positions off {@code rv} rather than caching anything, so it's
+         * safe to call as often as those triggers fire.
+         */
+        void refreshActiveTile(RecyclerView rv) {
+            if (!isAdded() || getContext() == null) return;
+            if (!autoplayPolicy.shouldAutoplay(getContext())) { pauseActive(rv); return; }
+            int childCount = rv.getChildCount();
+            if (childCount == 0) return;
+            int centerX = rv.getWidth() / 2;
+            View best = null;
+            int bestDist = Integer.MAX_VALUE;
+            for (int i = 0; i < childCount; i++) {
+                View child = rv.getChildAt(i);
+                int childCenter = child.getLeft() + child.getWidth() / 2;
+                int dist = Math.abs(childCenter - centerX);
+                if (dist < bestDist) { bestDist = dist; best = child; }
+            }
+            if (best == null) return;
+            int pos = rv.getChildAdapterPosition(best);
+            if (pos == RecyclerView.NO_POSITION || pos == activePosition) return;
+            stopTileAt(activePosition, rv);
+            activePosition = pos;
+            startTileAt(pos, rv);
+        }
+
+        /** Stops whatever tile is currently autoplaying in this strip (if
+         *  any) — called when the strip scrolls out of the outer feed's
+         *  viewport, autoplay is off/unavailable, or its data is about to be
+         *  replaced wholesale. Safe to call when nothing is active. */
+        void pauseActive(RecyclerView rv) {
+            stopTileAt(activePosition, rv);
+            activePosition = RecyclerView.NO_POSITION;
+        }
+
+        private void stopTileAt(int pos, RecyclerView rv) {
+            if (pos == RecyclerView.NO_POSITION) return;
+            RecyclerView.ViewHolder vh = rv.findViewHolderForAdapterPosition(pos);
+            if (vh instanceof TileHolder) releaseTilePlayer((TileHolder) vh);
+        }
+
+        private void startTileAt(int pos, RecyclerView rv) {
+            if (pos < 0 || pos >= items.size()) return;
+            RecyclerView.ViewHolder vh = rv.findViewHolderForAdapterPosition(pos);
+            if (!(vh instanceof TileHolder)) return; // not actually laid out — nothing to attach a player to yet
+            TileHolder holder = (TileHolder) vh;
+            ReelModel r = items.get(pos);
+            // Photo-only suggestion — no video to play, thumbnail stays as-is
+            // exactly like the main feed's own photo-slideshow cards do.
+            if (r.videoUrl == null || r.videoUrl.isEmpty()) return;
+            if (!isAdded() || getContext() == null) return;
+
+            com.callx.app.player.ExoPlayerPool pool =
+                    com.callx.app.player.ExoPlayerPool.get(requireContext());
+            ExoPlayer p = pool.acquire();
+            holder.player = p;
+
+            // Q360P — a small, always-muted background preview never needs
+            // the full-screen player's adaptive/1080p ceiling; same
+            // reasoning ReelPeekPreviewController's long-press mini player
+            // already uses for the same "small preview, not the main watch"
+            // case.
+            com.callx.app.player.AdaptiveStreamingManager mgr =
+                    com.callx.app.player.AdaptiveStreamingManager.get(requireContext());
+            Player.Listener abrListener = mgr.attachToPlayer(p, r.videoUrl,
+                    com.callx.app.player.AdaptiveStreamingManager.QualityCap.Q360P, null);
+            pool.trackListener(p, abrListener);
+            p.setVolume(0f); // suggested-reel previews are always muted, like Instagram's — tapping opens the real player for sound
+            p.setRepeatMode(Player.REPEAT_MODE_ONE);
+
+            // Keep the thumbnail showing until the first real frame decodes,
+            // then cross-fade — same "never show a blank/black tile" reveal
+            // gate the main feed card uses for its own autoplay start, just
+            // a plain View fade (this preview has no scrub bar/resume point
+            // to protect, unlike the full card).
+            holder.thumb.animate().cancel();
+            holder.thumb.setAlpha(1f);
+            holder.thumb.setVisibility(View.VISIBLE);
+            holder.playerView.animate().cancel();
+            holder.playerView.setAlpha(0f);
+            holder.playerView.setVisibility(View.VISIBLE);
+            holder.playerView.setPlayer(p);
+            Player.Listener revealListener = new Player.Listener() {
+                @Override public void onRenderedFirstFrame() {
+                    if (holder.player != p) return; // stale — this tile moved on since
+                    holder.playerView.animate().alpha(1f).setDuration(150).start();
+                    holder.thumb.animate().alpha(0f).setDuration(150).start();
+                }
+            };
+            p.addListener(revealListener);
+            pool.trackListener(p, revealListener);
+
+            p.prepare();
+            p.setPlayWhenReady(true);
+        }
+
+        /** Releases whatever ExoPlayer a tile holds back to the shared pool
+         *  and restores its plain thumbnail. Safe to call on a holder that
+         *  was never actually playing (no-op). */
+        private void releaseTilePlayer(TileHolder holder) {
+            if (holder.player == null) return;
+            if (isAdded() && getContext() != null) {
+                com.callx.app.player.ExoPlayerPool.get(requireContext()).release(holder.player);
+            }
+            holder.playerView.setPlayer(null);
+            holder.playerView.animate().cancel();
+            holder.playerView.setAlpha(0f);
+            holder.playerView.setVisibility(View.GONE);
+            holder.thumb.animate().cancel();
+            holder.thumb.setAlpha(1f);
+            holder.thumb.setVisibility(View.VISIBLE);
+            holder.player = null;
+        }
     }
 
     /**
@@ -5313,6 +6992,7 @@ public class HomeFragment extends Fragment
             pill.setOnClickListener(v -> {
                 if (recyclerHome != null) recyclerHome.smoothScrollToPosition(0);
                 resetFeedPaginationState();
+                resetInlineFooterDripFeedState(); // genuinely new scroll session
                 cancelStagedFeedRender();
                 clearFeedRows();
                 showFeedLoading(true);
@@ -7546,10 +9226,20 @@ public class HomeFragment extends Fragment
 
     // ── Trending ─────────────────────────────────────────────────────────
 
+    /** ★ v334: was a flat `orderByChild("likesCount")` reverse-sort — pure
+     *  raw-popularity order, no personalization at all (the exact "random
+     *  Firebase order" gap called out for this row). Now pulls a wider
+     *  candidate window (20 instead of 8) by likes as a cheap pre-filter
+     *  (keeps the Firebase query itself unchanged/indexed), then re-ranks
+     *  those candidates with the SAME FeedRankingEngine used for the main
+     *  feed — engagement-recency decay + followed/creator-affinity +
+     *  freshness, not just raw like count — before trimming to the 8 shown.
+     *  Also drops anything the user marked "Not Interested"
+     *  (FeedRankingEngine's FILTERED sentinel), same as the main feed does. */
     private void loadTrending() {
         FirebaseUtils.getReelsRef()
             .orderByChild("likesCount")
-            .limitToLast(8)
+            .limitToLast(20)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (!isAdded() || getContext() == null) return;
@@ -7561,8 +9251,19 @@ public class HomeFragment extends Fragment
                             reels.add(r);
                         }
                     }
-                    Collections.reverse(reels); // highest first
-                    renderTrending(reels);
+                    RankingProfile profile = cachedRankingProfile != null ? cachedRankingProfile : new RankingProfile();
+                    reels.sort((a, b) -> Float.compare(
+                        FeedRankingEngine.score(b, profile), FeedRankingEngine.score(a, profile)));
+                    // Filtered ("Not Interested") reels sort to the very end via
+                    // the sentinel's large negative score — drop them here
+                    // rather than ever showing them in a "Trending" rail.
+                    List<ReelModel> ranked = new ArrayList<>();
+                    for (ReelModel r : reels) {
+                        if (FeedRankingEngine.score(r, profile) <= -900_000f) continue;
+                        ranked.add(r);
+                        if (ranked.size() >= 8) break;
+                    }
+                    renderTrending(ranked);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError e) {
                     if (!isAdded()) return;
@@ -7609,6 +9310,9 @@ public class HomeFragment extends Fragment
             if (!isAdded() || getContext() == null) return;
             TrendingCardTag t = (TrendingCardTag) v.getTag();
             if (t == null || t.reelId == null) return;
+            // ★ Engagement signal for dynamic repositioning — see
+            // InlineFooterRowStore.recordTap() doc.
+            InlineFooterRowStore.recordTap(requireContext(), InlineFooterRowStore.ROW_TRENDING);
             openReelWithContext(t.rowContext, t.reelId, t.ownerName);
         });
 
@@ -7618,6 +9322,10 @@ public class HomeFragment extends Fragment
     }
 
     private void renderTrending(List<ReelModel> reels) {
+        // Cached unconditionally — even if the row's View doesn't exist yet
+        // (user hasn't scrolled to its drip-feed threshold), so
+        // ensureTrendingRowViewCreated() can replay it the moment it's built.
+        cachedTrendingReelsForRow = reels;
         if (!isAdded() || getContext() == null) return;
         requireActivity().runOnUiThread(() -> {
             if (containerTrending == null || !isAdded()) return;
@@ -7725,6 +9433,11 @@ public class HomeFragment extends Fragment
         final ImageView       icon;
         final TextView        tvMsg;
         final TextView        tvTime;
+        /** Bound at render time — read by the row's click listener (added
+         *  once, in obtainFriendsActivityCard()) so tapping a friend's
+         *  activity opens THEIR profile and counts as an engagement signal
+         *  for dynamic repositioning, instead of doing nothing at all. */
+        String fromUid;
         FriendsActivityCard(LinearLayout row, View divider, CircleImageView avatar,
                              ImageView icon, TextView tvMsg, TextView tvTime) {
             this.row = row; this.divider = divider; this.avatar = avatar;
@@ -7782,12 +9495,31 @@ public class HomeFragment extends Fragment
         containerFriendsActivity.addView(divider);
 
         FriendsActivityCard card = new FriendsActivityCard(row, divider, miniAvatar, icon, tvMsg, tvTime);
+
+        // ★ Was previously not clickable at all — a row nobody could ever
+        // tap into could never earn a positive engagement signal, which
+        // would have silently pinned Friends Activity's multiplier at
+        // "demoted" forever regardless of how relevant it actually was to
+        // the user. Opens the friend's profile (same destination pattern
+        // as the Suggested Creators card) and records the tap. Allocation-
+        // free: reads whatever's currently bound on `card` at click time.
+        row.setOnClickListener(v -> {
+            if (!isAdded() || getContext() == null) return;
+            if (card.fromUid == null || card.fromUid.isEmpty()) return;
+            InlineFooterRowStore.recordTap(requireContext(), InlineFooterRowStore.ROW_FRIENDS_ACTIVITY);
+            Intent i = new Intent(getContext(), UserReelsActivity.class);
+            i.putExtra(UserReelsActivity.EXTRA_UID, card.fromUid);
+            startActivity(i);
+        });
+
         friendsActivityCardPool.add(card);
         return card;
     }
 
     @SuppressWarnings("unchecked")
     private void renderFriendsActivity(List<Map<String, Object>> activities) {
+        // Cached unconditionally — see renderTrending()'s cache comment.
+        cachedFriendsActivityForRow = activities;
         if (!isAdded() || getContext() == null) return;
         requireActivity().runOnUiThread(() -> {
             if (containerFriendsActivity == null || !isAdded()) return;
@@ -7799,8 +9531,10 @@ public class HomeFragment extends Fragment
                 Long   ts       = (Long)   act.get("timestamp");
                 String type     = (String) act.get("type");
                 String fromPhoto= (String) act.get("from_photo");
+                String fromUid  = (String) act.get("from_uid");
 
                 FriendsActivityCard card = obtainFriendsActivityCard(i);
+                card.fromUid = fromUid;
 
                 card.avatar.setImageResource(R.drawable.ic_person);
                 if (fromPhoto != null && !fromPhoto.isEmpty()) {
@@ -7978,6 +9712,9 @@ public class HomeFragment extends Fragment
             if (!isAdded() || getContext() == null) return;
             ContinueWatchingCardTag t = (ContinueWatchingCardTag) v.getTag();
             if (t == null || t.reelId == null) return;
+            // ★ Engagement signal for dynamic repositioning — see
+            // InlineFooterRowStore.recordTap() doc.
+            InlineFooterRowStore.recordTap(requireContext(), InlineFooterRowStore.ROW_CONTINUE_WATCHING);
             openReelWithContext(t.rowContext, t.reelId, t.ownerName);
         });
 
@@ -7995,6 +9732,9 @@ public class HomeFragment extends Fragment
      *  reuse this same pooled empty-state text with its own wording instead
      *  of allocating a brand-new TextView on every "Clear" tap. */
     private void renderContinueWatching(List<ReelModel> watched, String emptyMessage) {
+        // Cached unconditionally — see renderTrending()'s cache comment.
+        cachedContinueWatchingForRow = watched;
+        cachedContinueWatchingEmptyMsgForRow = emptyMessage;
         if (!isAdded() || getContext() == null || containerContinueWatching == null) return;
         if (pbContinue != null) pbContinue.setVisibility(View.GONE);
 
@@ -8069,21 +9809,29 @@ public class HomeFragment extends Fragment
 
     // ── Suggested Creators ────────────────────────────────────────────────
 
+    /** ★ v334: was suggesting EVERY top-by-reelCount user (self excluded) —
+     *  including creators the viewer already follows, which isn't a
+     *  "suggestion" at all. Now also excludes cachedFollowedUids (the same
+     *  followed-set the small periodic ROW_SUGGESTED_CREATORS chip strip
+     *  already filters by), and widens the raw fetch (20 instead of 12) to
+     *  make room for that filter without starving the row on an active
+     *  account that already follows most of the top creators. */
     private void loadSuggestedCreators() {
         if (containerSuggestedCreators == null) return;
         String myUid = safeMyUid();
+        Set<String> followed = cachedFollowedUids != null ? cachedFollowedUids : Collections.emptySet();
 
-        // Load top creators by reelCount, exclude self
+        // Load top creators by reelCount, exclude self + already-followed
         FirebaseUtils.db().getReference("users")
             .orderByChild("reelCount")
-            .limitToLast(12)
+            .limitToLast(20)
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     if (!isAdded() || getContext() == null) return;
                     List<String[]> creators = new ArrayList<>();
                     for (DataSnapshot s : snap.getChildren()) {
                         String uid   = s.getKey();
-                        if (uid == null || uid.equals(myUid)) continue;
+                        if (uid == null || uid.equals(myUid) || followed.contains(uid)) continue;
                         String name  = s.child("name").getValue(String.class);
                         String _cPhoto = s.child("photoUrl").getValue(String.class);
                         String _cThumb = s.child("thumbUrl").getValue(String.class);
@@ -8096,6 +9844,14 @@ public class HomeFragment extends Fragment
                                 photo != null ? photo : "",
                                 rc != null ? formatCount(rc.intValue()) + " reels" : "Creator"
                             });
+                    }
+                    // Firebase's orderByChild+limitToLast iterates ASCENDING —
+                    // so after the self/followed filter above, the highest
+                    // reelCount unfollowed candidates are at the END of this
+                    // list, not the start. Trim from the end (keep last 12),
+                    // then reverse for highest-first display order.
+                    if (creators.size() > 12) {
+                        creators = new ArrayList<>(creators.subList(creators.size() - 12, creators.size()));
                     }
                     Collections.reverse(creators);
                     renderSuggestedCreators(creators, myUid);
@@ -8110,6 +9866,9 @@ public class HomeFragment extends Fragment
     }
 
     private void renderSuggestedCreators(List<String[]> creators, String myUid) {
+        // Cached unconditionally — see renderTrending()'s cache comment.
+        cachedTopCreatorsForRow = creators;
+        cachedTopCreatorsMyUidForRow = myUid;
         if (!isAdded() || getContext() == null) return;
         requireActivity().runOnUiThread(() -> {
             if (containerSuggestedCreators == null || !isAdded()) return;
@@ -8279,6 +10038,11 @@ public class HomeFragment extends Fragment
             if (t.isFollowed) {
                 FirebaseUtils.getReelFollowsRef(myUid).child(t.uid).setValue(true);
                 FirebaseUtils.getReelFollowersRef(t.uid).child(myUid).setValue(true);
+                // ★ Following straight from the row is a strong engagement
+                // signal for dynamic repositioning — see
+                // InlineFooterRowStore.recordTap() doc. (Unfollowing isn't
+                // recorded — that's a correction, not fresh engagement.)
+                InlineFooterRowStore.recordTap(requireContext(), InlineFooterRowStore.ROW_TOP_CREATORS);
             } else {
                 FirebaseUtils.getReelFollowsRef(myUid).child(t.uid).removeValue();
                 FirebaseUtils.getReelFollowersRef(t.uid).child(myUid).removeValue();
@@ -8293,6 +10057,9 @@ public class HomeFragment extends Fragment
             if (!isAdded() || getContext() == null) return;
             SuggestedCreatorCardTag t = (SuggestedCreatorCardTag) card.getTag();
             if (t == null || t.uid == null) return;
+            // ★ Engagement signal for dynamic repositioning — see
+            // InlineFooterRowStore.recordTap() doc.
+            InlineFooterRowStore.recordTap(requireContext(), InlineFooterRowStore.ROW_TOP_CREATORS);
             Intent i = new Intent(getContext(), UserReelsActivity.class);
             i.putExtra(UserReelsActivity.EXTRA_UID,   t.uid);
             i.putExtra(UserReelsActivity.EXTRA_NAME,  t.name);
@@ -8569,6 +10336,22 @@ public class HomeFragment extends Fragment
                         RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
                     return new SponsoredRowHolder(container);
                 }
+                case ROW_SUGGESTED_ACCOUNTS: {
+                    // ★ Chrome + nested adapter built once here — see
+                    // SuggestedAccountsRowHolder doc.
+                    FrameLayout container = new FrameLayout(parent.getContext());
+                    container.setLayoutParams(new RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
+                    return new SuggestedAccountsRowHolder(container);
+                }
+                case ROW_EXPIRING_STORIES: {
+                    // ★ Chrome + nested adapter built once here — see
+                    // ExpiringStoriesRowHolder doc.
+                    FrameLayout container = new FrameLayout(parent.getContext());
+                    container.setLayoutParams(new RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
+                    return new ExpiringStoriesRowHolder(container);
+                }
                 case ROW_NEW_POSTS_BANNER: {
                     // ★ Pill built once here — see NewPostsBannerHolder doc.
                     FrameLayout container = new FrameLayout(parent.getContext());
@@ -8596,6 +10379,29 @@ public class HomeFragment extends Fragment
                     container.setLayoutParams(new RecyclerView.LayoutParams(
                         RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
                     return new LoadMoreFooterRowHolder(container);
+                }
+                case ROW_TRENDING_REELS: {
+                    // ★ Singleton row — same build-once/reuse pattern as
+                    // VT_HEADER/VT_FOOTER, just for an inline row. See
+                    // ensureTrendingRowViewCreated() doc.
+                    View v = ensureTrendingRowViewCreated();
+                    detachFromCurrentParent(v);
+                    return new SimpleRowHolder(v);
+                }
+                case ROW_TOP_CREATORS_FOOTER: {
+                    View v = ensureTopCreatorsRowViewCreated();
+                    detachFromCurrentParent(v);
+                    return new SimpleRowHolder(v);
+                }
+                case ROW_FRIENDS_ACTIVITY: {
+                    View v = ensureFriendsActivityRowViewCreated();
+                    detachFromCurrentParent(v);
+                    return new SimpleRowHolder(v);
+                }
+                case ROW_CONTINUE_WATCHING: {
+                    View v = ensureContinueWatchingRowViewCreated();
+                    detachFromCurrentParent(v);
+                    return new SimpleRowHolder(v);
                 }
                 default: {
                     FrameLayout container = new FrameLayout(parent.getContext());
@@ -8662,6 +10468,16 @@ public class HomeFragment extends Fragment
                     bindSponsoredRowHolder((SponsoredRowHolder) holder, row.sponsoredAd);
                     return;
                 }
+                case ROW_SUGGESTED_ACCOUNTS: {
+                    FeedRow row = feedItems.get(position - FEED_HEADER_OFFSET);
+                    bindSuggestedAccountsRowHolder((SuggestedAccountsRowHolder) holder, row.accountPool);
+                    return;
+                }
+                case ROW_EXPIRING_STORIES: {
+                    FeedRow row = feedItems.get(position - FEED_HEADER_OFFSET);
+                    bindExpiringStoriesRowHolder((ExpiringStoriesRowHolder) holder, row.storyPool);
+                    return;
+                }
                 case ROW_LOADING:
                     // Static content; already built once in
                     // LoadingRowHolder's constructor (see onCreateViewHolder).
@@ -8671,6 +10487,16 @@ public class HomeFragment extends Fragment
                     // Static content; already built once in
                     // EmptyRowHolder's/LoadMoreFooterRowHolder's constructor
                     // (see onCreateViewHolder).
+                    return;
+                case ROW_TRENDING_REELS:
+                case ROW_TOP_CREATORS_FOOTER:
+                case ROW_FRIENDS_ACTIVITY:
+                case ROW_CONTINUE_WATCHING:
+                    // Static singleton content; already populated by
+                    // ensure*RowViewCreated() and kept live by the same
+                    // load*()/render*() methods the old footer used (they
+                    // now write into these rows' Views instead). Same
+                    // no-op-on-bind rule as VT_HEADER/VT_FOOTER.
                     return;
             }
         }

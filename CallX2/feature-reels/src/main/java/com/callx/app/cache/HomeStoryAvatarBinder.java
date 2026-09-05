@@ -127,6 +127,53 @@ public final class HomeStoryAvatarBinder {
         bind(ctx, iv, photo, avatarVersion, placeholderRes, Priority.IMMEDIATE);
     }
 
+    // ── v44 PERF PASS: shared RequestOptions cache ────────────────────────
+    // bind() used to `new RequestOptions()` (main tier) + `new
+    // RequestOptions()` (thumbnail tier) on every call that reaches past the
+    // same-URL early-out above — e.g. the Expiring Stories tray's settle-
+    // delay bind fires once per genuinely-new row the horizontal
+    // RecyclerView lays out a View for, and the header tray re-resolves its
+    // whole row set on every pull-to-refresh. Every one of those allocated
+    // two throwaway RequestOptions objects even though override/format/
+    // diskCacheStrategy/placeholder/error are the exact same values for a
+    // given (pixel size, priority, placeholder) combo — only the decoded
+    // image differs, and that lives in the url/thumb String, not in
+    // RequestOptions. Cache the option-set itself, exactly the same
+    // "shared instance keyed by the few things that vary" idiom
+    // StoryRingGradientDrawable already uses for the ring Drawable.
+    private static final java.util.concurrent.ConcurrentHashMap<String, RequestOptions>
+            MAIN_OPTS_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.ConcurrentHashMap<String, RequestOptions>
+            THUMB_OPTS_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static RequestOptions mainOpts(int px, Priority priority, int placeholderRes) {
+        String key = px + ":" + priority.ordinal() + ":" + placeholderRes;
+        RequestOptions cached = MAIN_OPTS_CACHE.get(key);
+        if (cached != null) return cached;
+        RequestOptions built = new RequestOptions()
+                .override(px, px)
+                .format(DecodeFormat.PREFER_RGB_565) // opaque avatar, no alpha needed
+                .diskCacheStrategy(DiskCacheStrategy.RESOURCE) // PERF: cache resized variant on disk — re-scroll/rebuild won't re-download
+                .priority(priority)
+                .placeholder(placeholderRes)
+                .error(placeholderRes);
+        RequestOptions raced = MAIN_OPTS_CACHE.putIfAbsent(key, built);
+        return raced != null ? raced : built;
+    }
+
+    private static RequestOptions thumbOpts(int px, Priority priority) {
+        String key = px + ":" + priority.ordinal();
+        RequestOptions cached = THUMB_OPTS_CACHE.get(key);
+        if (cached != null) return cached;
+        RequestOptions built = new RequestOptions()
+                .override(px, px)
+                .format(DecodeFormat.PREFER_RGB_565)
+                .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+                .priority(priority);
+        RequestOptions raced = THUMB_OPTS_CACHE.putIfAbsent(key, built);
+        return raced != null ? raced : built;
+    }
+
     private static void bind(Context ctx, ImageView iv, String photo, long avatarVersion, int placeholderRes, Priority priority) {
         if (photo == null || photo.isEmpty()) {
             iv.setImageResource(placeholderRes);
@@ -167,13 +214,11 @@ public final class HomeStoryAvatarBinder {
         // No circleCrop() — iv_story_avatar is a de.hdodenhof CircleImageView,
         // which clips itself via its own BitmapShader (same reasoning as
         // ReelUiController's owner avatar / ReelCommentAvatarBinder).
-        RequestOptions opts = new RequestOptions()
-            .override(mainPx, mainPx)
-            .format(DecodeFormat.PREFER_RGB_565) // opaque avatar, no alpha needed
-            .diskCacheStrategy(DiskCacheStrategy.RESOURCE) // PERF: cache resized variant on disk — re-scroll/rebuild won't re-download
-            .priority(priority)
-            .placeholder(placeholderRes)
-            .error(placeholderRes);
+        // v44 PERF: shared cached instances (see mainOpts/thumbOpts above) —
+        // a plain map lookup on every genuinely-new-URL bind, not a fresh
+        // RequestOptions allocation.
+        RequestOptions opts = mainOpts(mainPx, priority, placeholderRes);
+        RequestOptions thumbOptsForRequest = thumbOpts(thumbPx, priority);
 
         Glide.with(ctx)
             .load(url)
@@ -183,11 +228,7 @@ public final class HomeStoryAvatarBinder {
             // shows an instant blur-up frame instead of a bare placeholder.
             .thumbnail(Glide.with(ctx)
                     .load(thumb)
-                    .apply(new RequestOptions()
-                            .override(thumbPx, thumbPx)
-                            .format(DecodeFormat.PREFER_RGB_565)
-                            .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-                            .priority(priority)))
+                    .apply(thumbOptsForRequest))
             .listener(new RequestListener<Drawable>() {
                 @Override
                 public boolean onLoadFailed(GlideException e, Object model, Target<Drawable> target, boolean isFirstResource) {
