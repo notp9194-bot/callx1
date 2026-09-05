@@ -8296,10 +8296,23 @@ public class HomeFragment extends Fragment
             // already showing this exact thumb URL.
             if (!reel.thumbUrl.equals(holder.lastThumbUrl)) {
                 holder.lastThumbUrl = reel.thumbUrl;
+                // Instagram-level: a fresh (never-scrolled-to) reel's thumb may
+                // still be an in-flight network fetch when the row lands
+                // on-screen. Until it resolves, ic_reels-on-#111111 reads as a
+                // near-black card — same visual complaint as the shutter flash,
+                // different cause. .thumbnail() races a tiny low-res decode
+                // (cheap, usually resolves in a frame or two even off a cold
+                // cache) alongside the full-res request so something real is
+                // always painted instead of the placeholder/background.
                 Glide.with(requireContext()).load(reel.thumbUrl)
                     .apply(FEED_IMAGE_OPTS)
                     .override(THUMB_DECODE_W, THUMB_DECODE_H)
-                    .centerCrop().placeholder(R.drawable.ic_reels).into(ivThumb);
+                    .centerCrop()
+                    .thumbnail(Glide.with(requireContext()).load(reel.thumbUrl)
+                        .apply(FEED_IMAGE_OPTS)
+                        .override(THUMB_DECODE_W / 6, THUMB_DECODE_H / 6)
+                        .centerCrop())
+                    .placeholder(R.drawable.ic_reels).into(ivThumb);
             }
         }
         if (reel.ownerPhoto != null && !reel.ownerPhoto.isEmpty()) {
