@@ -1956,8 +1956,42 @@ public class HomeFragment extends Fragment
         }
 
         if (bestIdx != currentPlayingIndex) {
-            pausedForVisibility = false;
-            attachPlayerToCard(bestIdx, allowScrollHandoff);
+            // ★ Instagram-level root-cause fix: this method is documented
+            // (see scrollSettleRunnable/playVisibleFrameCallback comments
+            // above) to keep real decoder handoffs OUT of onScrolled — "a
+            // fling can pass several cards and every intermediate Surface/
+            // decoder swap costs the same frames needed to draw the scroll."
+            // But the onScrolled listener below was calling this with
+            // allowScrollHandoff=true on every dy tick, which reached
+            // attachPlayerToCard() directly — so a fast fling that crosses
+            // several cards' 50% floor was tearing down and rebuilding the
+            // ONE shared feedPlayer's MediaSource on every crossing. Each
+            // intermediate prepare() was thrown away by the next crossing
+            // before it ever buffered anything, so the card the user
+            // actually landed on got attached with zero head start — a real,
+            // cold prepare() right at settle time, which is exactly the
+            // buffering/black gap on "fast scroll then stop". Fixed by
+            // splitting the two concerns: during active scroll, only warm
+            // the cache (cheap, no decoder involved) for whichever card is
+            // currently dominant; the actual attach/prepare/play only
+            // happens once from the IDLE-triggered Choreographer callback
+            // (playMostVisibleCard() / allowScrollHandoff=false), same as
+            // the class already documents. By the time that fires, the
+            // settled card's bytes are already warm, so prepare() is
+            // effectively instant instead of a cold network fetch.
+            if (allowScrollHandoff) {
+                if (!currentFeedPosts.isEmpty() && bestIdx < currentFeedPosts.size()) {
+                    com.callx.app.player.ReelThermalManager.Level thermalLevel = currentThermalLevel();
+                    if (thermalLevel != com.callx.app.player.ReelThermalManager.Level.HOT
+                            && videoPreloader != null) {
+                        videoPreloader.preloadFrom(currentFeedPosts, bestIdx);
+                    }
+                    if (thumbPreloader != null) thumbPreloader.preloadFrom(currentFeedPosts, bestIdx);
+                }
+            } else {
+                pausedForVisibility = false;
+                attachPlayerToCard(bestIdx, false);
+            }
         } else if (pausedForVisibility && hasIncumbent) {
             // The same card climbed back above the 50% floor. Resume it in
             // place instead of
