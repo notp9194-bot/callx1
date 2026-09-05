@@ -796,8 +796,17 @@ public class MessagePagingAdapter
     // link spans, or the plain String when there's no link) keyed by
     // messageId+text-hash, so a repeat bind is a HashMap lookup instead
     // of a fresh regex scan + allocation.
-    private final Object precomputeCacheLock = new Object();
-    private final java.util.LinkedHashMap<String, CharSequence> linkifiedTextCache =
+    // PERF FIX: these were per-adapter instance fields — cold (empty) every
+    // single time a chat is opened, even though every key here (messageId,
+    // or a pure timestamp/day bucket) has nothing chat-specific about it and
+    // is already capped with real LRU eviction below. Static/process-wide —
+    // same treatment as reelOwnerAvatarCache/reelThumbCache further down —
+    // means reopening a chat (or opening a different one) reuses whatever's
+    // already warm instead of starting from zero every time. Access stays
+    // main-thread only (RecyclerView bind path), same as before, so no new
+    // synchronization need beyond the existing lock around linkifiedTextCache.
+    private static final Object precomputeCacheLock = new Object();
+    private static final java.util.LinkedHashMap<String, CharSequence> linkifiedTextCache =
             new java.util.LinkedHashMap<String, CharSequence>(64, 0.75f, true) {
                 @Override
                 protected boolean removeEldestEntry(
@@ -813,7 +822,7 @@ public class MessagePagingAdapter
     // re-laying-out the entire list when a new message arrives at the bottom.
     // The height is cached in onViewRecycled() after the view has been
     // laid out once, so it's accurate.
-    private final java.util.LinkedHashMap<String, Integer> messagHeightCache =
+    private static final java.util.LinkedHashMap<String, Integer> messagHeightCache =
             new java.util.LinkedHashMap<String, Integer>(32, 0.75f, true) {
                 @Override
                 protected boolean removeEldestEntry(
@@ -826,7 +835,7 @@ public class MessagePagingAdapter
     // re-processing during scroll. Keyed by messageId, stores the last-seen
     // Message object. Speeds up repeated binds for off-screen items
     // during rapid scroll-back operations.
-    private final java.util.LinkedHashMap<String, Message> messageObjectCache =
+    private static final java.util.LinkedHashMap<String, Message> messageObjectCache =
             new java.util.LinkedHashMap<String, Message>(48, 0.75f, true) {
                 @Override
                 protected boolean removeEldestEntry(
@@ -955,7 +964,7 @@ public class MessagePagingAdapter
     // clearing the whole array once it outgrows the old LruCache capacity,
     // which is fine for a cache (worst case is a few extra recomputes right
     // after the clear, never incorrect data).
-    private final android.util.LongSparseArray<String> timeStringCache =
+    private static final android.util.LongSparseArray<String> timeStringCache =
             new android.util.LongSparseArray<>(256);
     private final java.util.Date reuseDate = new java.util.Date();
 
@@ -987,7 +996,7 @@ public class MessagePagingAdapter
     // bind for any message not from today/yesterday/this-year.
     private final SimpleDateFormat dateLabelOtherYearFmt =
             new SimpleDateFormat("d MMM yyyy", Locale.getDefault());
-    private final android.util.LongSparseArray<String> viewOnceTimeCache =
+    private static final android.util.LongSparseArray<String> viewOnceTimeCache =
             new android.util.LongSparseArray<>(64);
     private final java.util.Date reuseDateViewOnce = new java.util.Date();
 
@@ -1005,7 +1014,10 @@ public class MessagePagingAdapter
     // ── PERF: date-label cache — "Today"/"Yesterday"/"3 Jan" per day ─────────
     // Keys are midnight-truncated timestamps. Recomputed once per day per key.
     // PERF: LongSparseArray, same autoboxing rationale as timeStringCache.
-    private final android.util.LongSparseArray<String> dateLabelCache =
+    // PERF FIX: static — see the shared-cache block up top for why this is
+    // safe (formatDateLabel() below never caches the day-relative "Today"/
+    // "Yesterday" labels, only absolute date strings which never go stale).
+    private static final android.util.LongSparseArray<String> dateLabelCache =
             new android.util.LongSparseArray<>(64);
 
     // ── PERF: isSameDay result cache — keyed by (ts1/day, ts2/day) ───────────
@@ -1017,7 +1029,9 @@ public class MessagePagingAdapter
     // capped — at most one entry per unique pair in a visible window
     // (~20 rows = ~20 unique pairs at most); cleared wholesale if it ever
     // grows past that in one long-lived adapter instance.
-    private final android.util.LongSparseArray<Boolean> sameDayCache =
+    // PERF FIX: static — pure function of two timestamps, no current-date
+    // relativity at all, so sharing across chats/reopens is always correct.
+    private static final android.util.LongSparseArray<Boolean> sameDayCache =
             new android.util.LongSparseArray<>(32);
 
     // ── PERF FIX #3: reel-share avatar/thumb in-memory cache ─────────────────

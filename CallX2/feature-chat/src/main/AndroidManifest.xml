@@ -3,7 +3,8 @@
     <application>
         <activity android:name="com.callx.app.conversation.ChatActivity"
             android:exported="false"
-            android:windowSoftInputMode="adjustResize"/>
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"/>
         <activity android:name="com.callx.app.group.GroupChatActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>

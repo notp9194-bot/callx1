@@ -67,9 +67,12 @@ import com.callx.app.db.entity.*;
         MessageSyncStateEntity.class,
         // v56: Home feed cold-start instant-paint cache — see
         // HomeFeedCacheEntity's class doc.
-        HomeFeedCacheEntity.class
+        HomeFeedCacheEntity.class,
+        // v58: disk-backed link preview cache — see
+        // LinkPreviewCacheEntity's class doc.
+        LinkPreviewCacheEntity.class
     },
-    version = 57,
+    version = 58,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -117,6 +120,9 @@ public abstract class AppDatabase extends RoomDatabase {
 
     // Home feed cold-start instant-paint cache (v56)
     public abstract HomeFeedCacheDao           homeFeedCacheDao();
+
+    // Disk-backed link preview cache (v58)
+    public abstract LinkPreviewCacheDao        linkPreviewCacheDao();
 
     // ─── Migrations ───────────────────────────────────────────────────────────
 
@@ -786,6 +792,24 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /**
+     * v57 → v58: disk-backed link preview cache table. See
+     * LinkPreviewCacheEntity's class doc for why this exists — lets
+     * LinkPreviewFetcher survive process death instead of re-fetching
+     * every previously-seen link on the next cold app open.
+     */
+    static final Migration MIGRATION_57_58 = new Migration(57, 58) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS link_preview_cache ("
+                    + "url TEXT NOT NULL PRIMARY KEY, "
+                    + "title TEXT, domain TEXT, imageUrl TEXT, description TEXT, "
+                    + "cachedAt INTEGER NOT NULL DEFAULT 0)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_link_preview_cache_cachedAt "
+                    + "ON link_preview_cache (cachedAt)");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -847,7 +871,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_50_51, MIGRATION_51_52,
                                     MIGRATION_52_53, MIGRATION_53_54,
                                     MIGRATION_54_55, MIGRATION_55_56,
-                                    MIGRATION_56_57)
+                                    MIGRATION_56_57, MIGRATION_57_58)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

@@ -96,6 +96,7 @@ import com.callx.app.models.Message;
 import com.callx.app.repository.ChatRepository;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.ChatIoExecutor;
+import com.callx.app.utils.ChatPresenceRepo;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.ChildEventListener;
@@ -178,6 +179,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private String partnerName;
     private String partnerPhoto;
     private String partnerThumb;
+    // PERF (single-fetch guard): see fetchPartnerProfileOnce() — ensures the
+    // partner's Firebase node is read at most once per chat open even
+    // though both the header-avatar fallback and the reel/x/YouTube badge
+    // reveal used to each fire their own independent read of the same node.
+    private boolean partnerNodeSingleFetchDone = false;
     private String currentUid;
     private String currentName;
 
@@ -558,6 +564,107 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
     private ChatScreenshotNotifier screenshotNotifier;
 
+    /**
+     * PERF (consolidated partner-node read): fetches users/{partnerUid}
+     * from Firebase AT MOST ONCE per chat open (guarded by
+     * partnerNodeSingleFetchDone) and populates BOTH the header-avatar
+     * fallback (thumbUrl/photoUrl — only if not already known) and the
+     * reel/x/YouTube toolbar badges (hasReelProfile/xHandle/
+     * youtubeChannelId) from that single snapshot.
+     *
+     * Previously these were two entirely independent
+     * getUserRef(partnerUid).addListenerForSingleValueEvent() calls —
+     * one fired immediately when the launch Intent didn't already carry
+     * an avatar URL, and a second, unconditional one fired 600ms later
+     * just for the badges — so opening a chat without a cached avatar
+     * did two full round trips to the exact same database path. Now it's
+     * one round trip in every case: whichever call site reaches this
+     * first (immediate avatar-fallback branch, or the 600ms deferred
+     * slot if the avatar was already known) does the real fetch, and the
+     * other becomes a no-op.
+     *
+     * PERF FIX (duplicate presence read #2): this used to be its OWN
+     * addListenerForSingleValueEvent() on users/{partnerUid} — a THIRD
+     * independent read of the same node ChatPresenceController's
+     * watchPartnerStatus() and (post-fix-#1) attachPartnerPresenceListener()
+     * already keep warm via ChatPresenceRepo under key "status:" +
+     * partnerUid. Now this rides that same shared entry: if it's already
+     * warm (near-certain, since watchPartnerStatus() attaches in batch 1
+     * of ChatPresenceController.init(), before this is ever called), the
+     * cached snapshot is replayed synchronously with zero network
+     * round-trip; if not yet warm it waits for the one real fetch and
+     * gets the same snapshot every other consumer gets. Either way this
+     * is a one-shot read, so it unsubscribes itself the instant it gets
+     * a value — that just tells ChatPresenceRepo this particular
+     * consumer is done with the path, on the shared entry's own
+     * grace-period schedule, exactly like every other consumer's release.
+     */
+    private void fetchPartnerProfileOnce() {
+        if (partnerNodeSingleFetchDone || partnerUid == null || partnerUid.isEmpty()) return;
+        partnerNodeSingleFetchDone = true;
+        DatabaseReference ref = FirebaseUtils.getUserRef(partnerUid);
+        // NOTE: ChatPresenceRepo.observe() can call this observer SYNCHRONOUSLY,
+        // before it even returns the unsubscribe Runnable, if the "status:"+uid
+        // entry is already warm (the common case — watchPartnerStatus() attaches
+        // it first, in batch 1 of ChatPresenceController.init()). So we can't
+        // just assign-then-close-over the Runnable; unsubRef may still be null
+        // the moment this fires. Guard with fired[0] and unsubscribe from
+        // whichever side (the callback, or right after observe() returns) sees
+        // the other half already in place — exactly once either way.
+        final Runnable[] unsubRef = new Runnable[1];
+        final boolean[] fired = {false};
+        Runnable unsub = ChatPresenceRepo.get().observe("status:" + partnerUid, ref, s -> {
+            fired[0] = true;
+            if (unsubRef[0] != null) {
+                unsubRef[0].run();
+            }
+            if (isFinishing() || isDestroyed()) return;
+
+            // Avatar fallback — only needed if no header image is
+            // already known (from launch Intent extras or an earlier
+            // bind); skips the Glide load entirely otherwise.
+            String headerAvatar = (partnerThumb != null && !partnerThumb.isEmpty())
+                    ? partnerThumb : partnerPhoto;
+            if (headerAvatar == null || headerAvatar.isEmpty()) {
+                String thumb = s.child("thumbUrl").getValue(String.class);
+                String photo = s.child("photoUrl").getValue(String.class);
+                String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                if (url != null && !url.isEmpty()) {
+                    if (photo != null) partnerPhoto = photo;
+                    if (thumb != null) partnerThumb = thumb;
+                    Glide.with(ChatActivity.this).load(url).placeholder(R.drawable.ic_person)
+                            .override(96, 96)
+                            .circleCrop()
+                            .listener(com.callx.app.cache.CacheDashboardStats.glideListener(
+                                    ChatActivity.this, "chat_header_avatar:" + url))
+                            .into(binding.ivPartnerAvatar);
+                }
+            }
+
+            // Reel/X/YouTube toolbar badges — same snapshot, no extra read.
+            Boolean hasReel = s.child("hasReelProfile").getValue(Boolean.class);
+            String xHandle = s.child("xHandle").getValue(String.class);
+            String ytChannel = s.child("youtubeChannelId").getValue(String.class);
+            if (Boolean.TRUE.equals(hasReel)) {
+                binding.llReelHanging.setVisibility(View.VISIBLE);
+                binding.btnToolbarReel.setVisibility(View.VISIBLE);
+            }
+            if (xHandle != null && !xHandle.isEmpty()) {
+                binding.btnToolbarX.setVisibility(View.VISIBLE);
+            }
+            if (ytChannel != null && !ytChannel.isEmpty()) {
+                binding.btnToolbarYoutube.setVisibility(View.VISIBLE);
+            }
+        });
+        unsubRef[0] = unsub;
+        if (fired[0]) {
+            // Cache hit — the observer above already ran synchronously inside
+            // observe() itself, before unsubRef was set, so it couldn't
+            // unsubscribe itself. Do it now, exactly once.
+            unsub.run();
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // LIFECYCLE
     // ─────────────────────────────────────────────────────────────────────
@@ -579,6 +686,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         mediaController.registerPickers();   // Must happen early
 
         super.onCreate(savedInstanceState);
+
+        // PERF FIX (disk-persisted link preview cache): wires up
+        // LinkPreviewFetcher's Room-backed disk cache — no-ops after the
+        // first call (per-process), and the prune it kicks off runs on a
+        // background executor, so this is safe to call unconditionally here.
+        com.callx.app.utils.LinkPreviewFetcher.init(this);
 
         // PERF FIX: WhatsApp-style reveal — postpone the slide-in transition
         // until the first page of messages is actually laid out. Without
@@ -766,6 +879,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         setupFabBackToLatest();
         setupHeaderAutoHide();
         setupStickyDateHeader();
+        // PERF: single consolidated OnScrollListener for rv_messages — see
+        // attachUnifiedMessagesScrollListener()'s doc. Must come after the
+        // setup*() calls above/setupFabBackToLatest() so their state
+        // (headerHideThresholdPx, hideStickyDateHeaderRunnable, etc.) is ready.
+        attachUnifiedMessagesScrollListener();
         setupNetworkMonitor();
 
         // LastMessagesCache remains a warm-reopen metadata/cache source, but
@@ -883,28 +1001,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             if (isFinishing() || isDestroyed()) return;
             getPinController().init();
             getScheduledSendController().init();
-            if (partnerUid != null && !partnerUid.isEmpty()) {
-                FirebaseUtils.getUserRef(partnerUid).addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override public void onDataChange(@NonNull DataSnapshot s) {
-                        if (isFinishing() || isDestroyed()) return;
-                        Boolean hasReel = s.child("hasReelProfile").getValue(Boolean.class);
-                        String xHandle = s.child("xHandle").getValue(String.class);
-                        String ytChannel = s.child("youtubeChannelId").getValue(String.class);
-
-                        if (Boolean.TRUE.equals(hasReel)) {
-                            binding.llReelHanging.setVisibility(View.VISIBLE);
-                            binding.btnToolbarReel.setVisibility(View.VISIBLE);
-                        }
-                        if (xHandle != null && !xHandle.isEmpty()) {
-                            binding.btnToolbarX.setVisibility(View.VISIBLE);
-                        }
-                        if (ytChannel != null && !ytChannel.isEmpty()) {
-                            binding.btnToolbarYoutube.setVisibility(View.VISIBLE);
-                        }
-                    }
-                    @Override public void onCancelled(@NonNull DatabaseError e) {}
-                });
-            }
+            // PERF: this used to be its own independent
+            // getUserRef(partnerUid).addListenerForSingleValueEvent() read
+            // just for the reel/x/YouTube badges — now routed through the
+            // single shared fetch (see fetchPartnerProfileOnce() doc) so it
+            // becomes a no-op here if the avatar-fallback branch already
+            // fetched (and populated) the exact same node earlier.
+            fetchPartnerProfileOnce();
         }, 600);
 
         // Background cleanup (10s baad — load se compete na kare)
@@ -973,6 +1076,27 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (hasFocus) {
             applyChatDisplayMode();
         }
+    }
+
+    /**
+     * PERF (no more resubscribe-on-rotate): ChatActivity now declares
+     * android:configChanges="orientation|screenSize|screenLayout|
+     * keyboardHidden" in the manifest, so a device rotation no longer
+     * destroys and recreates this Activity — which used to tear down AND
+     * freshly re-subscribe messageListener/historyListener/
+     * partnerPresenceListener (plus rebuild every controller, the adapter,
+     * etc.) on every single rotation, even though none of that data
+     * actually needed to change, only the layout. This override is what
+     * that manifest flag requires the system to call instead of
+     * recreating; nothing here needs to touch the Firebase listeners at
+     * all since they're completely orientation-independent — only
+     * display-mode (status/nav bar) re-assertion is relevant, same as the
+     * existing onWindowFocusChanged/onResume calls already do.
+     */
+    @Override
+    public void onConfigurationChanged(@NonNull android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        applyChatDisplayMode();
     }
 
     @Override
@@ -2122,24 +2246,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                             this, "chat_header_avatar:" + headerAvatar))
                     .into(binding.ivPartnerAvatar);
         } else {
-            FirebaseUtils.getUserRef(partnerUid).addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot s) {
-                    String thumb = s.child("thumbUrl").getValue(String.class);
-                    String photo = s.child("photoUrl").getValue(String.class);
-                    String url = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-                    if (url != null && !url.isEmpty()) {
-                        if (photo != null) partnerPhoto = photo;
-                        if (thumb != null) partnerThumb = thumb;
-                        Glide.with(ChatActivity.this).load(url).placeholder(R.drawable.ic_person)
-                                .override(96, 96)
-                                .circleCrop()
-                                .listener(com.callx.app.cache.CacheDashboardStats.glideListener(
-                                        ChatActivity.this, "chat_header_avatar:" + url))
-                                .into(binding.ivPartnerAvatar);
-                    }
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
+            // PERF: was its own independent getUserRef(partnerUid)
+            // .addListenerForSingleValueEvent() read here just for the
+            // avatar fallback — now shares the single consolidated read
+            // (see fetchPartnerProfileOnce() doc) so a chat opened without
+            // a cached avatar does ONE partner-node round trip total
+            // instead of two (this one + the 600ms badge one below).
+            fetchPartnerProfileOnce();
         }
 
         binding.btnToolbarVoiceCall.setOnClickListener(v -> startCall(false));
@@ -2550,20 +2663,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 return false; // never actually intercept — just observing
             }
         });
-        binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
-                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                    rv.setLayerType(View.LAYER_TYPE_NONE, null);
-                } else if (isUserTouchOnMessages && rv.getLayerType() != View.LAYER_TYPE_HARDWARE) {
-                    // Only a real finger-driven drag/fling earns the GPU layer.
-                    // A settle that's purely programmatic (new-message reveal,
-                    // or momentum continuing after finger-up) stays on
-                    // LAYER_TYPE_NONE to avoid the mid-content-change rebuild
-                    // flash described above.
-                    rv.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-                }
-            }
-        });
+        // PERF (scroll-listener consolidation): layer-type toggle logic
+        // moved into handleLayerTypeStateChanged(), invoked from the single
+        // unified listener registered by attachUnifiedMessagesScrollListener()
+        // — see that method's doc for why all 4 of rv_messages' independent
+        // OnScrollListeners were merged into one.
 
         pagingAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
             @Override public void onItemRangeInserted(int positionStart, int itemCount) {
@@ -3255,7 +3359,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // mid-flip) is still caught by the next syncPendingStatusListeners()
     // pass on resume or by a live onChildChanged from messageListener.
     private Boolean partnerOnlineCached = null;
-    private ValueEventListener partnerPresenceListener;
+    // PERF FIX (duplicate presence read #1): this used to be its own raw
+    // ValueEventListener attached straight to users/{partnerUid}/online —
+    // a THIRD independent subscription to the exact same users/{partnerUid}
+    // node that ChatPresenceController.watchPartnerStatus() already watches
+    // via ChatPresenceRepo under the key "status:" + partnerUid (see that
+    // class's key naming — same key, same underlying DatabaseReference).
+    // Every chat open was therefore firing two separate network
+    // subscriptions to one node instead of sharing one. Now this reuses the
+    // exact same ChatPresenceRepo key, so it rides the same shared,
+    // grace-period-debounced listener: no extra round trip, and reopening
+    // the same chat within the grace window replays the cached snapshot
+    // instantly instead of resubscribing.
+    private Runnable partnerPresenceUnsub;
     private final java.util.LinkedHashSet<String> deferredStatusIds = new java.util.LinkedHashSet<>();
 
     /** Ordinal rank so optimistic UI never regresses on a stale echo — mirrors MessageStatusSync#rank(). */
@@ -3303,30 +3419,38 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         updateMessageStatus(messageId, "delivered");
     }
 
-    /** Attaches the single, chat-lifetime presence listener used for throttling above. */
+    /**
+     * Attaches the single, chat-lifetime presence listener used for
+     * throttling above.
+     *
+     * PERF FIX (duplicate presence read #1): routed through
+     * ChatPresenceRepo using the SAME key ("status:" + partnerUid) and
+     * the SAME full users/{partnerUid} reference that
+     * ChatPresenceController.watchPartnerStatus() already subscribes to —
+     * so this no longer opens its own second Firebase listener on the
+     * node. We just read the "online" child back out of the shared
+     * snapshot instead of watching a narrower child path directly.
+     */
     private void attachPartnerPresenceListener() {
-        if (partnerUid == null || partnerUid.isEmpty() || partnerPresenceListener != null) return;
-        partnerPresenceListener = new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snapshot) {
-                boolean wasOffline = Boolean.FALSE.equals(partnerOnlineCached);
-                Boolean online = snapshot.getValue(Boolean.class);
-                partnerOnlineCached = Boolean.TRUE.equals(online);
-                if (partnerOnlineCached && wasOffline && !deferredStatusIds.isEmpty()) {
-                    java.util.List<String> ids = new java.util.ArrayList<>(deferredStatusIds);
-                    deferredStatusIds.clear();
-                    for (String id : ids) attachPendingStatusListener(id);
-                }
+        if (partnerUid == null || partnerUid.isEmpty() || partnerPresenceUnsub != null) return;
+        DatabaseReference ref = FirebaseUtils.getUserRef(partnerUid);
+        partnerPresenceUnsub = ChatPresenceRepo.get().observe("status:" + partnerUid, ref, snapshot -> {
+            boolean wasOffline = Boolean.FALSE.equals(partnerOnlineCached);
+            Boolean online = snapshot.child("online").getValue(Boolean.class);
+            partnerOnlineCached = Boolean.TRUE.equals(online);
+            if (partnerOnlineCached && wasOffline && !deferredStatusIds.isEmpty()) {
+                java.util.List<String> ids = new java.util.ArrayList<>(deferredStatusIds);
+                deferredStatusIds.clear();
+                for (String id : ids) attachPendingStatusListener(id);
             }
-            @Override public void onCancelled(DatabaseError error) { /* keep last known value */ }
-        };
-        FirebaseUtils.getUserRef(partnerUid).child("online").addValueEventListener(partnerPresenceListener);
+        });
     }
 
     private void detachPartnerPresenceListener() {
-        if (partnerUid != null && !partnerUid.isEmpty() && partnerPresenceListener != null) {
-            FirebaseUtils.getUserRef(partnerUid).child("online").removeEventListener(partnerPresenceListener);
+        if (partnerPresenceUnsub != null) {
+            partnerPresenceUnsub.run();
+            partnerPresenceUnsub = null;
         }
-        partnerPresenceListener = null;
     }
 
     /**
@@ -5444,54 +5568,58 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ═════════════════════════════════════════════════════════════════
     private boolean isHeaderCapsuleHidden = false;
     private float headerScrollAccum = 0f;
+    private float headerHideThresholdPx = 0f;
 
     private void setupHeaderAutoHide() {
         if (binding.cvHeaderCapsule == null || binding.rvMessages == null) return;
+        headerHideThresholdPx = 24f * getResources().getDisplayMetrics().density;
+        // PERF (scroll-listener consolidation): onScrolled/onScrollStateChanged
+        // bodies moved into handleHeaderAutoHideScrolled()/
+        // handleHeaderAutoHideStateChanged(), invoked from the single unified
+        // listener — see attachUnifiedMessagesScrollListener()'s doc.
+    }
 
-        final float hideThresholdPx = 24f * getResources().getDisplayMetrics().density;
+    private void handleHeaderAutoHideScrolled(int dy) {
+        if (binding.cvHeaderCapsule == null) return;
+        if (Math.abs(dy) < 2) return;
 
-        binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                if (Math.abs(dy) < 2) return;
+        // Don't fight with selection/search modes — keep header visible there.
+        boolean selectionActive = binding.llSelectionToolbar != null
+                && binding.llSelectionToolbar.getVisibility() == View.VISIBLE;
+        boolean searchActive = binding.llSearchBar != null
+                && binding.llSearchBar.getVisibility() == View.VISIBLE;
+        if (selectionActive || searchActive) {
+            if (isHeaderCapsuleHidden) showHeaderCapsule();
+            return;
+        }
 
-                // Don't fight with selection/search modes — keep header visible there.
-                boolean selectionActive = binding.llSelectionToolbar != null
-                        && binding.llSelectionToolbar.getVisibility() == View.VISIBLE;
-                boolean searchActive = binding.llSearchBar != null
-                        && binding.llSearchBar.getVisibility() == View.VISIBLE;
-                if (selectionActive || searchActive) {
-                    if (isHeaderCapsuleHidden) showHeaderCapsule();
-                    return;
-                }
+        // Reset the accumulator on a direction flip so a quick reversal
+        // feels immediately responsive instead of fighting stale momentum.
+        if ((dy > 0 && headerScrollAccum < 0) || (dy < 0 && headerScrollAccum > 0)) {
+            headerScrollAccum = 0f;
+        }
+        headerScrollAccum += dy;
 
-                // Reset the accumulator on a direction flip so a quick reversal
-                // feels immediately responsive instead of fighting stale momentum.
-                if ((dy > 0 && headerScrollAccum < 0) || (dy < 0 && headerScrollAccum > 0)) {
-                    headerScrollAccum = 0f;
-                }
-                headerScrollAccum += dy;
+        if (headerScrollAccum > headerHideThresholdPx && !isHeaderCapsuleHidden) {
+            hideHeaderCapsule();
+            headerScrollAccum = 0f;
+        } else if (headerScrollAccum < -headerHideThresholdPx && isHeaderCapsuleHidden) {
+            showHeaderCapsule();
+            headerScrollAccum = 0f;
+        }
+    }
 
-                if (headerScrollAccum > hideThresholdPx && !isHeaderCapsuleHidden) {
-                    hideHeaderCapsule();
-                    headerScrollAccum = 0f;
-                } else if (headerScrollAccum < -hideThresholdPx && isHeaderCapsuleHidden) {
-                    showHeaderCapsule();
-                    headerScrollAccum = 0f;
-                }
+    private void handleHeaderAutoHideStateChanged(@NonNull RecyclerView rv, int newState) {
+        if (binding.cvHeaderCapsule == null) return;
+        // Always reveal the header once the list comes to rest at the very
+        // top of the loaded page — avoids it staying hidden with nothing
+        // left to scroll.
+        if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+            LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
+            if (lm != null && lm.findFirstVisibleItemPosition() == 0 && isHeaderCapsuleHidden) {
+                showHeaderCapsule();
             }
-
-            @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
-                // Always reveal the header once the list comes to rest at the very
-                // top of the loaded page — avoids it staying hidden with nothing
-                // left to scroll.
-                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                    LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
-                    if (lm != null && lm.findFirstVisibleItemPosition() == 0 && isHeaderCapsuleHidden) {
-                        showHeaderCapsule();
-                    }
-                }
-            }
-        });
+        }
     }
 
     private void hideHeaderCapsule() {
@@ -5574,23 +5702,81 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             stickyDateLastDayBucket = Long.MIN_VALUE;
             return kotlin.Unit.INSTANCE;
         });
+        // PERF (scroll-listener consolidation): onScrolled/onScrollStateChanged
+        // bodies moved into handleStickyDateScrolled()/
+        // handleStickyDateStateChanged(), invoked from the single unified
+        // listener — see attachUnifiedMessagesScrollListener()'s doc.
+    }
 
+    private void handleStickyDateScrolled(int dy) {
+        if (binding.tvStickyDateHeader == null || pagingAdapter == null) return;
+        if (dy == 0) return; // horizontal-only scroll (shouldn't happen here) — ignore
+        updateStickyDateHeaderLabel();
+        showStickyDateHeader();
+        binding.rvMessages.removeCallbacks(hideStickyDateHeaderRunnable);
+        binding.rvMessages.postDelayed(hideStickyDateHeaderRunnable, STICKY_DATE_HIDE_DELAY_MS);
+    }
+
+    private void handleStickyDateStateChanged(int newState) {
+        if (binding.tvStickyDateHeader == null || pagingAdapter == null) return;
+        if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+            binding.rvMessages.removeCallbacks(hideStickyDateHeaderRunnable);
+            binding.rvMessages.postDelayed(hideStickyDateHeaderRunnable, STICKY_DATE_HIDE_DELAY_MS);
+        }
+    }
+
+    /**
+     * PERF (scroll-listener consolidation): rv_messages previously had FOUR
+     * separate RecyclerView.OnScrollListener instances registered on it —
+     * layer-type toggle (setupPagingRecyclerView), header auto-hide
+     * (setupHeaderAutoHide), sticky date chip (setupStickyDateHeader), and
+     * bottom/FAB-tracking + Glide pause-resume + presence-publish
+     * (setupFabBackToLatest) — each an independent object RecyclerView
+     * invoked on every single scroll frame. They're combined into ONE
+     * listener here, registered once every chat open, so a scroll frame
+     * does one dispatch instead of four; each original behavior is
+     * preserved unchanged in its own handle*() method, still individually
+     * null/flag-guarded exactly as it was before.
+     *
+     * Glide's RecyclerViewPreloader (registered separately in
+     * setupFabBackToLatest) is intentionally left out of this merge — it's
+     * a self-contained library component with its own internal state, not
+     * one of ours to combine.
+     *
+     * Must run after setupPagingRecyclerView()/setupFabBackToLatest()/
+     * setupHeaderAutoHide()/setupStickyDateHeader() so every field each
+     * handler touches (pagingAdapter, headerHideThresholdPx,
+     * hideStickyDateHeaderRunnable, etc.) is already initialized.
+     */
+    private void attachUnifiedMessagesScrollListener() {
+        if (binding.rvMessages == null) return;
         binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                if (dy == 0) return; // horizontal-only scroll (shouldn't happen here) — ignore
-                updateStickyDateHeaderLabel();
-                showStickyDateHeader();
-                binding.rvMessages.removeCallbacks(hideStickyDateHeaderRunnable);
-                binding.rvMessages.postDelayed(hideStickyDateHeaderRunnable, STICKY_DATE_HIDE_DELAY_MS);
+                handleHeaderAutoHideScrolled(dy);
+                handleStickyDateScrolled(dy);
+                handleBottomTrackingScrolled(rv, dy);
             }
 
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
-                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                    binding.rvMessages.removeCallbacks(hideStickyDateHeaderRunnable);
-                    binding.rvMessages.postDelayed(hideStickyDateHeaderRunnable, STICKY_DATE_HIDE_DELAY_MS);
-                }
+                handleLayerTypeStateChanged(rv, newState);
+                handleHeaderAutoHideStateChanged(rv, newState);
+                handleStickyDateStateChanged(newState);
+                handleGlideAndPresenceStateChanged(rv, newState);
             }
         });
+    }
+
+    private void handleLayerTypeStateChanged(@NonNull RecyclerView rv, int newState) {
+        if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+            rv.setLayerType(View.LAYER_TYPE_NONE, null);
+        } else if (isUserTouchOnMessages && rv.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+            // Only a real finger-driven drag/fling earns the GPU layer.
+            // A settle that's purely programmatic (new-message reveal,
+            // or momentum continuing after finger-up) stays on
+            // LAYER_TYPE_NONE to avoid the mid-content-change rebuild
+            // flash described above.
+            rv.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        }
     }
 
     /**
@@ -5761,105 +5947,109 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         5 /* preload 5 items in the scroll direction */);
         binding.rvMessages.addOnScrollListener(glidePreloader);
 
-        binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
-                if (lm == null) return;
-                int lastVis = lm.findLastVisibleItemPosition();
-                int total   = pagingAdapter.getItemCount();
-                boolean atBottom = (lastVis >= total - 3);
-                isUserAtBottom = atBottom;
-                if (atBottom) {
-                    // User reached (or is at) the bottom:
-                    //   • reset pending counter
-                    //   • hide the "new messages" indicator
-                    //   • hide the FAB
-                    pendingNewMsgCount = 0;
-                    hideNewMessagesIndicator();
-                    MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
-                } else if (dy < 0) {
-                    // User is scrolling UP away from the bottom — show FAB
-                    // (indicator only appears when new msgs arrive, not just on scroll)
-                    if (binding.fabBackToLatest.getVisibility() != View.VISIBLE) {
-                        binding.fabBackToLatest.setVisibility(View.VISIBLE);
-                        binding.fabBackToLatest.setAlpha(1f);
-                    }
-                }
-            }
+        // PERF (scroll-listener consolidation): the bottom/FAB-tracking +
+        // Glide pause/resume + presence-publish logic below moved into
+        // handleBottomTrackingScrolled() / handleGlideAndPresenceStateChanged(),
+        // invoked from the single unified listener — see
+        // attachUnifiedMessagesScrollListener()'s doc.
+    }
 
-            @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
-                // FIX (crash): RecyclerView.onDetachedFromWindow() calls
-                // stopScroll(), which fires this listener with newState=IDLE
-                // even during activity teardown (e.g. handleDestroyActivity
-                // → removeViewImmediate → dispatchDetachedFromWindow) — by
-                // then the Activity is already destroyed and Glide.with()
-                // throws IllegalArgumentException("cannot start a load for a
-                // destroyed activity"). Same guard already used everywhere
-                // else in this class before touching Glide/UI post-teardown.
-                if (isFinishing() || isDestroyed()) return;
-                // PERF: Glide pause/resume — during a fast fling, pausing Glide stops
-                // it from starting new image-decode tasks for off-screen items that
-                // will scroll past before they're needed. Resuming on idle/settling
-                // lets it catch up with whatever is now actually visible.
-                // This mirrors WhatsApp's image-loading strategy.
-                // PERF FIX: Glide pause/resume strategy.
-                // OLD: pause on SETTLING, resume on DRAGGING — wrong because
-                //   DRAGGING includes fast finger swipes, resuming Glide while
-                //   the list is still moving causes mid-fling image decodes.
-                // NEW: pause on SETTLING (fling) AND DRAGGING (while finger
-                //   moves), resume ONLY on IDLE (list fully stopped).
-                //   This mirrors Glide's own RecyclerViewPreloader recommendation.
-                // FLICKER/JUNK FIX (image bubbles, post-send): same root cause
-                // as the LAYER_TYPE_HARDWARE fix above — this used to pause on
-                // ANY SETTLING, including the short programmatic
-                // smoothScrollBy() reveal fired from onItemRangeInserted()
-                // when OUR OWN new message (text or media) auto-scrolls the
-                // list to the bottom while already at the tail. That
-                // pendingAutoScrollRunnable settle is exactly the "naya
-                // message send karne par upar ke image messages flicker/
-                // rebuild" report: pauseRequestsRecursive() froze any image
-                // bubble bind that happened to land in the same frame as that
-                // settle (a row reattached/rebound by the layout pass the
-                // insert triggers) mid-load, holding it on the skeleton
-                // placeholder — invisible for text bubbles (no async load),
-                // very visible for image ones — until resumeRequestsRecursive()
-                // finally ran on IDLE moments later, popping the real thumbnail
-                // in. A real user fling never had this problem because
-                // isUserTouchOnMessages is true throughout it.
-                // Fix: only pause for a genuine finger-driven drag/fling, same
-                // gate already used for the hardware-layer switch above — the
-                // short 1-2 row auto-scroll-to-bottom settle never needed
-                // Glide paused in the first place.
-                if (isUserTouchOnMessages && (newState == RecyclerView.SCROLL_STATE_SETTLING
-                        || newState == RecyclerView.SCROLL_STATE_DRAGGING)) {
-                    // Finger moving or list flinging — halt all pending decodes.
-                    com.bumptech.glide.Glide.with(ChatActivity.this).pauseRequestsRecursive();
-                    com.callx.app.utils.LinkPreviewFetcher.setScrolling(true);
-                } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                    // List fully stopped — resume image loading for visible items.
-                    com.bumptech.glide.Glide.with(ChatActivity.this).resumeRequestsRecursive();
-                    com.callx.app.utils.LinkPreviewFetcher.setScrolling(false);
-                }
-                
-                // TELEGRAM-STYLE SCROLL OPTIMIZATION: notify adapter of scroll state
-                // so it can defer expensive operations during fling/drag
-                if (pagingAdapter != null) {
-                    pagingAdapter.setRecyclerViewScrollState(newState);
-                }
-                
-                if (newState != RecyclerView.SCROLL_STATE_IDLE) return;
-                if (presenceController == null) return;
-                LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
-                if (lm == null) return;
-                int pos = lm.findLastCompletelyVisibleItemPosition();
-                if (pos < 0) pos = lm.findLastVisibleItemPosition();
-                if (pos < 0 || pos >= pagingAdapter.getItemCount()) return;
-                com.callx.app.models.Message m = pagingAdapter.peek(pos);
-                if (m == null) return;
-                String mid = m.messageId != null ? m.messageId : m.id;
-                presenceController.publishViewingMessage(mid);
+    private void handleBottomTrackingScrolled(@NonNull RecyclerView rv, int dy) {
+        LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
+        if (lm == null) return;
+        int lastVis = lm.findLastVisibleItemPosition();
+        int total   = pagingAdapter.getItemCount();
+        boolean atBottom = (lastVis >= total - 3);
+        isUserAtBottom = atBottom;
+        if (atBottom) {
+            // User reached (or is at) the bottom:
+            //   • reset pending counter
+            //   • hide the "new messages" indicator
+            //   • hide the FAB
+            pendingNewMsgCount = 0;
+            hideNewMessagesIndicator();
+            MessageHighlightAnimator.hideFab(binding.fabBackToLatest);
+        } else if (dy < 0) {
+            // User is scrolling UP away from the bottom — show FAB
+            // (indicator only appears when new msgs arrive, not just on scroll)
+            if (binding.fabBackToLatest.getVisibility() != View.VISIBLE) {
+                binding.fabBackToLatest.setVisibility(View.VISIBLE);
+                binding.fabBackToLatest.setAlpha(1f);
             }
-        });
+        }
+    }
+
+    private void handleGlideAndPresenceStateChanged(@NonNull RecyclerView rv, int newState) {
+        // FIX (crash): RecyclerView.onDetachedFromWindow() calls
+        // stopScroll(), which fires this listener with newState=IDLE
+        // even during activity teardown (e.g. handleDestroyActivity
+        // → removeViewImmediate → dispatchDetachedFromWindow) — by
+        // then the Activity is already destroyed and Glide.with()
+        // throws IllegalArgumentException("cannot start a load for a
+        // destroyed activity"). Same guard already used everywhere
+        // else in this class before touching Glide/UI post-teardown.
+        if (isFinishing() || isDestroyed()) return;
+        // PERF: Glide pause/resume — during a fast fling, pausing Glide stops
+        // it from starting new image-decode tasks for off-screen items that
+        // will scroll past before they're needed. Resuming on idle/settling
+        // lets it catch up with whatever is now actually visible.
+        // This mirrors WhatsApp's image-loading strategy.
+        // PERF FIX: Glide pause/resume strategy.
+        // OLD: pause on SETTLING, resume on DRAGGING — wrong because
+        //   DRAGGING includes fast finger swipes, resuming Glide while
+        //   the list is still moving causes mid-fling image decodes.
+        // NEW: pause on SETTLING (fling) AND DRAGGING (while finger
+        //   moves), resume ONLY on IDLE (list fully stopped).
+        //   This mirrors Glide's own RecyclerViewPreloader recommendation.
+        // FLICKER/JUNK FIX (image bubbles, post-send): same root cause
+        // as the LAYER_TYPE_HARDWARE fix above — this used to pause on
+        // ANY SETTLING, including the short programmatic
+        // smoothScrollBy() reveal fired from onItemRangeInserted()
+        // when OUR OWN new message (text or media) auto-scrolls the
+        // list to the bottom while already at the tail. That
+        // pendingAutoScrollRunnable settle is exactly the "naya
+        // message send karne par upar ke image messages flicker/
+        // rebuild" report: pauseRequestsRecursive() froze any image
+        // bubble bind that happened to land in the same frame as that
+        // settle (a row reattached/rebound by the layout pass the
+        // insert triggers) mid-load, holding it on the skeleton
+        // placeholder — invisible for text bubbles (no async load),
+        // very visible for image ones — until resumeRequestsRecursive()
+        // finally ran on IDLE moments later, popping the real thumbnail
+        // in. A real user fling never had this problem because
+        // isUserTouchOnMessages is true throughout it.
+        // Fix: only pause for a genuine finger-driven drag/fling, same
+        // gate already used for the hardware-layer switch above — the
+        // short 1-2 row auto-scroll-to-bottom settle never needed
+        // Glide paused in the first place.
+        if (isUserTouchOnMessages && (newState == RecyclerView.SCROLL_STATE_SETTLING
+                || newState == RecyclerView.SCROLL_STATE_DRAGGING)) {
+            // Finger moving or list flinging — halt all pending decodes.
+            com.bumptech.glide.Glide.with(ChatActivity.this).pauseRequestsRecursive();
+            com.callx.app.utils.LinkPreviewFetcher.setScrolling(true);
+        } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+            // List fully stopped — resume image loading for visible items.
+            com.bumptech.glide.Glide.with(ChatActivity.this).resumeRequestsRecursive();
+            com.callx.app.utils.LinkPreviewFetcher.setScrolling(false);
+        }
+
+        // TELEGRAM-STYLE SCROLL OPTIMIZATION: notify adapter of scroll state
+        // so it can defer expensive operations during fling/drag
+        if (pagingAdapter != null) {
+            pagingAdapter.setRecyclerViewScrollState(newState);
+        }
+
+        if (newState != RecyclerView.SCROLL_STATE_IDLE) return;
+        if (presenceController == null) return;
+        LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
+        if (lm == null) return;
+        int pos = lm.findLastCompletelyVisibleItemPosition();
+        if (pos < 0) pos = lm.findLastVisibleItemPosition();
+        if (pos < 0 || pos >= pagingAdapter.getItemCount()) return;
+        com.callx.app.models.Message m = pagingAdapter.peek(pos);
+        if (m == null) return;
+        String mid = m.messageId != null ? m.messageId : m.id;
+        presenceController.publishViewingMessage(mid);
     }
 
     // ─────────────────────────────────────────────────────────────────────

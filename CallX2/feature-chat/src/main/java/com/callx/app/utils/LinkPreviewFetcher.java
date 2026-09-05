@@ -1,7 +1,12 @@
 package com.callx.app.utils;
 
+import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+
+import com.callx.app.db.AppDatabase;
+import com.callx.app.db.dao.LinkPreviewCacheDao;
+import com.callx.app.db.entity.LinkPreviewCacheEntity;
 
 import org.json.JSONObject;
 
@@ -70,6 +75,47 @@ public class LinkPreviewFetcher {
 
     private static final ExecutorService executor    = Executors.newFixedThreadPool(3);
     private static final Handler         mainHandler = new Handler(Looper.getMainLooper());
+
+    // ── PERF FIX (disk-persisted cache) ─────────────────────────────────────
+    // The in-memory `cache` map below is the only thing that ever backed
+    // this fetcher — an LRU capped at 200 entries, living purely in process
+    // memory. Every single one of those entries was gone the instant the
+    // app process died, so reopening the app (or just returning to it after
+    // Android killed it in the background — extremely common) meant the
+    // very same link, in the very same chat, paid a full network round-trip
+    // (OG scrape or YouTube oEmbed call) all over again, even though the
+    // linked page's title/image/description almost never actually changes
+    // that fast. `diskDao` mirrors the same Result data into Room so a cold
+    // app open can paint a previously-seen preview instantly from disk
+    // instead of waiting on the network — call init() once (e.g. from
+    // ChatActivity/GroupChatActivity onCreate) to wire it up; every method
+    // below degrades to memory-only behavior (today's behavior) if init()
+    // was never called, so this is purely additive.
+    private static volatile LinkPreviewCacheDao diskDao;
+
+    // A page's OG tags CAN change (title edits, a new thumbnail) even though
+    // this isn't a live subscription, so unlike the in-memory cache this
+    // disk copy needs a TTL rather than living forever — 7 days matches the
+    // "this rarely changes but isn't permanent" tier used elsewhere in this
+    // codebase (compare ReelThumbCacheManager's 14 days / TrendingAudioCacheManager's 3).
+    private static final long DISK_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000;
+
+    /** Call once (safe to call repeatedly) — e.g. from ChatActivity/GroupChatActivity
+     *  onCreate — to enable the disk-persisted cache described above. */
+    public static void init(Context context) {
+        if (diskDao != null || context == null) return;
+        Context appCtx = context.getApplicationContext();
+        diskDao = AppDatabase.getInstance(appCtx).linkPreviewCacheDao();
+        // Fire-and-forget prune of stale rows — cheap single DELETE, doesn't
+        // need to block anything init() is called from.
+        executor.execute(() -> {
+            try {
+                diskDao.pruneOlderThan(System.currentTimeMillis() - DISK_MAX_AGE_MS);
+            } catch (Exception ignored) {
+                // Non-critical housekeeping — worst case a few stale rows linger.
+            }
+        });
+    }
 
     @SuppressWarnings("serial")
     private static final Map<String, Result> cache =
@@ -177,7 +223,18 @@ public class LinkPreviewFetcher {
             inFlight.put(url, waiters);
         }
         executor.execute(() -> {
-            Result result = fetchSync(url);
+            // PERF FIX (disk-persisted cache): check the disk copy BEFORE
+            // opening a network connection — a cold app open (or the app
+            // just coming back after Android killed the process, which is
+            // the common case, not just an explicit restart) means the
+            // in-memory `cache` above is empty even for a link the user
+            // has seen many times before. A disk hit here skips the OG
+            // scrape / oEmbed call entirely.
+            Result result = readFromDisk(url);
+            if (result == null) {
+                result = fetchSync(url);
+                if (result != null) writeToDisk(url, result);
+            }
             synchronized (cache) {
                 if (result != null) cache.put(url, result);
                 java.util.List<Callback> waiters = inFlight.remove(url);
@@ -195,6 +252,17 @@ public class LinkPreviewFetcher {
 
     public static void invalidate(String url) {
         synchronized (cache) { cache.remove(url); }
+        // Keep the disk copy consistent with the in-memory one — otherwise
+        // a future cold app open would resurrect the stale row via
+        // readFromDisk() even though the caller just explicitly invalidated it.
+        if (diskDao != null && url != null) {
+            final String u = url;
+            executor.execute(() -> {
+                try {
+                    diskDao.deleteByUrl(u);
+                } catch (Exception ignored) { /* best-effort */ }
+            });
+        }
     }
 
     /**
@@ -216,6 +284,37 @@ public class LinkPreviewFetcher {
     }
 
     // ── Internal ──────────────────────────────────────────────────────────
+
+    /** Runs on `executor` (background) — never call from the main thread.
+     *  Returns null on a miss, a stale row, or if init() was never called. */
+    private static Result readFromDisk(String url) {
+        if (diskDao == null) return null;
+        try {
+            LinkPreviewCacheEntity e = diskDao.getByUrl(url);
+            if (e == null) return null;
+            if (System.currentTimeMillis() - e.cachedAt > DISK_MAX_AGE_MS) return null; // stale — refetch
+            return new Result(url, e.title, e.domain, e.imageUrl, e.description);
+        } catch (Exception ex) {
+            return null; // corrupt row / DB error — fall through to network like a normal miss
+        }
+    }
+
+    /** Runs on `executor` (background) — never call from the main thread. */
+    private static void writeToDisk(String url, Result result) {
+        if (diskDao == null) return;
+        try {
+            LinkPreviewCacheEntity e = new LinkPreviewCacheEntity();
+            e.url         = url;
+            e.title       = result.title;
+            e.domain      = result.domain;
+            e.imageUrl    = result.imageUrl;
+            e.description = result.description;
+            e.cachedAt    = System.currentTimeMillis();
+            diskDao.insert(e);
+        } catch (Exception ignored) {
+            // Non-critical — worst case this URL just misses the disk cache next cold start.
+        }
+    }
 
     private static Result fetchSync(String rawUrl) {
         // YouTube? Use oEmbed — much more reliable than OG parsing

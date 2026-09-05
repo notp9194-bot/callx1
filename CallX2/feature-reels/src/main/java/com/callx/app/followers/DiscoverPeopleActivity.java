@@ -355,7 +355,7 @@ public class DiscoverPeopleActivity extends AppCompatActivity {
             h.followPending = true;
             h.btnFollow.setEnabled(false);
 
-            FirebaseUtils.setFollowState(myUid, u.uid, nowFollowed, error -> {
+            FirebaseUtils.setFollowState(myUid, u.uid, nowFollowed, (error, ref) -> {
                 if (isFinishing() || isDestroyed()) return;
                 h.followPending = false;
                 h.btnFollow.setEnabled(true);

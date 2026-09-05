@@ -354,6 +354,11 @@ public class GroupChatActivity extends AppCompatActivity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // PERF FIX (disk-persisted link preview cache): see ChatActivity's
+        // onCreate for the same call — no-ops after the first call per
+        // process, background prune, safe unconditionally.
+        com.callx.app.utils.LinkPreviewFetcher.init(this);
         binding = ActivityChatBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
         // PERF: same overdraw fix as 1:1 ChatActivity — this screen reuses

@@ -5797,7 +5797,7 @@ public class HomeFragment extends Fragment
                 applyFollowButtonState(holder.btnFollow, nowFollowed);
                 holder.followPending = true;
                 holder.btnFollow.setEnabled(false);
-                FirebaseUtils.setFollowState(my, uid, nowFollowed, error -> {
+                FirebaseUtils.setFollowState(my, uid, nowFollowed, (error, ref) -> {
                     if (!isAdded() || getContext() == null) return;
                     holder.followPending = false;
                     holder.btnFollow.setEnabled(true);

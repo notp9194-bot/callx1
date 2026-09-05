@@ -42,8 +42,9 @@ final class ReelSharePeekBridge {
     // ── Chat-only size/position tweak ────────────────────────────────────
     // The shared popup_reel_peek.xml default card (331x475dp, used as-is by
     // UserReelsActivity's grid and SoundDetailFragment) is NOT used as the
-    // base here anymore. For the chat screen's auto-peek (3s dwell on a
-    // reel-share bubble) the mini player is sized to exactly match the
+    // base here anymore. For the chat screen's long-press peek (triggered
+    // by holding a reel-share bubble — see MessageBubbleCanvasView's
+    // onLongPress/onReelPeekPreview) the mini player is sized to exactly match the
     // reel-share card itself — same width/height, same 9:16 aspect — by
     // reusing MessageBubbleCanvasView's own card-size constants directly,
     // instead of independently scaling the shared popup default. This

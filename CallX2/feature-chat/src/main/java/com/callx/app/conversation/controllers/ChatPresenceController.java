@@ -8,6 +8,7 @@ import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
 import com.callx.app.chat.databinding.ActivityChatBinding;
 import com.callx.app.models.Message;
+import com.callx.app.utils.ChatPresenceRepo;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.SecurityManager;
 import com.google.firebase.database.DataSnapshot;
@@ -72,11 +73,21 @@ public class ChatPresenceController {
     private final android.os.Handler readFlushHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable readFlushRunnable = this::flushPendingReadStatus;
 
-    private ValueEventListener typingListener;
-    private ValueEventListener onlineListener;
-    private ValueEventListener inChatListener;
-    private ValueEventListener viewingListener;
-    private ValueEventListener typingReplyListener;
+    // PERF FIX: these used to be raw ValueEventListener fields, each
+    // attached directly to Firebase in its watch*() method below and torn
+    // down in release(). Now every one of them is subscribed through
+    // ChatPresenceRepo instead — see that class's doc for why (shared,
+    // grace-period-debounced listener per path instead of one fresh
+    // subscription per chat open). Each field below is the Runnable
+    // ChatPresenceRepo hands back; calling it unsubscribes this
+    // controller specifically without necessarily detaching the real
+    // Firebase listener (that only happens once every subscriber for the
+    // path has left AND the grace window has elapsed).
+    private Runnable typingUnsub;
+    private Runnable statusUnsub;
+    private Runnable inChatUnsub;
+    private Runnable viewingUnsub;
+    private Runnable typingReplyUnsub;
 
     public ChatPresenceController(ChatActivityDelegate delegate) {
         this.delegate = delegate;
@@ -187,24 +198,24 @@ public class ChatPresenceController {
     }
 
     private void watchTyping() {
-        typingListener = new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot s) {
-                boolean typing = false;
-                for (DataSnapshot child : s.getChildren()) {
-                    if (child.getKey() != null
-                            && !child.getKey().equals(delegate.getCurrentUid())
-                            && Boolean.TRUE.equals(child.getValue(Boolean.class))) {
-                        typing = true;
-                        break;
-                    }
+        String chatId = delegate.getChatId();
+        DatabaseReference ref = FirebaseUtils.db().getReference("typing").child(chatId);
+        // PERF FIX ("bar bar bing"): routed through ChatPresenceRepo instead
+        // of a raw listener attached fresh on every chat open — see that
+        // class's doc.
+        typingUnsub = ChatPresenceRepo.get().observe("typing:" + chatId, ref, s -> {
+            boolean typing = false;
+            for (DataSnapshot child : s.getChildren()) {
+                if (child.getKey() != null
+                        && !child.getKey().equals(delegate.getCurrentUid())
+                        && Boolean.TRUE.equals(child.getValue(Boolean.class))) {
+                    typing = true;
+                    break;
                 }
-                lastPartnerTypingState = typing;
-                if (typing) showTypingStrip(); else hideTypingStrip();
             }
-            @Override public void onCancelled(@NonNull DatabaseError e) {}
-        };
-        FirebaseUtils.db().getReference("typing").child(delegate.getChatId())
-                .addValueEventListener(typingListener);
+            lastPartnerTypingState = typing;
+            if (typing) showTypingStrip(); else hideTypingStrip();
+        });
     }
 
     /** Call from the Activity's onPause(). Stops the dots loop (the strip
@@ -332,21 +343,17 @@ public class ChatPresenceController {
         String partnerUid = delegate.getPartnerUid();
         if (chatId == null || partnerUid == null || partnerUid.isEmpty()) return;
 
-        typingReplyListener = new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot s) {
-                lastPartnerReplyTargetId = s.getValue(String.class);
-                java.util.Set<String> ids = lastPartnerReplyTargetId == null
-                        ? java.util.Collections.emptySet()
-                        : java.util.Collections.singleton(lastPartnerReplyTargetId);
-                if (delegate.getPagingAdapter() != null) {
-                    delegate.getPagingAdapter().setReplyTargetMessageIds(ids);
-                }
+        DatabaseReference ref = FirebaseUtils.getChatTypingReplyRef(chatId).child(partnerUid);
+        typingReplyUnsub = ChatPresenceRepo.get().observe(
+                "typingReply:" + chatId + ":" + partnerUid, ref, s -> {
+            lastPartnerReplyTargetId = s.getValue(String.class);
+            java.util.Set<String> ids = lastPartnerReplyTargetId == null
+                    ? java.util.Collections.emptySet()
+                    : java.util.Collections.singleton(lastPartnerReplyTargetId);
+            if (delegate.getPagingAdapter() != null) {
+                delegate.getPagingAdapter().setReplyTargetMessageIds(ids);
             }
-            @Override public void onCancelled(@NonNull DatabaseError e) {}
-        };
-        FirebaseUtils.getChatTypingReplyRef(chatId)
-                .child(partnerUid)
-                .addValueEventListener(typingReplyListener);
+        });
     }
 
     // ── Online / last-seen status ─────────────────────────────────────────
@@ -355,39 +362,40 @@ public class ChatPresenceController {
         String partnerUid = delegate.getPartnerUid();
         if (partnerUid == null || partnerUid.isEmpty()) return;
 
-        onlineListener = new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot s) {
-                ActivityChatBinding binding = delegate.getBinding();
-                if (binding.tvStatus == null) return;
+        // PERF FIX ("bar bar bing"): routed through ChatPresenceRepo — the
+        // most-reopened chat's online/last-seen listener is shared and kept
+        // warm for GRACE_MS instead of re-subscribing (and re-fetching the
+        // whole users/{uid} node) on every single chat open. See its doc.
+        DatabaseReference ref = FirebaseUtils.getUserRef(partnerUid);
+        statusUnsub = ChatPresenceRepo.get().observe("status:" + partnerUid, ref, s -> {
+            ActivityChatBinding binding = delegate.getBinding();
+            if (binding.tvStatus == null) return;
 
-                Boolean partnerGhost = s.child("privacy").child("ghost").getValue(Boolean.class);
-                if (Boolean.TRUE.equals(partnerGhost)) {
-                    binding.tvStatus.setVisibility(View.GONE);
-                    return;
-                }
-
-                String lastSeenVis = s.child("privacy").child("lastSeenVisibility").getValue(String.class);
-                boolean hideLastSeen = SecurityManager.VIS_NOBODY.equals(lastSeenVis);
-
-                Boolean online   = s.child("online").getValue(Boolean.class);
-                Long lastSeen    = s.child("lastSeen").getValue(Long.class);
-
-                String statusText;
-                if (Boolean.TRUE.equals(online)) {
-                    Boolean partnerIncognito = s.child("privacy").child("incognito").getValue(Boolean.class);
-                    statusText = Boolean.TRUE.equals(partnerIncognito) ? "" : "online";
-                } else if (!hideLastSeen && lastSeen != null && lastSeen > 0) {
-                    statusText = formatLastSeenRelative(lastSeen);
-                } else {
-                    statusText = "";
-                }
-
-                binding.tvStatus.setText(statusText);
-                binding.tvStatus.setVisibility(statusText.length() > 0 ? View.VISIBLE : View.GONE);
+            Boolean partnerGhost = s.child("privacy").child("ghost").getValue(Boolean.class);
+            if (Boolean.TRUE.equals(partnerGhost)) {
+                binding.tvStatus.setVisibility(View.GONE);
+                return;
             }
-            @Override public void onCancelled(@NonNull DatabaseError e) {}
-        };
-        FirebaseUtils.getUserRef(partnerUid).addValueEventListener(onlineListener);
+
+            String lastSeenVis = s.child("privacy").child("lastSeenVisibility").getValue(String.class);
+            boolean hideLastSeen = SecurityManager.VIS_NOBODY.equals(lastSeenVis);
+
+            Boolean online   = s.child("online").getValue(Boolean.class);
+            Long lastSeen    = s.child("lastSeen").getValue(Long.class);
+
+            String statusText;
+            if (Boolean.TRUE.equals(online)) {
+                Boolean partnerIncognito = s.child("privacy").child("incognito").getValue(Boolean.class);
+                statusText = Boolean.TRUE.equals(partnerIncognito) ? "" : "online";
+            } else if (!hideLastSeen && lastSeen != null && lastSeen > 0) {
+                statusText = formatLastSeenRelative(lastSeen);
+            } else {
+                statusText = "";
+            }
+
+            binding.tvStatus.setText(statusText);
+            binding.tvStatus.setVisibility(statusText.length() > 0 ? View.VISIBLE : View.GONE);
+        });
     }
 
     private String formatLastSeenRelative(long ts) {
@@ -479,21 +487,17 @@ public class ChatPresenceController {
         String partnerUid = delegate.getPartnerUid();
         if (chatId == null || partnerUid == null || partnerUid.isEmpty()) return;
 
-        inChatListener = new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot s) {
-                boolean inChat = Boolean.TRUE.equals(s.getValue(Boolean.class));
-                if (inChat) {
-                    lastSeenActiveAt = System.currentTimeMillis();
-                    showWatchingBanner();
-                } else {
-                    beginJustLeftWindow();
-                }
+        DatabaseReference ref = FirebaseUtils.getChatPresenceRef(chatId).child(partnerUid);
+        inChatUnsub = ChatPresenceRepo.get().observe(
+                "inchat:" + chatId + ":" + partnerUid, ref, s -> {
+            boolean inChat = Boolean.TRUE.equals(s.getValue(Boolean.class));
+            if (inChat) {
+                lastSeenActiveAt = System.currentTimeMillis();
+                showWatchingBanner();
+            } else {
+                beginJustLeftWindow();
             }
-            @Override public void onCancelled(@NonNull DatabaseError e) {}
-        };
-        FirebaseUtils.getChatPresenceRef(chatId)
-                .child(partnerUid)
-                .addValueEventListener(inChatListener);
+        });
     }
 
     // ── Per-message viewing ("seen-this-bubble" dot) ────────────────────────
@@ -563,22 +567,18 @@ public class ChatPresenceController {
         String partnerUid = delegate.getPartnerUid();
         if (chatId == null || partnerUid == null || partnerUid.isEmpty()) return;
 
-        viewingListener = new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot s) {
-                String messageId = s.getValue(String.class);
-                lastPartnerViewingMessageId = messageId;
-                java.util.Set<String> ids = messageId == null
-                        ? java.util.Collections.emptySet()
-                        : java.util.Collections.singleton(messageId);
-                if (delegate.getPagingAdapter() != null) {
-                    delegate.getPagingAdapter().setViewingMessageIds(ids);
-                }
+        DatabaseReference ref = FirebaseUtils.getChatViewingRef(chatId).child(partnerUid);
+        viewingUnsub = ChatPresenceRepo.get().observe(
+                "viewing:" + chatId + ":" + partnerUid, ref, s -> {
+            String messageId = s.getValue(String.class);
+            lastPartnerViewingMessageId = messageId;
+            java.util.Set<String> ids = messageId == null
+                    ? java.util.Collections.emptySet()
+                    : java.util.Collections.singleton(messageId);
+            if (delegate.getPagingAdapter() != null) {
+                delegate.getPagingAdapter().setViewingMessageIds(ids);
             }
-            @Override public void onCancelled(@NonNull DatabaseError e) {}
-        };
-        FirebaseUtils.getChatViewingRef(chatId)
-                .child(partnerUid)
-                .addValueEventListener(viewingListener);
+        });
     }
 
     private void showWatchingBanner() {
@@ -693,7 +693,8 @@ public class ChatPresenceController {
     //   user presses-and-holds the mic button, and false on release/cancel/send.
     // INCOMING: watchPartnerRecording() listens and drives ll_voice_recording_strip.
 
-    private ValueEventListener recordingListener;
+    private Runnable recordingUnsub;
+    private Runnable muteUnsub;
 
     // NOTE: the old fake 5-bar staggered-scale waveform (WAVE_BAR_IDS /
     // WAVE_PEAK_SCALES, animator already disabled for perf) has been
@@ -724,16 +725,12 @@ public class ChatPresenceController {
         String partnerUid = delegate.getPartnerUid();
         if (chatId == null || partnerUid == null || partnerUid.isEmpty()) return;
 
-        recordingListener = new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot s) {
-                boolean recording = Boolean.TRUE.equals(s.getValue(Boolean.class));
-                if (recording) showVoiceRecordingStrip(); else hideVoiceRecordingStrip();
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {}
-        };
-        FirebaseUtils.getChatRecordingRef(chatId)
-                .child(partnerUid)
-                .addValueEventListener(recordingListener);
+        DatabaseReference ref = FirebaseUtils.getChatRecordingRef(chatId).child(partnerUid);
+        recordingUnsub = ChatPresenceRepo.get().observe(
+                "recording:" + chatId + ":" + partnerUid, ref, s -> {
+            boolean recording = Boolean.TRUE.equals(s.getValue(Boolean.class));
+            if (recording) showVoiceRecordingStrip(); else hideVoiceRecordingStrip();
+        });
     }
 
     private void showVoiceRecordingStrip() {
@@ -810,15 +807,20 @@ public class ChatPresenceController {
         String partnerUid = delegate.getPartnerUid();
         if (currentUid == null || currentUid.isEmpty() || partnerUid == null || partnerUid.isEmpty()) return;
 
-        FirebaseUtils.db().getReference("muted")
-                .child(currentUid).child(partnerUid)
-                .addValueEventListener(new ValueEventListener() {
-                    @Override public void onDataChange(@NonNull DataSnapshot s) {
-                        delegate.setMuted(Boolean.TRUE.equals(s.getValue(Boolean.class)));
-                        delegate.invalidateMenu();
-                    }
-                    @Override public void onCancelled(@NonNull DatabaseError e) {}
-                });
+        // BUG FIX + PERF FIX: this listener used to be attached anonymously
+        // and never stored anywhere, so it was NEVER removed in release() —
+        // every chat open leaked one more live "muted" listener forever
+        // (each still holding this controller's `delegate`, i.e. the old
+        // destroyed Activity, alive for the rest of the process's life).
+        // Routed through ChatPresenceRepo fixes both problems at once: it's
+        // now properly unsubscribed in release()/teardown, and reopening
+        // the same chat within the grace window reuses the same listener
+        // instead of piling up another one.
+        DatabaseReference ref = FirebaseUtils.db().getReference("muted").child(currentUid).child(partnerUid);
+        muteUnsub = ChatPresenceRepo.get().observe("muted:" + currentUid + ":" + partnerUid, ref, s -> {
+            delegate.setMuted(Boolean.TRUE.equals(s.getValue(Boolean.class)));
+            delegate.invalidateMenu();
+        });
     }
 
     public void toggleMute() {
@@ -975,34 +977,19 @@ public class ChatPresenceController {
     public void release() {
         readFlushHandler.removeCallbacks(readFlushRunnable);
         flushPendingReadStatus();
-        if (typingListener != null && delegate.getChatId() != null) {
-            FirebaseUtils.db().getReference("typing").child(delegate.getChatId())
-                    .removeEventListener(typingListener);
-        }
-        if (onlineListener != null && delegate.getPartnerUid() != null) {
-            FirebaseUtils.getUserRef(delegate.getPartnerUid())
-                    .removeEventListener(onlineListener);
-        }
-        if (inChatListener != null && delegate.getChatId() != null && delegate.getPartnerUid() != null) {
-            FirebaseUtils.getChatPresenceRef(delegate.getChatId())
-                    .child(delegate.getPartnerUid())
-                    .removeEventListener(inChatListener);
-        }
-        if (viewingListener != null && delegate.getChatId() != null && delegate.getPartnerUid() != null) {
-            FirebaseUtils.getChatViewingRef(delegate.getChatId())
-                    .child(delegate.getPartnerUid())
-                    .removeEventListener(viewingListener);
-        }
-        if (typingReplyListener != null && delegate.getChatId() != null && delegate.getPartnerUid() != null) {
-            FirebaseUtils.getChatTypingReplyRef(delegate.getChatId())
-                    .child(delegate.getPartnerUid())
-                    .removeEventListener(typingReplyListener);
-        }
-        if (recordingListener != null && delegate.getChatId() != null && delegate.getPartnerUid() != null) {
-            FirebaseUtils.getChatRecordingRef(delegate.getChatId())
-                    .child(delegate.getPartnerUid())
-                    .removeEventListener(recordingListener);
-        }
+        // PERF FIX ("bar bar bing"): these no longer detach the real
+        // Firebase listener synchronously — each Runnable just tells
+        // ChatPresenceRepo "this controller instance is done with this
+        // path". The shared listener itself is only actually torn down
+        // once every subscriber has left AND the grace window has
+        // elapsed with nobody reopening the chat — see ChatPresenceRepo.
+        if (typingUnsub != null)      { typingUnsub.run();      typingUnsub = null; }
+        if (statusUnsub != null)      { statusUnsub.run();      statusUnsub = null; }
+        if (inChatUnsub != null)      { inChatUnsub.run();      inChatUnsub = null; }
+        if (viewingUnsub != null)     { viewingUnsub.run();     viewingUnsub = null; }
+        if (typingReplyUnsub != null) { typingReplyUnsub.run(); typingReplyUnsub = null; }
+        if (recordingUnsub != null)   { recordingUnsub.run();   recordingUnsub = null; }
+        if (muteUnsub != null)        { muteUnsub.run();        muteUnsub = null; }
         ActivityChatBinding binding = delegate.getBinding();
         if (binding.llTypingStrip != null) binding.llTypingStrip.stopDots();
         stopWaveformAnimation();
