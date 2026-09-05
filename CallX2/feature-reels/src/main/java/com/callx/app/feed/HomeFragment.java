@@ -5552,13 +5552,22 @@ public class HomeFragment extends Fragment
 
         class CardHolder extends RecyclerView.ViewHolder {
             final FrameLayout card;
-            final CircleImageView av;
-            final TextView tvName;
-            final ImageView ivVerified;
-            final LinearLayout llMutual;
-            final LinearLayout avatarStack;
-            final CircleImageView[] mutualAvatars;
-            final TextView tvMutual;
+            // ★ Not `final` — avatarBindRunnable below is a field
+            // initializer that captures these via `this`, and a field
+            // initializer is elaborated at its own textual position in the
+            // implicit constructor sequence, BEFORE this class's explicit
+            // constructor body runs `this.av = av;` etc. A blank final
+            // can't be read at that point even inside a lambda whose body
+            // only actually executes much later — so these are left
+            // non-final. Each is still assigned exactly once, in the
+            // constructor below, before this holder is ever bound.
+            CircleImageView av;
+            TextView tvName;
+            ImageView ivVerified;
+            LinearLayout llMutual;
+            LinearLayout avatarStack;
+            CircleImageView[] mutualAvatars;
+            TextView tvMutual;
             final Button btnFollow;
             final ImageView btnClose;
 
@@ -6064,7 +6073,11 @@ public class HomeFragment extends Fragment
         }
 
         class TileHolder extends RecyclerView.ViewHolder {
-            final CircleImageView avatar;
+            // ★ Not `final` — same reason as CardHolder.av above: read
+            // inside avatarBindRunnable's field-initializer lambda, which
+            // is elaborated before the constructor body's `avatar = ...`
+            // assignment. Still assigned exactly once, in the constructor.
+            CircleImageView avatar;
             final TextView tvName;
             final ImageView ivSeenRing;
             final ImageView ivGradientRing;
