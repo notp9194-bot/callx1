@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Semi-transparent blended backing plate behind the live tv_watermark_overlay /
+  iv_watermark_overlay views — mirrors ReelVideoExportEngine#drawWatermarkChip so
+  what plays live in the feed already looks like what gets baked into a download.
+  Always translucent black regardless of the creator's chosen text colour, so it
+  reads as a soft chip on any video frame instead of clashing with the text.
+  Its own alpha is intentionally low (~40%) since the parent view's alpha
+  (opacity slider, ReelWatermarkSettingsActivity) is applied on top of this.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#66000000"/>
+    <corners android:radius="8dp"/>
+</shape>

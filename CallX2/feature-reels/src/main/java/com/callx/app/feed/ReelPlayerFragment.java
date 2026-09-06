@@ -7,6 +7,7 @@ import android.app.AlertDialog;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -283,6 +284,11 @@ public class ReelPlayerFragment extends Fragment
         // Restore cinema mode state
         uiController.applyCinemaState(v);
 
+        // Creator watermark overlay — reads the reel OWNER's saved
+        // ReelWatermarkSettingsActivity prefs and renders them on top of
+        // the reel, same as TikTok/IG burn the handle onto playback.
+        setupWatermarkOverlay(v);
+
         // Pre-prepare ExoPlayer silently in background (Instagram-style instant play)
         if (!photoController.isPhotoMode()) {
             playerController.preparePlayerSilently();
@@ -296,6 +302,187 @@ public class ReelPlayerFragment extends Fragment
         }
 
         return v;
+    }
+
+    /**
+     * Loads users/{watermarkOwnerUid}/watermarkSettings (saved by
+     * ReelWatermarkSettingsActivity) and, if enabled, renders it over the
+     * reel — username / custom text via tv_watermark_overlay, or a logo
+     * image via iv_watermark_overlay. One-shot read (watermark rarely
+     * changes mid-scroll); safe no-op if the owner never set one up.
+     *
+     * ✅ FIX (Instagram-style repost/share watermark): a quote-repost or
+     * collab-repost reel has {@code reel.uid} set to whoever REPOSTED it,
+     * but the video is still the ORIGINAL creator's content — so this reads
+     * {@link ReelModel#watermarkOwnerUid()} (resolves to repostedFromUid
+     * when present) instead of reel.uid directly, keeping the original
+     * creator's watermark visible on reposts/shares rather than swapping in
+     * the reposter's own (or none, if the reposter never configured one).
+     *
+     * ✅ NEW (per-reel toggle): also honors {@link ReelModel#watermarkEnabled} —
+     * the "Show Watermark on This Reel" switch in ReelPostDetailsActivity.
+     * FALSE hides the watermark on this reel no matter what the owner's
+     * global toggle says; TRUE shows it even if the global toggle is off (or
+     * never configured — falls back to a plain "@name" watermark); null
+     * (old reels) keeps using the global toggle exactly as before.
+     */
+    private void setupWatermarkOverlay(@NonNull View root) {
+        if (reel == null) return;
+        android.widget.TextView tvWm = root.findViewById(R.id.tv_watermark_overlay);
+        android.widget.ImageView ivWm = root.findViewById(R.id.iv_watermark_overlay);
+        if (tvWm == null || ivWm == null) return;
+        // Instagram-level rule: the badge is text OR logo, never both, and
+        // never a circular-avatar+username combo. tv_watermark_overlay is a
+        // plain TextView and iv_watermark_overlay is a plain (non-circular,
+        // centerInside) ImageView — see setupWatermarkOverlay's onDataChange
+        // below, which always hides one before showing the other.
+        mainHandler.removeCallbacks(watermarkJitterRunnable);
+
+        if (Boolean.FALSE.equals(reel.watermarkEnabled)) {
+            tvWm.setVisibility(View.GONE);
+            ivWm.setVisibility(View.GONE);
+            return;
+        }
+        // ✅ NEW: skip the watermark on a repost that already credits the original
+        // creator in its own caption (@handle / "credit"/"via" callout) — see
+        // ReelModel#repostCreditGiven doc. An explicit per-reel TRUE override still
+        // wins (forcedOn below), same precedence as the export engine.
+        if (!Boolean.TRUE.equals(reel.watermarkEnabled) && reel.repostCreditGiven()) {
+            tvWm.setVisibility(View.GONE);
+            ivWm.setVisibility(View.GONE);
+            return;
+        }
+        String wmOwnerUid = reel.watermarkOwnerUid();
+        if (wmOwnerUid == null || wmOwnerUid.isEmpty()) return;
+        boolean forcedOn = Boolean.TRUE.equals(reel.watermarkEnabled);
+
+        FirebaseUtils.getUserRef(wmOwnerUid).child("watermarkSettings")
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    if (!isAdded() || getView() == null) return;
+                    boolean hasSettings = snap.exists();
+                    Boolean globalEnabled = hasSettings ? snap.child("enabled").getValue(Boolean.class) : null;
+                    // Default state (no settings saved yet, and not forced on for
+                    // this reel) = no watermark shown.
+                    if (!forcedOn && (!hasSettings || globalEnabled == null || !globalEnabled)) {
+                        tvWm.setVisibility(View.GONE);
+                        ivWm.setVisibility(View.GONE);
+                        return;
+                    }
+                    String type = hasSettings ? snap.child("type").getValue(String.class) : null;
+                    String position = hasSettings ? snap.child("position").getValue(String.class) : null;
+                    Long opacityL = hasSettings ? snap.child("opacity").getValue(Long.class) : null;
+                    Long fontSizeL = hasSettings ? snap.child("fontSize").getValue(Long.class) : null;
+                    String color = hasSettings ? snap.child("color").getValue(String.class) : null;
+                    int opacity = opacityL != null ? opacityL.intValue() : 80;
+                    int fontSize = fontSizeL != null ? fontSizeL.intValue() : 16;
+                    float alpha = opacity / 100f;
+                    int gravity = gravityForPosition(position);
+
+                    if ("logo".equals(type)) {
+                        String logoUrl = snap.child("logoUrl").getValue(String.class);
+                        tvWm.setVisibility(View.GONE);
+                        if (logoUrl == null || logoUrl.isEmpty()) { ivWm.setVisibility(View.GONE); return; }
+                        setGravity(ivWm, gravity);
+                        ivWm.setAlpha(alpha);
+                        ivWm.setVisibility(View.VISIBLE);
+                        com.bumptech.glide.Glide.with(ivWm).load(logoUrl).into(ivWm);
+                        startWatermarkJitter(ivWm, position);
+                    } else {
+                        ivWm.setVisibility(View.GONE);
+                        String text;
+                        if ("custom_text".equals(type)) {
+                            text = snap.child("customText").getValue(String.class);
+                            if (text == null || text.isEmpty()) text = "@" + safeName();
+                        } else {
+                            text = "@" + safeName();
+                        }
+                        tvWm.setText(text);
+                        // Locked: setTextSize(float) = SP by default, and this view is
+                        // overlaid on the device screen (not baked into the video's pixel
+                        // buffer) — so the reel's underlying video resolution never factors
+                        // into this size at all, matching the export engine's fixed-sp rule.
+                        tvWm.setTextSize(fontSize);
+                        tvWm.setAlpha(alpha);
+                        try {
+                            tvWm.setTextColor(android.graphics.Color.parseColor(color != null ? color : "#FFFFFF"));
+                        } catch (IllegalArgumentException ignored) {
+                            tvWm.setTextColor(android.graphics.Color.WHITE);
+                        }
+                        setGravity(tvWm, gravity);
+                        tvWm.setVisibility(View.VISIBLE);
+                        startWatermarkJitter(tvWm, position);
+                    }
+                }
+                @Override public void onCancelled(@NonNull DatabaseError e) { /* watermark is best-effort */ }
+            });
+    }
+
+    /**
+     * Live-preview counterpart to {@link ReelVideoExportEngine}'s baked-in
+     * watermark jitter: the same "Bottom Right → Top Left → Top Right →
+     * Bottom Left" corner cycle, on the same ~3.5s cadence, so what a viewer
+     * sees while scrolling the feed matches what gets burned into a
+     * downloaded/shared copy — a fixed corner setting still resists a single
+     * static crop even before export. "Center" is left fixed, same as the
+     * export engine, since there's nothing to crop around in the middle.
+     */
+    private static final long   WATERMARK_JITTER_INTERVAL_MS = 3_500L;
+    private static final String[] WATERMARK_JITTER_CORNERS = {
+        "Bottom Right", "Top Left", "Top Right", "Bottom Left"
+    };
+    private final Runnable watermarkJitterRunnable = this::advanceWatermarkJitter;
+    @Nullable private View watermarkJitterTarget;
+    private int watermarkJitterIndex = 0;
+
+    private void startWatermarkJitter(@NonNull View target, @Nullable String position) {
+        mainHandler.removeCallbacks(watermarkJitterRunnable);
+        if (position == null || "Center".equals(position)) return; // fixed anchor, nothing to jitter
+        watermarkJitterTarget = target;
+        // Start the cycle from whichever corner the creator actually picked.
+        watermarkJitterIndex = 0;
+        for (int i = 0; i < WATERMARK_JITTER_CORNERS.length; i++) {
+            if (WATERMARK_JITTER_CORNERS[i].equals(position)) { watermarkJitterIndex = i; break; }
+        }
+        mainHandler.postDelayed(watermarkJitterRunnable, WATERMARK_JITTER_INTERVAL_MS);
+    }
+
+    private void advanceWatermarkJitter() {
+        if (watermarkJitterTarget == null || getView() == null || !isAdded()) return;
+        watermarkJitterIndex = (watermarkJitterIndex + 1) % WATERMARK_JITTER_CORNERS.length;
+        setGravity(watermarkJitterTarget, gravityForPosition(WATERMARK_JITTER_CORNERS[watermarkJitterIndex]));
+        mainHandler.postDelayed(watermarkJitterRunnable, WATERMARK_JITTER_INTERVAL_MS);
+    }
+
+    /**
+     * Username shown by the watermark when its type is "username" (or as a
+     * fallback for an empty custom-text watermark). Uses
+     * {@link ReelModel#watermarkOwnerName()} — the ORIGINAL creator's name
+     * on a repost/collab-repost — matching the uid this same watermark's
+     * settings were loaded from in {@link #setupWatermarkOverlay}.
+     */
+    private String safeName() {
+        return reel != null && reel.watermarkOwnerName() != null ? reel.watermarkOwnerName() : "";
+    }
+
+    private int gravityForPosition(@Nullable String position) {
+        if (position == null) return Gravity.BOTTOM | Gravity.END;
+        switch (position) {
+            case "Top Left":     return Gravity.TOP | Gravity.START;
+            case "Top Right":    return Gravity.TOP | Gravity.END;
+            case "Bottom Left":  return Gravity.BOTTOM | Gravity.START;
+            case "Center":       return Gravity.CENTER;
+            case "Bottom Right":
+            default:              return Gravity.BOTTOM | Gravity.END;
+        }
+    }
+
+    private void setGravity(View v, int gravity) {
+        ViewGroup.LayoutParams lp = v.getLayoutParams();
+        if (lp instanceof FrameLayout.LayoutParams) {
+            ((FrameLayout.LayoutParams) lp).gravity = gravity;
+            v.setLayoutParams(lp);
+        }
     }
 
     @Override
@@ -334,6 +521,8 @@ public class ReelPlayerFragment extends Fragment
         // visible one, don't leave the outer tab pager's swipe stuck off.
         if (isVisible) com.callx.app.utils.ReelTabSwipeLock.unlock();
         mainHandler.removeCallbacks(watchHistoryRunnable);
+        mainHandler.removeCallbacks(watermarkJitterRunnable);
+        watermarkJitterTarget = null;
         playerController.stopProgressTracking();
         playerController.releasePlayer();
         socialController.removeFirebaseListeners();
@@ -459,6 +648,12 @@ public class ReelPlayerFragment extends Fragment
             socialController.recordView();
             socialController.markReelNotificationsRead();
             scheduleWatchHistoryMark();
+            // Resume the corner cycle paused above when this reel scrolled
+            // offscreen (no-op if no watermark is showing on this reel).
+            if (watermarkJitterTarget != null) {
+                mainHandler.removeCallbacks(watermarkJitterRunnable);
+                mainHandler.postDelayed(watermarkJitterRunnable, WATERMARK_JITTER_INTERVAL_MS);
+            }
             // v5: Notify predictive preloader in parent ReelsFragment
             if (reel != null && getParentFragment() instanceof ReelsFragment) {
                 ((ReelsFragment) getParentFragment()).notifyReelWatched(
@@ -478,6 +673,9 @@ public class ReelPlayerFragment extends Fragment
             // listeners stop → Firebase connections & CPU dono free.
             socialController.removeFirebaseListeners();
             mainHandler.removeCallbacks(watchHistoryRunnable);
+            // Same CPU-saving idea as the Firebase listeners above: no point
+            // cycling an offscreen reel's watermark corner every 3.5s.
+            mainHandler.removeCallbacks(watermarkJitterRunnable);
         }
     }
 

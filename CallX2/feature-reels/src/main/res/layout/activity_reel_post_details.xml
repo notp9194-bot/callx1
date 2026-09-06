@@ -328,6 +328,21 @@
                     <Switch android:id="@+id/sw_allow_reactions" android:layout_width="wrap_content"
                         android:layout_height="wrap_content" android:checked="true"/>
                 </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>
+
+                <!-- Show watermark on this reel (per-reel override of the global
+                     Creator Hub → Watermark Settings toggle — Instagram-style
+                     per-share control) -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:paddingHorizontal="8dp">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:text="Show Watermark on This Reel"
+                        android:textColor="@color/text_primary" android:textSize="14sp"/>
+                    <Switch android:id="@+id/sw_show_watermark" android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" android:checked="true"/>
+                </LinearLayout>
             </LinearLayout>
 
             <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider"/>

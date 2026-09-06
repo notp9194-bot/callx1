@@ -311,7 +311,25 @@ public class ReelVideoExportEngine {
                                @Nullable List<OverlayItem> overlays,
                                ExportCallback callback) {
         export(context, inputPath, filterName, brightness, contrast, saturation,
-            overlays, 0L, 0L, callback);
+            overlays, null, 0L, 0L, callback);
+    }
+
+    /**
+     * Overload that also bakes a creator watermark (see {@link WatermarkSpec}) into the
+     * export. Used by ReelShareController's download/share-out path so the file that
+     * leaves the app (Gallery, WhatsApp, etc.) always carries the reel owner's watermark
+     * — the live in-app overlay (ReelPlayerFragment) can't be seen once the video is
+     * outside CallX, same reasoning as parseTextOnlyOverlays' doc above.
+     */
+    public static void export(Context context,
+                               String inputPath,
+                               @Nullable String filterName,
+                               float brightness, float contrast, float saturation,
+                               @Nullable List<OverlayItem> overlays,
+                               @Nullable WatermarkSpec watermark,
+                               ExportCallback callback) {
+        export(context, inputPath, filterName, brightness, contrast, saturation,
+            overlays, watermark, 0L, 0L, callback);
     }
 
     /**
@@ -326,6 +344,214 @@ public class ReelVideoExportEngine {
                                @Nullable List<OverlayItem> overlays,
                                long trimStartMs, long trimEndMs,
                                ExportCallback callback) {
+        export(context, inputPath, filterName, brightness, contrast, saturation,
+            overlays, null, trimStartMs, trimEndMs, callback);
+    }
+
+    /**
+     * ✅ NEW: which UI surface a watermark is being baked for. Feed/Reels and
+     * Stories can render the SAME brand (same type/text/logo/color — identity
+     * doesn't change per surface) at a DIFFERENT size/position — Instagram
+     * does this too (its Stories re-share stamp is smaller than the feed
+     * watermark). Only affects which position/opacity/fontSize triple
+     * {@link #resolveWatermarkSpec(Context, String, String, Boolean, boolean, WatermarkSurface)}
+     * reads: FEED reads the top-level fields (unchanged, backward compatible);
+     * STORY reads users/{uid}/watermarkSettings/story/* IF that sub-object's
+     * "customized" flag is true, else falls back to the same top-level fields
+     * as FEED — see ReelWatermarkSettingsActivity's "Customize for Stories"
+     * switch, which is what writes/clears that sub-object.
+     */
+    public enum WatermarkSurface { FEED, STORY }
+
+    /**
+     * A resolved (already-fetched) creator watermark, ready to bake into an export.
+     * Callers resolve this from users/{ownerUid}/watermarkSettings — see
+     * ReelShareController#fetchWatermarkSpec — *before* calling export(), since
+     * Transformer setup here is synchronous and logo images need a network fetch.
+     */
+    public static class WatermarkSpec {
+        @Nullable public final String text;       // null when logo (bitmap) is used instead
+        @Nullable public final Bitmap logoBitmap;  // null when text is used instead
+        public final int    color;
+        public final float  opacity;    // 0f..1f
+        public final float  textSizeSp;
+        public final String position;   // "Top Left"|"Top Right"|"Bottom Left"|"Bottom Right"|"Center"
+
+        public WatermarkSpec(@Nullable String text, @Nullable Bitmap logoBitmap, int color,
+                              float opacity, float textSizeSp, @Nullable String position) {
+            this.text = text;
+            this.logoBitmap = logoBitmap;
+            this.color = color;
+            this.opacity = Math.max(0f, Math.min(1f, opacity));
+            this.textSizeSp = textSizeSp;
+            this.position = position != null ? position : "Bottom Right";
+        }
+    }
+
+    /**
+     * Synchronously resolves {@code ownerUid}'s watermark (users/{ownerUid}/watermarkSettings,
+     * saved by ReelWatermarkSettingsActivity) into a ready-to-bake WatermarkSpec.
+     *
+     * MUST be called off the main thread — it blocks on a one-shot Firebase read and, for a
+     * logo watermark, a synchronous Glide image fetch, both of which need to finish before
+     * {@link #export} can be started (Transformer setup itself is synchronous). Used by both
+     * ReelShareController (bakes the OWNER's watermark into a download/share-out file) and
+     * ReelUploadActivity (bakes the poster's OWN watermark into the master uploaded file, so
+     * every viewer — in-app or downloaded later — always sees it, not just this one export).
+     *
+     * Returns null (no watermark baked) if disabled, unset, or anything fails, so a slow or
+     * broken watermark never blocks the upload/download itself.
+     */
+    @Nullable
+    public static WatermarkSpec resolveWatermarkSpec(Context context, @Nullable String ownerUid,
+                                                       @Nullable String ownerName) {
+        return resolveWatermarkSpec(context, ownerUid, ownerName, null, false);
+    }
+
+    /**
+     * Same as {@link #resolveWatermarkSpec(Context, String, String)}, but also takes a
+     * per-reel override (ReelModel#watermarkEnabled — the "Show Watermark on This Reel"
+     * switch in ReelPostDetailsActivity, Instagram-style per-share control):
+     *
+     *  • {@code Boolean.FALSE} — creator turned the watermark off for THIS reel; skip the
+     *    Firebase read entirely and never bake one, even if their global toggle is on.
+     *  • {@code Boolean.TRUE}  — creator turned it on for THIS reel; bake one even if their
+     *    global toggle is off, or they never configured watermarkSettings at all (falls back
+     *    to a plain "@name" text watermark, bottom-right, in that case).
+     *  • {@code null}          — no per-reel override; use the global toggle exactly like the
+     *    2-arg overload always has (old reels, and uploads that never passed through Post
+     *    Details, keep this behavior).
+     */
+    @Nullable
+    public static WatermarkSpec resolveWatermarkSpec(Context context, @Nullable String ownerUid,
+                                                       @Nullable String ownerName,
+                                                       @Nullable Boolean perReelOverride) {
+        return resolveWatermarkSpec(context, ownerUid, ownerName, perReelOverride, false);
+    }
+
+    /**
+     * Same as the 4-arg overload, plus {@code creditGiven} —
+     * {@code com.callx.app.models.ReelModel#repostCreditGiven()} for the reel being exported. True skips
+     * the watermark for a repost that already credits the original creator in its
+     * own caption (Instagram sometimes waives its own repost watermark the same
+     * way, rather than applying it unconditionally on every repost). A {@code TRUE}
+     * {@code perReelOverride} still wins over this — an explicit per-reel "show it
+     * anyway" choice is a stronger signal than an inferred caption credit.
+     */
+    @Nullable
+    public static WatermarkSpec resolveWatermarkSpec(Context context, @Nullable String ownerUid,
+                                                       @Nullable String ownerName,
+                                                       @Nullable Boolean perReelOverride,
+                                                       boolean creditGiven) {
+        return resolveWatermarkSpec(context, ownerUid, ownerName, perReelOverride, creditGiven, WatermarkSurface.FEED);
+    }
+
+    /**
+     * Same as the 5-arg overload, plus {@code surface} — see {@link WatermarkSurface}'s
+     * class doc. Pass {@link WatermarkSurface#STORY} when baking a clip that's headed
+     * to a Story/Status surface (e.g. ReelShareToStoryActivity) so a creator's
+     * "Customize for Stories" size/position, if they set one, is honored instead of
+     * always reusing the Feed/Reels one.
+     */
+    @Nullable
+    public static WatermarkSpec resolveWatermarkSpec(Context context, @Nullable String ownerUid,
+                                                       @Nullable String ownerName,
+                                                       @Nullable Boolean perReelOverride,
+                                                       boolean creditGiven,
+                                                       WatermarkSurface surface) {
+        if (ownerUid == null || ownerUid.isEmpty()) return null;
+        if (Boolean.FALSE.equals(perReelOverride)) return null;
+        if (creditGiven && !Boolean.TRUE.equals(perReelOverride)) return null;
+        try {
+            final com.google.firebase.database.DataSnapshot[] result = new com.google.firebase.database.DataSnapshot[1];
+            java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+            com.callx.app.utils.FirebaseUtils.getUserRef(ownerUid).child("watermarkSettings")
+                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                    @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snap) {
+                        result[0] = snap;
+                        latch.countDown();
+                    }
+                    @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError e) {
+                        latch.countDown();
+                    }
+                });
+            latch.await(5, java.util.concurrent.TimeUnit.SECONDS);
+            com.google.firebase.database.DataSnapshot snap = result[0];
+            boolean hasSettings = (snap != null && snap.exists());
+            // No global settings ever saved: only proceed if THIS reel force-enables it
+            // (falls back to defaults below); otherwise nothing to bake, same as before.
+            if (!hasSettings && !Boolean.TRUE.equals(perReelOverride)) return null;
+
+            Boolean globalEnabled = hasSettings ? snap.child("enabled").getValue(Boolean.class) : null;
+            boolean effectiveEnabled = Boolean.TRUE.equals(perReelOverride)
+                || (globalEnabled != null && globalEnabled);
+            if (!effectiveEnabled) return null;
+
+            String type = hasSettings ? snap.child("type").getValue(String.class) : null;
+            String position = hasSettings ? snap.child("position").getValue(String.class) : null;
+            Long opacityL = hasSettings ? snap.child("opacity").getValue(Long.class) : null;
+            Long fontSizeL = hasSettings ? snap.child("fontSize").getValue(Long.class) : null;
+            String colorStr = hasSettings ? snap.child("color").getValue(String.class) : null;
+            float opacity = (opacityL != null ? opacityL : 80L) / 100f;
+            float fontSize = fontSizeL != null ? fontSizeL : 16L;
+            int color;
+            try { color = Color.parseColor(colorStr != null ? colorStr : "#FFFFFF"); }
+            catch (Exception e) { color = Color.WHITE; }
+
+            // ✅ NEW: Stories-specific size/position override — identity (type/
+            // text/logo/color) always stays the Feed/Reels one; only WHERE and
+            // HOW BIG changes, matching how the settings screen edits it.
+            if (surface == WatermarkSurface.STORY && hasSettings) {
+                com.google.firebase.database.DataSnapshot storySnap = snap.child("story");
+                Boolean customized = storySnap.child("customized").getValue(Boolean.class);
+                if (Boolean.TRUE.equals(customized)) {
+                    String sPos = storySnap.child("position").getValue(String.class);
+                    Long sOpacityL = storySnap.child("opacity").getValue(Long.class);
+                    Long sFontSizeL = storySnap.child("fontSize").getValue(Long.class);
+                    if (sPos != null) position = sPos;
+                    if (sOpacityL != null) opacity = sOpacityL / 100f;
+                    if (sFontSizeL != null) fontSize = sFontSizeL;
+                }
+            }
+
+            if ("logo".equals(type)) {
+                String logoUrl = snap.child("logoUrl").getValue(String.class);
+                if (logoUrl == null || logoUrl.isEmpty()) return null;
+                try {
+                    Bitmap logo = com.bumptech.glide.Glide.with(context)
+                        .asBitmap().load(logoUrl).submit(256, 256)
+                        .get(8, java.util.concurrent.TimeUnit.SECONDS);
+                    return new WatermarkSpec(null, logo, color, opacity, fontSize, position);
+                } catch (Exception e) {
+                    return null; // logo fetch failed — skip the watermark rather than fail the caller
+                }
+            }
+
+            String text;
+            if ("custom_text".equals(type)) {
+                text = snap.child("customText").getValue(String.class);
+                if (text == null || text.isEmpty()) text = "@" + (ownerName != null ? ownerName : "");
+            } else {
+                text = "@" + (ownerName != null ? ownerName : "");
+            }
+            return new WatermarkSpec(text, null, color, opacity, fontSize, position);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Core export — re-encodes {@code inputPath} with the given filter, overlays,
+     * watermark and trim range all baked into the pixels.
+     */
+    public static void export(Context context,
+                               String inputPath,
+                               @Nullable String filterName,
+                               float brightness, float contrast, float saturation,
+                               @Nullable List<OverlayItem> overlays,
+                               @Nullable WatermarkSpec watermark,
+                               long trimStartMs, long trimEndMs,
+                               ExportCallback callback) {
 
         Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -337,7 +563,7 @@ public class ReelVideoExportEngine {
 
             List<Effect> videoEffects = new ArrayList<>();
             addFilterEffects(videoEffects, filterName, brightness, contrast, saturation);
-            addOverlayEffect(context, videoEffects, input.getAbsolutePath(), overlays);
+            addOverlayEffect(context, videoEffects, input.getAbsolutePath(), overlays, watermark);
 
             MediaItem.Builder itemBuilder = new MediaItem.Builder().setUri(Uri.fromFile(input));
             // ✅ Bake the selected trim range into the exported file so the preview
@@ -460,18 +686,119 @@ public class ReelVideoExportEngine {
     }
 
     /**
+     * How often the baked-in watermark jumps to a new spot. Mirrors the Instagram/TikTok
+     * repost-watermark behavior: instead of sitting in one fixed pixel for the whole clip,
+     * it periodically shifts corner (and nudges a few dp within that corner) so a single
+     * crop can't reliably cut it out of every frame.
+     */
+    private static final long WATERMARK_JITTER_CYCLE_US = 3_500_000L; // ~3.5s per slot
+
+    /** Corners the watermark cycles through. Center is excluded from the rotation — jitter
+     *  only matters for corner/edge crops, so a "Center" setting is just used as a normal
+     *  fixed anchor (nothing to crop around in the middle of the frame anyway). */
+    private static final String[] WATERMARK_JITTER_CORNERS = {
+        "Bottom Right", "Top Left", "Top Right", "Bottom Left"
+    };
+
+    /** Extra per-lap pixel nudge (dp) on top of the corner anchor, so the watermark doesn't
+     *  land in the exact same spot every time it revisits a given corner either. */
+    private static final float[][] WATERMARK_JITTER_OFFSETS_DP = {
+        {0f, 0f}, {10f, -6f}, {-8f, 8f}, {6f, 10f}
+    };
+
+    private static final int WATERMARK_JITTER_TOTAL_SLOTS =
+        WATERMARK_JITTER_CORNERS.length * WATERMARK_JITTER_OFFSETS_DP.length;
+
+    /**
+     * Reference phone size used only to convert fragment_reel_player.xml's dp-based UI chrome
+     * (caption box, action-button rail, top badges) into fractions of the video frame. The
+     * export has no idea what device/screen the reel will actually play back on, so this is
+     * an approximation — but it's enough to keep the baked watermark from landing under that
+     * chrome most of the time, the same way Instagram auto-adjusts its own watermark spot.
+     */
+    private static final float UI_REF_WIDTH_DP  = 412f;
+    private static final float UI_REF_HEIGHT_DP = 915f;
+
+    /**
+     * UI safe zones to steer the watermark away from, each as {x, y, w, h} in dp against the
+     * reference size above — sourced from fragment_reel_player.xml:
+     *  • top-left    — layout_suggested_label (owner row + follow button) + stub_quality_badge
+     *  • top-right   — top_controls (mute button)
+     *  • bottom-left — bottom_info (owner row, caption @ marginBottom 136dp, song/BPM badges
+     *                  up to marginBottom 228dp) — width stops at the same 64dp the caption's
+     *                  own marginEnd already reserves for the action rail
+     *  • bottom-right— right_actions (like/comment/share/save/repost/more/audio rail, 68dp wide)
+     */
+    private static float[][] uiSafeZonesDp() {
+        return new float[][]{
+            {0f, 0f, 200f, 62f},
+            {UI_REF_WIDTH_DP - 54f, 0f, 54f, 54f},
+            {0f, UI_REF_HEIGHT_DP - 270f, UI_REF_WIDTH_DP - 64f, 270f},
+            {UI_REF_WIDTH_DP - 76f, UI_REF_HEIGHT_DP - 450f, 76f, 450f},
+        };
+    }
+
+    /** {@link #uiSafeZonesDp()} scaled from reference dp into this export's actual pixel size. */
+    private static List<float[]> scaledUiSafeZones(int videoW, int videoH) {
+        float sx = videoW / UI_REF_WIDTH_DP;
+        float sy = videoH / UI_REF_HEIGHT_DP;
+        List<float[]> zones = new ArrayList<>();
+        for (float[] z : uiSafeZonesDp()) {
+            zones.add(new float[]{z[0] * sx, z[1] * sy, z[2] * sx, z[3] * sy});
+        }
+        return zones;
+    }
+
+    /**
+     * If the candidate watermark box overlaps a UI safe zone, nudges it just clear of that
+     * zone — toward whichever edge needs the smallest shift — instead of letting it sit under
+     * chrome the caption/buttons would cover it with. Mirrors Instagram's own auto-adjust.
+     */
+    private static float[] avoidUiSafeZones(float x, float y, int boxW, int boxH,
+                                             int videoW, int videoH, int margin) {
+        for (float[] zone : scaledUiSafeZones(videoW, videoH)) {
+            float zx = zone[0], zy = zone[1], zw = zone[2], zh = zone[3];
+            boolean overlaps = x < zx + zw && x + boxW > zx && y < zy + zh && y + boxH > zy;
+            if (!overlaps) continue;
+
+            float pushLeft  = zx - boxW - x;   // shift so box ends up fully left of the zone
+            float pushRight = zx + zw - x;      // ...fully right of it
+            float pushUp    = zy - boxH - y;    // ...fully above it
+            float pushDown  = zy + zh - y;       // ...fully below it
+
+            float best = pushRight;
+            boolean horizontal = true;
+            if (Math.abs(pushLeft) < Math.abs(best)) { best = pushLeft; horizontal = true; }
+            if (Math.abs(pushUp) < Math.abs(best))   { best = pushUp;   horizontal = false; }
+            if (Math.abs(pushDown) < Math.abs(best)) { best = pushDown; horizontal = false; }
+
+            if (horizontal) x += best; else y += best;
+            x = clampToFrame(x, margin, videoW - boxW - margin);
+            y = clampToFrame(y, margin, videoH - boxH - margin);
+        }
+        return new float[]{x, y};
+    }
+
+    /**
      * Draws all text/sticker overlays onto a transparent bitmap and overlays it on every frame.
      *
      * ✅ NEW: when at least one overlay has a text-in animation (typewriter / word reveal), the
      * bitmap can no longer be built once and reused for the whole video — the revealed text
      * changes with presentationTimeUs. To keep the common case (no animated overlays) exactly
      * as cheap as before, this only switches to per-frame rendering when something actually
-     * animates, and even then stops re-rendering once every animation has settled — the frame
-     * at that point is cached and reused for the rest of the reel.
+     * animates.
+     *
+     * ✅ NEW: when a watermark is baked in, its position is no longer frozen for the whole
+     * export either — see {@link #jitteredWatermarkAnchor}. Rather than re-rendering a full
+     * frame on every single video frame (expensive), a small fixed set of position "slots" is
+     * pre-rendered once up front and the export just picks the slot for the current timestamp —
+     * same crop-resistance as a true per-frame jitter, without the per-frame cost.
      */
     private static void addOverlayEffect(Context context, List<Effect> effects,
-                                          String inputPath, @Nullable List<OverlayItem> overlays) {
-        if (overlays == null || overlays.isEmpty()) return;
+                                          String inputPath, @Nullable List<OverlayItem> overlays,
+                                          @Nullable WatermarkSpec watermark) {
+        if ((overlays == null || overlays.isEmpty()) && watermark == null) return;
+        List<OverlayItem> safeOverlays = overlays != null ? overlays : new ArrayList<>();
 
         int[] size = readVideoSize(inputPath);
         int width = size[0] > 0 ? size[0] : 720;
@@ -479,18 +806,40 @@ public class ReelVideoExportEngine {
         float density = context.getResources().getDisplayMetrics().density;
 
         long maxAnimUs = 0L;
-        for (OverlayItem item : overlays) {
+        for (OverlayItem item : safeOverlays) {
             if (!"none".equals(item.animKey)) {
                 maxAnimUs = Math.max(maxAnimUs, item.animDurationMs * 1000L);
             }
         }
         final long settleAtUs = maxAnimUs;
+        final boolean watermarkMoves = watermark != null && !"Center".equals(watermark.position);
 
         if (settleAtUs == 0L) {
-            // Fast path — nothing animates in, so render exactly once (unchanged behavior/perf).
-            final Bitmap bitmap = renderOverlayFrame(overlays, width, height, density, 0L);
+            if (!watermarkMoves) {
+                // Fast path — nothing animates and nothing jitters, so render exactly once
+                // (unchanged behavior/perf for overlay-only or Center-watermark exports).
+                final Bitmap bitmap = renderOverlayFrame(safeOverlays, watermark, width, height, density, 0L);
+                BitmapOverlay overlay = new BitmapOverlay() {
+                    @Override public Bitmap getBitmap(long presentationTimeUs) { return bitmap; }
+                    @Override public OverlaySettings getOverlaySettings(long presentationTimeUs) {
+                        return new OverlaySettings.Builder().build();
+                    }
+                };
+                effects.add(new OverlayEffect(ImmutableList.of(overlay)));
+                return;
+            }
+            // Overlays are static but the watermark jitters — pre-render one bitmap per
+            // jitter slot (cheap, one-time cost) and pick between them by timestamp.
+            final Bitmap[] slots = new Bitmap[WATERMARK_JITTER_TOTAL_SLOTS];
             BitmapOverlay overlay = new BitmapOverlay() {
-                @Override public Bitmap getBitmap(long presentationTimeUs) { return bitmap; }
+                @Override public Bitmap getBitmap(long presentationTimeUs) {
+                    int slot = jitterSlotIndex(presentationTimeUs);
+                    if (slots[slot] == null) {
+                        slots[slot] = renderOverlayFrame(safeOverlays, watermark, width, height, density,
+                            slotTimeUs(slot));
+                    }
+                    return slots[slot];
+                }
                 @Override public OverlaySettings getOverlaySettings(long presentationTimeUs) {
                     return new OverlaySettings.Builder().build();
                 }
@@ -499,17 +848,29 @@ public class ReelVideoExportEngine {
             return;
         }
 
-        // Slow path — re-render only while an animation is still revealing, then cache.
+        // Slow path — re-render every frame while an overlay animation is still revealing.
+        // Once settled: if the watermark jitters, cache one bitmap per jitter slot (overlay
+        // text fully revealed + watermark at that slot's position); otherwise cache a single
+        // frame like before.
+        final Bitmap[] settledSlots = watermarkMoves ? new Bitmap[WATERMARK_JITTER_TOTAL_SLOTS] : null;
         final Bitmap[] settledFrame = new Bitmap[1];
         BitmapOverlay overlay = new BitmapOverlay() {
             @Override public Bitmap getBitmap(long presentationTimeUs) {
                 if (presentationTimeUs >= settleAtUs) {
+                    if (watermarkMoves) {
+                        int slot = jitterSlotIndex(presentationTimeUs);
+                        if (settledSlots[slot] == null) {
+                            settledSlots[slot] = renderOverlayFrameAt(safeOverlays, watermark, width, height,
+                                density, /*overlayTimeUs=*/settleAtUs, /*watermarkTimeUs=*/slotTimeUs(slot));
+                        }
+                        return settledSlots[slot];
+                    }
                     if (settledFrame[0] == null) {
-                        settledFrame[0] = renderOverlayFrame(overlays, width, height, density, presentationTimeUs);
+                        settledFrame[0] = renderOverlayFrame(safeOverlays, watermark, width, height, density, presentationTimeUs);
                     }
                     return settledFrame[0];
                 }
-                return renderOverlayFrame(overlays, width, height, density, presentationTimeUs);
+                return renderOverlayFrame(safeOverlays, watermark, width, height, density, presentationTimeUs);
             }
             @Override public OverlaySettings getOverlaySettings(long presentationTimeUs) {
                 return new OverlaySettings.Builder().build();
@@ -518,14 +879,187 @@ public class ReelVideoExportEngine {
         effects.add(new OverlayEffect(ImmutableList.of(overlay)));
     }
 
-    private static Bitmap renderOverlayFrame(List<OverlayItem> overlays, int width, int height,
-                                              float density, long presentationTimeUs) {
+    /** Which pre-rendered jitter slot is "current" for this timestamp. */
+    private static int jitterSlotIndex(long presentationTimeUs) {
+        long lap = presentationTimeUs / WATERMARK_JITTER_CYCLE_US;
+        return (int) (lap % WATERMARK_JITTER_TOTAL_SLOTS);
+    }
+
+    /** A representative timestamp that maps back to {@code slot} via {@link #jitterSlotIndex}. */
+    private static long slotTimeUs(int slot) {
+        return (long) slot * WATERMARK_JITTER_CYCLE_US;
+    }
+
+    private static Bitmap renderOverlayFrame(List<OverlayItem> overlays, @Nullable WatermarkSpec watermark,
+                                              int width, int height, float density, long presentationTimeUs) {
+        return renderOverlayFrameAt(overlays, watermark, width, height, density, presentationTimeUs, presentationTimeUs);
+    }
+
+    /**
+     * Same as {@link #renderOverlayFrame}, but lets overlay text-reveal timing and the
+     * watermark's jitter timing be driven by two different clocks — needed once overlay text
+     * has settled but the watermark should keep moving for the rest of the reel.
+     */
+    private static Bitmap renderOverlayFrameAt(List<OverlayItem> overlays, @Nullable WatermarkSpec watermark,
+                                                int width, int height, float density,
+                                                long overlayTimeUs, long watermarkTimeUs) {
         Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
         for (OverlayItem item : overlays) {
-            drawStyledOverlay(canvas, item, width, height, density, presentationTimeUs);
+            drawStyledOverlay(canvas, item, width, height, density, overlayTimeUs);
         }
+        // Watermark is drawn last so it always sits on top of any other overlay/sticker.
+        drawWatermark(canvas, watermark, width, height, density, watermarkTimeUs);
         return bitmap;
+    }
+
+    /**
+     * Draws the resolved creator watermark (text or logo) at its time-jittered corner/center.
+     *
+     * ✅ Locked invariant (no auto-scale by video resolution): unlike
+     * {@link #drawStyledOverlay} below — which scales caption/sticker text by
+     * {@code videoWidth / 1080f} so it matches the editor preview at any export
+     * resolution — the watermark intentionally does NOT multiply by video width/
+     * height anywhere in this method. {@code wm.textSizeSp * density} and the
+     * fixed {@code 44 * density} logo box are both resolution-independent, so a
+     * 480p export and a 4K export of the same reel get the identical physical
+     * watermark size — the on-frame ratio simply shrinks/grows with the frame,
+     * it is never renormalized back to a constant ratio.
+     *
+     * ✅ NEW (anti-tamper/robustness): a bare bitmap/text drawn straight onto the
+     * frame disappears almost completely if that patch of video gets cropped out
+     * or heavily blurred — there's no trace left once the pixels are gone. Real
+     * platforms don't solve this cryptographically either; the practical mitigation
+     * is a semi-transparent BLENDED backing plate — {@link #drawWatermarkChip} below —
+     * behind the mark, so:
+     *   • blurring the frame still leaves a visible soft dark smudge in that corner
+     *     (the chip), instead of the mark blending away into whatever was under it;
+     *   • combined with the existing per-corner jitter (crop resistance) and the
+     *     text drop-shadow (contrast on any background colour), all three together
+     *     approximate the Instagram/TikTok repost-watermark's actual behavior —
+     *     no single trick is bulletproof, but stacking them raises the bar past a
+     *     single static crop or a single blur pass.
+     * This is a deterrent, not a guarantee — a determined re-encode/inpaint can
+     * still remove any burned-in watermark. Don't oversell it as tamper-proof.
+     */
+    private static void drawWatermark(Canvas canvas, @Nullable WatermarkSpec wm,
+                                       int videoWidth, int videoHeight, float density, long presentationTimeUs) {
+        if (wm == null) return;
+        int margin = (int) (16 * density);
+        // Chip alpha scales WITH the configured opacity (a 20%-opacity watermark
+        // gets a faint chip, a 100%-opacity one gets a fuller chip) rather than
+        // being a fixed value that ignores the creator's own setting.
+        int chipAlpha = Math.round(0.4f * wm.opacity * 255);
+        float chipRadius = 8f * density;
+        float padH = 10f * density, padV = 6f * density;
+
+        if (wm.logoBitmap != null) {
+            // ✅ Logo size now follows the same textSizeSp knob as the text
+            // watermark (previously hardcoded to 44dp regardless of the Font
+            // Size slider) — this is what lets a Stories-specific variant
+            // render a visibly smaller/bigger logo than Feed/Reels, not just
+            // reposition it. 16sp (the default) maps to the old 44dp so
+            // existing saved settings render identically to before.
+            int logoSize = Math.round(wm.textSizeSp * 2.75f * density);
+            Bitmap scaled = Bitmap.createScaledBitmap(wm.logoBitmap, logoSize, logoSize, true);
+            int boxW = logoSize + (int) (padH * 2);
+            int boxH = logoSize + (int) (padV * 2);
+            float[] xy = jitteredWatermarkAnchor(wm.position, presentationTimeUs, videoWidth, videoHeight,
+                boxW, boxH, margin, density);
+            drawWatermarkChip(canvas, xy[0], xy[1], boxW, boxH, chipRadius, chipAlpha);
+            Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            paint.setAlpha(Math.round(wm.opacity * 255));
+            canvas.drawBitmap(scaled, xy[0] + padH, xy[1] + padV, paint);
+            return;
+        }
+        if (wm.text == null || wm.text.isEmpty()) return;
+
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(wm.color);
+        paint.setAlpha(Math.round(wm.opacity * 255));
+        paint.setTextSize(wm.textSizeSp * density); // fixed sp→px — deliberately no video-resolution multiplier
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setShadowLayer(4f * density, 0f, density, Color.argb(Math.round(wm.opacity * 160), 0, 0, 0));
+
+        float textWidth = paint.measureText(wm.text);
+        Paint.FontMetrics fm = paint.getFontMetrics();
+        float textHeight = fm.descent - fm.ascent;
+        int boxW = Math.round(textWidth + padH * 2);
+        int boxH = Math.round(textHeight + padV * 2);
+        float[] xy = jitteredWatermarkAnchor(wm.position, presentationTimeUs, videoWidth, videoHeight,
+            boxW, boxH, margin, density);
+        drawWatermarkChip(canvas, xy[0], xy[1], boxW, boxH, chipRadius, chipAlpha);
+        canvas.drawText(wm.text, xy[0] + padH, xy[1] + padV - fm.ascent, paint);
+    }
+
+    /**
+     * Semi-transparent blended backing plate behind the watermark — see the
+     * "anti-tamper/robustness" doc on {@link #drawWatermark}. Always a translucent
+     * BLACK rounded rect regardless of the creator's chosen text colour (white,
+     * pink, gold, cyan…) so it reads as a consistent soft chip against any video
+     * background rather than clashing with — or vanishing into — the text colour.
+     */
+    private static void drawWatermarkChip(Canvas canvas, float left, float top,
+                                           int boxW, int boxH, float radius, int alpha) {
+        if (alpha <= 0) return;
+        Paint chipPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        chipPaint.setColor(Color.BLACK);
+        chipPaint.setAlpha(alpha);
+        canvas.drawRoundRect(left, top, left + boxW, top + boxH, radius, radius, chipPaint);
+    }
+
+    /** Top-left (x, y) for a {@code boxW}×{@code boxH} box at the given named corner/center. */
+    private static float[] watermarkAnchor(@Nullable String position, int videoW, int videoH,
+                                            int boxW, int boxH, int margin) {
+        String pos = position != null ? position : "Bottom Right";
+        float x, y;
+        switch (pos) {
+            case "Top Left":    x = margin;                     y = margin;                     break;
+            case "Top Right":   x = videoW - boxW - margin;      y = margin;                     break;
+            case "Bottom Left": x = margin;                     y = videoH - boxH - margin;      break;
+            case "Center":      x = (videoW - boxW) / 2f;        y = (videoH - boxH) / 2f;        break;
+            case "Bottom Right":
+            default:            x = videoW - boxW - margin;      y = videoH - boxH - margin;      break;
+        }
+        return new float[]{x, y};
+    }
+
+    /**
+     * Instagram-style moving anchor: starts from the creator's configured corner (falls back
+     * to Bottom Right), then every {@link #WATERMARK_JITTER_CYCLE_US} rotates to the next
+     * corner, with a small extra per-lap dp nudge — so the watermark keeps landing somewhere
+     * new instead of sitting in one crop-able spot for the whole reel. "Center" is left static,
+     * since a centered watermark isn't something a corner crop could remove anyway.
+     */
+    private static float[] jitteredWatermarkAnchor(@Nullable String basePosition, long presentationTimeUs,
+                                                     int videoW, int videoH, int boxW, int boxH,
+                                                     int margin, float density) {
+        if ("Center".equals(basePosition)) {
+            return watermarkAnchor(basePosition, videoW, videoH, boxW, boxH, margin);
+        }
+
+        int startIndex = 0;
+        if (basePosition != null) {
+            for (int i = 0; i < WATERMARK_JITTER_CORNERS.length; i++) {
+                if (WATERMARK_JITTER_CORNERS[i].equals(basePosition)) { startIndex = i; break; }
+            }
+        }
+
+        long lap = presentationTimeUs / WATERMARK_JITTER_CYCLE_US;
+        String corner = WATERMARK_JITTER_CORNERS[(int) ((lap + startIndex) % WATERMARK_JITTER_CORNERS.length)];
+        float[][] offsets = WATERMARK_JITTER_OFFSETS_DP;
+        float[] offsetDp = offsets[(int) ((lap / WATERMARK_JITTER_CORNERS.length) % offsets.length)];
+
+        float[] base = watermarkAnchor(corner, videoW, videoH, boxW, boxH, margin);
+        float x = clampToFrame(base[0] + offsetDp[0] * density, margin, videoW - boxW - margin);
+        float y = clampToFrame(base[1] + offsetDp[1] * density, margin, videoH - boxH - margin);
+        return avoidUiSafeZones(x, y, boxW, boxH, videoW, videoH, margin);
+    }
+
+    /** Keeps a jitter-nudged coordinate from pushing the watermark off-screen or past its margin. */
+    private static float clampToFrame(float value, float min, float max) {
+        if (max < min) return min; // watermark box bigger than the safe area — degrade gracefully
+        return Math.max(min, Math.min(max, value));
     }
 
     /** Returns how much of item.text should be visible at presentationTimeUs given its animKey.

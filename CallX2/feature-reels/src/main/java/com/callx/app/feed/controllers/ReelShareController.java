@@ -55,6 +55,18 @@ public class ReelShareController {
      * overlays into it with ReelVideoExportEngine, then saves the result to the
      * gallery. Falls back to the plain (text-less) file if either step fails,
      * rather than losing the download entirely.
+     *
+     * ✅ NEW: also bakes the reel OWNER's creator watermark (ReelWatermarkSettingsActivity)
+     * into the same export pass — see fetchWatermarkSpec(). Previously the watermark only
+     * showed as a live overlay inside the app (ReelPlayerFragment); a downloaded/shared
+     * file had none at all, same gap the text overlays had.
+     *
+     * ✅ FIX (Instagram-style repost/share watermark): for a quote-repost or
+     * collab-repost, reel.uid/reel.ownerName are the REPOSTER, not the original
+     * creator — the downloaded video is still the original's content, so
+     * fetchWatermarkSpec() now resolves through reel.watermarkOwnerUid()/
+     * watermarkOwnerName() (original creator when repostedFromUid is set) so the
+     * baked-in watermark matches what ReelPlayerFragment already shows live.
      */
     public void downloadReel() {
         ReelModel reel = delegate.getReel();
@@ -80,15 +92,18 @@ public class ReelShareController {
 
             java.util.List<com.callx.app.editor.ReelVideoExportEngine.OverlayItem> textOverlays =
                 com.callx.app.editor.ReelVideoExportEngine.parseTextOnlyOverlays(stickerJson);
+            com.callx.app.editor.ReelVideoExportEngine.WatermarkSpec watermark =
+                fetchWatermarkSpec(appCtx, reel.watermarkOwnerUid(), reel.watermarkOwnerName(),
+                    reel.watermarkEnabled, reel.repostCreditGiven());
 
-            if (textOverlays.isEmpty()) {
+            if (textOverlays.isEmpty() && watermark == null) {
                 saveDownloadedFileToGallery(appCtx, plainFile, reelId, mainHandler);
                 return;
             }
 
             // Transformer needs a Looper thread — hop back to main to start the bake.
             mainHandler.post(() -> com.callx.app.editor.ReelVideoExportEngine.export(
-                appCtx, plainFile.getAbsolutePath(), null, 0f, 1f, 1f, textOverlays,
+                appCtx, plainFile.getAbsolutePath(), null, 0f, 1f, 1f, textOverlays, watermark,
                 new com.callx.app.editor.ReelVideoExportEngine.ExportCallback() {
                     @Override public void onProgress(int percent) {}
                     @Override public void onSuccess(String outputPath) {
@@ -105,6 +120,28 @@ public class ReelShareController {
                     }
                 }));
         }).start();
+    }
+
+    /**
+     * Resolves the reel OWNER's watermark for baking into a download/share-out file.
+     * Delegates to ReelVideoExportEngine.resolveWatermarkSpec() — see its doc for why
+     * this must run on a background thread (already true here: called from
+     * downloadReel()'s worker thread).
+     *
+     * @param perReelOverride ReelModel#watermarkEnabled — this specific reel's own
+     *                        "Show Watermark on This Reel" choice, which wins over the
+     *                        owner's global toggle when set (Instagram-style per-share
+     *                        control). Null keeps the old global-toggle-only behavior.
+     * @param creditGiven     ReelModel#repostCreditGiven() — true skips baking a
+     *                        watermark for a repost whose own caption already credits
+     *                        the original creator, unless perReelOverride is TRUE.
+     */
+    @androidx.annotation.Nullable
+    private com.callx.app.editor.ReelVideoExportEngine.WatermarkSpec fetchWatermarkSpec(
+            Context appCtx, String ownerUid, String ownerName,
+            @androidx.annotation.Nullable Boolean perReelOverride, boolean creditGiven) {
+        return com.callx.app.editor.ReelVideoExportEngine.resolveWatermarkSpec(
+            appCtx, ownerUid, ownerName, perReelOverride, creditGiven);
     }
 
     /** Downloads {@code url} into the app's cache dir. Runs on a background thread. */

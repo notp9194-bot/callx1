@@ -47,7 +47,7 @@ public class ReelPrivacyAndSecurityActivity extends AppCompatActivity {
 
         // ── ACCOUNT ───────────────────────────────────────────────────────
         addSection(root, "ACCOUNT");
-        addRow(root, "👤", "Manage my account",        null);
+        addAccountRow(root, "👤", "Manage my account");
         addRow(root, "🔒", "Privacy and safety",       ReelPrivacySettingsActivity.class);
         addRow(root, "📰", "Content preferences",      ReelFeedSettingsActivity.class);
         addRow(root, "💰", "Creator Fund / Balance",   ReelCreatorFundActivity.class);
@@ -64,8 +64,8 @@ public class ReelPrivacyAndSecurityActivity extends AppCompatActivity {
 
         // ── SUPPORT ───────────────────────────────────────────────────────
         addSection(root, "SUPPORT");
-        addRow(root, "✏️",  "Report a problem",        null);
-        addRow(root, "❓", "Help Center",               null);
+        addRow(root, "✏️",  "Report a problem",        ReelReportProblemActivity.class);
+        addRow(root, "❓", "Help Center",               ReelHelpCenterActivity.class);
     }
 
     // ── Builder helpers ───────────────────────────────────────────────────
@@ -103,7 +103,30 @@ public class ReelPrivacyAndSecurityActivity extends AppCompatActivity {
         parent.addView(topBorder);
     }
 
+    /**
+     * "Manage my account" opens the app module's AccountMenuActivity (profile
+     * info, linked devices, delete account, etc). feature-reels can't depend
+     * on :app directly (:app depends on :feature-reels, not the reverse), so
+     * this crosses the module boundary via an explicit setClassName() intent
+     * — the same technique already used for cross-module navigation elsewhere
+     * in this app, e.g. CallsFragment/CallHistoryAdapter → ChatActivity.
+     */
+    private void addAccountRow(LinearLayout parent, String emoji, String label) {
+        addRow(parent, emoji, label, null, v -> {
+            try {
+                startActivity(new Intent().setClassName(
+                    getPackageName(), "com.callx.app.activities.AccountMenuActivity"));
+            } catch (Exception e) {
+                Toast.makeText(this, "Couldn't open account settings", Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
     private void addRow(LinearLayout parent, String emoji, String label, Class<?> target) {
+        addRow(parent, emoji, label, target, null);
+    }
+
+    private void addRow(LinearLayout parent, String emoji, String label, Class<?> target, View.OnClickListener customAction) {
         LinearLayout row = new LinearLayout(this);
         LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
@@ -146,7 +169,9 @@ public class ReelPrivacyAndSecurityActivity extends AppCompatActivity {
         row.addView(ivChevron);
 
         row.setOnClickListener(v -> {
-            if (target != null) {
+            if (customAction != null) {
+                customAction.onClick(v);
+            } else if (target != null) {
                 startActivity(new Intent(this, target));
             } else {
                 Toast.makeText(this, label + " — Coming soon", Toast.LENGTH_SHORT).show();

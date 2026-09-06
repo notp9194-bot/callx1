@@ -38,7 +38,7 @@
             <RadioButton android:id="@+id/rb_wm_custom_text" android:layout_width="wrap_content"
                 android:layout_height="40dp" android:text="Custom Text" android:textColor="#FFFFFF"/>
             <RadioButton android:id="@+id/rb_wm_logo" android:layout_width="wrap_content"
-                android:layout_height="40dp" android:text="Logo Image URL" android:textColor="#FFFFFF"/>
+                android:layout_height="40dp" android:text="Logo Image" android:textColor="#FFFFFF"/>
         </RadioGroup>
 
         <LinearLayout android:id="@+id/layout_wm_text_opts" android:layout_width="match_parent"
@@ -52,6 +52,34 @@
         <LinearLayout android:id="@+id/layout_wm_logo_opts" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:orientation="vertical"
             android:paddingHorizontal="16dp" android:paddingBottom="8dp" android:visibility="gone">
+
+            <!-- ✅ NEW: gallery upload + crop, instead of only a URL field -->
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical">
+                <FrameLayout android:layout_width="64dp" android:layout_height="64dp">
+                    <ImageView android:id="@+id/iv_wm_logo_pick_preview" android:layout_width="64dp"
+                        android:layout_height="64dp" android:background="@drawable/bg_watermark_chip"
+                        android:scaleType="centerCrop" android:padding="8dp"
+                        android:src="@drawable/ic_bookmark_filled" android:alpha="0.4"/>
+                    <ProgressBar android:id="@+id/progress_wm_logo_upload" android:layout_width="24dp"
+                        android:layout_height="24dp" android:layout_gravity="center"
+                        android:visibility="gone"/>
+                </FrameLayout>
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical" android:paddingStart="12dp">
+                    <Button android:id="@+id/btn_wm_pick_logo" android:layout_width="wrap_content"
+                        android:layout_height="38dp" android:text="Choose from Gallery"
+                        android:textAllCaps="false" android:textSize="13sp"
+                        android:backgroundTint="#2A2A2A" android:textColor="#FFFFFF"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Pick a photo, then crop it to your logo" android:textColor="#666666"
+                        android:textSize="11sp" android:paddingTop="4dp"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="or paste an image URL" android:textColor="#555555" android:textSize="11sp"
+                android:paddingTop="12dp" android:paddingBottom="4dp"/>
             <EditText android:id="@+id/et_wm_logo_url" android:layout_width="match_parent"
                 android:layout_height="44dp" android:hint="Logo image URL…"
                 android:textColor="#FFFFFF" android:textColorHint="#666666"
@@ -98,20 +126,75 @@
                 android:gravity="end" android:text="16sp"/>
         </LinearLayout>
 
+        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1F1F1F" android:layout_marginVertical="8dp"/>
+
+        <!-- ✅ NEW: per-platform variant — Feed/Reels vs Stories can size/position
+             the SAME watermark differently (Instagram-style: smaller stamp on
+             Stories). Off by default, so existing single-setting behavior is
+             unchanged unless the creator opts in. -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
+            android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="16dp">
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Customize for Stories" android:textColor="#FFFFFF" android:textSize="15sp"/>
+            <Switch android:id="@+id/sw_wm_story_customize" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        </LinearLayout>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="By default the same size/position is used everywhere. Turn this on to set a different size/position just for Stories — e.g. a smaller mark on Stories, a bigger one on Feed/Reels."
+            android:textColor="#666666" android:textSize="11sp" android:paddingHorizontal="16dp" android:paddingBottom="8dp"/>
+
+        <LinearLayout android:id="@+id/ll_wm_platform_tabs" android:layout_width="match_parent"
+            android:layout_height="40dp" android:orientation="horizontal"
+            android:paddingHorizontal="16dp" android:paddingBottom="8dp" android:visibility="gone">
+            <Button android:id="@+id/btn_wm_tab_feed" android:layout_width="0dp" android:layout_height="match_parent"
+                android:layout_weight="1" android:layout_marginEnd="4dp" android:text="Feed / Reels"
+                android:textAllCaps="false" android:textSize="12sp" android:backgroundTint="#FF3B5C" android:textColor="#FFFFFF"/>
+            <Button android:id="@+id/btn_wm_tab_story" android:layout_width="0dp" android:layout_height="match_parent"
+                android:layout_weight="1" android:layout_marginStart="4dp" android:text="Stories"
+                android:textAllCaps="false" android:textSize="12sp" android:backgroundTint="#2A2A2A" android:textColor="#FFFFFF"/>
+        </LinearLayout>
+
         <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1F1F1F" android:layout_marginVertical="12dp"/>
 
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="PREVIEW" android:textColor="#888888" android:textSize="11sp"
             android:paddingHorizontal="16dp" android:paddingBottom="8dp"/>
-        <FrameLayout android:layout_width="match_parent" android:layout_height="160dp"
-            android:background="#1A1A1A" android:layout_marginHorizontal="12dp" android:layout_marginBottom="24dp">
+        <TextView android:id="@+id/tv_wm_preview_surface" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="Previewing: Feed / Reels"
+            android:textColor="#FF3B5C" android:textSize="11sp" android:textStyle="bold"
+            android:paddingHorizontal="16dp" android:paddingBottom="4dp" android:visibility="gone"/>
+        <!-- ✅ Real visual overlay preview (not a text summary): tv_wm_preview /
+             iv_wm_preview are rendered live at the ACTUAL chosen position/opacity/
+             font-size/color (text) or the ACTUAL fetched logo image (logo), the
+             same way tv_watermark_overlay / iv_watermark_overlay render on a real
+             reel in ReelPlayerFragment. See updatePreview() in the Activity. -->
+        <FrameLayout android:id="@+id/fl_wm_preview_frame" android:layout_width="match_parent"
+            android:layout_height="220dp"
+            android:background="#1A1A1A" android:layout_marginHorizontal="12dp" android:layout_marginBottom="4dp">
             <View android:layout_width="match_parent" android:layout_height="match_parent"
                 android:background="#0D0D0D"/>
+            <ImageView android:layout_width="28dp" android:layout_height="28dp"
+                android:layout_gravity="center" android:src="@drawable/ic_play"
+                android:alpha="0.25" android:tint="#FFFFFF"/>
+            <TextView android:id="@+id/tv_wm_preview_off" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_gravity="center"
+                android:text="Watermark Off" android:textColor="#666666" android:textSize="13sp"
+                android:gravity="center" android:visibility="gone"/>
             <TextView android:id="@+id/tv_wm_preview" android:layout_width="wrap_content"
-                android:layout_height="wrap_content" android:text="@username"
-                android:textColor="#FFFFFF" android:textSize="16sp" android:padding="8dp"
-                android:layout_gravity="bottom|start"/>
+                android:layout_height="wrap_content" android:layout_margin="14dp"
+                android:background="@drawable/bg_watermark_chip"
+                android:paddingHorizontal="10dp" android:paddingVertical="6dp"
+                android:textStyle="bold" android:maxLines="1" android:ellipsize="end"
+                android:maxWidth="220dp" android:shadowColor="#B0000000" android:shadowDx="0"
+                android:shadowDy="1" android:shadowRadius="3" android:visibility="gone"/>
+            <ImageView android:id="@+id/iv_wm_preview" android:layout_width="40dp"
+                android:layout_height="40dp" android:layout_margin="14dp"
+                android:background="@drawable/bg_watermark_chip" android:padding="6dp"
+                android:scaleType="centerInside" android:visibility="gone"/>
         </FrameLayout>
+        <TextView android:id="@+id/tv_wm_preview_caption" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:textColor="#666666" android:textSize="11sp"
+            android:paddingHorizontal="16dp" android:paddingBottom="24dp"
+            android:text="Approximate placement on a real reel — exact spot jitters between corners while playing."/>
 
         <ProgressBar android:id="@+id/progress_wm" android:layout_width="wrap_content"
             android:layout_height="wrap_content" android:layout_gravity="center"

@@ -48,7 +48,7 @@
             ".validate": "newData.isNumber()"
           },
           "isPinned": {
-            "_comment": "Only the reel's owner can pin/unpin \u2014 matches togglePin()'s isReelOwner check, now enforced server-side too.",
+            "_comment": "Only the reel's owner can pin/unpin — matches togglePin()'s isReelOwner check, now enforced server-side too.",
             ".write": "auth != null && root.child('reels').child($reelId).child('uid').val() === auth.uid",
             ".validate": "newData.isBoolean()"
           },
@@ -111,7 +111,7 @@
       }
     },
     "reelCommentReports": {
-      "_comment": "Reports are write-once (create only, no edit/delete) and only ever created under the reporter's own claim. Nobody can read the list back through client rules \u2014 pull it from a trusted backend.",
+      "_comment": "Reports are write-once (create only, no edit/delete) and only ever created under the reporter's own claim. Nobody can read the list back through client rules — pull it from a trusted backend.",
       ".read": false,
       "$reportId": {
         ".write": "auth != null && !data.exists() && newData.exists() && newData.child('reporterUid').val() === auth.uid",
@@ -131,6 +131,17 @@
           "_comment": "Kept permissive on WHO can write (any authed viewer's like/comment/delete action touches this via a transaction) but validated so it can't be set to something absurd like a negative number or a non-integer.",
           ".write": "auth != null",
           ".validate": "newData.isNumber() && newData.val() >= 0"
+        }
+      }
+    },
+    "appProblemReports": {
+      "_comment": "General app bug/feedback reports from ReelReportProblemActivity (Reels creator hub ▸ Support ▸ Report a problem). Keyed by the reporting user, write-once, no client read-back (pull from a trusted backend/admin tool).",
+      ".read": false,
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid",
+        "$reportId": {
+          ".write": "auth != null && auth.uid === $uid && !data.exists() && newData.exists()",
+          ".validate": "newData.hasChildren(['uid','category','description','timestamp','status'])"
         }
       }
     }

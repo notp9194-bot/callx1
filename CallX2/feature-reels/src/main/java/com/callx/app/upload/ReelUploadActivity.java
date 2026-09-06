@@ -304,6 +304,14 @@ public class ReelUploadActivity extends AppCompatActivity {
       private int    episodeNumber = 0;
     /** UIDs mentioned via @Name in the caption — notified after upload. */
     private java.util.ArrayList<String> mentionedUids = new java.util.ArrayList<>();
+    /**
+     * Per-reel watermark override from ReelPostDetailsActivity's "Show
+     * Watermark on This Reel" switch — see ReelModel#watermarkEnabled doc.
+     * Stays null when this upload never passed through Post Details (e.g.
+     * some duet/stitch/collab entry points), which keeps old behavior:
+     * fall back to the creator's global watermark toggle.
+     */
+    private Boolean watermarkEnabledForThisReel = null;
     // ✅ MULTI-COLLABORATOR: staged from ReelPostDetailsActivity (picked pre-upload,
     // since no reelId existed yet); invites are sent once the reel is saved below.
     private java.util.ArrayList<String> pendingCollabUids    = new java.util.ArrayList<>();
@@ -1336,6 +1344,12 @@ public class ReelUploadActivity extends AppCompatActivity {
                 i.getStringArrayListExtra(ReelPostDetailsActivity.RESULT_MENTION_UIDS);
         if (mentionUidsFromIntent != null && !mentionUidsFromIntent.isEmpty()) {
             mentionedUids.addAll(mentionUidsFromIntent);
+        }
+
+        // ── Per-reel watermark toggle (Instagram-style per-share control) ────────
+        if (i.hasExtra(ReelPostDetailsActivity.RESULT_WATERMARK_ENABLED)) {
+            watermarkEnabledForThisReel =
+                i.getBooleanExtra(ReelPostDetailsActivity.RESULT_WATERMARK_ENABLED, true);
         }
 
         // ── ✅ MULTI-COLLABORATOR: staged collaborators picked pre-upload ────────
@@ -2391,8 +2405,69 @@ public class ReelUploadActivity extends AppCompatActivity {
         );
     }
 
+    /**
+     * ✅ NEW: bakes the poster's OWN creator watermark (ReelWatermarkSettingsActivity)
+     * into the master file BEFORE it reaches Storage — so the watermark is baked once,
+     * here, and every viewer sees it (in-app live overlay from ReelPlayerFragment, and
+     * anyone who downloads/reshares it later — ReelShareController's download bake was
+     * only a per-download fallback for reels uploaded before this existed).
+     * Watermark lookup + optional logo fetch block, so this resolves it off the main
+     * thread first, then hops back to actually bake (Transformer needs a Looper thread)
+     * and upload.
+     */
     private void uploadReel(String caption, String musicName, String videoPath) {
         btnPostReel.setEnabled(false);
+        layoutUploadProgress.setVisibility(View.VISIBLE);
+        progressUpload.setProgress(0);
+        tvUploadStatus.setText("Preparing reel…");
+
+        WeakReference<ReelUploadActivity> ref = new WeakReference<>(this);
+        String myUidForWm = FirebaseUtils.getCurrentUid();
+        String myNameForWm;
+        try { myNameForWm = FirebaseUtils.getCurrentName(); } catch (Exception e) { myNameForWm = ""; }
+        final String finalMyNameForWm = myNameForWm;
+
+        new Thread(() -> {
+            com.callx.app.editor.ReelVideoExportEngine.WatermarkSpec watermark =
+                com.callx.app.editor.ReelVideoExportEngine.resolveWatermarkSpec(
+                    getApplicationContext(), myUidForWm, finalMyNameForWm, watermarkEnabledForThisReel);
+
+            runOnUiThread(() -> {
+                ReelUploadActivity a = ref.get();
+                if (a == null || a.isFinishing() || a.isDestroyed()) return;
+                if (watermark == null) {
+                    a.uploadReelFile(caption, musicName, videoPath);
+                    return;
+                }
+                a.tvUploadStatus.setText("Adding watermark…");
+                com.callx.app.editor.ReelVideoExportEngine.export(
+                    a, videoPath, null, 0f, 1f, 1f, java.util.Collections.emptyList(), watermark,
+                    new com.callx.app.editor.ReelVideoExportEngine.ExportCallback() {
+                        @Override public void onProgress(int percent) {
+                            ReelUploadActivity aa = ref.get();
+                            if (aa == null || aa.isFinishing() || aa.isDestroyed()) return;
+                            if (percent >= 0) aa.tvUploadStatus.setText("Adding watermark… " + percent + "%");
+                        }
+                        @Override public void onSuccess(String outputPath) {
+                            ReelUploadActivity aa = ref.get();
+                            if (aa == null || aa.isFinishing() || aa.isDestroyed()) return;
+                            aa.uploadReelFile(caption, musicName, outputPath);
+                        }
+                        @Override public void onError(Exception e) {
+                            ReelUploadActivity aa = ref.get();
+                            if (aa == null || aa.isFinishing() || aa.isDestroyed()) return;
+                            // Watermark bake failed — still upload the plain file
+                            // rather than blocking the post entirely.
+                            aa.uploadReelFile(caption, musicName, videoPath);
+                        }
+                    });
+            });
+        }).start();
+    }
+
+    /** Actual Storage upload — split out of uploadReel() so the watermark-bake step
+     *  above can run first without duplicating the VideoUploader wiring. */
+    private void uploadReelFile(String caption, String musicName, String videoPath) {
         layoutUploadProgress.setVisibility(View.VISIBLE);
         progressUpload.setProgress(50);
         tvUploadStatus.setText("Uploading reel…");
@@ -2746,6 +2821,8 @@ public class ReelUploadActivity extends AppCompatActivity {
                     reel.allowDuet        = !"off".equals(duetLevel);
                     reel.allowStitchLevel = stitchLevel;
                     reel.allowStitch      = !"off".equals(stitchLevel);
+                    // Per-reel watermark override — see ReelModel#watermarkEnabled doc.
+                    reel.watermarkEnabled = a.watermarkEnabledForThisReel;
 
                     if (!a.preSelectedSoundId.isEmpty())  reel.musicId  = a.preSelectedSoundId;
                     if (!a.preSelectedSoundUrl.isEmpty()) reel.musicUrl = a.preSelectedSoundUrl;
@@ -2876,6 +2953,8 @@ public class ReelUploadActivity extends AppCompatActivity {
                 reel.allowDuet        = !"off".equals(duetLevel);   // legacy boolean
                 reel.allowStitchLevel = stitchLevel;
                 reel.allowStitch      = !"off".equals(stitchLevel); // legacy boolean
+                // Per-reel watermark override — see ReelModel#watermarkEnabled doc.
+                reel.watermarkEnabled = a.watermarkEnabledForThisReel;
 
                 // Attach pre-selected sound if provided
                 if (!a.preSelectedSoundId.isEmpty())  reel.musicId  = a.preSelectedSoundId;

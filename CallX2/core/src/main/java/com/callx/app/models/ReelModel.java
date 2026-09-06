@@ -149,6 +149,77 @@ public class ReelModel {
     public String  repostedFromReelId;
     public String  repostedFromUid;
     public String  repostedFromName;
+
+    /**
+     * Per-reel override of the creator's global watermark toggle
+     * (users/{uid}/watermarkSettings "enabled", set in
+     * ReelWatermarkSettingsActivity). Set from the "Show Watermark on This
+     * Reel" switch in ReelPostDetailsActivity at upload time —
+     * Instagram-style "choose per share" control.
+     *
+     * null  = no override; fall back to the global toggle (old behavior,
+     *         and what any reel uploaded before this feature existed has).
+     * TRUE  = force the watermark ON for this reel even if the global
+     *         toggle (or the global settings entirely) says otherwise.
+     * FALSE = force the watermark OFF for this reel even if the global
+     *         toggle is on.
+     */
+    public Boolean watermarkEnabled;
+
+    /**
+     * Resolves whose creator watermark should be shown/baked for this reel.
+     *
+     * For a quote-repost (RepostQuoteActivity) or collab-repost
+     * (CollabRepostAcceptActivity), {@code uid}/{@code ownerName} belong to
+     * the person who REPOSTED — but the video itself is still the ORIGINAL
+     * creator's content. Instagram keeps the original creator's watermark
+     * visible on reposted/shared content instead of swapping in the
+     * reposter's own, so this resolves {@code repostedFromUid} first and
+     * only falls back to {@code uid} for a plain (non-repost) reel.
+     */
+    public String watermarkOwnerUid() {
+        return (repostedFromUid != null && !repostedFromUid.isEmpty()) ? repostedFromUid : uid;
+    }
+
+    /** Name counterpart of {@link #watermarkOwnerUid()} — see its doc. */
+    public String watermarkOwnerName() {
+        return (repostedFromName != null && !repostedFromName.isEmpty()) ? repostedFromName : ownerName;
+    }
+
+    /**
+     * ✅ NEW — "remove watermark if reposted with credit" (Instagram sometimes waives
+     * its repost watermark when the reposter has clearly attributed the original
+     * creator, instead of applying it unconditionally on every repost).
+     *
+     * True when this reel IS a repost ({@link #repostedFromUid} set) AND its own
+     * caption already gives the original creator visible on-screen credit — an
+     * {@code @handle} mention of {@link #repostedFromName}, or a "credit"/"cr"/"via"
+     * callout naming them. When true, {@link #setupWatermarkOverlay} (live) and
+     * {@link ReelVideoExportEngine#resolveWatermarkSpec} (baked download/share) both
+     * skip the watermark for this reel — unless {@link #watermarkEnabled} is
+     * explicitly {@code TRUE}, which still wins as an explicit per-reel override.
+     *
+     * Deliberately does NOT touch plain (non-repost) reels: a creator's OWN upload
+     * always follows the normal enabled/disabled watermark rules regardless of
+     * their caption text.
+     */
+    public boolean repostCreditGiven() {
+        if (repostedFromUid == null || repostedFromUid.isEmpty()) return false; // not a repost
+        String name = repostedFromName != null ? repostedFromName.trim() : "";
+        if (name.isEmpty()) return false;
+        String combined = ((caption != null ? caption : "") + " " + (repostCaption != null ? repostCaption : ""))
+            .toLowerCase(java.util.Locale.US);
+        if (combined.trim().isEmpty()) return false;
+
+        String lowerName = name.toLowerCase(java.util.Locale.US);
+        String handle = "@" + lowerName.replaceAll("\\s+", "");
+        if (combined.contains(handle)) return true; // e.g. "reposting this @original_handle 🔥"
+
+        // Explicit callout naming them, even without the exact @handle form.
+        boolean hasCreditKeyword = combined.contains("credit") || combined.contains(" cr:")
+            || combined.startsWith("cr:") || combined.contains(" via ") || combined.startsWith("via ");
+        return hasCreditKeyword && combined.contains(lowerName);
+    }
     /**
      * People tagged on the post (distinct from caption @mentions).  The upload
      * flow stores UIDs here so the Home feed can resolve fresh names/photos

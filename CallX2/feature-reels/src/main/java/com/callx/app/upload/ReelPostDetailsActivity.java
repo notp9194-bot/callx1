@@ -53,6 +53,15 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
     public static final String RESULT_ALLOW_DUET     = "result_allow_duet";
     public static final String RESULT_ALLOW_STITCH   = "result_allow_stitch";
     public static final String RESULT_ALLOW_COMMENTS = "result_allow_comments";
+    /**
+     * Per-reel override of the global Creator Hub → Watermark Settings toggle
+     * (ReelWatermarkSettingsActivity) — Instagram-style "choose per share"
+     * control. Always sent from this screen (swShowWatermark always exists
+     * here), so ReelUploadActivity distinguishes "explicitly chosen here" from
+     * "this reel never went through Post Details" via Intent#hasExtra, and
+     * only falls back to the creator's global toggle in the latter case.
+     */
+    public static final String RESULT_WATERMARK_ENABLED = "result_watermark_enabled";
     public static final String RESULT_SERIES_ID      = "result_series_id";
     public static final String RESULT_SERIES_TITLE   = "result_series_title";
     public static final String RESULT_EPISODE_NUMBER = "result_episode_number";
@@ -64,6 +73,7 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
     private TextView          tvCharCount, btnNext, btnBack;
     private ChipGroup         cgAudience;
     private Switch            swAllowComments, swAllowDuet, swAllowStitch, swAllowDownload, swAllowReactions;
+    private Switch            swShowWatermark;
     private Button            btnAddCollaborators;
     private LinearLayout      layoutCollabResult;
     private TextView          tvCollabName;
@@ -114,6 +124,7 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
         swAllowStitch       = findViewById(R.id.sw_allow_stitch);
         swAllowDownload     = findViewById(R.id.sw_allow_download);
         swAllowReactions    = findViewById(R.id.sw_allow_reactions);
+        swShowWatermark     = findViewById(R.id.sw_show_watermark);
         btnAddCollaborators = findViewById(R.id.btn_add_collaborators);
         layoutCollabResult  = findViewById(R.id.layout_collab_result);
         tvCollabName        = findViewById(R.id.tv_collab_name);
@@ -229,25 +240,33 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
     // ── Duet Series picker ────────────────────────────────────────────────
 
     private void openSeriesPicker() {
-        // Stub: launch ReelDuetSeriesPickerActivity if available
-        try {
-            Class<?> cls = Class.forName("com.callx.app.upload.ReelDuetSeriesPickerActivity");
-            Intent intent = new Intent(this, cls);
-            startActivityForResult(intent, 9901);
-        } catch (ClassNotFoundException ignored) {}
+        com.callx.app.social.DuetSeriesPickerBottomSheet sheet =
+            new com.callx.app.social.DuetSeriesPickerBottomSheet();
+        sheet.setSeriesPickListener(new com.callx.app.social.DuetSeriesPickerBottomSheet.SeriesPickListener() {
+            @Override
+            public void onSeriesPicked(String id, String title, int nextEp) {
+                selectedSeriesId      = id;
+                selectedSeriesTitle   = title;
+                selectedEpisodeNumber = nextEp;
+                if (tvSeriesPicker != null)
+                    tvSeriesPicker.setText(title + "  (Part " + nextEp + ")");
+            }
+            @Override
+            public void onSeriesCleared() {
+                selectedSeriesId      = null;
+                selectedSeriesTitle   = null;
+                selectedEpisodeNumber = 0;
+                if (tvSeriesPicker != null)
+                    tvSeriesPicker.setText("None");
+            }
+        });
+        sheet.show(getSupportFragmentManager(), "series_picker_post_details");
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == 9901 && resultCode == RESULT_OK && data != null) {
-            selectedSeriesId    = data.getStringExtra("series_id");
-            selectedSeriesTitle = data.getStringExtra("series_title");
-            selectedEpisodeNumber = data.getIntExtra("episode_number", 0);
-            if (tvSeriesPicker != null && selectedSeriesTitle != null) {
-                tvSeriesPicker.setText(selectedSeriesTitle);
-            }
-        } else if (requestCode == REQ_ADD_COLLABORATORS && resultCode == RESULT_OK && data != null) {
+        if (requestCode == REQ_ADD_COLLABORATORS && resultCode == RESULT_OK && data != null) {
             collabUids.clear();    collabNames.clear();
             collabHandles.clear(); collabAvatars.clear();
             ArrayList<String> uids = data.getStringArrayListExtra(
@@ -302,6 +321,8 @@ public class ReelPostDetailsActivity extends AppCompatActivity {
             i.putExtra(RESULT_ALLOW_DUET,      swAllowDuet      != null && swAllowDuet.isChecked());
             i.putExtra(RESULT_ALLOW_STITCH,    swAllowStitch    != null && swAllowStitch.isChecked());
             i.putExtra(RESULT_ALLOW_DL,        swAllowDownload  != null && swAllowDownload.isChecked());
+            // Always sent (switch always exists on this screen) — see RESULT_WATERMARK_ENABLED doc.
+            i.putExtra(RESULT_WATERMARK_ENABLED, swShowWatermark == null || swShowWatermark.isChecked());
             // ── Instagram-style @mentions ────────────────────────────────
             if (!mentionedUids.isEmpty()) {
                 i.putStringArrayListExtra(RESULT_MENTION_UIDS, mentionedUids);

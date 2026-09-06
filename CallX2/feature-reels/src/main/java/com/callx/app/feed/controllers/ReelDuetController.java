@@ -155,6 +155,14 @@ public class ReelDuetController {
         i.putExtra("reel_url",   reel.videoUrl);
         i.putExtra("reel_thumb", reel.thumbnailUrl);
         i.putExtra("owner_name", reel.ownerName);
+        // ✅ NEW: lets ReelShareToStoryActivity bake the Stories-sized watermark
+        // variant into the clip it actually shares — watermarkOwnerUid()/
+        // watermarkOwnerName() resolve to the ORIGINAL creator (not the
+        // reposter) for a repost, same as ReelShareController's download bake.
+        i.putExtra("watermark_owner_uid",  reel.watermarkOwnerUid());
+        i.putExtra("watermark_owner_name", reel.watermarkOwnerName());
+        if (reel.watermarkEnabled != null) i.putExtra("watermark_per_reel_override", reel.watermarkEnabled);
+        i.putExtra("watermark_credit_given", reel.repostCreditGiven());
         delegate.getFragment().startActivity(i);
     }
 

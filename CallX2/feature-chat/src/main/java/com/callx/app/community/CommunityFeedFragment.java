@@ -107,6 +107,7 @@ public class CommunityFeedFragment extends Fragment implements CommunityPostAdap
         adapter = new CommunityPostAdapter(currentUid, this);
         LinearLayoutManager llm = new LinearLayoutManager(requireContext());
         rvFeed.setLayoutManager(llm);
+        com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rvFeed);
         rvFeed.setAdapter(adapter);
         CommunityScrollOptimizer.apply(rvFeed, llm);
         // Glide preloader — prefetches post author avatars 6 items ahead

@@ -332,6 +332,13 @@
             android:exported="false"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.settings.ReelReportProblemActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.settings.ReelHelpCenterActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
         <activity android:name="com.callx.app.notifications.ReelNotificationsActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
