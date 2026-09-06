@@ -70,9 +70,25 @@ import androidx.recyclerview.widget.RecyclerView;
  *    paying for worst-case headroom (memory + layout cost) on every scroll,
  *    including slow ones that never needed it.
  *
- * Drop-in replacement for androidx.recyclerview.widget.RecyclerView in
- * layout XML — no other setup call site needs to change unless it wants
- * the OnUserFlingListener hook or getLastFlingVelocityY().
+ * ── v4 (REAL TELEGRAM TRICK — scroller friction, not just launch velocity) ─
+ * v2's boost curve only ever touches launch velocity, and it's deliberately
+ * clamped to the platform's max fling velocity. A normal/hard flick already
+ * launches near that ceiling on its own, so the clamp erases almost all of
+ * the boost for exactly the flicks a real user makes most — which is why it
+ * still felt like it "stopped too soon" compared to Telegram, even after v2.
+ * Telegram/WhatsApp's actual long-glide feel does NOT come from launching
+ * flings faster — it comes from decelerating them SLOWER once launched, i.e.
+ * a lower scroller friction. That affects every fling equally regardless of
+ * launch speed, so a hard flick keeps gliding noticeably longer too, not
+ * just soft ones.
+ * RecyclerView has no public API to configure its internal OverScroller's
+ * friction, so this reaches it via reflection into the private ViewFlinger
+ * field (found by type, not a hardcoded field name, to tolerate AndroidX
+ * internal renames across versions) and calls the OverScroller's own public
+ * setFriction() (a real Android API, just normally unreachable through
+ * RecyclerView). Every step is wrapped so a failure — a future AndroidX
+ * internal restructure, an OEM ROM quirk — silently leaves this device on
+ * the v2 velocity-boost-only behavior instead of crashing the chat screen.
  */
 public class FastFlingRecyclerView extends RecyclerView {
 
@@ -84,6 +100,14 @@ public class FastFlingRecyclerView extends RecyclerView {
     // to-corner fling sits well above it.
     private static final float REF_VELOCITY = 6000f;
 
+    // v4: OverScroller's default friction (android.widget.OverScroller's
+    // internal SCROLL_FRICTION constant) is 0.015f. Setting it lower makes
+    // the SAME launch velocity decelerate over a longer distance — this is
+    // the actual physics knob behind Telegram/WhatsApp's long-glide feel.
+    // 0.007f roughly doubles glide distance versus stock; tune down for an
+    // even longer coast, up (towards 0.015f) to pull it back closer to stock.
+    private static final float TELEGRAM_FRICTION = 0.007f;
+
     private int maxFlingVelocity;
     private boolean userGestureInProgress = false;
     private OnUserFlingListener flingListener;
@@ -91,6 +115,10 @@ public class FastFlingRecyclerView extends RecyclerView {
     // Read by the host LayoutManager to size its pre-layout buffer to the
     // actual glide, not a fixed worst-case constant — see javadoc point 4.
     private int lastFlingVelocityY = 0;
+    // v4: whether the reflective friction reduction below actually took —
+    // exposed so a host can log/verify it on a given device/AndroidX
+    // version instead of silently assuming it worked.
+    private boolean reducedFrictionActive = false;
 
     public interface OnUserFlingListener {
         /** Fired only when the boosted fling was triggered by a real touch release. */
@@ -125,6 +153,70 @@ public class FastFlingRecyclerView extends RecyclerView {
                 }
             }
         });
+        // v4: best-effort — see class javadoc for why this is reflection
+        // and why every failure mode is swallowed rather than surfaced.
+        reducedFrictionActive = tryApplyReducedFriction();
+        if (!reducedFrictionActive) {
+            com.callx.app.debug.DebugLogBuffer.d("FastFlingRecyclerView",
+                    "reduced-friction reflection unavailable on this AndroidX/OEM build — "
+                            + "falling back to velocity-boost-only long glide");
+        }
+    }
+
+    /**
+     * Reaches into RecyclerView's private ViewFlinger to lower its
+     * OverScroller's friction. Located by TYPE (inner-class simple name
+     * "ViewFlinger", field type assignable from OverScroller) instead of a
+     * hardcoded field name so a future AndroidX field rename degrades to
+     * "friction unchanged", not a crash.
+     *
+     * @return true if the friction was actually reduced.
+     */
+    private boolean tryApplyReducedFriction() {
+        try {
+            java.lang.reflect.Field flingerField = findFieldByTypeName(RecyclerView.class, "ViewFlinger");
+            if (flingerField == null) return false;
+            flingerField.setAccessible(true);
+            Object flinger = flingerField.get(this);
+            if (flinger == null) return false;
+
+            java.lang.reflect.Field scrollerField =
+                    findFieldByAssignableType(flinger.getClass(), android.widget.OverScroller.class);
+            if (scrollerField == null) return false;
+            scrollerField.setAccessible(true);
+            Object scroller = scrollerField.get(flinger);
+            if (!(scroller instanceof android.widget.OverScroller)) return false;
+
+            ((android.widget.OverScroller) scroller).setFriction(TELEGRAM_FRICTION);
+            return true;
+        } catch (Exception e) {
+            // ReflectiveOperationException family + any unexpected cast issue —
+            // never let a reflection hiccup take down the chat screen.
+            return false;
+        }
+    }
+
+    private static java.lang.reflect.Field findFieldByTypeName(Class<?> start, String simpleNameContains) {
+        for (Class<?> c = start; c != null; c = c.getSuperclass()) {
+            for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+                if (f.getType().getSimpleName().contains(simpleNameContains)) return f;
+            }
+        }
+        return null;
+    }
+
+    private static java.lang.reflect.Field findFieldByAssignableType(Class<?> start, Class<?> assignableTo) {
+        for (Class<?> c = start; c != null; c = c.getSuperclass()) {
+            for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+                if (assignableTo.isAssignableFrom(f.getType())) return f;
+            }
+        }
+        return null;
+    }
+
+    /** True if the v4 reflective friction reduction took on this device — see class javadoc. */
+    public boolean isReducedFrictionActive() {
+        return reducedFrictionActive;
     }
 
     public void setOnUserFlingListener(OnUserFlingListener listener) {
