@@ -62,7 +62,24 @@ public class ImageCompressor {
     private static final int  HD_QUALITY        = 92;
     private static final long HD_TARGET_BYTES   = 3_000_000L; // 3 MB max
 
-    private static final ExecutorService BG = Executors.newSingleThreadExecutor();
+    // PERF: was Executors.newSingleThreadExecutor() — every photo in a
+    // multi-image send (album/multi-media picker) queued up and compressed
+    // one at a time, even on an 8-core phone. WhatsApp compresses several
+    // images in parallel; this pool does the same, capped (not unbounded)
+    // because each concurrent job holds a full ARGB_8888 decode + resized
+    // bitmap in memory at once — uncapped parallelism on an 8-core device
+    // sending a 10-photo album could spike memory hard on lower-RAM phones.
+    // 2–4 threads matches WhatsApp's own observed concurrency for this and
+    // keeps peak memory bounded regardless of core count.
+    private static final int COMPRESS_THREADS =
+            Math.max(2, Math.min(4, Runtime.getRuntime().availableProcessors() - 1));
+    private static final ExecutorService BG = Executors.newFixedThreadPool(COMPRESS_THREADS, r -> {
+        Thread t = new Thread(r, "ImageCompressor");
+        // Background priority — several of these can run alongside UI work
+        // (scrolling the chat, other sends) and shouldn't compete with it.
+        t.setPriority(Thread.NORM_PRIORITY - 1);
+        return t;
+    });
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     // ── Public types ───────────────────────────────────────────────────────

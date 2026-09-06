@@ -4522,9 +4522,21 @@ public class MessagePagingAdapter
                     ? m.pollOptions : java.util.Collections.emptyList();
             java.util.Map<String, java.util.List<Integer>> votesMap = m.pollVotes != null
                     ? m.pollVotes : java.util.Collections.emptyMap();
-            int[] counts = com.callx.app.utils.PollJsonUtil.countVotes(votesMap, opts.size());
+            int pollN = opts.size();
+            // PERF: same reused-buffer pattern as bindPollOnly()'s live
+            // vote fast path — this full-bind branch also runs on every
+            // scroll-recycle of a poll row, not just the initial bind.
+            if (h.pollCountsScratch == null || h.pollCountsScratch.length != pollN) {
+                h.pollCountsScratch = new int[pollN];
+            }
+            if (h.pollMyVoteScratch == null || h.pollMyVoteScratch.length != pollN) {
+                h.pollMyVoteScratch = new boolean[pollN];
+            } else {
+                java.util.Arrays.fill(h.pollMyVoteScratch, false);
+            }
+            int[] counts = com.callx.app.utils.PollJsonUtil.countVotes(votesMap, pollN, h.pollCountsScratch);
             int total    = com.callx.app.utils.PollJsonUtil.totalVotes(votesMap);
-            boolean[] myVote = new boolean[opts.size()];
+            boolean[] myVote = h.pollMyVoteScratch;
             if (currentUid != null) {
                 java.util.List<Integer> mine = votesMap.get(currentUid);
                 if (mine != null) {
@@ -7319,9 +7331,23 @@ public class MessagePagingAdapter
                     ? m.pollOptions : java.util.Collections.emptyList();
             java.util.Map<String, java.util.List<Integer>> votesMap = m.pollVotes != null
                     ? m.pollVotes : java.util.Collections.emptyMap();
-            int[] counts = com.callx.app.utils.PollJsonUtil.countVotes(votesMap, opts.size());
+            int n = opts.size();
+            // PERF: WhatsApp-level zero-alloc for the live vote-count path —
+            // reuse this holder's scratch buffers when the option count
+            // hasn't changed (the overwhelming common case: a vote arriving
+            // never changes how many options a poll has), only grow them
+            // when it actually has. See countVotes(...,out) overload.
+            if (h.pollCountsScratch == null || h.pollCountsScratch.length != n) {
+                h.pollCountsScratch = new int[n];
+            }
+            if (h.pollMyVoteScratch == null || h.pollMyVoteScratch.length != n) {
+                h.pollMyVoteScratch = new boolean[n];
+            } else {
+                java.util.Arrays.fill(h.pollMyVoteScratch, false);
+            }
+            int[] counts = com.callx.app.utils.PollJsonUtil.countVotes(votesMap, n, h.pollCountsScratch);
             int total    = com.callx.app.utils.PollJsonUtil.totalVotes(votesMap);
-            boolean[] myVote = new boolean[opts.size()];
+            boolean[] myVote = h.pollMyVoteScratch;
             if (currentUid != null) {
                 java.util.List<Integer> mine = votesMap.get(currentUid);
                 if (mine != null) {
@@ -7789,6 +7815,13 @@ public class MessagePagingAdapter
         // has no such lifecycle tie-in, so this token is the only thing
         // preventing that race.
         volatile int canvasBindToken = 0;
+        // PERF: reused buffers for bindPollOnly()'s live vote-count fast
+        // path (fires once per incoming vote on an active poll) — grown
+        // only when the option count actually changes, instead of a fresh
+        // int[]/boolean[] on every single vote tick. See countVotes(...,out)
+        // overload and bindPollOnly() below.
+        int[] pollCountsScratch;
+        boolean[] pollMyVoteScratch;
         // PERF #8b: last hardware-layer type actually applied to canvasView.
         // -1 means "unknown / force re-apply" (fresh holder). Lets
         // bindCanvasMessage() skip the setLayerType() call entirely when

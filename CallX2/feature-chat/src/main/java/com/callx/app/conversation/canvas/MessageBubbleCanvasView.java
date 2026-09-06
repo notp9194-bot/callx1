@@ -1154,6 +1154,19 @@ public class MessageBubbleCanvasView extends View {
     }
     // Reused across every drawFooter() call — see its PERF comment.
     private final Paint.FontMetrics footerFmScratch = new Paint.FontMetrics();
+    // PERF: same zero-alloc pattern as footerFmScratch above, applied to the
+    // 3 remaining onDraw() call sites that were still using the no-arg
+    // getFontMetrics() (each allocates a fresh FontMetrics object every
+    // single frame during a fling — drawCallEntry alone did 4 allocations
+    // per draw for every visible call-entry row). getFontMetrics(FontMetrics)
+    // fills these in place instead, so none of the three call sites below
+    // allocate anything anymore.
+    private final Paint.FontMetrics callEntryIconFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics callEntryLabelFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics callEntryDotFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics callEntryTimeFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics cornerExpiryFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics bigReactionFmScratch = new Paint.FontMetrics();
     boolean sent = false;
     boolean read = false;
     boolean delivered = false;
@@ -1231,7 +1244,22 @@ public class MessageBubbleCanvasView extends View {
     }
 
     GradientDrawable bubbleDrawable;
-    int lastCacheKey = -1;
+    // PERF: WhatsApp-level static pre-bake. Only 4 distinct bubble shapes
+    // exist app-wide (sent × normal-or-media-tail radius) — every one of
+    // them is identical across every message row and every chat screen,
+    // so instead of a per-instance cache that still rebuilds on the first
+    // bind of every freshly recycled/newly created holder, build each of
+    // the 4 exactly once per process and hand out the same shared
+    // GradientDrawable to whoever needs it. See sharedBubbleDrawable().
+    private static final GradientDrawable[] BUBBLE_DRAWABLE_POOL = new GradientDrawable[4];
+    // Density/colors the pool was last built for. Density is effectively
+    // fixed for a process, but the bubble colors can change at runtime
+    // (day/night theme switch without a process restart) — comparing
+    // against these on every lookup means a theme change rebuilds the
+    // pool lazily instead of leaving stale colors baked in forever.
+    private static float sBubblePoolDensity = -1f;
+    private static int sBubblePoolSentColor = 0;
+    private static int sBubblePoolReceivedColor = 0;
 
     // ── Perf gap #5: requestLayout() skip-if-unchanged ──────────────────
     // Every bind*/set* method used to call requestLayout() unconditionally,
@@ -2449,13 +2477,9 @@ public class MessageBubbleCanvasView extends View {
         footerPaint.setColor(textPaint.getColor());
         tickPaint.setColor(ChatThemeManager.getTickColor(read));
 
-        // Bubble drawable cache — same 4-combo cache key scheme as
-        // ChatThemeManager's View-based bubbles (sent<<1 | hasReply).
-        int cacheKey = (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
-        if (cacheKey != lastCacheKey || bubbleDrawable == null) {
-            bubbleDrawable = buildBubbleDrawable(ctx, sent);
-            lastCacheKey = cacheKey;
-        }
+        // Bubble drawable — shared process-wide instance, see
+        // sharedBubbleDrawable() (only 4 combos exist app-wide).
+        bubbleDrawable = sharedBubbleDrawable(ctx, sent, false, density);
         resolveReplyColors(ctx);
 
         // Only drop the cached StaticLayout when a relayout is actually
@@ -2581,13 +2605,10 @@ public class MessageBubbleCanvasView extends View {
         // last drew a plain-text bubble (same sent/hasReply, bit 2 = 0)
         // doesn't wrongly reuse that bubbleDrawable's normal TAIL_RADIUS_DP
         // corner here — the two modes now have different corner geometry.
-        int cacheKey = 1 << 2 | (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
-        if (cacheKey != lastCacheKey || bubbleDrawable == null) {
-            // Sharper MEDIA_TAIL_RADIUS_DP corner for single image/video
-            // bubbles — see that constant's doc.
-            bubbleDrawable = buildBubbleDrawable(ctx, sent, MEDIA_TAIL_RADIUS_DP);
-            lastCacheKey = cacheKey;
-        }
+        // Sharper MEDIA_TAIL_RADIUS_DP corner for single image/video
+        // bubbles — see that constant's doc. Shared process-wide instance,
+        // see sharedBubbleDrawable().
+        bubbleDrawable = sharedBubbleDrawable(ctx, sent, true, density);
         // v39 PERF: resolveReplyColors() was running unconditionally on
         // every single bindMedia() call — including the common case of a
         // plain image/video with no reply preview at all, where none of
@@ -2720,11 +2741,7 @@ public class MessageBubbleCanvasView extends View {
         audioDurPaint.setColor(textPaint.getColor());
         audioDurPaint.setAlpha(180);
 
-        int cacheKey = (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
-        if (cacheKey != lastCacheKey || bubbleDrawable == null) {
-            bubbleDrawable = buildBubbleDrawable(ctx, sent);
-            lastCacheKey = cacheKey;
-        }
+        bubbleDrawable = sharedBubbleDrawable(ctx, sent, false, density);
         resolveReplyColors(ctx);
 
         textLayout = null;
@@ -2931,11 +2948,7 @@ public class MessageBubbleCanvasView extends View {
         groupCellBgPaint.setColor(darkMode ? MEDIA_PLACEHOLDER_COLOR_DARK : MEDIA_PLACEHOLDER_COLOR_LIGHT);
         groupCellBorderPaint.setColor(darkMode ? MEDIA_BORDER_COLOR_DARK : MEDIA_BORDER_COLOR_LIGHT);
 
-        int cacheKey = (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
-        if (cacheKey != lastCacheKey || bubbleDrawable == null) {
-            bubbleDrawable = buildBubbleDrawable(ctx, sent);
-            lastCacheKey = cacheKey;
-        }
+        bubbleDrawable = sharedBubbleDrawable(ctx, sent, false, density);
         resolveReplyColors(ctx);
 
         textLayout = null; // not read in media-group mode, safe to clear unconditionally
@@ -2997,11 +3010,7 @@ public class MessageBubbleCanvasView extends View {
         // bubbleless. Uses the same sharper MEDIA_TAIL_RADIUS_DP corner as
         // bindMedia() (bit 2 in the cache key, same as there) so the thin
         // frame reads identically to an image/video bubble.
-        int cacheKey = 1 << 2 | (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
-        if (cacheKey != lastCacheKey || bubbleDrawable == null) {
-            bubbleDrawable = buildBubbleDrawable(ctx, sent, MEDIA_TAIL_RADIUS_DP);
-            lastCacheKey = cacheKey;
-        }
+        bubbleDrawable = sharedBubbleDrawable(ctx, sent, true, density);
 
         if (requestLayoutIfSizeChanged()) {
             reelCaptionLayout = null; // recomputed in onMeasure
@@ -3117,7 +3126,7 @@ public class MessageBubbleCanvasView extends View {
      * (VIEW_ONCE_WAITING), and item_view_once_expired.xml (VIEW_ONCE_EXPIRED). Reuses
      * the standard chat-bubble background shape (rounded rect) but with its own
      * per-variant solid colour instead of the sent/received theme colour, so it does
-     * NOT go through buildBubbleDrawable()/bubbleDrawable at all — drawViewOnce()
+     * NOT go through sharedBubbleDrawable()/bubbleDrawable at all — drawViewOnce()
      * paints its own background directly, same precedent as the contact/location cards.
      *
      * @param variant       one of VIEW_ONCE_RECEIVED / VIEW_ONCE_WAITING / VIEW_ONCE_EXPIRED
@@ -3401,11 +3410,7 @@ public class MessageBubbleCanvasView extends View {
         this.footerTimeText = "";  // set separately via bind() footer — caller must call setFooterTime() after bindFile() if needed; or we use the existing footerTimeText field
 
         Context ctx = getContext();
-        int cacheKey = (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
-        if (cacheKey != lastCacheKey || bubbleDrawable == null) {
-            bubbleDrawable = buildBubbleDrawable(ctx, sent);
-            lastCacheKey = cacheKey;
-        }
+        bubbleDrawable = sharedBubbleDrawable(ctx, sent, false, density);
 
         staticPictureDirty = true;
         requestLayoutIfSizeChanged();
@@ -3546,11 +3551,18 @@ public class MessageBubbleCanvasView extends View {
         this.pollTotal      = total;
 
         int n = options != null ? options.size() : 0;
-        this.pollOptions  = new String[n];
+        // PERF: WhatsApp-level zero-alloc — these 3 arrays used to be
+        // unconditionally `new`'d on every bindPoll() call, including the
+        // live vote-count fast path (bindPollOnly()) that fires once per
+        // incoming vote on an active poll. Option count almost never
+        // changes between those calls, so reuse the existing array when the
+        // size already matches and only allocate on an actual size change
+        // (option added/removed, or first bind).
+        if (this.pollOptions == null || this.pollOptions.length != n) this.pollOptions = new String[n];
         this.pollCounts   = counts  != null && counts.length  >= n ? counts  : new int[n];
         this.pollMyVote   = myVote  != null && myVote.length  >= n ? myVote  : new boolean[n];
-        this.pollIsLeader = new boolean[n];
-        this.pollFillWidths = new float[n];
+        if (this.pollIsLeader == null || this.pollIsLeader.length != n) this.pollIsLeader = new boolean[n];
+        if (this.pollFillWidths == null || this.pollFillWidths.length != n) this.pollFillWidths = new float[n];
         for (int i = 0; i < n; i++) {
             this.pollOptions[i] = options.get(i) != null ? options.get(i) : "";
         }
@@ -3565,6 +3577,11 @@ public class MessageBubbleCanvasView extends View {
             for (int i = 0; i < n; i++) {
                 this.pollIsLeader[i] = clearLeader && this.pollCounts[i] == maxCount;
             }
+        } else {
+            // No votes yet — with pollIsLeader now a reused (not freshly
+            // `new`'d) array, a stale `true` from a previous vote state
+            // must be explicitly cleared here or it would linger.
+            java.util.Arrays.fill(this.pollIsLeader, false);
         }
 
         Context ctx = getContext();
@@ -3572,12 +3589,8 @@ public class MessageBubbleCanvasView extends View {
         footerPaint.setColor(textPaint.getColor());
         tickPaint.setColor(ChatThemeManager.getTickColor(read));
 
-        // Bubble drawable cache (poll uses normal bubble bg)
-        int cacheKey = (sent ? 1 : 0) << 1 | (hasReply ? 1 : 0);
-        if (cacheKey != lastCacheKey || bubbleDrawable == null) {
-            bubbleDrawable = buildBubbleDrawable(ctx, sent);
-            lastCacheKey = cacheKey;
-        }
+        // Bubble drawable — shared process-wide instance (poll uses normal bubble bg)
+        bubbleDrawable = sharedBubbleDrawable(ctx, sent, false, density);
         resolveReplyColors(ctx);
 
         if (requestLayoutIfSizeChanged()) {
@@ -3720,13 +3733,8 @@ public class MessageBubbleCanvasView extends View {
         resolveReplyColors(getContext());
         // Bubble corner treatment doesn't actually depend on hasReply in this
         // view (unlike the legacy bg_reply_preview backgrounds, the outer
-        // bubble shape is unaffected), but keep cache key in sync in case
-        // that changes later.
-        int cacheKey = (sent ? 1 : 0) << 1 | 1;
-        if (cacheKey != lastCacheKey) {
-            bubbleDrawable = buildBubbleDrawable(getContext(), sent);
-            lastCacheKey = cacheKey;
-        }
+        // bubble shape is unaffected). Shared process-wide instance.
+        bubbleDrawable = sharedBubbleDrawable(getContext(), sent, false, density);
         if (requestLayoutIfSizeChanged()) {
             replySenderLayout = null; // recomputed in onMeasure
             replyTextLayout = null;
@@ -4059,25 +4067,45 @@ public class MessageBubbleCanvasView extends View {
         }
     }
 
-    private GradientDrawable buildBubbleDrawable(Context ctx, boolean sent) {
-        return buildBubbleDrawable(ctx, sent, TAIL_RADIUS_DP);
-    }
-
-    // v33: overload used by bindMedia()/bindVideo() to pass
-    // MEDIA_TAIL_RADIUS_DP instead of the normal TAIL_RADIUS_DP — see that
-    // constant's doc for why single image/video bubbles want a sharper,
-    // more visible corner poking out from behind the media rect.
-    private GradientDrawable buildBubbleDrawable(Context ctx, boolean sent, float tailRadiusDp) {
-        GradientDrawable gd = new GradientDrawable();
-        gd.setColor(androidx.core.content.ContextCompat.getColor(ctx, sent
-                ? com.callx.app.core.R.color.bubble_sent
-                : com.callx.app.core.R.color.bubble_received));
-        float r = CORNER_RADIUS_DP * density;
-        float tail = tailRadiusDp * density;
-        if (sent) {
-            gd.setCornerRadii(new float[]{r, r, r, r, tail, tail, r, r});
-        } else {
-            gd.setCornerRadii(new float[]{tail, tail, r, r, r, r, r, r});
+    /**
+     * Returns the shared, process-wide bubble background for
+     * (sent, isMediaTail) — built once per process and reused by every
+     * message row across every chat screen, instead of being rebuilt
+     * per-bind/per-instance. Only 4 combinations exist in the whole app
+     * (sent × normal-or-media tail radius), so this is a plain 4-slot
+     * pool keyed by index, not a general LRU-style cache.
+     *
+     * v33 note preserved: the media-tail variant exists because single
+     * image/video bubbles want a sharper, more visible corner poking out
+     * from behind the media rect (MEDIA_TAIL_RADIUS_DP vs TAIL_RADIUS_DP).
+     */
+    private static GradientDrawable sharedBubbleDrawable(Context ctx, boolean sent, boolean isMediaTail, float density) {
+        int sentColor = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_sent);
+        int receivedColor = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_received);
+        if (density != sBubblePoolDensity
+                || sentColor != sBubblePoolSentColor
+                || receivedColor != sBubblePoolReceivedColor) {
+            // Density changed (shouldn't happen mid-process, but cheap to
+            // guard) or the bubble colors changed (day/night switch) —
+            // invalidate the whole pool so nothing stale lingers.
+            java.util.Arrays.fill(BUBBLE_DRAWABLE_POOL, null);
+            sBubblePoolDensity = density;
+            sBubblePoolSentColor = sentColor;
+            sBubblePoolReceivedColor = receivedColor;
+        }
+        int idx = (sent ? 2 : 0) | (isMediaTail ? 1 : 0);
+        GradientDrawable gd = BUBBLE_DRAWABLE_POOL[idx];
+        if (gd == null) {
+            gd = new GradientDrawable();
+            gd.setColor(sent ? sentColor : receivedColor);
+            float r = CORNER_RADIUS_DP * density;
+            float tail = (isMediaTail ? MEDIA_TAIL_RADIUS_DP : TAIL_RADIUS_DP) * density;
+            if (sent) {
+                gd.setCornerRadii(new float[]{r, r, r, r, tail, tail, r, r});
+            } else {
+                gd.setCornerRadii(new float[]{tail, tail, r, r, r, r, r, r});
+            }
+            BUBBLE_DRAWABLE_POOL[idx] = gd;
         }
         return gd;
     }
@@ -5689,7 +5717,11 @@ public class MessageBubbleCanvasView extends View {
     void drawCornerExpiryPill(Canvas canvas, RectF anchorRect) {
         if (!hasExpiry || expiryText == null || expiryText.isEmpty()) return;
         float padH = 6f * density, padV = 3f * density, inset = 6f * density;
-        Paint.FontMetrics efm = expiryPaint.getFontMetrics();
+        // PERF: was expiryPaint.getFontMetrics() — allocated fresh every
+        // draw for every visible expiry-countdown card. Scratch instance
+        // below is filled in place instead (zero-alloc).
+        expiryPaint.getFontMetrics(cornerExpiryFmScratch);
+        Paint.FontMetrics efm = cornerExpiryFmScratch;
         float textW = expiryPaint.measureText(expiryText);
         float pillH = (efm.descent - efm.ascent) + padV * 2;
         float pillW = textW + padH * 2;
@@ -5709,10 +5741,20 @@ public class MessageBubbleCanvasView extends View {
         float gap  = CALL_ENTRY_ICON_LABEL_GAP_DP * density;
         float left = callEntryPillRect.left + padH;
 
-        Paint.FontMetrics cifm = callEntryIconPaint.getFontMetrics();
-        Paint.FontMetrics clfm = callEntryLabelPaint.getFontMetrics();
-        Paint.FontMetrics cdfm = callEntryDotPaint.getFontMetrics();
-        Paint.FontMetrics ctfm = callEntryTimePaint.getFontMetrics();
+        // PERF: 4x getFontMetrics() with no args here = 4 fresh allocations
+        // every single onDraw() for every visible call-entry row (worst of
+        // the 3 leftover sites — this one fires per-frame during a fling
+        // whenever a call-log bubble is on screen). Scratch instances below
+        // are filled in place instead (zero-alloc), same pattern as
+        // drawFooter()'s footerFmScratch.
+        callEntryIconPaint.getFontMetrics(callEntryIconFmScratch);
+        callEntryLabelPaint.getFontMetrics(callEntryLabelFmScratch);
+        callEntryDotPaint.getFontMetrics(callEntryDotFmScratch);
+        callEntryTimePaint.getFontMetrics(callEntryTimeFmScratch);
+        Paint.FontMetrics cifm = callEntryIconFmScratch;
+        Paint.FontMetrics clfm = callEntryLabelFmScratch;
+        Paint.FontMetrics cdfm = callEntryDotFmScratch;
+        Paint.FontMetrics ctfm = callEntryTimeFmScratch;
         float rowCenterY = callEntryPillRect.centerY();
 
         float x = left;
@@ -5786,7 +5828,10 @@ public class MessageBubbleCanvasView extends View {
         float cy = replyThumbDstRect.bottom;
         // Circle background removed per user request — only the emoji itself is drawn now.
         bigReactionEmojiPaint.setTextSize(badgeR * 1.15f);
-        Paint.FontMetrics fm = bigReactionEmojiPaint.getFontMetrics();
+        // PERF: was bigReactionEmojiPaint.getFontMetrics() — fresh alloc
+        // every draw for every bubble carrying a big reaction badge.
+        bigReactionEmojiPaint.getFontMetrics(bigReactionFmScratch);
+        Paint.FontMetrics fm = bigReactionFmScratch;
         float baselineY = cy - (fm.ascent + fm.descent) / 2f;
         canvas.drawText(bigReactionEmoji, cx, baselineY, bigReactionEmojiPaint);
     }

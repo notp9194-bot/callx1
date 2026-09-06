@@ -154,12 +154,38 @@ public class CloudinaryUploader {
      */
     public static void upload(Context ctx, Uri uri, String folder,
                               String resourceType, String fileNameHint, UploadCallback cb) {
-        new Thread(() -> {
+        // PERF: shared bounded pool instead of a raw `new Thread()` per
+        // upload — see MediaUploadExecutor's class doc (unbounded thread
+        // creation under a big multi-select send is wasted overhead, not
+        // extra speed, since uplink bandwidth is the real bottleneck).
+        MediaUploadExecutor.execute(() -> {
             try {
                 byte[] bytes = readBytes(ctx, uri);
                 if (bytes == null || bytes.length == 0) {
                     post(cb, null, "Empty file");
                     return;
+                }
+
+                // ── Content-hash dedup (WhatsApp-style instant re-send/forward) ──
+                // Hash the EXACT bytes about to be uploaded (post-compression —
+                // what Cloudinary would actually receive). Check the FREE,
+                // local-only tiers (in-memory → Room) first — a hit here means
+                // this exact file was already uploaded from this device, so
+                // skip everything else and return immediately. See
+                // MediaDedupManager's class doc for why the server-wide tier
+                // is deliberately NOT checked here — it rides along on the
+                // /cloudinary/sign call below instead of costing its own
+                // round trip. Not used for E2E paths (ciphertext is unique
+                // per key, so it never dedups).
+                final String contentHash = MediaHashUtil.sha256(bytes);
+                if (contentHash != null) {
+                    MediaDedupManager.Result cached = MediaDedupManager.lookupLocal(ctx, contentHash);
+                    if (cached != null) {
+                        Log.d(TAG, "Dedup hit (" + cached.source + "), upload skipped for hash "
+                                + contentHash.substring(0, 8) + "…");
+                        post(cb, cached.toUploadResult(), null);
+                        return;
+                    }
                 }
                 // Hint takes priority — it names the REAL original file
                 // (voice.m4a, full_123.webp, ...), not the temp .enc blob
@@ -225,10 +251,17 @@ public class CloudinaryUploader {
                 final String rType = (resourceType == null || resourceType.isEmpty())
                     ? "auto" : resourceType;
 
-                // Step 1 — sign
+                // Step 1 — sign (PIGGYBACKS the server-wide dedup check — see
+                // MediaDedupManager's class doc). Sending the content hash
+                // here means the server can answer "someone already has this
+                // exact file, here's the URL" in the SAME response instead of
+                // needing a separate /media/dedup-lookup round trip first —
+                // one network call now covers both a possible dedup hit AND
+                // (on a miss) the signature this upload needed anyway.
                 JSONObject payload = new JSONObject()
                     .put("folder", folder == null ? "callx" : folder)
                     .put("resource_type", rType);
+                if (contentHash != null) payload.put("hash", contentHash);
                 Request signReq = new Request.Builder()
                     .url(Constants.SERVER_URL + "/cloudinary/sign")
                     .post(RequestBody.create(payload.toString(),
@@ -244,6 +277,26 @@ public class CloudinaryUploader {
                     return;
                 }
                 JSONObject signJson = new JSONObject(signBody);
+
+                // Server-wide dedup hit — someone else already uploaded this
+                // exact file. Skip the multipart upload entirely; just warm
+                // our local tiers so the NEXT identical send from this
+                // device is instant even without asking the server again.
+                if (signJson.optBoolean("dedup", false)) {
+                    MediaDedupManager.Result serverHit =
+                        MediaDedupManager.fromSignResponse(signJson.optJSONObject("result"));
+                    if (serverHit != null) {
+                        Log.d(TAG, "Dedup hit (server), upload skipped for hash "
+                                + (contentHash != null ? contentHash.substring(0, 8) : "?") + "…");
+                        if (contentHash != null) {
+                            MediaDedupManager.register(ctx, contentHash, serverHit.toUploadResult(), folder);
+                        }
+                        post(cb, serverHit.toUploadResult(), null);
+                        return;
+                    }
+                    // Malformed dedup payload — fall through and upload normally rather than fail the send.
+                }
+
                 String signature = signJson.getString("signature");
                 String timestamp = signJson.getString("timestamp");
                 String apiKey    = signJson.getString("api_key");
@@ -318,12 +371,19 @@ public class CloudinaryUploader {
                     post(cb, null, "No URL in response");
                     return;
                 }
+                // Register this hash → URL so the NEXT identical file (this
+                // device or any other) hits the dedup cache instead of
+                // re-uploading. Fully non-blocking — see register()'s doc —
+                // so this never delays the success callback below.
+                if (contentHash != null) {
+                    MediaDedupManager.register(ctx, contentHash, r, f);
+                }
                 post(cb, r, null);
             } catch (Exception e) {
                 Log.e(TAG, "Upload error", e);
                 post(cb, null, e.getMessage() == null ? "Upload error" : e.getMessage());
             }
-        }).start();
+        });
     }
     private static byte[] readBytes(Context ctx, Uri uri) throws IOException {
         // Images: compress before upload (resize + JPEG 80%)

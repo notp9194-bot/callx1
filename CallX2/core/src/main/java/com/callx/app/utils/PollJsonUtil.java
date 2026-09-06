@@ -105,7 +105,20 @@ public final class PollJsonUtil {
     /** Returns tick count per option index, sized to optionCount. A single
      *  voter who ticked 2 options contributes 1 to each of those 2 counts. */
     public static int[] countVotes(Map<String, List<Integer>> votes, int optionCount) {
-        int[] counts = new int[Math.max(optionCount, 0)];
+        return countVotes(votes, optionCount, null);
+    }
+
+    /**
+     * Zero-alloc overload for hot call sites (live poll vote updates, which
+     * can fire once per incoming vote in an active group poll): reuses
+     * {@code out} in place when it's already sized to {@code optionCount}
+     * instead of allocating a fresh array every call. Pass null to always
+     * allocate (same behavior as the single-arg overload).
+     */
+    public static int[] countVotes(Map<String, List<Integer>> votes, int optionCount, int[] out) {
+        int n = Math.max(optionCount, 0);
+        int[] counts = (out != null && out.length == n) ? out : new int[n];
+        if (out != null && out == counts) java.util.Arrays.fill(counts, 0);
         if (votes == null) return counts;
         for (List<Integer> indices : votes.values()) {
             if (indices == null) continue;
