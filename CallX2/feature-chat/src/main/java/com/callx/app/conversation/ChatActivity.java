@@ -6102,7 +6102,24 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // gate already used for the hardware-layer switch above — the
         // short 1-2 row auto-scroll-to-bottom settle never needed
         // Glide paused in the first place.
-        if (isUserTouchOnMessages && (newState == RecyclerView.SCROLL_STATE_SETTLING
+        // v5 ULTRA-ADVANCED: same gap the hardware-layer fix (see
+        // handleLayerTypeStateChanged) already closed, just for Glide's
+        // decode pipeline instead of the GPU layer. isUserTouchOnMessages
+        // flips false the instant the finger lifts, but TELEGRAM_FRICTION
+        // (0.007, down from stock 0.015) now makes the list keep flinging
+        // fast for well over a second after that. Gating on
+        // isUserTouchOnMessages alone meant resumeRequestsRecursive() fired
+        // right at finger-up and Glide started decoding every newly-visible
+        // row WHILE the list was still racing past them — full-res decodes
+        // for thumbnails visible for a couple of frames, thrown away and
+        // immediately redone for the next row, repeated for the whole
+        // low-friction tail of the glide. isBoostedUserFlingActive (set by
+        // FastFlingRecyclerView.OnUserFlingListener, cleared on IDLE — see
+        // its wiring above) keeps requests paused for that entire glide, so
+        // decodes only happen once each, for the rows actually still on
+        // screen when the list finally settles.
+        if ((isUserTouchOnMessages || isBoostedUserFlingActive)
+                && (newState == RecyclerView.SCROLL_STATE_SETTLING
                 || newState == RecyclerView.SCROLL_STATE_DRAGGING)) {
             // Finger moving or list flinging — halt all pending decodes.
             com.bumptech.glide.Glide.with(ChatActivity.this).pauseRequestsRecursive();

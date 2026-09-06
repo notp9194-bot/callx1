@@ -43,6 +43,7 @@ public class CommunityModerationLogActivity extends AppCompatActivity {
 
         LinearLayoutManager llm = new LinearLayoutManager(this);
         rvLog.setLayoutManager(llm);
+        com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rvLog);
         rvLog.setHasFixedSize(false);
         rvLog.setItemAnimator(null);
         CommunityScrollOptimizer.apply(rvLog, llm);

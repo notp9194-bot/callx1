@@ -130,6 +130,7 @@ public class StatusFragment extends BaseFragment {
 
         RecyclerView rv = v.findViewById(R.id.rv_status);
         rv.setLayoutManager(new LinearLayoutManager(getContext()));
+        com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rv);
         rv.setItemAnimator(null);
 
         // ── Status adapter ───────────────────────────────────────────────

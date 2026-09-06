@@ -80,6 +80,7 @@ public class CommunityMembersFragment extends Fragment {
 
         LinearLayoutManager llm = new LinearLayoutManager(requireContext());
         rvMembers.setLayoutManager(llm);
+        com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rvMembers);
         CommunityScrollOptimizer.apply(rvMembers, llm);
         CommunityScrollOptimizer.applySharedPool(rvMembers);
         rvMembers.setHasFixedSize(true);

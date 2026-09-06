@@ -57,6 +57,7 @@ public class AllContactsActivity extends AppCompatActivity {
         etSearch = findViewById(R.id.et_search_all_contacts);
 
         rv.setLayoutManager(new LinearLayoutManager(this));
+        com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rv);
         adapter = new ContactsCallAdapter(filtered, this::onVoiceCall, this::onVideoCall);
         rv.setAdapter(adapter);
 

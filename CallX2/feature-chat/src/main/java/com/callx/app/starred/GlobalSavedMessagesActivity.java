@@ -77,6 +77,7 @@ public class GlobalSavedMessagesActivity extends AppCompatActivity {
         etSearch   = findViewById(R.id.et_search);
 
         rv.setLayoutManager(new LinearLayoutManager(this));
+        com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rv);
         adapter = new SavedAdapter();
         rv.setAdapter(adapter);
         // FIX (velocity-based prefetch): fast fling skips prefetch entirely,

@@ -59,6 +59,7 @@ public class BlockedUsersActivity extends AppCompatActivity {
         adapter = new BlockedAdapter();
         if (rvBlocked != null) {
             rvBlocked.setLayoutManager(new LinearLayoutManager(this));
+            com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rvBlocked);
             rvBlocked.setAdapter(adapter);
             // FIX (velocity-based prefetch): fast fling skips prefetch entirely,
             // slow/deliberate scroll warms several rows ahead — same thresholds

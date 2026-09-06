@@ -112,6 +112,7 @@ import com.callx.app.conversation.ChatActivity;
           rv = new RecyclerView(this);
           adapter = new MutedAdapter();
           rv.setLayoutManager(new LinearLayoutManager(this));
+          com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rv);
           rv.setAdapter(adapter);
           // FIX (velocity-based prefetch): fast fling skips prefetch entirely,
           // slow/deliberate scroll warms several rows ahead — same thresholds

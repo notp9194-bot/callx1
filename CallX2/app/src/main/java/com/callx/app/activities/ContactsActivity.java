@@ -184,6 +184,7 @@ public class ContactsActivity extends AppCompatActivity {
         tvSendCount = findViewById(R.id.tv_send_count);
 
         rv.setLayoutManager(new LinearLayoutManager(this));
+        com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rv);
         adapter = new ContactsAdapter(filtered, selectedUids, this::onTargetToggled);
         rv.setAdapter(adapter);
         // FIX (velocity-based prefetch): fast fling skips prefetch entirely,

@@ -96,6 +96,7 @@ public class NotificationCenterActivity extends AppCompatActivity {
 
         adapter = new NotifAdapter();
         rvNotifs.setLayoutManager(new LinearLayoutManager(this));
+        com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rvNotifs);
         rvNotifs.setAdapter(adapter);
         // FIX (velocity-based prefetch): fast fling skips prefetch entirely,
         // slow/deliberate scroll warms several rows ahead — same thresholds

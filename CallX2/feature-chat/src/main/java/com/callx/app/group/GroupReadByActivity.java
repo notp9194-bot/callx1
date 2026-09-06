@@ -86,6 +86,7 @@ public class GroupReadByActivity extends AppCompatActivity {
 
         RecyclerView rv = findViewById(R.id.rv_read_by);
         rv.setLayoutManager(new LinearLayoutManager(this));
+        com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rv);
         adapter = new SectionAdapter();
         rv.setAdapter(adapter);
 

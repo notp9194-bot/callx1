@@ -25,6 +25,7 @@ public class RequestsActivity extends AppCompatActivity {
         RecyclerView rv = findViewById(R.id.rv_requests);
         empty = findViewById(R.id.empty_requests);
         rv.setLayoutManager(new LinearLayoutManager(this));
+        com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rv);
         adapter = new RequestAdapter(requests);
         rv.setAdapter(adapter);
         load();

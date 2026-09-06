@@ -92,6 +92,7 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
         etSearch     = v.findViewById(R.id.et_search_calls);
 
         rv.setLayoutManager(new LinearLayoutManager(getContext()));
+        com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rv);
         adapter = new CallHistoryAdapter(logs, this);
         rv.setAdapter(adapter);
 

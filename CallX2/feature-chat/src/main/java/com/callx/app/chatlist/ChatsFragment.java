@@ -258,6 +258,15 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         llm.setInitialPrefetchItemCount(8);
         rv.setLayoutManager(llm);
 
+        // Reused from FastFlingRecyclerView's v4 chat-bubble fix (see core's
+        // RecyclerViewFrictionTuner javadoc) — the chat LIST is a plain
+        // single-column text+avatar list same as comments, so the same
+        // lower-friction long-glide feel applies cleanly. Only watch-out:
+        // GlideScrollListener below pauses avatar loads while scrolling and
+        // resumes on IDLE, so a longer glide means avatars pop in a bit
+        // later after the list settles — expected, not a bug.
+        com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rv);
+
         // v388 WHATSAPP-LEVEL FIX (scroll position across View recreation):
         // the RecyclerView/LayoutManager are genuinely destroyed and rebuilt
         // every onCreateView (a real Android View, unlike `contacts` which is

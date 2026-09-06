@@ -721,6 +721,12 @@ public class ReelCommentFragment extends Fragment {
         if (rvComments != null) {
             rvComments.setLayoutManager(new LinearLayoutManager(requireContext()));
             rvComments.setAdapter(adapter);
+            // Reused from FastFlingRecyclerView's v4 chat fix (see core's
+            // RecyclerViewFrictionTuner javadoc): comments are a plain text
+            // list like chat, so the same lower-friction long-glide feel
+            // applies cleanly here — no pagination/preloader retuning
+            // needed like reels grid or Home feed would require.
+            com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rvComments);
 
             // ── Smooth-scrolling tuning ─────────────────────────────────
             // Comment rows aren't uniform height (replies/reactions expand

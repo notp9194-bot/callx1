@@ -59,6 +59,7 @@ public class LinkedDevicesActivity extends AppCompatActivity {
 
         RecyclerView rv = findViewById(R.id.rv_linked_devices);
         rv.setLayoutManager(new LinearLayoutManager(this));
+        com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rv);
         adapter = new LinkedDeviceAdapter(this::showDeviceMenu);
         rv.setAdapter(adapter);
 

@@ -188,6 +188,9 @@ public class GroupInfoActivity extends AppCompatActivity {
             handleMemberAction(uid, action);
         });
         rvMembers.setLayoutManager(new LinearLayoutManager(this));
+        // rvMembers is a plain vertical member list — same fit as comments.
+        // rvMedia (below) is a grid and is deliberately left untouched.
+        com.callx.app.utils.RecyclerViewFrictionTuner.applyReducedFriction(rvMembers);
         rvMembers.setNestedScrollingEnabled(false);
         rvMembers.setAdapter(memberAdapter);
         setupMembersAvatarPrefetch();
