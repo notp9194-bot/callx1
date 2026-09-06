@@ -263,6 +263,30 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     // setSpecialRequestSenders() below.
     private static final String PAYLOAD_SPECIAL = "payload_special";
 
+    // v389 WHATSAPP-LEVEL FIX: applySelectionVisuals()/updateReadStatusTicks()/
+    // applyTypingRow() called ctx.getResources().getColor(...) up to 4-5
+    // times on EVERY single bind (and rebind via payload) — a real
+    // main-thread resource-resolution + theme lookup repeated for every row,
+    // every time it scrolls into view, even though the resolved value is
+    // identical on every call within one adapter's lifetime (the whole
+    // Activity — and therefore this adapter — is recreated on a day/night
+    // theme switch, so there's no stale-color risk in caching per instance).
+    // Resolved ONCE, lazily, on the first bind that has a Context; every
+    // later bind reads a plain int field instead of hitting Resources again.
+    private int colorTextMuted, colorTextPrimary, colorTextSecondary,
+                colorTickReadBlue, colorStatusTyping;
+    private boolean colorsResolved = false;
+
+    private void ensureColorsResolved(Context ctx) {
+        if (colorsResolved) return;
+        colorTextMuted     = ctx.getResources().getColor(R.color.text_muted);
+        colorTextPrimary   = ctx.getResources().getColor(R.color.text_primary);
+        colorTextSecondary = ctx.getResources().getColor(R.color.text_secondary);
+        colorTickReadBlue  = ctx.getResources().getColor(R.color.tick_read_blue);
+        colorStatusTyping  = ctx.getResources().getColor(R.color.status_typing);
+        colorsResolved = true;
+    }
+
     // v83: constructor no longer takes a List<User> — caller uses submitList().
     public ChatListAdapter(SelectionListener listener) {
         this.selectionListener = listener;
@@ -503,6 +527,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         List<User> list = differ.getCurrentList();
         User u = list.get(pos);
         Context ctx = h.itemView.getContext();
+        ensureColorsResolved(ctx);
 
         // v92 PERF FIX: click/long-click listeners used to be freshly
         // allocated (6-7 lambdas capturing u/ctx/hasStory) on EVERY full
@@ -708,26 +733,25 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
 
     private void applySelectionVisuals(VH h, User u) {
         Context ctx = h.itemView.getContext();
+        ensureColorsResolved(ctx);
         boolean selected  = u.uid != null && selectedUids.contains(u.uid);
         boolean isSpecial = u.uid != null && specialRequestSenders.contains(u.uid);
 
-        // FIX: name/time were hardcoded to a near-black literal (0xFF0F172A)
-        // regardless of theme — invisible against the dark-mode row
-        // background (@color/surface_card resolves to near-black at night).
-        // Both now resolve from theme-aware resources every bind, same as
-        // lastMsgColor below, so the row is readable in both light and dark.
-        h.nameTimeView.setTimeColor(ctx.getResources().getColor(R.color.text_muted));
+        // v389: colors now read from the cached fields resolved once by
+        // ensureColorsResolved() instead of hitting Resources on every bind
+        // (was ctx.getResources().getColor(R.color.text_muted) etc. here).
+        h.nameTimeView.setTimeColor(colorTextMuted);
 
         long unread = u.unread == null ? 0 : u.unread;
         int lastMsgColor;
         if (unread > 0 && !isSelecting) {
             h.unreadBadgeView.setBadgeCount(unread);
-            lastMsgColor = ctx.getResources().getColor(R.color.text_primary);
-            h.nameTimeView.setNameColor(ctx.getResources().getColor(R.color.text_primary));
+            lastMsgColor = colorTextPrimary;
+            h.nameTimeView.setNameColor(colorTextPrimary);
         } else {
             h.unreadBadgeView.setBadgeCount(0);
-            lastMsgColor = ctx.getResources().getColor(R.color.text_secondary);
-            h.nameTimeView.setNameColor(ctx.getResources().getColor(R.color.text_primary));
+            lastMsgColor = colorTextSecondary;
+            h.nameTimeView.setNameColor(colorTextPrimary);
         }
 
         if (!h.isTypingNow) {
@@ -878,18 +902,17 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
             h.lastMessageView.setTicks(ChatListLastMessageView.TICK_NONE, 0);
             return;
         }
-        Context ctx = h.itemView.getContext();
+        // v389: cached colors — see ensureColorsResolved(). No Context/
+        // Resources lookup needed here anymore.
         if ("read".equals(u.lastMessageStatus)) {
-            h.lastMessageView.setTicks(ChatListLastMessageView.TICK_READ,
-                    ctx.getResources().getColor(R.color.tick_read_blue));
+            h.lastMessageView.setTicks(ChatListLastMessageView.TICK_READ, colorTickReadBlue);
         } else if ("delivered".equals(u.lastMessageStatus)) {
-            h.lastMessageView.setTicks(ChatListLastMessageView.TICK_DELIVERED,
-                    ctx.getResources().getColor(R.color.text_muted));
+            h.lastMessageView.setTicks(ChatListLastMessageView.TICK_DELIVERED, colorTextMuted);
         } else {
-            h.lastMessageView.setTicks(ChatListLastMessageView.TICK_SENT,
-                    ctx.getResources().getColor(R.color.text_muted));
+            h.lastMessageView.setTicks(ChatListLastMessageView.TICK_SENT, colorTextMuted);
         }
     }
+
 
     // ── ULTRA DIAGNOSTICS: Firebase typing-listener leak counters ────────────
     // attachTypingListener/detachTypingListener are the only two places a
@@ -947,18 +970,19 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
     private void applyTypingRow(VH h, User u, boolean isTyping) {
         h.isTypingNow = isTyping;
         if (isTyping) {
-            // FIX: was a hardcoded dark-green literal (0xFF0F4C3A) — low
-            // contrast against the dark-mode row background. status_typing
-            // (#4CAF50, bright green) is already defined identically in both
-            // values/ and values-night/colors.xml, so it reads clearly either way.
-            Context ctx = h.itemView.getContext();
-            h.lastMessageView.setMessageText("typing...",
-                    ctx.getResources().getColor(R.color.status_typing), true);
+            // v389: cached color — see ensureColorsResolved(). This path is
+            // reached from a live Firebase typing listener callback, not
+            // onBindViewHolder, so resolve as a safety net in case no bind
+            // has happened yet for this adapter instance (colorsResolved
+            // guard makes this a no-op in the normal case).
+            ensureColorsResolved(h.itemView.getContext());
+            h.lastMessageView.setMessageText("typing...", colorStatusTyping, true);
             h.lastMessageView.setTicks(ChatListLastMessageView.TICK_NONE, 0);
         } else {
             applySelectionVisuals(h, u);
         }
     }
+
 
     private static final long OPEN_CHAT_SAFETY_CAP_MS = 150L;
 

@@ -75,7 +75,7 @@ import com.callx.app.db.entity.*;
         // MediaHashCacheEntity's class doc.
         MediaHashCacheEntity.class
     },
-    version = 59,
+    version = 60,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -835,6 +835,78 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /**
+     * v59 → v60: FTS4 virtual table for in-chat message search
+     * (ChatSearchController). Replaces the old `text LIKE '%pattern%'`
+     * scan — correct at small/medium scale but a full per-chat table scan
+     * of `text` under the hood, which gets visibly slower as a single
+     * chat's history grows toward tens/hundreds of thousands of rows.
+     * FTS4 keeps its own inverted-word index, so a search stays fast
+     * regardless of how big the chat gets.
+     *
+     * NOT modeled as a Room @Fts4 entity (no corresponding MessageFtsEntity
+     * in the entities{} list above) — deliberately hand-rolled instead:
+     *   - MessageEntity's primary key is a String `id`, not an INTEGER
+     *     rowid, which is what Room's external-content (`contentEntity=`)
+     *     FTS4 linking requires. A standalone FTS4 table kept in sync via
+     *     plain SQL triggers below sidesteps that restriction entirely.
+     *   - Triggers live on the real `messages` table, not in app code, so
+     *     EVERY write path (single insert, batch insert, `INSERT OR
+     *     REPLACE` upsert, plain UPDATE) stays in sync automatically —
+     *     no risk of one of the many existing DAO write methods being
+     *     missed if this were instead wired up as manual inserts scattered
+     *     across the codebase.
+     *   - `messages_fts` has no matching @Entity, so MessageDao's FTS
+     *     query methods use @SkipQueryVerification (Room's compile-time
+     *     query check only knows about tables backed by a declared
+     *     @Entity/@Fts4 class).
+     *
+     * INSERT OR REPLACE note: SQLite implements a REPLACE conflict as a
+     * real DELETE-then-INSERT under the hood, so the plain AFTER INSERT /
+     * AFTER DELETE triggers below already cover Room's
+     * OnConflictStrategy.REPLACE upserts correctly with no separate case
+     * needed — only a genuine SQL UPDATE statement needs the AFTER UPDATE
+     * trigger.
+     *
+     * Tokenizer: default (simple/unicode-aware ASCII tokenization), which
+     * matches this app's mostly Latin-script Hinglish text — same
+     * language-scope note as the old LIKE query's javadoc. MATCH performs
+     * whole-word/prefix search (see ChatSearchController's query-building
+     * side, which appends `*` for prefix matching), not arbitrary
+     * substring search like LIKE — this is the standard, expected
+     * trade-off for FTS-backed chat search (same behavior WhatsApp/
+     * Telegram search has) in exchange for scaling to huge chat histories.
+     */
+    static final Migration MIGRATION_59_60 = new Migration(59, 60) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts " +
+                    "USING FTS4(id, chatId, text, timestamp)");
+
+            // Backfill existing rows once, up front — triggers below only
+            // cover writes from this point forward.
+            db.execSQL("INSERT INTO messages_fts(id, chatId, text, timestamp) " +
+                    "SELECT id, chatId, text, timestamp FROM messages " +
+                    "WHERE text IS NOT NULL AND (deleted IS NULL OR deleted != 1)");
+
+            db.execSQL("CREATE TRIGGER IF NOT EXISTS messages_fts_ai " +
+                    "AFTER INSERT ON messages BEGIN " +
+                    "INSERT INTO messages_fts(id, chatId, text, timestamp) " +
+                    "VALUES (new.id, new.chatId, new.text, new.timestamp); " +
+                    "END");
+            db.execSQL("CREATE TRIGGER IF NOT EXISTS messages_fts_ad " +
+                    "AFTER DELETE ON messages BEGIN " +
+                    "DELETE FROM messages_fts WHERE id = old.id; " +
+                    "END");
+            db.execSQL("CREATE TRIGGER IF NOT EXISTS messages_fts_au " +
+                    "AFTER UPDATE ON messages BEGIN " +
+                    "DELETE FROM messages_fts WHERE id = old.id; " +
+                    "INSERT INTO messages_fts(id, chatId, text, timestamp) " +
+                    "VALUES (new.id, new.chatId, new.text, new.timestamp); " +
+                    "END");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -897,7 +969,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_52_53, MIGRATION_53_54,
                                     MIGRATION_54_55, MIGRATION_55_56,
                                     MIGRATION_56_57, MIGRATION_57_58,
-                                    MIGRATION_58_59)
+                                    MIGRATION_58_59, MIGRATION_59_60)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

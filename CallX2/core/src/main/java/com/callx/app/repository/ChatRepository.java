@@ -39,6 +39,19 @@ public class ChatRepository {
     private static final String TAG      = "ChatRepository";
     private static final int    PAGE_SIZE = 50;
 
+    /** See {@link #pruneOldMessagesIfOverHardCap} class doc. */
+    public static final int LOCAL_MESSAGE_HARD_CAP = 20_000;
+
+    // ULTRA-OPT: how far under the hard cap a chat needs to have last
+    // measured before pruneOldMessagesIfOverHardCap() will trust that
+    // number and skip the DB COUNT(*) entirely on the next chat open. See
+    // that method's doc for the full reasoning — kept as a named constant
+    // since it directly trades off "how stale can the cached count be
+    // before we double-check" against "how many chat-opens does the query
+    // actually get skipped for".
+    private static final int PRUNE_RECHECK_MARGIN   = 2_000;
+    private static final String PRUNE_CHECK_PREFS   = "chat_prune_check_state";
+
     private static ChatRepository sInstance;
 
     private final CacheManager   mCache;
@@ -483,6 +496,73 @@ public class ChatRepository {
     public void pruneOldMessagesIfLowStorage(Context ctx, String chatId, int keepCountWhenLow) {
         if (!com.callx.app.utils.DeviceStorageUtils.isDeviceStorageLow(ctx)) return;
         pruneOldMessages(chatId, keepCountWhenLow);
+    }
+
+    /**
+     * ULTRA-OPT (million-message chat cap): a hard ceiling on how much of
+     * ONE chat's history Room will ever hold locally, independent of device
+     * storage pressure. Deliberately separate from
+     * {@link #pruneOldMessagesIfLowStorage} above rather than folding into
+     * it — that one is storage-pressure-gated by design (GAP FIX #3: it
+     * must stay a genuine no-op on a healthy device, or offline history
+     * quietly disappears on a schedule the user can't predict). This one
+     * is unconditional but the ceiling is high enough (default 20,000) that
+     * a normal chat — even a very active one — never reaches it; it only
+     * bites for the pathological case (a chat heading toward 100k/1M+
+     * messages) where letting Room grow unbounded would eventually slow
+     * every query that touches this chat and bloat the on-disk DB/backup
+     * size. Anything pruned locally is NOT gone — it's still on the
+     * server (Firebase) and gets re-fetched on demand the same way
+     * MessageKeysetPagingSource already loads any older page today.
+     *
+     * COUNT-first, same reasoning as the Paging3-invalidation bug fixed in
+     * ChatActivity's/GroupChatActivity's call sites: a DELETE (even one
+     * that deletes zero rows) still invalidates the `messages` table's
+     * Room invalidation tracker, which force-reloads any observing
+     * PagingSource — visible as the chat "reloading" even though nothing
+     * actually changed. Checking the count first means the 99.9% of chats
+     * that never get anywhere near the cap pay for one cheap indexed
+     * COUNT(*) and nothing else — no DELETE, no invalidation, no reload.
+     *
+     * ULTRA-OPT v2: that "cheap indexed COUNT(*)" was still a genuine DB
+     * hit — a background-thread query, cursor, and disk-cache touch — on
+     * literally every single chat open, forever, even for a chat that has
+     * sat at 40 messages since the day it was created. There's no reason
+     * to re-ask a question whose answer barely moves: message count only
+     * ever grows, and it grows by (at most) a handful of messages between
+     * one chat-open and the next, so a chat last measured comfortably
+     * under the cap is still comfortably under it now. This method now
+     * remembers each chat's last-measured count in SharedPreferences
+     * (survives app restarts, unlike a simple in-memory cache) and skips
+     * the COUNT(*) query entirely whenever that remembered count is more
+     * than {@link #PRUNE_RECHECK_MARGIN} below the cap — which is every
+     * open, for every normal-sized chat, after the first time it's ever
+     * been measured. Only a chat that's already within the margin (i.e.
+     * one that's actually approaching 20,000 messages) pays for a fresh
+     * COUNT(*) on each subsequent open, which is exactly the case where
+     * re-checking is actually worth something.
+     */
+    public void pruneOldMessagesIfOverHardCap(String chatId, int hardCap) {
+        mExecutor.execute(() -> {
+            android.content.SharedPreferences prefs = mAppContext
+                    .getSharedPreferences(PRUNE_CHECK_PREFS, Context.MODE_PRIVATE);
+            int lastKnownCount = prefs.getInt(chatId, -1);
+            if (lastKnownCount >= 0 && lastKnownCount < hardCap - PRUNE_RECHECK_MARGIN) {
+                // Comfortably under the cap as of last measurement — trust
+                // it and skip the query entirely. No DB hit at all.
+                return;
+            }
+            int count = mDb.messageDao().getMessageCount(chatId);
+            if (count > hardCap) {
+                mDb.messageDao().pruneOldMessages(chatId, hardCap);
+                // Record the post-prune count, not the pre-prune one, so
+                // the very next open doesn't immediately think it's still
+                // sitting right at the edge and re-query again.
+                prefs.edit().putInt(chatId, hardCap).apply();
+            } else {
+                prefs.edit().putInt(chatId, count).apply();
+            }
+        });
     }
 
     // ─────────────────────────────────────────────────────────────

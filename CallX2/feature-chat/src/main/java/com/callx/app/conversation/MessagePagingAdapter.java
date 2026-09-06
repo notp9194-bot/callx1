@@ -5182,16 +5182,21 @@ public class MessagePagingAdapter
                 } else {
                     boolean hasReply = m.replyToId != null && !m.replyToId.isEmpty();
                     int replyState = hasReply ? 1 : 0;
-                    // PERF/RAM: skip mutate()+setBackground() entirely when
-                    // this holder already has the right bubble drawable from
-                    // its previous bind — avoids an allocation + an
+                    // ULTRA PERF: skip applyBubbleOwned()+setBackground()
+                    // entirely when this holder already has the right
+                    // bubble state from its previous bind — avoids even
+                    // the cheap setColor()/setCornerRadii() re-apply + an
                     // invalidate/draw pass on nearly every scroll-triggered
                     // rebind, since hasReply flips far less often than the
-                    // row itself gets recycled.
+                    // row itself gets recycled. When it DOES need re-apply
+                    // (including every row's first bind on chat open),
+                    // applyBubbleOwned() writes into this holder's own
+                    // private ownedBubbleDrawable — no GradientDrawable
+                    // allocation, unlike the old shared+mutate() path.
                     if (h.lastBubbleReplyState != replyState) {
                         com.callx.app.utils.ChatThemeManager
                                 .get(ctx)
-                                .applyBubble(llBubble, sent, bMsgType, hasReply);
+                                .applyBubbleOwned(llBubble, h.ownedBubbleDrawable, sent, hasReply);
                         h.lastBubbleReplyState = replyState;
                     }
                 }
@@ -5216,9 +5221,7 @@ public class MessagePagingAdapter
         if (llBubble != null) {
             String mid = m.messageId != null ? m.messageId : m.id;
             boolean isReplyTarget = mid != null && replyTargetMessageIds.contains(mid);
-            llBubble.setForeground(isReplyTarget
-                    ? ContextCompat.getDrawable(ctx, R.drawable.bg_reply_target_highlight)
-                    : null);
+            applyReplyTargetHighlight(h, llBubble, isReplyTarget);
         }
 
         // Reset visibility
@@ -6313,8 +6316,16 @@ public class MessagePagingAdapter
             // read receipts myself, I don't get to see the other person's
             // blue tick either, even though the real Firebase status is
             // "read". Display-only downgrade; the real status is untouched.
+            //
+            // ULTRA-OPT (resurrected key-derivation bug): this used to call
+            // `new SecurityManager(ctx)` directly instead of the singleton
+            // accessor SecurityManager.get(ctx) — bypassing the exact fix
+            // SecurityManager's own class doc describes (opening a chat
+            // with N read/seen sent messages re-ran full AES256 key
+            // derivation via EncryptedSharedPreferences.create(), ~100-300ms
+            // EACH, once per visible tick instead of once per process).
             if (("read".equals(status) || "seen".equals(status))
-                    && !new com.callx.app.utils.SecurityManager(ctx).isReadReceiptsEnabled()) {
+                    && !com.callx.app.utils.SecurityManager.get(ctx).isReadReceiptsEnabled()) {
                 status = "delivered";
             }
             switch (status) {
@@ -7821,8 +7832,14 @@ public class MessagePagingAdapter
         }
         h.tvStatus.setVisibility(View.VISIBLE);
         String s = m.status == null ? "" : m.status;
+        // ULTRA-OPT: same resurrected key-derivation bug as bindMessage()'s
+        // twin block above — SecurityManager.get() (singleton), not `new`.
+        // This fast-path runs on every live read-receipt broadcast, so the
+        // old `new SecurityManager(...)` here was arguably worse than the
+        // one in the full-bind path: it re-ran full AES256 key derivation
+        // on every single incoming "seen" tick update, not just on bind.
         if (("read".equals(s) || "seen".equals(s))
-                && !new com.callx.app.utils.SecurityManager(h.itemView.getContext()).isReadReceiptsEnabled()) {
+                && !com.callx.app.utils.SecurityManager.get(h.itemView.getContext()).isReadReceiptsEnabled()) {
             s = "delivered";
         }
         switch (s) {
@@ -7858,6 +7875,28 @@ public class MessagePagingAdapter
         }
     }
 
+    /**
+     * ULTRA-OPT: applies (or clears) the "someone is replying to this
+     * message" bubble glow without re-inflating a Drawable on every call.
+     * See the ownedReplyTargetDrawable/lastReplyTargetState field doc in VH
+     * for the full reasoning. Shared by both bindMessage()'s full path and
+     * bindPresenceOnly()'s payload-only fast path so the two can't drift.
+     */
+    private void applyReplyTargetHighlight(@NonNull VH h, @NonNull View llBubble, boolean isReplyTarget) {
+        int state = isReplyTarget ? 1 : 0;
+        if (h.lastReplyTargetState == state) return; // already showing the right thing
+        h.lastReplyTargetState = state;
+        if (isReplyTarget) {
+            if (h.ownedReplyTargetDrawable == null) {
+                h.ownedReplyTargetDrawable =
+                        ContextCompat.getDrawable(llBubble.getContext(), R.drawable.bg_reply_target_highlight);
+            }
+            llBubble.setForeground(h.ownedReplyTargetDrawable);
+        } else {
+            llBubble.setForeground(null);
+        }
+    }
+
     /** Fast-path: rebind ONLY the three presence-driven views — the
      *  "someone's viewing this" dot, the "someone's playing this" badge,
      *  and the "someone's replying to this" bubble glow. Called from the
@@ -7885,9 +7924,7 @@ public class MessagePagingAdapter
 
         if (h.llBubble != null) {
             boolean isReplyTarget = mid != null && replyTargetMessageIds.contains(mid);
-            h.llBubble.setForeground(isReplyTarget
-                    ? ContextCompat.getDrawable(h.itemView.getContext(), R.drawable.bg_reply_target_highlight)
-                    : null);
+            applyReplyTargetHighlight(h, h.llBubble, isReplyTarget);
         }
     }
 
@@ -8141,11 +8178,48 @@ public class MessagePagingAdapter
         // PERF: last bubble-background state actually applied to llBubble —
         // -1 means "unknown / force re-apply" (fresh holder, or last bind
         // was a bubbleless media message). Lets bindMessage() skip
-        // GradientDrawable.mutate() + setBackground() entirely when this
-        // holder's hasReply state hasn't changed since its last bind
-        // (the common case while scrolling — sent/received view type never
-        // changes for a given recycled holder, only hasReply can flip).
+        // applyBubbleOwned()+setBackground() entirely when this holder's
+        // hasReply state hasn't changed since its last bind (the common
+        // case while scrolling — sent/received view type never changes for
+        // a given recycled holder, only hasReply can flip).
         int lastBubbleReplyState = -1;
+
+        // ULTRA PERF (bubble drawable): this holder's own private
+        // GradientDrawable, allocated ONCE here and never shared with any
+        // other View. Wires up ChatThemeManager.applyBubbleOwned() (which
+        // already existed but was never called from anywhere — the adapter
+        // was still going through the old applyBubble()+mutate() path,
+        // which allocates a brand-new GradientDrawable ConstantState copy
+        // on every single bubble's first bind after recycle — i.e. on
+        // every message visible the moment a chat screen opens). Because
+        // this instance belongs exclusively to this holder for its entire
+        // lifetime, rebinding it is just setColor()+setCornerRadii() on
+        // the existing object — zero allocation, on chat-open and on
+        // every scroll-triggered rebind alike.
+        final android.graphics.drawable.GradientDrawable ownedBubbleDrawable =
+                com.callx.app.utils.ChatThemeManager.newOwnedBubbleDrawable();
+
+        // ULTRA-OPT ("someone is replying to this" glow): same shared-vs-
+        // owned issue as the bubble background above. The old code called
+        // ContextCompat.getDrawable(ctx, R.drawable.bg_reply_target_highlight)
+        // fresh every single time isReplyTarget was true — a real inflate
+        // (new Drawable + its ConstantState) on every bind where the glow
+        // is active, unconditionally re-checked on every full bindMessage()
+        // call (every recycle), not just when the state actually flips.
+        // This holder now inflates the drawable ONCE, lazily (most holders
+        // never show this glow at all, since it only lights up for the one
+        // message currently being replied to — no reason to pay for it
+        // up front), and reuses that same instance for the rest of the
+        // holder's lifetime; the framework re-applies bounds automatically
+        // whenever setForeground() runs, so — unlike the bubble background
+        // — no per-View mutate() copy is needed here even though the
+        // Drawable itself is stateful, because it's never shared with any
+        // other View. A separate last-applied flag skips the setForeground()
+        // call entirely when the reply-target state hasn't changed since
+        // the previous bind, avoiding a redundant invalidate/draw pass on
+        // the (very common) case of no reply-target activity at all.
+        android.graphics.drawable.Drawable ownedReplyTargetDrawable;
+        int lastReplyTargetState = -1; // -1 unknown, 0 = off, 1 = on
 
         // ── ViewStub refs — each replaced in-place on first inflate ──────────
         // After inflate() the stub removes itself from the view tree;

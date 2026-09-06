@@ -1410,8 +1410,13 @@ public class GroupChatActivity extends AppCompatActivity
         // pressure, and down to a much more generous floor when it does.
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
             if (isFinishing() || isDestroyed()) return;
-            com.callx.app.repository.ChatRepository.getInstance(getApplicationContext())
-                    .pruneOldMessagesIfLowStorage(getApplicationContext(), groupId, 2000);
+            com.callx.app.repository.ChatRepository repo =
+                    com.callx.app.repository.ChatRepository.getInstance(getApplicationContext());
+            repo.pruneOldMessagesIfLowStorage(getApplicationContext(), groupId, 2000);
+            // ULTRA-OPT — same unconditional-but-generous hard cap as
+            // ChatActivity's twin call; see pruneOldMessagesIfOverHardCap's doc.
+            repo.pruneOldMessagesIfOverHardCap(groupId,
+                    com.callx.app.repository.ChatRepository.LOCAL_MESSAGE_HARD_CAP);
         }, 10_000L
         );
     }

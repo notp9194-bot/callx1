@@ -201,8 +201,30 @@ public class ChatMediaController {
     public ChatMediaController(AppCompatActivity activity, ChatActivityDelegate delegate) {
         this.activity = activity;
         this.delegate = delegate;
-        // Feature 2 & 6: start the upload queue (max 3 concurrent, network-aware)
-        uploadQueue = new MediaUploadQueue(activity);
+        // ULTRA-OPT: uploadQueue is NOT constructed here anymore — see
+        // getUploadQueue() below. It used to be `new MediaUploadQueue(activity)`
+        // unconditionally right here, which — every single chat open,
+        // whether or not the user ever attaches media — spun up a cached
+        // ExecutorService thread pool AND registered a real system
+        // ConnectivityManager.NetworkCallback (a Binder call into
+        // ConnectivityService). Both only actually matter once media is
+        // enqueued for upload; the large majority of chat opens are just
+        // reading/scrolling messages and never touch either.
+    }
+
+    /**
+     * ULTRA-OPT: lazily creates the upload queue on first real use (first
+     * enqueue() call from an actual attach-and-send) instead of paying for
+     * its thread pool + NetworkCallback registration on every chat open.
+     * Safe: every uploadQueue call site below is already reachable only
+     * from a genuine media-send action, never from setup/bind code.
+     */
+    private MediaUploadQueue getUploadQueue() {
+        if (uploadQueue == null) {
+            // Feature 2 & 6: start the upload queue (max 3 concurrent, network-aware)
+            uploadQueue = new MediaUploadQueue(activity);
+        }
+        return uploadQueue;
     }
 
     /**
@@ -216,6 +238,11 @@ public class ChatMediaController {
      * ChatActivity.onDestroy() for the missing call site fix. Also added:
      * shutting down mediaQueryExecutor here, which this method never did
      * even when eventually invoked.
+     *
+     * NOTE: uploadQueue is now lazy (see getUploadQueue()) — the null check
+     * here also covers the common case of a chat that was opened, read,
+     * and closed without ever sending media, where uploadQueue was never
+     * created at all and there's nothing to tear down.
      */
     public void destroy() {
         if (uploadQueue != null) uploadQueue.destroy();
@@ -1409,9 +1436,9 @@ public class ChatMediaController {
     private void startImageUpload(Uri uri, Message pending, boolean isHD) {
         // Feature 2 & 6: run through the queue (max-3-concurrent, network-aware)
         String msgId = pending.messageId != null ? pending.messageId : pending.id;
-        uploadQueue.enqueue(msgId, cancelledIds, () -> {
+        getUploadQueue().enqueue(msgId, cancelledIds, () -> {
             // Cancelled before the queue slot was free?
-            if (cancelledIds.contains(msgId)) { uploadQueue.markComplete(msgId); return; }
+            if (cancelledIds.contains(msgId)) { getUploadQueue().markComplete(msgId); return; }
             activity.runOnUiThread(() ->
                 doStartImageUpload(uri, pending, isHD)
             );
@@ -1651,7 +1678,7 @@ public class ChatMediaController {
         // PERF FIX: free this item's concurrency slot now that the real
         // compress+upload work is actually done (an optional voice-caption
         // follow-up below is a small separate upload, not gated by the queue).
-        uploadQueue.markComplete(id);
+        getUploadQueue().markComplete(id);
         if (delegate.getPagingAdapter() != null) delegate.getPagingAdapter().onMediaUploadFinished(id);
 
         // ── Feature: Voice Caption on Photo ──────────────────────────────
@@ -1699,7 +1726,7 @@ public class ChatMediaController {
         // PERF FIX: this — not the moment startImageUpload posted to the UI
         // thread — is the real end of this item's pipeline, so this is where
         // the queue's concurrency slot actually gets freed.
-        uploadQueue.markComplete(id);
+        getUploadQueue().markComplete(id);
         if (delegate.getPagingAdapter() != null) delegate.getPagingAdapter().onMediaUploadFinished(id);
         delegate.markMediaFailed(id);
         Toast.makeText(activity, err != null ? err : "Upload failed", Toast.LENGTH_LONG).show();
@@ -1784,8 +1811,8 @@ public class ChatMediaController {
     private void doStartVideoUpload(Uri uri, Message pending) {
         // Feature 2 & 6: run through the queue (max-3-concurrent, network-aware)
         String msgId = pending.messageId != null ? pending.messageId : pending.id;
-        uploadQueue.enqueue(msgId, cancelledIds, () -> {
-            if (cancelledIds.contains(msgId)) { uploadQueue.markComplete(msgId); return; }
+        getUploadQueue().enqueue(msgId, cancelledIds, () -> {
+            if (cancelledIds.contains(msgId)) { getUploadQueue().markComplete(msgId); return; }
             activity.runOnUiThread(() -> doStartVideoUploadWork(uri, pending));
         });
     }
@@ -1899,14 +1926,14 @@ public class ChatMediaController {
     private void finishVideoUploadSuccess(Message pending) {
         String id = pending.messageId != null ? pending.messageId : pending.id;
         // PERF FIX: real end of this item's pipeline — free its queue slot here.
-        uploadQueue.markComplete(id);
+        getUploadQueue().markComplete(id);
         if (delegate.getPagingAdapter() != null) delegate.getPagingAdapter().onMediaUploadFinished(id);
         delegate.finalizeMediaMessage(pending, "\uD83C\uDFAC Video");
     }
 
     private void finishVideoUploadFailure(Message pending, String err) {
         String id = pending.messageId != null ? pending.messageId : pending.id;
-        uploadQueue.markComplete(id);
+        getUploadQueue().markComplete(id);
         if (delegate.getPagingAdapter() != null) delegate.getPagingAdapter().onMediaUploadFinished(id);
         delegate.markMediaFailed(id);
         activity.runOnUiThread(() ->
@@ -2063,10 +2090,10 @@ public class ChatMediaController {
 
                     if ("video".equals(mt)) {
                         // Video upload through the queue
-                        uploadQueue.enqueue(perItemId, cancelledIds, () -> {
+                        getUploadQueue().enqueue(perItemId, cancelledIds, () -> {
                             if (cancelledIds.contains(perItemId)
                                     || cancelledIds.contains(groupId)) {
-                                uploadQueue.markComplete(perItemId);
+                                getUploadQueue().markComplete(perItemId);
                                 return;
                             }
 
@@ -2130,10 +2157,10 @@ public class ChatMediaController {
                         });
                     } else {
                         // Image upload through the queue
-                        uploadQueue.enqueue(perItemId, cancelledIds, () -> {
+                        getUploadQueue().enqueue(perItemId, cancelledIds, () -> {
                             if (cancelledIds.contains(perItemId)
                                     || cancelledIds.contains(groupId)) {
-                                uploadQueue.markComplete(perItemId);
+                                getUploadQueue().markComplete(perItemId);
                                 return;
                             }
                             activity.runOnUiThread(() -> {
@@ -2242,7 +2269,7 @@ public class ChatMediaController {
         // PERF FIX: this item's own compress+upload chain is truly done now —
         // free its slot in uploadQueue immediately rather than waiting for
         // the rest of the group (each grid item is queued individually).
-        uploadQueue.markComplete(perItemId);
+        getUploadQueue().markComplete(perItemId);
         // Persist latest mediaItemsJson so the bubble shows the real URL for
         // this cell while the remaining items are still in progress.
         String updatedJson = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(liveItems);
@@ -2266,7 +2293,7 @@ public class ChatMediaController {
      *  failed so the tap-to-retry affordance appears. */
     private void onGroupItemFailed(String perItemId, String groupId, List<Map<String, Object>> liveItems,
                                     AtomicInteger doneCount, int total, String caption) {
-        uploadQueue.markComplete(perItemId);
+        getUploadQueue().markComplete(perItemId);
         if (doneCount.incrementAndGet() >= total) {
             // Check if any items actually succeeded.
             boolean anySuccess = false;

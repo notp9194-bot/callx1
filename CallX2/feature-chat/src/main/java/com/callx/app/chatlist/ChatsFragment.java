@@ -125,6 +125,14 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     private ChildEventListener contactsListener;
     private DatabaseReference specialRequestsRef;
     private ValueEventListener specialRequestsListener;
+    // v387: true once loadContacts()/loadSpecialRequests() have been
+    // attached for this Fragment INSTANCE — see ensureLiveListenersAttached().
+    private boolean liveListenersAttached = false;
+    // v388: scroll-position preservation across View recreation — see
+    // onDestroyView()/restoreScrollPositionIfPending() doc.
+    private RecyclerView rvChats;
+    private int pendingScrollPosition = RecyclerView.NO_POSITION;
+    private int pendingScrollOffset = 0;
 
     // v94: pending delta accumulator for the debounce window. Written only on
     // the main thread (inside the Firebase child callbacks, which always fire
@@ -221,6 +229,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup parent, Bundle s) {
         View v = inflater.inflate(R.layout.fragment_chats, parent, false);
         RecyclerView rv  = v.findViewById(R.id.rv_chats);
+        rvChats = rv;
         emptyState       = v.findViewById(R.id.empty_state);
         searchEmptyState = v.findViewById(R.id.tv_chat_search_empty);
         etChatSearch     = v.findViewById(R.id.et_chat_search);
@@ -248,6 +257,26 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         ChatListLayoutManager llm = new ChatListLayoutManager(requireContext());
         llm.setInitialPrefetchItemCount(8);
         rv.setLayoutManager(llm);
+
+        // v388 WHATSAPP-LEVEL FIX (scroll position across View recreation):
+        // the RecyclerView/LayoutManager are genuinely destroyed and rebuilt
+        // every onCreateView (a real Android View, unlike `contacts` which is
+        // a Fragment-instance field) — so without this, every tab switch
+        // silently reset the chat list back to the TOP, even though the data
+        // itself repaints instantly (v386) and the listener never dropped
+        // (v387). WhatsApp keeps you exactly where you left the chat list
+        // when you switch tabs and come back. `scrollToPositionWithOffset()`
+        // queues a pending scroll that LinearLayoutManager applies on its
+        // next real layout pass, so calling it now — before the adapter has
+        // even been attached below — is the standard way to have it take
+        // effect once the (async, DiffUtil-driven) list actually lands.
+        // NOT YET VERIFIED ON A REAL DEVICE — the async submitList() timing
+        // interacting with a pending LayoutManager scroll request is the one
+        // part of this fix worth an explicit on-device check before trusting
+        // it fully.
+        if (pendingScrollPosition != RecyclerView.NO_POSITION) {
+            llm.scrollToPositionWithOffset(pendingScrollPosition, pendingScrollOffset);
+        }
 
         // v83: constructor no longer takes a list — submitList() is the write path
         adapter = new ChatListAdapter(this);
@@ -404,21 +433,70 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // real data (a few hundred ms later) replaces it via the normal
         // diffUpdateContacts() path exactly like a live/delta update would.
         if (contacts.isEmpty()) {
-            List<User> instant = ChatSnapshotCache.loadInstantSnapshot(requireContext());
-            if (!instant.isEmpty()) {
-                sortContactsList(instant, specialRequestUids);
-                diffUpdateContacts(instant);
-                showingInstantSnapshotOnly = true;
+            // v390 WHATSAPP-LEVEL FIX: check the requireActivity()-scoped
+            // ViewModel cache FIRST — see ChatListViewModel#cachedContacts
+            // doc for the full root-cause explanation. This is what
+            // actually fires when the Chats tab's Fragment INSTANCE itself
+            // was destroyed (2+ tabs away, per MainActivity's
+            // offscreenPageLimit(1)) and a brand-new ChatsFragment was just
+            // created — as opposed to the v386 warm-repaint case (Fragment
+            // instance survived, only its View got recreated), which is
+            // still handled entirely by the `else` branch below and never
+            // reaches here. Real in-memory User objects, so this is even
+            // cheaper than the SharedPreferences snapshot it takes priority
+            // over — no JSON parse, no disk I/O.
+            List<User> warmCache = viewModel != null ? viewModel.getCachedContacts() : null;
+            if (warmCache != null && !warmCache.isEmpty()) {
+                List<User> copy = new ArrayList<>(warmCache);
+                sortContactsList(copy, specialRequestUids);
+                diffUpdateContacts(copy);
+                showingInstantSnapshotOnly = false;
                 if (emptyState != null) emptyState.setVisibility(View.GONE);
+            } else {
+                List<User> instant = ChatSnapshotCache.loadInstantSnapshot(requireContext());
+                if (!instant.isEmpty()) {
+                    sortContactsList(instant, specialRequestUids);
+                    diffUpdateContacts(instant);
+                    showingInstantSnapshotOnly = true;
+                    if (emptyState != null) emptyState.setVisibility(View.GONE);
+                }
             }
+            // v15 FIX 1: Pehle Room se load karo (offline ke liye instant
+            // display) — only needed on a genuine cold view: the warm-repaint
+            // branch below already has the real data in `contacts`, and
+            // loadFromRoom()'s own callback no-ops in that case anyway (see
+            // its `contacts.isEmpty() || showingInstantSnapshotOnly` guard),
+            // so calling it there was a wasted Room query on every tab switch.
+            loadFromRoom();
+        } else {
+            // v386 WHATSAPP-LEVEL FIX (warm tab-switch repaint): `contacts`
+            // is a Fragment-instance field, not a View field — it survives
+            // onDestroyView/onCreateView when this Fragment's own instance
+            // is kept alive across a tab switch (ViewPager2 offscreenPageLimit
+            // window). The fresh `adapter` created a few lines above always
+            // started BLANK in that case: loadFromRoom()'s callback
+            // deliberately no-ops here (see its `contacts.isEmpty() ||
+            // showingInstantSnapshotOnly` guard — both false), and
+            // loadContacts()'s freshly-reattached ChildEventListener only
+            // fills the list back in once Firebase replays onChildAdded for
+            // the live window, which is neither instant nor free (real
+            // network wait). Net effect before this fix: every switch back
+            // to the Chats tab visibly flashed an empty list before
+            // refilling — a screen WhatsApp itself never blanks. Painting
+            // the already-known in-memory list on the new adapter right now
+            // is a synchronous submitList() over data already in RAM: zero
+            // disk read, zero network call, zero wait.
+            applyChatSearch();
+            if (emptyState != null) emptyState.setVisibility(View.GONE);
         }
 
-        // v15 FIX 1: Pehle Room se load karo (offline ke liye instant display)
-        loadFromRoom();
-
-        // Phir Firebase listener lagao (online sync + Room update)
-        loadContacts();
-        loadSpecialRequests();
+        // v387 WHATSAPP-LEVEL FIX (listener survives tab switches): Firebase
+        // listener attach/detach moved OUT of onCreateView/onDestroyView and
+        // into onCreate()/onDestroy() (see those overrides below) — WhatsApp
+        // never re-subscribes its chat-list sync just because you switched
+        // tabs and came back; only a genuine screen exit tears it down. See
+        // ensureLiveListenersAttached()'s doc for the full before/after.
+        ensureLiveListenersAttached();
         return v;
     }
 
@@ -1340,8 +1418,90 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         super.onPause();
     }
 
+    /**
+     * v387 WHATSAPP-LEVEL FIX: attach the Firebase chat-list listeners ONCE
+     * per Fragment instance, not once per View. Before this, loadContacts()/
+     * loadSpecialRequests() were called from onCreateView() and torn down in
+     * onDestroyView() — so any tab switch back to Chats (the common case:
+     * the Fragment instance itself survives inside ViewPager2's
+     * offscreenPageLimit window; only its View gets destroyed/recreated)
+     * paid for a full listener re-attach. Firebase replays onChildAdded for
+     * every row in the live-sync window on a fresh attach (see loadContacts()
+     * doc) — a real network round trip and a full delta-merge pass, just to
+     * re-arrive at data already sitting in `contacts`. WhatsApp's own sync
+     * layer stays subscribed for as long as the chat-list screen exists in
+     * the task, not just while its View happens to be on screen; this is
+     * that same behavior. Guarded by liveListenersAttached so it's a safe
+     * no-op if called more than once (onCreate() is the primary call site;
+     * onCreateView() also calls this as a safety net in case onCreate() ran
+     * before FirebaseAuth had a signed-in user yet).
+     */
+    private void ensureLiveListenersAttached() {
+        if (liveListenersAttached) return;
+        if (FirebaseAuth.getInstance().getCurrentUser() == null) return;
+        loadContacts();
+        loadSpecialRequests();
+        liveListenersAttached = true;
+    }
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        ensureLiveListenersAttached();
+    }
+
     @Override
     public void onDestroyView() {
+        // v388: capture the exact scroll position BEFORE the RecyclerView is
+        // torn down, so the next onCreateView (see the pendingScrollPosition
+        // block there) can restore it. Must happen first, before anything
+        // below touches rvChats.
+        if (rvChats != null && rvChats.getLayoutManager() instanceof LinearLayoutManager) {
+            LinearLayoutManager lm = (LinearLayoutManager) rvChats.getLayoutManager();
+            int firstPos = lm.findFirstVisibleItemPosition();
+            if (firstPos != RecyclerView.NO_POSITION) {
+                View firstChild = lm.findViewByPosition(firstPos);
+                pendingScrollPosition = firstPos;
+                pendingScrollOffset = firstChild != null ? firstChild.getTop() : 0;
+            }
+        }
+        rvChats = null;
+
+        // v387: Firebase listener detach + pending-delta cleanup MOVED to
+        // onDestroy() below — a tab switch only tears down the View, not
+        // this Fragment instance, so the live listener and any in-flight
+        // debounced delta need to keep running across it (see
+        // ensureLiveListenersAttached()'s doc). Killing them here on every
+        // single tab switch — the old behavior — is exactly what forced a
+        // full onChildAdded replay every time the user came back to Chats.
+        //
+        // v92: in case a loadMoreOlderContacts() request is still in flight when
+        // the view is torn down (its single-value callback bails out early via
+        // the getActivity()==null guard and never resets this) — don't leave
+        // pagination stuck "loading" forever if the fragment's view is recreated.
+        isLoadingMoreChats = false;
+        pbLoadingMoreChats = null;
+        if (pendingChatSearch != null) {
+            mainHandler.removeCallbacks(pendingChatSearch);
+            pendingChatSearch = null;
+        }
+        chatSearchIndex.clear();
+        // v95: stop background prewarm thread — any views already sitting in
+        // its queue are just plain Views with no listeners attached, safe to
+        // drop; the pool itself is thrown away, a fresh one won't be created
+        // until onCreateView runs again.
+        prewarmPool.stop();
+        contactSheetPool.stop();
+        super.onDestroyView();
+    }
+
+    @Override
+    public void onDestroy() {
+        // v387: this is the real "screen is gone" point now — Fragment
+        // instance itself is being destroyed (tab closed permanently, app
+        // task killed, etc.), not just its View. Live listeners and any
+        // pending debounced delta work are torn down here instead of
+        // onDestroyView() so a routine tab switch no longer pays this cost.
         if (contactsRef != null && contactsListener != null) {
             contactsRef.removeEventListener(contactsListener);
             contactsRef = null; contactsListener = null;
@@ -1350,32 +1510,14 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             specialRequestsRef.removeEventListener(specialRequestsListener);
             specialRequestsRef = null; specialRequestsListener = null;
         }
-        // v92: in case a loadMoreOlderContacts() request is still in flight when
-        // the view is torn down (its single-value callback bails out early via
-        // the getActivity()==null guard and never resets this) — don't leave
-        // pagination stuck "loading" forever if the fragment's view is recreated.
-        isLoadingMoreChats = false;
-        pbLoadingMoreChats = null;
-        // v93: cancel any debounced snapshot-processing work still pending.
         if (pendingContactsWork != null) {
             mainHandler.removeCallbacks(pendingContactsWork);
             pendingContactsWork = null;
         }
-        if (pendingChatSearch != null) {
-            mainHandler.removeCallbacks(pendingChatSearch);
-            pendingChatSearch = null;
-        }
-        chatSearchIndex.clear();
-        // v94: drop any not-yet-processed delta so a recreated view starts clean.
         pendingChildUpserts.clear();
         pendingChildRemovals.clear();
-        // v95: stop background prewarm thread — any views already sitting in
-        // its queue are just plain Views with no listeners attached, safe to
-        // drop; the pool itself is thrown away, a fresh one won't be created
-        // until onCreateView runs again.
-        prewarmPool.stop();
-        contactSheetPool.stop();
-        super.onDestroyView();
+        liveListenersAttached = false;
+        super.onDestroy();
     }
 
     private void sortByLatestMessage() {
@@ -1417,6 +1559,15 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         // (top 15 only). See ChatSnapshotCache class doc.
         if (!contacts.isEmpty() && getContext() != null) {
             ChatSnapshotCache.saveSnapshotAsync(getContext(), contacts);
+            // v390 WHATSAPP-LEVEL FIX: mirror into the activity-scoped
+            // ViewModel too — see ChatListViewModel#cachedContacts doc.
+            // Cheap (reference copy of a short-lived ArrayList), and it's
+            // what lets the NEXT ChatsFragment instance repaint instantly
+            // if this one gets destroyed outright by ViewPager2 rather than
+            // just having its View recreated.
+            if (viewModel != null) {
+                viewModel.setCachedContacts(new ArrayList<>(contacts));
+            }
         }
         // PERF MONITOR: no-op after the first call each load-cycle (guarded
         // internally via loadStartNanos == 0 check) — closes the load-time

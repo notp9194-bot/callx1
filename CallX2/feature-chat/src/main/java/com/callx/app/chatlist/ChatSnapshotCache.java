@@ -58,6 +58,27 @@ public final class ChatSnapshotCache {
     private ChatSnapshotCache() {}
 
     /**
+     * v392 WHATSAPP-LEVEL FIX — see MainActivity's splash
+     * setKeepOnScreenCondition() doc for the full explanation. A cheap,
+     * no-parse existence check (just the underlying SharedPreferences
+     * lookup, no JSONArray parsing) so the splash screen's
+     * setKeepOnScreenCondition callback — which Android polls once per
+     * frame until it returns false — can decide INSTANTLY whether
+     * ChatsFragment already has something real to paint, without waiting
+     * on AppDatabase's encrypted-DB warm-up at all in that case.
+     */
+    public static boolean hasSnapshot(Context ctx) {
+        try {
+            SharedPreferences prefs = ctx.getApplicationContext()
+                    .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            String json = prefs.getString(KEY_SNAPSHOT, null);
+            return json != null && !json.isEmpty();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
      * Synchronous, main-thread-safe read — SharedPreferences.getString() on
      * an already-small file is effectively instant (Android keeps the
      * XML/binary prefs file parsed in memory after the first access per

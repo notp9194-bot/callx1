@@ -1046,8 +1046,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // nahi karega.
         deferredTaskHandler.postDelayed(() -> {
             if (isFinishing() || isDestroyed()) return;
-            com.callx.app.repository.ChatRepository.getInstance(getApplicationContext())
-                    .pruneOldMessagesIfLowStorage(getApplicationContext(), chatId, 2000);
+            com.callx.app.repository.ChatRepository repo =
+                    com.callx.app.repository.ChatRepository.getInstance(getApplicationContext());
+            repo.pruneOldMessagesIfLowStorage(getApplicationContext(), chatId, 2000);
+            // ULTRA-OPT: unconditional (not storage-gated) but a much higher
+            // ceiling — see pruneOldMessagesIfOverHardCap's class doc. Keeps
+            // a runaway/very-old chat's local Room footprint bounded even on
+            // a device with plenty of free storage, without touching the
+            // vast majority of chats that never come close to the cap.
+            repo.pruneOldMessagesIfOverHardCap(chatId,
+                    com.callx.app.repository.ChatRepository.LOCAL_MESSAGE_HARD_CAP);
         }, 10_000L);
         deferredTaskHandler.postDelayed(() -> {
             if (isFinishing() || isDestroyed()) return;

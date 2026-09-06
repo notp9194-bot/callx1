@@ -65,6 +65,7 @@ import com.callx.app.feed.ReelChatDockedPlayer;
 import com.callx.app.feed.ReelDisplayModeListener;
 import com.callx.app.social.ReelDisplayModeBottomSheet;
 import com.callx.app.utils.ReelDisplayModePrefs;
+import com.callx.app.utils.OptionalPermissionPrefs;
 import androidx.annotation.OptIn;
 import androidx.media3.common.util.UnstableApi;
 import com.callx.app.audio.GlobalVoicePlaybackManager;
@@ -194,14 +195,28 @@ public class MainActivity extends AppCompatActivity
                 // instead — same total time, but felt like the app was
                 // slow/broken rather than "still launching".
                 //
-                // Fix: hold the splash icon on screen until AppDatabase
-                // signals it's genuinely open (AppDatabase.isDbWarmupComplete()),
-                // capped by SPLASH_MAX_HOLD_MS so a genuinely slow/cold
-                // device (or a warm-up that errors) can't hold the splash
-                // forever — it falls through to the old behavior (Chat
-                // List pays whatever's left of the cost itself) past the cap.
+                // v392 WHATSAPP-LEVEL FIX — this gate was written before
+                // ChatSnapshotCache's SharedPreferences instant snapshot
+                // (v210) existed, and never got revisited afterwards. Once
+                // v210 landed, "the user watched an empty Chat List" is no
+                // longer actually true for the common case (any user who's
+                // opened the app before): ChatsFragment can repaint a real
+                // chat list INSTANTLY from that plain-SharedPreferences
+                // snapshot regardless of whether the encrypted Room DB is
+                // warm yet. Holding the branded splash icon up to
+                // SPLASH_MAX_HOLD_MS in that case was pure redundant wait
+                // stacked on top of a problem v210 already solved — exactly
+                // the extra ~200ms-1.2s that still made cold start feel
+                // slower than WhatsApp even after v390/v391. Now: if a
+                // snapshot exists, dismiss the splash immediately and let
+                // ChatsFragment's own instant-snapshot path (already wired,
+                // see its onCreateView) take over the very next frame — the
+                // DB-warmup wait below is now reserved for the one case it's
+                // actually still needed: a genuinely first-ever open (no
+                // snapshot yet) where there'd otherwise be nothing to paint.
                 .setKeepOnScreenCondition(() ->
-                        !com.callx.app.db.AppDatabase.isDbWarmupComplete()
+                        !com.callx.app.chatlist.ChatSnapshotCache.hasSnapshot(this)
+                                && !com.callx.app.db.AppDatabase.isDbWarmupComplete()
                                 && (android.os.SystemClock.elapsedRealtime() - sProcessStartMs) < SPLASH_MAX_HOLD_MS);
 
         // MUST be called before super.onCreate / setContentView so the window
@@ -246,7 +261,19 @@ public class MainActivity extends AppCompatActivity
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        requestPermissions();
+        // v391 WHATSAPP-LEVEL FIX — moved off the critical cold-start path.
+        // See requestPermissions()'s own doc + OptionalPermissionPrefs for
+        // the full root-cause explanation: this used to run synchronously
+        // right here, and two of its three checks could launch a full
+        // system Settings screen on every cold start, hijacking the
+        // Activity before the Chats tab ever got to draw. The
+        // POST_NOTIFICATIONS dialog is cheap and harmless to keep eager
+        // (it's a lightweight system dialog, not a screen navigation), but
+        // the two Settings-redirect checks are now gated to ask once ever
+        // AND deferred with post() so they run after this frame is already
+        // queued to draw — never in front of it.
+        requestNotificationPermission();
+        binding.getRoot().post(this::requestOptionalSettingsPermissionsOnce);
 
         // ── Handle tap from system reel notification (Doze / killed state) ─────
         handleReelNotifIntent(getIntent());
@@ -796,23 +823,63 @@ public class MainActivity extends AppCompatActivity
         }
     }
 
-    private void requestPermissions() {
+    /**
+     * v391: split out of the old requestPermissions() — this half is a
+     * standard system permission dialog (lightweight overlay, not a screen
+     * navigation), so it's still fine to ask eagerly on every cold start
+     * where it isn't yet granted/denied. Kept as its own method so the
+     * (much heavier) Settings-redirect half below can be gated + deferred
+     * independently — see requestOptionalSettingsPermissionsOnce() doc.
+     */
+    private void requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
                     != PackageManager.PERMISSION_GRANTED)
                 ActivityCompat.requestPermissions(this,
                     new String[]{Manifest.permission.POST_NOTIFICATIONS}, 101);
         }
+    }
+
+    /**
+     * v391 WHATSAPP-LEVEL FIX — see OptionalPermissionPrefs's class doc for
+     * the full root-cause explanation of why this used to make cold starts
+     * feel "slow"/broken.
+     *
+     * Neither of these two permissions is needed for the Chats tab itself:
+     * overlay is only for the small-window/chat-heads feature (already
+     * requested contextually, right when actually needed, by
+     * PrivacyDirectDialog / SmallWindowManager / ChatActivity /
+     * NotificationActionReceiver); full-screen-intent only matters for the
+     * incoming-call UI on Android 14+. So instead of forcing a Settings
+     * screen in front of the user on every single cold start:
+     *
+     *  1. Each is asked at most ONCE EVER (OptionalPermissionPrefs — same
+     *     one-time-prompt idiom as ReelDisplayModePrefs.hasBeenAsked()). A
+     *     user who ignores or declines it isn't redirected again on their
+     *     next relaunch.
+     *  2. This whole method is only ever invoked via
+     *     binding.getRoot().post(...) from onCreate() — i.e. after the
+     *     current frame (the real Chats tab UI) is already queued to draw,
+     *     so even the one time this does redirect to Settings, it can
+     *     never again be the thing standing between a cold start and the
+     *     user's first real view of their chat list.
+     */
+    private void requestOptionalSettingsPermissionsOnce() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-                && !android.provider.Settings.canDrawOverlays(this)) {
+                && !android.provider.Settings.canDrawOverlays(this)
+                && !OptionalPermissionPrefs.hasAskedOverlay(this)) {
+            OptionalPermissionPrefs.markAskedOverlay(this);
             try { startActivity(new Intent(
                 android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 android.net.Uri.parse("package:" + getPackageName())));
             } catch (Exception ignored) {}
+            return; // don't stack a second Settings redirect on top of this one
         }
-        if (Build.VERSION.SDK_INT >= 34) {
+        if (Build.VERSION.SDK_INT >= 34
+                && !OptionalPermissionPrefs.hasAskedFullScreenIntent(this)) {
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm != null && !nm.canUseFullScreenIntent()) {
+                OptionalPermissionPrefs.markAskedFullScreenIntent(this);
                 try { startActivity(new Intent(
                     android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
                     android.net.Uri.parse("package:" + getPackageName())));

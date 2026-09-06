@@ -214,15 +214,31 @@ public class ChatSearchController {
         delegate.getIoExecutor().execute(() -> {
             AppDatabase db = delegate.getDb();
             if (db == null) return;
-            String pattern = buildLikePattern(query);
-            List<MessageEntity> hits = db.messageDao()
-                    .searchMessagesByText(delegate.getChatId(), pattern, MAX_RESULTS);
-            List<String> ids = new ArrayList<>(hits.size());
-            for (MessageEntity me : hits) ids.add(me.id);
+            List<String> ids;
+            // ULTRA-OPT: FTS4 index instead of a per-chat LIKE table scan —
+            // see AppDatabase#MIGRATION_59_60's doc. Wrapped in try/catch as
+            // a zero-risk fallback: if anything about the FTS path is ever
+            // unavailable (e.g. this exact moment during/just after the
+            // v60 migration on an existing install), search silently drops
+            // back to the old LIKE query instead of the user seeing a
+            // broken/empty search.
+            String ftsQuery = buildFtsQuery(query);
+            if (!ftsQuery.isEmpty()) {
+                try {
+                    ids = db.messageDao().searchMessageIdsFts(delegate.getChatId(), ftsQuery, MAX_RESULTS);
+                } catch (Exception e) {
+                    ids = legacyLikeSearch(db, query);
+                }
+            } else {
+                // Query was pure punctuation/whitespace after sanitizing —
+                // FTS MATCH can't run on it; LIKE still can.
+                ids = legacyLikeSearch(db, query);
+            }
+            final List<String> finalIds = ids;
             delegate.runOnMain(() -> {
                 if (!searchOpen || !query.equals(lastQuery)) return; // stale result, a newer query already superseded this one
                 matchIds.clear();
-                matchIds.addAll(ids);
+                matchIds.addAll(finalIds);
                 // Land on the most recent match first (closest to where the
                 // chat is usually scrolled to), same convention WhatsApp uses.
                 currentIndex = matchIds.isEmpty() ? -1 : matchIds.size() - 1;
@@ -232,6 +248,15 @@ public class ChatSearchController {
                 if (currentIndex >= 0) delegate.navigateToMessage(matchIds.get(currentIndex));
             });
         });
+    }
+
+    private List<String> legacyLikeSearch(AppDatabase db, String query) {
+        String pattern = buildLikePattern(query);
+        List<MessageEntity> hits = db.messageDao()
+                .searchMessagesByText(delegate.getChatId(), pattern, MAX_RESULTS);
+        List<String> ids = new ArrayList<>(hits.size());
+        for (MessageEntity me : hits) ids.add(me.id);
+        return ids;
     }
 
     /**
@@ -245,6 +270,37 @@ public class ChatSearchController {
                              .replace("%", "\\%")
                              .replace("_", "\\_");
         return "%" + escaped + "%";
+    }
+
+    /**
+     * ULTRA-OPT: builds an FTS4 MATCH expression from free-typed user input
+     * for {@link com.callx.app.db.dao.MessageDao#searchMessageIdsFts}.
+     *
+     * Each whitespace-separated token becomes a `term*` prefix match
+     * (space-separated terms are implicitly AND-ed by FTS4) — the closest
+     * FTS equivalent to the old LIKE '%...%' feel for "start typing a
+     * word" search, though (like Telegram/WhatsApp search) it matches
+     * whole-word prefixes, not an arbitrary substring in the middle of a
+     * word.
+     *
+     * Characters FTS4's own query-string parser treats specially
+     * (quotes, parens, +, -, :, *, ^) are stripped from each token first
+     * so user-typed punctuation can't accidentally form invalid or
+     * unintended MATCH syntax (e.g. a leading "-" would otherwise be
+     * parsed as a NOT operator). Returns "" if nothing usable remains
+     * (e.g. the query was pure punctuation) — callers should treat that
+     * as "can't run an FTS query for this input" and fall back.
+     */
+    private static String buildFtsQuery(String raw) {
+        String[] tokens = raw.trim().split("\\s+");
+        StringBuilder sb = new StringBuilder();
+        for (String t : tokens) {
+            String cleaned = t.replaceAll("[\"()+\\-:*^]", "");
+            if (cleaned.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(cleaned).append('*');
+        }
+        return sb.toString();
     }
 
     // ── Navigate ──────────────────────────────────────────────────────────

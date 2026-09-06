@@ -3,7 +3,6 @@ package com.callx.app.utils;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.drawable.GradientDrawable;
-import android.util.SparseArray;
 import android.view.View;
 
 /**
@@ -17,101 +16,96 @@ public class ChatThemeManager {
     // Kept for any lingering references — noop
     public static final int THEME_HYBRID = 0;
 
-    // Bubble drawable cache keyed by (sent<<1 | hasReply).
-    // 4 possible combos: sent+reply, sent+noReply, recv+reply, recv+noReply.
-    private final SparseArray<GradientDrawable> bubbleCache = new SparseArray<>(4);
+    // ULTRA PERF: corner-radius arrays for applyBubbleOwned(), computed once
+    // per density and reused forever. GradientDrawable#setCornerRadii()
+    // stores the array reference internally rather than cloning it, and we
+    // never mutate these arrays after building them, so sharing one instance
+    // across every bubble in the app (sent/received alike) is safe — unlike
+    // sharing the GradientDrawable itself, an immutable-in-practice float[]
+    // has no per-View state to corrupt.
+    private float[] sentRadii;
+    private float[] receivedRadii;
+    private float radiiDensity = -1f;
 
-    // BUG FIX: ChatThemeManager.instance is a static singleton that survives
-    // for the whole app process. bubbleCache used to only get cleared via an
-    // explicit setTheme()/clearBubbleCache() call — but nothing called that
-    // when the SYSTEM switched between light/dark mode. Result: once a bubble
-    // drawable was cached in (say) light mode, every bubble kept showing that
-    // same stale light-mode GradientDrawable forever, even after the screen
-    // itself (chat background, via resource-qualified surface_chat_bg) had
-    // correctly switched to dark. Text color isn't cached and DOES resolve
-    // fresh every bind, so the end result was correct dark-mode text sitting
-    // on a stale light-mode bubble — exactly the "white text invisible on
-    // white/green bubble" symptom. Tracking the last-seen night-mode flag and
-    // wiping the cache the moment it changes fixes both the bubble color and
-    // the text-contrast issue in one place.
-    private Boolean lastNightMode = null;
+    private void ensureRadii(Context ctx) {
+        float d = ctx.getResources().getDisplayMetrics().density;
+        if (sentRadii != null && radiiDensity == d) return;
+        radiiDensity = d;
+        float r = 18f * d;
+        float tail = 4f * d;
+        sentRadii = new float[]{r, r, r, r, tail, tail, r, r};
+        receivedRadii = new float[]{tail, tail, r, r, r, r, r, r};
+    }
 
     private ChatThemeManager(Context ctx) {}
 
     public static ChatThemeManager get(Context ctx) {
         if (instance == null) instance = new ChatThemeManager(ctx);
-        instance.invalidateIfNightModeChanged(ctx);
         return instance;
     }
 
-    private void invalidateIfNightModeChanged(Context ctx) {
-        boolean night = isDarkMode(ctx);
-        if (lastNightMode == null || lastNightMode != night) {
-            bubbleCache.clear();
-            lastNightMode = night;
-        }
-    }
-
     public int getCurrentTheme() { return THEME_HYBRID; }
-    public void setTheme(int id) { bubbleCache.clear(); }
-    public void clearBubbleCache() { bubbleCache.clear(); }
+    // Kept as no-ops for any lingering external callers — there is no
+    // shared bubble-drawable cache left to clear (see applyBubbleOwned()):
+    // every holder owns its own GradientDrawable and color is resolved
+    // fresh from resources on every apply, so light/dark switches and
+    // setTheme() calls are picked up automatically with nothing to
+    // invalidate.
+    public void setTheme(int id) { }
+    public void clearBubbleCache() { }
 
     /**
-     * PERF: build all 4 bubble-drawable combos (sent/received × reply/no-reply)
-     * up front, once, e.g. right after the chat's RecyclerView is created —
-     * instead of lazily on whichever bubble happens to bind first. Without
-     * this, the very first sent AND first received bubble each pay a
-     * GradientDrawable allocation the moment they scroll on screen; with a
-     * chat that opens already scrolled to the bottom (the common case) that
-     * lands right in the middle of the initial layout pass. Pre-warming
-     * moves that one-time cost to adapter setup, before the user sees
-     * anything, so first-frame bubble rendering is a pure cache hit.
+     * PERF: pre-compute the shared corner-radius arrays (see ensureRadii())
+     * up front, e.g. right after the chat's RecyclerView is created —
+     * instead of lazily on whichever bubble happens to bind first. The
+     * arrays themselves are cheap, but this keeps all one-time setup work
+     * grouped at adapter-setup time, before the user sees anything.
      */
     public void preWarm(Context ctx) {
-        for (int cacheKey = 0; cacheKey < 4; cacheKey++) {
-            boolean sent = (cacheKey & 1) != 0;
-            getOrCreateBubbleDrawable(ctx, cacheKey, sent);
+        ensureRadii(ctx);
+    }
+
+    /**
+     * ULTRA PERF: zero-allocation bubble apply for the adapter hot path.
+     *
+     * OLD PATH (removed): a shared cached GradientDrawable had to be
+     * mutate()'d on every fresh bind (every new/recycled ViewHolder's
+     * first bind, and any bind after a hasReply flip) — mutate() allocates
+     * a brand-new ConstantState-backed copy each time it's called, because
+     * the shared instance's bounds get overwritten by whichever bubble View
+     * laid out last (different messages have different bubble widths), so
+     * every View needed its own private copy. That meant every message
+     * visible the moment a chat screen opened paid a fresh allocation.
+     *
+     * This method sidesteps the problem instead of paying to work around
+     * it: each ViewHolder owns exactly one GradientDrawable for its entire
+     * lifetime (allocated once, in the adapter's ViewHolder constructor via
+     * newOwnedBubbleDrawable() — never touched again after that). Because
+     * that instance is never shared with any other View, its bounds are
+     * exclusively that row's to own — the only reason mutate() existed —
+     * so rebinding it (including the very first bind after every chat
+     * open) is just setColor()+setCornerRadii() on the existing object:
+     * no allocation, just an internal-state update + self-invalidate.
+     * setBackground() itself is only called the first time a given holder
+     * ever shows a bubble, or after it briefly held a bubbleless media
+     * background — never on a plain reply-state flip.
+     */
+    public void applyBubbleOwned(View bubbleView, GradientDrawable owned, boolean sent, boolean hasReply) {
+        if (bubbleView == null || owned == null) return;
+        ensureRadii(bubbleView.getContext());
+        int color = resolveColor(bubbleView.getContext(), sent
+                ? com.callx.app.core.R.color.bubble_sent
+                : com.callx.app.core.R.color.bubble_received);
+        owned.setColor(color);
+        owned.setCornerRadii(sent ? sentRadii : receivedRadii);
+        if (bubbleView.getBackground() != owned) {
+            bubbleView.setBackground(owned);
         }
     }
 
-    private GradientDrawable getOrCreateBubbleDrawable(Context ctx, int cacheKey, boolean sent) {
-        GradientDrawable gd = bubbleCache.get(cacheKey);
-        if (gd == null) {
-            float d = ctx.getResources().getDisplayMetrics().density;
-            float r = 18f * d;
-            float tail = 4f * d;
-
-            int color = resolveColor(ctx, sent
-                    ? com.callx.app.core.R.color.bubble_sent
-                    : com.callx.app.core.R.color.bubble_received);
-
-            gd = new GradientDrawable();
-            gd.setColor(color);
-
-            if (sent) {
-                gd.setCornerRadii(new float[]{r, r, r, r, tail, tail, r, r});
-            } else {
-                gd.setCornerRadii(new float[]{tail, tail, r, r, r, r, r, r});
-            }
-            bubbleCache.put(cacheKey, gd);
-        }
-        return gd;
-    }
-
-    /** Apply bubble background — cached per (sent, hasReply) combo to avoid GC pressure. */
-    public void applyBubble(View bubbleView, boolean sent, String msgType, boolean hasReply) {
-        if (bubbleView == null) return;
-
-        // Cache key: bit0 = sent, bit1 = hasReply  →  4 possible drawables total
-        int cacheKey = (sent ? 1 : 0) | (hasReply ? 2 : 0);
-        GradientDrawable gd = getOrCreateBubbleDrawable(bubbleView.getContext(), cacheKey, sent);
-
-        // PERF SAFETY: GradientDrawable is mutable — sharing the same instance
-        // across multiple Views means setColor()/setAlpha() on one bubble would
-        // visually affect every other bubble with the same cache key (same
-        // sent/hasReply combo). mutate() ensures each View owns an independent
-        // copy of the state while still reusing the pre-configured corner radii.
-        bubbleView.setBackground(gd.mutate());
+    /** Allocated once per ViewHolder, ever — call from the ViewHolder's constructor. */
+    public static GradientDrawable newOwnedBubbleDrawable() {
+        return new GradientDrawable();
     }
 
     /**

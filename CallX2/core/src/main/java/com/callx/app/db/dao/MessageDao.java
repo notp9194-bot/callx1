@@ -100,6 +100,35 @@ public interface MessageDao {
     List<MessageEntity> searchMessagesByText(String chatId, String pattern, int limit);
 
     /**
+     * ULTRA-OPT: FTS4-backed counterpart of {@link #searchMessagesByText}
+     * above — see AppDatabase#MIGRATION_59_60's doc for why `messages_fts`
+     * exists and how it's kept in sync (SQL triggers on the real `messages`
+     * table, not app code). Preferred entry point for
+     * ChatSearchController; the LIKE version above is kept only as a
+     * fallback / for any other existing caller.
+     *
+     * `ftsQuery` must already be built into valid FTS4 MATCH syntax by the
+     * caller (see ChatSearchController#buildFtsQuery) — this method does
+     * no escaping or token-splitting itself.
+     *
+     * @SkipQueryVerification: `messages_fts` has no corresponding Room
+     * @Entity (it's a hand-managed virtual table — see the migration doc),
+     * so Room's compile-time query checker doesn't know it exists and
+     * would otherwise fail the build with "no such table".
+     *
+     * Soft-deleted messages need no explicit filter here (unlike the LIKE
+     * version): softDelete() sets text='' via a plain UPDATE, the
+     * messages_fts_au trigger re-syncs that empty string into
+     * messages_fts, and an empty indexed document can never satisfy a
+     * MATCH on real search terms — it's self-filtering.
+     */
+    @WorkerThread
+    @androidx.room.SkipQueryVerification
+    @Query("SELECT id FROM messages_fts WHERE chatId = :chatId AND messages_fts MATCH :ftsQuery " +
+           "ORDER BY timestamp ASC LIMIT :limit")
+    List<String> searchMessageIdsFts(String chatId, String ftsQuery, int limit);
+
+    /**
      * PERF: used by LastMessagesCache priming — fetches just the most recent
      * `limit` rows but returns them ASC (oldest→newest), matching the order
      * Room/Paging/RecyclerView already use. Inner query does DESC+LIMIT
