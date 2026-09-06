@@ -87,6 +87,28 @@ public final class ChatMediaPreloader {
             int preloadWidth,
             int preloadHeight,
             @NonNull UrlProvider urlProvider) {
+        return attach(context, recyclerView, preloadWidth, preloadHeight, MAX_PRELOAD, urlProvider);
+    }
+
+    /**
+     * Full control overload — lets a fast-scrolling call site (e.g. a
+     * RecyclerView using FastFlingRecyclerView's boosted flings, which
+     * sustain a higher average speed for longer than a stock fling) ask for
+     * a bigger scroll-ahead window than MAX_PRELOAD without changing that
+     * shared default for every other caller of this helper. Glide's
+     * RecyclerViewPreloader takes maxPreload as a constructor argument with
+     * no setter, so this can't be adjusted live mid-glide the way the
+     * LayoutManager's pre-layout buffer can (see ChatActivity's
+     * calculateExtraLayoutSpace()) — it's a one-time, per-screen tuning
+     * knob, not a per-frame one.
+     */
+    public static RecyclerView.OnScrollListener attach(
+            @NonNull Context context,
+            @NonNull RecyclerView recyclerView,
+            int preloadWidth,
+            int preloadHeight,
+            int maxPreload,
+            @NonNull UrlProvider urlProvider) {
 
         // NOTE: Glide's recyclerview-integration artifact does NOT ship a
         // ready-made "FixedPreloadSizeProvider" class — only ViewPreloadSizeProvider
@@ -119,7 +141,7 @@ public final class ChatMediaPreloader {
                 };
 
         RecyclerViewPreloader<String> preloader = new RecyclerViewPreloader<>(
-                Glide.with(context), modelProvider, sizeProvider, MAX_PRELOAD);
+                Glide.with(context), modelProvider, sizeProvider, maxPreload);
 
         recyclerView.addOnScrollListener(preloader);
         return preloader;

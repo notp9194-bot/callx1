@@ -377,6 +377,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // rvMessages (ACTION_DOWN..ACTION_UP/CANCEL). Needed to gate the
     // fling-only hardware-layer toggle below — see that listener for why.
     private boolean isUserTouchOnMessages      = false;
+    // v2 FastFlingRecyclerView: true only while a real touch-released,
+    // velocity-boosted fling is still coasting (finger already lifted).
+    // Kept separate from isUserTouchOnMessages so handleLayerTypeStateChanged()
+    // can extend the hardware layer across the whole (now longer) boosted
+    // glide without re-opening the insert-driven-reveal flicker case that
+    // isUserTouchOnMessages was deliberately scoped to exclude.
+    private boolean isBoostedUserFlingActive   = false;
     // pendingNewMsgCount: count of messages from others that arrived while
     // user was scrolled up. Shown in the "↓ N new messages" indicator.
     private int     pendingNewMsgCount         = 0;
@@ -2467,14 +2474,26 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             protected void calculateExtraLayoutSpace(@NonNull RecyclerView.State state,
                                                      @NonNull int[] extraLayoutSpace) {
                 int screenHeight = getResources().getDisplayMetrics().heightPixels;
-                // Pre-layout 1.5× the screen height off both edges.
-                // At 1× a 60fps fling on a 6.7" display (~900px/frame) could
-                // exhaust the pre-laid buffer in ~1.1 frames — visible as a
-                // flash of blank rows at the leading edge of a fast fling.
-                // 1.5× adds a comfortable margin (≈1.7 frames of headroom)
-                // without the memory cost of a full 2× pre-layout.
-                // [0] = extra before first visible item, [1] = after last.
-                int extra = (int)(screenHeight * 1.5f);
+                // v3 ULTRA-ADVANCED: scale the buffer to how fast THIS glide
+                // actually is instead of a fixed 1.5x for every scroll.
+                // FastFlingRecyclerView's boosted flings sustain a higher
+                // average speed for longer than a stock fling would (that's
+                // the whole point of the feature), so a fixed buffer sized
+                // for the old profile can run dry mid-glide on a fast boosted
+                // fling — the exact "flash of blank rows" this buffer exists
+                // to prevent. Scaling 1.5x -> 2.2x as launch velocity
+                // approaches/exceeds REF_VELOCITY covers that, while a slow
+                // drag or gentle scroll (velocity 0) still only pays the
+                // original 1.5x cost — no wasted layout/memory on the common
+                // case, extra headroom only when a fast glide needs it.
+                float extraMultiplier = 1.5f;
+                if (binding.rvMessages instanceof com.callx.app.chat.performance.FastFlingRecyclerView) {
+                    int flingV = Math.abs(((com.callx.app.chat.performance.FastFlingRecyclerView)
+                            binding.rvMessages).getLastFlingVelocityY());
+                    float speedRatio = Math.min(1f, flingV / 6000f); // 6000 == FastFlingRecyclerView.REF_VELOCITY
+                    extraMultiplier = 1.5f + speedRatio * 0.7f; // up to 2.2x at/above ref speed
+                }
+                int extra = (int) (screenHeight * extraMultiplier);
                 extraLayoutSpace[0] = extra;
                 extraLayoutSpace[1] = extra;
             }
@@ -2487,6 +2506,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // them. Matches the gap visible on a fast fling on a 6.5" display.
         llm.setInitialPrefetchItemCount(8);
         binding.rvMessages.setLayoutManager(llm);
+        // v2 FastFlingRecyclerView: a real touch-released fling now glides
+        // noticeably further than a stock RecyclerView (see that class's
+        // javadoc), so the hardware-layer window opened below for real
+        // gestures needs to stay open for the whole boosted glide, not just
+        // until the finger lifts — otherwise the longer coast pays full
+        // per-frame bubble-canvas repaint cost with no layer, worse than
+        // before this feature existed. Only fires for genuine touch-released
+        // flings (never the programmatic new-message reveal scroll), so the
+        // deliberate anti-flicker exclusion in handleLayerTypeStateChanged()
+        // is untouched.
+        if (binding.rvMessages instanceof com.callx.app.chat.performance.FastFlingRecyclerView) {
+            ((com.callx.app.chat.performance.FastFlingRecyclerView) binding.rvMessages)
+                    .setOnUserFlingListener(boostedVelocityY -> isBoostedUserFlingActive = true);
+        }
         // PERF: build the 4 bubble-drawable combos now, before the first
         // layout pass — see ChatThemeManager.preWarm() for why.
         com.callx.app.utils.ChatThemeManager.get(this).preWarm(this);
@@ -2560,12 +2593,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         binding.rvMessages.post(() ->
                 pagingAdapter.warmUpRecycledViewPool(binding.rvMessages, pool, 6));
         // PERF: scroll-ahead image preloading — fast fling ke dauran agli
-        // ~8 items ki thumbnail Glide cache mein pehle se fetch ho jaati
+        // ~14 items ki thumbnail Glide cache mein pehle se fetch ho jaati
         // hai, taaki late-load blank image na dikhe. Size (200,200) wahi
         // hai jo bind() mein image/video thumbnail ke liye sabse pehle
         // load hoti hai — isliye preload aur actual load same cache-key
         // use karte hain (dobara download nahi hota).
-        com.callx.app.utils.ChatMediaPreloader.attach(this, binding.rvMessages, 200, 200,
+        // v3 ULTRA-ADVANCED: window bumped 8 -> 14 for this list specifically
+        // (via the new maxPreload overload) — FastFlingRecyclerView's
+        // boosted flings sustain higher average speed for longer, covering
+        // more items per second than the old ~8-item window was sized for.
+        // Kept scoped to rv_messages only, not the shared default, so
+        // slower Glide-preloading screens elsewhere don't pay extra
+        // bandwidth for a speed profile they don't have.
+        com.callx.app.utils.ChatMediaPreloader.attach(this, binding.rvMessages, 200, 200, 14,
                 position -> {
                     Message m = pagingAdapter.peek(position);
                     if (m == null || m.type == null) return null;
@@ -5805,12 +5845,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private void handleLayerTypeStateChanged(@NonNull RecyclerView rv, int newState) {
         if (newState == RecyclerView.SCROLL_STATE_IDLE) {
             rv.setLayerType(View.LAYER_TYPE_NONE, null);
-        } else if (isUserTouchOnMessages && rv.getLayerType() != View.LAYER_TYPE_HARDWARE) {
-            // Only a real finger-driven drag/fling earns the GPU layer.
-            // A settle that's purely programmatic (new-message reveal,
-            // or momentum continuing after finger-up) stays on
-            // LAYER_TYPE_NONE to avoid the mid-content-change rebuild
-            // flash described above.
+            isBoostedUserFlingActive = false;
+        } else if ((isUserTouchOnMessages || isBoostedUserFlingActive)
+                && rv.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+            // A real finger-driven drag/fling earns the GPU layer — now also
+            // for as long as a boosted FastFlingRecyclerView fling from that
+            // same gesture keeps coasting after finger-up (isBoostedUserFlingActive,
+            // set only by FastFlingRecyclerView.OnUserFlingListener). A settle
+            // that's purely programmatic (new-message reveal) never sets that
+            // flag, so it still stays on LAYER_TYPE_NONE to avoid the
+            // mid-content-change rebuild flash described above.
             rv.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         }
     }

@@ -28,7 +28,7 @@
         </com.facebook.shimmer.ShimmerFrameLayout>
 
         <!-- Messages list -->
-        <androidx.recyclerview.widget.RecyclerView
+        <com.callx.app.chat.performance.FastFlingRecyclerView
             android:id="@+id/rv_messages"
             android:layout_width="match_parent"
             android:layout_height="match_parent"

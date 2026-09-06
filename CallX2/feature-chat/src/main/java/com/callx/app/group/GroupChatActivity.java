@@ -1054,8 +1054,21 @@ public class GroupChatActivity extends AppCompatActivity
             protected void calculateExtraLayoutSpace(@NonNull RecyclerView.State state,
                                                      @NonNull int[] extraLayoutSpace) {
                 int screenHeight = getResources().getDisplayMetrics().heightPixels;
-                // 1.5× pre-layout in both directions for group chat.
-                int extra = (int) (screenHeight * 1.5f);
+                // v3 ULTRA-ADVANCED: same velocity-aware scaling as 1:1 chat's
+                // ChatActivity — see that class's calculateExtraLayoutSpace()
+                // doc. Group chat's rows are already taller on average (see
+                // note above), so a fast boosted fling races through the
+                // pre-laid area even quicker here; scaling 1.5x -> 2.2x by
+                // launch velocity keeps that headroom matched to the actual
+                // glide instead of a fixed constant.
+                float extraMultiplier = 1.5f;
+                if (binding.rvMessages instanceof com.callx.app.chat.performance.FastFlingRecyclerView) {
+                    int flingV = Math.abs(((com.callx.app.chat.performance.FastFlingRecyclerView)
+                            binding.rvMessages).getLastFlingVelocityY());
+                    float speedRatio = Math.min(1f, flingV / 6000f); // 6000 == FastFlingRecyclerView.REF_VELOCITY
+                    extraMultiplier = 1.5f + speedRatio * 0.7f; // up to 2.2x at/above ref speed
+                }
+                int extra = (int) (screenHeight * extraMultiplier);
                 extraLayoutSpace[0] = extra;
                 extraLayoutSpace[1] = extra;
             }
@@ -1093,7 +1106,11 @@ public class GroupChatActivity extends AppCompatActivity
         binding.rvMessages.setRecycledViewPool(groupPool);
         // PERF: scroll-ahead image preloading — same helper/size as 1:1
         // ChatActivity, keeps cache-key size consistent with bind().
-        com.callx.app.utils.ChatMediaPreloader.attach(this, binding.rvMessages, 200, 200,
+        // v3 ULTRA-ADVANCED: window bumped 8 -> 14, same reasoning as
+        // ChatActivity — see that call site's comment. Group chat's rows
+        // are taller on average, so the faster boosted glide races through
+        // this window even quicker than in 1:1 chat.
+        com.callx.app.utils.ChatMediaPreloader.attach(this, binding.rvMessages, 200, 200, 14,
                 position -> {
                     Message m = pagingAdapter.peek(position);
                     if (m == null || m.type == null) return null;
