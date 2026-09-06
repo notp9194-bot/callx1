@@ -225,11 +225,23 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // not just guarded against.
     private final Executor ioExecutor = ChatIoExecutor.get();
 
-    // PERF FIX (ultra-opt pass): dedicated single-thread executor for E2EE
-    // decrypt() calls off Firebase's main-thread ChildEventListener
-    // callbacks — see E2eeDecryptExecutor's class doc for why this is its
-    // own single thread rather than sharing ioExecutor above.
-    private final Executor e2eeDecryptExecutor = com.callx.app.utils.E2eeDecryptExecutor.get();
+    // PERF FIX (ultra-opt pass v2): E2eeDecryptExecutor is now sharded by
+    // partnerUid (see its class doc) instead of one global thread — every
+    // decrypt task queued from this Activity's listeners below is for THIS
+    // chat's partnerUid, so forPartner(partnerUid) pins them all to the one
+    // FIFO bucket that partner's ratchet requires, while chats open for
+    // OTHER partners (another ChatActivity, a SmallWindow overlay, an FCM
+    // background decrypt) run on a different bucket instead of queueing
+    // behind this one. Resolved lazily (not at field-init time) because
+    // partnerUid isn't known yet until onCreate()/intent extras are read.
+    private Executor e2eeDecryptExecutor;
+
+    private Executor e2eeDecryptExecutor() {
+        if (e2eeDecryptExecutor == null) {
+            e2eeDecryptExecutor = com.callx.app.utils.E2eeDecryptExecutor.forPartner(partnerUid);
+        }
+        return e2eeDecryptExecutor;
+    }
 
     // NOTE (history): this fix originally guarded against
     // ioExecutor.shutdown() racing a delayed post, which was the actual
@@ -3168,7 +3180,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // -thread-safe collections — see queueRoomWrite — plus
                 // presenceController/emojiBurstController) hops back via
                 // runOnUiThread() once decrypt is done.
-                e2eeDecryptExecutor.execute(() -> {
+                e2eeDecryptExecutor().execute(() -> {
                     decryptIncomingIfNeeded(m);
                     runOnUiThread(() -> {
                         saveToRoom(m, false);
@@ -3208,7 +3220,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 if (m == null) return;
                 m.id = snapshot.getKey();
                 // Same off-main-thread decrypt fix as onChildAdded above.
-                e2eeDecryptExecutor.execute(() -> {
+                e2eeDecryptExecutor().execute(() -> {
                     decryptIncomingIfNeeded(m);
                     runOnUiThread(() -> {
                         saveToRoom(m, true);
@@ -3300,7 +3312,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // messages, not a live in-order ratchet stream, but keeping it
                 // off the UI thread still matters for the same reason (disk
                 // I/O in EncryptedSharedPreferences).
-                e2eeDecryptExecutor.execute(() -> {
+                e2eeDecryptExecutor().execute(() -> {
                     decryptIncomingIfNeeded(m);
                     runOnUiThread(() -> {
                         queueRoomWrite(m);
@@ -3510,7 +3522,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 Message m = snapshot.getValue(Message.class);
                 if (m == null) continue;
                 m.id = snapshot.getKey();
-                e2eeDecryptExecutor.execute(() -> {
+                e2eeDecryptExecutor().execute(() -> {
                     decryptIncomingIfNeeded(m);
                     runOnUiThread(() -> {
                         saveToRoom(m, true);
@@ -3568,7 +3580,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // actually changed), so this must decrypt before it reaches
                 // saveToRoom()'s Room REPLACE or it'll clobber the already-
                 // decrypted plaintext row with raw "e2r1:" ciphertext.
-                e2eeDecryptExecutor.execute(() -> {
+                e2eeDecryptExecutor().execute(() -> {
                     decryptIncomingIfNeeded(m);
                     runOnUiThread(() -> {
                         saveToRoom(m, true);
@@ -5688,6 +5700,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private long stickyDateLastDayBucket = Long.MIN_VALUE;
     private String stickyDateLastLabel = null;
     private final java.util.Calendar stickyDateScratchCal = java.util.Calendar.getInstance(); // UI-thread only, reused to avoid per-call allocation
+    // v377 PERF: throttle for the hide-timer reset below — see
+    // handleStickyDateScrolled()'s doc for why this exists.
+    private long stickyDateLastHideResetAt = 0L;
+    private static final long STICKY_DATE_HIDE_RESET_THROTTLE_MS = 400L;
 
     private void setupStickyDateHeader() {
         if (binding.tvStickyDateHeader == null || pagingAdapter == null) return;
@@ -5713,6 +5729,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (dy == 0) return; // horizontal-only scroll (shouldn't happen here) — ignore
         updateStickyDateHeaderLabel();
         showStickyDateHeader();
+        // v377 PERF: onScrolled fires on every single frame during a fling
+        // (up to 60-120x/sec) — removeCallbacks()+postDelayed() is a Handler
+        // message-queue scan + insert each time, pure overhead when the
+        // 1200ms hide delay only ever needs frame-ISH precision, not
+        // frame-EXACT. Throttled to reset at most once per
+        // STICKY_DATE_HIDE_RESET_THROTTLE_MS: the chip still hides
+        // ~1200-1600ms after the true last scroll event (imperceptible vs.
+        // the old exact 1200ms), for roughly 1/25th the Handler churn
+        // during a sustained fling.
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - stickyDateLastHideResetAt < STICKY_DATE_HIDE_RESET_THROTTLE_MS) return;
+        stickyDateLastHideResetAt = now;
         binding.rvMessages.removeCallbacks(hideStickyDateHeaderRunnable);
         binding.rvMessages.postDelayed(hideStickyDateHeaderRunnable, STICKY_DATE_HIDE_DELAY_MS);
     }

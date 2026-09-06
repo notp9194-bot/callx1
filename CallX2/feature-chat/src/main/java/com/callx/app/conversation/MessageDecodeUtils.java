@@ -205,6 +205,89 @@ public final class MessageDecodeUtils {
     }
 
     /**
+     * ULTRA-OPT: byte[]-backed counterpart of {@link #decodeAsync(File, int,
+     * int, DecodeCallback)}, for data that's already in memory (e.g. an
+     * inline E2E thumbnail decrypted straight out of the message envelope,
+     * with no on-disk file at all) rather than sitting in a File. Same
+     * background-pool + in-codec/inSampleSize downsampling + main-thread
+     * callback contract — see that overload's doc for the full rationale.
+     *
+     * Added because {@code BitmapFactory.decodeByteArray(bytes, 0, len)}
+     * with no {@code Options} at all — the previous call site
+     * (MessagePagingAdapter's inline-thumbnail bind path) — ran a FULL,
+     * un-downsampled decode synchronously on the calling thread. For an
+     * inline thumb that's the main thread, inside onBindViewHolder, once per
+     * cache-miss bubble during scroll: exactly the class of jank this
+     * utility exists to avoid for File-based decodes, just via a different
+     * entry point.
+     *
+     * @param data    In-memory encoded image bytes (e.g. decrypted plaintext).
+     * @param targetW Maximum output width in pixels.
+     * @param targetH Maximum output height in pixels.
+     * @param callback Invoked on the main thread; {@code bitmap} is null on error.
+     */
+    public static void decodeAsync(byte[] data, int targetW, int targetH, DecodeCallback callback) {
+        if (data == null || data.length == 0 || targetW <= 0 || targetH <= 0) {
+            if (callback != null) sMain.post(() -> callback.onDecoded(null));
+            return;
+        }
+        sDecodePool.execute(() -> {
+            Bitmap result = null;
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    result = decodeWithImageDecoder(data, targetW, targetH);
+                }
+                if (result == null) {
+                    result = decodeWithBitmapFactory(data, targetW, targetH);
+                }
+            } catch (Exception ignored) {
+                result = null;
+            }
+            final Bitmap finalResult = result;
+            if (callback != null) sMain.post(() -> callback.onDecoded(finalResult));
+        });
+    }
+
+    // API 28+: ImageDecoder from an in-memory buffer — same in-codec
+    // downscaling benefit as the File overload above.
+    @android.annotation.TargetApi(Build.VERSION_CODES.P)
+    private static Bitmap decodeWithImageDecoder(byte[] data, int targetW, int targetH)
+            throws java.io.IOException {
+        android.graphics.ImageDecoder.Source src =
+                android.graphics.ImageDecoder.createSource(java.nio.ByteBuffer.wrap(data));
+        return android.graphics.ImageDecoder.decodeBitmap(src, (decoder, info, source) -> {
+            android.util.Size original = info.getSize();
+            int origW = original.getWidth();
+            int origH = original.getHeight();
+            if (origW > targetW || origH > targetH) {
+                float scale = Math.min((float) targetW / origW, (float) targetH / origH);
+                decoder.setTargetSize(
+                        Math.max(1, Math.round(origW * scale)),
+                        Math.max(1, Math.round(origH * scale)));
+            }
+            decoder.setAllocator(android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE);
+        });
+    }
+
+    // Pre-28 fallback: BitmapFactory + calculated inSampleSize, bounds-only
+    // pass first so the full-res buffer is never allocated just to measure it.
+    // No inBitmap pool reuse here (unlike the File overload): decodeByteArray's
+    // inBitmap reuse has stricter size/format matching on some OEM builds, and
+    // inline thumbnails are tiny (a few KB, one-shot) — not worth the risk for
+    // this call site.
+    private static Bitmap decodeWithBitmapFactory(byte[] data, int targetW, int targetH) {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(data, 0, data.length, bounds);
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
+
+        BitmapFactory.Options opts = new BitmapFactory.Options();
+        opts.inSampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, targetW, targetH);
+        opts.inPreferredConfig = Bitmap.Config.RGB_565; // half the memory of ARGB_8888 for opaque images
+        return BitmapFactory.decodeByteArray(data, 0, data.length, opts);
+    }
+
+    /**
      * Returns the largest power-of-2 inSampleSize such that the decoded image
      * is at least {@code targetW × targetH} pixels in both dimensions.
      */

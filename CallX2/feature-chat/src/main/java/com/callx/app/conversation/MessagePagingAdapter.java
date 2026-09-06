@@ -667,6 +667,62 @@ public class MessagePagingAdapter
         if (sSeenThumbPxH == 0) seenThumbPx(ctx);
         return sSeenThumbPxH;
     }
+    // PERF ADV: media-group grid cells (multi_media bubbles) decoded a
+    // hardcoded .override(240, 240) for EVERY cell regardless of the actual
+    // on-screen slot — same class of bug thumbPx()/gifStickerPx()/
+    // seenThumbPx() above already fixed for other bubble types, just not
+    // yet applied here. The grid's real per-cell size varies a lot by item
+    // count (see MediaGroupLayoutHelper / MessageBubbleCanvasView's GROUP_*
+    // dp constants):
+    //   - 2 items (pair)      → 118dp square
+    //   - 3 items             → top cell 240×140dp, bottom two 116dp square
+    //   - 4 items (2×2)       → 118dp square
+    //   - 5+ items (3×3 grid) → only 78dp square
+    // A flat 240px decode is ~2-3x oversized for the dense 3×3 case (78dp)
+    // — wasted native-heap memory and slower decode on every image in
+    // every dense grid — while under-sampling the bigger pair/3-item/2×2
+    // slots on high-density phones (blurrier than it should be).
+    // groupCellPx() computes the real px target per (total, index) — the
+    // 3-item layout is the one case where index matters, since its top
+    // cell isn't the same size as the two below it.
+    // NOTE: mirrors MessageBubbleCanvasView's package-private GROUP_PAIR_CELL /
+    // GROUP_THREE_TOP_W / GROUP_THREE_TOP_H / GROUP_THREE_BOT / GROUP_GRID2_CELL /
+    // GROUP_GRID3_CELL dp constants — duplicated here (same pattern as the
+    // SEEN_*_DP_MIRROR constants above) rather than widening their
+    // visibility just for this. Keep in sync if those layout constants change.
+    private static final float GROUP_PAIR_CELL_DP_MIRROR   = 118f;
+    private static final float GROUP_THREE_TOP_W_DP_MIRROR = 240f;
+    private static final float GROUP_THREE_TOP_H_DP_MIRROR = 140f;
+    private static final float GROUP_THREE_BOT_DP_MIRROR   = 116f;
+    private static final float GROUP_GRID2_CELL_DP_MIRROR  = 118f;
+    private static final float GROUP_GRID3_CELL_DP_MIRROR  = 78f;
+
+    /** Real px size for one media-group grid cell, given the group's total
+     *  item count and this cell's index. Same 15% headroom margin as
+     *  thumbPx()/gifStickerPx()/seenThumbPx() above, floored so a very
+     *  low-density device never decodes below a sane minimum. */
+    static int[] groupCellPx(android.content.Context ctx, int total, int index) {
+        float density = ctx.getResources().getDisplayMetrics().density;
+        float wDp, hDp;
+        if (total == 2) {
+            wDp = hDp = GROUP_PAIR_CELL_DP_MIRROR;
+        } else if (total == 3) {
+            if (index == 0) {
+                wDp = GROUP_THREE_TOP_W_DP_MIRROR;
+                hDp = GROUP_THREE_TOP_H_DP_MIRROR;
+            } else {
+                wDp = hDp = GROUP_THREE_BOT_DP_MIRROR;
+            }
+        } else if (total == 4) {
+            wDp = hDp = GROUP_GRID2_CELL_DP_MIRROR;
+        } else {
+            wDp = hDp = GROUP_GRID3_CELL_DP_MIRROR; // 5+ items → dense 3×3
+        }
+        int w = Math.max((int) (wDp * density * 1.15f), 60);
+        int h = Math.max((int) (hDp * density * 1.15f), 60);
+        return new int[]{w, h};
+    }
+
     private static void seenThumbPx(android.content.Context ctx) {
         float density = ctx.getResources().getDisplayMetrics().density;
         sSeenThumbPxW = Math.max((int) (SEEN_THUMB_W_DP_MIRROR * density * 1.15f), 100);
@@ -733,6 +789,167 @@ public class MessagePagingAdapter
             }
         });
         return null; // not known yet this frame — caller falls back to fullUrl
+    }
+
+    // PERF ADV (v375): the three media-key-envelope decrypt call sites below
+    // (image auto-download, video-thumb decrypt, audio warm-download) used
+    // to call MediaE2ECrypto.decrypt*() SYNCHRONOUSLY inline in
+    // bindCanvasMessage() — i.e. on the main thread, inside onBindViewHolder.
+    // On a cache miss that's a full Double-Ratchet decrypt; even on a cache
+    // HIT it's still a `synchronized(lockFor(partnerUid))` lock acquisition
+    // plus an EncryptedSharedPreferences (disk-backed, AES-encrypted) read —
+    // real disk I/O, on the main thread, once per visible image/video/audio
+    // bubble that hasn't been auto-downloaded yet. Same root cause class as
+    // the v150 fix for incoming message text.
+    // Routed onto E2eeDecryptExecutor rather than a fresh/shared generic pool
+    // deliberately: E2EEncryptionManager#decrypt() for a media-key envelope
+    // walks the exact same per-partner ratchet as message-text decrypt (same
+    // `decrypt(..., partnerUid, cacheKey)` method, same `lockFor(partnerUid)`
+    // lock). Before this fix, message-text decrypts ran on E2eeDecryptExecutor
+    // (v150) while these media-key decrypts ran on the main thread — two
+    // different threads racing to acquire the same per-partner lock, with no
+    // guarantee the ratchet advanced in wire order. Moving media-key decrypt
+    // onto the SAME dedicated FIFO bucket for that partner doesn't just get
+    // this work off the main thread, it also closes that pre-existing
+    // two-thread race.
+    // ULTRA-OPT (v2): E2eeDecryptExecutor.execute(Runnable) used to be one
+    // single global thread for every partner. All three call sites below
+    // pass `senderId` now — the message's sender is always the partner here
+    // (each call is guarded by `if (sent ...) return;` above, so this only
+    // ever runs for RECEIVED messages) — so each partner's media-key
+    // decrypts get their own FIFO bucket instead of queueing behind every
+    // other open/background conversation's decrypt work.
+    private static final android.os.Handler MEDIA_KEY_MAIN_HANDLER =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+
+    private interface FullKeyEnvelopeCallback {
+        void onResolved(byte[] key, byte[] digest);
+    }
+
+    /** Async counterpart of {@code MediaE2ECrypto.decryptEnvelopeForMessage()}
+     *  followed by {@code .fullKey()}/{@code .fullDigest}. `token` must be the
+     *  `h.canvasBindToken` snapshot taken at the top of bindCanvasMessage —
+     *  the callback is dropped (never touches `h`/`cv`) if the holder was
+     *  recycled or rebound to a different message before the decrypt lands. */
+    private void resolveFullMediaKeyAsync(Context ctx, Message m, boolean sent, VH h, int token,
+            FullKeyEnvelopeCallback cb) {
+        if (sent || m.mediaKeyEnc == null) { cb.onResolved(null, null); return; }
+        final String encKey = m.mediaKeyEnc;
+        final String senderId = m.senderId;
+        final String msgId = m.messageId != null ? m.messageId : m.id;
+        com.callx.app.utils.E2eeDecryptExecutor.execute(senderId, () -> {
+            com.callx.app.utils.MediaE2ECrypto.KeyEnvelope env =
+                    com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, encKey, senderId, msgId);
+            byte[] key = env != null ? env.fullKey() : null;
+            byte[] digest = env != null ? env.fullDigest : null;
+            MEDIA_KEY_MAIN_HANDLER.post(() -> {
+                if (h.canvasBindToken != token) return; // recycled/rebound meanwhile
+                cb.onResolved(key, digest);
+            });
+        });
+    }
+
+    /** Async counterpart of {@code MediaE2ECrypto.decryptThumbKeyOnly()}. */
+    private void resolveThumbMediaKeyAsync(Context ctx, Message m, boolean sent, VH h, int token,
+            java.util.function.Consumer<byte[]> cb) {
+        if (sent || m.mediaKeyEnc == null) { cb.accept(null); return; }
+        final String encKey = m.mediaKeyEnc;
+        final String senderId = m.senderId;
+        final String msgId = m.messageId != null ? m.messageId : m.id;
+        com.callx.app.utils.E2eeDecryptExecutor.execute(senderId, () -> {
+            byte[] key = com.callx.app.utils.MediaE2ECrypto.decryptThumbKeyOnly(ctx, encKey, senderId, msgId);
+            MEDIA_KEY_MAIN_HANDLER.post(() -> {
+                if (h.canvasBindToken != token) return;
+                cb.accept(key);
+            });
+        });
+    }
+
+    /** Async counterpart of {@code MediaE2ECrypto.decryptKeyOnly()}. */
+    private void resolveFullMediaKeyOnlyAsync(Context ctx, Message m, boolean sent, VH h, int token,
+            java.util.function.Consumer<byte[]> cb) {
+        if (sent || m.mediaKeyEnc == null) { cb.accept(null); return; }
+        final String encKey = m.mediaKeyEnc;
+        final String senderId = m.senderId;
+        final String msgId = m.messageId != null ? m.messageId : m.id;
+        com.callx.app.utils.E2eeDecryptExecutor.execute(senderId, () -> {
+            byte[] key = com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(ctx, encKey, senderId, msgId);
+            MEDIA_KEY_MAIN_HANDLER.post(() -> {
+                if (h.canvasBindToken != token) return;
+                cb.accept(key);
+            });
+        });
+    }
+
+    // PERF ADV: header-only (no pixel decode) aspect-ratio resolution for
+    // images with no known width/height metadata — see the call site in
+    // the isImage branch above for the full rationale. Same
+    // single-thread-executor + main-Handler + result-cache shape as
+    // LOCAL_AVAIL_EXECUTOR just above, kept as its own instance since it's
+    // a different, unrelated background task (image header parse vs. a
+    // file-existence check).
+    private static final java.util.concurrent.ConcurrentHashMap<String, Float> ASPECT_BOUNDS_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.ExecutorService ASPECT_BOUNDS_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+    private static final android.os.Handler ASPECT_BOUNDS_MAIN_HANDLER =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+
+    /**
+     * Resolves (or reuses a cached) aspect ratio for a locally-available
+     * image via a header-only dimension read, then applies it to `cv`
+     * early — well before the full Glide thumbnail decode would otherwise
+     * report it — so the bubble can relayout to its correct proportions
+     * immediately instead of sitting in the square placeholder until the
+     * full decode finishes. Never touches the main thread with disk I/O;
+     * `h`/`myToken` guard against the holder having been recycled/rebound
+     * to a different message while the read was in flight.
+     */
+    private void resolveAspectRatioEarly(Context ctx, Object loadSrc, String aspectKey,
+                                          com.callx.app.conversation.canvas.MessageBubbleCanvasView cv,
+                                          VH h, int myToken) {
+        if (loadSrc == null || aspectKey == null) return;
+        Float cachedBounds = ASPECT_BOUNDS_CACHE.get(aspectKey);
+        if (cachedBounds != null) {
+            cv.applyKnownAspectRatioEarly(aspectKey, cachedBounds);
+            return;
+        }
+        final Context appCtx = ctx.getApplicationContext();
+        ASPECT_BOUNDS_EXECUTOR.execute(() -> {
+            int[] wh = decodeBoundsOnly(appCtx, loadSrc);
+            if (wh == null || wh[0] <= 0 || wh[1] <= 0) return;
+            float ratio = (float) wh[0] / wh[1];
+            ASPECT_BOUNDS_CACHE.put(aspectKey, ratio);
+            ASPECT_BOUNDS_MAIN_HANDLER.post(() -> {
+                if (h.canvasBindToken != myToken) return;
+                cv.applyKnownAspectRatioEarly(aspectKey, ratio);
+            });
+        });
+    }
+
+    /** Reads only the image's dimension header (BitmapFactory.Options
+     *  .inJustDecodeBounds) — no pixel decode, no bitmap allocation.
+     *  Accepts a local File or a local (content://, file://) Uri; returns
+     *  null on any failure. Must be called off the main thread. */
+    private static int[] decodeBoundsOnly(Context appCtx, Object loadSrc) {
+        android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+        opts.inJustDecodeBounds = true;
+        try {
+            if (loadSrc instanceof java.io.File) {
+                android.graphics.BitmapFactory.decodeFile(((java.io.File) loadSrc).getAbsolutePath(), opts);
+            } else if (loadSrc instanceof android.net.Uri) {
+                try (java.io.InputStream is = appCtx.getContentResolver().openInputStream((android.net.Uri) loadSrc)) {
+                    if (is == null) return null;
+                    android.graphics.BitmapFactory.decodeStream(is, null, opts);
+                }
+            } else {
+                return null; // remote URL string — not worth a network fetch just for bounds
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+        if (opts.outWidth <= 0 || opts.outHeight <= 0) return null;
+        return new int[]{opts.outWidth, opts.outHeight};
     }
 
     /**
@@ -2677,6 +2894,7 @@ public class MessagePagingAdapter
                                     cv.setMediaDownloadGate(true, percent, null);
                                 }
                                 @Override public void onReady(java.io.File file) {
+                                    MediaDownloadQueue.getInstance(ctx).markComplete(vUrl2);
                                     downloadingMediaUrls.remove(vUrl2);
                                     if (h.canvasBindToken != myToken) return;
                                     cv.clearMediaDownloadGate();
@@ -2695,6 +2913,7 @@ public class MessagePagingAdapter
                                     });
                                 }
                                 @Override public void onError(String reason) {
+                                    MediaDownloadQueue.getInstance(ctx).markComplete(vUrl2);
                                     downloadingMediaUrls.remove(vUrl2);
                                     if (h.canvasBindToken != myToken) return;
                                     cv.setMediaDownloadGate(false, Integer.MIN_VALUE,
@@ -2794,6 +3013,7 @@ public class MessagePagingAdapter
                                 cv.setMediaDownloadGate(true, percent, null);
                             }
                             @Override public void onReady(java.io.File file) {
+                                MediaDownloadQueue.getInstance(ctx).markComplete(vDlUrl);
                                 downloadingMediaUrls.remove(vDlUrl);
                                 if (h.canvasBindToken != myToken) return;
                                 cv.clearMediaDownloadGate();
@@ -2811,6 +3031,7 @@ public class MessagePagingAdapter
                                 });
                             }
                             @Override public void onError(String reason) {
+                                MediaDownloadQueue.getInstance(ctx).markComplete(vDlUrl);
                                 downloadingMediaUrls.remove(vDlUrl);
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Tap to retry");
@@ -2913,8 +3134,9 @@ public class MessagePagingAdapter
                 int myToken = h.canvasBindToken;
                 if (!isMultiMedia || m.mediaItems == null) return;
                 int visible = Math.min(m.mediaItems.size(), 9);
+                final int totalForSize = m.mediaItems.size();
                 for (int i = 0; i < visible; i++) {
-                    downloadGroupCell(ctx, h, cv, myToken, m.mediaItems.get(i), i);
+                    downloadGroupCell(ctx, h, cv, myToken, m.mediaItems.get(i), i, totalForSize);
                 }
             }
 
@@ -2928,7 +3150,7 @@ public class MessagePagingAdapter
                 boolean isMultiMedia = "multi_media".equals(type);
                 int myToken = h.canvasBindToken;
                 if (!isMultiMedia || m.mediaItems == null || index < 0 || index >= m.mediaItems.size()) return;
-                downloadGroupCell(ctx, h, cv, myToken, m.mediaItems.get(index), index);
+                downloadGroupCell(ctx, h, cv, myToken, m.mediaItems.get(index), index, m.mediaItems.size());
             }
 
             @Override
@@ -3504,18 +3726,28 @@ public class MessagePagingAdapter
                     cellPending[i] = true; // has a thumb to show, but full-res still needs downloading
                 }
 
+                // PERF ADV: real per-cell px target instead of a flat 240×240
+                // — see groupCellPx() above. `total` (not `visible`) is the
+                // actual item count so a >9-item group still decodes at the
+                // true 3×3 78dp slot for its visible cells.
+                final int[] gcPx = groupCellPx(ctx, total, cellIndex);
+
                 if (cachedFile != null) {
                     // FIX: same flicker root cause as reel-share/seen-bubble —
                     // grid cells had zero cache check, so every rebind of a
                     // media-group row (scroll, or a new message elsewhere
                     // triggering a rebind of this visible row) blanked every
                     // cell in the grid for a frame before Glide redecoded it.
-                    String cellPoolKey = cachedFile.getAbsolutePath();
+                    // Pool key now carries the target px size (it varies by
+                    // cell now, not a constant 240×240) so the same file
+                    // reused across different grid slots/layouts can't hit a
+                    // wrong-size cached bitmap.
+                    String cellPoolKey = cachedFile.getAbsolutePath() + "@" + gcPx[0] + "x" + gcPx[1];
                     android.graphics.Bitmap cellHit = DECODED_BITMAP_CACHE.get(cellPoolKey);
                     if (cellHit != null && !cellHit.isRecycled()) {
                         cv.setMediaGroupBitmap(cellIndex, cellHit);
                     } else {
-                        glide(ctx).asBitmap().load(cachedFile).apply(THUMB_RGB565).override(240, 240)
+                        glide(ctx).asBitmap().load(cachedFile).apply(THUMB_RGB565).override(gcPx[0], gcPx[1])
                                 .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                                     @Override
                                     public void onResourceReady(@NonNull Bitmap resource,
@@ -3533,16 +3765,16 @@ public class MessagePagingAdapter
                     }
                 } else if (loadUrl != null && !loadUrl.isEmpty()) {
                     final String finalLoadUrl = loadUrl;
-                    android.graphics.Bitmap cellHit = DECODED_BITMAP_CACHE.get(poolKey(finalLoadUrl, 240, 240));
+                    android.graphics.Bitmap cellHit = DECODED_BITMAP_CACHE.get(poolKey(finalLoadUrl, gcPx[0], gcPx[1]));
                     if (cellHit != null && !cellHit.isRecycled()) {
                         cv.setMediaGroupBitmap(cellIndex, cellHit);
                     } else {
-                        glide(ctx).asBitmap().load(loadUrl).apply(THUMB_RGB565).override(240, 240)
+                        glide(ctx).asBitmap().load(loadUrl).apply(THUMB_RGB565).override(gcPx[0], gcPx[1])
                                 .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                                     @Override
                                     public void onResourceReady(@NonNull Bitmap resource,
                                             @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                        DECODED_BITMAP_CACHE.put(poolKey(finalLoadUrl, 240, 240), resource);
+                                        DECODED_BITMAP_CACHE.put(poolKey(finalLoadUrl, gcPx[0], gcPx[1]), resource);
                                         if (h.canvasBindToken != myToken) return;
                                         cv.setMediaGroupBitmap(cellIndex, resource);
                                     }
@@ -3657,6 +3889,24 @@ public class MessagePagingAdapter
                         dashboardRecordHit(ctx, poolKey);
                         cv.setMediaBitmap(poolHit);
                     } else {
+                    // PERF ADV: this image has no known width/height metadata
+                    // (legacy message, or resolution failed at send time) and
+                    // MEDIA_ASPECT_CACHE has nothing either (bindMedia() above
+                    // already checked both) — the bubble is currently showing
+                    // the square/4:3 placeholder and will only relayout once
+                    // the FULL Glide decode below (downsample + RGB565
+                    // convert) finishes. loadSrc is already a local File/Uri
+                    // here (sent, or received+cached), so a header-only
+                    // dimension read resolves in a fraction of that time —
+                    // fire it in parallel so the bubble can relayout to its
+                    // correct proportions well before the full bitmap is
+                    // ready, shrinking the visible square→real "pop" down to
+                    // roughly a header read instead of a full decode. No-op
+                    // (checked inside applyKnownAspectRatioEarly) if the ratio
+                    // becomes known some other way first.
+                    if (knownRatio <= 0f && (loadSrc instanceof java.io.File || loadSrc instanceof android.net.Uri)) {
+                        resolveAspectRatioEarly(ctx, loadSrc, fullUrl, cv, h, myToken);
+                    }
                     // PERF #4: use density-aware thumb size instead of hard-coded 480px
                     glide(ctx).asBitmap()
                             .load(loadSrc)
@@ -3743,8 +3993,9 @@ public class MessagePagingAdapter
                 final String iThumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
                         ? m.thumbnailUrl : null;
                 if (iInlineThumbPlain != null && iInlineThumbPlain.length > 0) {
-                    // Inline thumb: decode straight from the already-decrypted
-                    // in-memory bytes — instant, no MediaCache/network call at all.
+                    // Inline thumb: source bytes are already the decrypted
+                    // in-memory plaintext — no MediaCache/network call needed
+                    // either way.
                     final String iInlinePoolKey = "inline:" + (m.messageId != null ? m.messageId : m.id);
                     android.graphics.Bitmap iInlinePoolHit = DECODED_BITMAP_CACHE.get(iInlinePoolKey);
                     if (iInlinePoolHit != null && !iInlinePoolHit.isRecycled()) {
@@ -3754,17 +4005,34 @@ public class MessagePagingAdapter
                         }
                         cv.setMediaBitmap(iInlinePoolHit);
                     } else {
-                        android.graphics.Bitmap decoded = android.graphics.BitmapFactory
-                                .decodeByteArray(iInlineThumbPlain, 0, iInlineThumbPlain.length);
-                        if (decoded != null) {
-                            if (decoded.getHeight() > 0) {
-                                com.callx.app.conversation.canvas.MessageBubbleCanvasView.cacheAspectRatio(
-                                        iInlinePoolKey, (float) decoded.getWidth() / decoded.getHeight());
-                            }
-                            DECODED_BITMAP_CACHE.put(iInlinePoolKey, decoded);
-                            cv.setMediaBitmap(decoded);
-                        }
-                        // decode failure (corrupted/tampered inline thumb) — BlurHash placeholder stays up
+                        // ULTRA-OPT: this used to be a bare
+                        // BitmapFactory.decodeByteArray(bytes, 0, len) — no
+                        // Options, no inSampleSize — run SYNCHRONOUSLY right
+                        // here, i.e. on the main thread, inside
+                        // onBindViewHolder, on every cache-miss bubble during
+                        // a fling. Routed through MessageDecodeUtils' byte[]
+                        // overload instead: decodes on its background pool,
+                        // downsampled to thumbPx(ctx) (same target size the
+                        // Cloudinary-thumb/Glide branches below already use),
+                        // and only touches the main thread once, to hand back
+                        // the already-small result. h.canvasBindToken guards
+                        // against a holder that got recycled/rebound to a
+                        // different message while the decode was in flight —
+                        // same pattern as every other async load in this method.
+                        final int iInlineTargetPx = thumbPx(ctx);
+                        MessageDecodeUtils.decodeAsync(iInlineThumbPlain, iInlineTargetPx, iInlineTargetPx,
+                                decoded -> {
+                                    if (h.canvasBindToken != myToken) return; // recycled/rebound meanwhile
+                                    if (decoded != null) {
+                                        if (decoded.getHeight() > 0) {
+                                            com.callx.app.conversation.canvas.MessageBubbleCanvasView.cacheAspectRatio(
+                                                    iInlinePoolKey, (float) decoded.getWidth() / decoded.getHeight());
+                                        }
+                                        DECODED_BITMAP_CACHE.put(iInlinePoolKey, decoded);
+                                        cv.setMediaBitmap(decoded);
+                                    }
+                                    // decode failure (corrupted/tampered inline thumb) — BlurHash placeholder stays up
+                                });
                     }
                 } else if (iThumbUrl != null) {
                     final String iThumbPoolKey = iThumbUrl;
@@ -3857,26 +4125,16 @@ public class MessagePagingAdapter
                     downloadingMediaUrls.add(fullUrl);
                     cv.setMediaDownloadGate(true, 0, null);
                     final String capturedUrl = fullUrl;
-                    // Media E2E (image): resolve the AES key up front (cheap —
-                    // E2EEncryptionManager caches the ratchet-decrypt result per
-                    // message) so the auto-download below decrypts as it writes
-                    // to the disk cache. Null (and thus a no-op here) for a
-                    // received image that predates this feature, or any other
-                    // media type — MediaCache.getWithProgress falls back to its
-                    // old plaintext behavior when decryptKey is null.
-                    // Media E2E v2: resolve the full envelope once so we get
-                    // both the derived full-purpose key AND its ciphertext
-                    // digest (WhatsApp-style file-hash check — see
-                    // MediaE2ECrypto / MediaCache#getWithProgress). null env
-                    // fields (legacy v1 message, or no digest present) just
-                    // mean the digest check is skipped for this download.
-                    final com.callx.app.utils.MediaE2ECrypto.KeyEnvelope autoDlEnv =
-                            (!sent && m.mediaKeyEnc != null)
-                            ? com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, m.mediaKeyEnc,
-                                    m.senderId, m.messageId != null ? m.messageId : m.id)
-                            : null;
-                    final byte[] autoDlKey    = (autoDlEnv != null) ? autoDlEnv.fullKey() : null;
-                    final byte[] autoDlDigest = (autoDlEnv != null) ? autoDlEnv.fullDigest : null;
+                    // Media E2E v2 (v375: moved OFF the main thread — see
+                    // resolveFullMediaKeyAsync's javadoc). Resolves both the
+                    // derived full-purpose key AND its ciphertext digest
+                    // (WhatsApp-style file-hash check — see MediaE2ECrypto /
+                    // MediaCache#getWithProgress); null (either from a
+                    // pre-E2E legacy message or a plaintext/no-digest
+                    // envelope) just means MediaCache.getWithProgress falls
+                    // back to its old plaintext behavior / skips the digest
+                    // check, same as before.
+                    resolveFullMediaKeyAsync(ctx, m, sent, h, myToken, (autoDlKey, autoDlDigest) -> {
                     MediaDownloadQueue.getInstance(ctx).enqueue(capturedUrl, null, () -> {
                         com.callx.app.utils.MediaCache.getWithProgress(ctx, capturedUrl, autoDlKey, autoDlDigest,
                                 new com.callx.app.utils.MediaCache.ProgressCallback() {
@@ -3885,6 +4143,7 @@ public class MessagePagingAdapter
                                 cv.setMediaDownloadGate(true, percent, null);
                             }
                             @Override public void onReady(java.io.File file) {
+                                MediaDownloadQueue.getInstance(ctx).markComplete(capturedUrl);
                                 downloadingMediaUrls.remove(capturedUrl);
                                 if (h.canvasBindToken != myToken) return;
                                 cv.clearMediaDownloadGate();
@@ -3910,6 +4169,7 @@ public class MessagePagingAdapter
                                 }
                             }
                             @Override public void onError(String err) {
+                                MediaDownloadQueue.getInstance(ctx).markComplete(capturedUrl);
                                 downloadingMediaUrls.remove(capturedUrl);
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setMediaDownloadGate(false, Integer.MIN_VALUE,
@@ -3917,6 +4177,7 @@ public class MessagePagingAdapter
                             }
                         });
                     });
+                    }); // end resolveFullMediaKeyAsync
                 } else {
                     // Manual download: show size label on the idle pill.
                     cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Photo");
@@ -4125,11 +4386,6 @@ public class MessagePagingAdapter
             // Media E2E v2: video thumbnails are encrypted with the
             // thumb-purpose subkey (see MediaE2ECrypto.PURPOSE_THUMB) — use
             // the matching decrypt helper, not the full-purpose one.
-            final byte[] vThumbKey = (!sent && m.mediaKeyEnc != null)
-                    ? com.callx.app.utils.MediaE2ECrypto.decryptThumbKeyOnly(ctx, m.mediaKeyEnc,
-                            m.senderId, (m.messageId != null ? m.messageId : m.id))
-                    : null;
-
             if (vThumbUrl != null && !vThumbUrl.isEmpty()) {
                 // PERF #1: check decoded-Bitmap pool before Glide decode
                 final String vPoolKey = vThumbUrl;
@@ -4141,7 +4397,14 @@ public class MessagePagingAdapter
                     }
                     dashboardRecordHit(ctx, vPoolKey);
                     cv.setMediaBitmap(vPoolHit);
-                } else if (vThumbKey != null) {
+                } else {
+                // v375: thumb-key decrypt moved off the main thread (see
+                // resolveThumbMediaKeyAsync's javadoc) AND moved to only
+                // happen on this pool-MISS path — previously it ran
+                // unconditionally before the pool-hit check above, wasting a
+                // ratchet-cache lookup on every already-cached video thumb.
+                resolveThumbMediaKeyAsync(ctx, m, sent, h, myToken, vThumbKey -> {
+                if (vThumbKey != null) {
                     // Encrypted thumb — decrypt via MediaCache before handing to Glide.
                     final String vThumbUrlF = vThumbUrl;
                     com.callx.app.utils.MediaCache.get(ctx, vThumbUrl, vThumbKey,
@@ -4198,6 +4461,8 @@ public class MessagePagingAdapter
                                 cv.setMediaBitmap(null);
                             }
                         });
+                }
+                }); // end resolveThumbMediaKeyAsync
                 }
             }
 
@@ -4363,10 +4628,8 @@ public class MessagePagingAdapter
                 // file — voice notes are small, so the wait is
                 // negligible). See ChatMediaController#doUpload's audio
                 // branch / MediaE2ECrypto.
-                byte[] aWarmKey = (!sent && m.mediaKeyEnc != null)
-                        ? com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(ctx, m.mediaKeyEnc,
-                                m.senderId, (m.messageId != null ? m.messageId : m.id))
-                        : null;
+                // v375: moved off the main thread — see resolveFullMediaKeyOnlyAsync's javadoc.
+                resolveFullMediaKeyOnlyAsync(ctx, m, sent, h, myToken, aWarmKey -> {
                 if (aWarmKey != null) {
                     com.callx.app.utils.MediaCache.get(ctx, aUrl, aWarmKey,
                             new com.callx.app.utils.MediaCache.Callback() {
@@ -4381,6 +4644,7 @@ public class MessagePagingAdapter
                             @Override public void onProgress(int percent) {}
                         });
                 }
+                }); // end resolveFullMediaKeyOnlyAsync
             }
         } else if (isGif) {
             // ── v59: GIF Canvas bubble ────────────────────────────────────────
@@ -4813,7 +5077,7 @@ public class MessagePagingAdapter
      * full-res bitmap once ready.
      */
     private void downloadGroupCell(Context ctx, VH h, com.callx.app.conversation.canvas.MessageBubbleCanvasView cv,
-                                    int myToken, java.util.Map<String, Object> item, int index) {
+                                    int myToken, java.util.Map<String, Object> item, int index, int total) {
         Object mtObj = item.get("mediaType");
         String mediaType = mtObj instanceof String ? (String) mtObj : "image";
         if (!"image".equals(mediaType)) return; // video/audio/file cells never gate
@@ -4836,10 +5100,16 @@ public class MessagePagingAdapter
                     if (h.canvasBindToken == myToken) cv.setGroupCellProgress(index, percent);
                 }
                 @Override public void onReady(java.io.File file) {
+                    MediaDownloadQueue.getInstance(ctx).markComplete(url);
                     downloadingMediaUrls.remove(url);
                     CACHED_FILE_CHECK.put(url, file);
                     if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this started
-                    glide(ctx).asBitmap().load(file).apply(THUMB_RGB565).override(240, 240)
+                    // PERF ADV: real per-cell px target (see groupCellPx())
+                    // instead of a flat 240×240 — this is the "tap this one
+                    // cell's download badge" path, same grid the bulk-bind
+                    // loop above already sizes correctly.
+                    int[] gcPx = groupCellPx(ctx, total, index);
+                    glide(ctx).asBitmap().load(file).apply(THUMB_RGB565).override(gcPx[0], gcPx[1])
                             .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                                 @Override
                                 public void onResourceReady(@NonNull Bitmap resource,
@@ -4853,6 +5123,7 @@ public class MessagePagingAdapter
                             });
                 }
                 @Override public void onError(String reason) {
+                    MediaDownloadQueue.getInstance(ctx).markComplete(url);
                     downloadingMediaUrls.remove(url);
                     if (h.canvasBindToken != myToken) return;
                     cv.setGroupCellDownloading(index, false); // stays pending — tap the cell again to retry

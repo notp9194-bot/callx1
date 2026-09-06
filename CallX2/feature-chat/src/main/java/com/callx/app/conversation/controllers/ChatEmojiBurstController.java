@@ -4,7 +4,6 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.View;
 import android.view.animation.Interpolator;
 import android.view.animation.OvershootInterpolator;
 
@@ -140,7 +139,19 @@ public class ChatEmojiBurstController {
         @Override public void onAnimationEnd(Animator animation) {
             EmojiBurstCanvasView v = cachedView;
             if (v == null) return;
-            v.setVisibility(View.GONE);
+            // PERF: the hide animation already animates alpha to 0f, so the
+            // view is already visually gone — deliberately NOT calling
+            // setVisibility(GONE) here. A View transitioning to/from GONE
+            // requests a fresh measure+layout pass on its parent (a
+            // well-documented Android cost — INVISIBLE/alpha only repaints,
+            // GONE relayouts), so the previous version queued an extra
+            // Choreographer layout pass on every single burst hide, right
+            // when a burst is most likely to be overlapping active
+            // RecyclerView scroll/fling frames. Explicitly re-asserting
+            // alpha=0f here (rather than trusting the animator's last
+            // frame value) keeps this robust even if the animation was
+            // cancelled/interrupted right at its tail end.
+            v.setAlpha(0f);
             v.clearEmoji();
         }
     };
@@ -155,7 +166,12 @@ public class ChatEmojiBurstController {
         EmojiBurstCanvasView v = view();
         if (v != null) {
             v.animate().cancel();
-            v.setVisibility(View.GONE);
+            // PERF: alpha, not setVisibility(GONE) — see popOutListener's
+            // javadoc below for why. The view's resting state is
+            // visibility="visible" + alpha=0 (set in activity_chat.xml),
+            // so setting alpha back to 0 here fully restores that resting
+            // state without ever touching visibility.
+            v.setAlpha(0f);
             v.clearEmoji();
         }
     }
@@ -210,7 +226,11 @@ public class ChatEmojiBurstController {
         v.setAlpha(0f);
         v.setScaleX(0.35f);
         v.setScaleY(0.35f);
-        v.setVisibility(View.VISIBLE);
+        // PERF: no setVisibility(VISIBLE) call — the view is already
+        // visibility="visible" at rest (see activity_chat.xml), sitting
+        // fully transparent via alpha=0f above. Visibility never toggles
+        // for this view's whole lifetime now, so no burst ever queues the
+        // extra measure+layout pass a GONE<->VISIBLE transition would.
 
         v.animate()
                 .alpha(1f)

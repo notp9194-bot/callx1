@@ -7,9 +7,12 @@ import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
 import android.util.Log;
 
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 /**
  * MediaDownloadQueue — Receiver-side equivalent of MediaUploadQueue.
@@ -30,6 +33,13 @@ public class MediaDownloadQueue {
     private static final String TAG = "MediaDownloadQueue";
     private static final int DEFAULT_MAX_CONCURRENT = 3;
 
+    /** PERF FIX — same root cause as MediaUploadQueue: downloadTask kicks off
+     *  MediaCache.getWithProgress() and returns instantly (it dispatches to
+     *  its own internal pool), so the semaphore used to be released before
+     *  any bytes moved. Now held until markComplete(url) is called. See
+     *  MediaUploadQueue's javadoc for the full writeup. */
+    private static final long COMPLETION_TIMEOUT_MS = 3 * 60 * 1000L; // 3 min safety net
+
     // ── Singleton ─────────────────────────────────────────────────────────
     private static volatile MediaDownloadQueue sInstance;
 
@@ -49,6 +59,7 @@ public class MediaDownloadQueue {
     private volatile boolean paused = false;
     private final Object pauseLock = new Object();
     private final ExecutorService pool = Executors.newCachedThreadPool();
+    private final ConcurrentHashMap<String, CountDownLatch> inFlight = new ConcurrentHashMap<>();
     private final ConnectivityManager.NetworkCallback networkCallback;
     private final ConnectivityManager cm;
 
@@ -97,7 +108,13 @@ public class MediaDownloadQueue {
      *
      * @param url           The URL being downloaded — used as the cancel key.
      * @param cancelledUrls Thread-safe set; task is skipped if this URL is present.
-     * @param downloadTask  The actual download runnable (e.g. MediaCache.getWithProgress).
+     * @param downloadTask  Kicks off the download (e.g.
+     *                      MediaCache.getWithProgress) and returns — does
+     *                      NOT block until bytes finish arriving. The
+     *                      concurrency slot is held until the caller calls
+     *                      {@link #markComplete(String)} for this same url
+     *                      from onReady/onError (every exit path, exactly
+     *                      once).
      */
     public void enqueue(String url, java.util.Set<String> cancelledUrls, Runnable downloadTask) {
         pool.execute(() -> {
@@ -125,15 +142,35 @@ public class MediaDownloadQueue {
                 return;
             }
 
-            // ── 4. Final cancel check + run ────────────────────────────────
+            // ── 4. Final cancel check, then run + hold the slot until the
+            //      caller signals REAL completion (not just "task started") ──
+            CountDownLatch latch = new CountDownLatch(1);
+            inFlight.put(url, latch);
             try {
                 if (cancelledUrls == null || !cancelledUrls.contains(url)) {
                     downloadTask.run();
+                    boolean signalled = latch.await(COMPLETION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                    if (!signalled) {
+                        Log.w(TAG, "markComplete() never received for " + url
+                                + " within " + COMPLETION_TIMEOUT_MS + "ms — releasing slot anyway");
+                    }
                 }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             } finally {
+                inFlight.remove(url);
                 semaphore.release();
             }
         });
+    }
+
+    /** Signals url's download has truly finished — success or failure — so
+     *  this slot can go to the next queued download. Call from onReady AND
+     *  onError, never from downloadTask itself. Safe no-op for an unknown,
+     *  already-completed, or already-timed-out url. */
+    public void markComplete(String url) {
+        CountDownLatch latch = inFlight.get(url);
+        if (latch != null) latch.countDown();
     }
 
     /** Force-pause (e.g. called manually when going offline). */

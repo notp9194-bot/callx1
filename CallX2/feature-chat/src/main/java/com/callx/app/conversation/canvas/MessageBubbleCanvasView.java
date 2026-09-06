@@ -927,6 +927,42 @@ public class MessageBubbleCanvasView extends View {
     // measured this process.
     private static volatile int sLastKnownMaxTextWidth = -1;
 
+    static {
+        // v376 PERF: seed an estimate immediately at class-load time instead
+        // of waiting for the first real bubble to be measured. Without this,
+        // the very FIRST chat opened after a cold app start got zero benefit
+        // from the whole background-precompute machinery below: its initial
+        // page of messages finishes entityToModel() (where precompute runs,
+        // off the UI thread) before any MessageBubbleCanvasView has ever
+        // been measured, so every precompute call silently no-ops on
+        // sLastKnownMaxTextWidth still being -1 — and onMeasure() then
+        // builds every StaticLayout synchronously on exactly the screen
+        // where a smooth first impression matters most.
+        //
+        // Approximated from the real device screen width via
+        // Resources.getSystem() (same Context-free source sp2pxStatic()
+        // already uses) run through the IDENTICAL formula onMeasure() uses
+        // below (maxBubbleWidth = parentWidth * MAX_BUBBLE_WIDTH_FRACTION,
+        // minus H_PADDING_DP*density on each side). A chat RecyclerView row
+        // is essentially always full device width, so this matches the
+        // real onMeasure() call in the overwhelming majority of cases.
+        // When it doesn't (split-screen, a resized/rotated window before
+        // this chat's first bind, an unusual density bucket) the cache key
+        // simply won't match and onMeasure() falls back to a synchronous
+        // build exactly as it always has — worst case no speedup, never
+        // wrong content, same safety invariant documented on the cache
+        // itself just above.
+        try {
+            android.util.DisplayMetrics dm = android.content.res.Resources.getSystem().getDisplayMetrics();
+            int maxBubbleWidth = Math.round(dm.widthPixels * MAX_BUBBLE_WIDTH_FRACTION);
+            int hPad = Math.round(H_PADDING_DP * dm.density);
+            sLastKnownMaxTextWidth = Math.max(1, maxBubbleWidth - hPad * 2);
+        } catch (Exception ignored) {
+            // Leave at -1 — precompute simply stays disabled until the
+            // first real bind, exactly like before this fix.
+        }
+    }
+
     /**
      * Call off the UI thread — see the cache javadoc above. Safe to call
      * for every message unconditionally; it no-ops (and never throws
@@ -1413,6 +1449,32 @@ public class MessageBubbleCanvasView extends View {
             MEDIA_ASPECT_CACHE.put(key, ratio);
         }
     }
+
+    /**
+     * Applies an aspect ratio learned BEFORE the full bitmap is ready —
+     * e.g. from a cheap header-only (inJustDecodeBounds) dimension read
+     * that finishes well ahead of the full thumbnail decode (see
+     * MessagePagingAdapter#resolveAspectRatioEarly()). If this bind is
+     * still showing the unknown/0f placeholder AND aspectKey still
+     * matches what's currently bound here (guards against a rebind that
+     * happened while the read was in flight — same recycled-holder
+     * concern setMediaBitmap() already handles via canvasBindToken on the
+     * caller's side), relayouts the bubble to its correct proportions
+     * right away without touching mediaBitmap — the placeholder box
+     * itself just resizes. By the time the real bitmap arrives via
+     * setMediaBitmap(), mediaAspectRatio is already non-zero, so that
+     * call's own relayout check is skipped — net effect is ONE relayout
+     * that happens as soon as the header read finishes instead of
+     * waiting for the full decode, rather than a relayout on each.
+     */
+    public void applyKnownAspectRatioEarly(@Nullable String aspectKey, float ratio) {
+        if (ratio <= 0f || aspectKey == null || !aspectKey.equals(mediaAspectKey)) return;
+        if (mediaAspectRatio > 0f) return; // already known by some other path — nothing to do
+        mediaAspectRatio = ratio;
+        MEDIA_ASPECT_CACHE.put(aspectKey, ratio);
+        requestLayoutIfSizeChanged();
+        invalidate();
+    }
     // Cache key for the media currently bound to this view (mediaUrl for
     // images, video-thumbnail URL for videos) — set by bindMedia()/
     // bindVideo(), read by setMediaBitmap() to know where to store the
@@ -1439,6 +1501,15 @@ public class MessageBubbleCanvasView extends View {
     final RectF audioBtnRect = new RectF();
     final RectF audioWaveformRect = new RectF();
     final android.graphics.Path audioPlayTrianglePath = new android.graphics.Path();
+    // Reused int Rects for invalidateMediaDownloadRegion()/
+    // invalidateFileDownloadRegion()/invalidateGroupCellRegion() below —
+    // same pattern as audioDirtyRect/expiryDirtyRect (one reused Rect per
+    // call site so no per-tick allocation), now that onDraw's skipFullCache
+    // bypasses the outer full-bubble cache for the whole download instead
+    // of only its indeterminate opening (see PERF #5 comment in onDraw).
+    private final Rect mediaDownloadDirtyRect = new Rect();
+    private final Rect fileDownloadDirtyRect = new Rect();
+    private final Rect groupCellDirtyRect = new Rect();
     // Reused int Rect for invalidateAudioRow()/invalidateExpiryRegion() below
     // — dirty-region invalidate() needs an android.graphics.Rect (int), not
     // the RectF (float) types the rest of this view uses, and a fresh one
@@ -2807,6 +2878,78 @@ public class MessageBubbleCanvasView extends View {
         invalidate(audioDirtyRect);
     }
 
+    /**
+     * Dirty-region invalidate for a single-image/video download tick
+     * (progress %, spinner). Pairs with onDraw's mediaDownloadActive bypass
+     * of the outer full-bubble cache: since that bypass means
+     * drawMediaWithOptionalCache() draws fresh every call regardless of
+     * this Rect (it never depended on the full-bubble cache to begin
+     * with), this Rect only limits what the window/RecyclerView actually
+     * repaints on screen, not what gets computed — same trade as
+     * invalidateAudioRow(). Falls back to a full invalidate() before the
+     * first layout pass has run.
+     */
+    private void invalidateMediaDownloadRegion() {
+        if (mediaRect.isEmpty() && mediaGatePillRect.isEmpty()) {
+            invalidate();
+            return;
+        }
+        float pad = 6f * density; // covers the download ring's stroke + AA bleed
+        float left = mediaRect.left - pad;
+        float top = mediaRect.top - pad;
+        float right = mediaRect.right + pad;
+        float bottom = mediaRect.bottom + pad;
+        if (!mediaGatePillRect.isEmpty()) {
+            left = Math.min(left, mediaGatePillRect.left - pad);
+            top = Math.min(top, mediaGatePillRect.top - pad);
+            right = Math.max(right, mediaGatePillRect.right + pad);
+            bottom = Math.max(bottom, mediaGatePillRect.bottom + pad);
+        }
+        mediaDownloadDirtyRect.set((int) left, (int) top, (int) Math.ceil(right), (int) Math.ceil(bottom));
+        invalidate(mediaDownloadDirtyRect);
+    }
+
+    /**
+     * Dirty-region invalidate for a file-bubble download tick (action-icon
+     * swap, progress ring, percentage). Same pairing with onDraw's
+     * fileDownloadActive bypass as invalidateMediaDownloadRegion() above.
+     * Extends to the bubble's right inset (not just fileActionRect) since
+     * the size/mime meta-text redraws alongside the action button.
+     */
+    private void invalidateFileDownloadRegion() {
+        if (fileActionRect.isEmpty()) {
+            invalidate();
+            return;
+        }
+        float pad = 6f * density;
+        float left = fileActionRect.left - pad;
+        float top = fileActionRect.top - pad;
+        float right = bubbleRect.right + pad;
+        float bottom = fileActionRect.bottom + pad;
+        fileDownloadDirtyRect.set((int) left, (int) top, (int) Math.ceil(right), (int) Math.ceil(bottom));
+        invalidate(fileDownloadDirtyRect);
+    }
+
+    /**
+     * Dirty-region invalidate for one media-group cell's download tick.
+     * Same pairing with onDraw's groupDownloadActive bypass as the two
+     * helpers above, just scoped to a single cell's groupRects[index]
+     * instead of the whole media area, since sibling cells in the same
+     * grid aren't affected by this cell's progress changing.
+     */
+    private void invalidateGroupCellRegion(int index) {
+        if (index < 0 || index >= groupRects.length || groupRects[index] == null || groupRects[index].isEmpty()) {
+            invalidate();
+            return;
+        }
+        RectF cell = groupRects[index];
+        float pad = 6f * density;
+        groupCellDirtyRect.set(
+                (int) (cell.left - pad), (int) (cell.top - pad),
+                (int) Math.ceil(cell.right + pad), (int) Math.ceil(cell.bottom + pad));
+        invalidate(groupCellDirtyRect);
+    }
+
     // ── PERF: audio-waveform bar-height cache ───────────────────────────
     // generateAudioLevels() is deterministic (same seed → same bars), so a
     // voice-message bubble scrolled off-screen and back used to redo the
@@ -2874,7 +3017,11 @@ public class MessageBubbleCanvasView extends View {
         this.mediaDownloading = true;
         this.mediaDownloadProgress = progressPercent;
         this.staticPictureDirty = true;
-        invalidate();
+        // onDraw's mediaDownloadActive bypass keeps the outer full-bubble
+        // cache out of the picture for the whole download, so a dirty-rect
+        // invalidate here is safe: no stale-cache replay risk, just a
+        // smaller window repaint per tick instead of the whole bubble.
+        invalidateMediaDownloadRegion();
     }
 
     /** Dismisses the gate entirely — call once the real bitmap has been supplied via setMediaBitmap(). */
@@ -3422,7 +3569,18 @@ public class MessageBubbleCanvasView extends View {
         this.fileIsDownloading   = downloading;
         this.fileDownloadPercent = percent;
         staticPictureDirty = true;
-        invalidate();
+        if (downloading) {
+            // onDraw's fileDownloadActive bypass keeps the outer full-bubble
+            // cache out of the picture for as long as fileIsDownloading is
+            // true, so a dirty-rect invalidate is safe here — same reasoning
+            // as setMediaDownloadProgress() above.
+            invalidateFileDownloadRegion();
+        } else {
+            // Download just ended (or was cancelled): the next onDraw drops
+            // back into the outer full-bubble cache path, so force a fresh
+            // recording rather than risking a stale cache-hit replay.
+            invalidate();
+        }
     }
 
     /** Marks the file as cached (download complete). Redraws action button as ⬗. */
@@ -3671,15 +3829,20 @@ public class MessageBubbleCanvasView extends View {
         if (index < 0 || index >= groupCellDownloading.length) return;
         groupCellDownloading[index] = true;
         if (index < groupCellProgress.length) groupCellProgress[index] = percent;
-        // A determinate tick (percent >= 0) is drawn straight into the cache
-        // recording next time it's built (see MediaRenderer's identical
-        // comment) — mark dirty so that recording actually happens; an
-        // indeterminate tick (percent < 0) is handled live by
-        // drawIndeterminateSpinnersOnly() every frame without needing a
-        // fresh recording, but marking dirty here too is cheap and correct
-        // since a cell can flip from determinate back to indeterminate.
+        // A determinate tick (percent >= 0) is drawn straight into the inner
+        // cachedMediaPicture/cachedMediaRenderNode recording next time it's
+        // built (see MediaRenderer's identical comment) — mark dirty so that
+        // recording actually happens; an indeterminate tick (percent < 0) is
+        // handled live by drawIndeterminateSpinnersOnly() every frame without
+        // needing a fresh recording, but marking dirty here too is cheap and
+        // correct since a cell can flip from determinate back to indeterminate.
         staticPictureDirty = true;
-        invalidate();
+        // onDraw's groupDownloadActive bypass (hasActiveGroupCellDownload())
+        // now covers determinate ticks too, not just the indeterminate
+        // opening, so the OUTER full-bubble cache never re-records the whole
+        // bubble for this cell's progress — only this cell's small rect needs
+        // repainting on screen.
+        invalidateGroupCellRegion(index);
     }
 
     /** Call once a cell's manual download finishes and its full-res bitmap has
@@ -5275,6 +5438,27 @@ public class MessageBubbleCanvasView extends View {
         super.postInvalidateOnAnimation();
     }
 
+    /**
+     * True while at least one visible group-cell is actively downloading,
+     * indeterminate OR determinate. Counterpart to
+     * MediaGroupRenderer#hasActiveIndeterminateSpinner() (which only fires
+     * for prog &lt; 0) — this one also covers a real 0-100% value ticking,
+     * so onDraw() can bypass the outer full-bubble cache for the whole
+     * lifetime of a cell's download, not just its indeterminate opening.
+     */
+    private boolean hasActiveGroupCellDownload() {
+        if (groupGateActive) return false;
+        int last = groupVisibleCount - 1;
+        boolean lastIsOverlay = groupRemaining > 0;
+        for (int i = 0; i < groupVisibleCount; i++) {
+            if (lastIsOverlay && i == last) continue;
+            if (i >= groupCellPending.length || !groupCellPending[i]) continue;
+            if (i >= groupCellDownloading.length || !groupCellDownloading[i]) continue;
+            return true;
+        }
+        return false;
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
@@ -5285,17 +5469,30 @@ public class MessageBubbleCanvasView extends View {
         }
 
         // PERF #5: Full-bubble Picture cache.
-        // Bypass for animation cases that redraw every frame:
-        //   • indeterminate download/upload spinner — single media, media
-        //     group, or file bubble (each handled inside its own
-        //     drawXWithOptionalCache() via the nested cachedMediaPicture/
-        //     cachedMediaRenderNode; see those methods' javadocs)
+        // Bypass for animation/ticking cases that redraw on every progress
+        // event, not just every frame:
+        //   • ANY active download/upload — single media, media group, or
+        //     file bubble — whether the spinner is indeterminate (unknown
+        //     %, arc redrawn every frame) or determinate (a real 0-100%
+        //     value ticking a handful of times a second). Each is handled
+        //     inside its own drawXWithOptionalCache() via the nested
+        //     cachedMediaPicture/cachedMediaRenderNode (see those methods'
+        //     javadocs) — that inner cache/direct-draw already redraws only
+        //     the small media/file/cell region, not the whole bubble.
+        //     Previously only the indeterminate case bypassed the OUTER
+        //     full-bubble cache; a determinate tick (e.g. setGroupCellProgress()
+        //     firing every onProgress callback) still fell through to a full
+        //     Picture/RenderNode re-recording of the ENTIRE bubble — background,
+        //     text, footer, reactions, everything — on every single percentage
+        //     change. Folding determinate progress into this bypass means a
+        //     download tick now only ever re-draws its own small region.
         //   • audio waveform progress bar (~60fps redraws during playback)
-        boolean indeterminate =
-                (isMedia && mediaGated && mediaDownloading && mediaDownloadProgress < 0)
-                || (isMediaGroup && mediaGroupRenderer.hasActiveIndeterminateSpinner())
-                || (isFileBubble && fileIsDownloading && fileDownloadPercent < 0);
-        boolean skipFullCache = isAudio || indeterminate;
+        boolean mediaDownloadActive = isMedia && mediaGated && mediaDownloading;
+        boolean fileDownloadActive  = isFileBubble && fileIsDownloading;
+        boolean groupDownloadActive = isMediaGroup
+                && (mediaGroupRenderer.hasActiveIndeterminateSpinner() || hasActiveGroupCellDownload());
+        boolean downloadTicking = mediaDownloadActive || fileDownloadActive || groupDownloadActive;
+        boolean skipFullCache = isAudio || downloadTicking;
 
         int w = getWidth(), h = getHeight();
         if (!skipFullCache && w > 0 && h > 0) {

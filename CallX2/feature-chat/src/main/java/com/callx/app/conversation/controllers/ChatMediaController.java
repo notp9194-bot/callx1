@@ -1411,7 +1411,7 @@ public class ChatMediaController {
         String msgId = pending.messageId != null ? pending.messageId : pending.id;
         uploadQueue.enqueue(msgId, cancelledIds, () -> {
             // Cancelled before the queue slot was free?
-            if (cancelledIds.contains(msgId)) return;
+            if (cancelledIds.contains(msgId)) { uploadQueue.markComplete(msgId); return; }
             activity.runOnUiThread(() ->
                 doStartImageUpload(uri, pending, isHD)
             );
@@ -1648,6 +1648,10 @@ public class ChatMediaController {
 
     private void finishImageUploadSuccess(Message pending) {
         String id = pending.messageId != null ? pending.messageId : pending.id;
+        // PERF FIX: free this item's concurrency slot now that the real
+        // compress+upload work is actually done (an optional voice-caption
+        // follow-up below is a small separate upload, not gated by the queue).
+        uploadQueue.markComplete(id);
         if (delegate.getPagingAdapter() != null) delegate.getPagingAdapter().onMediaUploadFinished(id);
 
         // ── Feature: Voice Caption on Photo ──────────────────────────────
@@ -1692,6 +1696,10 @@ public class ChatMediaController {
 
     private void finishImageUploadFailure(Message pending, String err) {
         String id = pending.messageId != null ? pending.messageId : pending.id;
+        // PERF FIX: this — not the moment startImageUpload posted to the UI
+        // thread — is the real end of this item's pipeline, so this is where
+        // the queue's concurrency slot actually gets freed.
+        uploadQueue.markComplete(id);
         if (delegate.getPagingAdapter() != null) delegate.getPagingAdapter().onMediaUploadFinished(id);
         delegate.markMediaFailed(id);
         Toast.makeText(activity, err != null ? err : "Upload failed", Toast.LENGTH_LONG).show();
@@ -1777,7 +1785,7 @@ public class ChatMediaController {
         // Feature 2 & 6: run through the queue (max-3-concurrent, network-aware)
         String msgId = pending.messageId != null ? pending.messageId : pending.id;
         uploadQueue.enqueue(msgId, cancelledIds, () -> {
-            if (cancelledIds.contains(msgId)) return;
+            if (cancelledIds.contains(msgId)) { uploadQueue.markComplete(msgId); return; }
             activity.runOnUiThread(() -> doStartVideoUploadWork(uri, pending));
         });
     }
@@ -1890,12 +1898,15 @@ public class ChatMediaController {
 
     private void finishVideoUploadSuccess(Message pending) {
         String id = pending.messageId != null ? pending.messageId : pending.id;
+        // PERF FIX: real end of this item's pipeline — free its queue slot here.
+        uploadQueue.markComplete(id);
         if (delegate.getPagingAdapter() != null) delegate.getPagingAdapter().onMediaUploadFinished(id);
         delegate.finalizeMediaMessage(pending, "\uD83C\uDFAC Video");
     }
 
     private void finishVideoUploadFailure(Message pending, String err) {
         String id = pending.messageId != null ? pending.messageId : pending.id;
+        uploadQueue.markComplete(id);
         if (delegate.getPagingAdapter() != null) delegate.getPagingAdapter().onMediaUploadFinished(id);
         delegate.markMediaFailed(id);
         activity.runOnUiThread(() ->
@@ -2054,7 +2065,10 @@ public class ChatMediaController {
                         // Video upload through the queue
                         uploadQueue.enqueue(perItemId, cancelledIds, () -> {
                             if (cancelledIds.contains(perItemId)
-                                    || cancelledIds.contains(groupId)) return;
+                                    || cancelledIds.contains(groupId)) {
+                                uploadQueue.markComplete(perItemId);
+                                return;
+                            }
 
                             // Must compress + upload on a background thread (queue
                             // thread), but VideoCompressor / VideoUploader expect to be
@@ -2082,11 +2096,11 @@ public class ChatMediaController {
                                                         "duration", formatDuration(durMs));
                                                 if (w > 0) liveItems.get(itemIdx).put("width", w);
                                                 if (h > 0) liveItems.get(itemIdx).put("height", h);
-                                                onGroupItemUploaded(groupId, groupMsg,
+                                                onGroupItemUploaded(perItemId, groupId, groupMsg,
                                                         liveItems, doneCount, total, caption);
                                             }
                                             @Override public void onError(Exception e) {
-                                                onGroupItemFailed(groupId, liveItems, doneCount,
+                                                onGroupItemFailed(perItemId, groupId, liveItems, doneCount,
                                                         total, caption);
                                             }
                                         });
@@ -2102,11 +2116,11 @@ public class ChatMediaController {
                                                 if (cancelledIds.contains(groupId)) return;
                                                 liveItems.get(itemIdx).put("url", r.secureUrl);
                                                 liveItems.get(itemIdx).remove("uploading");
-                                                onGroupItemUploaded(groupId, groupMsg,
+                                                onGroupItemUploaded(perItemId, groupId, groupMsg,
                                                         liveItems, doneCount, total, caption);
                                             }
                                             @Override public void onError(String err) {
-                                                onGroupItemFailed(groupId, liveItems,
+                                                onGroupItemFailed(perItemId, groupId, liveItems,
                                                         doneCount, total, caption);
                                             }
                                         });
@@ -2118,7 +2132,10 @@ public class ChatMediaController {
                         // Image upload through the queue
                         uploadQueue.enqueue(perItemId, cancelledIds, () -> {
                             if (cancelledIds.contains(perItemId)
-                                    || cancelledIds.contains(groupId)) return;
+                                    || cancelledIds.contains(groupId)) {
+                                uploadQueue.markComplete(perItemId);
+                                return;
+                            }
                             activity.runOnUiThread(() -> {
                                 ImageCompressor.compress(activity, uri, hd,
                                         new ImageCompressor.Callback() {
@@ -2150,12 +2167,12 @@ public class ChatMediaController {
                                                             liveItems.get(itemIdx).put(
                                                                     "height", res.fullHeight);
                                                         }
-                                                        onGroupItemUploaded(groupId, groupMsg,
+                                                        onGroupItemUploaded(perItemId, groupId, groupMsg,
                                                                 liveItems, doneCount, total, caption);
                                                     }
                                                     @Override public void onError(String err) {
                                                         res.thumbFile.delete(); res.fullFile.delete();
-                                                        onGroupItemFailed(groupId, liveItems,
+                                                        onGroupItemFailed(perItemId, groupId, liveItems,
                                                                 doneCount, total, caption);
                                                     }
                                                 });
@@ -2173,12 +2190,12 @@ public class ChatMediaController {
                                                         if (cancelledIds.contains(groupId)) return;
                                                         liveItems.get(itemIdx).put("url", fr.secureUrl);
                                                         liveItems.get(itemIdx).remove("uploading");
-                                                        onGroupItemUploaded(groupId, groupMsg,
+                                                        onGroupItemUploaded(perItemId, groupId, groupMsg,
                                                                 liveItems, doneCount, total, caption);
                                                     }
                                                     @Override public void onError(String err2) {
                                                         res.thumbFile.delete(); res.fullFile.delete();
-                                                        onGroupItemFailed(groupId, liveItems,
+                                                        onGroupItemFailed(perItemId, groupId, liveItems,
                                                                 doneCount, total, caption);
                                                     }
                                                 });
@@ -2196,11 +2213,11 @@ public class ChatMediaController {
                                                 if (cancelledIds.contains(groupId)) return;
                                                 liveItems.get(itemIdx).put("url", r.secureUrl);
                                                 liveItems.get(itemIdx).remove("uploading");
-                                                onGroupItemUploaded(groupId, groupMsg,
+                                                onGroupItemUploaded(perItemId, groupId, groupMsg,
                                                         liveItems, doneCount, total, caption);
                                             }
                                             @Override public void onError(String err) {
-                                                onGroupItemFailed(groupId, liveItems,
+                                                onGroupItemFailed(perItemId, groupId, liveItems,
                                                         doneCount, total, caption);
                                             }
                                         });
@@ -2219,9 +2236,13 @@ public class ChatMediaController {
     /** Called on the main thread each time one item in a group-bubble batch
      *  finishes uploading. Updates Room so the bubble refreshes its grid, and
      *  finalizes the whole message to Firebase once every item is done. */
-    private void onGroupItemUploaded(String groupId, Message groupMsg,
+    private void onGroupItemUploaded(String perItemId, String groupId, Message groupMsg,
                                       List<Map<String, Object>> liveItems,
                                       AtomicInteger doneCount, int total, String caption) {
+        // PERF FIX: this item's own compress+upload chain is truly done now —
+        // free its slot in uploadQueue immediately rather than waiting for
+        // the rest of the group (each grid item is queued individually).
+        uploadQueue.markComplete(perItemId);
         // Persist latest mediaItemsJson so the bubble shows the real URL for
         // this cell while the remaining items are still in progress.
         String updatedJson = com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(liveItems);
@@ -2243,8 +2264,9 @@ public class ChatMediaController {
      *  completion; if all items are done (some may have succeeded), finalizes
      *  whatever was collected. If every single item failed, marks the bubble
      *  failed so the tap-to-retry affordance appears. */
-    private void onGroupItemFailed(String groupId, List<Map<String, Object>> liveItems,
+    private void onGroupItemFailed(String perItemId, String groupId, List<Map<String, Object>> liveItems,
                                     AtomicInteger doneCount, int total, String caption) {
+        uploadQueue.markComplete(perItemId);
         if (doneCount.incrementAndGet() >= total) {
             // Check if any items actually succeeded.
             boolean anySuccess = false;
@@ -3063,8 +3085,21 @@ public class ChatMediaController {
         root.setSystemGestureExclusionRects(java.util.Collections.singletonList(rect));
     }
 
+    // PERF ADV: this alpha blink runs INFINITE-repeat for the entire
+    // recording session, at the same time the waveform view is already
+    // repainting on every amplitude tick — without a hardware layer, every
+    // single blink frame re-runs a full software invalidate+draw of the dot
+    // ImageView (measure/draw dispatch down from its parent), competing with
+    // the waveform for the same frame budget. Same trick the send-in spring
+    // (playSendInAnimation) and the RecyclerView fling switch already use
+    // elsewhere in this app: cache the (tiny, 10dp) dot as a GPU texture for
+    // the animation's lifetime — once built, every alpha-only frame after
+    // that is a cheap composited blend of the cached texture, not a redraw —
+    // and release it back to LAYER_TYPE_NONE the instant the blink stops so
+    // an idle dot never keeps a GPU texture pinned for no reason.
     private void startDotBlink(View dot) {
         stopDotBlink();
+        dot.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         dotBlinkAnim = ObjectAnimator.ofFloat(dot, View.ALPHA, 1f, 0.25f);
         dotBlinkAnim.setDuration(600);
         dotBlinkAnim.setRepeatMode(ObjectAnimator.REVERSE);
@@ -3073,7 +3108,14 @@ public class ChatMediaController {
     }
 
     private void stopDotBlink() {
-        if (dotBlinkAnim != null) { dotBlinkAnim.cancel(); dotBlinkAnim = null; }
+        if (dotBlinkAnim != null) {
+            View dot = (View) dotBlinkAnim.getTarget();
+            dotBlinkAnim.cancel();
+            dotBlinkAnim = null;
+            if (dot != null && dot.getLayerType() != View.LAYER_TYPE_NONE) {
+                dot.setLayerType(View.LAYER_TYPE_NONE, null);
+            }
+        }
     }
 
     private static String formatTimer(long ms) {

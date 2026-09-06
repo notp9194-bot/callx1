@@ -362,14 +362,26 @@
              sibling of the RecyclerView means it never competes with the
              message list's own measure/layout/scroll passes — scrolling
              stays buttery smooth. Ignores touches so it never blocks the
-             chat list. ─ -->
+             chat list.
+             PERF: stays visibility="visible" + alpha="0" at rest, and
+             ChatEmojiBurstController never calls setVisibility()/GONE —
+             only animates alpha. Toggling a View to/from GONE requests a
+             fresh measure+layout pass on the parent (a well-known Android
+             cost, unlike INVISIBLE/alpha which only repaints), so the
+             previous gone/visible toggle queued an extra Choreographer
+             layout pass on every single burst show AND hide — competing
+             with RecyclerView scroll/fling frames for the same 16ms
+             budget, exactly the class of jank this view was built to
+             avoid. Alpha-only show/hide costs a GPU compositing pass, no
+             layout at all. ─ -->
         <com.callx.app.conversation.canvas.EmojiBurstCanvasView
             android:id="@+id/tv_emoji_burst"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:clickable="false"
             android:focusable="false"
-            android:visibility="gone"/>
+            android:visibility="visible"
+            android:alpha="0"/>
 
         <!-- New Messages floating indicator chip (WhatsApp style).
              Appears above the FAB when user is scrolled up and new messages arrive. -->

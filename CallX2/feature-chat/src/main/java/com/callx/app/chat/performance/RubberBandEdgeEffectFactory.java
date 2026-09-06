@@ -51,6 +51,17 @@ import androidx.recyclerview.widget.RecyclerView;
  * 5. Android 12+ (API 31) still defers entirely to the platform's own
  *    GPU-composited stretch EdgeEffect — cheapest possible correct
  *    behavior, this whole custom path only runs pre-S.
+ *
+ * ── v374 FIX ────────────────────────────────────────────────────────────
+ * 6. HARDWARE LAYER ON THE ABSORB-ONLY PATH TOO — a fast fling that reaches
+ *    the edge fires EdgeEffect.onAbsorb() directly, with no preceding
+ *    onPull(). That path called release() without ever calling
+ *    setHardwareLayer(true), so the spring-driven bounce-back (which can
+ *    run for hundreds of ms) redrew every visible bubble's canvas content
+ *    on every single frame with no layer — precisely the cost point 2/v241's
+ *    layer toggle exists to eliminate. release() now turns the layer on
+ *    itself, so both entry points (drag-then-release AND direct fling
+ *    absorb) get the same cheap texture-transform bounce.
  */
 public final class RubberBandEdgeEffectFactory extends RecyclerView.EdgeEffectFactory {
 
@@ -153,6 +164,14 @@ public final class RubberBandEdgeEffectFactory extends RecyclerView.EdgeEffectFa
         }
 
         void release(boolean isTop, float startVelocityPxPerSec) {
+            // v374: a fast fling can hit the edge and call onAbsorb() directly,
+            // with NO prior onPull() — in that path setHardwareLayer(true) was
+            // never called, so the whole spring settle (can run for hundreds of
+            // ms per the class javadoc) redrew every visible bubble's canvas
+            // content on every frame with no layer, exactly the cost v241's
+            // layer toggle exists to avoid. Ensuring it here covers both entry
+            // points (drag-then-release AND direct-fling-absorb) uniformly.
+            setHardwareLayer(true);
             if (isTop) rawTopPull = 0f;
             else rawBottomPull = 0f;
             spring.setStartVelocity(startVelocityPxPerSec);
