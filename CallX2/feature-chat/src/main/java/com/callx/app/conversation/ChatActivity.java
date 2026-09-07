@@ -905,25 +905,35 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         attachUnifiedMessagesScrollListener();
         setupNetworkMonitor();
 
-        // LastMessagesCache remains a warm-reopen metadata/cache source, but
-        // it is not submitted to this adapter. Room Paging is the single
-        // render source so opening a chat cannot create two list generations.
-        // LastMessagesCache is still maintained for warm reopen metadata, but
-        // it is intentionally NOT submitted to this adapter. Submitting cache
-        // first and Room Paging second creates two adapter generations and two
-        // RecyclerView layouts — the visible "list draws twice" pop on open.
-        // Room Paging is the single render source for this screen.
+        // WHATSAPP-LEVEL INSTANT REOPEN (root-cause fix — see
+        // seedInstantRenderFromCache() doc): the old approach here dropped
+        // the warm-cache submission entirely to dodge a duplicate-render
+        // flicker, which meant EVERY open — warm or cold — sat blank until
+        // the full onDbReady -> flush -> Room Paging3 chain finished, i.e.
+        // "warm reopen looks exactly like a cold load." That's the actual
+        // bug being fixed here.
+        //
+        // The real fix is to kill the flicker at its source instead of
+        // removing the fast path: build the cached seed with the SAME
+        // date-separator rows the real Paging3 pipeline inserts (see
+        // withDateSeparators()), so when Room's real page lands a moment
+        // later DiffUtil sees a structurally-identical list and no-ops —
+        // one render pass, not two. Room + Firebase remain the only
+        // sources of truth; this only ever paints what Room itself wrote
+        // into the cache last time this chat was open.
+        seedInstantRenderFromCache();
 
         // PERF FIX: don't flash shimmer for fast/cached loads — schedule it
         // 150ms out instead of showing it unconditionally right away. See
         // shimmerShowRunnable above. Cancelled in addLoadStateListener the
         // moment real data (cached or fresh) actually arrives. Skipped
         // entirely on a warm-cache hit — there's already content on screen.
-        // SKELETON REMOVED (by request): shimmer was still flashing on cold
-        // loads (first-ever open this session / no warm cache). Scheduling
-        // disabled entirely — cold loads now just show llEmptyChat-style
-        // blank until real data arrives, same as a warm-cache load.
-        // shimmerHandler.postDelayed(shimmerShowRunnable, SHIMMER_SHOW_DELAY_MS);
+        // Cold loads (first-ever open this session / no warm cache) still
+        // get the shimmer after the short delay below, instead of sitting
+        // on a bare llEmptyChat-style blank screen.
+        if (!LastMessagesCache.getInstance().has(chatId)) {
+            shimmerHandler.postDelayed(shimmerShowRunnable, SHIMMER_SHOW_DELAY_MS);
+        }
 
         // Firebase listener IMMEDIATELY lagao — DB ready hone se pehle bhi
         // messages queue mein buffer hote hain (pendingUpserts map mein).
@@ -2938,6 +2948,44 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         pagingMediator = new MediatorLiveData<>();
         pagingMediator.observe(this, pagingData -> pagingAdapter.submitData(getLifecycle(), pagingData));
         attachFreshBottomAnchoredPager();
+    }
+
+    /**
+     * WHATSAPP-LEVEL INSTANT REOPEN: paints whatever this chat's
+     * LastMessagesCache already has — zero I/O, purely in-memory, populated
+     * on a previous open or by onDbReady()'s background seed — into the
+     * adapter synchronously, in the same frame as setupPagingRecyclerView(),
+     * BEFORE the DB-ready/Firebase-flush/Room-Paging3 chain has even
+     * started. That chain still runs exactly as before and remains the only
+     * source of truth; this just gives the user something real to look at
+     * while it does, instead of a blank screen — the same trick WhatsApp
+     * uses (show the last-known state immediately, reconcile silently).
+     *
+     * This is submitted as a raw PagingData.from(list), completely outside
+     * pagingMediator — the mediator/real Pager doesn't exist yet at this
+     * point in onCreate() (it's built in observePagedMessages(), which only
+     * runs once onDbReady() fires). When the real Pager attaches later,
+     * pagingMediator's own submitData() call simply replaces this
+     * generation — PagingDataAdapter.submitData() is designed for exactly
+     * this "swap in a newer generation" flow (see StarredMessagesActivity
+     * for the same pattern), so no special teardown is needed here.
+     *
+     * FLICKER FIX (the actual reason this was ripped out before): the two
+     * generations must be structurally identical or DiffUtil sees the real
+     * page as full of "new" date-separator rows and visibly inserts them —
+     * bubbles shifting on screen right after open. withDateSeparators()
+     * mirrors attachPagerWithKey()'s own insertSeparators() transform
+     * exactly, so the cached seed and the real first page line up and the
+     * swap is a true no-op in the common case (nothing new arrived) or a
+     * clean top-of-list/bottom-of-list diff (new messages did arrive) —
+     * never a rebuild of the whole visible list.
+     */
+    private void seedInstantRenderFromCache() {
+        if (chatId == null || pagingAdapter == null) return;
+        if (!LastMessagesCache.getInstance().has(chatId)) return; // nothing to seed — cold open, no shortcut
+        java.util.List<Message> cached = LastMessagesCache.getInstance().get(chatId);
+        if (cached.isEmpty()) return;
+        pagingAdapter.submitData(getLifecycle(), PagingData.from(withDateSeparators(cached)));
     }
 
     /**
