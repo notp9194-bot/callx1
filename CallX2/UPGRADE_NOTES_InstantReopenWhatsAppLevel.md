@@ -55,3 +55,18 @@ called synchronously right after `setupPagingRecyclerView()` in
 No changes needed to `LastMessagesCache`, `MessagePagingAdapter`, Room DAOs,
 or the Firebase sync path — they already did the right background work,
 they just weren't being shown to the user.
+
+## Follow-up correctness fixes in the delivered archive
+
+- `LastMessagesCache` now normalizes the Firebase message key into both
+  `Message.id` and `Message.messageId`. Firebase child listeners commonly fill
+  only `id`, while the Paging adapter uses `messageId` for stable identity.
+  Without this normalization, a direct warm render could treat the same
+  message as an identity-less item and rebuild it when Room took over.
+- Local-first text and media sends now update the process and disk snapshots
+  immediately, before their asynchronous Room insert finishes. Success and
+  failure status transitions, including failed media uploads, update the same
+  warm entry. Group sends use the same path.
+
+These changes close the short process-death window after a send and keep the
+warm generation's item identity aligned with the Room-backed generation.

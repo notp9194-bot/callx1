@@ -2393,6 +2393,7 @@ public class GroupChatActivity extends AppCompatActivity
         String key = groupMessagesRef.push().getKey();
         if (key == null) return;
         m.id = key;
+        m.messageId = key;
 
         // Disappearing messages — ChatPrivacyManager se disappear timer check karo
         com.callx.app.utils.ChatPrivacyManager privMgr =
@@ -2405,6 +2406,7 @@ public class GroupChatActivity extends AppCompatActivity
         // Step 1: Room mein turant save karo status=pending
         MessageEntity pending = modelToEntity(m);
         pending.status = "pending";
+        updateWarmCache(m);
         ioExecutor.execute(() -> db.messageDao().insertMessage(pending));
 
         com.callx.app.sync.OfflineOutbox.enqueueSend(this, pending);
@@ -2431,12 +2433,16 @@ public class GroupChatActivity extends AppCompatActivity
                 ioExecutor.execute(() -> {
                     db.messageDao().updateStatus(key, "sent");
                     db.outboxOperationDao().delete("send:" + groupId + ":" + key);
+                    m.status = "sent";
+                    updateWarmCache(m);
                 }))
             .addOnFailureListener(e -> {
                 ioExecutor.execute(() -> {
                     db.messageDao().updateStatus(key, "failed");
                     com.callx.app.sync.OfflineOutbox.enqueueSend(
                             this, db.messageDao().getMessageById(key));
+                    m.status = "failed";
+                    updateWarmCache(m);
                 });
             });
 
@@ -2458,6 +2464,20 @@ public class GroupChatActivity extends AppCompatActivity
 
         PushNotify.notifyGroupMessage(groupId, currentUid, currentName,
                 groupName, key, preview, m.type != null ? m.type : "text");
+    }
+
+    /**
+     * Keep local sends visible in the same warm snapshot as Firebase-driven
+     * messages. The Room insert is asynchronous, so relying only on
+     * persistLastMessagesSnapshotFromRoom() leaves a short process-death
+     * window where the just-sent bubble disappears on the next open.
+     */
+    private void updateWarmCache(Message m) {
+        if (m == null || m.id == null) return;
+        LastMessagesCache cache = LastMessagesCache.getInstance();
+        cache.upsert(groupId, m);
+        LastMessagesDiskCache.saveAsync(
+                this, currentUid, groupId, cache.get(groupId));
     }
 
     // v17: Send button offline hone par disable

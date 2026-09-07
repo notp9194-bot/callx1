@@ -70,7 +70,15 @@ public final class LastMessagesCache {
     public synchronized List<Message> get(@Nullable String chatId) {
         if (chatId == null) return new ArrayList<>();
         List<Message> list = cache.get(chatId);
-        return list == null ? new ArrayList<>() : new ArrayList<>(list);
+        if (list == null) return new ArrayList<>();
+        // Firebase listeners populate this cache before the Room mapper runs.
+        // Those objects have `id` filled from the snapshot key, but often do
+        // not have Message.messageId populated. PagingData.from() is allowed
+        // to render this list directly, and MessagePagingAdapter uses
+        // messageId as its stable identity. Normalize here so the warm frame
+        // and the first Room generation have exactly the same item identity.
+        for (Message m : list) normalizeIdentity(m);
+        return new ArrayList<>(list);
     }
 
     /**
@@ -82,6 +90,7 @@ public final class LastMessagesCache {
     public synchronized void seed(@Nullable String chatId, @Nullable List<Message> latestAsc) {
         if (chatId == null || latestAsc == null) return;
         List<Message> trimmed = new ArrayList<>(latestAsc);
+        for (Message m : trimmed) normalizeIdentity(m);
         if (trimmed.size() > MAX_PER_CHAT) {
             trimmed = new ArrayList<>(trimmed.subList(trimmed.size() - MAX_PER_CHAT, trimmed.size()));
         }
@@ -95,6 +104,7 @@ public final class LastMessagesCache {
      */
     public synchronized void upsert(@Nullable String chatId, @Nullable Message m) {
         if (chatId == null || m == null || m.id == null) return;
+        normalizeIdentity(m);
         List<Message> list = cache.get(chatId);
         if (list == null) {
             list = new ArrayList<>();
@@ -123,6 +133,22 @@ public final class LastMessagesCache {
             while (list.size() > MAX_PER_CHAT) {
                 list.remove(0); // drop oldest — only the last MAX_PER_CHAT are kept
             }
+        }
+    }
+
+    /**
+     * The Firebase model has two names for the same key for historical
+     * reasons. Room's mapper fills both, but an early Firebase/cache path may
+     * only fill id. Keep both populated at the cache boundary so a direct
+     * cache render never produces null/duplicate Paging identities.
+     */
+    private static void normalizeIdentity(@Nullable Message m) {
+        if (m == null) return;
+        if (m.id == null || m.id.isEmpty()) {
+            m.id = m.messageId;
+        }
+        if (m.messageId == null || m.messageId.isEmpty()) {
+            m.messageId = m.id;
         }
     }
 

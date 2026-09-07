@@ -4,6 +4,8 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 
+import com.callx.app.cache.LastMessagesCache;
+import com.callx.app.cache.LastMessagesDiskCache;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.models.Message;
@@ -41,6 +43,7 @@ public class ChatMessageSender {
         String key = delegate.getMessagesRef().push().getKey();
         if (key == null) return;
         m.id = key;
+        m.messageId = key;
 
         ChatPrivacyManager privMgr =
                 new ChatPrivacyManager(delegate.getActivity(), delegate.getChatId(), false);
@@ -79,6 +82,12 @@ public class ChatMessageSender {
         }
 
         MessageEntity entity = messageToEntity(m, "pending");
+
+        // Room is written asynchronously. Keep the instant-reopen snapshot in
+        // lockstep with the optimistic local bubble as well; otherwise a
+        // process kill immediately after Send can resurrect the conversation
+        // without the message even though it was already visible locally.
+        updateWarmCache(m);
 
         // BUG FIX: this insertMessage() write happens IMMEDIATELY on send —
         // before any Firebase round-trip — and bypasses ChatActivity's
@@ -135,6 +144,8 @@ public class ChatMessageSender {
                         // invalidating again here rebuilt the visible page.
                         delegate.updateMessageStatus(key, "sent");
                     });
+                    m.status = "sent";
+                    updateWarmCache(m);
 
                     // ULTRA-OPT (local optimistic tick prediction): the real
                     // delivered tick only lands once the recipient's device
@@ -160,6 +171,8 @@ public class ChatMessageSender {
                         com.callx.app.sync.OfflineOutbox.enqueueSend(
                                 delegate.getActivity(), db.messageDao().getMessageById(key));
                     });
+                    m.status = "failed";
+                    updateWarmCache(m);
                 });
 
         // setValue() above serializes m's fields synchronously at call time
@@ -432,6 +445,7 @@ public class ChatMessageSender {
 
         MessageEntity entity = messageToEntity(m, "uploading");
         entity.mediaLocalPath = m.mediaLocalPath;
+        updateWarmCache(m);
 
         // Same sever-before-write / reanchor-after-write protection as
         // pushMessage() — this is a direct Room write outside the buffered
@@ -465,6 +479,7 @@ public class ChatMessageSender {
 
         MessageEntity entity = messageToEntity(m, "pending");
         entity.mediaLocalPath = m.mediaLocalPath; // kept for local-first render, see doc above
+        updateWarmCache(m);
 
         boolean willReanchor = delegate.severPagingIfAtBottom();
         AppBgExecutor.execute(() -> {
@@ -489,8 +504,37 @@ public class ChatMessageSender {
      */
     public void markMediaFailed(String messageId) {
         if (messageId == null) return;
+        updateWarmCacheStatus(messageId, "failed");
         AppBgExecutor.execute(() ->
                 AppDatabase.getInstance(delegate.getActivity())
                         .messageDao().updateStatus(messageId, "failed"));
+    }
+
+    /** Updates both process and process-death snapshots for local-first sends. */
+    private void updateWarmCache(Message m) {
+        if (m == null || m.id == null) return;
+        LastMessagesCache cache = LastMessagesCache.getInstance();
+        cache.upsert(delegate.getChatId(), m);
+        LastMessagesDiskCache.saveAsync(
+                delegate.getActivity(),
+                delegate.getCurrentUid(),
+                delegate.getChatId(),
+                cache.get(delegate.getChatId()));
+    }
+
+    private void updateWarmCacheStatus(String messageId, String status) {
+        LastMessagesCache cache = LastMessagesCache.getInstance();
+        for (Message cached : cache.get(delegate.getChatId())) {
+            if (cached != null && messageId.equals(cached.id)) {
+                cached.status = status;
+                cache.upsert(delegate.getChatId(), cached);
+                LastMessagesDiskCache.saveAsync(
+                        delegate.getActivity(),
+                        delegate.getCurrentUid(),
+                        delegate.getChatId(),
+                        cache.get(delegate.getChatId()));
+                break;
+            }
+        }
     }
 }
