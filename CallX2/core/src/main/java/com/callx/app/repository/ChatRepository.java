@@ -7,6 +7,8 @@ import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 
 import com.callx.app.cache.CacheManager;
+import com.callx.app.cache.LastMessagesCache;
+import com.callx.app.cache.LastMessagesDiskCache;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
 import com.callx.app.db.paging.MessageCursor;
@@ -116,6 +118,45 @@ public class ChatRepository {
     }
 
     /**
+     * Warms visible/near-visible chat rows while the user scrolls the chat
+     * list. Disk snapshots win first, then Room is queried only when neither
+     * memory nor disk already has the chat. Requests are coalesced per chat.
+     */
+    public void warmLastMessagesCaches(List<String> chatIds) {
+        if (chatIds == null || chatIds.isEmpty()) return;
+        final String accountUid = com.callx.app.utils.FirebaseUtils.getCurrentUid();
+        if (accountUid == null || accountUid.isEmpty()) return;
+        for (String chatId : chatIds) {
+            if (chatId == null || chatId.isEmpty()
+                    || LastMessagesCache.getInstance().has(chatId)
+                    || mSyncInFlight.putIfAbsent("warm:" + chatId, Boolean.TRUE) != null) {
+                continue;
+            }
+            mExecutor.execute(() -> {
+                try {
+                    if (LastMessagesDiskCache.loadIntoMemory(mAppContext, accountUid, chatId)
+                            || LastMessagesCache.getInstance().has(chatId)) {
+                        return;
+                    }
+                    List<MessageEntity> entities = mDb.messageDao().getLastMessagesAsc(chatId, 20);
+                    List<Message> models = new ArrayList<>(entities.size());
+                    for (MessageEntity e : entities) {
+                        Message m = com.callx.app.utils.MessageEntityMapper.toModel(e);
+                        if (m != null) models.add(m);
+                    }
+                    if (!models.isEmpty()) {
+                        LastMessagesCache.getInstance().seed(chatId, models);
+                        LastMessagesDiskCache.saveAsync(
+                                mAppContext, accountUid, chatId, models);
+                    }
+                } finally {
+                    mSyncInFlight.remove("warm:" + chatId);
+                }
+            });
+        }
+    }
+
+    /**
      * Same Room read as warmLastMessagesCache(), but with a completion
      * callback delivered on the main thread — used by chat-list tap
      * handlers to navigate into ChatActivity only once local data is
@@ -144,6 +185,11 @@ public class ChatRepository {
             if (callback != null) callback.run();
             return;
         }
+        String accountUid = com.callx.app.utils.FirebaseUtils.getCurrentUid();
+        if (LastMessagesDiskCache.loadIntoMemory(mAppContext, accountUid, chatId)) {
+            if (callback != null) callback.run();
+            return;
+        }
         mExecutor.execute(() -> {
             java.util.List<MessageEntity> entities = mDb.messageDao().getLastMessagesAsc(chatId, 20);
             java.util.List<Message> models = new ArrayList<>(entities.size());
@@ -153,6 +199,7 @@ public class ChatRepository {
             }
             if (!models.isEmpty()) {
                 com.callx.app.cache.LastMessagesCache.getInstance().seed(chatId, models);
+                LastMessagesDiskCache.saveAsync(mAppContext, accountUid, chatId, models);
             }
             if (callback != null) {
                 new android.os.Handler(android.os.Looper.getMainLooper()).post(callback);
@@ -271,7 +318,7 @@ public class ChatRepository {
                             android.os.Trace.beginSection("DB#insertMessages");
                             try {
                             if (!newMessages.isEmpty()) {
-                                mDb.messageDao().insertMessages(newMessages);
+                                mDb.messageDao().mergeIncomingMessages(newMessages);
                             }
                             if (finalMaxId != null) {
                                 mCache.advanceSyncCursor(chatId, finalMaxTimestamp, finalMaxId, finalMaxSeq);
@@ -361,7 +408,7 @@ public class ChatRepository {
                     }
                     mExecutor.execute(() -> {
                         if (!initial.isEmpty()) {
-                            mDb.messageDao().insertMessages(initial);
+                            mDb.messageDao().mergeIncomingMessages(initial);
                             MessageEntity newest = initial.get(initial.size() - 1);
                             if (newest.timestamp != null && newest.id != null) {
                                 mCache.advanceSyncCursor(
@@ -407,7 +454,7 @@ public class ChatRepository {
                     }
                     mExecutor.execute(() -> {
                         if (!older.isEmpty()) {
-                            mDb.messageDao().insertMessages(older);
+                            mDb.messageDao().mergeIncomingMessages(older);
                         }
                         if (!emitter.isDisposed()) emitter.onSuccess(older.size());
                     });

@@ -272,6 +272,11 @@ public interface MessageDao {
     @Query("SELECT * FROM messages WHERE chatId = :chatId AND status = 'pending' ORDER BY timestamp ASC")
     List<MessageEntity> getPendingMessages(String chatId);
 
+    @WorkerThread
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND status IN ('pending','failed') " +
+            "ORDER BY timestamp ASC")
+    List<MessageEntity> getRetryableMessages(String chatId);
+
     /** v18 IMPROVEMENT 5: Single message by id — media upload retry ke liye. */
     @WorkerThread
     @Query("SELECT * FROM messages WHERE id = :messageId LIMIT 1")
@@ -342,6 +347,77 @@ public interface MessageDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     void insertMessages(List<MessageEntity> messages);
 
+    /**
+     * Merge server data without allowing a stale Firebase replay to resurrect
+     * a locally deleted row, roll back a newer edit, or move a read/delivered
+     * tick backwards. This is the conflict boundary used by every buffered
+     * realtime write and by delta sync.
+     */
+    @WorkerThread
+    @Transaction
+    default void mergeIncomingMessages(List<MessageEntity> messages) {
+        if (messages == null) return;
+        for (MessageEntity incoming : messages) {
+            if (incoming == null || incoming.id == null) continue;
+            MessageEntity local = getMessageById(incoming.id);
+            if (local != null) {
+                // Local delete-for-me is a durable tombstone. A later cached
+                // snapshot must never make that message visible again.
+                if (Boolean.TRUE.equals(local.deleted)
+                        && !Boolean.TRUE.equals(incoming.deleted)) {
+                    continue;
+                }
+                // Delete wins over edit/status updates.
+                if (Boolean.TRUE.equals(incoming.deleted)) {
+                    incoming.text = "";
+                    incoming.mediaUrl = null;
+                    incoming.thumbnailUrl = null;
+                    incoming.fileName = null;
+                }
+                // Last-write-wins for edits, with local optimistic edits
+                // winning when the server callback is older.
+                if (local.editedAt != null && incoming.editedAt != null
+                        && local.editedAt > incoming.editedAt) {
+                    incoming.text = local.text;
+                    incoming.edited = local.edited;
+                    incoming.editedAt = local.editedAt;
+                    incoming.editHistoryJson = local.editHistoryJson;
+                }
+                // Firebase can replay a stale "sent" value after a local
+                // delivered/read tick. Never regress the tick state.
+                if (statusRank(local.status) > statusRank(incoming.status)) {
+                    incoming.status = local.status;
+                    incoming.deliveredAt = local.deliveredAt;
+                    incoming.readAt = local.readAt;
+                }
+                // Keep the local file available for offline media rendering.
+                if (local.mediaLocalPath != null && !local.mediaLocalPath.isEmpty()
+                        && (incoming.mediaLocalPath == null || incoming.mediaLocalPath.isEmpty())) {
+                    incoming.mediaLocalPath = local.mediaLocalPath;
+                }
+                // Keep the encrypted wire copy until the durable send is
+                // acknowledged; otherwise a process-killed offline send
+                // would fall back to plaintext.
+                if (local.wireText != null && !local.wireText.isEmpty()
+                        && (incoming.wireText == null || incoming.wireText.isEmpty())) {
+                    incoming.wireText = local.wireText;
+                }
+                incoming.retryCount = Math.max(local.retryCount, incoming.retryCount);
+                incoming.nextRetryAt = Math.max(local.nextRetryAt, incoming.nextRetryAt);
+                if (incoming.lastError == null) incoming.lastError = local.lastError;
+            }
+            insertMessage(incoming);
+        }
+    }
+
+    static int statusRank(String status) {
+        if ("read".equals(status)) return 4;
+        if ("delivered".equals(status)) return 3;
+        if ("sent".equals(status)) return 2;
+        if ("failed".equals(status)) return 1;
+        return 0;
+    }
+
     @WorkerThread
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     void insertMessage(MessageEntity message);
@@ -403,7 +479,7 @@ public interface MessageDao {
     @WorkerThread
     @Transaction
     default void applyBufferedChanges(List<MessageEntity> upserts, List<String> removedIds, List<String> readIds) {
-        if (upserts != null && !upserts.isEmpty()) insertMessages(upserts);
+         if (upserts != null && !upserts.isEmpty()) mergeIncomingMessages(upserts);
         if (removedIds != null && !removedIds.isEmpty()) softDeleteAll(removedIds);
         if (readIds != null && !readIds.isEmpty()) markReadBulk(readIds);
     }

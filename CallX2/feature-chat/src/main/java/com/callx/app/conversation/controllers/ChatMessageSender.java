@@ -93,6 +93,10 @@ public class ChatMessageSender {
             if (willReanchor) delegate.reanchorPagingToBottom();
         });
 
+        // Journal before attempting the network write. The foreground path
+        // remains instant, while the journal closes the process-kill window
+        // between the optimistic Room insert and Firebase's callback.
+        com.callx.app.sync.OfflineOutbox.enqueueSend(delegate.getActivity(), entity);
         if (delegate.isOnline()) {
             firebasePushMessage(m, key, previewText);
         } else {
@@ -123,8 +127,9 @@ public class ChatMessageSender {
                     } catch (Exception ignored) {}
 
                     AppBgExecutor.execute(() -> {
-                        AppDatabase.getInstance(delegate.getActivity())
-                                .messageDao().updateStatus(key, "sent");
+                        AppDatabase db = AppDatabase.getInstance(delegate.getActivity());
+                        db.messageDao().updateStatus(key, "sent");
+                        db.outboxOperationDao().delete("send:" + delegate.getChatId() + ":" + key);
                         // Delivery ticks are a payload-only update. The
                         // pending insert already owns the one tail refresh;
                         // invalidating again here rebuilt the visible page.
@@ -149,7 +154,12 @@ public class ChatMessageSender {
                     }
                 })
                 .addOnFailureListener(e -> {
-                    // Firebase rejected — stays pending, retry on reconnect
+                    AppBgExecutor.execute(() -> {
+                        AppDatabase db = AppDatabase.getInstance(delegate.getActivity());
+                        db.messageDao().updateStatus(key, "failed");
+                        com.callx.app.sync.OfflineOutbox.enqueueSend(
+                                delegate.getActivity(), db.messageDao().getMessageById(key));
+                    });
                 });
 
         // setValue() above serializes m's fields synchronously at call time
@@ -213,14 +223,22 @@ public class ChatMessageSender {
     public void retryPendingMessages() {
         AppBgExecutor.execute(() -> {
             AppDatabase db = AppDatabase.getInstance(delegate.getActivity());
-            List<MessageEntity> pending = db.messageDao().getPendingMessages(delegate.getChatId());
+            List<MessageEntity> pending = db.messageDao().getRetryableMessages(delegate.getChatId());
             if (pending == null || pending.isEmpty()) return;
             for (MessageEntity pe : pending) {
+                if (pe.mediaLocalPath != null && !pe.mediaLocalPath.isEmpty()
+                        && (pe.mediaUrl == null || pe.mediaUrl.isEmpty())) {
+                    com.callx.app.sync.OfflineOutbox.enqueueMediaUpload(
+                            delegate.getActivity(), pe);
+                    continue;
+                }
+                com.callx.app.sync.OfflineOutbox.enqueueSend(delegate.getActivity(), pe);
                 Message m = new Message();
                 m.id              = pe.id;
                 m.senderId        = pe.senderId;
                 m.senderName      = pe.senderName;
                 m.text            = pe.text;
+                m.e2eWireText     = pe.wireText;
                 m.type            = pe.type;
                 m.mediaUrl        = pe.mediaUrl;
                 m.thumbnailUrl    = pe.thumbnailUrl;
@@ -233,6 +251,9 @@ public class ChatMessageSender {
                 // AppDatabase.MIGRATION_42_43 / MessageEntity#mediaWidth.
                 m.mediaWidth      = pe.mediaWidth;
                 m.mediaHeight     = pe.mediaHeight;
+                m.mediaLocalPath  = pe.mediaLocalPath;
+                m.mediaResourceType = pe.mediaResourceType;
+                m.voiceLocalPath  = pe.voiceLocalPath;
                 m.replyToId       = pe.replyToId;
                 m.replyToText     = pe.replyToText;
                 m.replyToSenderName = pe.replyToSenderName;
@@ -315,6 +336,7 @@ public class ChatMessageSender {
         e.duration              = m.duration;
         e.timestamp             = m.timestamp;
         e.status                = status;
+        e.wireText              = m.e2eWireText;
         e.replyToId             = m.replyToId;
         e.replyToText           = m.replyToText;
         e.replyToSenderName     = m.replyToSenderName;
@@ -365,6 +387,7 @@ public class ChatMessageSender {
         e.mediaHeight         = m.mediaHeight;
         // v48: Voice Caption on Photo — see MessageEntity#voiceUrl.
         e.voiceUrl            = m.voiceUrl;
+        e.voiceLocalPath      = m.voiceLocalPath;
         e.voiceDuration       = m.voiceDuration;
         return e;
     }
@@ -452,6 +475,7 @@ public class ChatMessageSender {
         if (delegate.isOnline()) {
             firebasePushMessage(m, m.id, previewText);
         } else {
+            com.callx.app.sync.OfflineOutbox.enqueueSend(delegate.getActivity(), entity);
             Toast.makeText(delegate.getActivity(),
                     "No connection — message queued", Toast.LENGTH_SHORT).show();
         }

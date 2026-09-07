@@ -34,8 +34,11 @@ public class PhoneAuthActivity extends AppCompatActivity {
 
         if (getIntent().getBooleanExtra(AuthActivity.EXTRA_FORCE_LOGIN, false)
                 && auth.getCurrentUser() != null) {
+            String oldUid = auth.getCurrentUser().getUid();
             com.callx.app.utils.PresenceManager.getInstance().onLogout();
             com.callx.app.chatlist.ChatSnapshotCache.clearSnapshotAsync(this);
+            com.callx.app.cache.LastMessagesCache.getInstance().clear();
+            com.callx.app.cache.LastMessagesDiskCache.clearForAccountAsync(this, oldUid);
             com.callx.app.utils.BiometricLoginManager.getInstance(this).disable();
             // FIX-ACCT-SWITCH: see AppDatabase.wipeForAccountSwitch() —
             // chats/messages have no ownerUid scoping in Room, so the

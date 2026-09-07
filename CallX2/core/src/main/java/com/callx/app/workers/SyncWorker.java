@@ -150,6 +150,12 @@ public class SyncWorker extends Worker {
     // ─────────────────────────────────────────────────────────────────────
 
     private boolean processOneMessage(AppDatabase db, MessageEntity msg) throws Exception {
+        // v61: messages claimed by the durable outbox are exclusively owned
+        // by OutboxSyncWorker. The legacy periodic uploader remains for
+        // pre-v61 rows, but must not race a new offline media operation.
+        if (db.outboxOperationDao().get("media:" + msg.chatId + ":" + msg.id) != null) {
+            return true;
+        }
         // 1. Verify local file exists
         File localFile = new File(msg.mediaLocalPath);
         if (!localFile.exists()) {

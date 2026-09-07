@@ -206,6 +206,8 @@ public class AccountMenuActivity extends AppCompatActivity {
                     // account that logs in on this device never flashes
                     // this account's chat previews as its own first frame.
                     com.callx.app.chatlist.ChatSnapshotCache.clearSnapshotAsync(this);
+                    com.callx.app.cache.LastMessagesCache.getInstance().clear();
+                    com.callx.app.cache.LastMessagesDiskCache.clearForAccountAsync(this, myUid);
                     // v300 ultra: same reason as the chat snapshot clear above —
                     // Home's in-memory instant-paint mirror is per-process, not
                     // per-account, so it must be wiped explicitly on logout too.
@@ -253,6 +255,8 @@ public class AccountMenuActivity extends AppCompatActivity {
                 // the deleted account's chat previews survive in the
                 // plaintext snapshot for whoever logs in next.
                 com.callx.app.chatlist.ChatSnapshotCache.clearSnapshotAsync(this);
+                 com.callx.app.cache.LastMessagesCache.getInstance().clear();
+                 com.callx.app.cache.LastMessagesDiskCache.clearForAccountAsync(this, uid);
                 Toast.makeText(this, "Account delete ho gaya", Toast.LENGTH_LONG).show();
                 Intent i = new Intent(this, AuthActivity.class);
                 i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);

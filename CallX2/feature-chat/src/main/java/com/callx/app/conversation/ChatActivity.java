@@ -57,6 +57,7 @@ import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
 import com.callx.app.cache.CacheManager;
 import com.callx.app.cache.LastMessagesCache;
+import com.callx.app.cache.LastMessagesDiskCache;
 import com.callx.app.chat.R;
 import com.callx.app.chat.analytics.ReplyAnalyticsTracker;
 import com.callx.app.chat.databinding.ActivityChatBinding;
@@ -152,10 +153,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     //   the edge, giving Room's ioExecutor a full page-load's worth of extra
     //   head start to finish before the RecyclerView actually needs it —
     //   the load latency is fully hidden even on a hard fling.
-    // INITIAL_LOAD=25 (was 30) — faster cold open, reload next page quickly
+    // INITIAL_LOAD=20 — matches the persisted last-message snapshot, so the
+    // warm generation and the first Room generation have the same window.
     private static final int    PAGE_SIZE     = 15;
     private static final int    PREFETCH_DIST = 30;
-    private static final int    INITIAL_LOAD  = 25;
+    private static final int    INITIAL_LOAD  = 20;
     private static final int    MAX_MESSAGE_LENGTH = 4000;
     // Threshold above which the send button shows a "Send as Text / Send as
     // .txt file" choice instead of immediately pushing the message — mirrors
@@ -786,6 +788,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             android.util.Log.w(TAG, "partnerUid null — finishing");
             finish(); return;
         }
+        // Process-death fast path: restore the last known 20 messages before
+        // Room/SQLCipher/Firebase initialization. The in-memory cache remains
+        // the render source; this only repopulates it from the tiny disk
+        // snapshot when Android created a fresh process.
+        LastMessagesDiskCache.loadIntoMemory(this, currentUid, chatId);
 
         // Chat Lock — if this 1:1 chat is locked, block the screen behind a
         // biometric/PIN gate before anything else. The rest of onCreate
@@ -998,22 +1005,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // in the background and never touches the UI thread.
         safeIoExecute(() -> {
             if (db == null) return;
-            // FLICKER FIX: this used to hardcode 20, while the real Paging3
-            // pipeline's first page loads INITIAL_LOAD (25) messages (see
-            // attachPagerWithKey). That 5-message mismatch meant the real
-            // data, landing a moment after the warm-cache seed, always had
-            // to INSERT 5 more rows (plus possibly a shifted/extra date
-            // separator) on top of what was already rendered — a second,
-            // visible "list building" pass on every single chat open, on
-            // top of whatever new messages had actually arrived. Matching
-            // the seed size to INITIAL_LOAD means the cached seed and the
-            // real first page are the same window, so the DiffUtil
-            // reconciliation is a true no-op in the common case — exactly
-            // one render pass instead of two.
+            // FLICKER FIX: keep the Room first page at the same 20-message
+            // window used by LastMessagesCache and its disk snapshot. That
+            // makes the warm generation and real generation structurally
+            // identical when nothing changed, so reconciliation is a no-op.
             java.util.List<MessageEntity> entities = db.messageDao().getLastMessagesAsc(chatId, INITIAL_LOAD);
             java.util.List<Message> models = new java.util.ArrayList<>(entities.size());
             for (MessageEntity e : entities) models.add(entityToModel(e));
             LastMessagesCache.getInstance().seed(chatId, models);
+            LastMessagesDiskCache.saveAsync(this, currentUid, chatId, models);
         });
 
         // Non-critical 300ms baad
@@ -1373,6 +1373,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     @Override
     protected void onPause() {
         super.onPause();
+        persistLastMessagesSnapshotFromRoom();
         // v8: detach (not stop) the docked mini reel player before this
         // window goes away — playback continues invisibly; whichever
         // screen the user lands on next re-attaches it in its own onResume.
@@ -1422,6 +1423,32 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             activeViewOnceDialog.dismiss(); // triggers onDismissListener → doCleanupAndDelete
         }
         activeViewOnceDialog = null;
+    }
+
+    /**
+     * Captures the latest Room window when this Activity leaves the foreground.
+     * This covers local-first/offline sends that may not have reached Firebase
+     * yet, so a process kill immediately after leaving still reopens with the
+     * same last-known state.
+     */
+    private void persistLastMessagesSnapshotFromRoom() {
+        if (db == null || chatId == null || currentUid == null
+                || currentUid.isEmpty()) return;
+        safeIoExecute(() -> {
+            try {
+                java.util.List<MessageEntity> entities =
+                        db.messageDao().getLastMessagesAsc(chatId, INITIAL_LOAD);
+                java.util.List<Message> models = new java.util.ArrayList<>(entities.size());
+                for (MessageEntity e : entities) models.add(entityToModel(e));
+                if (!models.isEmpty()) {
+                    LastMessagesCache.getInstance().seed(chatId, models);
+                    LastMessagesDiskCache.saveAsync(
+                            getApplicationContext(), currentUid, chatId, models);
+                }
+            } catch (Exception e) {
+                android.util.Log.w(TAG, "snapshot on pause failed", e);
+            }
+        });
     }
 
     @Override
@@ -2454,7 +2481,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     return;
                 }
                 String preview = m.text != null ? m.text : (m.type != null ? "[" + m.type + "]" : "[message]");
-                messageSender.firebasePushMessage(m, m.id, preview);
+                // Manual retry resets the durable backoff and replays the
+                // original Room row (including its encrypted wire copy).
+                com.callx.app.sync.OfflineOutbox.retry(
+                        ChatActivity.this,
+                        com.callx.app.utils.MessageEntityMapper.fromModel(m, chatId));
             }
             @Override public void onEdit(Message m)                { getEditHistoryController().editMessage(m); }
             @Override public void onShowEditHistory(Message m)     { getEditHistoryController().showHistory(m); }
@@ -3883,6 +3914,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // onCreate() will have accurate, current data.
         for (Message m : upsertsSnapshot) LastMessagesCache.getInstance().upsert(chatId, m);
         for (String removedId : removalsSnapshot) LastMessagesCache.getInstance().removeMessage(chatId, removedId);
+        LastMessagesDiskCache.saveAsync(
+                this, currentUid, chatId, LastMessagesCache.getInstance().get(chatId));
 
         // Keep the current source alive until the transaction has committed.
         // The refresh is coalesced after the write, so the list never observes
@@ -5034,6 +5067,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     "Delete for everyone", () -> {
                         messagesRef.child(m.id).child("deleted").setValue(true);
                         messagesRef.child(m.id).child("text").setValue("");
+                        com.callx.app.sync.OfflineOutbox.enqueueDeleteForEveryone(
+                                ChatActivity.this, chatId, m.id, false);
                         safeIoExecute(() -> db.messageDao().softDelete(m.id));
                         LastMessagesCache.getInstance().removeMessage(chatId, m.id);
                     },
@@ -5241,6 +5276,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         for (Message m : sel) {
                             messagesRef.child(m.id).child("deleted").setValue(true);
                             messagesRef.child(m.id).child("text").setValue("");
+                            com.callx.app.sync.OfflineOutbox.enqueueDeleteForEveryone(
+                                    ChatActivity.this, chatId, m.id, false);
                             final String mid = m.id;
                             safeIoExecute(() -> db.messageDao().softDelete(mid));
                             LastMessagesCache.getInstance().removeMessage(chatId, mid);

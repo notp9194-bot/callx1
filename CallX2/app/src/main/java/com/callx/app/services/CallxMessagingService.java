@@ -2191,7 +2191,8 @@ public class CallxMessagingService extends FirebaseMessagingService {
                 entity.syncedAt   = System.currentTimeMillis();
 
                 AppDatabase.getInstance(getApplicationContext())
-                    .messageDao().insertMessage(entity);
+                    .messageDao().mergeIncomingMessages(
+                            java.util.Collections.singletonList(entity));
 
                 // FIX: Ab yaha se auto-download NAHI hoga.
                 // Pehle image/audio FCM aate hi MediaCache.get() call ho raha

@@ -35,6 +35,8 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.chat.R;
 import com.callx.app.conversation.MessagePagingAdapter;
 import com.callx.app.cache.CacheManager;
+import com.callx.app.cache.LastMessagesCache;
+import com.callx.app.cache.LastMessagesDiskCache;
 import com.callx.app.chat.databinding.ActivityChatBinding;
 import com.callx.app.chat.databinding.LayoutRecordingBarBinding;
 import com.callx.app.db.AppDatabase;
@@ -102,13 +104,13 @@ public class GroupChatActivity extends AppCompatActivity
 
     private static final String TAG           = "GroupChatActivity";
     // PERF FIX: these had drifted out of sync with 1:1 ChatActivity's later
-    // tuning pass (PAGE_SIZE 20→15, PREFETCH_DIST 10→30, INITIAL_LOAD 30→25)
-    // — the comment below still claimed "30 matches 1:1 chat" but 1:1 had
-    // since moved to 25. Re-synced to the same values: smaller PAGE_SIZE
+    // tuning pass (PAGE_SIZE 20→15, PREFETCH_DIST 10→30, INITIAL_LOAD 30→20)
+    // — the comment below still claimed "30 matches 1:1 chat" after 1:1 had
+    // since moved to 20. Re-synced to the same values: smaller PAGE_SIZE
     // means less DiffUtil work per scroll, PREFETCH_DIST=2x PAGE_SIZE, and
-    // INITIAL_LOAD=25 means less cold-open work than before.
+    // INITIAL_LOAD=20 matches the persisted last-message snapshot.
     private static final int    PAGE_SIZE     = 15;
-    private static final int    INITIAL_LOAD  = 25; // matches 1:1 ChatActivity
+    private static final int    INITIAL_LOAD  = 20; // matches the disk snapshot
     private static final int    PREFETCH_DIST = 30;
     private static final int    REQ_AUDIO     = 200;
 
@@ -407,6 +409,9 @@ public class GroupChatActivity extends AppCompatActivity
         currentUid  = FirebaseUtils.getCurrentUid();
         currentName = FirebaseUtils.getCurrentName();
         groupMessagesRef = FirebaseUtils.getGroupMessagesRef(groupId);
+        // Restore the last known group window synchronously after process
+        // death. Room/Firebase still reconcile it silently in the background.
+        LastMessagesDiskCache.loadIntoMemory(this, currentUid, groupId);
 
         // GROUP E2EE (Sender Keys): safe/cheap to call every time the group
         // opens — detects membership changes since we last checked (rotates
@@ -452,10 +457,19 @@ public class GroupChatActivity extends AppCompatActivity
         // is split out into setupGroupMembersAndPresence() below and deferred.
         setupTypingHeader();
 
-        // Shimmer show karo taaki user blank screen na dekhe
+        // Warm disk/memory snapshot is already real content, so never cover it
+        // with a loader. Genuine cold opens retain the existing shimmer.
+        seedInstantRenderFromCache();
         if (binding.shimmerContainer != null) {
-            binding.shimmerContainer.startShimmer();
-            binding.shimmerContainer.setVisibility(android.view.View.VISIBLE);
+            boolean warm = LastMessagesCache.getInstance().has(groupId);
+            if (warm) {
+                binding.shimmerContainer.stopShimmer();
+                binding.shimmerContainer.setVisibility(android.view.View.GONE);
+                binding.rvMessages.setVisibility(android.view.View.VISIBLE);
+            } else {
+                binding.shimmerContainer.startShimmer();
+                binding.shimmerContainer.setVisibility(android.view.View.VISIBLE);
+            }
         }
 
         // Firebase listener immediately — events buffer honge jab tak DB ready nahi
@@ -806,6 +820,7 @@ public class GroupChatActivity extends AppCompatActivity
 
     @Override
     protected void onPause() {
+        persistLastMessagesSnapshotFromRoom();
         saveScrollState();
         typingHandler.removeCallbacks(stopTyping);
         setMyTyping(false);
@@ -816,6 +831,27 @@ public class GroupChatActivity extends AppCompatActivity
         onTypingStripScreenPaused();
         saveGroupDraft();
         super.onPause();
+    }
+
+    /** Persist the latest local Room window before the process can be killed. */
+    private void persistLastMessagesSnapshotFromRoom() {
+        if (db == null || groupId == null || currentUid == null
+                || currentUid.isEmpty()) return;
+        ioExecutor.execute(() -> {
+            try {
+                List<MessageEntity> entities =
+                        db.messageDao().getLastMessagesAsc(groupId, 20);
+                List<Message> models = new ArrayList<>(entities.size());
+                for (MessageEntity e : entities) models.add(entityToModel(e));
+                if (!models.isEmpty()) {
+                    LastMessagesCache.getInstance().seed(groupId, models);
+                    LastMessagesDiskCache.saveAsync(
+                            getApplicationContext(), currentUid, groupId, models);
+                }
+            } catch (Exception e) {
+                android.util.Log.w(TAG, "group snapshot on pause failed", e);
+            }
+        });
     }
 
     // ── Draft persistence (SharedPreferences-backed — see DraftStore) ──────
@@ -1337,6 +1373,21 @@ public class GroupChatActivity extends AppCompatActivity
     private void onGroupDbReady() {
         if (isFinishing() || isDestroyed()) return;
 
+        // Keep both the in-memory and process-death snapshots current even
+        // when this open receives no Firebase replay (pure offline reopen).
+        ioExecutor.execute(() -> {
+            if (db == null) return;
+            List<MessageEntity> entities =
+                    db.messageDao().getLastMessagesAsc(groupId, 20);
+            List<Message> models = new ArrayList<>(entities.size());
+            for (MessageEntity e : entities) models.add(entityToModel(e));
+            if (!models.isEmpty()) {
+                LastMessagesCache.getInstance().seed(groupId, models);
+                LastMessagesDiskCache.saveAsync(
+                        getApplicationContext(), currentUid, groupId, models);
+            }
+        });
+
         // ── Edit History Controller ────────────────────────────────────────
         editHistoryController = new com.callx.app.conversation.controllers.MessageEditHistoryController(
                 new com.callx.app.conversation.controllers.ChatActivityDelegate() {
@@ -1453,6 +1504,20 @@ public class GroupChatActivity extends AppCompatActivity
         pagingMediator = new MediatorLiveData<>();
         pagingMediator.observe(this, pagingData -> pagingAdapter.submitData(getLifecycle(), pagingData));
         attachFreshBottomAnchoredPager();
+    }
+
+    /**
+     * Paints the process-local/disk snapshot before the Room Pager exists.
+     * Group paging has no synthetic date-separator transform, so the cached
+     * list is structurally identical to the first Room generation.
+     */
+    private void seedInstantRenderFromCache() {
+        if (groupId == null || pagingAdapter == null
+                || !LastMessagesCache.getInstance().has(groupId)) return;
+        List<Message> cached = LastMessagesCache.getInstance().get(groupId);
+        if (!cached.isEmpty()) {
+            pagingAdapter.submitData(getLifecycle(), PagingData.from(cached));
+        }
     }
 
     private void attachFreshBottomAnchoredPager() {
@@ -1701,6 +1766,18 @@ public class GroupChatActivity extends AppCompatActivity
 
         if (db == null) return;
 
+        // Keep the warm window aligned with every Firebase batch before the
+        // Room transaction runs. This also makes the disk snapshot survive a
+        // process kill that happens immediately after a message arrives.
+        for (Message m : upsertsSnapshot) {
+            LastMessagesCache.getInstance().upsert(groupId, m);
+        }
+        for (String removedId : removalsSnapshot) {
+            LastMessagesCache.getInstance().removeMessage(groupId, removedId);
+        }
+        LastMessagesDiskCache.saveAsync(
+                this, currentUid, groupId, LastMessagesCache.getInstance().get(groupId));
+
         // BUG FIX (v2): sever the OLD Pager's source BEFORE the write — see
         // ChatActivity.flushPendingRoomWrites() for full reasoning. Removing
         // it after the write loses the race against Room's invalidation
@@ -1867,6 +1944,7 @@ public class GroupChatActivity extends AppCompatActivity
         e.duration              = m.duration;
         e.timestamp             = m.timestamp;
         e.status                = m.status;
+        e.wireText              = m.e2eWireText;
         e.deliveredAt           = m.deliveredAt;
         e.readAt                = m.readAt;
         e.groupDeliveredByJson   = com.callx.app.utils.GroupReceiptJsonUtil.receiptsToJson(m.deliveredBy);
@@ -1898,6 +1976,7 @@ public class GroupChatActivity extends AppCompatActivity
         e.mediaLocalPath         = m.mediaLocalPath;
         e.mediaResourceType      = m.mediaResourceType;
         e.voiceUrl               = m.voiceUrl;
+        e.voiceLocalPath         = m.voiceLocalPath;
         e.voiceDuration          = m.voiceDuration;
         e.mediaWidth             = m.mediaWidth;
         e.mediaHeight            = m.mediaHeight;
@@ -2328,6 +2407,7 @@ public class GroupChatActivity extends AppCompatActivity
         pending.status = "pending";
         ioExecutor.execute(() -> db.messageDao().insertMessage(pending));
 
+        com.callx.app.sync.OfflineOutbox.enqueueSend(this, pending);
         if (isOnline()) {
             firebasePushGroup(m, key, preview);
         } else {
@@ -2348,8 +2428,17 @@ public class GroupChatActivity extends AppCompatActivity
 
         groupMessagesRef.child(key).setValue(m)
             .addOnSuccessListener(unused ->
-                ioExecutor.execute(() -> db.messageDao().updateStatus(key, "sent")))
-            .addOnFailureListener(e -> { /* pending rakho */ });
+                ioExecutor.execute(() -> {
+                    db.messageDao().updateStatus(key, "sent");
+                    db.outboxOperationDao().delete("send:" + groupId + ":" + key);
+                }))
+            .addOnFailureListener(e -> {
+                ioExecutor.execute(() -> {
+                    db.messageDao().updateStatus(key, "failed");
+                    com.callx.app.sync.OfflineOutbox.enqueueSend(
+                            this, db.messageDao().getMessageById(key));
+                });
+            });
 
         if (sentEncrypted) m.text = plainTextBackup;
 
@@ -2384,6 +2473,7 @@ public class GroupChatActivity extends AppCompatActivity
             List<MessageEntity> pending = db.messageDao().getPendingMessages(groupId);
             if (pending == null || pending.isEmpty()) return;
             for (MessageEntity pe : pending) {
+                com.callx.app.sync.OfflineOutbox.enqueueSend(this, pe);
                 Message m = entityToModel(pe);
                 m.status = "sent";
                 String preview = pe.text != null ? pe.text : "[" + pe.type + "]";
@@ -2470,6 +2560,8 @@ public class GroupChatActivity extends AppCompatActivity
                 "Delete", () -> {
                     groupMessagesRef.child(m.id).child("deleted").setValue(true);
                     groupMessagesRef.child(m.id).child("text").setValue("");
+                    com.callx.app.sync.OfflineOutbox.enqueueDeleteForEveryone(
+                            GroupChatActivity.this, groupId, m.id, true);
                     ioExecutor.execute(() -> db.messageDao().softDelete(m.id));
                 },
                 null, null,
@@ -2713,6 +2805,8 @@ public class GroupChatActivity extends AppCompatActivity
                     groupMessagesRef.child(msgId).child("deleted").setValue(true);
                     groupMessagesRef.child(msgId).child("text").setValue("");
                     groupMessagesRef.child(msgId).child("mediaItems").setValue(null);
+                    com.callx.app.sync.OfflineOutbox.enqueueDeleteForEveryone(
+                            GroupChatActivity.this, groupId, msgId, true);
                 } else {
                     groupMessagesRef.child(msgId).child("mediaItems").setValue(updated);
                 }
@@ -4451,11 +4545,26 @@ public class GroupChatActivity extends AppCompatActivity
     }
 
     private void uploadAndSend(Uri uri, String msgType, String resourceType, String fileName, boolean isHD) {
-        // OFFLINE FIX: Media upload needs internet — check before starting
         if (!isOnline()) {
+            String key = groupMessagesRef.push().getKey();
+            if (key != null) {
+                Message pending = buildOutgoing();
+                pending.id = key;
+                pending.type = msgType;
+                pending.mediaLocalPath = uri.toString();
+                pending.mediaResourceType = resourceType;
+                pending.fileName = fileName;
+                MessageEntity entity = modelToEntity(pending);
+                entity.status = "uploading";
+                ioExecutor.execute(() -> {
+                    db.messageDao().insertMessage(entity);
+                    com.callx.app.sync.OfflineOutbox.enqueueMediaUpload(
+                            GroupChatActivity.this, entity);
+                });
+            }
             Toast.makeText(this,
-                "No connection — media send kar'ne ke liye internet chahiye",
-                Toast.LENGTH_LONG).show();
+                "No connection — media queued",
+                Toast.LENGTH_SHORT).show();
             return;
         }
 

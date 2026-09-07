@@ -73,8 +73,13 @@ public final class MessageEntityMapper {
         m.mediaLocalPath = e.mediaLocalPath;
         // v48: Voice Caption on Photo — see MessageEntity#voiceUrl.
         m.voiceUrl = e.voiceUrl;
+        m.voiceLocalPath = e.voiceLocalPath;
         m.voiceDuration = e.voiceDuration;
         m.mediaResourceType = e.mediaResourceType;
+        // Durable offline-send wire copy. It is transient on Message and is
+        // only consumed by the outbox worker; the normal UI always renders
+        // the plaintext `text` field.
+        m.e2eWireText = e.wireText;
         m.topicId = e.topicId;
         m.topicName = e.topicName;
         return m;
@@ -99,6 +104,9 @@ public final class MessageEntityMapper {
         e.timestamp = m.timestamp;
         e.seq = m.seq;
         e.status = m.status;
+        e.wireText = m.e2eWireText;
+        e.retryCount = 0;
+        e.nextRetryAt = 0L;
         e.deliveredAt = m.deliveredAt;
         e.readAt = m.readAt;
         e.groupDeliveredByJson = GroupReceiptJsonUtil.receiptsToJson(m.deliveredBy);
@@ -154,6 +162,7 @@ public final class MessageEntityMapper {
         e.locationAddress = m.locationAddress;
         e.broadcast = m.broadcast;
         e.voiceUrl = m.voiceUrl;
+        e.voiceLocalPath = m.voiceLocalPath;
         e.voiceDuration = m.voiceDuration;
         e.mediaWidth = m.mediaWidth;
         e.mediaHeight = m.mediaHeight;

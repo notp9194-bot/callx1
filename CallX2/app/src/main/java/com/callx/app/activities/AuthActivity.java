@@ -77,8 +77,11 @@ public class AuthActivity extends AppCompatActivity {
         auth = FirebaseAuth.getInstance();
         if (getIntent().getBooleanExtra(EXTRA_FORCE_LOGIN, false)
                 && auth.getCurrentUser() != null) {
+            String oldUid = auth.getCurrentUser().getUid();
             com.callx.app.utils.PresenceManager.getInstance().onLogout();
             com.callx.app.chatlist.ChatSnapshotCache.clearSnapshotAsync(this);
+            com.callx.app.cache.LastMessagesCache.getInstance().clear();
+            com.callx.app.cache.LastMessagesDiskCache.clearForAccountAsync(this, oldUid);
             // v300 ultra: Home's in-memory instant-paint mirror survives
             // across activities for the life of the process, so a forced
             // account switch has to drop it explicitly, same as the chat

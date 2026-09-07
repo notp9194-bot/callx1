@@ -83,6 +83,12 @@ public class MessageEntity {
     // app restart without needing to re-derive it from Firebase.
     public Long   seq;
     public String status;         // sent | delivered | read
+    /** Encrypted wire copy for durable offline sends. Never shown in the UI. */
+    public String wireText;
+    /** Local retry metadata; the durable operation itself lives in outbox_operations. */
+    public int retryCount;
+    public long nextRetryAt;
+    public String lastError;
     /** Server timestamps for status transitions — mirrors Message.deliveredAt/readAt
      *  (TICK ADVANCE #5 / v25 fix). Needed so the Message Info dialog and read-receipt
      *  ticks survive the Room cache round-trip instead of always reading null. */
@@ -256,6 +262,8 @@ public class MessageEntity {
      *  carry a short attached voice note. Null for every plain image. See
      *  AppDatabase.MIGRATION_47_48. */
     public String voiceUrl;
+    /** Local voice-caption source retained until its queued upload succeeds. */
+    public String voiceLocalPath;
     /** Mirrors Message#voiceDuration (ms). */
     public Long voiceDuration;
 

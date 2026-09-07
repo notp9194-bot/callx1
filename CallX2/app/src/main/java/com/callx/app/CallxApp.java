@@ -535,6 +535,10 @@ public class CallxApp extends Application {
             CacheManager cacheManager = CacheManager.getInstance(this);
             cacheManager.preloadTopChats();
             SyncWorker.schedule(this);
+            // Durable chat writes are independent from the visible chat
+            // screen. Schedule the network-constrained outbox on every
+            // process start so force-stop/app-kill recovery is automatic.
+            com.callx.app.sync.OfflineOutbox.schedule(this);
 
             // Start global status cache — ek baar Firebase read, pure app mein reuse
             if (FirebaseAuth.getInstance().getCurrentUser() != null) {

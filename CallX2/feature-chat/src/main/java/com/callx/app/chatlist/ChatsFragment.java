@@ -42,6 +42,7 @@ import com.callx.app.conversation.ChatActivity;
 import com.callx.app.utils.AppBgExecutor;
 import com.callx.app.utils.UiCriticalReadExecutor;
 import com.callx.app.utils.AppThermalManager;
+import com.callx.app.repository.ChatRepository;
 
 /**
  * ChatsFragment v21 — Delete / Delete-All System
@@ -363,6 +364,24 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 lastTimeMs = now;
 
                 ChatAvatarBinder.prefetch(requireContext(), chatAvatarSource(), lastVisible + 1, velocity);
+
+                // WhatsApp-style message prefetch: while rows are visible,
+                // warm their last-message snapshots (and a small look-ahead)
+                // so tapping a just-seen chat after process death still has
+                // a local first frame. This is separate from avatar prefetch.
+                int firstWarm = Math.max(0, lm.findFirstVisibleItemPosition());
+                int lastWarm = Math.min(total - 1, lastVisible + 8);
+                List<String> warmChatIds = new ArrayList<>();
+                String myUid = FirebaseUtils.getCurrentUid();
+                if (myUid != null && !myUid.isEmpty()) {
+                    for (int p = firstWarm; p <= lastWarm; p++) {
+                        User u = adapter.getCurrentList().get(p);
+                        if (u != null && u.uid != null) {
+                            warmChatIds.add(FirebaseUtils.getChatId(myUid, u.uid));
+                        }
+                    }
+                }
+                ChatRepository.getInstance(requireContext()).warmLastMessagesCaches(warmChatIds);
             }
         });
 

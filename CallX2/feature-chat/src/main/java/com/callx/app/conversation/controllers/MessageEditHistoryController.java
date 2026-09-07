@@ -102,7 +102,21 @@ public class MessageEditHistoryController {
         updates.put("edited", true);
         updates.put("editedAt", editedAt);
         updates.put("editHistory", updatedHistory);
-        delegate.getMessagesRef().child(m.id).updateChildren(updates);
+        delegate.getMessagesRef().child(m.id).updateChildren(updates)
+                .addOnSuccessListener(ignored ->
+                        delegate.getIoExecutor().execute(() ->
+                                delegate.getDb().outboxOperationDao().delete(
+                                        "edit:" + delegate.getChatId() + ":" + m.id)))
+                .addOnFailureListener(error ->
+                        com.callx.app.sync.OfflineOutbox.enqueueEdit(
+                                delegate.getActivity(), delegate.getChatId(), m.id,
+                                newText, editedAt, historyJson, false));
+        // Also journal before returning. If the process dies between the
+        // optimistic Room write and Firebase's callback, the edit still has
+        // a durable intent and will be merged idempotently.
+        com.callx.app.sync.OfflineOutbox.enqueueEdit(
+                delegate.getActivity(), delegate.getChatId(), m.id,
+                newText, editedAt, historyJson, false);
 
         // Room — single write via the history-aware DAO method.
         delegate.getIoExecutor().execute(() ->

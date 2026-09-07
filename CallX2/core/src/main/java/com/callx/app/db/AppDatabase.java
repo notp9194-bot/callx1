@@ -73,9 +73,11 @@ import com.callx.app.db.entity.*;
         LinkPreviewCacheEntity.class,
         // v59: local content-hash → URL dedup cache — see
         // MediaHashCacheEntity's class doc.
-        MediaHashCacheEntity.class
+        MediaHashCacheEntity.class,
+        // v61: durable outbound chat mutation journal.
+        OutboxOperationEntity.class
     },
-    version = 60,
+    version = 61,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -90,6 +92,7 @@ public abstract class AppDatabase extends RoomDatabase {
     public abstract GroupMemberDao      groupMemberDao();
     public abstract MessageDao          messageDao();
     public abstract MessageSyncStateDao messageSyncStateDao();
+    public abstract OutboxOperationDao outboxOperationDao();
     public abstract CallLogDao          callLogDao();
     public abstract ScheduledMessageDao scheduledMessageDao();
     public abstract StatusDao           statusDao();
@@ -907,6 +910,40 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /**
+     * v60 → v61 — durable WhatsApp-style outbox.
+     *
+     * Messages already had an optimistic Room row, but the intent to send,
+     * edit, delete, or upload media was previously only held in memory. This
+     * migration adds retry metadata plus an idempotent operation journal so a
+     * process kill or force-stop cannot strand a message.
+     */
+    static final Migration MIGRATION_60_61 = new Migration(60, 61) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN wireText TEXT");
+            db.execSQL("ALTER TABLE messages ADD COLUMN retryCount INTEGER NOT NULL DEFAULT 0");
+            db.execSQL("ALTER TABLE messages ADD COLUMN nextRetryAt INTEGER NOT NULL DEFAULT 0");
+            db.execSQL("ALTER TABLE messages ADD COLUMN lastError TEXT");
+            db.execSQL("ALTER TABLE messages ADD COLUMN voiceLocalPath TEXT");
+            db.execSQL("CREATE TABLE IF NOT EXISTS outbox_operations (" +
+                    "id TEXT NOT NULL PRIMARY KEY, " +
+                    "chatId TEXT, messageId TEXT, operationType TEXT, payloadJson TEXT, " +
+                    "mediaLocalPath TEXT, mediaResourceType TEXT, mediaFileName TEXT, " +
+                    "isGroup INTEGER, state TEXT NOT NULL DEFAULT 'pending', " +
+                    "attemptCount INTEGER NOT NULL DEFAULT 0, " +
+                    "nextAttemptAt INTEGER NOT NULL DEFAULT 0, " +
+                    "createdAt INTEGER NOT NULL DEFAULT 0, " +
+                    "updatedAt INTEGER NOT NULL DEFAULT 0, lastError TEXT)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_outbox_operations_state_nextAttemptAt " +
+                    "ON outbox_operations (state, nextAttemptAt)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_outbox_operations_chatId_messageId " +
+                    "ON outbox_operations (chatId, messageId)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_outbox_operations_messageId_operationType " +
+                    "ON outbox_operations (messageId, operationType)");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -969,7 +1006,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_52_53, MIGRATION_53_54,
                                     MIGRATION_54_55, MIGRATION_55_56,
                                     MIGRATION_56_57, MIGRATION_57_58,
-                                    MIGRATION_58_59, MIGRATION_59_60)
+                                    MIGRATION_58_59, MIGRATION_59_60,
+                                    MIGRATION_60_61)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)
