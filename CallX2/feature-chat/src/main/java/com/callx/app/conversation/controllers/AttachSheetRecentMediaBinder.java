@@ -54,6 +54,17 @@ public final class AttachSheetRecentMediaBinder {
 
     private static final int RECENT_MEDIA_LIMIT = 60;
     private static final int GRID_PAGE_SIZE = 60;
+    // ★ FIX (same class of bug as reel share sheet): recents_grid's XML
+    // height is a HARDCODED 560dp regardless of how many actual photos/videos
+    // exist. If the device has very few (or the folder picked has very few),
+    // the grid still forces 560dp of space — mostly empty white area below
+    // the last real row — pushing the sheet's STATE_EXPANDED height (and
+    // thus how far up it climbs) far beyond what the actual content needs.
+    // GRID_MAX_HEIGHT_DP is the CEILING (unchanged default), but the grid's
+    // actual height is now clamped to real content via
+    // adjustGridHeightForItemCount() — same computeGridContentHeightPx()-style
+    // fix already applied to ReelShareSheetFragment.
+    private static final int GRID_MAX_HEIGHT_DP = 560;
     // Fraction of the sheet's collapsed→expanded drag distance over which the
     // icon grid fades out and the "Recents" header fades in. Kept short
     // (first 35% of the drag) so the crossfade finishes well before the user
@@ -63,6 +74,24 @@ public final class AttachSheetRecentMediaBinder {
     // one full row (1.0) plus half of the next row peeking out, matching the
     // reference screenshot exactly.
     private static final float PEEK_GRID_ROWS = 1.5f;
+
+    /**
+     * ★ FIX: clamps `grid`'s height to what the CURRENT item count actually
+     * needs (rows × cellPx), capped at GRID_MAX_HEIGHT_DP — never forces
+     * more space than there is content for. Safe to call repeatedly (first
+     * page load, every paged-in append, folder switch); a no-op if the
+     * computed height hasn't changed since last call.
+     */
+    private static void adjustGridHeightForItemCount(RecyclerView grid, int itemCount, int cellPx, int maxHeightPx) {
+        int rows = Math.max(1, (itemCount + 3) / 4); // 4-column grid, round up
+        int contentPx = rows * cellPx;
+        int targetPx = Math.min(maxHeightPx, contentPx);
+        ViewGroup.LayoutParams lp = grid.getLayoutParams();
+        if (lp.height != targetPx) {
+            lp.height = targetPx;
+            grid.setLayoutParams(lp);
+        }
+    }
 
     public interface Callbacks {
         void onCameraTapped();
@@ -190,6 +219,7 @@ public final class AttachSheetRecentMediaBinder {
 
         DisplayMetrics dm = activity.getResources().getDisplayMetrics();
         int cellPx = dm.widthPixels / 4;
+        final int gridMaxHeightPx = Math.round(dpToPx(activity, GRID_MAX_HEIGHT_DP));
 
         // --- Overshoot fix -------------------------------------------------
         // Root cause: this sheet's content (top_content + the 560dp Recents
@@ -256,6 +286,13 @@ public final class AttachSheetRecentMediaBinder {
                 activity, gridListener, cameraListener, selection, cellPx);
         grid.setLayoutManager(new GridLayoutManager(activity, 4));
         grid.setAdapter(gridAdapter);
+        // ★ FIX: clamp immediately off the adapter's initial state too —
+        // covers the no-media-permission case (grid never gets a submit()
+        // call at all, so without this it would sit at the old hardcoded
+        // 560dp showing just a camera tile in a sea of empty space) and
+        // avoids a brief 560dp→shrink flash before the async first page
+        // load above returns.
+        adjustGridHeightForItemCount(grid, gridAdapter.getItemCount(), cellPx, gridMaxHeightPx);
         grid.setHasFixedSize(true);
         grid.setItemViewCacheSize(16);
         if (grid.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator) {
@@ -352,6 +389,10 @@ public final class AttachSheetRecentMediaBinder {
                             if (submittedUriStrings.add(item.uri.toString())) deduped.add(item);
                         }
                         finalGridAdapter.submit(deduped);
+                        // ★ FIX: clamp grid height to what this page's item
+                        // count actually needs — getItemCount() already
+                        // accounts for the camera-tile offset internally.
+                        adjustGridHeightForItemCount(grid, finalGridAdapter.getItemCount(), cellPx, gridMaxHeightPx);
                         grid.scrollToPosition(0);
                         if (recentsEmpty != null) recentsEmpty.setVisibility(deduped.isEmpty() ? View.VISIBLE : View.GONE);
                         if (items.size() < RECENT_MEDIA_LIMIT) noMorePages[0] = true;
@@ -392,6 +433,13 @@ public final class AttachSheetRecentMediaBinder {
                                         if (submittedUriStrings.add(item.uri.toString())) deduped.add(item);
                                     }
                                     if (!deduped.isEmpty()) finalGridAdapter.append(deduped);
+                                    // ★ FIX: re-clamp as more pages load in —
+                                    // grows the grid's height to match the
+                                    // NEW total (still capped at gridMaxHeightPx).
+                                    // getItemCount() (not getLoadedCount()) —
+                                    // includes the +1 camera-tile offset, same
+                                    // basis the other two call sites use.
+                                    adjustGridHeightForItemCount(grid, finalGridAdapter.getItemCount(), cellPx, gridMaxHeightPx);
                                     if (more.size() < GRID_PAGE_SIZE) noMorePages[0] = true;
                                 }
                             });
