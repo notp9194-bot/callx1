@@ -13,10 +13,7 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.EditText;
-import android.widget.ImageView;
 import android.widget.ProgressBar;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
@@ -30,8 +27,10 @@ import java.io.FileOutputStream;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import android.view.ViewTreeObserver;
+import android.util.TypedValue;
 
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 import android.widget.FrameLayout;
@@ -52,9 +51,7 @@ import com.callx.app.utils.Constants;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -92,18 +89,24 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
     // ── Views ──────────────────────────────────────────────────────────────
     private RecyclerView rvContacts;
     private ProgressBar  progressBar;
-    private ImageView    ivPreview;
-    private TextView     tvPreviewOwner, tvPreviewCaption, tvSelectedCount;
-    private EditText     etSearch;
-    private View         selectionBar, btnSendSelected;
     private View         btnCopyLink, btnShareExternal;
     private View         btnAddToStory, btnShareToStatus, btnRepostWithCaption;
+
+    // ★ Horizontal action-icon row (Copy Link / Share via / Story / Status / Repost).
+    // Height + alpha is driven live off BottomSheetBehavior's slide offset — see
+    // updateButtonRowForSlide() — so it smoothly shrinks away as the user drags the
+    // sheet up, handing that freed space to the avatar grid above it.
+    private View  llButtonRow;
+    private int   buttonRowOriginalHeightPx = -1;
+    // Row is fully hidden once the sheet has expanded this fraction of the way
+    // from peek (0f) to fully-expanded (1f) — kept small so it disappears early,
+    // well before the grid finishes growing.
+    private static final float BUTTON_ROW_HIDE_FRACTION = 0.35f;
+    private static final int   CONTACT_GRID_SPAN_COUNT   = 3;
 
     // ── Data ───────────────────────────────────────────────────────────────
     private ReelContactShareAdapter adapter;
     private final List<User>        contacts = new ArrayList<>();
-    private final List<User>        allContacts = new ArrayList<>();
-    private final Map<String, User> selectedContacts = new LinkedHashMap<>();
 
     private String  reelId;
     private String  videoUrl;
@@ -172,11 +175,66 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         if (bs == null) return;
         BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(bs);
         behavior.setHideable(true);
-        behavior.setSkipCollapsed(true);
-        behavior.setFitToContents(true);
+        // ★ UPGRADE: skipCollapsed ab false — peek/collapsed state hi wo initial view hai
+        // jisme thode avatars + button row dikhte hain (screenshot 1). fitToContents(false)
+        // isliye taaki root view (jo XML me match_parent hai) hamesha FULL sheet height
+        // (screen - expandedOffset) pe layout ho — peek me sirf uska upar wala hissa clip
+        // hoke dikhta hai, aur upar kheenchne par baaki reveal hota hai (screenshot 2).
+        behavior.setSkipCollapsed(false);
+        behavior.setFitToContents(false);
         behavior.setDraggable(true);
-        behavior.setHalfExpandedRatio(0.5f);
-        behavior.setExpandedOffset(0);
+        behavior.setExpandedOffset(dp(24));
+        behavior.setPeekHeight(dp(430));
+
+        behavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
+            @Override
+            public void onStateChanged(@NonNull View bottomSheet, int newState) {
+                // Drag chhod dene ke baad final state pe row ko exact 0 ya 1 pe snap
+                // kar dete hain, taaki chhoti si beech-adhoori state na ruk jaye.
+                if (newState == BottomSheetBehavior.STATE_EXPANDED) {
+                    updateButtonRowForSlide(1f);
+                } else if (newState == BottomSheetBehavior.STATE_COLLAPSED) {
+                    updateButtonRowForSlide(0f);
+                }
+            }
+
+            @Override
+            public void onSlide(@NonNull View bottomSheet, float slideOffset) {
+                // fitToContents(false) ke saath slideOffset peek(0) se expanded(1) tak
+                // jaata hai; hidden ki taraf jaane par negative bhi ho sakta hai — us
+                // hisse me row ko poora visible hi rakhte hain.
+                updateButtonRowForSlide(Math.max(0f, slideOffset));
+            }
+        });
+    }
+
+    /**
+     * ★ Button-row shrink/reveal animation, live-tied to the sheet's drag position.
+     * progress 0f = fully visible (peek state) → 1f = fully collapsed away (expanded state).
+     * Directly mutating the row's own LayoutParams.height (rather than the RecyclerView's)
+     * is what makes the grid above it grow: it sits in a weight=1 slot in the same
+     * LinearLayout, so any height the row gives up is automatically claimed by the grid
+     * on the very next layout pass — no manual recycler resizing needed.
+     */
+    private void updateButtonRowForSlide(float rawProgress) {
+        if (llButtonRow == null) return;
+        if (buttonRowOriginalHeightPx <= 0) return; // not measured yet
+
+        float progress = Math.min(1f, rawProgress / BUTTON_ROW_HIDE_FRACTION);
+        int newHeight = Math.round(buttonRowOriginalHeightPx * (1f - progress));
+
+        ViewGroup.LayoutParams lp = llButtonRow.getLayoutParams();
+        if (lp.height != newHeight) {
+            lp.height = newHeight;
+            llButtonRow.setLayoutParams(lp);
+        }
+        llButtonRow.setAlpha(1f - progress);
+        llButtonRow.setVisibility(newHeight <= 0 ? View.GONE : View.VISIBLE);
+    }
+
+    private int dp(int value) {
+        return (int) TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP, value, getResources().getDisplayMetrics());
     }
 
     @Nullable
@@ -193,58 +251,36 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
 
         rvContacts           = view.findViewById(R.id.rv_share_contacts);
         progressBar          = view.findViewById(R.id.progress_share);
-        ivPreview            = view.findViewById(R.id.iv_share_preview);
-        tvPreviewOwner       = view.findViewById(R.id.tv_share_preview_owner);
-        tvPreviewCaption     = view.findViewById(R.id.tv_share_preview_caption);
-        etSearch             = view.findViewById(R.id.et_share_search);
-        selectionBar         = view.findViewById(R.id.share_selection_bar);
-        tvSelectedCount      = view.findViewById(R.id.tv_share_selected_count);
-        btnSendSelected      = view.findViewById(R.id.btn_send_selected);
         btnCopyLink          = view.findViewById(R.id.btn_copy_link);
         btnShareExternal     = view.findViewById(R.id.btn_share_external);
         btnAddToStory        = view.findViewById(R.id.btn_add_to_story);
         btnShareToStatus     = view.findViewById(R.id.btn_share_to_status);
         btnRepostWithCaption = view.findViewById(R.id.btn_repost_with_caption);
+        llButtonRow          = view.findViewById(R.id.ll_share_button_row);
 
         // Close button
         View btnClose = view.findViewById(R.id.btn_share_close);
         if (btnClose != null) btnClose.setOnClickListener(v -> dismiss());
 
-        // RecyclerView
+        // ★ UPGRADE: horizontal row → GRID (Instagram-style, 3 avatars per row).
         adapter = new ReelContactShareAdapter(contacts, this);
-        rvContacts.setLayoutManager(
-            new LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false));
-        rvContacts.setNestedScrollingEnabled(false);
+        rvContacts.setLayoutManager(new GridLayoutManager(requireContext(), CONTACT_GRID_SPAN_COUNT));
         rvContacts.setAdapter(adapter);
 
-        // Instagram-style context preview: show the reel being shared before
-        // the recipient picker, so a multi-select send never feels ambiguous.
-        if (tvPreviewOwner != null) {
-            String displayOwner = ownerUsername != null ? ownerUsername.trim() : "";
-            tvPreviewOwner.setText(displayOwner.isEmpty() ? "Reel"
-                    : (displayOwner.startsWith("@") ? displayOwner : "@" + displayOwner));
+        // ★ Capture the button row's natural (XML-defined) height once it's actually
+        // measured, then start it fully visible (progress 0 == peek state default).
+        if (llButtonRow != null) {
+            llButtonRow.getViewTreeObserver().addOnGlobalLayoutListener(
+                new ViewTreeObserver.OnGlobalLayoutListener() {
+                    @Override
+                    public void onGlobalLayout() {
+                        if (buttonRowOriginalHeightPx <= 0 && llButtonRow.getHeight() > 0) {
+                            buttonRowOriginalHeightPx = llButtonRow.getHeight();
+                            llButtonRow.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                        }
+                    }
+                });
         }
-        if (tvPreviewCaption != null) {
-            String preview = caption != null ? caption.trim() : "";
-            tvPreviewCaption.setText(preview.isEmpty()
-                    ? "Share this reel with friends" : preview);
-        }
-        if (ivPreview != null && thumbUrl != null && !thumbUrl.isEmpty()) {
-            Glide.with(this).load(thumbUrl).centerCrop()
-                    .placeholder(R.drawable.ic_reels)
-                    .into(ivPreview);
-        }
-
-        if (etSearch != null) {
-            etSearch.addTextChangedListener(new android.text.TextWatcher() {
-                @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-                @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                    filterContacts(s != null ? s.toString() : "");
-                }
-                @Override public void afterTextChanged(android.text.Editable s) {}
-            });
-        }
-        if (btnSendSelected != null) btnSendSelected.setOnClickListener(v -> sendSelectedContacts());
 
         // Buttons
         btnCopyLink.setOnClickListener(v -> copyLink());
@@ -261,6 +297,29 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         if (btnRepostWithCaption != null)
             btnRepostWithCaption.setOnClickListener(v -> openRepostWithCaption());
 
+        // ★ UPGRADE: velocity-based prefetch — same pattern FollowConnectionsActivity
+        // uses for FollowAvatarBinder (fast fling skips prefetch, slow/deliberate
+        // scroll warms rows ahead via DiskCacheStrategy.DATA). GridLayoutManager
+        // extends LinearLayoutManager so findLastVisibleItemPosition() works as-is.
+        rvContacts.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private long lastTimeMs = 0L;
+
+            @Override public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                GridLayoutManager lm = (GridLayoutManager) recyclerView.getLayoutManager();
+                if (lm == null) return;
+                int lastVisible = lm.findLastVisibleItemPosition();
+                if (lastVisible < 0) return;
+
+                long now = android.os.SystemClock.elapsedRealtime();
+                long dt = lastTimeMs == 0L ? 0L : (now - lastTimeMs);
+                float velocity = (dt > 0) ? Math.abs(dy) / (float) dt : 0f;
+                lastTimeMs = now;
+
+                com.callx.app.followers.FollowAvatarBinder.prefetch(
+                    requireContext(), adapter.avatarSource(), lastVisible + 1, velocity);
+            }
+        });
+
         loadContacts();
     }
 
@@ -272,15 +331,18 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     contacts.clear();
-                    allContacts.clear();
                     for (DataSnapshot child : snap.getChildren()) {
                         User u = child.getValue(User.class);
                         if (u != null) {
                             if (u.uid == null) u.uid = child.getKey();
-                            allContacts.add(u);
+                            contacts.add(u);
                         }
                     }
-                    filterContacts(etSearch != null ? etSearch.getText().toString() : "");
+                    // ★ ULTRA-OPTIMIZED: online/offline snapshot computed ONCE here
+                    // (single `now` timestamp for the whole batch), never inside
+                    // onBindViewHolder — see ReelContactShareAdapter's class doc.
+                    if (adapter != null) adapter.refreshOnlineSnapshot();
+                    if (adapter != null) adapter.notifyDataSetChanged();
                     progressBar.setVisibility(View.GONE);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError error) {
@@ -290,69 +352,12 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
     }
 
     // ── Share actions ──────────────────────────────────────────────────────
-    private void filterContacts(String query) {
-        String q = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
-        contacts.clear();
-        for (User u : allContacts) {
-            String name = u != null && u.name != null ? u.name.toLowerCase(Locale.ROOT) : "";
-            String uid = u != null && u.uid != null ? u.uid.toLowerCase(Locale.ROOT) : "";
-            if (q.isEmpty() || name.contains(q) || uid.contains(q)) contacts.add(u);
-        }
-        if (adapter != null) adapter.notifyDataSetChanged();
-    }
-
-    private void updateSelectionBar() {
-        int count = selectedContacts.size();
-        if (selectionBar != null) selectionBar.setVisibility(count > 0 ? View.VISIBLE : View.GONE);
-        if (tvSelectedCount != null) {
-            tvSelectedCount.setText(count == 1 ? "1 person selected" : count + " people selected");
-        }
-    }
-
     @Override
-    public boolean supportsMultiSelect() {
-        return true;
-    }
-
-    @Override
-    public boolean isContactSelected(String uid) {
-        return uid != null && selectedContacts.containsKey(uid);
-    }
-
-    @Override
-    public void onContactSelectionChanged(User contact) {
-        if (contact == null || contact.uid == null) return;
-        if (selectedContacts.containsKey(contact.uid)) selectedContacts.remove(contact.uid);
-        else selectedContacts.put(contact.uid, contact);
-        updateSelectionBar();
-    }
-
-    private void sendSelectedContacts() {
-        if (selectedContacts.isEmpty()) return;
+    public void onShareToContact(User contact) {
+        if (contact.uid == null) return;
         if (!allowRepost) {
             toast("This creator has disabled sharing of this reel.");
             return;
-        }
-        int sent = 0;
-        for (User contact : new ArrayList<>(selectedContacts.values())) {
-            if (sendToContact(contact)) sent++;
-        }
-        if (sent > 0) {
-            toast(sent == 1 ? "Reel sent" : "Reel sent to " + sent + " people");
-            dismiss();
-        }
-    }
-
-    @Override
-    public void onShareToContact(User contact) {
-        if (sendToContact(contact)) dismiss();
-    }
-
-    private boolean sendToContact(User contact) {
-        if (contact == null || contact.uid == null) return false;
-        if (!allowRepost) {
-            toast("This creator has disabled sharing of this reel.");
-            return false;
         }
         String chatId = FirebaseUtils.getChatId(myUid, contact.uid);
         String link   = DEEP_LINK_PREFIX + reelId;
@@ -392,7 +397,8 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         });
 
         incrementShareCount();
-        return true;
+        toast("Shared with " + contact.name);
+        dismiss();
     }
 
     private void copyLink() {

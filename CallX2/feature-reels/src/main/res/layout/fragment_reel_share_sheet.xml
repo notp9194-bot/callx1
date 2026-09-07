@@ -4,19 +4,21 @@
     BottomSheetDialogFragment ka layout — CoordinatorLayout aur backdrop hata diye.
     Material ka BottomSheetDialog apna backdrop/dim/animation khud handle karta hai.
 -->
-<ScrollView
+<!--
+    ★ UPGRADE: root ab match_parent hai (pehle wrap_content tha).
+    BottomSheetBehavior ko fitToContents(false) diya gaya hai (ReelShareSheetFragment#onStart),
+    isliye ye view hamesha FULL available sheet height pe layout hoti hai — chahe sheet abhi
+    peek (collapsed) state me ho ya fully expanded. Peek state me sirf upar ka hissa dikhta hai
+    (system clip), aur jaise-jaise user upar khींchta hai, neeche ka avatar-grid hissa reveal
+    hota hai — isi se "sheet upar kro to zyada avatar dikhe" wala effect milta hai bina kisi
+    extra reload/relayout ke.
+-->
+<LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:background="?attr/colorSurface"
-    android:fillViewport="true"
-    android:overScrollMode="never">
-
-<LinearLayout
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
+    android:layout_height="match_parent"
     android:orientation="vertical"
-    android:paddingBottom="24dp">
+    android:paddingBottom="12dp">
 
     <!-- Drag Handle -->
     <View
@@ -26,55 +28,6 @@
         android:layout_marginTop="10dp"
         android:layout_marginBottom="12dp"
         android:background="@color/divider"/>
-
-    <!-- Reel preview — the recipient always knows exactly what is being shared. -->
-    <LinearLayout
-        android:id="@+id/share_preview_card"
-        android:layout_width="match_parent"
-        android:layout_height="72dp"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="10dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:padding="8dp"
-        android:background="@drawable/bg_reel_share_preview">
-
-        <ImageView
-            android:id="@+id/iv_share_preview"
-            android:layout_width="48dp"
-            android:layout_height="56dp"
-            android:scaleType="centerCrop"
-            android:src="@drawable/ic_reels"/>
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="12dp"
-            android:orientation="vertical">
-            <TextView
-                android:id="@+id/tv_share_preview_owner"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Reel"
-                android:textSize="13sp"
-                android:fontFamily="sans-serif-medium"
-                android:textColor="?attr/colorOnSurface"
-                android:maxLines="1"
-                android:ellipsize="end"/>
-            <TextView
-                android:id="@+id/tv_share_preview_caption"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="Share this reel with friends"
-                android:textSize="12sp"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:maxLines="2"
-                android:ellipsize="end"/>
-        </LinearLayout>
-    </LinearLayout>
 
     <!-- Header -->
     <LinearLayout
@@ -114,26 +67,6 @@
         android:paddingStart="16dp"
         android:layout_marginBottom="8dp"/>
 
-    <EditText
-        android:id="@+id/et_share_search"
-        android:layout_width="match_parent"
-        android:layout_height="44dp"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="8dp"
-        android:background="@drawable/bg_reel_share_search"
-        android:drawableStart="@drawable/ic_search"
-        android:drawableTint="?attr/colorOnSurfaceVariant"
-        android:drawablePadding="10dp"
-        android:hint="Search people"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:singleLine="true"
-        android:textSize="14sp"
-        android:textColor="?attr/colorOnSurface"
-        android:textColorHint="?attr/colorOnSurfaceVariant"
-        android:inputType="text"/>
-
     <ProgressBar
         android:id="@+id/progress_share"
         android:layout_width="wrap_content"
@@ -141,279 +74,163 @@
         android:layout_marginStart="16dp"
         android:visibility="visible"/>
 
+    <!--
+        ★ UPGRADE: ab GRID hai (pehle single horizontal row tha).
+        layout_height="0dp" + layout_weight="1" => baaki saari bachi hui vertical space
+        ye RecyclerView le leta hai, jisse sheet jitni upar khinchi jaye utne hi zyada
+        avatar-rows dikhte jaate hain (screenshot-2 wala effect).
+        GridLayoutManager(spanCount=3) Java (onViewCreated) me set hota hai.
+    -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rv_share_contacts"
         android:layout_width="match_parent"
-        android:layout_height="90dp"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:clipToPadding="false"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:layout_marginBottom="8dp"/>
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="4dp"/>
 
-    <LinearLayout
-        android:id="@+id/share_selection_bar"
+    <View
         android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="8dp"
-        android:gravity="center_vertical"
+        android:layout_height="1dp"
+        android:background="@color/divider"/>
+
+    <!--
+        ★ UPGRADE: saare action buttons (Copy Link / Share via / Add to Story /
+        Add to Status / Repost) ab ek hi HORIZONTAL row me icon-buttons ki tarah hain
+        (IG/WhatsApp share-sheet jaisa), pehle vertical list tha.
+
+        Ye poori row ReelShareSheetFragment#onSlide me PROGRAMMATICALLY animate hoti hai:
+        jaise-jaise sheet upar (expand) hoti hai, iski height + alpha dono smoothly 0
+        tak shrink ho jaate hain — taaki freed-up space upar wale RecyclerView (weight=1)
+        ko mil jaye aur zyada avatars dikh sakein. Sheet wapas peek/collapsed hone par
+        ye row phir se smoothly reveal ho jaati hai. IDs same rakhe hain purane click
+        listeners ke saath compatible rehne ke liye.
+    -->
+    <LinearLayout
+        android:id="@+id/ll_share_button_row"
+        android:layout_width="match_parent"
+        android:layout_height="92dp"
         android:orientation="horizontal"
-        android:visibility="gone">
-        <TextView
-            android:id="@+id/tv_share_selected_count"
+        android:weightSum="5"
+        android:paddingTop="10dp"
+        android:paddingBottom="6dp">
+
+        <!-- Copy Link -->
+        <LinearLayout
+            android:id="@+id/btn_copy_link"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:layout_weight="1"
-            android:text="0 selected"
-            android:textSize="13sp"
-            android:textColor="?attr/colorOnSurfaceVariant"/>
-        <TextView
-            android:id="@+id/btn_send_selected"
-            android:layout_width="wrap_content"
-            android:layout_height="40dp"
+            android:orientation="vertical"
             android:gravity="center"
-            android:paddingStart="20dp"
-            android:paddingEnd="20dp"
-            android:text="Send"
-            android:textSize="14sp"
-            android:fontFamily="sans-serif-bold"
-            android:textColor="#07120B"
-            android:background="@drawable/bg_reel_share_send"/>
-    </LinearLayout>
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="@color/divider"
-        android:layout_marginVertical="4dp"/>
-
-    <!-- Copy Link -->
-    <LinearLayout
-        android:id="@+id/btn_copy_link"
-        android:layout_width="match_parent"
-        android:layout_height="52dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:background="?attr/selectableItemBackground">
-        <ImageView android:layout_width="24dp" android:layout_height="24dp"
-            android:src="@drawable/ic_share_reel"
-            android:tint="#00F260"/>
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:layout_marginStart="16dp" android:text="Copy Link"
-            android:textSize="15sp" android:textColor="?attr/colorOnSurface"/>
-    </LinearLayout>
-
-    <!-- Share via -->
-    <LinearLayout
-        android:id="@+id/btn_share_external"
-        android:layout_width="match_parent"
-        android:layout_height="52dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:background="?attr/selectableItemBackground">
-        <ImageView android:layout_width="24dp" android:layout_height="24dp"
-            android:src="@drawable/ic_send"
-            android:tint="#00C6FF"/>
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:layout_marginStart="16dp" android:text="Share via..."
-            android:textSize="15sp" android:textColor="?attr/colorOnSurface"/>
-    </LinearLayout>
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="@color/divider"
-        android:layout_marginVertical="4dp"/>
-
-    <!-- ───────────── SYSTEM OPTIONS SECTION ───────────── -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="ADD TO"
-        android:textSize="11sp"
-        android:textColor="?attr/colorOnSurfaceVariant"
-        android:fontFamily="sans-serif-medium"
-        android:letterSpacing="0.08"
-        android:paddingStart="16dp"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp"/>
-
-    <!-- ★ Add to Story (Instagram-style gradient story in Reels home) -->
-    <LinearLayout
-        android:id="@+id/btn_add_to_story"
-        android:layout_width="match_parent"
-        android:layout_height="60dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:background="?attr/selectableItemBackground">
-
-        <!-- Gradient ring icon background -->
-        <FrameLayout
-            android:layout_width="40dp"
-            android:layout_height="40dp">
-            <ImageView
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:src="@drawable/gradient_story_ring"
-                android:layout_gravity="center"/>
-            <ImageView
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_gravity="center"
-                android:src="@drawable/ic_sparkle"
-                android:tint="#FFFFFF"/>
-        </FrameLayout>
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:layout_marginStart="14dp">
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Add to Story"
-                android:textSize="15sp"
-                android:textColor="?attr/colorOnSurface"
-                android:fontFamily="sans-serif-medium"/>
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Appears with gradient ring in Reels home"
-                android:textSize="12sp"
-                android:textColor="?attr/colorOnSurfaceVariant"/>
+            android:background="?attr/selectableItemBackgroundBorderless">
+            <FrameLayout android:layout_width="48dp" android:layout_height="48dp">
+                <View android:layout_width="48dp" android:layout_height="48dp"
+                    android:background="@drawable/bg_share_icon_circle"/>
+                <ImageView android:layout_width="22dp" android:layout_height="22dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_share_reel"
+                    android:tint="#00F260"/>
+            </FrameLayout>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="6dp" android:text="Copy Link"
+                android:textSize="11sp" android:maxLines="1" android:ellipsize="end"
+                android:textColor="?attr/colorOnSurface"/>
         </LinearLayout>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="24h"
-            android:textSize="10sp"
-            android:textColor="#FFFFFF"
-            android:background="@drawable/bg_pin_badge"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"/>
-    </LinearLayout>
-
-    <!-- ★ Add to Status (WhatsApp-style — visible in Status tab) -->
-    <LinearLayout
-        android:id="@+id/btn_share_to_status"
-        android:layout_width="match_parent"
-        android:layout_height="60dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:background="?attr/selectableItemBackground">
-
-        <FrameLayout
-            android:layout_width="40dp"
-            android:layout_height="40dp">
-            <ImageView
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:src="@drawable/ic_status_notification"
-                android:tint="?attr/colorOnSurface"/>
-        </FrameLayout>
-
+        <!-- Share via -->
         <LinearLayout
+            android:id="@+id/btn_share_external"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:layout_weight="1"
             android:orientation="vertical"
-            android:layout_marginStart="14dp">
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Add to Status"
-                android:textSize="15sp"
-                android:textColor="?attr/colorOnSurface"
-                android:fontFamily="sans-serif-medium"/>
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Appears in your Status tab for contacts"
-                android:textSize="12sp"
-                android:textColor="?attr/colorOnSurfaceVariant"/>
+            android:gravity="center"
+            android:background="?attr/selectableItemBackgroundBorderless">
+            <FrameLayout android:layout_width="48dp" android:layout_height="48dp">
+                <View android:layout_width="48dp" android:layout_height="48dp"
+                    android:background="@drawable/bg_share_icon_circle"/>
+                <ImageView android:layout_width="22dp" android:layout_height="22dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_send"
+                    android:tint="#00C6FF"/>
+            </FrameLayout>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="6dp" android:text="Share via"
+                android:textSize="11sp" android:maxLines="1" android:ellipsize="end"
+                android:textColor="?attr/colorOnSurface"/>
         </LinearLayout>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="24h"
-            android:textSize="10sp"
-            android:textColor="#FFFFFF"
-            android:background="@drawable/bg_pin_badge"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"/>
-    </LinearLayout>
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="@color/divider"
-        android:layout_marginVertical="4dp"/>
-
-    <!-- Repost with Caption -->
-    <LinearLayout
-        android:id="@+id/btn_repost_with_caption"
-        android:layout_width="match_parent"
-        android:layout_height="52dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:background="?attr/selectableItemBackground">
-        <TextView
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:text="🔁"
-            android:textSize="18sp"
-            android:gravity="center"/>
+        <!-- Add to Story (Instagram-style gradient ring) -->
         <LinearLayout
+            android:id="@+id/btn_add_to_story"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:layout_weight="1"
             android:orientation="vertical"
-            android:layout_marginStart="16dp">
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Repost with Caption"
-                android:textSize="15sp"
-                android:textColor="?attr/colorOnSurface"
-                android:fontFamily="sans-serif-medium"/>
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Add your own words when reposting"
-                android:textSize="12sp"
-                android:textColor="?attr/colorOnSurfaceVariant"/>
+            android:gravity="center"
+            android:background="?attr/selectableItemBackgroundBorderless">
+            <FrameLayout android:layout_width="48dp" android:layout_height="48dp">
+                <ImageView android:layout_width="48dp" android:layout_height="48dp"
+                    android:src="@drawable/gradient_story_ring"/>
+                <ImageView android:layout_width="26dp" android:layout_height="26dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_sparkle"
+                    android:tint="#FFFFFF"/>
+            </FrameLayout>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="6dp" android:text="Story"
+                android:textSize="11sp" android:maxLines="1" android:ellipsize="end"
+                android:textColor="?attr/colorOnSurface"/>
         </LinearLayout>
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="NEW"
-            android:textSize="10sp"
-            android:textColor="#FFFFFF"
-            android:background="#4CAF50"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"/>
+
+        <!-- Add to Status (WhatsApp-style) -->
+        <LinearLayout
+            android:id="@+id/btn_share_to_status"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="?attr/selectableItemBackgroundBorderless">
+            <FrameLayout android:layout_width="48dp" android:layout_height="48dp">
+                <View android:layout_width="48dp" android:layout_height="48dp"
+                    android:background="@drawable/bg_share_icon_circle"/>
+                <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_status_notification"
+                    android:tint="?attr/colorOnSurface"/>
+            </FrameLayout>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="6dp" android:text="Status"
+                android:textSize="11sp" android:maxLines="1" android:ellipsize="end"
+                android:textColor="?attr/colorOnSurface"/>
+        </LinearLayout>
+
+        <!-- Repost with Caption -->
+        <LinearLayout
+            android:id="@+id/btn_repost_with_caption"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="?attr/selectableItemBackgroundBorderless">
+            <FrameLayout android:layout_width="48dp" android:layout_height="48dp">
+                <View android:layout_width="48dp" android:layout_height="48dp"
+                    android:background="@drawable/bg_share_icon_circle"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="🔁" android:textSize="19sp"/>
+            </FrameLayout>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="6dp" android:text="Repost"
+                android:textSize="11sp" android:maxLines="1" android:ellipsize="end"
+                android:textColor="?attr/colorOnSurface"/>
+        </LinearLayout>
+
     </LinearLayout>
 
 </LinearLayout>
-</ScrollView>
