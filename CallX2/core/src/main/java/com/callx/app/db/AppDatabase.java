@@ -930,11 +930,11 @@ public abstract class AppDatabase extends RoomDatabase {
                     "id TEXT NOT NULL PRIMARY KEY, " +
                     "chatId TEXT, messageId TEXT, operationType TEXT, payloadJson TEXT, " +
                     "mediaLocalPath TEXT, mediaResourceType TEXT, mediaFileName TEXT, " +
-                    "isGroup INTEGER, state TEXT NOT NULL DEFAULT 'pending', " +
-                    "attemptCount INTEGER NOT NULL DEFAULT 0, " +
-                    "nextAttemptAt INTEGER NOT NULL DEFAULT 0, " +
-                    "createdAt INTEGER NOT NULL DEFAULT 0, " +
-                    "updatedAt INTEGER NOT NULL DEFAULT 0, lastError TEXT)");
+                    "isGroup INTEGER, state TEXT, " +
+                    "attemptCount INTEGER NOT NULL, " +
+                    "nextAttemptAt INTEGER NOT NULL, " +
+                    "createdAt INTEGER NOT NULL, " +
+                    "updatedAt INTEGER NOT NULL, lastError TEXT)");
             db.execSQL("CREATE INDEX IF NOT EXISTS index_outbox_operations_state_nextAttemptAt " +
                     "ON outbox_operations (state, nextAttemptAt)");
             db.execSQL("CREATE INDEX IF NOT EXISTS index_outbox_operations_chatId_messageId " +

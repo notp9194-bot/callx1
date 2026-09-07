@@ -1,6 +1,7 @@
 package com.callx.app.db.entity;
 
 import androidx.room.Entity;
+import androidx.room.ColumnInfo;
 import androidx.room.Index;
 import androidx.room.PrimaryKey;
 
@@ -86,7 +87,9 @@ public class MessageEntity {
     /** Encrypted wire copy for durable offline sends. Never shown in the UI. */
     public String wireText;
     /** Local retry metadata; the durable operation itself lives in outbox_operations. */
+    @ColumnInfo(defaultValue = "0")
     public int retryCount;
+    @ColumnInfo(defaultValue = "0")
     public long nextRetryAt;
     public String lastError;
     /** Server timestamps for status transitions — mirrors Message.deliveredAt/readAt
