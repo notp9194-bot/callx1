@@ -5,18 +5,20 @@
     Material ka BottomSheetDialog apna backdrop/dim/animation khud handle karta hai.
 -->
 <!--
-    ★ UPGRADE: root ab match_parent hai (pehle wrap_content tha).
-    BottomSheetBehavior ko fitToContents(false) diya gaya hai (ReelShareSheetFragment#onStart),
-    isliye ye view hamesha FULL available sheet height pe layout hoti hai — chahe sheet abhi
-    peek (collapsed) state me ho ya fully expanded. Peek state me sirf upar ka hissa dikhta hai
-    (system clip), aur jaise-jaise user upar khींchta hai, neeche ka avatar-grid hissa reveal
-    hota hai — isi se "sheet upar kro to zyada avatar dikhe" wala effect milta hai bina kisi
-    extra reload/relayout ke.
+    ★ FIX: root ab WRAP_CONTENT hai (match_parent + weight=1 RecyclerView wala
+    approach ek real bug tha — us se content ki total height ~screen-height
+    jitni ban jaati thi, aur button row (last child) us tall content ke bottom
+    pe chala jaata tha, jo collapsed/peek window (jo hamesha content ka UPAR ka
+    hissa dikhata hai) ke bahar clip ho jaata tha — button row kabhi dikhta hi
+    nahi tha. Ab poora content apni natural (chhoti) height me rehta hai, aur
+    grow/shrink ReelShareSheetFragment#animateSheetContent() se explicitly,
+    state-change par (drag khatam hone ke baad) animate hota hai — peek-clip
+    pe depend nahi karta.
 -->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
+    android:layout_height="wrap_content"
     android:orientation="vertical"
     android:paddingBottom="12dp">
 
@@ -75,17 +77,18 @@
         android:visibility="visible"/>
 
     <!--
-        ★ UPGRADE: ab GRID hai (pehle single horizontal row tha).
-        layout_height="0dp" + layout_weight="1" => baaki saari bachi hui vertical space
-        ye RecyclerView le leta hai, jisse sheet jitni upar khinchi jaye utne hi zyada
-        avatar-rows dikhte jaate hain (screenshot-2 wala effect).
+        ★ FIX: ab EXPLICIT fixed height hai (pehle 0dp+weight=1 tha, jo root
+        wrap_content hone ki wajah se 0dp resolve ho jaata — ya match_parent
+        root ke sath poori screen jitna ban jaata, dono hi galat the).
+        230dp collapsed state me ~2 avatar-rows dikhata hai; upar kheenchne pe
+        ReelShareSheetFragment#animateSheetContent() ye height animate karke
+        RV_EXPANDED_MAX_DP tak badhata hai (actual contact count se clamp) — extra rows reveal hote hain.
         GridLayoutManager(spanCount=3) Java (onViewCreated) me set hota hai.
     -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rv_share_contacts"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_height="230dp"
         android:clipToPadding="false"
         android:paddingStart="8dp"
         android:paddingEnd="8dp"
@@ -101,12 +104,11 @@
         Add to Status / Repost) ab ek hi HORIZONTAL row me icon-buttons ki tarah hain
         (IG/WhatsApp share-sheet jaisa), pehle vertical list tha.
 
-        Ye poori row ReelShareSheetFragment#onSlide me PROGRAMMATICALLY animate hoti hai:
-        jaise-jaise sheet upar (expand) hoti hai, iski height + alpha dono smoothly 0
-        tak shrink ho jaate hain — taaki freed-up space upar wale RecyclerView (weight=1)
-        ko mil jaye aur zyada avatars dikh sakein. Sheet wapas peek/collapsed hone par
-        ye row phir se smoothly reveal ho jaati hai. IDs same rakhe hain purane click
-        listeners ke saath compatible rehne ke liye.
+        Ye row ReelShareSheetFragment#animateSheetContent() se smoothly grow/shrink
+        hoti hai jab sheet expand/collapse hoti hai (state-change par animate,
+        upar wale RecyclerView ki height ke saath sync me) — taaki freed-up space
+        RecyclerView ko mil jaye aur zyada avatars dikh sakein. IDs same rakhe hain
+        purane click listeners ke saath compatible rehne ke liye.
     -->
     <LinearLayout
         android:id="@+id/ll_share_button_row"

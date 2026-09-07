@@ -41,7 +41,6 @@ import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.MutableData;
 import com.google.firebase.database.Transaction;
-import com.google.firebase.database.ValueEventListener;
 
 import com.callx.app.reels.R;
 import com.callx.app.social.ReelContactShareAdapter;
@@ -92,17 +91,37 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
     private View         btnCopyLink, btnShareExternal;
     private View         btnAddToStory, btnShareToStatus, btnRepostWithCaption;
 
-    // ★ Horizontal action-icon row (Copy Link / Share via / Story / Status / Repost).
-    // Height + alpha is driven live off BottomSheetBehavior's slide offset — see
-    // updateButtonRowForSlide() — so it smoothly shrinks away as the user drags the
-    // sheet up, handing that freed space to the avatar grid above it.
+    // ★ FIX: pehle "peek clip" pe depend karte the (match_parent root +
+    // weight=1 RecyclerView) — jo asal bug tha (see layout XML comment).
+    // Ab dono views (grid + button row) ke beech height explicitly
+    // ValueAnimator se grow/shrink hoti hai, state-change (drag khatam hone)
+    // par — peek-clip pe koi dependency nahi.
     private View  llButtonRow;
     private int   buttonRowOriginalHeightPx = -1;
-    // Row is fully hidden once the sheet has expanded this fraction of the way
-    // from peek (0f) to fully-expanded (1f) — kept small so it disappears early,
-    // well before the grid finishes growing.
-    private static final float BUTTON_ROW_HIDE_FRACTION = 0.35f;
-    private static final int   CONTACT_GRID_SPAN_COUNT   = 3;
+    private android.animation.ValueAnimator sizeAnimator;
+    private boolean contentExpanded = false;
+    private static final int CONTACT_GRID_SPAN_COUNT = 3;
+    // ★ FIX #2: pehle RV_EXPANDED_DP ek HARDCODED 560dp tha, chahe contacts
+    // kitne bhi hon — kam contacts (e.g. 1-2 rows) ke saath RecyclerView
+    // forcefully 560dp tak khali white space ke saath expand hota tha, jisse
+    // poori sheet zaroorat se bahut upar chali jaati thi (neeche khaali area,
+    // reel peek karti hui). Ab dono collapsed/expanded targets
+    // computeGridContentHeightPx() se ACTUAL contact-count ke hisaab se clamp
+    // hote hain — sirf utni hi height leta hai jitni asal content ko chahiye
+    // (max cap ke andar); zyada contacts hone par cap pe ruk ke andar-hi-andar
+    // scroll karta hai (RecyclerView apna scroll khud handle karta hai).
+    private static final int RV_ROW_HEIGHT_DP     = 92; // ek grid-row ki approx height (avatar+text+padding)
+    private static final int RV_TOP_PADDING_DP    = 4;  // RecyclerView ka apna paddingTop
+    private static final int RV_COLLAPSED_MAX_DP  = 230; // peek me max itni hi height (~2 rows)
+    private static final int RV_EXPANDED_MAX_DP   = 560; // full-expand me max itni hi height (baaki scroll)
+    private static final int SIZE_ANIM_MS         = 260;
+
+    /** Actual content height for the current contact count — n rows worth, no more. */
+    private int computeGridContentHeightPx() {
+        int n = contacts.size();
+        int rows = Math.max(1, (n + CONTACT_GRID_SPAN_COUNT - 1) / CONTACT_GRID_SPAN_COUNT);
+        return dp(RV_TOP_PADDING_DP) + rows * dp(RV_ROW_HEIGHT_DP);
+    }
 
     // ── Data ───────────────────────────────────────────────────────────────
     private ReelContactShareAdapter adapter;
@@ -166,6 +185,16 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
     }
 
 
+    // ★ ULTRA-OPTIMIZED: held as a field + guarded by sheetCallbackAttached so
+    // onStart() — which the DialogFragment lifecycle can invoke more than
+    // once for the same dialog instance (e.g. app backgrounded/foregrounded
+    // while the sheet is open) — never registers a second duplicate
+    // BottomSheetCallback. A duplicate would double-run animateSheetContent()
+    // on every state settle (wasted layout passes + animator churn)
+    // and hold an extra long-lived reference for the dialog's lifetime.
+    private BottomSheetBehavior.BottomSheetCallback sheetCallback;
+    private boolean sheetCallbackAttached = false;
+
     @Override
     public void onStart() {
         super.onStart();
@@ -175,61 +204,110 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         if (bs == null) return;
         BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(bs);
         behavior.setHideable(true);
-        // ★ UPGRADE: skipCollapsed ab false — peek/collapsed state hi wo initial view hai
-        // jisme thode avatars + button row dikhte hain (screenshot 1). fitToContents(false)
-        // isliye taaki root view (jo XML me match_parent hai) hamesha FULL sheet height
-        // (screen - expandedOffset) pe layout ho — peek me sirf uska upar wala hissa clip
-        // hoke dikhta hai, aur upar kheenchne par baaki reveal hota hai (screenshot 2).
+        // ★ FIX: fitToContents ab TRUE hai (false wala approach hi bug tha —
+        // wo view ko hamesha ~poori screen jitna tall force karta tha, jisse
+        // button row content ke bottom pe, peek window ke bahar chala jaata
+        // tha). Root ab wrap_content hai, to peekHeight = content ki natural
+        // (chhoti) height ke barabar set kiya hai — collapsed state me KUCH
+        // clip nahi hota, sab kuch (avatars + button row) as-designed dikhta
+        // hai. Grow/shrink ab animateSheetContent() explicitly karta hai.
         behavior.setSkipCollapsed(false);
-        behavior.setFitToContents(false);
+        behavior.setFitToContents(true);
         behavior.setDraggable(true);
-        behavior.setExpandedOffset(dp(24));
-        behavior.setPeekHeight(dp(430));
+        behavior.setPeekHeight(dp(460));
 
-        behavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
-            @Override
-            public void onStateChanged(@NonNull View bottomSheet, int newState) {
-                // Drag chhod dene ke baad final state pe row ko exact 0 ya 1 pe snap
-                // kar dete hain, taaki chhoti si beech-adhoori state na ruk jaye.
-                if (newState == BottomSheetBehavior.STATE_EXPANDED) {
-                    updateButtonRowForSlide(1f);
-                } else if (newState == BottomSheetBehavior.STATE_COLLAPSED) {
-                    updateButtonRowForSlide(0f);
+        if (!sheetCallbackAttached) {
+            sheetCallback = new BottomSheetBehavior.BottomSheetCallback() {
+                @Override
+                public void onStateChanged(@NonNull View bottomSheet, int newState) {
+                    if (newState == BottomSheetBehavior.STATE_EXPANDED) {
+                        animateSheetContent(true);
+                    } else if (newState == BottomSheetBehavior.STATE_COLLAPSED) {
+                        animateSheetContent(false);
+                    }
                 }
-            }
 
-            @Override
-            public void onSlide(@NonNull View bottomSheet, float slideOffset) {
-                // fitToContents(false) ke saath slideOffset peek(0) se expanded(1) tak
-                // jaata hai; hidden ki taraf jaane par negative bhi ho sakta hai — us
-                // hisse me row ko poora visible hi rakhte hain.
-                updateButtonRowForSlide(Math.max(0f, slideOffset));
-            }
-        });
+                @Override
+                public void onSlide(@NonNull View bottomSheet, float slideOffset) {
+                    // Grow/shrink ab state-settle par animate hota hai (see
+                    // onStateChanged), continuous drag-offset se nahi — isliye
+                    // yahan kuch nahi karna.
+                }
+            };
+            behavior.addBottomSheetCallback(sheetCallback);
+            sheetCallbackAttached = true;
+        }
+    }
+
+    @Override
+    public void onDestroyView() {
+        super.onDestroyView();
+        // Drop the reference once the sheet's view is torn down — nothing
+        // left to animate, and this lets the callback (and anything it
+        // closes over) be collected instead of lingering on a dead fragment.
+        sheetCallback = null;
+        sheetCallbackAttached = false;
+        if (sizeAnimator != null) {
+            sizeAnimator.cancel();
+            sizeAnimator = null;
+        }
     }
 
     /**
-     * ★ Button-row shrink/reveal animation, live-tied to the sheet's drag position.
-     * progress 0f = fully visible (peek state) → 1f = fully collapsed away (expanded state).
-     * Directly mutating the row's own LayoutParams.height (rather than the RecyclerView's)
-     * is what makes the grid above it grow: it sits in a weight=1 slot in the same
-     * LinearLayout, so any height the row gives up is automatically claimed by the grid
-     * on the very next layout pass — no manual recycler resizing needed.
+     * ★ FIX: replaces the old drag-clip-based reveal. Smoothly grows/shrinks
+     * the avatar grid AND the button row together, right after the sheet
+     * settles into STATE_EXPANDED / STATE_COLLAPSED — RecyclerView height
+     * animates {@code RV_COLLAPSED_MAX_DP → RV_EXPANDED_MAX_DP} (clamped by
+     * actual contact count — see computeGridContentHeightPx()), revealing more rows
+     * while the button row's height + alpha animate the opposite way (shrinking
+     * to 0, handing its space to the grid). Both are driven by ONE ValueAnimator
+     * so they move in perfect lockstep and never visually desync.
      */
-    private void updateButtonRowForSlide(float rawProgress) {
-        if (llButtonRow == null) return;
-        if (buttonRowOriginalHeightPx <= 0) return; // not measured yet
+    private void animateSheetContent(boolean expand) {
+        if (expand == contentExpanded) return; // already there — avoid a redundant re-animate
+        contentExpanded = expand;
+        if (rvContacts == null) return;
 
-        float progress = Math.min(1f, rawProgress / BUTTON_ROW_HIDE_FRACTION);
-        int newHeight = Math.round(buttonRowOriginalHeightPx * (1f - progress));
+        if (sizeAnimator != null) sizeAnimator.cancel();
 
-        ViewGroup.LayoutParams lp = llButtonRow.getLayoutParams();
-        if (lp.height != newHeight) {
-            lp.height = newHeight;
-            llButtonRow.setLayoutParams(lp);
+        // ★ FIX: dono targets ab actual content (contacts.size()) se clamp
+        // hote hain — chahe RV_*_MAX_DP kitna bhi bada ho, agar utni content
+        // hi nahi hai to utni height bhi nahi li jaati (no wasted empty space).
+        int contentPx = computeGridContentHeightPx();
+        int rvFrom = rvContacts.getLayoutParams().height;
+        int rvTo   = expand
+            ? Math.min(dp(RV_EXPANDED_MAX_DP), contentPx)
+            : Math.min(dp(RV_COLLAPSED_MAX_DP), contentPx);
+
+        int rowFrom = (llButtonRow != null) ? llButtonRow.getLayoutParams().height : 0;
+        int rowTo;
+        if (buttonRowOriginalHeightPx > 0) {
+            rowTo = expand ? 0 : buttonRowOriginalHeightPx;
+        } else {
+            rowTo = expand ? 0 : rowFrom;
         }
-        llButtonRow.setAlpha(1f - progress);
-        llButtonRow.setVisibility(newHeight <= 0 ? View.GONE : View.VISIBLE);
+
+        android.animation.ValueAnimator va = android.animation.ValueAnimator.ofFloat(0f, 1f);
+        va.setDuration(SIZE_ANIM_MS);
+        va.addUpdateListener(anim -> {
+            float t = (float) anim.getAnimatedValue();
+
+            ViewGroup.LayoutParams rvLp = rvContacts.getLayoutParams();
+            rvLp.height = Math.round(rvFrom + (rvTo - rvFrom) * t);
+            rvContacts.setLayoutParams(rvLp);
+
+            if (llButtonRow != null) {
+                ViewGroup.LayoutParams rowLp = llButtonRow.getLayoutParams();
+                rowLp.height = Math.round(rowFrom + (rowTo - rowFrom) * t);
+                llButtonRow.setLayoutParams(rowLp);
+                float rowMax = buttonRowOriginalHeightPx > 0 ? buttonRowOriginalHeightPx : Math.max(rowFrom, 1);
+                float alpha = rowLp.height / rowMax;
+                llButtonRow.setAlpha(Math.max(0f, Math.min(1f, alpha)));
+                llButtonRow.setVisibility(rowLp.height <= 0 ? View.GONE : View.VISIBLE);
+            }
+        });
+        va.start();
+        sizeAnimator = va;
     }
 
     private int dp(int value) {
@@ -327,28 +405,33 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
     private void loadContacts() {
         if (myUid == null) return;
         progressBar.setVisibility(View.VISIBLE);
-        FirebaseUtils.getContactsRef(myUid)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    contacts.clear();
-                    for (DataSnapshot child : snap.getChildren()) {
-                        User u = child.getValue(User.class);
-                        if (u != null) {
-                            if (u.uid == null) u.uid = child.getKey();
-                            contacts.add(u);
-                        }
-                    }
-                    // ★ ULTRA-OPTIMIZED: online/offline snapshot computed ONCE here
-                    // (single `now` timestamp for the whole batch), never inside
-                    // onBindViewHolder — see ReelContactShareAdapter's class doc.
-                    if (adapter != null) adapter.refreshOnlineSnapshot();
-                    if (adapter != null) adapter.notifyDataSetChanged();
-                    progressBar.setVisibility(View.GONE);
-                }
-                @Override public void onCancelled(@NonNull DatabaseError error) {
-                    progressBar.setVisibility(View.GONE);
-                }
-            });
+        // ★ ULTRA-OPTIMIZED: was a raw FirebaseUtils.getContactsRef(myUid)
+        // full-node read + per-child User deserialization on EVERY single
+        // sheet open. Now routed through ReelShareContactsCache (same
+        // session-scoped TTL pattern as MutualFollowersCache) — a repeat
+        // open within the TTL window costs zero Firebase reads and zero
+        // re-parsing; the grid can paint on the very next frame.
+        com.callx.app.cache.ReelShareContactsCache.getInstance().getContacts(myUid, cachedContacts -> {
+            if (!isAdded()) return;
+            contacts.clear();
+            contacts.addAll(cachedContacts);
+            // Online/offline snapshot is time-sensitive — always recomputed
+            // fresh against "now" on every open, even on a cache hit.
+            if (adapter != null) adapter.refreshOnlineSnapshot();
+            if (adapter != null) adapter.notifyDataSetChanged();
+            progressBar.setVisibility(View.GONE);
+
+            // ★ FIX: initial (pre-drag) height bhi clamp karo — XML ka default
+            // 230dp tab tak reh jaata agar kabhi drag na ho, chahe 2-3 hi
+            // contacts hon. Ab load hote hi actual content ke hisaab se
+            // resize ho jaata hai, taaki peek state se hi koi khaali space
+            // na dikhe.
+            if (rvContacts != null) {
+                ViewGroup.LayoutParams lp = rvContacts.getLayoutParams();
+                lp.height = Math.min(dp(RV_COLLAPSED_MAX_DP), computeGridContentHeightPx());
+                rvContacts.setLayoutParams(lp);
+            }
+        });
     }
 
     // ── Share actions ──────────────────────────────────────────────────────
