@@ -22,6 +22,11 @@ public class ReelContactShareAdapter
 
     public interface OnContactShareListener {
         void onShareToContact(User contact);
+
+        /** Instagram-style share sheets can keep several recipients selected. */
+        default boolean supportsMultiSelect() { return false; }
+        default boolean isContactSelected(String uid) { return false; }
+        default void onContactSelectionChanged(User contact) {}
     }
 
     private final List<User>             contacts;
@@ -58,7 +63,23 @@ public class ReelContactShareAdapter
             h.ivAvatar.setImageResource(R.drawable.ic_person);
         }
 
-        h.itemView.setOnClickListener(v -> listener.onShareToContact(contact));
+        boolean selected = listener.supportsMultiSelect()
+                && listener.isContactSelected(contact.uid);
+        h.itemView.setSelected(selected);
+        h.itemView.setAlpha(selected ? 1f : 0.88f);
+        h.itemView.setScaleX(selected ? 1.04f : 1f);
+        h.itemView.setScaleY(selected ? 1.04f : 1f);
+        h.itemView.setOnClickListener(v -> {
+            if (listener.supportsMultiSelect()) {
+                listener.onContactSelectionChanged(contact);
+                int adapterPosition = h.getBindingAdapterPosition();
+                if (adapterPosition != RecyclerView.NO_POSITION) {
+                    notifyItemChanged(adapterPosition);
+                }
+            } else {
+                listener.onShareToContact(contact);
+            }
+        });
     }
 
     @Override public int getItemCount() { return contacts.size(); }

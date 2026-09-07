@@ -13,7 +13,10 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
@@ -49,7 +52,9 @@ import com.callx.app.utils.Constants;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -87,12 +92,18 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
     // ── Views ──────────────────────────────────────────────────────────────
     private RecyclerView rvContacts;
     private ProgressBar  progressBar;
+    private ImageView    ivPreview;
+    private TextView     tvPreviewOwner, tvPreviewCaption, tvSelectedCount;
+    private EditText     etSearch;
+    private View         selectionBar, btnSendSelected;
     private View         btnCopyLink, btnShareExternal;
     private View         btnAddToStory, btnShareToStatus, btnRepostWithCaption;
 
     // ── Data ───────────────────────────────────────────────────────────────
     private ReelContactShareAdapter adapter;
     private final List<User>        contacts = new ArrayList<>();
+    private final List<User>        allContacts = new ArrayList<>();
+    private final Map<String, User> selectedContacts = new LinkedHashMap<>();
 
     private String  reelId;
     private String  videoUrl;
@@ -182,6 +193,13 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
 
         rvContacts           = view.findViewById(R.id.rv_share_contacts);
         progressBar          = view.findViewById(R.id.progress_share);
+        ivPreview            = view.findViewById(R.id.iv_share_preview);
+        tvPreviewOwner       = view.findViewById(R.id.tv_share_preview_owner);
+        tvPreviewCaption     = view.findViewById(R.id.tv_share_preview_caption);
+        etSearch             = view.findViewById(R.id.et_share_search);
+        selectionBar         = view.findViewById(R.id.share_selection_bar);
+        tvSelectedCount      = view.findViewById(R.id.tv_share_selected_count);
+        btnSendSelected      = view.findViewById(R.id.btn_send_selected);
         btnCopyLink          = view.findViewById(R.id.btn_copy_link);
         btnShareExternal     = view.findViewById(R.id.btn_share_external);
         btnAddToStory        = view.findViewById(R.id.btn_add_to_story);
@@ -196,7 +214,37 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         adapter = new ReelContactShareAdapter(contacts, this);
         rvContacts.setLayoutManager(
             new LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false));
+        rvContacts.setNestedScrollingEnabled(false);
         rvContacts.setAdapter(adapter);
+
+        // Instagram-style context preview: show the reel being shared before
+        // the recipient picker, so a multi-select send never feels ambiguous.
+        if (tvPreviewOwner != null) {
+            String displayOwner = ownerUsername != null ? ownerUsername.trim() : "";
+            tvPreviewOwner.setText(displayOwner.isEmpty() ? "Reel"
+                    : (displayOwner.startsWith("@") ? displayOwner : "@" + displayOwner));
+        }
+        if (tvPreviewCaption != null) {
+            String preview = caption != null ? caption.trim() : "";
+            tvPreviewCaption.setText(preview.isEmpty()
+                    ? "Share this reel with friends" : preview);
+        }
+        if (ivPreview != null && thumbUrl != null && !thumbUrl.isEmpty()) {
+            Glide.with(this).load(thumbUrl).centerCrop()
+                    .placeholder(R.drawable.ic_reels)
+                    .into(ivPreview);
+        }
+
+        if (etSearch != null) {
+            etSearch.addTextChangedListener(new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+                @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                    filterContacts(s != null ? s.toString() : "");
+                }
+                @Override public void afterTextChanged(android.text.Editable s) {}
+            });
+        }
+        if (btnSendSelected != null) btnSendSelected.setOnClickListener(v -> sendSelectedContacts());
 
         // Buttons
         btnCopyLink.setOnClickListener(v -> copyLink());
@@ -224,14 +272,15 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     contacts.clear();
+                    allContacts.clear();
                     for (DataSnapshot child : snap.getChildren()) {
                         User u = child.getValue(User.class);
                         if (u != null) {
                             if (u.uid == null) u.uid = child.getKey();
-                            contacts.add(u);
+                            allContacts.add(u);
                         }
                     }
-                    if (adapter != null) adapter.notifyDataSetChanged();
+                    filterContacts(etSearch != null ? etSearch.getText().toString() : "");
                     progressBar.setVisibility(View.GONE);
                 }
                 @Override public void onCancelled(@NonNull DatabaseError error) {
@@ -241,12 +290,69 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
     }
 
     // ── Share actions ──────────────────────────────────────────────────────
+    private void filterContacts(String query) {
+        String q = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        contacts.clear();
+        for (User u : allContacts) {
+            String name = u != null && u.name != null ? u.name.toLowerCase(Locale.ROOT) : "";
+            String uid = u != null && u.uid != null ? u.uid.toLowerCase(Locale.ROOT) : "";
+            if (q.isEmpty() || name.contains(q) || uid.contains(q)) contacts.add(u);
+        }
+        if (adapter != null) adapter.notifyDataSetChanged();
+    }
+
+    private void updateSelectionBar() {
+        int count = selectedContacts.size();
+        if (selectionBar != null) selectionBar.setVisibility(count > 0 ? View.VISIBLE : View.GONE);
+        if (tvSelectedCount != null) {
+            tvSelectedCount.setText(count == 1 ? "1 person selected" : count + " people selected");
+        }
+    }
+
     @Override
-    public void onShareToContact(User contact) {
-        if (contact.uid == null) return;
+    public boolean supportsMultiSelect() {
+        return true;
+    }
+
+    @Override
+    public boolean isContactSelected(String uid) {
+        return uid != null && selectedContacts.containsKey(uid);
+    }
+
+    @Override
+    public void onContactSelectionChanged(User contact) {
+        if (contact == null || contact.uid == null) return;
+        if (selectedContacts.containsKey(contact.uid)) selectedContacts.remove(contact.uid);
+        else selectedContacts.put(contact.uid, contact);
+        updateSelectionBar();
+    }
+
+    private void sendSelectedContacts() {
+        if (selectedContacts.isEmpty()) return;
         if (!allowRepost) {
             toast("This creator has disabled sharing of this reel.");
             return;
+        }
+        int sent = 0;
+        for (User contact : new ArrayList<>(selectedContacts.values())) {
+            if (sendToContact(contact)) sent++;
+        }
+        if (sent > 0) {
+            toast(sent == 1 ? "Reel sent" : "Reel sent to " + sent + " people");
+            dismiss();
+        }
+    }
+
+    @Override
+    public void onShareToContact(User contact) {
+        if (sendToContact(contact)) dismiss();
+    }
+
+    private boolean sendToContact(User contact) {
+        if (contact == null || contact.uid == null) return false;
+        if (!allowRepost) {
+            toast("This creator has disabled sharing of this reel.");
+            return false;
         }
         String chatId = FirebaseUtils.getChatId(myUid, contact.uid);
         String link   = DEEP_LINK_PREFIX + reelId;
@@ -286,8 +392,7 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         });
 
         incrementShareCount();
-        toast("Shared with " + contact.name);
-        dismiss();
+        return true;
     }
 
     private void copyLink() {
