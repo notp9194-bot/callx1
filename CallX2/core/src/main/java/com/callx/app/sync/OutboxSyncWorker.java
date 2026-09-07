@@ -16,7 +16,7 @@ import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.FirebaseUtils;
 import com.callx.app.utils.MessageEntityMapper;
 import com.google.firebase.database.DatabaseReference;
-import com.google.firebase.database.Task;
+import com.google.android.gms.tasks.Task;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
