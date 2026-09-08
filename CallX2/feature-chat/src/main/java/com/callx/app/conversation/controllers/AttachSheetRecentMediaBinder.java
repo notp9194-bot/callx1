@@ -261,26 +261,30 @@ public final class AttachSheetRecentMediaBinder {
         int cellPx = dm.widthPixels / 4;
         final int gridMaxHeightPx = Math.round(dpToPx(activity, GRID_MAX_HEIGHT_DP));
 
-        // ★ FIX (kills the symptom outright, regardless of root cause): any
-        // height-measurement/timing mismatch between our maxHeight/peekHeight
-        // math above and what CoordinatorLayout actually allocates to the
-        // sheet shows up as the chat screen visibly peeking through the GAP
-        // — because only OUR inflated view (sheetRoot, wrap_content) paints
-        // the rounded card background; the Material-internal container one
-        // level up (design_bottom_sheet, the actual view BottomSheetBehavior
-        // resizes/drags) has none. If that container is ever allocated even
-        // slightly more height than sheetRoot's own measured content — a
-        // stale drag range from a live page-load resize, a pre-layout
-        // maxHeight estimate, etc — the leftover strip is fully transparent
-        // straight through to the dimmed chat behind it. Painting the SAME
-        // rounded card background on that outer container too means that
-        // leftover strip reads as card, never as the screen behind — this
-        // closes the visible gap even if some future timing edge case still
-        // sizes the two containers slightly differently.
+        // ★ ROOT-CAUSE FIX: Material's internal container one level up
+        // (design_bottom_sheet — the actual view BottomSheetBehavior
+        // measures/drags, one level above our own inflated sheetRoot) was
+        // sizing itself LARGER than sheetRoot's real measured content —
+        // confirmed by testing: a big blank gap appears between the last
+        // grid row and the screen edge, with the chat visible below THAT.
+        // Forcing this container's own layout height to WRAP_CONTENT here
+        // makes BottomSheetBehavior's onMeasureChild measure it with
+        // AT_MOST(maxHeight) instead of stretching it to fill maxHeight
+        // regardless of content — so its final height can never exceed
+        // what sheetRoot actually needs. Also re-painting the same rounded
+        // card background on it (belt-and-suspenders): even if some future
+        // timing edge case still over-allocates by a frame, the leftover
+        // reads as card, never as the chat screen behind it.
         sheetRoot.post(() -> {
-            Object outerContainer = sheetRoot.getParent();
-            if (outerContainer instanceof View) {
-                ((View) outerContainer).setBackgroundResource(R.drawable.bg_bottom_sheet_round);
+            Object outerContainerObj = sheetRoot.getParent();
+            if (outerContainerObj instanceof View) {
+                View outerContainer = (View) outerContainerObj;
+                outerContainer.setBackgroundResource(R.drawable.bg_bottom_sheet_round);
+                ViewGroup.LayoutParams outerLp = outerContainer.getLayoutParams();
+                if (outerLp != null && outerLp.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
+                    outerLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                    outerContainer.setLayoutParams(outerLp);
+                }
             }
         });
 
