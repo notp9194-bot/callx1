@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Dark-mode follow actions and verified identity badge.
-         Instagram-level approach: dark-mode counterpart of #0095F6, brightened
-         slightly (Instagram's own dark-mode blue) so it stays legible on dark
-         surfaces instead of the old Facebook-derived #4D9CFF. -->
-    <color name="follow_button_primary">#1EA1F2</color>
-    <color name="follow_button_pressed">#0E8FE0</color>
+         Instagram-level approach: dark-mode counterpart of #4D5DFB (current
+         Instagram indigo-blue), brightened slightly so it stays legible on
+         dark surfaces instead of the old cyan-blue #1EA1F2. -->
+    <color name="follow_button_primary">#6B78FF</color>
+    <color name="follow_button_pressed">#5561E8</color>
     <color name="follow_button_text">#FFFFFF</color>
-    <color name="verification_badge">#1EA1F2</color>
+    <color name="verification_badge">#6B78FF</color>
 
     <color name="brand_primary">#145C46</color>
     <color name="brand_primary_dark">#0A3327</color>

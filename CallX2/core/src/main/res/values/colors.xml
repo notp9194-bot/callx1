@@ -3,13 +3,13 @@
     <!-- Follow actions and verified identity badge.
          These are intentionally separate semantic tokens from brand_primary:
          changing follow/badge blue must not recolor app chrome or FABs.
-         Instagram-level approach: switched from Facebook blue (#1877F2) to
-         Instagram's own blue (#0095F6) so follow button + verified badge
-         match the social-native shade users already associate with "verified". -->
-    <color name="follow_button_primary">#0095F6</color>
-    <color name="follow_button_pressed">#0081D6</color>
+         Instagram-level approach: #0095F6 was Instagram's OLD (pre-redesign)
+         cyan-blue. Current Instagram uses an indigo-shifted blue — corrected
+         to #4D5DFB to actually match today's Follow button / verified badge. -->
+    <color name="follow_button_primary">#4D5DFB</color>
+    <color name="follow_button_pressed">#3D4AD9</color>
     <color name="follow_button_text">#FFFFFF</color>
-    <color name="verification_badge">#0095F6</color>
+    <color name="verification_badge">#4D5DFB</color>
 
     <color name="brand_primary">#0F4C3A</color>
     <color name="brand_primary_dark">#0A3327</color>
