@@ -102,6 +102,15 @@ public class ProfileSetupActivity extends AppCompatActivity {
         if (!mobile.isEmpty()) {
             updates.put("mobile", mobile);
             updates.put("callxId", mobile);
+            // ★ FIX: "username" was queried all over the app (search,
+            // mentions, watermark lookups — see ReelSearchHistoryActivity,
+            // HomeFragment, MessagePagingAdapter etc.) but never actually
+            // written anywhere, so username-based lookups always silently
+            // fell through to nameLower/name. callxId is already the
+            // mobile-number handle shown as "@callxId" everywhere in the
+            // UI, so writing its lowercase form here is what makes that
+            // existing username index real instead of permanently empty.
+            updates.put("username", mobile.toLowerCase(java.util.Locale.getDefault()));
         }
         updates.put("about", about.isEmpty() ? "Hey, I'm on CallX!" : about);
         if (photoUrl != null) updates.put("photoUrl", photoUrl);

@@ -70,16 +70,45 @@
         android:layout_marginStart="12dp"
         android:layout_marginEnd="8dp">
 
-        <TextView
-            android:id="@+id/tv_name"
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Username"
-            android:textSize="15sp"
-            android:fontFamily="sans-serif-medium"
-            android:textColor="?attr/colorOnSurface"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tv_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Username"
+                android:textSize="15sp"
+                android:fontFamily="sans-serif-medium"
+                android:textColor="?attr/colorOnSurface"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+
+            <ImageView
+                android:id="@+id/iv_verified"
+                android:layout_width="13dp"
+                android:layout_height="13dp"
+                android:layout_marginStart="3dp"
+                android:src="@drawable/ic_verified_pink"
+                android:visibility="gone"
+                android:contentDescription="Verified"/>
+
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tv_username"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text=""
+            android:textSize="13sp"
+            android:textColor="?attr/colorOnSurfaceVariant"
             android:maxLines="1"
-            android:ellipsize="end"/>
+            android:ellipsize="end"
+            android:visibility="gone"/>
 
         <TextView
             android:id="@+id/tv_subtitle"
@@ -93,6 +122,31 @@
             android:ellipsize="end"
             android:visibility="gone"/>
     </LinearLayout>
+
+    <!-- Follow / Following — Instagram-style inline action button, shown on
+         any TYPE_USER row (history OR live results) that isn't the signed-in
+         user's own row. Style (filled "Follow" vs outlined "Following") is
+         applied at bind time by RowAdapter — same filled/outline pattern
+         FollowConnectionsActivity's styleBtn() uses. -->
+    <Button
+        android:id="@+id/btn_follow"
+        android:layout_width="wrap_content"
+        android:layout_height="32dp"
+        android:layout_marginEnd="4dp"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="0dp"
+        android:paddingBottom="0dp"
+        android:text="Follow"
+        android:textSize="13sp"
+        android:textAllCaps="false"
+        android:fontFamily="sans-serif-medium"
+        android:insetTop="0dp"
+        android:insetBottom="0dp"
+        android:visibility="gone"
+        style="?android:attr/borderlessButtonStyle"/>
 
     <!-- Remove from history — only visible for recent-search rows, gone for
          live search-result rows (see ReelSearchHistoryActivity adapter mode). -->

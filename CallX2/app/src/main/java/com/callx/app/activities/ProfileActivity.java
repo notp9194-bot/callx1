@@ -327,6 +327,19 @@ public class ProfileActivity extends AppCompatActivity {
         updates.put("instagram", instagram);
         updates.put("youtube",   youtube);
         updates.put("otherLink", otherLink);
+        // ★ FIX: "username" is queried across the app (search, mentions,
+        // watermark lookups) but was never actually written by either this
+        // screen or ProfileSetupActivity — see that file's saveToFirebase()
+        // for the matching fix. callxId (the mobile-number handle already
+        // shown here as tv_callx_id / "@callxId") is the closest thing this
+        // app has to a real username today, so re-save its lowercase form
+        // any time the profile is edited too, in case an older account was
+        // created before ProfileSetupActivity started writing it.
+        String callxIdNow = binding.tvCallxId.getText() != null
+            ? binding.tvCallxId.getText().toString().trim() : "";
+        if (!callxIdNow.isEmpty()) {
+            updates.put("username", callxIdNow.toLowerCase(java.util.Locale.getDefault()));
+        }
         FirebaseUtils.getUserRef(currentUid).updateChildren(updates);
         FirebaseAuth.getInstance().getCurrentUser()
             .updateProfile(new UserProfileChangeRequest.Builder()
