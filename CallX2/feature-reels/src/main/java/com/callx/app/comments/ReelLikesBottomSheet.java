@@ -523,6 +523,10 @@ public class ReelLikesBottomSheet extends BottomSheetDialogFragment {
                 h.ivAvatar.setImageResource(R.drawable.ic_person);
             }
 
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(requireContext(), h.ivStoryRing, u.uid);
+
             // Follow button — hide for own profile. Same pill-shaped
             // filled/outline style as FollowConnectionsActivity's
             // Follow/Following button (reused here for visual consistency
@@ -559,17 +563,19 @@ public class ReelLikesBottomSheet extends BottomSheetDialogFragment {
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;
+            ImageView       ivStoryRing;
             ImageView       ivVerified;
             TextView        tvName, tvUsername;
             Button          btnFollow, btnMessage;
             VH(@NonNull View v) {
                 super(v);
-                ivAvatar   = v.findViewById(R.id.iv_avatar);
-                ivVerified = v.findViewById(R.id.iv_verified);
-                tvName     = v.findViewById(R.id.tv_name);
-                tvUsername = v.findViewById(R.id.tv_username);
-                btnFollow  = v.findViewById(R.id.btn_follow);
-                btnMessage = v.findViewById(R.id.btn_message);
+                ivAvatar    = v.findViewById(R.id.iv_avatar);
+                ivStoryRing = v.findViewById(R.id.iv_story_ring);
+                ivVerified  = v.findViewById(R.id.iv_verified);
+                tvName      = v.findViewById(R.id.tv_name);
+                tvUsername  = v.findViewById(R.id.tv_username);
+                btnFollow   = v.findViewById(R.id.btn_follow);
+                btnMessage  = v.findViewById(R.id.btn_message);
             }
         }
     }

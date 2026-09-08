@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="16dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="9dp"
+    android:paddingBottom="9dp"
+    android:foreground="?attr/selectableItemBackground">
+
+    <!-- Avatar stack: real account photo (iv_avatar) for a USER row, or a
+         muted circle + clock icon (iv_history_bg / iv_history_icon) for a
+         plain-text TEXT row that never resolved to one specific account.
+         Only ONE of the two states is visible at a time — see
+         ReelSearchHistoryActivity#bindRow(). -->
+    <FrameLayout
+        android:layout_width="50dp"
+        android:layout_height="50dp">
+
+        <!-- Story ring (same gradient/seen/hidden ring HomeFragment's feed post
+             avatar and Stories tray already use — see StoryRingApplier). Only
+             shown for USER rows — RowAdapter hides it for TEXT rows. -->
+        <ImageView
+            android:id="@+id/iv_story_ring"
+            android:layout_width="50dp"
+            android:layout_height="50dp"
+            android:visibility="gone"
+            tools:ignore="ContentDescription"/>
+
+        <!-- USER row: real avatar — same CircleImageView + FollowAvatarBinder
+             pipeline reused from FollowConnectionsActivity's item_follow_user.xml. -->
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_avatar"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_person"/>
+
+        <!-- TEXT row: muted circle backdrop -->
+        <View
+            android:id="@+id/iv_history_bg"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_search_history_icon_circle"
+            android:visibility="gone"/>
+
+        <!-- TEXT row: small centered clock icon on top of the muted circle -->
+        <ImageView
+            android:id="@+id/iv_history_icon"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_history"
+            android:contentDescription="Recent search"
+            android:visibility="gone"/>
+
+    </FrameLayout>
+
+    <!-- Name/username + optional subtitle -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="8dp">
+
+        <TextView
+            android:id="@+id/tv_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Username"
+            android:textSize="15sp"
+            android:fontFamily="sans-serif-medium"
+            android:textColor="?attr/colorOnSurface"
+            android:maxLines="1"
+            android:ellipsize="end"/>
+
+        <TextView
+            android:id="@+id/tv_subtitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text=""
+            android:textSize="13sp"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:visibility="gone"/>
+    </LinearLayout>
+
+    <!-- Remove from history — only visible for recent-search rows, gone for
+         live search-result rows (see ReelSearchHistoryActivity adapter mode). -->
+    <ImageButton
+        android:id="@+id/btn_remove"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:src="@drawable/ic_close"
+        android:padding="8dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Remove"
+        app:tint="?attr/colorOnSurfaceVariant"/>
+
+</LinearLayout>

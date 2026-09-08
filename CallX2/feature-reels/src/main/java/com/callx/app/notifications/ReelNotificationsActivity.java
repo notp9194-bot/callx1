@@ -409,6 +409,7 @@ import com.callx.app.profile.UserReelsActivity;
               View         dot;
               TextView     tvEmoji, tvTitle, tvBody, tvTime;
               CircleImageView ivAvatar;
+              ImageView    ivStoryRing;
               VH(View v) {
                   super(v);
                   dot      = v.findViewWithTag("dot");
@@ -417,6 +418,7 @@ import com.callx.app.profile.UserReelsActivity;
                   tvBody   = v.findViewWithTag("body");
                   tvTime   = v.findViewWithTag("time");
                   ivAvatar = v.findViewWithTag("avatar");
+                  ivStoryRing = v.findViewWithTag("story_ring");
               }
           }
 
@@ -434,12 +436,26 @@ import com.callx.app.profile.UserReelsActivity;
               dotLp.setMarginEnd(dp(8));
               row.addView(dot, dotLp);
 
+              // Avatar + story ring — same gradient/seen/hidden ring
+              // HomeFragment's feed post avatar and Stories tray already
+              // use, wrapped here since this row is built in code rather
+              // than XML — see StoryRingApplier.
+              FrameLayout avatarWrap = new FrameLayout(ReelNotificationsActivity.this);
+              LinearLayout.LayoutParams wrapLp = new LinearLayout.LayoutParams(dp(46), dp(46));
+              wrapLp.setMarginEnd(dp(10));
+              row.addView(avatarWrap, wrapLp);
+
+              ImageView storyRing = new ImageView(ReelNotificationsActivity.this);
+              storyRing.setTag("story_ring");
+              storyRing.setVisibility(View.GONE);
+              avatarWrap.addView(storyRing, new FrameLayout.LayoutParams(dp(46), dp(46)));
+
               CircleImageView avatar = new CircleImageView(ReelNotificationsActivity.this);
               avatar.setTag("avatar");
-              LinearLayout.LayoutParams avLp = new LinearLayout.LayoutParams(dp(40), dp(40));
-              avLp.setMarginEnd(dp(10));
+              FrameLayout.LayoutParams avLp = new FrameLayout.LayoutParams(dp(40), dp(40));
+              avLp.gravity = android.view.Gravity.CENTER;
               avatar.setImageResource(R.drawable.ic_person);
-              row.addView(avatar, avLp);
+              avatarWrap.addView(avatar, avLp);
 
               LinearLayout col = new LinearLayout(ReelNotificationsActivity.this);
               col.setOrientation(LinearLayout.VERTICAL);
@@ -502,6 +518,10 @@ import com.callx.app.profile.UserReelsActivity;
               } else {
                   h.ivAvatar.setImageResource(R.drawable.ic_person);
               }
+
+              // Same gradient/seen/hidden story ring HomeFragment's feed post
+              // avatar and Stories tray already use — see StoryRingApplier.
+              com.callx.app.utils.StoryRingApplier.applyWithClick(ReelNotificationsActivity.this, h.ivStoryRing, item.senderUid);
 
               // Title & body
               h.tvTitle.setText(item.title != null ? item.title : "Reel Activity");

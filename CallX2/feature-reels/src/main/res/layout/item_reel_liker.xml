@@ -9,12 +9,26 @@
     android:paddingEnd="12dp"
     android:background="?attr/selectableItemBackground">
 
-    <!-- Avatar -->
-    <de.hdodenhof.circleimageview.CircleImageView
-        android:id="@+id/iv_avatar"
-        android:layout_width="44dp"
-        android:layout_height="44dp"
-        android:src="@drawable/ic_person"/>
+    <!-- Avatar + story ring — same gradient/seen/hidden ring reused via
+         StoryRingApplier (see item_follow_user.xml doc). Wired in
+         ReelLikesBottomSheet$LikersAdapter, CollaboratorsBottomSheet$RowAdapter,
+         and ReelSharesBottomSheet$SharersAdapter. -->
+    <FrameLayout
+        android:layout_width="50dp"
+        android:layout_height="50dp">
+        <ImageView
+            android:id="@+id/iv_story_ring"
+            android:layout_width="50dp"
+            android:layout_height="50dp"
+            android:visibility="gone"
+            android:contentDescription="@null"/>
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_avatar"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_person"/>
+    </FrameLayout>
 
     <!-- Name + username column -->
     <LinearLayout

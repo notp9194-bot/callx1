@@ -38,13 +38,29 @@
                 android:gravity="center_vertical"
                 android:layout_marginBottom="6dp">
 
-                <ImageView
-                    android:id="@+id/iv_remix_avatar"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
-                    android:scaleType="centerCrop"
-                    android:background="@drawable/bg_action_btn_circle"
-                    android:contentDescription="Remixer avatar"/>
+                <!-- Avatar + story ring (same gradient/seen/hidden ring
+                     HomeFragment's feed post avatar and Stories tray already
+                     use — see StoryRingApplier) -->
+                <FrameLayout
+                    android:layout_width="36dp"
+                    android:layout_height="36dp">
+
+                    <ImageView
+                        android:id="@+id/iv_remix_story_ring"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:visibility="gone"
+                        android:contentDescription="@null"/>
+
+                    <ImageView
+                        android:id="@+id/iv_remix_avatar"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:layout_gravity="center"
+                        android:scaleType="centerCrop"
+                        android:background="@drawable/bg_action_btn_circle"
+                        android:contentDescription="Remixer avatar"/>
+                </FrameLayout>
 
                 <TextView
                     android:id="@+id/tv_remix_remixer_name"

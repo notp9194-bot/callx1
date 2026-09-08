@@ -199,6 +199,10 @@ public class MutualFollowersActivity extends AppCompatActivity {
             // FIX (avatar pipeline parity): shared L2/L3 cache + density-aware tier decode instead of a flat Glide load — see FollowAvatarBinder.
             FollowAvatarBinder.bind(MutualFollowersActivity.this, h.ivAvatar, u.photo, 0L, R.drawable.ic_person);
 
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(MutualFollowersActivity.this, h.ivStoryRing, u.uid);
+
             String myUid = safeMyUid();
             if (myUid != null && !myUid.equals(u.uid)) {
                 h.btnFollowAction.setVisibility(View.VISIBLE);
@@ -255,11 +259,13 @@ public class MutualFollowersActivity extends AppCompatActivity {
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;
+            ImageView       ivStoryRing;
             TextView        tvName, tvBio;
             Button          btnFollowAction;
             VH(@NonNull View v) {
                 super(v);
                 ivAvatar      = v.findViewById(R.id.iv_avatar);
+                ivStoryRing   = v.findViewById(R.id.iv_story_ring);
                 tvName        = v.findViewById(R.id.tv_name);
                 tvBio         = v.findViewById(R.id.tv_bio);
                 btnFollowAction = v.findViewById(R.id.btn_follow_action);

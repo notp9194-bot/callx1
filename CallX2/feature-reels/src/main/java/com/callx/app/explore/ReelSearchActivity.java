@@ -21,6 +21,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.callx.app.reels.R;
 import com.callx.app.profile.ReelGridAdapter;
+import com.callx.app.profile.ReelPeekPreviewController;
 import com.callx.app.explore.ReelHashtagSuggestAdapter;
 import com.callx.app.models.ReelModel;
 import com.callx.app.utils.FirebaseUtils;
@@ -54,8 +55,15 @@ import java.util.Map;
  * eye+count badge dikhe. Ye screen ab bottom nav ke naye Search tab
  * (ReelsFragment#reel_nav_search) aur top-bar btn_reel_search — dono se launch
  * hoti hai.
+ *
+ * ★ NEW: grid cell long-press now opens the exact same
+ * ReelPeekPreviewController mini video player Home feed's "Suggested
+ * reels" strip uses on long-press (see HomeFragment#showSuggestedReelPeek) —
+ * same near-full-width card size, not the smaller shared 331x475dp default
+ * UserReelsActivity's own grid uses.
  */
-public class ReelSearchActivity extends AppCompatActivity {
+public class ReelSearchActivity extends AppCompatActivity
+        implements ReelGridAdapter.LongPressListener {
 
     private EditText          etSearch;
     private ImageButton       btnBack, btnClear;
@@ -67,6 +75,9 @@ public class ReelSearchActivity extends AppCompatActivity {
 
     private ReelGridAdapter   resultsAdapter;
     private ReelHashtagSuggestAdapter suggestAdapter;
+    // Same mini-player controller HomeFragment's suggested-reels strip and
+    // UserReelsActivity's grid already share — one instance per screen.
+    private ReelPeekPreviewController peekController;
 
     private final List<ReelModel>   allReels  = new ArrayList<>();
     private final List<ReelModel>   results   = new ArrayList<>();
@@ -103,6 +114,17 @@ public class ReelSearchActivity extends AppCompatActivity {
             showTrending();
         });
 
+        // ★ NEW: tapping the search box now opens ReelSearchHistoryActivity
+        // (recent-search history + live contact/username search), matching
+        // the Instagram-style reference screenshot, instead of focusing
+        // et_search in place — see activity_reel_search.xml's search_box
+        // doc comment and ReelSearchHistoryActivity's class doc.
+        View.OnClickListener openSearchHistory =
+            v -> startActivity(new Intent(this, ReelSearchHistoryActivity.class));
+        View searchBox = findViewById(R.id.search_box);
+        if (searchBox != null) searchBox.setOnClickListener(openSearchHistory);
+        etSearch.setOnClickListener(openSearchHistory);
+
         // Results grid
         resultsAdapter = new ReelGridAdapter(this, results, (position) -> {
             Intent intent = new Intent(this, SingleReelPlayerActivity.class);
@@ -114,9 +136,10 @@ public class ReelSearchActivity extends AppCompatActivity {
             for (ReelModel r : results) ids.add(r.reelId);
             intent.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
             startActivity(intent);
-        });
+        }, this, null);
         rvResults.setLayoutManager(new GridLayoutManager(this, 3));
         rvResults.setAdapter(resultsAdapter);
+        peekController = new ReelPeekPreviewController(this);
         // ★ NEW: Explore-style eye+view-count badge on every tile (same overlay
         // UserReelsActivity turns on for isSelf's own grid) — shows both on the
         // default trending grid and on typed-search results.
@@ -159,9 +182,10 @@ public class ReelSearchActivity extends AppCompatActivity {
             return false;
         });
 
-        // Auto-focus keyboard
-        etSearch.requestFocus();
-        showKeyboard();
+        // ★ NEW: et_search is now a non-editable trigger (see
+        // activity_reel_search.xml) — tapping it opens
+        // ReelSearchHistoryActivity instead, so no more auto-focus/keyboard
+        // pop-up on this screen itself.
 
         // Load all reels once (for client-side search)
         loadAllReels();
@@ -294,16 +318,65 @@ public class ReelSearchActivity extends AppCompatActivity {
         tvResultCount.setVisibility(View.GONE); // "Explore" grid, not a search-result count
     }
 
-    private void showKeyboard() {
-        etSearch.post(() -> {
-            InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-            if (imm != null) imm.showSoftInput(etSearch, InputMethodManager.SHOW_IMPLICIT);
-        });
-    }
-
     private void hideKeyboard() {
         InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
         if (imm != null) imm.hideSoftInputFromWindow(etSearch.getWindowToken(), 0);
+    }
+
+    // ── Grid long-press → mini video player (reused from Home feed's
+    //    Suggested-reels strip; see class doc) ────────────────────────────
+
+    /** Same "any playable source" gate HomeFragment/UserReelsActivity use
+     *  before opening the peek preview. */
+    private boolean hasPreviewableVideo(ReelModel reel) {
+        if (reel == null) return false;
+        return (reel.hlsManifestUrl != null && !reel.hlsManifestUrl.isEmpty())
+                || (reel.videoUrl   != null && !reel.videoUrl.isEmpty())
+                || (reel.video480   != null && !reel.video480.isEmpty())
+                || (reel.video720   != null && !reel.video720.isEmpty())
+                || (reel.video1080  != null && !reel.video1080.isEmpty());
+    }
+
+    @Override
+    public void onLongPress(int adapterPos) {
+        if (adapterPos < 0 || adapterPos >= results.size()) return;
+        ReelModel reel = results.get(adapterPos);
+        if (!hasPreviewableVideo(reel)) return;
+
+        View sourceCell = null;
+        RecyclerView.ViewHolder svh = rvResults.findViewHolderForAdapterPosition(adapterPos);
+        if (svh != null) sourceCell = svh.itemView;
+
+        // Same near-full-width, 9:16 sizing as HomeFragment#showSuggestedReelPeek
+        // — bigger than UserReelsActivity's own grid, which keeps the shared
+        // 331x475dp default.
+        int screenW   = getResources().getDisplayMetrics().widthPixels;
+        int cardWidth = screenW - dpToPx(24);
+        int videoH    = (int) (cardWidth * 16f / 9f);
+
+        peekController.show(reel, null, () -> openPlayerAt(adapterPos), sourceCell,
+                cardWidth, videoH);
+    }
+
+    private void openPlayerAt(int position) {
+        Intent intent = new Intent(this, SingleReelPlayerActivity.class);
+        intent.putExtra(SingleReelPlayerActivity.EXTRA_TITLE,
+                "Search: " + etSearch.getText().toString().trim());
+        intent.putExtra(SingleReelPlayerActivity.EXTRA_START_POSITION, position);
+        ArrayList<String> ids = new ArrayList<>();
+        for (ReelModel r : results) ids.add(r.reelId);
+        intent.putStringArrayListExtra(SingleReelPlayerActivity.EXTRA_REEL_IDS, ids);
+        startActivity(intent);
+    }
+
+    private int dpToPx(int dp) {
+        return (int) (dp * getResources().getDisplayMetrics().density);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (peekController != null) peekController.dismiss();
     }
 
     @Override

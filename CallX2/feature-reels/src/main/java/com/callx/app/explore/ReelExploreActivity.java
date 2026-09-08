@@ -594,10 +594,33 @@ public class ReelExploreActivity extends AppCompatActivity {
             RecyclerView.LayoutParams lp = new RecyclerView.LayoutParams(w, RecyclerView.LayoutParams.WRAP_CONTENT);
             lp.setMarginEnd(dpToPx(p.getContext(), 12));
             ll.setLayoutParams(lp);
+
+            // Avatar + story ring (same gradient/seen/hidden ring HomeFragment's
+            // feed post avatar and Stories tray already use — see StoryRingApplier).
+            // Ring sits behind the avatar in a FrameLayout, same "bigger overlay
+            // ImageView" shape used everywhere else StoryRingApplier is reused.
+            int avatarSize = w - dpToPx(p.getContext(), 6);
+            android.widget.FrameLayout avatarFrame = new android.widget.FrameLayout(p.getContext());
+            avatarFrame.setLayoutParams(new android.widget.LinearLayout.LayoutParams(w, w));
+
+            ImageView ring = new ImageView(p.getContext());
+            android.widget.FrameLayout.LayoutParams ringLp =
+                new android.widget.FrameLayout.LayoutParams(w, w);
+            ring.setLayoutParams(ringLp);
+            ring.setVisibility(View.GONE);
+            ring.setTag("ring");
+
             de.hdodenhof.circleimageview.CircleImageView iv =
                 new de.hdodenhof.circleimageview.CircleImageView(p.getContext());
-            iv.setLayoutParams(new android.widget.LinearLayout.LayoutParams(w, w));
+            android.widget.FrameLayout.LayoutParams ivLp =
+                new android.widget.FrameLayout.LayoutParams(avatarSize, avatarSize);
+            ivLp.gravity = android.view.Gravity.CENTER;
+            iv.setLayoutParams(ivLp);
             iv.setTag("avatar");
+
+            avatarFrame.addView(ring);
+            avatarFrame.addView(iv);
+
             TextView tvName = new TextView(p.getContext());
             tvName.setMaxLines(1);
             tvName.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -612,7 +635,7 @@ public class ReelExploreActivity extends AppCompatActivity {
             tvSub.setTextColor(0xFF888888);
             tvSub.setGravity(android.view.Gravity.CENTER);
             tvSub.setTag("sub");
-            ll.addView(iv); ll.addView(tvName); ll.addView(tvSub);
+            ll.addView(avatarFrame); ll.addView(tvName); ll.addView(tvSub);
             return new VH(ll);
         }
         @Override public void onBindViewHolder(@NonNull VH h, int pos) {
@@ -626,6 +649,10 @@ public class ReelExploreActivity extends AppCompatActivity {
                 com.bumptech.glide.Glide.with(iv).load(c[2])
                     .override(480, 853)
                     .placeholder(R.drawable.ic_person).into(iv);
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            ImageView ring = h.ll.findViewWithTag("ring");
+            com.callx.app.utils.StoryRingApplier.applyWithClick(h.ll.getContext(), ring, c[0]);
             h.ll.setOnClickListener(v -> click.onClick(c[0]));
         }
         @Override public int getItemCount() { return creators.size(); }

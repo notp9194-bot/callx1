@@ -369,17 +369,21 @@ public class DuetInviteActivity extends AppCompatActivity {
             } else {
                 h.ivAvatar.setImageResource(R.drawable.ic_person);
             }
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(h.itemView.getContext(), h.ivStoryRing, u.uid);
             h.btnInvite.setOnClickListener(v -> listener.onSelect(u));
         }
         @Override public int getItemCount() { return items.size(); }
         static class VH extends RecyclerView.ViewHolder {
-            ImageView ivAvatar; TextView tvName, tvUsername; Button btnInvite;
+            ImageView ivAvatar, ivStoryRing; TextView tvName, tvUsername; Button btnInvite;
             VH(View v) {
                 super(v);
-                ivAvatar   = v.findViewById(R.id.iv_invite_avatar);
-                tvName     = v.findViewById(R.id.tv_invite_name);
-                tvUsername = v.findViewById(R.id.tv_invite_username);
-                btnInvite  = v.findViewById(R.id.btn_send_invite);
+                ivAvatar    = v.findViewById(R.id.iv_invite_avatar);
+                ivStoryRing = v.findViewById(R.id.iv_story_ring);
+                tvName      = v.findViewById(R.id.tv_invite_name);
+                tvUsername  = v.findViewById(R.id.tv_invite_username);
+                btnInvite   = v.findViewById(R.id.btn_send_invite);
             }
         }
     }

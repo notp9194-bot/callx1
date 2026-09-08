@@ -801,6 +801,10 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             // bind() for why the redundant-load guard moved there.
             FollowAvatarBinder.bind(FollowConnectionsActivity.this, h.ivAvatar, u.photo, u.avatarVersion, R.drawable.ic_person);
 
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(FollowConnectionsActivity.this, h.ivStoryRing, u.uid);
+
             // Name + bio
             h.tvName.setText(u.name != null ? u.name : u.uid);
             if (u.bio != null && !u.bio.isEmpty()) {
@@ -920,6 +924,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;
+            ImageView       ivStoryRing;
             TextView        tvName, tvBio;
             Button          btnAction;
 
@@ -931,7 +936,8 @@ public class FollowConnectionsActivity extends AppCompatActivity {
 
             VH(View v) {
                 super(v);
-                ivAvatar  = v.findViewById(R.id.iv_avatar);
+                ivAvatar    = v.findViewById(R.id.iv_avatar);
+                ivStoryRing = v.findViewById(R.id.iv_story_ring);
                 tvName    = v.findViewById(R.id.tv_name);
                 tvBio     = v.findViewById(R.id.tv_bio);
                 btnAction = v.findViewById(R.id.btn_follow_action);

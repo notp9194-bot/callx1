@@ -242,6 +242,10 @@ public class CollaboratorsBottomSheet extends BottomSheetDialogFragment {
             // FIX (avatar pipeline parity): shared L2/L3 cache + density-aware tier decode instead of a flat Glide load — see FollowAvatarBinder.
             FollowAvatarBinder.bind(requireContext(), h.ivAvatar, r.photo, 0L, R.drawable.ic_person);
 
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(requireContext(), h.ivStoryRing, r.uid);
+
             h.ivVerified.setVisibility(View.GONE);
             h.btnMessage.setVisibility(View.GONE);
 
@@ -276,11 +280,13 @@ public class CollaboratorsBottomSheet extends BottomSheetDialogFragment {
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;
             ImageView       ivVerified;
+            ImageView       ivStoryRing;
             TextView        tvName, tvUsername, tvTimestamp;
             Button          btnFollow, btnMessage;
             VH(@NonNull View v) {
                 super(v);
                 ivAvatar    = v.findViewById(R.id.iv_avatar);
+                ivStoryRing = v.findViewById(R.id.iv_story_ring);
                 ivVerified  = v.findViewById(R.id.iv_verified);
                 tvName      = v.findViewById(R.id.tv_name);
                 tvUsername  = v.findViewById(R.id.tv_username);

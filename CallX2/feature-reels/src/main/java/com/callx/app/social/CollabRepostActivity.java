@@ -915,12 +915,24 @@ public class CollabRepostActivity extends AppCompatActivity {
             row.setBackground(parent.getContext().getResources()
                 .getDrawable(android.R.drawable.list_selector_background));
 
+            // Avatar + story ring (same gradient/seen/hidden ring HomeFragment's
+            // feed post avatar and Stories tray already use — see StoryRingApplier)
+            FrameLayout avFrame = new FrameLayout(parent.getContext());
+            LinearLayout.LayoutParams avFrameLp = new LinearLayout.LayoutParams(dp(parent, 40), dp(parent, 40));
+            avFrameLp.setMarginEnd(dp(parent, 12));
+            row.addView(avFrame, avFrameLp);
+
+            ImageView ivRing = new ImageView(parent.getContext());
+            ivRing.setTag("ring");
+            ivRing.setVisibility(View.GONE);
+            avFrame.addView(ivRing, new FrameLayout.LayoutParams(dp(parent, 40), dp(parent, 40)));
+
             CircleImageView av = new CircleImageView(parent.getContext());
             av.setTag("av");
-            LinearLayout.LayoutParams avLp = new LinearLayout.LayoutParams(dp(parent, 40), dp(parent, 40));
-            avLp.setMarginEnd(dp(parent, 12));
             av.setImageResource(R.drawable.ic_person);
-            row.addView(av, avLp);
+            FrameLayout.LayoutParams avLp = new FrameLayout.LayoutParams(dp(parent, 34), dp(parent, 34));
+            avLp.gravity = Gravity.CENTER;
+            avFrame.addView(av, avLp);
 
             LinearLayout col = new LinearLayout(parent.getContext());
             col.setOrientation(LinearLayout.VERTICAL);
@@ -960,16 +972,22 @@ public class CollabRepostActivity extends AppCompatActivity {
                     .override(96, 96)
                     .placeholder(R.drawable.ic_person).into(h.av);
             else h.av.setImageResource(R.drawable.ic_person);
+
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(h.itemView.getContext(), h.ivRing, u.uid);
+
             h.itemView.setOnClickListener(v -> listener.onSelect(u));
         }
 
         @Override public int getItemCount() { return items.size(); }
 
         static class VH extends RecyclerView.ViewHolder {
-            CircleImageView av; TextView tvName, tvHandle;
+            CircleImageView av; ImageView ivRing; TextView tvName, tvHandle;
             VH(View v) {
                 super(v);
                 av       = v.findViewWithTag("av");
+                ivRing   = v.findViewWithTag("ring");
                 tvName   = v.findViewWithTag("name");
                 tvHandle = v.findViewWithTag("handle");
             }

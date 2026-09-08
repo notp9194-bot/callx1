@@ -206,14 +206,17 @@ public class ReelCloseFriendsActivity extends AppCompatActivity {
             h.tvName.setText(f.name);
             // FIX (avatar pipeline parity): shared L2/L3 cache + density-aware tier decode instead of a flat Glide load — see FollowAvatarBinder.
             FollowAvatarBinder.bind(h.itemView.getContext(), h.iv, f.photo, 0L, R.drawable.ic_person);
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(h.itemView.getContext(), h.ivRing, f.uid);
             h.btnRemove.setOnClickListener(v -> onRemove.accept(f));
         }
         @Override public int getItemCount() { return items.size(); }
         // FIX (lifecycle-aware cancel): stop an in-flight request for a row that just scrolled off screen.
         @Override public void onViewRecycled(@NonNull VH h) { FollowAvatarBinder.cancel(h.itemView.getContext(), h.iv); }
         static class VH extends RecyclerView.ViewHolder {
-            CircleImageView iv; TextView tvName; ImageButton btnRemove;
-            VH(View v) { super(v); iv = v.findViewById(R.id.iv_cf_avatar); tvName = v.findViewById(R.id.tv_cf_name); btnRemove = v.findViewById(R.id.btn_cf_remove); }
+            CircleImageView iv; ImageView ivRing; TextView tvName; ImageButton btnRemove;
+            VH(View v) { super(v); iv = v.findViewById(R.id.iv_cf_avatar); ivRing = v.findViewById(R.id.iv_cf_story_ring); tvName = v.findViewById(R.id.tv_cf_name); btnRemove = v.findViewById(R.id.btn_cf_remove); }
         }
     }
 
@@ -231,6 +234,9 @@ public class ReelCloseFriendsActivity extends AppCompatActivity {
             h.tvName.setText(f.name);
             // FIX (avatar pipeline parity): shared L2/L3 cache + density-aware tier decode instead of a flat Glide load — see FollowAvatarBinder.
             FollowAvatarBinder.bind(h.itemView.getContext(), h.iv, f.photo, 0L, R.drawable.ic_person);
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(h.itemView.getContext(), h.ivRing, f.uid);
             boolean isCf = cfIds.contains(f.uid);
             h.btnRemove.setImageResource(isCf ? R.drawable.ic_close : R.drawable.ic_person_add);
             h.btnRemove.setEnabled(!isCf);
@@ -240,8 +246,8 @@ public class ReelCloseFriendsActivity extends AppCompatActivity {
         // FIX (lifecycle-aware cancel): stop an in-flight request for a row that just scrolled off screen.
         @Override public void onViewRecycled(@NonNull VH h) { FollowAvatarBinder.cancel(h.itemView.getContext(), h.iv); }
         static class VH extends RecyclerView.ViewHolder {
-            CircleImageView iv; TextView tvName; ImageButton btnRemove;
-            VH(View v) { super(v); iv = v.findViewById(R.id.iv_cf_avatar); tvName = v.findViewById(R.id.tv_cf_name); btnRemove = v.findViewById(R.id.btn_cf_remove); }
+            CircleImageView iv; ImageView ivRing; TextView tvName; ImageButton btnRemove;
+            VH(View v) { super(v); iv = v.findViewById(R.id.iv_cf_avatar); ivRing = v.findViewById(R.id.iv_cf_story_ring); tvName = v.findViewById(R.id.tv_cf_name); btnRemove = v.findViewById(R.id.btn_cf_remove); }
         }
     }
 }

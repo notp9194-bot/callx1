@@ -5,7 +5,7 @@
     android:orientation="vertical"
     android:background="?attr/colorSurface">
 
-    <!-- Search bar -->
+    <!-- Search bar (matches activity_reel_search.xml's top bar) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="56dp"
@@ -24,24 +24,13 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Back"/>
 
-        <!-- ★ NEW: this box is now a TRIGGER, not an inline editor — tapping
-             anywhere in it (id: search_box) opens ReelSearchHistoryActivity's
-             dedicated Instagram-style recent-search + contact/username search
-             screen (matches the reference screenshot), instead of popping the
-             keyboard in place here. et_search stays as a plain (non-focusable)
-             hint display so the rest of this Activity's existing reel
-             caption/hashtag search plumbing (search()/showTrending() etc.)
-             is untouched — only reachable via this box no longer, by design. -->
         <FrameLayout
-            android:id="@+id/search_box"
             android:layout_width="0dp"
             android:layout_height="40dp"
             android:layout_weight="1"
             android:layout_marginStart="4dp"
             android:background="@drawable/bg_search_field"
-            android:gravity="center_vertical"
-            android:clickable="true"
-            android:focusable="true">
+            android:gravity="center_vertical">
 
             <ImageView
                 android:layout_width="20dp"
@@ -49,7 +38,6 @@
                 android:layout_gravity="center_vertical|start"
                 android:layout_marginStart="12dp"
                 android:src="@drawable/ic_search"
-            android:tint="#6BCFEF"
                 android:alpha="0.5"
                 android:contentDescription="Search"/>
 
@@ -59,13 +47,10 @@
                 android:layout_height="match_parent"
                 android:paddingStart="40dp"
                 android:paddingEnd="40dp"
-                android:hint="Search reels, #hashtags, people..."
+                android:hint="Search"
                 android:singleLine="true"
                 android:imeOptions="actionSearch"
                 android:inputType="text"
-                android:focusable="false"
-                android:focusableInTouchMode="false"
-                android:cursorVisible="false"
                 android:background="@null"
                 android:textSize="15sp"
                 android:textColor="?attr/colorOnSurface"/>
@@ -85,7 +70,6 @@
 
     </LinearLayout>
 
-    <!-- Divider -->
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
@@ -95,33 +79,73 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <!-- Trending / initial state -->
+        <!-- Recent search history (default state) -->
         <LinearLayout
-            android:id="@+id/layout_trending"
+            android:id="@+id/layout_history"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:orientation="vertical"
-            android:padding="16dp">
+            android:orientation="vertical">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Trending Hashtags"
-                android:textSize="16sp"
-                android:fontFamily="sans-serif-medium"
-                android:textColor="?attr/colorOnSurface"
-                android:layout_marginBottom="12dp"/>
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rv_hashtag_suggestions"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="14dp"
+                android:paddingBottom="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Recent"
+                    android:textSize="16sp"
+                    android:fontFamily="sans-serif-bold"
+                    android:textColor="?attr/colorOnSurface"/>
+
+                <TextView
+                    android:id="@+id/tv_see_all"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:padding="4dp"
+                    android:text="See all"
+                    android:textSize="13sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:textColor="#3897F0"
+                    android:visibility="gone"/>
+
+            </LinearLayout>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rv_history"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
                 android:clipToPadding="false"/>
+
+            <LinearLayout
+                android:id="@+id/layout_history_empty"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="32dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="No recent searches"
+                    android:textSize="14sp"
+                    android:textColor="?attr/colorOnSurfaceVariant"/>
+
+            </LinearLayout>
 
         </LinearLayout>
 
-        <!-- Results section -->
+        <!-- Live search results (accounts by username/name) -->
         <LinearLayout
             android:id="@+id/layout_results"
             android:layout_width="match_parent"
@@ -129,61 +153,34 @@
             android:orientation="vertical"
             android:visibility="gone">
 
-            <TextView
-                android:id="@+id/tv_result_count"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_margin="12dp"
-                android:textSize="13sp"
-                android:textColor="?attr/colorOnSurfaceVariant"/>
-
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rv_results"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_weight="1"
-                android:clipToPadding="false"
-                android:padding="1dp"/>
+                android:clipToPadding="false"/>
 
-        </LinearLayout>
-
-        <!-- Empty state -->
-        <LinearLayout
-            android:id="@+id/layout_empty"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:orientation="vertical"
-            android:gravity="center"
-            android:padding="32dp"
-            android:visibility="gone">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🔍"
-                android:textSize="56sp"/>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="No Results"
-                android:textSize="17sp"
-            android:fontFamily="sans-serif-bold"
-            android:textColor="#FFE082"/>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Try searching for a different keyword or hashtag."
-                android:textSize="14sp"
+            <LinearLayout
+                android:id="@+id/layout_results_empty"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
                 android:gravity="center"
-                android:textColor="?attr/colorOnSurfaceVariant"/>
+                android:padding="32dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="No account found"
+                    android:textSize="15sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:textColor="?attr/colorOnSurface"/>
+
+            </LinearLayout>
 
         </LinearLayout>
 
-        <!-- Loading -->
         <ProgressBar
             android:id="@+id/progress_bar"
             android:layout_width="wrap_content"

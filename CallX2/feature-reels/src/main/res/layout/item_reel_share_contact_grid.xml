@@ -10,6 +10,7 @@
     broken both of those.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
@@ -21,13 +22,24 @@
          threshold convention as GroupMemberAdapter/GroupInfoActivity
          (Constants.ONLINE_WINDOW_MS, circle_accept green drawable). -->
     <FrameLayout
-        android:layout_width="56dp"
-        android:layout_height="56dp">
+        android:layout_width="60dp"
+        android:layout_height="60dp">
+
+        <!-- Story ring (same gradient/seen/hidden ring HomeFragment's feed post
+             avatar and Stories tray already use — see StoryRingApplier). Sized
+             bigger than the avatar so it sits behind/around it. -->
+        <ImageView
+            android:id="@+id/iv_story_ring"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:visibility="gone"
+            tools:ignore="ContentDescription"/>
 
         <de.hdodenhof.circleimageview.CircleImageView
             android:id="@+id/iv_share_contact_avatar"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
+            android:layout_width="54dp"
+            android:layout_height="54dp"
+            android:layout_gravity="center"
             android:src="@drawable/ic_person"/>
 
         <!-- ★ NEW: multi-select scrim — darkens the avatar slightly (IG-style)
@@ -35,8 +47,9 @@
              GONE by default; ReelContactShareAdapter toggles both together. -->
         <View
             android:id="@+id/view_selection_scrim"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
+            android:layout_width="54dp"
+            android:layout_height="54dp"
+            android:layout_gravity="center"
             android:background="@drawable/bg_avatar_selection_scrim"
             android:visibility="gone"/>
 

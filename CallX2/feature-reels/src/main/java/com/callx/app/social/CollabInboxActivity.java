@@ -185,8 +185,15 @@ public class CollabInboxActivity extends AppCompatActivity {
             h.tvCaption.setText(item.caption != null ? item.caption : "");
             if (item.thumbUrl != null && !item.thumbUrl.isEmpty())
                 Glide.with(h.itemView.getContext()).load(item.thumbUrl).centerCrop().into(h.ivThumb);
-            if (item.initiatorPhoto != null && !item.initiatorPhoto.isEmpty())
+            if (item.initiatorPhoto != null && !item.initiatorPhoto.isEmpty()) {
+                h.avatarFrame.setVisibility(View.VISIBLE);
                 Glide.with(h.itemView.getContext()).load(item.initiatorPhoto).circleCrop().into(h.ivAvatar);
+            } else {
+                h.avatarFrame.setVisibility(View.GONE);
+            }
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(h.itemView.getContext(), h.ivStoryRing, item.initiatorUid);
 
             String status = item.status != null ? item.status : "pending";
             h.tvStatus.setText(status.substring(0, 1).toUpperCase() + status.substring(1));
@@ -206,19 +213,23 @@ public class CollabInboxActivity extends AppCompatActivity {
         }
         @Override public int getItemCount() { return items.size(); }
         static class VH extends RecyclerView.ViewHolder {
-            ImageView       ivThumb;
-            CircleImageView ivAvatar;
-            TextView        tvName, tvCaption, tvStatus;
-            Button          btnAccept, btnDecline;
+            ImageView ivThumb;
+            View      avatarFrame;
+            ImageView ivAvatar;
+            ImageView ivStoryRing;
+            TextView  tvName, tvCaption, tvStatus;
+            Button    btnAccept, btnDecline;
             VH(View v) {
                 super(v);
-                ivThumb    = v.findViewById(R.id.iv_collab_req_thumb);
-                ivAvatar   = v.findViewById(R.id.iv_collab_req_avatar);
-                tvName     = v.findViewById(R.id.tv_collab_req_name);
-                tvCaption  = v.findViewById(R.id.tv_collab_req_message);
-                tvStatus   = v.findViewById(R.id.tv_collab_req_status);
-                btnAccept  = v.findViewById(R.id.btn_collab_accept);
-                btnDecline = v.findViewById(R.id.btn_collab_decline);
+                ivThumb     = v.findViewById(R.id.iv_collab_req_thumb);
+                avatarFrame = v.findViewById(R.id.fl_collab_req_avatar);
+                ivAvatar    = v.findViewById(R.id.iv_collab_req_avatar);
+                ivStoryRing = v.findViewById(R.id.iv_story_ring);
+                tvName      = v.findViewById(R.id.tv_collab_req_name);
+                tvCaption   = v.findViewById(R.id.tv_collab_req_message);
+                tvStatus    = v.findViewById(R.id.tv_collab_req_status);
+                btnAccept   = v.findViewById(R.id.btn_collab_accept);
+                btnDecline  = v.findViewById(R.id.btn_collab_decline);
             }
         }
     }

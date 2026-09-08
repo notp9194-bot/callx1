@@ -13,12 +13,27 @@
     android:clickable="true"
     android:focusable="true">
 
-    <de.hdodenhof.circleimageview.CircleImageView
-        android:id="@+id/iv_avatar"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:src="@drawable/ic_person"
-        app:civ_border_width="0dp"/>
+    <!-- Avatar + story ring — same gradient/seen/hidden ring reused via
+         StoryRingApplier (see item_follow_user.xml doc). -->
+    <FrameLayout
+        android:layout_width="54dp"
+        android:layout_height="54dp">
+
+        <ImageView
+            android:id="@+id/iv_story_ring"
+            android:layout_width="54dp"
+            android:layout_height="54dp"
+            android:visibility="gone"
+            android:contentDescription="@null"/>
+
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_avatar"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_person"
+            app:civ_border_width="0dp"/>
+    </FrameLayout>
 
     <LinearLayout
         android:layout_width="0dp"

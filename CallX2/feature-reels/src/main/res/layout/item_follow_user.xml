@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
@@ -11,15 +12,29 @@
     android:paddingBottom="10dp"
     android:foreground="?attr/selectableItemBackground">
 
-    <!-- Avatar -->
-    <de.hdodenhof.circleimageview.CircleImageView
-        android:id="@+id/iv_avatar"
-        android:layout_width="46dp"
-        android:layout_height="46dp"
-        android:src="@drawable/ic_person"
-        android:clickable="true"
-        android:focusable="true"
-        android:background="?attr/selectableItemBackgroundBorderless"/>
+    <!-- Avatar + story ring (same gradient/seen/hidden ring HomeFragment's
+         feed post avatar and Stories tray already use — see StoryRingApplier) -->
+    <FrameLayout
+        android:layout_width="52dp"
+        android:layout_height="52dp">
+
+        <ImageView
+            android:id="@+id/iv_story_ring"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:visibility="gone"
+            tools:ignore="ContentDescription"/>
+
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_avatar"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_person"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+    </FrameLayout>
 
     <!-- Name + Bio -->
     <LinearLayout

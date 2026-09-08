@@ -229,10 +229,12 @@ public class ReelRepostListActivity extends AppCompatActivity {
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;
+            ImageView ivStoryRing;
             TextView tvName, tvTime, tvCaption;
             VH(View v) {
                 super(v);
                 ivAvatar  = v.findViewWithTag("avatar");
+                ivStoryRing = v.findViewWithTag("ring");
                 tvName    = v.findViewWithTag("name");
                 tvTime    = v.findViewWithTag("time");
                 tvCaption = v.findViewWithTag("caption");
@@ -246,12 +248,24 @@ public class ReelRepostListActivity extends AppCompatActivity {
             row.setPadding(dp(16), dp(12), dp(16), dp(12));
             row.setBackground(getDrawable(android.R.drawable.list_selector_background));
 
+            // Avatar + story ring (same gradient/seen/hidden ring HomeFragment's
+            // feed post avatar and Stories tray already use — see StoryRingApplier)
+            FrameLayout avFrame = new FrameLayout(ReelRepostListActivity.this);
+            LinearLayout.LayoutParams avFrameLp = new LinearLayout.LayoutParams(dp(44), dp(44));
+            avFrameLp.setMarginEnd(dp(12));
+            row.addView(avFrame, avFrameLp);
+
+            ImageView ivRing = new ImageView(ReelRepostListActivity.this);
+            ivRing.setTag("ring");
+            ivRing.setVisibility(View.GONE);
+            avFrame.addView(ivRing, new FrameLayout.LayoutParams(dp(44), dp(44)));
+
             CircleImageView avatar = new CircleImageView(ReelRepostListActivity.this);
             avatar.setTag("avatar");
-            LinearLayout.LayoutParams avLp = new LinearLayout.LayoutParams(dp(44), dp(44));
-            avLp.setMarginEnd(dp(12));
             avatar.setImageResource(R.drawable.ic_person);
-            row.addView(avatar, avLp);
+            FrameLayout.LayoutParams avLp = new FrameLayout.LayoutParams(dp(38), dp(38));
+            avLp.gravity = android.view.Gravity.CENTER;
+            avFrame.addView(avatar, avLp);
 
             LinearLayout col = new LinearLayout(ReelRepostListActivity.this);
             col.setOrientation(LinearLayout.VERTICAL);
@@ -314,6 +328,10 @@ public class ReelRepostListActivity extends AppCompatActivity {
             } else {
                 h.ivAvatar.setImageResource(R.drawable.ic_person);
             }
+
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(ReelRepostListActivity.this, h.ivStoryRing, item.uid);
 
             h.itemView.setOnClickListener(v -> {
                 if (item.uid == null) return;

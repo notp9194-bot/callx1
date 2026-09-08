@@ -239,6 +239,10 @@ public class FollowingListActivity extends AppCompatActivity {
                 FollowAvatarBinder.bind(FollowingListActivity.this, h.ivAvatar, u.photo, u.avatarVersion, R.drawable.ic_person);
             else h.ivAvatar.setImageResource(R.drawable.ic_person);
 
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(FollowingListActivity.this, h.ivStoryRing, u.uid);
+
             // Unfollow button — only for own profile
             if (isSelf) {
                 h.btnAction.setVisibility(View.VISIBLE);
@@ -278,14 +282,16 @@ public class FollowingListActivity extends AppCompatActivity {
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;
+            ImageView ivStoryRing;
             TextView tvName, tvBio;
             Button   btnAction;
             VH(@NonNull View v) {
                 super(v);
-                ivAvatar  = v.findViewById(R.id.iv_avatar);
-                tvName    = v.findViewById(R.id.tv_name);
-                tvBio     = v.findViewById(R.id.tv_bio);
-                btnAction = v.findViewById(R.id.btn_follow_action);
+                ivAvatar    = v.findViewById(R.id.iv_avatar);
+                ivStoryRing = v.findViewById(R.id.iv_story_ring);
+                tvName      = v.findViewById(R.id.tv_name);
+                tvBio       = v.findViewById(R.id.tv_bio);
+                btnAction   = v.findViewById(R.id.btn_follow_action);
             }
         }
     }

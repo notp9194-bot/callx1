@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Muted circular backdrop for a plain-text (no matched account) recent-
+     search row's clock icon — see item_reel_search_history.xml /
+     ReelSearchHistoryActivity. Deliberately a translucent neutral grey
+     (not a theme color-attr) so it reads correctly in both day and night
+     mode without needing a drawable-night variant. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#33888888"/>
+</shape>

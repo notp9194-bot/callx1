@@ -545,6 +545,12 @@ public class UserReelsActivity extends AppCompatActivity
         // one-frame gradient flash before the real seen-state is known.
         if (viewStoryRing != null) {
             viewStoryRing.setVisibility(View.GONE);
+            // Ring tap → same status-viewer/avatar-zoom check as tapping the
+            // avatar itself (openStatusOrAvatarZoom). Was previously
+            // visual-only (see showStoryRingStatic()/handleStoryRingVisibility()),
+            // so a tap on the ring's outer edge (outside the avatar bounds
+            // it surrounds) did nothing.
+            viewStoryRing.setOnClickListener(v -> openStatusOrAvatarZoom(v));
         }
         tvName               = findViewById(R.id.tv_name);
         tvDisplayName        = findViewById(R.id.tv_display_name);

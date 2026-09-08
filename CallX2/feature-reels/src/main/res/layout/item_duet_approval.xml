@@ -1,11 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
   <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+      android:gravity="center_vertical"
       android:layout_width="match_parent" android:layout_height="wrap_content"
-      android:orientation="horizontal" android:gravity="center_vertical"
+      android:orientation="horizontal"
       android:padding="12dp" android:background="#1A1A1A" android:layout_marginBottom="1dp">
 
-      <ImageView android:id="@+id/iv_approval_avatar"
-          android:layout_width="44dp" android:layout_height="44dp"/>
+      <!-- Avatar + story ring (same gradient/seen/hidden ring HomeFragment's
+           feed post avatar and Stories tray already use — see StoryRingApplier) -->
+      <FrameLayout
+          android:layout_width="50dp"
+          android:layout_height="50dp">
+
+          <ImageView android:id="@+id/iv_approval_story_ring"
+              android:layout_width="50dp" android:layout_height="50dp"
+              android:visibility="gone"/>
+
+          <ImageView android:id="@+id/iv_approval_avatar"
+              android:layout_width="44dp" android:layout_height="44dp"
+              android:layout_gravity="center"/>
+      </FrameLayout>
 
       <ImageView android:id="@+id/iv_approval_thumb"
           android:layout_width="56dp" android:layout_height="80dp"

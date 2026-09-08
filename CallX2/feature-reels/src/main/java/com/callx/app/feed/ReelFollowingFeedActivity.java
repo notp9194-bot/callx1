@@ -213,6 +213,10 @@ public class ReelFollowingFeedActivity extends AppCompatActivity {
                     .override(96, 96)
                     .placeholder(R.drawable.ic_person).circleCrop().into(h.ivAvatar);
             }
+
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(h.itemView.getContext(), h.ivStoryRing, item.ownerUid);
         }
 
         @Override public int getItemCount() { return items.size(); }
@@ -226,12 +230,14 @@ public class ReelFollowingFeedActivity extends AppCompatActivity {
         static class VH extends RecyclerView.ViewHolder {
             ImageView       ivThumb;
             CircleImageView ivAvatar;
+            ImageView       ivStoryRing;
             TextView        tvUserName, tvCaption, tvLikes;
 
             VH(View v) {
                 super(v);
-                ivThumb    = v.findViewById(R.id.iv_following_reel_thumb);
-                ivAvatar   = v.findViewById(R.id.iv_following_creator_avatar);
+                ivThumb     = v.findViewById(R.id.iv_following_reel_thumb);
+                ivAvatar    = v.findViewById(R.id.iv_following_creator_avatar);
+                ivStoryRing = v.findViewById(R.id.iv_following_story_ring);
                 tvUserName = v.findViewById(R.id.tv_following_creator_name);
                 tvCaption  = v.findViewById(R.id.tv_following_reel_caption);
                 tvLikes    = v.findViewById(R.id.tv_following_likes);

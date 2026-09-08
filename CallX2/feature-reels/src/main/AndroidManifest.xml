@@ -26,6 +26,12 @@
         <activity android:name="com.callx.app.explore.ReelSearchActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
+        <!-- Opened by tapping the search box at the top of ReelSearchActivity
+             (Explore grid) — Instagram-style recent-search history + live
+             contact/username search. See ReelSearchHistoryActivity doc. -->
+        <activity android:name="com.callx.app.explore.ReelSearchHistoryActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
         <activity android:name="com.callx.app.comments.ReelCommentActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>

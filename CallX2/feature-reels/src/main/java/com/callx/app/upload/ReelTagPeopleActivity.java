@@ -156,14 +156,17 @@ public class ReelTagPeopleActivity extends AppCompatActivity {
             h.cbTag.setChecked(sel.contains(c.uid));
             // FIX (avatar pipeline parity): shared L2/L3 cache + density-aware tier decode instead of a flat Glide load — see FollowAvatarBinder.
             FollowAvatarBinder.bind(h.itemView.getContext(), h.ivAvatar, c.photo, 0L, R.drawable.ic_person);
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(h.itemView.getContext(), h.ivStoryRing, c.uid);
             h.itemView.setOnClickListener(v->toggle.accept(c));
         }
         @Override public int getItemCount(){return items.size();}
         // FIX (lifecycle-aware cancel): stop an in-flight request for a row that just scrolled off screen.
         @Override public void onViewRecycled(@NonNull VH h){ FollowAvatarBinder.cancel(h.itemView.getContext(), h.ivAvatar); }
         static class VH extends RecyclerView.ViewHolder{
-            CircleImageView ivAvatar; TextView tvName,tvUsername; CheckBox cbTag;
-            VH(View v){super(v);ivAvatar=v.findViewById(R.id.iv_tag_avatar);tvName=v.findViewById(R.id.tv_tag_name);tvUsername=v.findViewById(R.id.tv_tag_username);cbTag=v.findViewById(R.id.cb_tag_check);}
+            CircleImageView ivAvatar; ImageView ivStoryRing; TextView tvName,tvUsername; CheckBox cbTag;
+            VH(View v){super(v);ivAvatar=v.findViewById(R.id.iv_tag_avatar);ivStoryRing=v.findViewById(R.id.iv_tag_story_ring);tvName=v.findViewById(R.id.tv_tag_name);tvUsername=v.findViewById(R.id.tv_tag_username);cbTag=v.findViewById(R.id.cb_tag_check);}
         }
     }
 }

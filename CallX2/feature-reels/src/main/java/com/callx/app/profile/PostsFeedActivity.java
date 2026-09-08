@@ -2,6 +2,7 @@ package com.callx.app.profile;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.media.MediaPlayer;
 import android.os.Bundle;
@@ -123,6 +124,23 @@ public class PostsFeedActivity extends AppCompatActivity {
      *  and the once-registered "more"/"less" click listener in
      *  setupClickListenersOnce(), which needs the same value the bind used. */
     private static final int CAPTION_MAX_LINES = 2;
+
+    /**
+     * Opens StatusViewerActivity via Class.forName so feature-reels doesn't
+     * need a compile dependency on feature-status — same reflection pattern
+     * HomeFragment/ReelCommentsAdapter/UserReelsActivity already use. Shared
+     * by the story-ring click listener wired in setupClickListenersOnce().
+     */
+    private static void openStatusViewer(Context ctx, String ownerUid, String ownerName) {
+        if (ctx == null || ownerUid == null || ownerUid.isEmpty()) return;
+        try {
+            Class<?> cls = Class.forName("com.callx.app.viewer.StatusViewerActivity");
+            Intent i = new Intent(ctx, cls);
+            i.putExtra("ownerUid",  ownerUid);
+            i.putExtra("ownerName", ownerName != null ? ownerName : "");
+            ctx.startActivity(i);
+        } catch (ClassNotFoundException ignored) {}
+    }
 
     private RecyclerView   recyclerView;
     private ProgressBar    progressBar;
@@ -2252,6 +2270,18 @@ public class PostsFeedActivity extends AppCompatActivity {
                 // covers the collab case, since avatar's own listener
                 // above already branches on it).
                 tvOwner.setOnClickListener(v -> ivAvatar.performClick());
+
+                // Story ring tap → open the story viewer for r.uid (view
+                // gets counted there) — was previously visual-only (see
+                // bind-time block above), so a tap here just fell through
+                // to the avatar's profile-navigation click underneath it.
+                if (ivStoryRing != null) {
+                    ivStoryRing.setOnClickListener(v -> {
+                        ReelModel br = boundReel;
+                        if (br == null || br.uid == null) return;
+                        openStatusViewer(v.getContext(), br.uid, br.ownerName);
+                    });
+                }
 
                 // Like count tap → likes bottom sheet.
                 tvLikes.setOnClickListener(v -> {

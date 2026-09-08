@@ -158,7 +158,7 @@ public class WatchHistoryGroupedAdapter extends RecyclerView.Adapter<RecyclerVie
     // ── ViewHolder: Item ──────────────────────────────────────────────────────
 
     class ItemVH extends RecyclerView.ViewHolder {
-        ImageView   ivThumb, ivAvatar;
+        ImageView   ivThumb, ivAvatar, ivStoryRing;
         TextView    tvOwnerName, tvCaption, tvWatchedAt, tvWatchCount,
                     tvPercent, tvMediaTypeBadge, tvDurationBadge;
         ProgressBar pbCompletion;
@@ -168,6 +168,7 @@ public class WatchHistoryGroupedAdapter extends RecyclerView.Adapter<RecyclerVie
             super(v);
             ivThumb          = v.findViewById(R.id.iv_history_thumb);
             ivAvatar         = v.findViewById(R.id.iv_history_avatar);
+            ivStoryRing      = v.findViewById(R.id.iv_story_ring);
             tvOwnerName      = v.findViewById(R.id.tv_history_owner);
             tvCaption        = v.findViewById(R.id.tv_history_caption);
             tvWatchedAt      = v.findViewById(R.id.tv_history_time);
@@ -195,6 +196,10 @@ public class WatchHistoryGroupedAdapter extends RecyclerView.Adapter<RecyclerVie
                 .circleCrop()
                 .override(96, 96)
                 .into(ivAvatar);
+
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(ctx, ivStoryRing, item.ownerUid);
 
             // Text
             tvOwnerName.setText("@" + (item.ownerName != null ? item.ownerName : "?"));

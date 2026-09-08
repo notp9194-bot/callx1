@@ -166,8 +166,8 @@ public class ReelRepostBlockActivity extends AppCompatActivity {
 
     class BlockAdapter extends RecyclerView.Adapter<BlockAdapter.VH> {
         class VH extends RecyclerView.ViewHolder {
-            CircleImageView iv; TextView tvName, tvTime; Button btnBlock;
-            VH(View v) { super(v); iv=v.findViewWithTag("av"); tvName=v.findViewWithTag("nm"); tvTime=v.findViewWithTag("ts"); btnBlock=v.findViewWithTag("btn"); }
+            CircleImageView iv; ImageView ivRing; TextView tvName, tvTime; Button btnBlock;
+            VH(View v) { super(v); iv=v.findViewWithTag("av"); ivRing=v.findViewWithTag("ring"); tvName=v.findViewWithTag("nm"); tvTime=v.findViewWithTag("ts"); btnBlock=v.findViewWithTag("btn"); }
         }
         @NonNull @Override public VH onCreateViewHolder(@NonNull ViewGroup p, int vt) {
             LinearLayout row = new LinearLayout(ReelRepostBlockActivity.this);
@@ -177,11 +177,23 @@ public class ReelRepostBlockActivity extends AppCompatActivity {
             row.setBackgroundColor(0xFF111111);
             row.setLayoutParams(new RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+            // Avatar + story ring (same gradient/seen/hidden ring HomeFragment's
+            // feed post avatar and Stories tray already use — see StoryRingApplier)
+            FrameLayout avFrame = new FrameLayout(ReelRepostBlockActivity.this);
+            LinearLayout.LayoutParams avFrameLp = new LinearLayout.LayoutParams(dp(44), dp(44));
+            avFrameLp.setMarginEnd(dp(12));
+            row.addView(avFrame, avFrameLp);
+
+            ImageView ivRing = new ImageView(ReelRepostBlockActivity.this);
+            ivRing.setTag("ring");
+            ivRing.setVisibility(View.GONE);
+            avFrame.addView(ivRing, new FrameLayout.LayoutParams(dp(44), dp(44)));
+
             CircleImageView iv = new CircleImageView(ReelRepostBlockActivity.this);
             iv.setTag("av"); iv.setImageResource(R.drawable.ic_person);
-            LinearLayout.LayoutParams avLp = new LinearLayout.LayoutParams(dp(44), dp(44));
-            avLp.setMarginEnd(dp(12));
-            row.addView(iv, avLp);
+            FrameLayout.LayoutParams avLp = new FrameLayout.LayoutParams(dp(38), dp(38));
+            avLp.gravity = Gravity.CENTER;
+            avFrame.addView(iv, avLp);
 
             LinearLayout col = new LinearLayout(ReelRepostBlockActivity.this);
             col.setOrientation(LinearLayout.VERTICAL);
@@ -215,6 +227,11 @@ public class ReelRepostBlockActivity extends AppCompatActivity {
             ReposterItem item = items.get(pos);
             if (item.photoUrl != null)
                 Glide.with(ReelRepostBlockActivity.this).load(item.photoUrl).circleCrop().placeholder(R.drawable.ic_person).override(96, 96).into(h.iv);
+
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(ReelRepostBlockActivity.this, h.ivRing, item.uid);
+
             h.tvName.setText(item.name != null ? item.name : item.uid);
             h.tvTime.setText("Reposted " + relTime(item.repostedAt));
             if (item.isBlocked) {

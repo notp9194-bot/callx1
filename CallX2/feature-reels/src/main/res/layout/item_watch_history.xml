@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
@@ -83,13 +84,28 @@
             android:gravity="center_vertical"
             android:layout_marginBottom="6dp">
 
-            <ImageView
-                android:id="@+id/iv_history_avatar"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:scaleType="centerCrop"
-                android:background="@drawable/bg_circle_action"
-                android:contentDescription="Creator avatar"/>
+            <!-- Avatar + story ring (same gradient/seen/hidden ring HomeFragment's
+                 feed post avatar and Stories tray already use — see StoryRingApplier) -->
+            <FrameLayout
+                android:layout_width="32dp"
+                android:layout_height="32dp">
+
+                <ImageView
+                    android:id="@+id/iv_story_ring"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:visibility="gone"
+                    tools:ignore="ContentDescription"/>
+
+                <ImageView
+                    android:id="@+id/iv_history_avatar"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:layout_gravity="center"
+                    android:scaleType="centerCrop"
+                    android:background="@drawable/bg_circle_action"
+                    android:contentDescription="Creator avatar"/>
+            </FrameLayout>
 
             <TextView
                 android:id="@+id/tv_history_owner"

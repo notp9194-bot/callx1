@@ -223,18 +223,24 @@ import com.callx.app.utils.FirebaseUtils;
               if (d.duetorPhoto != null && !d.duetorPhoto.isEmpty()) {
                   Glide.with(h.ivAvatar).load(d.duetorPhoto).circleCrop().override(96, 96).into(h.ivAvatar);
               }
+
+              // Same gradient/seen/hidden story ring HomeFragment's feed post
+              // avatar and Stories tray already use — see StoryRingApplier.
+              com.callx.app.utils.StoryRingApplier.applyWithClick(h.itemView.getContext(), h.ivStoryRing, d.duetorUid);
+
               h.btnApprove.setOnClickListener(v -> onApprove.onApprove(d, h.getAdapterPosition()));
               h.btnReject.setOnClickListener(v  -> onReject.onReject(d,  h.getAdapterPosition()));
           }
           @Override public int getItemCount() { return items.size(); }
 
           static class VH extends RecyclerView.ViewHolder {
-              ImageView ivAvatar, ivThumb;
+              ImageView ivAvatar, ivThumb, ivStoryRing;
               TextView  tvName;
               Button    btnApprove, btnReject;
               VH(View v) {
                   super(v);
-                  ivAvatar   = v.findViewById(R.id.iv_approval_avatar);
+                  ivAvatar    = v.findViewById(R.id.iv_approval_avatar);
+                  ivStoryRing = v.findViewById(R.id.iv_approval_story_ring);
                   ivThumb    = v.findViewById(R.id.iv_approval_thumb);
                   tvName     = v.findViewById(R.id.tv_approval_name);
                   btnApprove = v.findViewById(R.id.btn_approval_approve);

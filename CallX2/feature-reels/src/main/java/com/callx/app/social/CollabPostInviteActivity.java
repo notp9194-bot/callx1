@@ -452,6 +452,9 @@ public class CollabPostInviteActivity extends AppCompatActivity {
                 Glide.with(h.itemView.getContext()).load(item.photoUrl).circleCrop().into(h.ivAvatar);
             else
                 h.ivAvatar.setImageResource(R.drawable.ic_person);
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(h.itemView.getContext(), h.ivStoryRing, item.uid);
             boolean selected = selectedChecker.isSelected(item.uid);
             h.itemView.setAlpha(selected ? 0.5f : 1f);
             h.itemView.setOnClickListener(v -> listener.onToggle(item));
@@ -459,12 +462,14 @@ public class CollabPostInviteActivity extends AppCompatActivity {
         @Override public int getItemCount() { return items.size(); }
         static class VH extends RecyclerView.ViewHolder {
             final CircleImageView ivAvatar;
+            final ImageView ivStoryRing;
             final TextView tvName, tvHandle;
             VH(View v) {
                 super(v);
-                ivAvatar = v.findViewById(R.id.iv_collab_user_avatar);
-                tvName   = v.findViewById(R.id.tv_collab_user_name);
-                tvHandle = v.findViewById(R.id.tv_collab_user_handle);
+                ivAvatar    = v.findViewById(R.id.iv_collab_user_avatar);
+                ivStoryRing = v.findViewById(R.id.iv_story_ring);
+                tvName      = v.findViewById(R.id.tv_collab_user_name);
+                tvHandle    = v.findViewById(R.id.tv_collab_user_handle);
             }
         }
     }

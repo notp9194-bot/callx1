@@ -18,6 +18,7 @@
 <com.google.android.material.card.MaterialCardView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/root_sound_detail"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -456,9 +457,20 @@
                     android:foreground="?attr/selectableItemBackground"
                     android:layout_marginTop="16dp" android:paddingHorizontal="14dp"
                     android:visibility="gone">
-                    <ImageView android:id="@+id/iv_creator_avatar"
-                        android:layout_width="44dp" android:layout_height="44dp"
-                        android:scaleType="centerCrop" android:src="@drawable/ic_person"/>
+                    <!-- Avatar + story ring (same gradient/seen/hidden ring HomeFragment's
+                         feed post avatar and Stories tray already use — see StoryRingApplier) -->
+                    <FrameLayout
+                        android:layout_width="48dp"
+                        android:layout_height="48dp">
+                        <ImageView android:id="@+id/iv_story_ring"
+                            android:layout_width="48dp" android:layout_height="48dp"
+                            android:visibility="gone"
+                            tools:ignore="ContentDescription"/>
+                        <ImageView android:id="@+id/iv_creator_avatar"
+                            android:layout_width="44dp" android:layout_height="44dp"
+                            android:layout_gravity="center"
+                            android:scaleType="centerCrop" android:src="@drawable/ic_person"/>
+                    </FrameLayout>
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical"
                         android:layout_marginStart="10dp">

@@ -301,6 +301,11 @@ public class SuggestedListActivity extends AppCompatActivity {
             } else {
                 h.ivAvatar.setImageResource(R.drawable.ic_person);
             }
+
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(SuggestedListActivity.this, h.ivStoryRing, u.uid);
+
             updateFollowBtn(h, u);
             h.btnFollow.setOnClickListener(v -> {
                 int p = h.getAdapterPosition();
@@ -351,16 +356,18 @@ public class SuggestedListActivity extends AppCompatActivity {
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;
+            ImageView       ivStoryRing;
             TextView        tvName, tvSubtitle;
             Button          btnFollow;
             ImageButton     btnDismiss;
             VH(View v) {
                 super(v);
-                ivAvatar   = v.findViewById(R.id.iv_avatar);
-                tvName     = v.findViewById(R.id.tv_name);
-                tvSubtitle = v.findViewById(R.id.tv_subtitle);
-                btnFollow  = v.findViewById(R.id.btn_follow);
-                btnDismiss = v.findViewById(R.id.btn_dismiss);
+                ivAvatar    = v.findViewById(R.id.iv_avatar);
+                ivStoryRing = v.findViewById(R.id.iv_story_ring);
+                tvName      = v.findViewById(R.id.tv_name);
+                tvSubtitle  = v.findViewById(R.id.tv_subtitle);
+                btnFollow   = v.findViewById(R.id.btn_follow);
+                btnDismiss  = v.findViewById(R.id.btn_dismiss);
             }
         }
     }

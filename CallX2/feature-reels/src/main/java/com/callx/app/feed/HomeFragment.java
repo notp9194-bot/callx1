@@ -7236,6 +7236,17 @@ public class HomeFragment extends Fragment
             holder.lastStoryRingUid = null;
             holder.lastStoryRingState = -1;
         }
+        // Ring tap → open the story viewer for this post's owner (view gets
+        // counted there), same as the Stories tray ring — was previously
+        // visual-only, so a tap here just fell through to the avatar's
+        // normal profile-navigation click underneath. Set every bind (not
+        // gated behind the "unchanged" check above) since the recycled
+        // holder's captured reel changes every bind.
+        if (ivPostStoryRing != null) {
+            final String ringUid  = reel.uid;
+            final String ringName = reel.ownerName;
+            ivPostStoryRing.setOnClickListener(v -> openStatusViewer(ringUid, ringName));
+        }
         TextView tvOwner          = holder.tvOwner;
         TextView tvTime           = holder.tvTime;
         TextView tvAudio          = holder.tvAudio;

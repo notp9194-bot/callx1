@@ -3,9 +3,17 @@
     android:layout_width="match_parent" android:layout_height="64dp"
     android:orientation="horizontal" android:gravity="center_vertical"
     android:paddingHorizontal="16dp" android:background="?attr/selectableItemBackground">
-    <de.hdodenhof.circleimageview.CircleImageView android:id="@+id/iv_tag_avatar"
-        android:layout_width="44dp" android:layout_height="44dp"
-        android:src="@drawable/ic_person"/>
+    <!-- Avatar + story ring — same gradient/seen/hidden ring reused via
+         StoryRingApplier (see item_follow_user.xml doc). -->
+    <FrameLayout android:layout_width="50dp" android:layout_height="50dp">
+        <ImageView android:id="@+id/iv_tag_story_ring"
+            android:layout_width="50dp" android:layout_height="50dp"
+            android:visibility="gone" android:contentDescription="@null"/>
+        <de.hdodenhof.circleimageview.CircleImageView android:id="@+id/iv_tag_avatar"
+            android:layout_width="44dp" android:layout_height="44dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_person"/>
+    </FrameLayout>
     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
         android:layout_weight="1" android:orientation="vertical" android:paddingHorizontal="12dp">
         <TextView android:id="@+id/tv_tag_name" android:layout_width="wrap_content"

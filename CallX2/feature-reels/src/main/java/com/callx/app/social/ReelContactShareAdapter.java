@@ -201,6 +201,10 @@ public class ReelContactShareAdapter
         boolean online = contact.uid != null && onlineUids.contains(contact.uid);
         h.onlineDot.setVisibility((!isSelected && online) ? View.VISIBLE : View.GONE);
 
+        // Same gradient/seen/hidden story ring HomeFragment's feed post avatar
+        // and Stories tray already use — see StoryRingApplier.
+        com.callx.app.utils.StoryRingApplier.applyWithClick(h.itemView.getContext(), h.ivStoryRing, contact.uid);
+
         h.itemView.setOnClickListener(v -> {
             if (contact.uid == null) return;
             if (selected.containsKey(contact.uid)) {
@@ -230,6 +234,7 @@ public class ReelContactShareAdapter
 
     static class ContactVH extends RecyclerView.ViewHolder {
         CircleImageView ivAvatar;
+        ImageView       ivStoryRing;
         TextView        tvName;
         View            onlineDot;
         View            selectionScrim;
@@ -238,6 +243,7 @@ public class ReelContactShareAdapter
         ContactVH(View v) {
             super(v);
             ivAvatar       = v.findViewById(R.id.iv_share_contact_avatar);
+            ivStoryRing    = v.findViewById(R.id.iv_story_ring);
             tvName         = v.findViewById(R.id.tv_share_contact_name);
             onlineDot      = v.findViewById(R.id.online_dot);
             selectionScrim = v.findViewById(R.id.view_selection_scrim);

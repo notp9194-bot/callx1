@@ -230,6 +230,10 @@ public class FollowersListActivity extends AppCompatActivity {
                 FollowAvatarBinder.bind(FollowersListActivity.this, h.ivAvatar, u.photo, u.avatarVersion, R.drawable.ic_person);
             else h.ivAvatar.setImageResource(R.drawable.ic_person);
 
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(FollowersListActivity.this, h.ivStoryRing, u.uid);
+
             String myUid = safeMyUid();
             if (showFollowBack && myUid != null && !myUid.equals(u.uid)) {
                 h.btnFollowBack.setVisibility(View.VISIBLE);
@@ -289,11 +293,13 @@ public class FollowersListActivity extends AppCompatActivity {
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;
+            ImageView ivStoryRing;
             TextView tvName, tvBio;
             Button   btnFollowBack;
             VH(@NonNull View v) {
                 super(v);
                 ivAvatar    = v.findViewById(R.id.iv_avatar);
+                ivStoryRing = v.findViewById(R.id.iv_story_ring);
                 tvName      = v.findViewById(R.id.tv_name);
                 tvBio       = v.findViewById(R.id.tv_bio);
                 btnFollowBack = v.findViewById(R.id.btn_follow_action);

@@ -374,7 +374,7 @@ public class DiscoverPeopleActivity extends AppCompatActivity {
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar, ivMutualAvatar;
-            ImageView       ivVerified;
+            ImageView       ivVerified, ivStoryRing;
             TextView        tvName, tvSubtitle;
             Button          btnFollow;
             ImageButton     btnDismiss;
@@ -415,6 +415,10 @@ public class DiscoverPeopleActivity extends AppCompatActivity {
                 // just be a second, redundant bitmap on every decode).
                 FollowAvatarBinder.bind(DiscoverPeopleActivity.this, ivAvatar, u.photo, u.avatarVersion, R.drawable.ic_person);
 
+                // Same gradient/seen/hidden story ring HomeFragment's feed
+                // post avatar and Stories tray already use — see StoryRingApplier.
+                com.callx.app.utils.StoryRingApplier.applyWithClick(DiscoverPeopleActivity.this, ivStoryRing, u.uid);
+
                 VerifiedBadgeUtils.bindForUid(ivVerified, u.uid);
 
                 // Mutual followers line — "Popular" (matching the reference
@@ -444,6 +448,7 @@ public class DiscoverPeopleActivity extends AppCompatActivity {
             VH(View v) {
                 super(v);
                 ivAvatar      = v.findViewById(R.id.iv_avatar);
+                ivStoryRing   = v.findViewById(R.id.iv_story_ring);
                 ivVerified    = v.findViewById(R.id.iv_verified);
                 ivMutualAvatar = v.findViewById(R.id.iv_mutual_avatar);
                 tvName        = v.findViewById(R.id.tv_name);

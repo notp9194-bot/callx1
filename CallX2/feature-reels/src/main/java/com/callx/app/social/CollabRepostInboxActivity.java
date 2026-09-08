@@ -235,12 +235,24 @@ public class CollabRepostInboxActivity extends AppCompatActivity {
             topRow.setOrientation(LinearLayout.HORIZONTAL);
             topRow.setGravity(Gravity.CENTER_VERTICAL);
 
+            // Avatar + story ring (same gradient/seen/hidden ring HomeFragment's
+            // feed post avatar and Stories tray already use — see StoryRingApplier)
+            FrameLayout avFrame = new FrameLayout(parent.getContext());
+            LinearLayout.LayoutParams avFrameLp = new LinearLayout.LayoutParams(dp(46), dp(46));
+            avFrameLp.setMarginEnd(dp(10));
+            topRow.addView(avFrame, avFrameLp);
+
+            ImageView ivRing = new ImageView(parent.getContext());
+            ivRing.setTag("ring");
+            ivRing.setVisibility(View.GONE);
+            avFrame.addView(ivRing, new FrameLayout.LayoutParams(dp(46), dp(46)));
+
             CircleImageView ivAv = new CircleImageView(parent.getContext());
             ivAv.setTag("av");
             ivAv.setImageResource(R.drawable.ic_person);
-            LinearLayout.LayoutParams avLp = new LinearLayout.LayoutParams(dp(40), dp(40));
-            avLp.setMarginEnd(dp(10));
-            topRow.addView(ivAv, avLp);
+            FrameLayout.LayoutParams avLp = new FrameLayout.LayoutParams(dp(40), dp(40));
+            avLp.gravity = Gravity.CENTER;
+            avFrame.addView(ivAv, avLp);
 
             LinearLayout nameCol = new LinearLayout(parent.getContext());
             nameCol.setOrientation(LinearLayout.VERTICAL);
@@ -344,6 +356,10 @@ public class CollabRepostInboxActivity extends AppCompatActivity {
                     .placeholder(R.drawable.ic_person).into(h.av);
             else h.av.setImageResource(R.drawable.ic_person);
 
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(CollabRepostInboxActivity.this, h.ivRing, m.initiatorUid);
+
             h.tvName.setText(m.initiatorName != null ? m.initiatorName : "Unknown");
 
             // Thumbnail
@@ -401,11 +417,13 @@ public class CollabRepostInboxActivity extends AppCompatActivity {
 
         class VH extends RecyclerView.ViewHolder {
             CircleImageView av; ImageView ivThumb;
+            ImageView ivRing;
             TextView tvName, tvOrigCap, tvInitCap, tvTime, badge;
             Button btnAccept;
             VH(View v) {
                 super(v);
                 av        = v.findViewWithTag("av");
+                ivRing    = v.findViewWithTag("ring");
                 ivThumb   = v.findViewWithTag("thumb");
                 tvName    = v.findViewWithTag("name");
                 tvOrigCap = v.findViewWithTag("orig_cap");

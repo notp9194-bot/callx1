@@ -628,18 +628,22 @@ public class MultiDuetActivity extends AppCompatActivity {
             } else {
                 h.ivAvatar.setImageResource(android.R.drawable.ic_menu_myplaces);
             }
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(h.itemView.getContext(), h.ivStoryRing, p.uid);
             h.btnRemove.setVisibility(pos == 0 ? View.GONE : View.VISIBLE);
             h.btnRemove.setOnClickListener(v -> onRemove.onRemove(h.getAdapterPosition()));
         }
         @Override public int getItemCount() { return items.size(); }
         static class VH extends RecyclerView.ViewHolder {
-            ImageView ivAvatar; TextView tvName, tvStatus; ImageButton btnRemove;
+            ImageView ivAvatar, ivStoryRing; TextView tvName, tvStatus; ImageButton btnRemove;
             VH(View v) {
                 super(v);
-                ivAvatar  = v.findViewById(R.id.iv_slot_avatar);
-                tvName    = v.findViewById(R.id.tv_slot_name);
-                tvStatus  = v.findViewById(R.id.tv_slot_status);
-                btnRemove = v.findViewById(R.id.btn_slot_remove);
+                ivAvatar    = v.findViewById(R.id.iv_slot_avatar);
+                ivStoryRing = v.findViewById(R.id.iv_story_ring);
+                tvName      = v.findViewById(R.id.tv_slot_name);
+                tvStatus    = v.findViewById(R.id.tv_slot_status);
+                btnRemove   = v.findViewById(R.id.btn_slot_remove);
             }
         }
     }

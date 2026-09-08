@@ -324,6 +324,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private LinearLayout layoutCreator;
     private ImageView    ivCreatorAvatar;
     private ImageView    ivCreatorVerified;
+    private ImageView    ivCreatorStoryRing;
     private TextView     tvCreatorName;
     private TextView     tvCreatorFollowers;
     private android.widget.Button btnFollowCreator;
@@ -845,6 +846,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         layoutCreator     = binding.layoutSoundCreator;
         ivCreatorAvatar   = binding.ivCreatorAvatar;
         ivCreatorVerified = binding.ivCreatorVerified;
+        ivCreatorStoryRing = binding.ivStoryRing;
         tvCreatorName     = binding.tvCreatorName;
         tvCreatorFollowers = binding.tvCreatorFollowers;
         btnFollowCreator  = binding.btnFollowCreator;
@@ -2086,6 +2088,9 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             else ivCreatorAvatar.setImageResource(R.drawable.ic_person);
         }
         layoutCreator.setVisibility(View.VISIBLE);
+        // Same gradient/seen/hidden story ring HomeFragment's feed post
+        // avatar and Stories tray already use — see StoryRingApplier.
+        com.callx.app.utils.StoryRingApplier.applyWithClick(requireContext(), ivCreatorStoryRing, uid);
         // Resolves via the cached lookup (VerifiedStatusCache) so scrolling/
         // reopening the sheet doesn't repeatedly hit Firebase — same pattern
         // as chats/calls tabs. Was previously wired to always show regardless

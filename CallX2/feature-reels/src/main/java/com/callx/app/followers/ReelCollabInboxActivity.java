@@ -280,6 +280,10 @@ public class ReelCollabInboxActivity extends AppCompatActivity {
                     .into(h.ivSenderAvatar);
             }
 
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(h.itemView.getContext(), h.ivSenderStoryRing, inv.senderUid);
+
             if (inv.reelThumb != null && !inv.reelThumb.isEmpty()) {
                 Glide.with(h.ivReelThumb)
                     .load(inv.reelThumb)
@@ -298,19 +302,21 @@ public class ReelCollabInboxActivity extends AppCompatActivity {
 
         static class VH extends RecyclerView.ViewHolder {
             CircleImageView ivSenderAvatar;
+            ImageView       ivSenderStoryRing;
             ImageView       ivReelThumb;
             TextView        tvSenderName, tvCaption, tvTime;
             View            btnAccept, btnDecline;
 
             VH(View v) {
                 super(v);
-                ivSenderAvatar = v.findViewById(R.id.iv_collab_sender_avatar);
-                ivReelThumb    = v.findViewById(R.id.iv_collab_reel_thumb);
-                tvSenderName   = v.findViewById(R.id.tv_collab_sender_name);
-                tvCaption      = v.findViewById(R.id.tv_collab_reel_caption);
-                tvTime         = v.findViewById(R.id.tv_collab_invite_time);
-                btnAccept      = v.findViewById(R.id.btn_collab_accept);
-                btnDecline     = v.findViewById(R.id.btn_collab_decline);
+                ivSenderAvatar    = v.findViewById(R.id.iv_collab_sender_avatar);
+                ivSenderStoryRing = v.findViewById(R.id.iv_collab_sender_story_ring);
+                ivReelThumb       = v.findViewById(R.id.iv_collab_reel_thumb);
+                tvSenderName      = v.findViewById(R.id.tv_collab_sender_name);
+                tvCaption         = v.findViewById(R.id.tv_collab_reel_caption);
+                tvTime            = v.findViewById(R.id.tv_collab_invite_time);
+                btnAccept         = v.findViewById(R.id.btn_collab_accept);
+                btnDecline        = v.findViewById(R.id.btn_collab_decline);
             }
         }
     }

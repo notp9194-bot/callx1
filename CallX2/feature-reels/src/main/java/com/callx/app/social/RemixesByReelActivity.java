@@ -142,6 +142,10 @@ public class RemixesByReelActivity extends AppCompatActivity {
                 .override(96, 96)
                 .into(h.ivAvatar);
 
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(RemixesByReelActivity.this, h.ivStoryRing, m.remixerUid);
+
             h.itemView.setOnClickListener(v -> {
                 Intent intent = new Intent(RemixesByReelActivity.this,
                     SingleReelPlayerActivity.class);
@@ -163,13 +167,14 @@ public class RemixesByReelActivity extends AppCompatActivity {
         }
 
         class VH extends RecyclerView.ViewHolder {
-            ImageView ivThumb, ivAvatar;
+            ImageView ivThumb, ivAvatar, ivStoryRing;
             TextView  tvRemixerName, tvLayoutMode, tvCaption, tvStats;
 
             VH(@NonNull View v) {
                 super(v);
                 ivThumb       = v.findViewById(R.id.iv_remix_thumb);
                 ivAvatar      = v.findViewById(R.id.iv_remix_avatar);
+                ivStoryRing   = v.findViewById(R.id.iv_remix_story_ring);
                 tvRemixerName = v.findViewById(R.id.tv_remix_remixer_name);
                 tvLayoutMode  = v.findViewById(R.id.tv_remix_layout_mode);
                 tvCaption     = v.findViewById(R.id.tv_remix_caption);

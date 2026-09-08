@@ -369,6 +369,11 @@ public class ReelCaptionMentionController {
             } else {
                 vh.ivAvatar.setImageDrawable(buildAvatarPlaceholder());
             }
+
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(ctx, vh.ivRing, u.uid);
+
             return convertView;
         }
 
@@ -385,13 +390,27 @@ public class ReelCaptionMentionController {
             row.setPadding(pad, (int)(8*dp), pad, (int)(8*dp));
             row.setBackgroundResource(android.R.drawable.list_selector_background);
 
+            // Avatar + story ring (same gradient/seen/hidden ring HomeFragment's
+            // feed post avatar and Stories tray already use — see StoryRingApplier)
+            android.widget.FrameLayout avFrame = new android.widget.FrameLayout(c);
+            android.widget.LinearLayout.LayoutParams avFrameLp =
+                    new android.widget.LinearLayout.LayoutParams(avatarSz, avatarSz);
+            row.addView(avFrame, avFrameLp);
+
+            ImageView ivRing = new ImageView(c);
+            ivRing.setTag("ring");
+            ivRing.setVisibility(View.GONE);
+            avFrame.addView(ivRing, new android.widget.FrameLayout.LayoutParams(avatarSz, avatarSz));
+
             ImageView iv = new ImageView(c);
             iv.setTag("avatar");
-            android.widget.LinearLayout.LayoutParams ivLp =
-                    new android.widget.LinearLayout.LayoutParams(avatarSz, avatarSz);
+            int innerAvatarSz = (int)(34 * dp);
+            android.widget.FrameLayout.LayoutParams ivLp =
+                    new android.widget.FrameLayout.LayoutParams(innerAvatarSz, innerAvatarSz);
+            ivLp.gravity = Gravity.CENTER;
             iv.setLayoutParams(ivLp);
             iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            row.addView(iv);
+            avFrame.addView(iv);
 
             android.widget.LinearLayout textCol = new android.widget.LinearLayout(c);
             textCol.setOrientation(android.widget.LinearLayout.VERTICAL);
@@ -429,10 +448,11 @@ public class ReelCaptionMentionController {
         }
 
         private static class ViewHolder {
-            final ImageView ivAvatar;
+            final ImageView ivAvatar, ivRing;
             final TextView  tvName, tvHandle;
             ViewHolder(View v) {
                 ivAvatar = v.findViewWithTag("avatar");
+                ivRing   = v.findViewWithTag("ring");
                 tvName   = v.findViewWithTag("name");
                 tvHandle = v.findViewWithTag("handle");
             }

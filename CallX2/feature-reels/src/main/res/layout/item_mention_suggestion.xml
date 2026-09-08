@@ -11,15 +11,28 @@
     android:paddingBottom="6dp"
     android:layout_marginEnd="8dp">
 
-    <ImageView
-        android:id="@+id/iv_mention_avatar"
-        android:layout_width="22dp"
-        android:layout_height="22dp"
-        android:layout_marginEnd="6dp"
-        android:scaleType="centerCrop"
-        android:background="@drawable/bg_comment_avatar_circle"
-        android:clipToOutline="true"
-        android:src="@drawable/ic_person"/>
+    <!-- Avatar + story ring — same gradient/seen/hidden ring reused via
+         StoryRingApplier (see item_follow_user.xml doc). -->
+    <FrameLayout
+        android:layout_width="26dp"
+        android:layout_height="26dp"
+        android:layout_marginEnd="6dp">
+        <ImageView
+            android:id="@+id/iv_mention_story_ring"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:visibility="gone"
+            android:contentDescription="@null"/>
+        <ImageView
+            android:id="@+id/iv_mention_avatar"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_gravity="center"
+            android:scaleType="centerCrop"
+            android:background="@drawable/bg_comment_avatar_circle"
+            android:clipToOutline="true"
+            android:src="@drawable/ic_person"/>
+    </FrameLayout>
 
     <TextView
         android:id="@+id/tv_mention_name"

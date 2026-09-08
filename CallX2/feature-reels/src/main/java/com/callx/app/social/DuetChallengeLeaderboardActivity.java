@@ -83,6 +83,7 @@ package com.callx.app.social;
                   @Override public void onDataChange(@NonNull DataSnapshot snap) {
                       entries.clear();
                       for (DataSnapshot ds : snap.getChildren()) {
+                          String ownUid   = ds.child("uid").getValue(String.class);
                           String ownName  = ds.child("ownerName").getValue(String.class);
                           String ownPhoto = ds.child("ownerPhoto").getValue(String.class);
                           String thumbUrl = ds.child("thumbUrl").getValue(String.class);
@@ -90,7 +91,7 @@ package com.callx.app.social;
                           Long   likes    = ds.child("likeCount").getValue(Long.class);
                           Long   views    = ds.child("viewCount").getValue(Long.class);
                           if (ownName != null) {
-                              entries.add(new LeaderEntry(rid,
+                              entries.add(new LeaderEntry(rid, ownUid != null ? ownUid : "",
                                   ownName, ownPhoto != null ? ownPhoto : "",
                                   thumbUrl != null ? thumbUrl : "",
                                   likes != null ? likes : 0L,
@@ -119,10 +120,10 @@ package com.callx.app.social;
 
       // ── Data model ────────────────────────────────────────────────────────────
       static class LeaderEntry {
-          String reelId, ownerName, ownerPhoto, thumbUrl;
+          String reelId, ownerUid, ownerName, ownerPhoto, thumbUrl;
           long likes, views;
-          LeaderEntry(String r, String n, String p, String t, long l, long v) {
-              reelId = r; ownerName = n; ownerPhoto = p; thumbUrl = t; likes = l; views = v;
+          LeaderEntry(String r, String uid, String n, String p, String t, long l, long v) {
+              reelId = r; ownerUid = uid; ownerName = n; ownerPhoto = p; thumbUrl = t; likes = l; views = v;
           }
       }
 
@@ -147,6 +148,11 @@ package com.callx.app.social;
               h.tvViews.setText(formatCount(e.views) + " 👁");
               if (!e.thumbUrl.isEmpty()) Glide.with(h.ivThumb).load(e.thumbUrl).centerCrop().override(720, 720).into(h.ivThumb);
               if (!e.ownerPhoto.isEmpty()) Glide.with(h.ivAvatar).load(e.ownerPhoto).circleCrop().override(96, 96).into(h.ivAvatar);
+
+              // Same gradient/seen/hidden story ring HomeFragment's feed post
+              // avatar and Stories tray already use — see StoryRingApplier.
+              com.callx.app.utils.StoryRingApplier.applyWithClick(h.itemView.getContext(), h.ivStoryRing, e.ownerUid);
+
               h.itemView.setOnClickListener(v -> onOpen.open(e.reelId));
           }
           @Override public int getItemCount() { return items.size(); }
@@ -157,7 +163,7 @@ package com.callx.app.social;
           }
           static class VH extends RecyclerView.ViewHolder {
               TextView tvRank, tvName, tvLikes, tvViews;
-              ImageView ivThumb, ivAvatar;
+              ImageView ivThumb, ivAvatar, ivStoryRing;
               VH(View v) {
                   super(v);
                   tvRank   = v.findViewById(R.id.tv_lb_rank);
@@ -166,6 +172,7 @@ package com.callx.app.social;
                   tvViews  = v.findViewById(R.id.tv_lb_views);
                   ivThumb  = v.findViewById(R.id.iv_lb_thumb);
                   ivAvatar = v.findViewById(R.id.iv_lb_avatar);
+                  ivStoryRing = v.findViewById(R.id.iv_lb_story_ring);
               }
           }
       }

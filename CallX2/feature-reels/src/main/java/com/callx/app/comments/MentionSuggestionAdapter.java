@@ -114,6 +114,10 @@ public class MentionSuggestionAdapter extends RecyclerView.Adapter<MentionSugges
                 .error(R.drawable.ic_person)
                 .into(h.ivAvatar);
         }
+
+        // Same gradient/seen/hidden story ring HomeFragment's feed post
+        // avatar and Stories tray already use — see StoryRingApplier.
+        com.callx.app.utils.StoryRingApplier.applyWithClick(ctx, h.ivStoryRing, c.uid);
     }
 
     @Override
@@ -123,12 +127,14 @@ public class MentionSuggestionAdapter extends RecyclerView.Adapter<MentionSugges
 
     static class VH extends RecyclerView.ViewHolder {
         final ImageView ivAvatar;
+        final ImageView ivStoryRing;
         final TextView tvName;
 
         VH(@NonNull View v) {
             super(v);
-            ivAvatar = v.findViewById(R.id.iv_mention_avatar);
-            tvName   = v.findViewById(R.id.tv_mention_name);
+            ivAvatar    = v.findViewById(R.id.iv_mention_avatar);
+            ivStoryRing = v.findViewById(R.id.iv_mention_story_ring);
+            tvName      = v.findViewById(R.id.tv_mention_name);
         }
     }
 }

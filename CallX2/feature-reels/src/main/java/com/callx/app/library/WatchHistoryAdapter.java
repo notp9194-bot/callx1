@@ -68,6 +68,10 @@ public class WatchHistoryAdapter extends RecyclerView.Adapter<WatchHistoryAdapte
             .override(96, 96)
             .into(h.ivAvatar);
 
+        // Same gradient/seen/hidden story ring HomeFragment's feed post
+        // avatar and Stories tray already use — see StoryRingApplier.
+        com.callx.app.utils.StoryRingApplier.applyWithClick(ctx, h.ivStoryRing, item.ownerUid);
+
         // Text
         h.tvOwnerName.setText("@" + (item.ownerName != null ? item.ownerName : ""));
         h.tvCaption.setText(item.caption != null ? item.caption : "");
@@ -128,7 +132,7 @@ public class WatchHistoryAdapter extends RecyclerView.Adapter<WatchHistoryAdapte
     }
 
     static class VH extends RecyclerView.ViewHolder {
-        ImageView ivThumb, ivAvatar;
+        ImageView ivThumb, ivAvatar, ivStoryRing;
         TextView  tvOwnerName, tvCaption, tvWatchedAt, tvWatchCount,
                   tvPercent, tvMediaTypeBadge;
         ProgressBar pbCompletion;
@@ -138,6 +142,7 @@ public class WatchHistoryAdapter extends RecyclerView.Adapter<WatchHistoryAdapte
             super(v);
             ivThumb         = v.findViewById(R.id.iv_history_thumb);
             ivAvatar        = v.findViewById(R.id.iv_history_avatar);
+            ivStoryRing     = v.findViewById(R.id.iv_story_ring);
             tvOwnerName     = v.findViewById(R.id.tv_history_owner);
             tvCaption       = v.findViewById(R.id.tv_history_caption);
             tvWatchedAt     = v.findViewById(R.id.tv_history_time);

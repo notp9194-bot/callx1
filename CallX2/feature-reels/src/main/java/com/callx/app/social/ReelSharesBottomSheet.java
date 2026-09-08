@@ -455,6 +455,10 @@ public class ReelSharesBottomSheet extends BottomSheetDialogFragment {
                 h.ivAvatar.setImageResource(R.drawable.ic_person);
             }
 
+            // Same gradient/seen/hidden story ring HomeFragment's feed post
+            // avatar and Stories tray already use — see StoryRingApplier.
+            com.callx.app.utils.StoryRingApplier.applyWithClick(requireContext(), h.ivStoryRing, u.uid);
+
             // Follow button — pill-shaped filled/outline style, reused from
             // FollowConnectionsActivity / ReelLikesBottomSheet for visual
             // consistency across all three follow buttons in the app.
@@ -490,11 +494,13 @@ public class ReelSharesBottomSheet extends BottomSheetDialogFragment {
         class VH extends RecyclerView.ViewHolder {
             CircleImageView ivAvatar;
             ImageView       ivVerified;
+            ImageView       ivStoryRing;
             TextView        tvName, tvUsername, tvTimestamp;
             Button          btnFollow, btnMessage;
             VH(@NonNull View v) {
                 super(v);
                 ivAvatar    = v.findViewById(R.id.iv_avatar);
+                ivStoryRing = v.findViewById(R.id.iv_story_ring);
                 ivVerified  = v.findViewById(R.id.iv_verified);
                 tvName      = v.findViewById(R.id.tv_name);
                 tvUsername  = v.findViewById(R.id.tv_username);
