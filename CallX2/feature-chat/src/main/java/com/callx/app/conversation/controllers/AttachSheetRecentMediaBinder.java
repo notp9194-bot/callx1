@@ -261,6 +261,29 @@ public final class AttachSheetRecentMediaBinder {
         int cellPx = dm.widthPixels / 4;
         final int gridMaxHeightPx = Math.round(dpToPx(activity, GRID_MAX_HEIGHT_DP));
 
+        // ★ FIX (kills the symptom outright, regardless of root cause): any
+        // height-measurement/timing mismatch between our maxHeight/peekHeight
+        // math above and what CoordinatorLayout actually allocates to the
+        // sheet shows up as the chat screen visibly peeking through the GAP
+        // — because only OUR inflated view (sheetRoot, wrap_content) paints
+        // the rounded card background; the Material-internal container one
+        // level up (design_bottom_sheet, the actual view BottomSheetBehavior
+        // resizes/drags) has none. If that container is ever allocated even
+        // slightly more height than sheetRoot's own measured content — a
+        // stale drag range from a live page-load resize, a pre-layout
+        // maxHeight estimate, etc — the leftover strip is fully transparent
+        // straight through to the dimmed chat behind it. Painting the SAME
+        // rounded card background on that outer container too means that
+        // leftover strip reads as card, never as the screen behind — this
+        // closes the visible gap even if some future timing edge case still
+        // sizes the two containers slightly differently.
+        sheetRoot.post(() -> {
+            Object outerContainer = sheetRoot.getParent();
+            if (outerContainer instanceof View) {
+                ((View) outerContainer).setBackgroundResource(R.drawable.bg_bottom_sheet_round);
+            }
+        });
+
         // --- Overshoot fix -------------------------------------------------
         // Root cause: this sheet's content (top_content + the 560dp Recents
         // grid) is taller than the screen on most phones, and nothing was
