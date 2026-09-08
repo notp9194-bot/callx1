@@ -55,6 +55,7 @@
             android:id="@+id/card_peek"
             android:layout_width="331dp"
             android:layout_height="wrap_content"
+            android:clipToOutline="true"
             app:cardCornerRadius="18dp"
             app:cardElevation="16dp"
             app:cardBackgroundColor="#000000"
@@ -220,6 +221,7 @@
             android:layout_width="331dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
+            android:clipToOutline="true"
             app:cardCornerRadius="14dp"
             app:cardElevation="10dp"
             app:cardBackgroundColor="#F5F5F5">
@@ -289,6 +291,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:visibility="gone"
+            android:clipToOutline="true"
             app:cardCornerRadius="14dp"
             app:cardElevation="10dp"
             app:cardBackgroundColor="#F5F5F5">

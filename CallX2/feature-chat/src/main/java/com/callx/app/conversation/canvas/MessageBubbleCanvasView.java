@@ -1865,6 +1865,19 @@ public class MessageBubbleCanvasView extends View {
     OnBubbleClickListener clickListener;
     final GestureDetector gestureDetector;
 
+    // Set true the instant onLongPress() fires the reel peek preview for
+    // the CURRENT touch sequence, cleared again on the next ACTION_DOWN.
+    // Needed because the reel-card ACTION_UP branch below used to always
+    // call onImageClick() (full-screen open) no matter what — so a long
+    // press opened the mini-player peek at ~500ms as intended, but then
+    // the same gesture's finger-lift (ACTION_UP) ALSO fired the full-
+    // screen open on top of it. The full-screen Activity covered the
+    // peek popup immediately, so it only became visible again once the
+    // user pressed back — the "long-press opens full screen, then back
+    // reveals the mini player" bug. Skipping onImageClick() here when
+    // this flag is set makes a long-press open only the mini player.
+    private boolean reelPeekConsumedThisTouch = false;
+
     // ── Per-feature draw() renderers (feature-based file split) — bind/
     // measure/touch logic stays on this host view; each renderer only
     // owns the drawXxx(Canvas) body that used to live here directly. ──
@@ -2465,6 +2478,7 @@ public class MessageBubbleCanvasView extends View {
                 // more auto/dwell-timer trigger, so this is now the only way
                 // the peek preview appears (see onReelPeekPreview callback).
                 if (isReelShare) {
+                    reelPeekConsumedThisTouch = true;
                     if (clickListener != null) clickListener.onReelPeekPreview(MessageBubbleCanvasView.this);
                 } else if (clickListener != null) {
                     clickListener.onBubbleLongClick();
@@ -6159,6 +6173,10 @@ public class MessageBubbleCanvasView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            // New touch sequence — clear last sequence's long-press flag.
+            reelPeekConsumedThisTouch = false;
+        }
         if (showForwardBtn && event.getActionMasked() == MotionEvent.ACTION_UP
                 && forwardBtnRect.contains(event.getX(), event.getY())) {
             cancelPendingLongPress(event);
@@ -6254,8 +6272,16 @@ public class MessageBubbleCanvasView extends View {
                 && reelCardRect.contains(event.getX(), event.getY())) {
             // Whole card opens the reel — mirrors the legacy
             // ll_reel_share.setOnClickListener; there's no separate
-            // download-gate mode for reel cards, so this always fires.
+            // download-gate mode for reel cards, so this always fires...
+            // EXCEPT when this ACTION_UP is just the finger lift at the
+            // end of a long press that already opened the mini-player
+            // peek (see reelPeekConsumedThisTouch above) — in that case
+            // swallow the tap so long-press opens ONLY the mini player.
             cancelPendingLongPress(event);
+            if (reelPeekConsumedThisTouch) {
+                reelPeekConsumedThisTouch = false;
+                return true;
+            }
             if (clickListener != null) clickListener.onImageClick();
             return true;
         }
