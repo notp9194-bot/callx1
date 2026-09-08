@@ -59,6 +59,43 @@
             android:contentDescription="Close"/>
     </LinearLayout>
 
+    <!-- ★ NEW: search box to filter the "Send to" contact grid below —
+         ReelShareSheetFragment wires a TextWatcher that calls
+         ReelContactShareAdapter#filter() on every keystroke. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="42dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="10dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/bg_search_bar"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp">
+
+        <ImageView
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:src="@drawable/ic_search"
+            android:tint="?attr/colorOnSurfaceVariant"/>
+
+        <EditText
+            android:id="@+id/et_share_search"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:background="@android:color/transparent"
+            android:hint="Search"
+            android:textColorHint="?attr/colorOnSurfaceVariant"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="14sp"
+            android:singleLine="true"
+            android:imeOptions="actionDone"
+            android:inputType="text"/>
+    </LinearLayout>
+
     <!-- Send to contacts label -->
     <TextView
         android:layout_width="wrap_content"
@@ -93,6 +130,64 @@
         android:paddingStart="8dp"
         android:paddingEnd="8dp"
         android:paddingTop="4dp"/>
+
+    <!--
+        ★ NEW: multi-select send bar — hidden (GONE) until at least one
+        contact is checked in the grid above. ReelShareSheetFragment shows
+        this via ReelContactShareAdapter.OnSelectionChangedListener and
+        leaves ll_share_button_row (Copy Link / Share via / Story / Status /
+        Repost, further below) untouched so its own expand/collapse height
+        animation is never disturbed by selection state.
+    -->
+    <LinearLayout
+        android:id="@+id/ll_selection_actions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="10dp">
+
+        <EditText
+            android:id="@+id/et_share_message"
+            android:layout_width="match_parent"
+            android:layout_height="46dp"
+            android:background="@drawable/bg_search_bar"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:hint="Write a message…"
+            android:textColorHint="?attr/colorOnSurfaceVariant"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="14sp"
+            android:maxLines="1"
+            android:imeOptions="actionDone"
+            android:layout_marginBottom="10dp"/>
+
+        <Button
+            android:id="@+id/btn_send_separately"
+            android:layout_width="match_parent"
+            android:layout_height="46dp"
+            android:text="Send separately"
+            android:textAllCaps="false"
+            android:textSize="15sp"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#5B6EF5"
+            android:layout_marginBottom="8dp"/>
+
+        <Button
+            android:id="@+id/btn_send_to_group"
+            android:layout_width="match_parent"
+            android:layout_height="46dp"
+            android:text="Send to new group chat"
+            android:textAllCaps="false"
+            android:textSize="15sp"
+            android:background="@drawable/bg_btn_outline_pill"
+            android:textColor="?attr/colorOnSurface"
+            android:visibility="gone"/>
+
+    </LinearLayout>
 
     <View
         android:layout_width="match_parent"

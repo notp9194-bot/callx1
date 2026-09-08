@@ -30,6 +30,16 @@
             android:layout_height="match_parent"
             android:src="@drawable/ic_person"/>
 
+        <!-- ★ NEW: multi-select scrim — darkens the avatar slightly (IG-style)
+             while a checkmark badge sits on top, see iv_selection_check below.
+             GONE by default; ReelContactShareAdapter toggles both together. -->
+        <View
+            android:id="@+id/view_selection_scrim"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/bg_avatar_selection_scrim"
+            android:visibility="gone"/>
+
         <View
             android:id="@+id/online_dot"
             android:layout_width="14dp"
@@ -37,6 +47,19 @@
             android:layout_gravity="bottom|end"
             android:layout_margin="1dp"
             android:background="@drawable/circle_accept"
+            android:visibility="gone"/>
+
+        <!-- ★ NEW: multi-select checkmark badge (blue circle + white check,
+             white ring for contrast on any avatar). Shown/hidden in lockstep
+             with view_selection_scrim above by ReelContactShareAdapter#onBindViewHolder;
+             mutually exclusive with online_dot in the same corner (a selected
+             contact's online dot is hidden while checked). -->
+        <ImageView
+            android:id="@+id/iv_selection_check"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_gravity="bottom|end"
+            android:src="@drawable/bg_share_selected_check"
             android:visibility="gone"/>
 
     </FrameLayout>

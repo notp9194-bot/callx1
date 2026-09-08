@@ -3,6 +3,7 @@ package com.callx.app.social;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -13,7 +14,12 @@ import com.callx.app.reels.R;
 import com.callx.app.models.User;
 import com.callx.app.utils.Constants;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.HashSet;
 
 import de.hdodenhof.circleimageview.CircleImageView;
 
@@ -37,63 +43,126 @@ import de.hdodenhof.circleimageview.CircleImageView;
  * jab data khud snapshot-based hai aur beech me change hi nahi hota. Ab poora
  * online/offline snapshot EK BAAR compute hota hai (refreshOnlineSnapshot(),
  * loadContacts() se turant contacts fill hone ke baad call hota hai) aur ek
- * primitive {@code boolean[]} me store hota hai (autoboxed List<Boolean> se bhi
- * bachaya) — onBindViewHolder sirf ek array-index read karta hai, zero arithmetic,
- * zero allocation, branch-free.
+ * {@code Set<String>} uid lookup me store hota hai — onBindViewHolder sirf ek
+ * hashset-contains check karta hai.
  *
  * ★ ULTRA-OPTIMIZED (prefetch source): avatarSource() pehle onScrolled() ke HAR
  * single frame pe ek naya anonymous AvatarSource object allocate karta tha — fast
  * scroll me ye sainkdon short-lived allocations/sec ban jaate (GC churn). Ab ek
  * hi instance banake final field me cache kiya hai, reused hota hai.
+ *
+ * ★ NEW (multi-select + search): grid ab Instagram/WhatsApp-style multi-select
+ * support karta hai — tap ek contact ko check/uncheck karta hai (immediate send
+ * nahi karta), checked contacts blue checkmark badge + dark scrim dikhate hain
+ * (see item_reel_share_contact_grid.xml). Selection state {@link #selected}
+ * (LinkedHashMap, insertion-order preserved for a stable "Send separately"
+ * order) is fully owned by THIS adapter; ReelShareSheetFragment only listens
+ * via {@link OnSelectionChangedListener} to show/hide its message box + Send
+ * buttons and read the final list back via {@link #getSelectedContacts()}.
+ *
+ * A parallel {@link #masterContacts} (full list, same reference the fragment
+ * fills in loadContacts()) vs {@link #displayed} (post-{@link #filter}
+ * subset actually shown) split lets the search box narrow the grid without
+ * ever touching the fragment's underlying contact list or the online-status
+ * snapshot, which stays keyed by uid so it's correct against either list.
  */
 public class ReelContactShareAdapter
         extends RecyclerView.Adapter<ReelContactShareAdapter.ContactVH> {
 
-    public interface OnContactShareListener {
-        void onShareToContact(User contact);
+    /** Fired on every check/uncheck so the fragment can update its send bar. */
+    public interface OnSelectionChangedListener {
+        void onSelectionChanged(List<User> selected);
     }
 
-    private final List<User>             contacts;
-    private final OnContactShareListener listener;
+    private final List<User> masterContacts; // full, unfiltered — same reference fragment owns
+    private final List<User> displayed = new ArrayList<>(); // what's actually bound/shown
 
-    // Precomputed online/offline snapshot — index-aligned with `contacts`,
-    // primitive boolean[] (no autoboxing) so onBindViewHolder is a pure O(1)
-    // array read instead of per-bind timestamp arithmetic. Sized/filled by
-    // refreshOnlineSnapshot(), called once right after `contacts` is populated.
-    private boolean[] onlineSnapshot = new boolean[0];
+    private OnSelectionChangedListener selectionListener;
+    private String currentQuery = "";
+
+    // uid -> User, insertion order = tap order (drives "Send separately" order)
+    private final LinkedHashMap<String, User> selected = new LinkedHashMap<>();
+
+    // Precomputed online snapshot, keyed by uid (not position) so it stays
+    // correct across filter()'s changing subset — see refreshOnlineSnapshot().
+    private Set<String> onlineUids = new HashSet<>();
 
     // Reused across every onScrolled() frame instead of allocating a fresh
-    // anonymous AvatarSource each time — see class doc.
+    // anonymous AvatarSource each time — see class doc. Reads from `displayed`
+    // since that's what's actually laid out on screen.
     private final FollowAvatarBinder.AvatarSource avatarSourceView =
         new FollowAvatarBinder.AvatarSource() {
             @Override public String photo(int index) {
-                User u = contacts.get(index);
+                User u = displayed.get(index);
                 return (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
             }
-            @Override public long avatarVersion(int index) { return contacts.get(index).avatarVersion; }
-            @Override public int size() { return contacts.size(); }
+            @Override public long avatarVersion(int index) { return displayed.get(index).avatarVersion; }
+            @Override public int size() { return displayed.size(); }
         };
 
-    public ReelContactShareAdapter(List<User> contacts, OnContactShareListener listener) {
-        this.contacts = contacts;
-        this.listener = listener;
+    public ReelContactShareAdapter(List<User> contacts) {
+        this.masterContacts = contacts;
+        this.displayed.addAll(contacts);
+    }
+
+    public void setOnSelectionChangedListener(OnSelectionChangedListener listener) {
+        this.selectionListener = listener;
     }
 
     /**
      * Recompute the online/offline snapshot for every contact currently in
-     * `contacts`, against a SINGLE {@code now} timestamp shared by the whole
-     * batch (one syscall instead of one per row). Call this once, right after
-     * `contacts` is filled/replaced — e.g. loadContacts()'s onDataChange,
-     * before notifyDataSetChanged() — never from onBindViewHolder.
+     * `masterContacts`, against a SINGLE {@code now} timestamp shared by the
+     * whole batch (one syscall instead of one per row). Call this once,
+     * right after `masterContacts` is filled/replaced — e.g. loadContacts()'s
+     * onDataChange, before filter() — never from onBindViewHolder.
      */
     public void refreshOnlineSnapshot() {
-        int n = contacts.size();
-        if (onlineSnapshot.length != n) onlineSnapshot = new boolean[n];
+        Set<String> uids = new HashSet<>();
         long now = System.currentTimeMillis();
-        for (int i = 0; i < n; i++) {
-            Long lastSeen = contacts.get(i).lastSeen;
-            onlineSnapshot[i] = lastSeen != null && (now - lastSeen) < Constants.ONLINE_WINDOW_MS;
+        for (User u : masterContacts) {
+            if (u.uid == null) continue;
+            Long lastSeen = u.lastSeen;
+            if (lastSeen != null && (now - lastSeen) < Constants.ONLINE_WINDOW_MS) uids.add(u.uid);
         }
+        onlineUids = uids;
+    }
+
+    /**
+     * Narrows `displayed` to entries of `masterContacts` whose name contains
+     * {@code query} (case-insensitive); empty/null query shows everything.
+     * Selection state is untouched by filtering — a contact checked before a
+     * search still counts once the search box is cleared again.
+     */
+    public void filter(String query) {
+        currentQuery = query != null ? query : "";
+        String q = currentQuery.trim().toLowerCase(Locale.getDefault());
+        displayed.clear();
+        if (q.isEmpty()) {
+            displayed.addAll(masterContacts);
+        } else {
+            for (User u : masterContacts) {
+                if (u.name != null && u.name.toLowerCase(Locale.getDefault()).contains(q)) {
+                    displayed.add(u);
+                }
+            }
+        }
+        notifyDataSetChanged();
+    }
+
+    /** Re-applies the current search query — call after masterContacts is refilled. */
+    public void refreshDisplayed() {
+        filter(currentQuery);
+    }
+
+    public List<User> getSelectedContacts() {
+        return new ArrayList<>(selected.values());
+    }
+
+    public void clearSelection() {
+        if (selected.isEmpty()) return;
+        selected.clear();
+        notifyDataSetChanged();
+        if (selectionListener != null) selectionListener.onSelectionChanged(getSelectedContacts());
     }
 
     @NonNull
@@ -110,7 +179,7 @@ public class ReelContactShareAdapter
 
     @Override
     public void onBindViewHolder(@NonNull ContactVH h, int pos) {
-        User contact = contacts.get(pos);
+        User contact = displayed.get(pos);
         h.tvName.setText(contact.name != null ? contact.name : "User");
 
         // ★ UPGRADE: same tiered/cached bind() FollowConnectionsActivity uses —
@@ -123,13 +192,25 @@ public class ReelContactShareAdapter
         FollowAvatarBinder.bind(
             h.itemView.getContext(), h.ivAvatar, avatarSource, contact.avatarVersion, R.drawable.ic_person);
 
-        // ★ ULTRA-OPTIMIZED: precomputed array read — zero timestamp math on the
-        // scroll/bind hot path (see refreshOnlineSnapshot()). Bounds-checked
-        // fallback (false) in case a row binds before the snapshot's first fill.
-        boolean online = pos < onlineSnapshot.length && onlineSnapshot[pos];
-        h.onlineDot.setVisibility(online ? View.VISIBLE : View.GONE);
+        boolean isSelected = contact.uid != null && selected.containsKey(contact.uid);
+        h.selectionScrim.setVisibility(isSelected ? View.VISIBLE : View.GONE);
+        h.selectionCheck.setVisibility(isSelected ? View.VISIBLE : View.GONE);
 
-        h.itemView.setOnClickListener(v -> listener.onShareToContact(contact));
+        // Online dot and the selection checkmark share the same bottom-end
+        // corner — a selected contact shows the checkmark instead, never both.
+        boolean online = contact.uid != null && onlineUids.contains(contact.uid);
+        h.onlineDot.setVisibility((!isSelected && online) ? View.VISIBLE : View.GONE);
+
+        h.itemView.setOnClickListener(v -> {
+            if (contact.uid == null) return;
+            if (selected.containsKey(contact.uid)) {
+                selected.remove(contact.uid);
+            } else {
+                selected.put(contact.uid, contact);
+            }
+            notifyItemChanged(h.getBindingAdapterPosition());
+            if (selectionListener != null) selectionListener.onSelectionChanged(getSelectedContacts());
+        });
     }
 
     @Override
@@ -140,9 +221,9 @@ public class ReelContactShareAdapter
         FollowAvatarBinder.cancel(h.itemView.getContext(), h.ivAvatar);
     }
 
-    @Override public int getItemCount() { return contacts.size(); }
+    @Override public int getItemCount() { return displayed.size(); }
 
-    /** Reused AvatarSource view over `contacts`, for FollowAvatarBinder.prefetch() — see class doc. */
+    /** Reused AvatarSource view over `displayed`, for FollowAvatarBinder.prefetch() — see class doc. */
     public FollowAvatarBinder.AvatarSource avatarSource() {
         return avatarSourceView;
     }
@@ -151,12 +232,16 @@ public class ReelContactShareAdapter
         CircleImageView ivAvatar;
         TextView        tvName;
         View            onlineDot;
+        View            selectionScrim;
+        ImageView       selectionCheck;
 
         ContactVH(View v) {
             super(v);
-            ivAvatar  = v.findViewById(R.id.iv_share_contact_avatar);
-            tvName    = v.findViewById(R.id.tv_share_contact_name);
-            onlineDot = v.findViewById(R.id.online_dot);
+            ivAvatar       = v.findViewById(R.id.iv_share_contact_avatar);
+            tvName         = v.findViewById(R.id.tv_share_contact_name);
+            onlineDot      = v.findViewById(R.id.online_dot);
+            selectionScrim = v.findViewById(R.id.view_selection_scrim);
+            selectionCheck = v.findViewById(R.id.iv_selection_check);
         }
     }
 }

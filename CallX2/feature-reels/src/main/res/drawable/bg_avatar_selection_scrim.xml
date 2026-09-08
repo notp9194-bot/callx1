@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    bg_avatar_selection_scrim.xml
+    ★ NEW — semi-transparent dark oval laid over a contact avatar when it's
+    selected in the reel share sheet's multi-select grid (see
+    item_reel_share_contact_grid.xml / ReelContactShareAdapter).
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#5E000000"/>
+</shape>

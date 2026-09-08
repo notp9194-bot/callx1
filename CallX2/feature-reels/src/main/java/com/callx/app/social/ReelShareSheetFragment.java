@@ -69,9 +69,21 @@ import java.util.Map;
  * Launch:
  *   ReelShareSheetFragment.newInstance(reelId, videoUrl, thumbUrl, caption, ownerUid, allowRepost)
  *       .show(getChildFragmentManager(), "share");
+ *
+ * ★ NEW — multi-select "Send to": tapping an avatar in the grid now checks it
+ * (blue checkmark, IG/WhatsApp-style) instead of sending immediately. Once
+ * one or more contacts are checked, ll_selection_actions appears with an
+ * optional message box plus:
+ *   • Send separately — pushes the reel as a normal 1:1 chat message to each
+ *     checked contact individually (same message shape onShareToContact used
+ *     to build inline; now sendReelToContact()).
+ *   • Send to new group chat — only shown once 2+ contacts are checked;
+ *     creates a brand-new group (same Firebase shape NewGroupActivity writes:
+ *     groups/{id} + userGroups/{uid}/{id} fan-out) with everyone checked +
+ *     self, then drops the reel share as the group's first message.
+ * A search box above the grid narrows it live via ReelContactShareAdapter#filter().
  */
-public class ReelShareSheetFragment extends BottomSheetDialogFragment
-        implements ReelContactShareAdapter.OnContactShareListener {
+public class ReelShareSheetFragment extends BottomSheetDialogFragment {
 
     // ── Argument keys ──────────────────────────────────────────────────────
     public static final String ARG_REEL_ID        = "share_reel_id";
@@ -90,6 +102,12 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
     private ProgressBar  progressBar;
     private View         btnCopyLink, btnShareExternal;
     private View         btnAddToStory, btnShareToStatus, btnRepostWithCaption;
+
+    // ★ NEW: multi-select "Send to" — search box, message input, and the
+    // send-bar that appears once 1+ contacts are checked in the grid.
+    private android.widget.EditText etSearch, etMessage;
+    private View                    llSelectionActions;
+    private android.widget.Button   btnSendSeparately, btnSendToGroup;
 
     // ★ FIX: pehle "peek clip" pe depend karte the (match_parent root +
     // weight=1 RecyclerView) — jo asal bug tha (see layout XML comment).
@@ -336,14 +354,37 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         btnRepostWithCaption = view.findViewById(R.id.btn_repost_with_caption);
         llButtonRow          = view.findViewById(R.id.ll_share_button_row);
 
+        etSearch            = view.findViewById(R.id.et_share_search);
+        etMessage           = view.findViewById(R.id.et_share_message);
+        llSelectionActions  = view.findViewById(R.id.ll_selection_actions);
+        btnSendSeparately   = view.findViewById(R.id.btn_send_separately);
+        btnSendToGroup      = view.findViewById(R.id.btn_send_to_group);
+
         // Close button
         View btnClose = view.findViewById(R.id.btn_share_close);
         if (btnClose != null) btnClose.setOnClickListener(v -> dismiss());
 
         // ★ UPGRADE: horizontal row → GRID (Instagram-style, 3 avatars per row).
-        adapter = new ReelContactShareAdapter(contacts, this);
+        adapter = new ReelContactShareAdapter(contacts);
         rvContacts.setLayoutManager(new GridLayoutManager(requireContext(), CONTACT_GRID_SPAN_COUNT));
         rvContacts.setAdapter(adapter);
+
+        // ★ NEW: search box narrows the grid live.
+        if (etSearch != null) {
+            etSearch.addTextChangedListener(new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+                @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
+                    if (adapter != null) adapter.filter(s.toString());
+                }
+                @Override public void afterTextChanged(android.text.Editable s) {}
+            });
+        }
+
+        // ★ NEW: multi-select send bar reacts to checkmarks toggled in the grid.
+        adapter.setOnSelectionChangedListener(this::onSelectionChanged);
+
+        if (btnSendSeparately != null) btnSendSeparately.setOnClickListener(v -> sendSeparately());
+        if (btnSendToGroup != null) btnSendToGroup.setOnClickListener(v -> sendToNewGroupChat());
 
         // ★ Capture the button row's natural (XML-defined) height once it's actually
         // measured, then start it fully visible (progress 0 == peek state default).
@@ -418,7 +459,10 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
             // Online/offline snapshot is time-sensitive — always recomputed
             // fresh against "now" on every open, even on a cache hit.
             if (adapter != null) adapter.refreshOnlineSnapshot();
-            if (adapter != null) adapter.notifyDataSetChanged();
+            // refreshDisplayed() (not a raw notifyDataSetChanged()) so a
+            // search query already typed before contacts finished loading
+            // is still respected once they arrive.
+            if (adapter != null) adapter.refreshDisplayed();
             progressBar.setVisibility(View.GONE);
 
             // ★ FIX: initial (pre-drag) height bhi clamp karo — XML ka default
@@ -434,19 +478,67 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         });
     }
 
-    // ── Share actions ──────────────────────────────────────────────────────
-    @Override
-    public void onShareToContact(User contact) {
-        if (contact.uid == null) return;
+    // ── Multi-select send bar ─────────────────────────────────────────────
+    /**
+     * ReelContactShareAdapter.OnSelectionChangedListener callback — shows/hides
+     * ll_selection_actions and updates button labels/visibility. Deliberately
+     * leaves llButtonRow (Copy Link / Share via / Story / Status / Repost)
+     * untouched so animateSheetContent()'s expand/collapse height animation
+     * on that row is never disturbed by selection state.
+     */
+    private void onSelectionChanged(List<User> selectedContacts) {
+        if (llSelectionActions == null) return;
+        boolean hasSelection = !selectedContacts.isEmpty();
+        llSelectionActions.setVisibility(hasSelection ? View.VISIBLE : View.GONE);
+        if (!hasSelection) return;
+
+        if (btnSendSeparately != null) {
+            btnSendSeparately.setText(selectedContacts.size() == 1
+                ? "Send"
+                : "Send separately (" + selectedContacts.size() + ")");
+        }
+        if (btnSendToGroup != null) {
+            boolean showGroupOption = selectedContacts.size() >= 2;
+            btnSendToGroup.setVisibility(showGroupOption ? View.VISIBLE : View.GONE);
+            if (showGroupOption) {
+                btnSendToGroup.setText("Send to new group chat (" + selectedContacts.size() + ")");
+            }
+        }
+    }
+
+    /** "Send separately" — pushes the reel as an individual 1:1 message to every checked contact. */
+    private void sendSeparately() {
+        if (adapter == null) return;
+        List<User> selectedContacts = adapter.getSelectedContacts();
+        if (selectedContacts.isEmpty()) return;
         if (!allowRepost) {
             toast("This creator has disabled sharing of this reel.");
             return;
         }
+        String customText = (etMessage != null && etMessage.getText() != null)
+            ? etMessage.getText().toString().trim() : "";
+
+        for (User contact : selectedContacts) {
+            sendReelToContact(contact, customText);
+        }
+
+        incrementShareCount();
+        toast(selectedContacts.size() == 1
+            ? "Shared with " + selectedContacts.get(0).name
+            : "Sent to " + selectedContacts.size() + " people");
+        dismiss();
+    }
+
+    /** Pushes one reel_share message into a single contact's 1:1 chat + notifies them. */
+    private void sendReelToContact(User contact, String customText) {
+        if (contact == null || contact.uid == null) return;
         String chatId = FirebaseUtils.getChatId(myUid, contact.uid);
         String link   = DEEP_LINK_PREFIX + reelId;
-        String text   = (caption != null && !caption.isEmpty())
-            ? "🎬 " + caption + "\n" + link
-            : "🎬 Check out this reel!\n" + link;
+        String text   = (customText != null && !customText.isEmpty())
+            ? customText + "\n" + link
+            : (caption != null && !caption.isEmpty()
+                ? "🎬 " + caption + "\n" + link
+                : "🎬 Check out this reel!\n" + link);
 
         DatabaseReference msgRef = FirebaseUtils.getMessagesRef(chatId).push();
         String msgKey = msgRef.getKey();
@@ -455,7 +547,7 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
         msg.put("text",            text);
         msg.put("type",            "reel_share");
         msg.put("reelId",          reelId);
-        msg.put("reelShareUrl",        DEEP_LINK_PREFIX + reelId);
+        msg.put("reelShareUrl",        link);
         msg.put("reelShareThumb",      thumbUrl      != null ? thumbUrl      : "");
         msg.put("reelShareCaption",    caption       != null ? caption       : "");
         msg.put("reelShareUsername",   ownerUsername != null && !ownerUsername.isEmpty()
@@ -478,10 +570,122 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment
                 thumbUrl != null ? thumbUrl : ""  // mediaUrl (thumb for notification)
             );
         });
+    }
 
-        incrementShareCount();
-        toast("Shared with " + contact.name);
-        dismiss();
+    /**
+     * "Send to new group chat" — only enabled once 2+ contacts are checked.
+     * Creates a brand-new group using the same Firebase shape NewGroupActivity
+     * writes (groups/{id} + userGroups/{uid}/{id} fan-out) with everyone
+     * checked + self as members/self as admin, then drops the reel share as
+     * the group's very first message.
+     */
+    private void sendToNewGroupChat() {
+        if (adapter == null || btnSendToGroup == null) return;
+        List<User> selectedContacts = adapter.getSelectedContacts();
+        if (selectedContacts.size() < 2) return;
+        if (!allowRepost) {
+            toast("This creator has disabled sharing of this reel.");
+            return;
+        }
+
+        btnSendToGroup.setEnabled(false);
+        final String customText = (etMessage != null && etMessage.getText() != null)
+            ? etMessage.getText().toString().trim() : "";
+
+        DatabaseReference groupRef = FirebaseUtils.getGroupsRef().push();
+        final String groupId = groupRef.getKey();
+        if (groupId == null) {
+            toast("Failed to create group. Try again.");
+            btnSendToGroup.setEnabled(true);
+            return;
+        }
+
+        String myNameLookup = "";
+        try {
+            myNameLookup = FirebaseUtils.getCurrentName();
+            if (myNameLookup == null) myNameLookup = "";
+        } catch (Exception ignored) {}
+        final String myName = myNameLookup;
+
+        // Group name: "Alice, Bob, Carol" style, capped at 3 names.
+        StringBuilder nameBuilder = new StringBuilder();
+        int shown = 0;
+        for (User u : selectedContacts) {
+            if (shown >= 3) { nameBuilder.append(" & others"); break; }
+            if (shown > 0) nameBuilder.append(", ");
+            nameBuilder.append(u.name != null && !u.name.isEmpty() ? u.name : "User");
+            shown++;
+        }
+        final String groupName = nameBuilder.toString();
+
+        Map<String, Object> g = new HashMap<>();
+        g.put("id",             groupId);
+        g.put("name",           groupName);
+        g.put("createdBy",      myUid);
+        g.put("adminUid",       myUid);
+        g.put("createdAt",      System.currentTimeMillis());
+        g.put("lastMessage",    "🎬 Reel");
+        g.put("lastSenderName", myName);
+        g.put("lastMessageAt",  System.currentTimeMillis());
+
+        Map<String, Boolean> members = new HashMap<>();
+        members.put(myUid, true);
+        final List<String> memberUids = new ArrayList<>();
+        for (User u : selectedContacts) {
+            if (u.uid == null) continue;
+            members.put(u.uid, true);
+            memberUids.add(u.uid);
+        }
+        g.put("members", members);
+        Map<String, Boolean> admins = new HashMap<>();
+        admins.put(myUid, true);
+        g.put("admins", admins);
+        Map<String, Object> unread = new HashMap<>();
+        for (String uid : members.keySet()) unread.put(uid, uid.equals(myUid) ? 0L : 1L);
+        g.put("unread", unread);
+
+        groupRef.setValue(g).addOnSuccessListener(unused -> {
+            for (String uid : members.keySet()) {
+                FirebaseUtils.getUserGroupsRef(uid).child(groupId).setValue(true);
+            }
+
+            String link = DEEP_LINK_PREFIX + reelId;
+            String text = (customText != null && !customText.isEmpty())
+                ? customText + "\n" + link
+                : (caption != null && !caption.isEmpty()
+                    ? "🎬 " + caption + "\n" + link
+                    : "🎬 Check out this reel!\n" + link);
+
+            DatabaseReference msgRef = FirebaseUtils.getGroupMessagesRef(groupId).push();
+            Map<String, Object> msg = new HashMap<>();
+            msg.put("senderId",            myUid);
+            msg.put("senderName",          myName);
+            msg.put("text",                text);
+            msg.put("type",                "reel_share");
+            msg.put("reelId",              reelId);
+            msg.put("reelShareUrl",        link);
+            msg.put("reelShareThumb",      thumbUrl      != null ? thumbUrl      : "");
+            msg.put("reelShareCaption",    caption       != null ? caption       : "");
+            msg.put("reelShareUsername",   ownerUsername != null && !ownerUsername.isEmpty()
+                                            ? ownerUsername : (ownerUid != null ? ownerUid : ""));
+            msg.put("reelShareOwnerPhoto", ownerPhoto    != null ? ownerPhoto    : "");
+            msg.put("timestamp",           System.currentTimeMillis());
+            msg.put("status",              "sent");
+
+            msgRef.setValue(msg).addOnSuccessListener(unused2 ->
+                FirebaseUtils.sendGroupPushNotification(
+                    groupId, memberUids, myUid,
+                    myName.isEmpty() ? "New group" : myName,
+                    "🎬 Shared a reel in " + groupName,
+                    null));
+
+            incrementShareCount();
+            toast("Sent to new group with " + selectedContacts.size() + " people");
+            dismiss();
+        }).addOnFailureListener(e -> {
+            btnSendToGroup.setEnabled(true);
+            toast("Failed to create group. Try again.");
+        });
     }
 
     private void copyLink() {
