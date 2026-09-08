@@ -74,6 +74,23 @@ public final class AttachSheetRecentMediaBinder {
     // one full row (1.0) plus half of the next row peeking out, matching the
     // reference screenshot exactly.
     private static final float PEEK_GRID_ROWS = 1.5f;
+    // ★ FIX (attach-sheet overshoot, same bug as reel share sheet): the grid
+    // height clamp below (adjustGridHeightForItemCount) only shrinks the
+    // RecyclerView itself — it does NOT, by itself, guarantee
+    // BottomSheetBehavior's STATE_EXPANDED height shrinks to match. That's
+    // trusting fitToContents() to always re-measure correctly off a
+    // requestLayout() triggered mid-session (folder switch, paged-in load),
+    // which in practice can leave the sheet's expanded offset stale — it
+    // keeps climbing to the OLD (larger) height while the grid itself is
+    // already short, showing the leftover gap as empty space with the chat
+    // screen visible behind it. reclampSheetMaxHeight() below closes that
+    // gap by computing the sheet's real total content height ourselves
+    // (topContent + grid's current height + the fixed margins/padding
+    // between them) and feeding THAT straight into behavior.setMaxHeight()
+    // — so the expanded ceiling is never larger than what's actually on
+    // screen, regardless of whether fitToContents' own re-measure kept up.
+    private static final int GRID_TOP_MARGIN_DP = 14; // recents_grid's layout_marginTop
+    private static final int SHEET_BOTTOM_PADDING_DP = 12; // sheet_scroll_content's paddingBottom
 
     /**
      * ★ FIX: clamps `grid`'s height to what the CURRENT item count actually
@@ -91,6 +108,29 @@ public final class AttachSheetRecentMediaBinder {
             lp.height = targetPx;
             grid.setLayoutParams(lp);
         }
+    }
+
+    /**
+     * ★ FIX: re-derives BottomSheetBehavior's maxHeight from the sheet's
+     * REAL current content height (topContent + grid's just-clamped height
+     * + the fixed spacing between them) instead of only the screen-based
+     * ceiling from computeMaxSheetHeightPx(). Whichever is smaller wins, so
+     * this can only ever tighten the ceiling toward actual content, never
+     * loosen it — a sheet with few photos can no longer expand past what
+     * it actually shows, closing the "climbs too high, empty area reveals
+     * the chat screen underneath" gap. No-op until topContent has been
+     * measured at least once (getHeight() > 0); the screen-based ceiling
+     * from bind()/the insets listener covers that brief window instead.
+     */
+    private static void reclampSheetMaxHeight(AppCompatActivity activity, BottomSheetDialog sheet,
+                                               BottomSheetBehavior<android.widget.FrameLayout> behavior,
+                                               View topContent, RecyclerView grid) {
+        if (topContent.getHeight() <= 0) return; // not laid out yet — screen ceiling already set elsewhere
+        int spacingPx = Math.round(dpToPx(activity, GRID_TOP_MARGIN_DP + SHEET_BOTTOM_PADDING_DP));
+        int realContentPx = topContent.getHeight() + grid.getLayoutParams().height + spacingPx;
+        int screenCeilingPx = computeMaxSheetHeightPx(activity, sheet);
+        int clampedPx = screenCeilingPx > 0 ? Math.min(screenCeilingPx, realContentPx) : realContentPx;
+        if (clampedPx > 0) behavior.setMaxHeight(clampedPx);
     }
 
     public interface Callbacks {
@@ -264,8 +304,16 @@ public final class AttachSheetRecentMediaBinder {
         // case a few lines down) already uses the correct ceiling instead
         // of a stale/estimated one.
         ViewCompat.setOnApplyWindowInsetsListener(sheetRoot, (view, windowInsets) -> {
-            int refreshedMaxHeightPx = computeMaxSheetHeightPx(activity, sheet);
-            if (refreshedMaxHeightPx > 0) behavior.setMaxHeight(refreshedMaxHeightPx);
+            // ★ FIX: prefer the real-content clamp once topContent has a
+            // measured height (see reclampSheetMaxHeight) — falls back to the
+            // plain screen ceiling only for this listener's very first firing,
+            // before topContent has been laid out at all.
+            if (topContent.getHeight() > 0) {
+                reclampSheetMaxHeight(activity, sheet, behavior, topContent, grid);
+            } else {
+                int refreshedMaxHeightPx = computeMaxSheetHeightPx(activity, sheet);
+                if (refreshedMaxHeightPx > 0) behavior.setMaxHeight(refreshedMaxHeightPx);
+            }
             return windowInsets;
         });
         ViewCompat.requestApplyInsets(sheetRoot);
@@ -293,6 +341,7 @@ public final class AttachSheetRecentMediaBinder {
         // avoids a brief 560dp→shrink flash before the async first page
         // load above returns.
         adjustGridHeightForItemCount(grid, gridAdapter.getItemCount(), cellPx, gridMaxHeightPx);
+        reclampSheetMaxHeight(activity, sheet, behavior, topContent, grid);
         grid.setHasFixedSize(true);
         grid.setItemViewCacheSize(16);
         if (grid.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator) {
@@ -393,6 +442,7 @@ public final class AttachSheetRecentMediaBinder {
                         // count actually needs — getItemCount() already
                         // accounts for the camera-tile offset internally.
                         adjustGridHeightForItemCount(grid, finalGridAdapter.getItemCount(), cellPx, gridMaxHeightPx);
+                        reclampSheetMaxHeight(activity, sheet, behavior, topContent, grid);
                         grid.scrollToPosition(0);
                         if (recentsEmpty != null) recentsEmpty.setVisibility(deduped.isEmpty() ? View.VISIBLE : View.GONE);
                         if (items.size() < RECENT_MEDIA_LIMIT) noMorePages[0] = true;
@@ -440,6 +490,7 @@ public final class AttachSheetRecentMediaBinder {
                                     // includes the +1 camera-tile offset, same
                                     // basis the other two call sites use.
                                     adjustGridHeightForItemCount(grid, finalGridAdapter.getItemCount(), cellPx, gridMaxHeightPx);
+                                    reclampSheetMaxHeight(activity, sheet, behavior, topContent, grid);
                                     if (more.size() < GRID_PAGE_SIZE) noMorePages[0] = true;
                                 }
                             });
@@ -499,11 +550,23 @@ public final class AttachSheetRecentMediaBinder {
                     // first, so the refined ceiling is fully committed as its
                     // own clean frame before the sheet can respond to a gesture.
                     topContent.post(() -> {
-                        int refreshedMaxHeightPx = computeMaxSheetHeightPx(activity, sheet);
-                        if (refreshedMaxHeightPx > 0) behavior.setMaxHeight(refreshedMaxHeightPx);
+                        // ★ FIX: real-content clamp (see reclampSheetMaxHeight) takes
+                        // over from here — it can only be tighter than, never looser
+                        // than, the screen-based ceiling this used to set alone.
+                        reclampSheetMaxHeight(activity, sheet, behavior, topContent, grid);
 
                         behavior.setSkipCollapsed(false);
-                        behavior.setPeekHeight(topContent.getHeight() + peekGridPx);
+                        // ★ FIX: peek can't ask for more than the sheet's real total
+                        // content height either — with very few thumbnails the grid
+                        // itself may be shorter than PEEK_GRID_ROWS worth of rows, and
+                        // requesting a peek taller than the actual content produced the
+                        // same "empty area / chat screen peeking through" symptom at
+                        // the COLLAPSED state that the maxHeight clamp fixes for
+                        // STATE_EXPANDED.
+                        int spacingPx = Math.round(dpToPx(activity, GRID_TOP_MARGIN_DP + SHEET_BOTTOM_PADDING_DP));
+                        int realContentPx = topContent.getHeight() + grid.getLayoutParams().height + spacingPx;
+                        int desiredPeekPx = topContent.getHeight() + peekGridPx;
+                        behavior.setPeekHeight(Math.min(desiredPeekPx, realContentPx));
                         behavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
                     });
                 }
