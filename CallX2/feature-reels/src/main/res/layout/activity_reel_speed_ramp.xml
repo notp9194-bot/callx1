@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#000000">
+
+    <!-- Top bar -->
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="12dp">
+
+        <ImageButton android:id="@+id/btn_speedramp_back"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:layout_alignParentStart="true" android:layout_centerVertical="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_close" android:tint="#FFFFFF"
+            android:contentDescription="Close"/>
+
+        <TextView
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:text="Speed Ramp" android:textColor="#FFFFFF" android:textSize="16sp"
+            android:fontFamily="sans-serif-medium"/>
+
+        <TextView android:id="@+id/btn_speedramp_apply"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_alignParentEnd="true" android:layout_centerVertical="true"
+            android:text="Apply" android:textColor="#00E5FF" android:textSize="15sp"
+            android:fontFamily="sans-serif-medium" android:padding="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+
+    </RelativeLayout>
+
+    <!-- Preview -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="#111111">
+
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/speedramp_player_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            app:resize_mode="fit"
+            app:use_controller="false"/>
+
+        <ImageButton android:id="@+id/btn_speedramp_play_pause"
+            android:layout_width="56dp" android:layout_height="56dp"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_editor_rail_icon_active"
+            android:src="@drawable/ic_play" android:tint="#FFFFFF"
+            android:contentDescription="Play/Pause"/>
+
+        <TextView android:id="@+id/tv_speedramp_readout"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_gravity="top|end"
+            android:layout_margin="16dp"
+            android:paddingHorizontal="10dp" android:paddingVertical="4dp"
+            android:background="@drawable/bg_reel_editor_tool_chip"
+            android:text="1.0x" android:textColor="#00E5FF" android:textSize="14sp"
+            android:fontFamily="sans-serif-medium"/>
+
+    </FrameLayout>
+
+    <!-- Presets -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none"
+        android:paddingTop="12dp">
+
+        <LinearLayout
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:paddingHorizontal="16dp">
+
+            <TextView android:id="@+id/chip_preset_flat"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp" android:paddingHorizontal="14dp" android:paddingVertical="8dp"
+                android:background="@drawable/bg_reel_editor_tool_chip"
+                android:text="Flat 1x" android:textColor="#FFFFFF" android:textSize="12sp"/>
+            <TextView android:id="@+id/chip_preset_slowmo_dip"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp" android:paddingHorizontal="14dp" android:paddingVertical="8dp"
+                android:background="@drawable/bg_reel_editor_tool_chip"
+                android:text="Slow-Mo Dip" android:textColor="#FFFFFF" android:textSize="12sp"/>
+            <TextView android:id="@+id/chip_preset_build_up"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp" android:paddingHorizontal="14dp" android:paddingVertical="8dp"
+                android:background="@drawable/bg_reel_editor_tool_chip"
+                android:text="Build-Up" android:textColor="#FFFFFF" android:textSize="12sp"/>
+            <TextView android:id="@+id/chip_preset_fast_slow_fast"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp" android:paddingHorizontal="14dp" android:paddingVertical="8dp"
+                android:background="@drawable/bg_reel_editor_tool_chip"
+                android:text="Fast·Slow·Fast" android:textColor="#FFFFFF" android:textSize="12sp"/>
+            <TextView android:id="@+id/chip_preset_timelapse_end"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:paddingHorizontal="14dp" android:paddingVertical="8dp"
+                android:background="@drawable/bg_reel_editor_tool_chip"
+                android:text="Time-lapse Out" android:textColor="#FFFFFF" android:textSize="12sp"/>
+
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <!-- Curve editor -->
+    <com.callx.app.views.SpeedRampCurveView
+        android:id="@+id/speedramp_curve_view"
+        android:layout_width="match_parent"
+        android:layout_height="180dp"
+        android:layout_margin="16dp"/>
+
+    <TextView
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="center"
+        android:paddingBottom="16dp"
+        android:text="Tap the curve to add a point · drag to shape it · long-press a point to remove it"
+        android:textColor="#77FFFFFF" android:textSize="11sp"/>
+
+    <TextView android:id="@+id/btn_speedramp_reset"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="center"
+        android:paddingBottom="20dp"
+        android:text="Reset ramp"
+        android:textColor="#FF3B5C" android:textSize="13sp"
+        android:fontFamily="sans-serif-medium"/>
+
+</LinearLayout>

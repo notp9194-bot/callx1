@@ -238,6 +238,12 @@
         <activity android:name="com.callx.app.editor.ReelSpeedControlActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.editor.ReelSpeedRampActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.editor.ReelMultiClipTimelineActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
         <activity android:name="com.callx.app.editor.ReelTransitionsActivity"
             android:exported="false"
             android:screenOrientation="portrait"

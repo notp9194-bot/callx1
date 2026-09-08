@@ -140,6 +140,8 @@ public class ReelEditorActivity extends AppCompatActivity {
     /** ✅ NEW: Step 1 · Trim and Crop → crop button → core's MediaCropActivity
      *  (reused from Chat's Media Editing screen). */
     private static final int REQ_CROP         = 411;
+    private static final int REQ_SPEED_RAMP   = 412;
+    private static final int REQ_MULTICLIP    = 413;
 
     // ── XML views ─────────────────────────────────────────────────────────
     private PlayerView    playerView;
@@ -229,8 +231,12 @@ public class ReelEditorActivity extends AppCompatActivity {
     private ProgressBar   progressBuffering;
     private ImageButton   btnToolFilters, btnToolStickers, btnToolSubtitles,
                           btnToolTransitions, btnToolVoice, btnToolAudioMixer, btnToolThumbnail;
+    /** ✅ NEW: Speed Ramp tool button — opens ReelSpeedRampActivity's curve editor */
+    private ImageButton   btnToolSpeedRamp;
     /** ✅ NEW: Step 1 · Trim and Crop → Crop button (reused Chat's crop feature) */
     private View                        btnEditorCrop;
+    /** ✅ NEW: Step 1 · Trim and Crop → Clips button (multi-clip timeline merge) */
+    private View                        btnEditorClips;
     /** ✅ NEW: music chip / tool button — opens SoundDetail (if sound selected) or MusicPicker */
     private ImageButton   btnToolMusic;
 
@@ -362,6 +368,26 @@ public class ReelEditorActivity extends AppCompatActivity {
     private float  voiceReverb     = 0.0f;
     /** Recording speed set before recording in ReelCameraActivity (0.3x – 3x). */
     private float  cameraSpeed     = 1.0f;
+    /** Variable speed-ramp curve set in this screen's Speed tool (ReelSpeedRampActivity).
+     *  Null/empty = no ramp (flat cameraSpeed above still applies as-is). When non-null,
+     *  this takes over live-preview playback speed instead of the flat cameraSpeed. */
+    private String speedRampJson = null;
+    private java.util.List<com.callx.app.views.SpeedRampCurveView.Keyframe> speedRampKeyframes = null;
+    private final android.os.Handler speedRampPreviewHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private float speedRampLastAppliedSpeed = 1.0f;
+    private final Runnable speedRampPreviewTick = new Runnable() {
+        @Override public void run() {
+            if (player != null && speedRampKeyframes != null && player.isPlaying()) {
+                long pos = player.getCurrentPosition();
+                float target = ReelSpeedRampActivity.speedAt(speedRampKeyframes, pos);
+                if (Math.abs(target - speedRampLastAppliedSpeed) > 0.02f) {
+                    speedRampLastAppliedSpeed = target;
+                    player.setPlaybackParameters(new androidx.media3.common.PlaybackParameters(target));
+                }
+            }
+            speedRampPreviewHandler.postDelayed(this, 80);
+        }
+    };
     // Audio mixer
     private float  mixOrigVol        = 1.0f;
     private float  mixMusicVol       = 0.8f;
@@ -709,8 +735,10 @@ public class ReelEditorActivity extends AppCompatActivity {
         btnToolAudioMixer  = findViewById(R.id.btn_tool_audio_mixer);
         btnToolThumbnail   = findViewById(R.id.btn_tool_thumbnail);
         btnEditorCrop      = findViewById(R.id.btn_editor_crop);
+        btnEditorClips     = findViewById(R.id.btn_editor_clips);
         // ✅ NEW: music chip button (add btn_tool_music ImageButton to the toolbar XML)
         btnToolMusic       = findViewById(R.id.btn_tool_music);
+        btnToolSpeedRamp   = findViewById(R.id.btn_tool_speed_ramp);
 
         // ✅ FIX: Transitions are a between-clips effect — they have no target
         // to apply to on Status's single-video flow (nothing downstream ever
@@ -2671,6 +2699,35 @@ public class ReelEditorActivity extends AppCompatActivity {
     }
 
     /**
+     * Result from the "Clips" multi-clip timeline tool. If more than one clip was
+     * combined (or a single clip got trimmed there), ReelMultiClipTimelineActivity
+     * hands back one merged .mp4 file path — swap it in exactly like a crop result
+     * so every downstream step (trim, filters, stickers, upload) just sees a normal
+     * single video and needs no changes.
+     */
+    private void handleMultiClipResult(String mergedPathOrUri, boolean mergedIsFilePath) {
+        if (mergedPathOrUri == null || mergedPathOrUri.isEmpty()) return;
+        try {
+            videoUriStr = mergedPathOrUri;
+            isFilePath  = mergedIsFilePath;
+
+            if (player != null) {
+                try { player.release(); } catch (Exception ignored) {}
+                player = null;
+            }
+            setupPlayer();
+            loadMetadata();          // refresh duration + trim filmstrip for the merged video
+            trimStartMs = 0;
+            trimEndMs   = totalDurationMs;
+            regenerateThumbnailFromCurrentVideo();
+
+            Toast.makeText(this, "Clips merged ✓", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Couldn't apply merged clips", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
      * ✅ CHANGED: Step 1 · Trim and Crop → Crop button.
      * Used to only grab the current playhead frame and crop *that still
      * image* for use as a custom thumbnail. Now reuses :core's
@@ -2680,6 +2737,18 @@ public class ReelEditorActivity extends AppCompatActivity {
      * shared crop screen Chat's MediaEditActivity uses (same aspect chips,
      * same drag handles), just launched in video mode here.
      */
+    /** Step 1 · Trim and Crop → Clips button. Opens the multi-clip timeline seeded
+     *  with the current single video so the user can add more clips to combine
+     *  with it, reorder, and per-clip trim. See {@link #handleMultiClipResult}. */
+    private void openMultiClipTimeline() {
+        if (videoUriStr == null || videoUriStr.isEmpty()) return;
+        Intent i = new Intent(this, ReelMultiClipTimelineActivity.class);
+        i.putExtra(ReelMultiClipTimelineActivity.EXTRA_SEED_VIDEO_URI, videoUriStr);
+        i.putExtra(ReelMultiClipTimelineActivity.EXTRA_SEED_IS_FILE_PATH, isFilePath);
+        i.putExtra(ReelMultiClipTimelineActivity.EXTRA_SEED_DURATION_MS, totalDurationMs);
+        startActivityForResult(i, REQ_MULTICLIP);
+    }
+
     private void openCropScreen() {
         if (videoUriStr == null || videoUriStr.isEmpty()) return;
         Uri uri = isFilePath ? Uri.fromFile(new File(videoUriStr)) : Uri.parse(videoUriStr);
@@ -3372,6 +3441,16 @@ public class ReelEditorActivity extends AppCompatActivity {
             startActivityForResult(i, REQ_TRANSITIONS);
         });
 
+        if (btnToolSpeedRamp != null) btnToolSpeedRamp.setOnClickListener(v -> {
+            Intent i = new Intent(this, ReelSpeedRampActivity.class);
+            i.putExtra(ReelSpeedRampActivity.EXTRA_VIDEO_URI, videoUriStr);
+            i.putExtra(ReelSpeedRampActivity.EXTRA_DURATION_MS, totalDurationMs > 0 ? totalDurationMs : 5000);
+            if (speedRampJson != null && !speedRampJson.isEmpty()) {
+                i.putExtra(ReelSpeedRampActivity.EXTRA_EXISTING_RAMP_JSON, speedRampJson);
+            }
+            startActivityForResult(i, REQ_SPEED_RAMP);
+        });
+
         if (btnToolVoice != null) btnToolVoice.setOnClickListener(v -> {
             Intent i = new Intent(this, ReelVoiceEffectsActivity.class);
             i.putExtra(ReelVoiceEffectsActivity.EXTRA_AUDIO_PATH, videoUriStr);
@@ -3403,6 +3482,7 @@ public class ReelEditorActivity extends AppCompatActivity {
         // Editing screen crop feature (core's MediaCropActivity) the exact
         // same way MediaEditActivity's btnEditCrop does.
         if (btnEditorCrop != null) btnEditorCrop.setOnClickListener(v -> openCropScreen());
+        if (btnEditorClips != null) btnEditorClips.setOnClickListener(v -> openMultiClipTimeline());
 
         // ✅ NEW: Step 2 · Text Overlay — Settings button opens the font/style/
         // bg/colour/size bottom sheet (see openTextOverlayStyleSheet()).
@@ -3453,6 +3533,32 @@ public class ReelEditorActivity extends AppCompatActivity {
                     applySubtitlePreview(subtitlesJson, subtitlesEnabled, subtitlesFontSize);
                     if (btnToolSubtitles != null) btnToolSubtitles.setColorFilter(
                         android.graphics.Color.WHITE);
+                }
+                break;
+            }
+
+            case REQ_SPEED_RAMP: {
+                boolean hasRamp = data.getBooleanExtra(ReelSpeedRampActivity.RESULT_HAS_RAMP, false);
+                if (hasRamp) {
+                    speedRampJson = data.getStringExtra(ReelSpeedRampActivity.RESULT_RAMP_JSON);
+                    speedRampKeyframes = ReelSpeedRampActivity.parseRampJson(speedRampJson);
+                    updateBadge("speed_ramp", "⚡ Speed Ramp");
+                    Toast.makeText(this, "Speed ramp applied ✓", Toast.LENGTH_SHORT).show();
+                    if (btnToolSpeedRamp != null) btnToolSpeedRamp.setColorFilter(
+                        android.graphics.Color.argb(200, 0, 229, 255));
+                    speedRampLastAppliedSpeed = 1.0f;
+                    speedRampPreviewHandler.removeCallbacks(speedRampPreviewTick);
+                    speedRampPreviewHandler.post(speedRampPreviewTick);
+                } else {
+                    // User reset the ramp back to flat — clear it so cameraSpeed (if any) governs again
+                    speedRampJson = null;
+                    speedRampKeyframes = null;
+                    speedRampPreviewHandler.removeCallbacks(speedRampPreviewTick);
+                    if (btnToolSpeedRamp != null) btnToolSpeedRamp.clearColorFilter();
+                    if (player != null) {
+                        float flat = cameraSpeed != 1.0f ? cameraSpeed : 1.0f;
+                        player.setPlaybackParameters(new androidx.media3.common.PlaybackParameters(flat));
+                    }
                 }
                 break;
             }
@@ -3585,6 +3691,13 @@ public class ReelEditorActivity extends AppCompatActivity {
             case REQ_CROP: {
                 String croppedUriStr = data.getStringExtra(MediaCropActivity.RESULT_CROPPED_URI);
                 handleCropResult(croppedUriStr);
+                break;
+            }
+
+            case REQ_MULTICLIP: {
+                String mergedPath = data.getStringExtra(ReelMultiClipTimelineActivity.RESULT_MERGED_PATH);
+                boolean mergedIsFilePath = data.getBooleanExtra("result_is_file_path", true);
+                handleMultiClipResult(mergedPath, mergedIsFilePath);
                 break;
             }
         }
@@ -3915,6 +4028,12 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (cameraSpeed != 1.0f) {
             intent.putExtra("camera_speed", cameraSpeed);
         }
+        // Variable speed-ramp curve (Speed tool) — takes precedence over cameraSpeed
+        // during playback when present; carried through as JSON for the upload
+        // pipeline / export engine to apply, same pattern as sticker_json above.
+        if (speedRampJson != null && !speedRampJson.isEmpty()) {
+            intent.putExtra("speed_ramp_json", speedRampJson);
+        }
 
         // Thumbnail
         if (!thumbnailPath.isEmpty()) {
@@ -3975,6 +4094,8 @@ public class ReelEditorActivity extends AppCompatActivity {
         if (!filterName.isEmpty())   result.putExtra("filter_name",   filterName);
         if (!stickerJson.isEmpty())  result.putExtra("sticker_json",  stickerJson);
         if (cameraSpeed != 1.0f)     result.putExtra("camera_speed",  cameraSpeed);
+        if (speedRampJson != null && !speedRampJson.isEmpty())
+                                      result.putExtra("speed_ramp_json", speedRampJson);
         // ✅ FIX: thumbnail_frame_ms was never forwarded, so NewStatusActivity
         // had no way to tell a real picked frame apart from a leftover 0
         // default — see NewStatusActivity#handleReelCameraResult.
@@ -4010,6 +4131,7 @@ public class ReelEditorActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        speedRampPreviewHandler.removeCallbacks(speedRampPreviewTick);
         if (player != null) {
             try { player.stop(); }    catch (Exception ignored) {}
             try { player.release(); } catch (Exception ignored) {}

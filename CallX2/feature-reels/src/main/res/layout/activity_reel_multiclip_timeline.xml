@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#000000">
+
+    <!-- Top bar -->
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="12dp">
+
+        <ImageButton android:id="@+id/btn_multiclip_back"
+            android:layout_width="40dp" android:layout_height="40dp"
+            android:layout_alignParentStart="true" android:layout_centerVertical="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_close" android:tint="#FFFFFF"
+            android:contentDescription="Close"/>
+
+        <TextView
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:text="Clips" android:textColor="#FFFFFF" android:textSize="16sp"
+            android:fontFamily="sans-serif-medium"/>
+
+        <TextView android:id="@+id/btn_multiclip_done"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_alignParentEnd="true" android:layout_centerVertical="true"
+            android:text="Done" android:textColor="#00E5FF" android:textSize="15sp"
+            android:fontFamily="sans-serif-medium" android:padding="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+
+    </RelativeLayout>
+
+    <!-- Concatenated preview -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="#111111">
+
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/multiclip_player_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            app:resize_mode="fit"
+            app:use_controller="false"/>
+
+        <ImageButton android:id="@+id/btn_multiclip_play_pause"
+            android:layout_width="56dp" android:layout_height="56dp"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_editor_rail_icon_active"
+            android:src="@drawable/ic_play" android:tint="#FFFFFF"
+            android:contentDescription="Play/Pause"/>
+
+    </FrameLayout>
+
+    <TextView android:id="@+id/tv_multiclip_total_duration"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="center"
+        android:paddingVertical="10dp"
+        android:text="1 clip · 0:00" android:textColor="#AAFFFFFF" android:textSize="12sp"/>
+
+    <!-- Clip timeline -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/multiclip_recycler"
+        android:layout_width="match_parent"
+        android:layout_height="96dp"
+        android:orientation="horizontal"
+        android:clipToPadding="false"
+        android:paddingHorizontal="12dp"
+        android:paddingBottom="20dp"/>
+
+    <TextView
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="center"
+        android:paddingBottom="16dp"
+        android:text="Drag a clip to reorder · tap a clip to trim it"
+        android:textColor="#77FFFFFF" android:textSize="11sp"/>
+
+</LinearLayout>
