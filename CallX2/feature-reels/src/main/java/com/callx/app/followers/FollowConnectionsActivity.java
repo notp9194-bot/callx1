@@ -903,8 +903,10 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
             bg.setCornerRadius(r);
             if (filled) {
-                bg.setColor(getResources().getColor(R.color.brand_primary, null));
-                btn.setTextColor(0xFFFFFFFF);
+                bg.setColor(com.callx.app.utils.FollowButtonStyler.primaryColor(btn.getContext()));
+                btn.setBackgroundTintList(
+                        com.callx.app.utils.FollowButtonStyler.primaryStateList(btn.getContext()));
+                btn.setTextColor(com.callx.app.utils.FollowButtonStyler.textColor(btn.getContext()));
             } else {
                 // In light mode colorSurfaceVariant is forced to pure white
                 // (same as the row/window background — see app's
@@ -915,6 +917,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                 bg.setColor(resolveAttrColor(com.google.android.material.R.attr.colorSurfaceVariant));
                 bg.setStroke((int) (1 * btn.getResources().getDisplayMetrics().density),
                         getResources().getColor(com.callx.app.core.R.color.divider, null));
+                btn.setBackgroundTintList(null);
                 btn.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
             }
             btn.setBackground(bg);

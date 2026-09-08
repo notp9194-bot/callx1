@@ -6,7 +6,9 @@ import android.widget.ImageView;
 import com.callx.app.cache.VerifiedStatusCache;
 
 /**
- * Central place to show/hide the verified badge (@drawable/ic_verified_pink)
+ * Central place to show/hide the verified badge (@drawable/ic_verified_pink).
+ * The legacy resource name is retained for layout compatibility, but its
+ * actual colour now comes from the app-wide verification_badge token.
  * next to a username anywhere in the app. Any module can call this instead of
  * each screen wiring its own visibility check — new list/screen only needs
  * one call here.

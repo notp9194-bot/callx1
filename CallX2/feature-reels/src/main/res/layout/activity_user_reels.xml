@@ -919,7 +919,7 @@
                     android:layout_width="16dp" android:layout_height="16dp"
                     android:layout_marginStart="4dp"
                     android:src="@drawable/ic_verified"
-                    android:tint="@color/brand_primary"
+                    android:tint="@color/verification_badge"
                     android:contentDescription="Verified"
                     android:visibility="gone"/>
             </LinearLayout>

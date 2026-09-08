@@ -10257,8 +10257,9 @@ public class HomeFragment extends Fragment
             btnFollow.setTextColor(0xFFCCCCCC);
         } else {
             btnFollow.setText("Follow");
-            btnFollow.setBackgroundColor(getResources().getColor(R.color.brand_primary, null));
-            btnFollow.setTextColor(0xFFFFFFFF);
+            com.callx.app.utils.FollowButtonStyler.applyPrimaryTint(btnFollow);
+            btnFollow.setTextColor(
+                    com.callx.app.utils.FollowButtonStyler.textColor(btnFollow.getContext()));
         }
     }
 

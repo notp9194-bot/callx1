@@ -412,7 +412,7 @@
             android:layout_width="18dp"
             android:layout_height="18dp"
             android:src="@drawable/ic_x_logo"
-            android:backgroundTint="#000000"
+            android:backgroundTint="@color/follow_button_primary"
             android:background="@drawable/bg_social_x_btn"
             android:padding="2dp"/>
 
@@ -476,7 +476,7 @@
             android:text="Follow"
             android:textSize="12sp"
             android:textColor="@android:color/white"
-            android:backgroundTint="#DD2A7B"
+            android:backgroundTint="@color/follow_button_primary"
             android:paddingStart="14dp"
             android:paddingEnd="14dp"
             style="@style/Widget.MaterialComponents.Button"/>

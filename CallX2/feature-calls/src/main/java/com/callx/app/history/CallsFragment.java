@@ -608,7 +608,8 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF333333));
         } else {
             btn.setText("Follow");
-            btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF000000));
+            com.callx.app.utils.FollowButtonStyler.applyPrimaryTint(btn);
+            btn.setTextColor(com.callx.app.utils.FollowButtonStyler.textColor(btn.getContext()));
         }
     }
 
@@ -619,7 +620,8 @@ public class CallsFragment extends Fragment implements CallHistoryAdapter.Select
             btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF555555));
         } else {
             btn.setText("Follow");
-            btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFFDD2A7B));
+            com.callx.app.utils.FollowButtonStyler.applyPrimaryTint(btn);
+            btn.setTextColor(com.callx.app.utils.FollowButtonStyler.textColor(btn.getContext()));
         }
     }
 

@@ -387,7 +387,7 @@
             android:text="Follow"
             android:textSize="12sp"
             android:textColor="@android:color/white"
-            android:backgroundTint="#000000"
+            android:backgroundTint="@color/follow_button_primary"
             android:paddingStart="14dp"
             android:paddingEnd="14dp"
             style="@style/Widget.MaterialComponents.Button"/>
@@ -430,7 +430,7 @@
             android:text="Follow"
             android:textSize="12sp"
             android:textColor="@android:color/white"
-            android:backgroundTint="#DD2A7B"
+            android:backgroundTint="@color/follow_button_primary"
             android:paddingStart="14dp"
             android:paddingEnd="14dp"
             style="@style/Widget.MaterialComponents.Button"/>

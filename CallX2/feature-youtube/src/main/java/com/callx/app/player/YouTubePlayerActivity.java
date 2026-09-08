@@ -1327,15 +1327,23 @@ public class YouTubePlayerActivity extends AppCompatActivity {
     private void setDescXBtn(android.widget.Button btn, boolean following) {
         if (btn == null) return;
         btn.setText(following ? "Following" : "Follow");
-        btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-            following ? 0xFF333333 : 0xFF000000));
+        if (following) {
+            btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF333333));
+        } else {
+            com.callx.app.utils.FollowButtonStyler.applyPrimaryTint(btn);
+            btn.setTextColor(com.callx.app.utils.FollowButtonStyler.textColor(btn.getContext()));
+        }
     }
 
     private void setDescReelsBtn(android.widget.Button btn, boolean following) {
         if (btn == null) return;
         btn.setText(following ? "Following" : "Follow");
-        btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-            following ? 0xFF555555 : 0xFFDD2A7B));
+        if (following) {
+            btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF555555));
+        } else {
+            com.callx.app.utils.FollowButtonStyler.applyPrimaryTint(btn);
+            btn.setTextColor(com.callx.app.utils.FollowButtonStyler.textColor(btn.getContext()));
+        }
     }
 
     private void bumpDescCount(TextView tv, int delta, String label) {

@@ -362,7 +362,7 @@
                                 android:visibility="gone"/>
                             <TextView android:id="@+id/tv_sound_verified_badge"
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="✓ Verified" android:textColor="@color/brand_primary"
+                                android:text="✓ Verified" android:textColor="@color/verification_badge"
                                 android:textSize="10sp" android:fontFamily="sans-serif-medium"
                                 android:layout_marginStart="8dp" android:visibility="gone"/>
                         </LinearLayout>

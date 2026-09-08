@@ -425,7 +425,8 @@ public final class DialogFullscreenHelper {
         return row;
     }
 
-    /** Same look FollowConnectionsActivity's styleBtn() uses: filled brand color for "Follow", translucent white for "Following". */
+    /** Same look as the shared follow action: filled blue for "Follow",
+     * translucent white for "Following". */
     private static void styleFollowButton(Context ctx, Button btn, boolean following, int brandColorArgb) {
         float r = 8f * ctx.getResources().getDisplayMetrics().density; // rounded-rect, not a full pill — matches styleBtn()
         GradientDrawable bg = new GradientDrawable();
@@ -434,11 +435,13 @@ public final class DialogFullscreenHelper {
         if (following) {
             btn.setText("Following");
             bg.setColor(Color.argb(0x33, 255, 255, 255));
+            btn.setBackgroundTintList(null);
             btn.setTextColor(Color.WHITE);
         } else {
             btn.setText("Follow");
-            bg.setColor(brandColorArgb);
-            btn.setTextColor(Color.WHITE);
+            bg.setColor(FollowButtonStyler.primaryColor(ctx));
+            btn.setBackgroundTintList(FollowButtonStyler.primaryStateList(ctx));
+            btn.setTextColor(FollowButtonStyler.textColor(ctx));
         }
         btn.setBackground(bg);
     }

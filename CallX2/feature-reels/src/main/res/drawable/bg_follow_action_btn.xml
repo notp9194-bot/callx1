@@ -4,8 +4,17 @@
      bind time in FollowConnectionsActivity$UserListAdapter#styleBtn(), this
      is just what's visible before the first bind / while GONE. Corner
      radius (8dp) matches styleBtn() — rounded-rect, not a full pill. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="@color/brand_primary"/>
-    <corners android:radius="8dp"/>
-</shape>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/follow_button_pressed"/>
+            <corners android:radius="8dp"/>
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/follow_button_primary"/>
+            <corners android:radius="8dp"/>
+        </shape>
+    </item>
+</selector>

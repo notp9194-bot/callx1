@@ -263,6 +263,16 @@ public class XProfileSheet extends BottomSheetDialogFragment {
                         if (!isAdded()) return;
                         isFollowing = Boolean.TRUE.equals(ds.getValue(Boolean.class));
                         btnFollow.setText(isFollowing ? "Following" : "Follow");
+                        if (isFollowing) {
+                            btnFollow.setBackgroundTintList(
+                                    android.content.res.ColorStateList.valueOf(
+                                            requireContext().getColor(R.color.x_bg_secondary)));
+                            btnFollow.setTextColor(requireContext().getColor(R.color.x_text_primary));
+                        } else {
+                            com.callx.app.utils.FollowButtonStyler.applyPrimaryTint(btnFollow);
+                            btnFollow.setTextColor(
+                                    com.callx.app.utils.FollowButtonStyler.textColor(btnFollow.getContext()));
+                        }
                         btnFollow.setOnClickListener(v -> toggleFollow(btnFollow));
                     });
             }
@@ -282,6 +292,15 @@ public class XProfileSheet extends BottomSheetDialogFragment {
         if (myUid.isEmpty()) return;
         isFollowing = !isFollowing;
         btn.setText(isFollowing ? "Following" : "Follow");
+        if (isFollowing) {
+            btn.setBackgroundTintList(
+                    android.content.res.ColorStateList.valueOf(
+                            requireContext().getColor(R.color.x_bg_secondary)));
+            btn.setTextColor(requireContext().getColor(R.color.x_text_primary));
+        } else {
+            com.callx.app.utils.FollowButtonStyler.applyPrimaryTint(btn);
+            btn.setTextColor(com.callx.app.utils.FollowButtonStyler.textColor(btn.getContext()));
+        }
 
         if (isFollowing) {
             XFirebaseUtils.userFollowersRef(targetUid).child(myUid).setValue(true);

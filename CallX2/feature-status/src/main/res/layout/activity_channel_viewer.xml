@@ -58,7 +58,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text=" ✓"
-                        android:textColor="#0075C9"
+                        android:textColor="@color/verification_badge"
                         android:textSize="13sp"
                         android:visibility="gone"/>
                 </LinearLayout>
@@ -81,8 +81,8 @@
             android:layout_marginEnd="4dp"
             android:text="Follow"
             android:textSize="13sp"
-            android:textColor="#1A773A"
-            android:backgroundTint="#DCF5E7"
+            android:textColor="@color/follow_button_text"
+            android:backgroundTint="@color/follow_button_primary"
             android:paddingHorizontal="12dp"
             style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
     </androidx.appcompat.widget.Toolbar>

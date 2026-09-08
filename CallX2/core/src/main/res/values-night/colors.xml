@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Dark-mode follow actions and verified identity badge. -->
+    <color name="follow_button_primary">#4D9CFF</color>
+    <color name="follow_button_pressed">#3187F5</color>
+    <color name="follow_button_text">#FFFFFF</color>
+    <color name="verification_badge">#4D9CFF</color>
+
     <color name="brand_primary">#145C46</color>
     <color name="brand_primary_dark">#0A3327</color>
     <color name="brand_accent">#D4AF37</color>

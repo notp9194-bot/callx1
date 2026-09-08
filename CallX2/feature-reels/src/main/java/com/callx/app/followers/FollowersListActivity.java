@@ -246,8 +246,10 @@ public class FollowersListActivity extends AppCompatActivity {
                     getTheme().resolveAttribute(com.google.android.material.R.attr.colorOnSurfaceVariant, tv, true);
                     h.btnFollowBack.setTextColor(tv.data);
                 } else {
-                    h.btnFollowBack.setBackgroundColor(getResources().getColor(R.color.brand_primary, null));
-                    h.btnFollowBack.setTextColor(0xFF00C6FF);
+                    com.callx.app.utils.FollowButtonStyler.applyPrimaryTint(h.btnFollowBack);
+                    h.btnFollowBack.setTextColor(
+                            com.callx.app.utils.FollowButtonStyler.textColor(
+                                    h.btnFollowBack.getContext()));
                 }
                 h.btnFollowBack.setOnClickListener(v -> toggleFollowBack(u, h, pos));
             } else {

@@ -234,10 +234,8 @@ public class XExploreFragment extends Fragment implements XTweetAdapter.OnTweetA
                     requireContext().getColor(R.color.x_bg_secondary)));
         } else {
             btn.setText("Follow");
-            btn.setTextColor(requireContext().getColor(R.color.x_bg_primary));
-            btn.setBackgroundTintList(
-                android.content.res.ColorStateList.valueOf(
-                    requireContext().getColor(R.color.x_text_primary)));
+            btn.setTextColor(com.callx.app.utils.FollowButtonStyler.textColor(btn.getContext()));
+            com.callx.app.utils.FollowButtonStyler.applyPrimaryTint(btn);
         }
     }
 

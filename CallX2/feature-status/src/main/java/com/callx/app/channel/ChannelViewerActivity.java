@@ -744,9 +744,18 @@ public class ChannelViewerActivity extends AppCompatActivity
         if (btnFollowToggle == null) return;
         if (isFollowing) {
             btnFollowToggle.setText("Following");
-            btnFollowToggle.setStrokeColorResource(R.color.colorPrimary);
+            com.callx.app.utils.FollowButtonStyler.applyPrimaryTint(btnFollowToggle);
+            btnFollowToggle.setTextColor(
+                    com.callx.app.utils.FollowButtonStyler.textColor(btnFollowToggle.getContext()));
+            btnFollowToggle.setStrokeColorResource(
+                    com.callx.app.core.R.color.follow_button_primary);
         } else {
             btnFollowToggle.setText("Follow");
+            com.callx.app.utils.FollowButtonStyler.applyPrimaryTint(btnFollowToggle);
+            btnFollowToggle.setTextColor(
+                    com.callx.app.utils.FollowButtonStyler.textColor(btnFollowToggle.getContext()));
+            btnFollowToggle.setStrokeColorResource(
+                    com.callx.app.core.R.color.follow_button_primary);
         }
     }
 

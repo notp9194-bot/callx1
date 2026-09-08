@@ -97,6 +97,9 @@ public class ChannelViewerInfoBottomSheet extends BottomSheetDialogFragment {
         // Follow / Unfollow button
         MaterialButton btnFollow = view.findViewById(R.id.btn_info_follow);
         if (btnFollow != null) {
+            com.callx.app.utils.FollowButtonStyler.applyPrimaryTint(btnFollow);
+            btnFollow.setTextColor(
+                    com.callx.app.utils.FollowButtonStyler.textColor(btnFollow.getContext()));
             btnFollow.setText(isFollowing ? "Unfollow" : "Follow");
             btnFollow.setOnClickListener(v -> {
                 viewModel.getChannel(channelId).observe(getViewLifecycleOwner(), ch -> {

@@ -45,7 +45,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="10dp"
                 android:text="Follow"
-                android:textColor="#00E5FF"
+                android:textColor="@color/follow_button_text"
                 android:textSize="13sp"
                 android:paddingStart="8dp"
                 android:paddingEnd="8dp"

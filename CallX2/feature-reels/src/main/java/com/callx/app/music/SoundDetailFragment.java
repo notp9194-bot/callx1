@@ -2183,7 +2183,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
 
     /**
      * Pill-shaped follow button styling — premium redesign: outline by
-     * default ("Follow" — not yet actively followed), filled brand_primary
+     * default ("Follow" — not yet actively followed), filled follow-button
      * only once actively followed ("Following ✓"), per the brief ("outline
      * instead of solid fill, until actively pressed"). Previously the
      * opposite (filled=Follow, outline=Following). A fresh GradientDrawable
@@ -2196,15 +2196,18 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
         bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
         bg.setCornerRadius(r);
-        int brand = getResources().getColor(R.color.brand_primary, null);
+        int primary = com.callx.app.utils.FollowButtonStyler.primaryColor(btn.getContext());
         if (isFollowing) {
-            bg.setColor(brand);
-            bg.setStroke(0, brand);
-            btn.setTextColor(0xFFFFFFFF);
+            bg.setColor(primary);
+            bg.setStroke(0, primary);
+            btn.setBackgroundTintList(
+                    com.callx.app.utils.FollowButtonStyler.primaryStateList(btn.getContext()));
+            btn.setTextColor(com.callx.app.utils.FollowButtonStyler.textColor(btn.getContext()));
         } else {
             bg.setColor(android.graphics.Color.TRANSPARENT);
-            bg.setStroke((int) (1.5f * btn.getResources().getDisplayMetrics().density), brand);
-            btn.setTextColor(brand);
+            bg.setStroke((int) (1.5f * btn.getResources().getDisplayMetrics().density), primary);
+            btn.setBackgroundTintList(null);
+            btn.setTextColor(primary);
         }
         btn.setBackground(bg);
     }

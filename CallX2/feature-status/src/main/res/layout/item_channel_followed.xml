@@ -44,7 +44,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text=" ✓"
-                android:textColor="#0075C9"
+                android:textColor="@color/verification_badge"
                 android:textSize="13sp"
                 android:visibility="gone"/>
 

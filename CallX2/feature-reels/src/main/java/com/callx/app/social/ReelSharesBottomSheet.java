@@ -342,10 +342,13 @@ public class ReelSharesBottomSheet extends BottomSheetDialogFragment {
         bg.setCornerRadius(r);
         if (isFollowing) {
             bg.setColor(resolveAttrColor(com.google.android.material.R.attr.colorSurfaceVariant));
+            btn.setBackgroundTintList(null);
             btn.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
         } else {
-            bg.setColor(getResources().getColor(R.color.brand_primary, null));
-            btn.setTextColor(0xFFFFFFFF);
+            bg.setColor(com.callx.app.utils.FollowButtonStyler.primaryColor(btn.getContext()));
+            btn.setBackgroundTintList(
+                    com.callx.app.utils.FollowButtonStyler.primaryStateList(btn.getContext()));
+            btn.setTextColor(com.callx.app.utils.FollowButtonStyler.textColor(btn.getContext()));
         }
         btn.setBackground(bg);
     }

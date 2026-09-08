@@ -215,8 +215,10 @@ public class MutualFollowersActivity extends AppCompatActivity {
                     getTheme().resolveAttribute(com.google.android.material.R.attr.colorOnSurfaceVariant, tv, true);
                     h.btnFollowAction.setTextColor(tv.data);
                 } else {
-                    h.btnFollowAction.setBackgroundColor(getResources().getColor(R.color.brand_primary, null));
-                    h.btnFollowAction.setTextColor(0xFF00C6FF);
+                    com.callx.app.utils.FollowButtonStyler.applyPrimaryTint(h.btnFollowAction);
+                    h.btnFollowAction.setTextColor(
+                            com.callx.app.utils.FollowButtonStyler.textColor(
+                                    h.btnFollowAction.getContext()));
                 }
                 h.btnFollowAction.setOnClickListener(v -> toggleFollow(u, h, pos));
             } else {

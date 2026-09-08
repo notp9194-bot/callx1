@@ -412,7 +412,7 @@ public class ReelLikesBottomSheet extends BottomSheetDialogFragment {
     /**
      * Pill-shaped follow button styling — reused from
      * FollowConnectionsActivity$UserListAdapter#styleBtn(): filled
-     * brand_primary for "Follow", outline colorSurfaceVariant for
+     * follow_button_primary for "Follow", outline colorSurfaceVariant for
      * "Following ✓". A fresh GradientDrawable is built per call (not
      * cached/shared) since sharing one Drawable instance across multiple
      * recycled rows corrupts corner/bounds rendering when rows differ in
@@ -426,10 +426,13 @@ public class ReelLikesBottomSheet extends BottomSheetDialogFragment {
         bg.setCornerRadius(r);
         if (isFollowing) {
             bg.setColor(resolveAttrColor(com.google.android.material.R.attr.colorSurfaceVariant));
+            btn.setBackgroundTintList(null);
             btn.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
         } else {
-            bg.setColor(getResources().getColor(R.color.brand_primary, null));
-            btn.setTextColor(0xFFFFFFFF);
+            bg.setColor(com.callx.app.utils.FollowButtonStyler.primaryColor(btn.getContext()));
+            btn.setBackgroundTintList(
+                    com.callx.app.utils.FollowButtonStyler.primaryStateList(btn.getContext()));
+            btn.setTextColor(com.callx.app.utils.FollowButtonStyler.textColor(btn.getContext()));
         }
         btn.setBackground(bg);
     }
