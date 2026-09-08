@@ -9,9 +9,9 @@
         android:title="Reels"
         android:icon="@drawable/ic_reels"/>
     <item
-        android:id="@+id/reel_nav_create"
-        android:title="Create"
-        android:icon="@drawable/ic_reel_create"/>
+        android:id="@+id/reel_nav_search"
+        android:title="Search"
+        android:icon="@drawable/ic_search"/>
     <item
         android:id="@+id/reel_nav_notifications"
         android:title="Activity"

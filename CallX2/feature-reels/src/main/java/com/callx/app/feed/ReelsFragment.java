@@ -25,7 +25,6 @@ import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
 import com.callx.app.reels.R;
 
-import com.callx.app.camera.ReelCameraActivity;
 import com.callx.app.analytics.ReelCreatorDashboardActivity;
 import com.callx.app.creator.ReelCreatorHubActivity;
 import com.callx.app.notifications.ReelNotificationsActivity;
@@ -71,7 +70,7 @@ import androidx.media3.common.util.UnstableApi;
  * Navigation:
  *  ✅ Home tab      — Instagram-like social hub (HomeFragment shown in home_container)
  *  ✅ Reels tab     — full-screen vertical reel feed
- *  ✅ Create        — opens ReelCameraActivity
+ *  ✅ Search        — opens ReelSearchActivity (Explore grid — see its class doc)
  *  ✅ Activity      — opens ReelNotificationsActivity
  *  ✅ Creator       — shows current user's avatar as tab icon; opens ReelCreatorDashboardActivity
  *
@@ -479,11 +478,18 @@ public class ReelsFragment extends Fragment {
                 suppressNavScrollToTop = false;
                 return true;
 
-            } else if (id == R.id.reel_nav_create) {
-                // FIX #2: Set suppress flag BEFORE calling setSelectedItemId so the
-                //         reel_nav_feed listener does NOT scroll back to top.
+            } else if (id == R.id.reel_nav_search) {
+                // FIX: was reel_nav_create (opened ReelCameraActivity) — pure duplicate
+                // of top_bar's own btn_upload_reel "+" button, which already covers
+                // reel creation. Repurposed this slot as a Search tab instead, opening
+                // the same Explore/search screen as btn_reel_search above (see
+                // ReelSearchActivity — its no-query default state is now an Explore
+                // grid built from ReelGridAdapter, the same grid+optimization used by
+                // UserReelsActivity's profile grid).
+                // Set suppress flag BEFORE calling setSelectedItemId so the
+                // reel_nav_feed listener does NOT scroll back to top.
                 suppressNavScrollToTop = true;
-                startActivity(new Intent(getContext(), ReelCameraActivity.class));
+                startActivity(new Intent(getContext(), ReelSearchActivity.class));
                 reelBottomNav.setSelectedItemId(R.id.reel_nav_feed);
                 return true;
 
@@ -618,7 +624,7 @@ public class ReelsFragment extends Fragment {
         int[] nonCreatorIds = {
             R.id.reel_nav_home,
             R.id.reel_nav_feed,
-            R.id.reel_nav_create,
+            R.id.reel_nav_search,
             R.id.reel_nav_notifications
         };
         for (int id : nonCreatorIds) {

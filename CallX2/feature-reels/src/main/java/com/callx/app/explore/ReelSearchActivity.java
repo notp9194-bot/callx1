@@ -39,11 +39,21 @@ import java.util.Map;
  *  ✅ Search bar with debounce (300ms) — live results jaise type karo
  *  ✅ Caption search — reel ke caption mein text match
  *  ✅ Hashtag search — #dance type karo → sirf dance reels dikhenge
- *  ✅ Trending hashtags section (initial state mein)
  *  ✅ Results mein 3-column grid (tap → SingleReelPlayerActivity)
  *  ✅ Result count badge
  *  ✅ Empty state agar koi result nahi
  *  ✅ Keyboard "Search" button se bhi search hota hai
+ *
+ * ★ NEW (Explore default state): pehle koi query type na hone par sirf trending
+ * hashtag chips dikhte the aur neeche khaali space rehta tha. Ab showTrending()
+ * results grid ko bhi ek Instagram Explore-style "trending reels" set se bhar
+ * deta hai (allReels, trendingScore() se sorted, top EXPLORE_GRID_LIMIT) — same
+ * resultsAdapter (ReelGridAdapter — wahi grid+optimization jo UserReelsActivity
+ * ki profile grid use karti hai) render karta hai, sirf views-overlay is screen
+ * pe on kiya gaya hai (setShowViewsOverlay) taaki har tile pe Explore jaisa
+ * eye+count badge dikhe. Ye screen ab bottom nav ke naye Search tab
+ * (ReelsFragment#reel_nav_search) aur top-bar btn_reel_search — dono se launch
+ * hoti hai.
  */
 public class ReelSearchActivity extends AppCompatActivity {
 
@@ -66,6 +76,10 @@ public class ReelSearchActivity extends AppCompatActivity {
     private final Handler  debounceHandler = new Handler(Looper.getMainLooper());
     private Runnable       debounceRunnable;
     private static final long DEBOUNCE_MS = 300;
+    // ★ NEW: cap on how many trending reels populate the default Explore grid —
+    // enough to fill several screens without binding/preloading the entire
+    // allReels list up front (ReelGridAdapter's own preloader takes it from here).
+    private static final int EXPLORE_GRID_LIMIT = 60;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -103,6 +117,10 @@ public class ReelSearchActivity extends AppCompatActivity {
         });
         rvResults.setLayoutManager(new GridLayoutManager(this, 3));
         rvResults.setAdapter(resultsAdapter);
+        // ★ NEW: Explore-style eye+view-count badge on every tile (same overlay
+        // UserReelsActivity turns on for isSelf's own grid) — shows both on the
+        // default trending grid and on typed-search results.
+        resultsAdapter.setShowViewsOverlay(true);
 
         // Hashtag suggestions (horizontal)
         suggestAdapter = new ReelHashtagSuggestAdapter(this, hashtags, (tag) -> {
@@ -234,6 +252,7 @@ public class ReelSearchActivity extends AppCompatActivity {
 
         layoutTrending.setVisibility(View.GONE);
         layoutResults.setVisibility(View.VISIBLE);
+        tvResultCount.setVisibility(View.VISIBLE);
         tvResultCount.setText(results.size() + " results for \"" + query + "\"");
 
         if (results.isEmpty()) {
@@ -246,12 +265,33 @@ public class ReelSearchActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Default (no query typed) state — ★ NEW: now an Instagram Explore-style grid
+     * of trending reels, not just an empty screen under the hashtag chips.
+     * Builds `results` from the top EXPLORE_GRID_LIMIT of allReels by
+     * trendingScore() and shows it through the same resultsAdapter/rv_results
+     * the typed-search flow uses, so the grid, its view-count overlay, and its
+     * preloading/recycling are all one code path either way.
+     */
     private void showTrending() {
         results.clear();
+        List<ReelModel> trending = new ArrayList<>(allReels);
+        Collections.sort(trending, (a, b) -> Float.compare(b.trendingScore(), a.trendingScore()));
+        for (ReelModel r : trending) {
+            results.add(r);
+            if (results.size() >= EXPLORE_GRID_LIMIT) break;
+        }
         resultsAdapter.notifyDataSetChanged();
-        layoutTrending.setVisibility(View.VISIBLE);
-        layoutResults.setVisibility(View.GONE);
-        layoutEmpty.setVisibility(View.GONE);
+
+        // layoutTrending and layoutResults are match_parent siblings in the same
+        // FrameLayout — showing both together would overlap. The Explore grid
+        // now replaces the hashtag-chips row as the default view entirely
+        // (matches the reference screenshot: just the grid, no separate row).
+        layoutTrending.setVisibility(View.GONE);
+        layoutEmpty.setVisibility(results.isEmpty() ? View.VISIBLE : View.GONE);
+        layoutResults.setVisibility(results.isEmpty() ? View.GONE : View.VISIBLE);
+        rvResults.setVisibility(results.isEmpty() ? View.GONE : View.VISIBLE);
+        tvResultCount.setVisibility(View.GONE); // "Explore" grid, not a search-result count
     }
 
     private void showKeyboard() {
