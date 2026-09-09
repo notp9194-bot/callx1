@@ -1,4 +1,5 @@
 package com.callx.app.profile;
+import android.util.Log;
 import com.callx.app.utils.AlertDialogStyler;
 
 import com.callx.app.player.SingleReelPlayerActivity;
@@ -82,6 +83,8 @@ import android.graphics.Canvas;
 public class UserReelsActivity extends AppCompatActivity
         implements ReelGridAdapter.LongPressListener,
                    ReelGridAdapter.MultiSelectChangeListener {
+
+    private static final String TAG = "UserReelsActivity";
 
     public static final String EXTRA_UID   = "uid";
     public static final String EXTRA_NAME  = "name";
@@ -1055,29 +1058,89 @@ public class UserReelsActivity extends AppCompatActivity
      * view's width is stretched here to a fixed fraction of the screen
      * instead of left at wrap_content.
      */
+    /**
+     * BUG FIX (all 6 tabs were showing instead of the intended ~3.4 peek):
+     * this used to run once via {@code tabLayout.post(...)}, wrapped in a
+     * try/catch that silently swallowed ANY exception. post() only
+     * guarantees "run after the current frame" — it does NOT guarantee the
+     * TabLayout's internal TabView children (converted from the XML
+     * TabItem tags) are already inflated/attached with a non-zero strip
+     * width by then. On some cold-start timings that single post() ran
+     * before the strip was ready, threw (e.g. a child with a null/not-yet-
+     * resolved LayoutParams), got caught, and — because it never retried —
+     * the resize was silently never applied. Tabs then fell back to their
+     * default icon-only wrap_content width, which is small enough that all
+     * 6 comfortably fit on screen with no scroll needed.
+     *
+     * Fix: use a GlobalLayoutListener that re-checks on EVERY layout pass
+     * (not just once) and only proceeds — then detaches itself — once the
+     * strip actually has its tab children AND a real measured screen width.
+     * Failures are logged instead of swallowed, so a real problem is
+     * visible in logcat instead of silently no-op'ing.
+     */
     private void applyScrollableTabPeekWidths() {
         if (tabLayout == null) return;
-        tabLayout.post(() -> {
-            try {
-                android.view.ViewGroup strip = (android.view.ViewGroup) tabLayout.getChildAt(0);
-                if (strip == null) return;
+        tabLayout.getViewTreeObserver().addOnGlobalLayoutListener(
+                new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                if (isFinishing() || isDestroyed()) {
+                    safeRemove();
+                    return;
+                }
+                android.view.ViewGroup strip;
+                try {
+                    strip = (android.view.ViewGroup) tabLayout.getChildAt(0);
+                } catch (Exception e) {
+                    Log.e(TAG, "applyScrollableTabPeekWidths: tab strip child(0) is not a ViewGroup", e);
+                    safeRemove();
+                    return;
+                }
                 int screenWidth = getResources().getDisplayMetrics().widthPixels;
+                if (strip == null || strip.getChildCount() == 0 || screenWidth <= 0) {
+                    // Not ready on this pass yet — DON'T remove the listener,
+                    // just wait for the next layout pass to try again.
+                    return;
+                }
                 // ~3.4 tabs per screen width: 3 full tabs fill most of the
                 // strip, the 4th (Duet) peeks in at the edge.
                 int tabWidth = Math.round(screenWidth / 3.4f);
+                int resizedCount = 0;
                 for (int i = 0; i < strip.getChildCount(); i++) {
                     android.view.View child = strip.getChildAt(i);
                     android.view.ViewGroup.LayoutParams lp = child.getLayoutParams();
-                    if (lp == null) continue;
-                    lp.width = tabWidth;
-                    child.setLayoutParams(lp);
+                    if (lp == null) {
+                        Log.w(TAG, "applyScrollableTabPeekWidths: tab child " + i + " has no LayoutParams, skipping");
+                        continue;
+                    }
+                    if (lp.width != tabWidth) {
+                        lp.width = tabWidth;
+                        child.setLayoutParams(lp);
+                    }
+                    resizedCount++;
                 }
                 // Tab view widths just changed out from under it — the
                 // anchor-view cache (used for the Reels-tab filter popup)
                 // may hold stale pre-resize references; drop it so it
                 // re-resolves fresh on next use.
                 tabAnchorViewsCache = null;
-            } catch (Exception ignored) {}
+                if (resizedCount < strip.getChildCount()) {
+                    Log.w(TAG, "applyScrollableTabPeekWidths: only resized " + resizedCount
+                            + "/" + strip.getChildCount() + " tab children");
+                }
+                // Job's done for this screen instance — stop listening so we
+                // don't keep re-forcing the width on every future layout
+                // pass (header collapse/expand, keyboard, rotation, etc.).
+                safeRemove();
+            }
+
+            private void safeRemove() {
+                try {
+                    tabLayout.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                } catch (Exception ignored) {
+                    // ViewTreeObserver already dead (view detached) — nothing to clean up.
+                }
+            }
         });
     }
 
