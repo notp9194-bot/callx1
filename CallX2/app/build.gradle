@@ -176,7 +176,6 @@ dependencies {
 
     implementation project(':core')
     implementation project(':feature-chat')
-    implementation project(':feature-chat-v2') // ⚡ Fastest Chat — native C++/OpenGL renderer
     implementation project(':feature-reels')
     implementation project(':feature-calls')
     implementation project(':feature-x')

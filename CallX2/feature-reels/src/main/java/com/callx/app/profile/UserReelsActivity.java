@@ -244,16 +244,13 @@ public class UserReelsActivity extends AppCompatActivity
     private Button          btnMessageCta;
     private android.view.View btnCtaCall;
     private LinearLayout    layoutInstagramCta;
-    private LinearLayout    layoutExtraActions;
     private ImageButton     btnBack, btnMore, btnShareProfile, btnCreatorHub, btnSettings;
-    private ImageButton     btnMessage, btnAudioCall, btnVideoCall, btnOpenX, btnOpenYoutube;
+    private ImageButton     btnMessage;
     private LinearLayout    layoutActions;
     // ── Suggested for you panel (Feature 1) ─────────────────────────────
     private LinearLayout    layoutSuggestedForYou;
     private LinearLayout    llSuggestedCards;
     private TextView        tvSeeAllSuggested;
-    // ── Audio call in extra-actions row (Feature 2) ───────────────────
-    private android.view.View btnCallRow;
 
     // ── Story Highlights ──────────────────────────────────────────────────
     private androidx.recyclerview.widget.RecyclerView rvHighlights;
@@ -274,7 +271,7 @@ public class UserReelsActivity extends AppCompatActivity
     private volatile boolean highlightsRebuildQueued = false;
 
     // ── Avatar peek animation fields ──────────────────────────────────────
-    private CircleImageView ivAnimChat, ivAnimX, ivAnimYoutube;
+    private CircleImageView ivAnimChat;
     private final Handler   animHandler    = new Handler(Looper.getMainLooper());
     private Runnable        animRunnable;
     private boolean         animRunning    = false;
@@ -596,13 +593,7 @@ public class UserReelsActivity extends AppCompatActivity
         btnSettings          = findViewById(R.id.btn_settings);
         btnMore              = findViewById(R.id.btn_more);
         btnMessage           = findViewById(R.id.btn_message);
-        btnAudioCall         = findViewById(R.id.btn_audio_call);
-        btnVideoCall         = findViewById(R.id.btn_video_call);
-        btnOpenX             = findViewById(R.id.btn_open_x);
-        btnOpenYoutube       = findViewById(R.id.btn_open_youtube);
         ivAnimChat           = findViewById(R.id.iv_anim_chat);
-        ivAnimX              = findViewById(R.id.iv_anim_x);
-        ivAnimYoutube        = findViewById(R.id.iv_anim_youtube);
         layoutActions        = findViewById(R.id.layout_actions);
         tabLayout            = findViewById(R.id.tab_layout);
         rvReels              = findViewById(R.id.rv_reels);
@@ -644,11 +635,9 @@ public class UserReelsActivity extends AppCompatActivity
         btnMessageCta     = findViewById(R.id.btn_message_cta);
         btnCtaCall       = findViewById(R.id.btn_cta_call);
         layoutInstagramCta = findViewById(R.id.layout_instagram_cta);
-        layoutExtraActions    = findViewById(R.id.layout_extra_actions);
         layoutSuggestedForYou = findViewById(R.id.layout_suggested_for_you);
         llSuggestedCards      = findViewById(R.id.ll_suggested_cards);
         tvSeeAllSuggested     = findViewById(R.id.tv_see_all_suggested);
-        btnCallRow            = findViewById(R.id.btn_call_row);
         rvHighlights       = findViewById(R.id.rv_highlights);
         hsvHighlights      = findViewById(R.id.hsv_highlights);
         dividerHighlights  = findViewById(R.id.divider_highlights);
@@ -773,7 +762,6 @@ public class UserReelsActivity extends AppCompatActivity
 
         // Instagram-style CTA buttons visible only for other users
         if (layoutInstagramCta  != null) layoutInstagramCta.setVisibility(isSelf ? View.GONE : View.VISIBLE);
-        if (layoutExtraActions  != null) layoutExtraActions.setVisibility(isSelf ? View.GONE : View.VISIBLE);
         if (layoutActions       != null) layoutActions.setVisibility(View.GONE); // legacy bar hidden
         if (btnFollow           != null) btnFollow.setVisibility(isSelf ? View.GONE : View.VISIBLE);
 
@@ -3828,46 +3816,6 @@ public class UserReelsActivity extends AppCompatActivity
                 new String[]{"partnerUid","partnerName","partnerPhoto"},
                 new String[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto)}));
 
-        if (btnAudioCall != null) btnAudioCall.setOnClickListener(v -> {
-            String cid = FirebaseDatabase.getInstance().getReference("calls").push().getKey();
-            launchActivity("com.callx.app.call.CallActivity",
-                new String[]{"partnerUid","partnerName","partnerPhoto","isCaller","video","callId"},
-                new Object[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto), true, false, orEmpty(cid)});
-        });
-        if (btnVideoCall != null) btnVideoCall.setOnClickListener(v -> {
-            String cid = FirebaseDatabase.getInstance().getReference("calls").push().getKey();
-            launchActivity("com.callx.app.call.CallActivity",
-                new String[]{"partnerUid","partnerName","partnerPhoto","isCaller","video","callId"},
-                new Object[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto), true, true, orEmpty(cid)});
-        });
-
-        // X profile button
-        if (btnOpenX != null) btnOpenX.setOnClickListener(v -> {
-            if (targetUid == null || targetUid.isEmpty()) return;
-            try {
-                Class<?> cls = Class.forName("com.callx.app.profile.XProfileSheet");
-                java.lang.reflect.Method method = cls.getMethod("showProfile",
-                        androidx.fragment.app.FragmentManager.class, String.class);
-                method.invoke(null, getSupportFragmentManager(), targetUid);
-            } catch (Exception e) {
-                Toast.makeText(this, "X profile not available", Toast.LENGTH_SHORT).show();
-            }
-        });
-
-        // YouTube channel button
-        if (btnOpenYoutube != null) btnOpenYoutube.setOnClickListener(v -> {
-            if (targetUid == null || targetUid.isEmpty()) return;
-            try {
-                Class<?> cls = Class.forName("com.callx.app.channel.YouTubeChannelActivity");
-                Intent i = new Intent(this, cls);
-                i.putExtra("uid",  targetUid);
-                i.putExtra("name", orEmpty(targetName));
-                startActivity(i);
-            } catch (ClassNotFoundException e) {
-                Toast.makeText(this, "YouTube channel not available", Toast.LENGTH_SHORT).show();
-            }
-        });
-
         if (btnFollow     != null) btnFollow.setOnClickListener(v -> toggleFollow());
         if (btnMessageCta != null) btnMessageCta.setOnClickListener(v ->
             launchActivity("com.callx.app.conversation.ChatActivity",
@@ -3875,14 +3823,6 @@ public class UserReelsActivity extends AppCompatActivity
                 new String[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto)}));
         // +person button → show/hide suggested panel
         if (btnCtaCall != null) btnCtaCall.setOnClickListener(v -> toggleSuggestedPanel());
-
-        // Call button in extra-actions row → audio call
-        if (btnCallRow != null) btnCallRow.setOnClickListener(v -> {
-            String cid = FirebaseDatabase.getInstance().getReference("calls").push().getKey();
-            launchActivity("com.callx.app.call.CallActivity",
-                new String[]{"partnerUid","partnerName","partnerPhoto","isCaller","video","callId"},
-                new Object[]{targetUid, orEmpty(targetName), orEmpty(targetPhoto), true, false, orEmpty(cid)});
-        });
 
         // "See all" → FollowConnectionsActivity on Suggested tab (same screen as Followers/Following)
         if (tvSeeAllSuggested != null) tvSeeAllSuggested.setOnClickListener(v -> {
@@ -4175,54 +4115,17 @@ public class UserReelsActivity extends AppCompatActivity
                 }
             });
 
-        // 2) X avatar — x/users/{uid}
-        com.google.firebase.database.FirebaseDatabase.getInstance(DB)
-            .getReference("x/users").child(targetUid)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    String thumb = snap.child("thumbUrl").getValue(String.class);
-                    String photo = snap.child("photoUrl").getValue(String.class);
-                    String url = (thumb != null && !thumb.isEmpty()) ? thumb
-                               : (photo != null && !photo.isEmpty()) ? photo : null;
-                    if (ivAnimX == null || url == null) return;
-                    Glide.with(UserReelsActivity.this)
-                        .load(url).circleCrop()
-                        .placeholder(R.drawable.ic_person)
-                        .override(240, 240)
-                        .into(ivAnimX);
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
-
-        // 3) YouTube avatar — youtube/channels/{uid}
-        com.google.firebase.database.FirebaseDatabase.getInstance(DB)
-            .getReference("youtube/channels").child(targetUid)
-            .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                    String thumb = snap.child("thumbUrl").getValue(String.class);
-                    String photo = snap.child("photoUrl").getValue(String.class);
-                    String url = (thumb != null && !thumb.isEmpty()) ? thumb
-                               : (photo != null && !photo.isEmpty()) ? photo : null;
-                    if (ivAnimYoutube == null || url == null) return;
-                    Glide.with(UserReelsActivity.this)
-                        .load(url).circleCrop()
-                        .placeholder(R.drawable.ic_person)
-                        .override(240, 240)
-                        .into(ivAnimYoutube);
-                }
-                @Override public void onCancelled(@NonNull DatabaseError e) {}
-            });
     }
 
     /**
-     * Loop: Chat → X → YouTube → Chat → ...
-     * Each cycle: peek out (600ms) → hold 3s → peek in (600ms) → wait 3s → next button
+     * Peek animation for the Message button avatar.
+     * Each cycle: peek out (600ms) → hold 3s → peek in (600ms) → wait 3s → repeat
      */
     private void startAvatarPeekLoop() {
         if (animRunning) return;
         animRunning = true;
 
-        CircleImageView[] views = {ivAnimChat, ivAnimX, ivAnimYoutube};
+        CircleImageView[] views = {ivAnimChat};
 
         // Initialize all: hidden, scaled to 0, centered on button
         for (CircleImageView iv : views) {
@@ -4307,7 +4210,7 @@ public class UserReelsActivity extends AppCompatActivity
     private void stopAvatarAnimation() {
         animRunning = false;
         animHandler.removeCallbacks(animRunnable);
-        CircleImageView[] views = {ivAnimChat, ivAnimX, ivAnimYoutube};
+        CircleImageView[] views = {ivAnimChat};
         for (CircleImageView iv : views) {
             if (iv == null) continue;
             iv.setVisibility(View.INVISIBLE);

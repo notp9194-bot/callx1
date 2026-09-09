@@ -112,16 +112,16 @@
 
                 <!-- Avatar with story ring + online indicator -->
                 <FrameLayout android:id="@+id/frame_avatar_parallax"
-                    android:layout_width="90dp" android:layout_height="90dp">
+                    android:layout_width="98dp" android:layout_height="98dp">
 
                     <View android:id="@+id/view_story_ring"
-                        android:layout_width="90dp" android:layout_height="90dp"
+                        android:layout_width="98dp" android:layout_height="98dp"
                         android:background="@drawable/bg_story_ring"
                         android:visibility="gone"/>
 
                     <de.hdodenhof.circleimageview.CircleImageView
                         android:id="@+id/iv_avatar"
-                        android:layout_width="80dp" android:layout_height="80dp"
+                        android:layout_width="88dp" android:layout_height="88dp"
                         android:layout_gravity="center"
                         android:src="@drawable/ic_person"
                         android:clickable="true" android:focusable="true"
@@ -171,18 +171,20 @@
                             android:layout_weight="1"/>
                     </LinearLayout>
 
-                    <!-- Stats: Reels | Followers | Following -->
+                    <!-- Stats: Reels | Followers | Following — compact fixed-gap group
+                         (screenshot style: wrap_content columns, centered number/label,
+                         fixed marginEnd between groups instead of equal-weight stretch) -->
                     <LinearLayout
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:orientation="horizontal"
                         android:gravity="start">
 
                         <!-- Reels count -->
                         <LinearLayout
-                            android:layout_width="0dp" android:layout_height="wrap_content"
-                            android:layout_weight="1"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:layout_marginEnd="28dp"
                             android:orientation="vertical"
-                            android:gravity="start">
+                            android:gravity="center_horizontal">
                             <TextView android:id="@+id/tv_reel_count"
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="0"
@@ -190,17 +192,18 @@
                                 android:fontFamily="sans-serif-bold"
                                 android:textColor="?attr/colorOnSurface"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="Reels"
+                                android:text="Post"
                                 android:textSize="11sp"
+                                android:textStyle="bold"
                                 android:textColor="?attr/colorOnSurfaceVariant"/>
                         </LinearLayout>
 
                         <!-- Followers count (clickable) -->
                         <LinearLayout android:id="@+id/layout_followers_click"
-                            android:layout_width="0dp" android:layout_height="wrap_content"
-                            android:layout_weight="1"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:layout_marginEnd="28dp"
                             android:orientation="vertical"
-                            android:gravity="start"
+                            android:gravity="center_horizontal"
                             android:clickable="true" android:focusable="true"
                             android:foreground="?attr/selectableItemBackground">
                             <TextView android:id="@+id/tv_followers"
@@ -212,15 +215,15 @@
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="Followers"
                                 android:textSize="11sp"
+                                android:textStyle="bold"
                                 android:textColor="?attr/colorOnSurfaceVariant"/>
                         </LinearLayout>
 
                         <!-- Following count (clickable) -->
                         <LinearLayout android:id="@+id/layout_following_click"
-                            android:layout_width="0dp" android:layout_height="wrap_content"
-                            android:layout_weight="1"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:orientation="vertical"
-                            android:gravity="start"
+                            android:gravity="center_horizontal"
                             android:clickable="true" android:focusable="true"
                             android:foreground="?attr/selectableItemBackground">
                             <TextView android:id="@+id/tv_following"
@@ -232,6 +235,7 @@
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="Following"
                                 android:textSize="11sp"
+                                android:textStyle="bold"
                                 android:textColor="?attr/colorOnSurfaceVariant"/>
                         </LinearLayout>
                     </LinearLayout>
@@ -557,93 +561,7 @@
                     </HorizontalScrollView>
                 </LinearLayout>
 
-                <!-- Second row: Call | Video | X | YouTube -->
-                <LinearLayout android:id="@+id/layout_extra_actions"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center"
-                    android:layout_marginBottom="4dp"
-                    android:visibility="gone">
-
-                    <!-- Audio Call pill -->
-                    <LinearLayout
-                        android:layout_width="0dp" android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical" android:gravity="center">
-                        <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btn_call_row"
-                            android:layout_width="40dp" android:layout_height="40dp"
-                            android:src="@drawable/ic_phone"
-                            android:background="@drawable/bg_circle_action_adaptive"
-                            android:tint="#00F260"
-                            android:padding="10dp"
-                            android:contentDescription="Audio Call"/>
-                    </LinearLayout>
-
-                    <!-- Video Call pill -->
-                    <LinearLayout
-                        android:layout_width="0dp" android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical" android:gravity="center">
-                        <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btn_video_call"
-                            android:layout_width="40dp" android:layout_height="40dp"
-                            android:src="@drawable/ic_video_call"
-                            android:background="@drawable/bg_circle_action_adaptive"
-                            android:tint="#A855F7"
-                            android:padding="10dp"
-                            android:contentDescription="Video Call"/>
-                    </LinearLayout>
-
-                    <!-- X profile pill -->
-                    <LinearLayout
-                        android:layout_width="0dp" android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical" android:gravity="center">
-                        <FrameLayout android:layout_width="40dp" android:layout_height="40dp"
-                            android:clipChildren="false">
-                            <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btn_open_x"
-                                android:layout_width="40dp" android:layout_height="40dp"
-                                android:src="@drawable/ic_x_logo"
-                                android:background="@drawable/bg_social_x_btn_adaptive"
-                                android:tint="@color/x_logo_tint"
-                                android:padding="10dp"
-                                android:contentDescription="View X Profile"/>
-                            <de.hdodenhof.circleimageview.CircleImageView
-                                android:id="@+id/iv_anim_x"
-                                android:layout_width="20dp" android:layout_height="20dp"
-                                android:layout_gravity="center"
-                                android:elevation="4dp"
-                                android:visibility="invisible"
-                                app:civ_border_width="1.5dp"
-                                app:civ_border_color="#000000"/>
-                        </FrameLayout>
-                    </LinearLayout>
-
-                    <!-- YouTube pill -->
-                    <LinearLayout
-                        android:layout_width="0dp" android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical" android:gravity="center">
-                        <FrameLayout android:layout_width="40dp" android:layout_height="40dp"
-                            android:clipChildren="false">
-                            <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btn_open_youtube"
-                                android:layout_width="40dp" android:layout_height="40dp"
-                                android:src="@drawable/ic_youtube"
-                                android:background="@drawable/bg_circle_action_adaptive"
-                                android:tint="#FF0000"
-                                android:padding="10dp"
-                                android:contentDescription="View YouTube Channel"/>
-                            <de.hdodenhof.circleimageview.CircleImageView
-                                android:id="@+id/iv_anim_youtube"
-                                android:layout_width="20dp" android:layout_height="20dp"
-                                android:layout_gravity="center"
-                                android:elevation="4dp"
-                                android:visibility="invisible"
-                                app:civ_border_width="1.5dp"
-                                app:civ_border_color="#FF0000"/>
-                        </FrameLayout>
-                    </LinearLayout>
-                </LinearLayout>
+                <!-- Second row: Call | Video | X | YouTube — REMOVED per request -->
 
                 <!-- Hidden legacy action bar (keeps old icon-button IDs alive for Java) -->
                 <LinearLayout android:id="@+id/layout_actions"
@@ -680,93 +598,6 @@
                             android:layout_marginTop="4dp"/>
                     </LinearLayout>
 
-                    <!-- Audio Call -->
-                    <LinearLayout
-                        android:layout_width="0dp" android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical" android:gravity="center">
-                        <ImageButton android:id="@+id/btn_audio_call"
-                            android:layout_width="44dp" android:layout_height="44dp"
-                            android:src="@drawable/ic_phone"
-                            android:background="@drawable/bg_circle_action"
-                            android:tint="#00F260"
-                            android:contentDescription="Audio Call" android:padding="12dp"/>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Call" android:textSize="10sp"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:layout_marginTop="4dp"/>
-                    </LinearLayout>
-
-                    <!-- Video Call -->
-                    <LinearLayout
-                        android:layout_width="0dp" android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical" android:gravity="center">
-                        <ImageButton
-                            android:layout_width="44dp" android:layout_height="44dp"
-                            android:src="@drawable/ic_video_call"
-                            android:background="@drawable/bg_circle_action"
-                            android:tint="#A855F7"
-                            android:contentDescription="Video Call" android:padding="12dp"/>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Video" android:textSize="10sp"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:layout_marginTop="4dp"/>
-                    </LinearLayout>
-
-                    <!-- X (Twitter) -->
-                    <LinearLayout
-                        android:layout_width="0dp" android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical" android:gravity="center">
-                        <FrameLayout android:layout_width="44dp" android:layout_height="44dp"
-                            android:clipChildren="false" android:clipToPadding="false">
-                            <ImageButton
-                                android:layout_width="44dp" android:layout_height="44dp"
-                                android:src="@drawable/ic_x_logo"
-                                android:background="@drawable/bg_social_x_btn"
-                                android:tint="@color/white"
-                                android:contentDescription="View X Profile" android:padding="12dp"/>
-                            <de.hdodenhof.circleimageview.CircleImageView
-                                android:layout_width="22dp" android:layout_height="22dp"
-                                android:layout_gravity="center"
-                                android:elevation="4dp"
-                                android:visibility="invisible"
-                                app:civ_border_width="1.5dp"
-                                app:civ_border_color="#000000"/>
-                        </FrameLayout>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="X" android:textSize="10sp"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:layout_marginTop="4dp"/>
-                    </LinearLayout>
-
-                    <!-- YouTube -->
-                    <LinearLayout
-                        android:layout_width="0dp" android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical" android:gravity="center">
-                        <FrameLayout android:layout_width="44dp" android:layout_height="44dp"
-                            android:clipChildren="false" android:clipToPadding="false">
-                            <ImageButton
-                                android:layout_width="44dp" android:layout_height="44dp"
-                                android:src="@drawable/ic_youtube"
-                                android:background="@drawable/bg_circle_action"
-                                android:tint="#FF0000"
-                                android:contentDescription="View YouTube Channel" android:padding="12dp"/>
-                            <de.hdodenhof.circleimageview.CircleImageView
-                                android:layout_width="22dp" android:layout_height="22dp"
-                                android:layout_gravity="center"
-                                android:elevation="4dp"
-                                android:visibility="invisible"
-                                app:civ_border_width="1.5dp"
-                                app:civ_border_color="#FF0000"/>
-                        </FrameLayout>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="YouTube" android:textSize="10sp"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:layout_marginTop="4dp"/>
-                    </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
 
@@ -846,12 +677,12 @@
             <com.google.android.material.tabs.TabItem
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:icon="@drawable/ic_photo_library"/>
+                android:icon="@drawable/ic_posts_grid_dots"/>
 
             <com.google.android.material.tabs.TabItem
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:icon="@drawable/ic_reels_tab_filterable"/>
+                android:icon="@drawable/ic_reels_clapper_play"/>
 
             <com.google.android.material.tabs.TabItem
                 android:layout_width="wrap_content"
@@ -918,8 +749,7 @@
                 <ImageView android:id="@+id/iv_verified"
                     android:layout_width="16dp" android:layout_height="16dp"
                     android:layout_marginStart="4dp"
-                    android:src="@drawable/ic_verified"
-                    android:tint="@color/verification_badge"
+                    android:src="@drawable/ic_verified_pink"
                     android:contentDescription="Verified"
                     android:visibility="gone"/>
             </LinearLayout>
