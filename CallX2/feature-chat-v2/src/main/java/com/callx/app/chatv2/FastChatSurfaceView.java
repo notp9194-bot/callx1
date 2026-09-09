@@ -7,6 +7,8 @@ import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.widget.OverScroller;
 
+import androidx.annotation.Nullable;
+
 /**
  * GLSurfaceView subclass that owns touch → scroll translation. Scroll
  * offset lives in native memory (NativeChatEngine.nativeSetScrollY) so
@@ -19,12 +21,43 @@ import android.widget.OverScroller;
  * (only invoked from within that dispatch) never reliably fires, and an
  * OverScroller-based fling silently never animates. Choreographer sits
  * outside that path entirely, so it's not affected.
+ *
+ * Phase 4: also owns the touch → message-interaction translation
+ * (long-press for reactions, horizontal swipe for reply) on top of the
+ * existing scroll/fling handling — hit testing itself stays native
+ * (NativeChatEngine.nativeHitTestId), this class just decides which
+ * gesture a touch sequence turned into.
  */
 public class FastChatSurfaceView extends GLSurfaceView {
+
+    /** messageId + view-local touch coords, for anchoring a reaction popup. */
+    public interface OnMessageLongPressListener {
+        void onMessageLongPress(String messageId, float viewX, float viewY);
+    }
+
+    /** Horizontal swipe-to-reply on a bubble. */
+    public interface OnMessageSwipeListener {
+        void onMessageSwipe(String messageId);
+    }
+
+    // A deliberate horizontal drag has to clearly dominate over vertical
+    // motion before it's treated as "swipe to reply" instead of scroll —
+    // this is what lets a slightly-diagonal scroll gesture stay a scroll.
+    private static final float SWIPE_TRIGGER_PX = 80f;
+    private static final float SWIPE_DOMINANCE_RATIO = 1.5f;
 
     private final FastChatGLRenderer renderer;
     private final GestureDetector gestureDetector;
     private final OverScroller scroller;
+
+    private OnMessageLongPressListener longPressListener;
+    private OnMessageSwipeListener swipeListener;
+
+    // Per-gesture swipe tracking, reset on ACTION_DOWN.
+    private String downMessageId;
+    private float accumDx = 0f, accumDy = 0f;
+    private boolean swipeTriggered = false;
+
     private final Choreographer.FrameCallback flingCallback = new Choreographer.FrameCallback() {
         @Override
         public void doFrame(long frameTimeNanos) {
@@ -47,17 +80,39 @@ public class FastChatSurfaceView extends GLSurfaceView {
         gestureDetector = new GestureDetector(context, new GestureDetector.SimpleOnGestureListener() {
             @Override
             public boolean onDown(MotionEvent e) {
+                downMessageId = hitTestId(e.getX(), e.getY());
+                accumDx = 0f;
+                accumDy = 0f;
+                swipeTriggered = false;
                 return true;
             }
 
             @Override
             public boolean onScroll(MotionEvent e1, MotionEvent e2, float dx, float dy) {
+                accumDx += dx;
+                accumDy += dy;
+
+                if (swipeTriggered) {
+                    // Gesture already resolved to a swipe this touch
+                    // sequence — don't also scroll the list underneath it.
+                    return true;
+                }
+
+                if (downMessageId != null
+                        && Math.abs(accumDx) > SWIPE_TRIGGER_PX
+                        && Math.abs(accumDx) > Math.abs(accumDy) * SWIPE_DOMINANCE_RATIO) {
+                    swipeTriggered = true;
+                    if (swipeListener != null) swipeListener.onMessageSwipe(downMessageId);
+                    return true;
+                }
+
                 scrollBy(dy);
                 return true;
             }
 
             @Override
             public boolean onFling(MotionEvent e1, MotionEvent e2, float vx, float vy) {
+                if (swipeTriggered) return true;
                 float maxScroll = renderer.getEngine().nativeGetContentHeight();
                 scroller.fling(0, (int) renderer.getEngine().nativeGetScrollY(),
                         0, (int) -vy,
@@ -68,11 +123,32 @@ public class FastChatSurfaceView extends GLSurfaceView {
 
             @Override
             public boolean onSingleTapUp(MotionEvent e) {
-                float y = renderer.getEngine().nativeGetScrollY() + e.getY();
-                renderer.getEngine().nativeHitTest(e.getX(), y);
+                hitTestId(e.getX(), e.getY());
                 return true;
             }
+
+            @Override
+            public void onLongPress(MotionEvent e) {
+                String id = hitTestId(e.getX(), e.getY());
+                if (id != null && longPressListener != null) {
+                    longPressListener.onMessageLongPress(id, e.getX(), e.getY());
+                }
+            }
         });
+    }
+
+    public void setOnMessageLongPressListener(OnMessageLongPressListener l) {
+        this.longPressListener = l;
+    }
+
+    public void setOnMessageSwipeListener(OnMessageSwipeListener l) {
+        this.swipeListener = l;
+    }
+
+    @Nullable
+    private String hitTestId(float viewX, float viewY) {
+        float contentY = renderer.getEngine().nativeGetScrollY() + viewY;
+        return renderer.getEngine().nativeHitTestId(viewX, contentY);
     }
 
     private void scrollBy(float dy) {

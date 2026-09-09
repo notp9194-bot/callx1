@@ -42,6 +42,7 @@ public class BubbleTextureBuilder {
     }
 
     private static final int MAX_BUBBLE_WIDTH_PX = 720;
+    private static final int MIN_CONTENT_WIDTH_PX = 60;
     private static final int PADDING_PX = 28;
     private static final float TEXT_SIZE_SP = 34f;
 
@@ -68,7 +69,16 @@ public class BubbleTextureBuilder {
                 .setLineSpacing(0f, 1.15f)
                 .build();
 
-        int textW = maxTextWidth;
+        // Shrink-to-content width (WhatsApp/Telegram-style): StaticLayout
+        // was built at maxTextWidth so wrapping is already correct, but a
+        // short message shouldn't render a bubble as wide as a paragraph —
+        // measure the longest actual line and size the bubble to that.
+        float maxLineWidth = 0f;
+        int lineCount = layout.getLineCount();
+        for (int i = 0; i < lineCount; i++) {
+            maxLineWidth = Math.max(maxLineWidth, layout.getLineWidth(i));
+        }
+        int textW = (int) Math.min(maxTextWidth, Math.max(MIN_CONTENT_WIDTH_PX, Math.ceil(maxLineWidth)));
         int textH = layout.getHeight();
         int bmpW = textW + PADDING_PX * 2;
         int bmpH = textH + PADDING_PX * 2;

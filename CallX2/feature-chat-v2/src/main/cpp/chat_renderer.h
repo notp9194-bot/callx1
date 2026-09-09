@@ -35,7 +35,7 @@ private:
 
     GLuint compileShader(GLenum type, const char* src);
     void drawQuad(float x, float y, float w, float h, bool isMine,
-                  GLuint textureId, bool hasTexture);
+                  GLuint textureId, bool hasTexture, float radius);
 };
 
 } // namespace fastchat

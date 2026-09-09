@@ -18,10 +18,13 @@ public class NativeChatEngine {
     public native void nativeDrawFrame();
     public native void nativeSetMessages(String[] ids, boolean[] isMine,
                                           float[] bubbleW, float[] bubbleH,
-                                          int[] textureIds, float[] texW, float[] texH);
+                                          int[] textureIds, float[] texW, float[] texH,
+                                          int[] tickTextureIds, float[] tickW, float[] tickH);
     public native void nativeSetScrollY(float scrollY);
     public native float nativeGetScrollY();
     public native float nativeGetContentHeight();
     public native int nativeHitTest(float x, float y);
+    /** Same hit test, resolved straight to the message id (or null). */
+    public native String nativeHitTestId(float x, float y);
     public native void nativeDestroy();
 }

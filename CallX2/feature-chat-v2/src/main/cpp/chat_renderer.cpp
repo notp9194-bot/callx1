@@ -126,7 +126,7 @@ void ChatRenderer::resize(int widthPx, int heightPx) {
 }
 
 void ChatRenderer::drawQuad(float x, float y, float w, float h, bool isMine,
-                             GLuint textureId, bool hasTexture) {
+                             GLuint textureId, bool hasTexture, float radius) {
     // Orthographic projection: content px -> NDC. Column-major mat4.
     float sx = 2.f / static_cast<float>(viewportW_);
     float sy = -2.f / static_cast<float>(viewportH_);
@@ -138,7 +138,7 @@ void ChatRenderer::drawQuad(float x, float y, float w, float h, bool isMine,
     };
     glUniformMatrix4fv(uMvpLoc_, 1, GL_FALSE, mvp);
     glUniform2f(uSizeLoc_, w, h);
-    glUniform1f(uRadiusLoc_, 18.f);
+    glUniform1f(uRadiusLoc_, radius);
 
     if (isMine) {
         glUniform4f(uColorLoc_, 0.14f, 0.55f, 0.98f, 1.0f); // outgoing blue
@@ -179,7 +179,19 @@ void ChatRenderer::drawFrame(const LayoutEngine& layout, float scrollY) {
 
     for (const auto* b : visible) {
         drawQuad(b->x, b->y - scrollY, b->w, b->h, b->isMine,
-                 b->textureId, b->textureId != 0);
+                 b->textureId, b->textureId != 0, 18.f);
+
+        // Read-receipt tick, bottom-right corner of the bubble. Drawn
+        // as its own small flat (radius 0) quad on top, same uColor as
+        // the bubble beneath it — so anywhere the tick glyph is
+        // transparent it blends into the bubble seamlessly, and only
+        // the check-mark pixels (their own baked-in color) show.
+        if (b->isMine && b->tickTextureId != 0) {
+            float tickX = b->x + b->w - b->tickW - 10.f;
+            float tickY = (b->y - scrollY) + b->h - b->tickH - 8.f;
+            drawQuad(tickX, tickY, b->tickW, b->tickH, b->isMine,
+                     b->tickTextureId, true, 0.f);
+        }
     }
 
     glDisableVertexAttribArray(aPosLoc_);

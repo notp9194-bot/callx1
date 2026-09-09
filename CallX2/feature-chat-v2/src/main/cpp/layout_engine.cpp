@@ -9,7 +9,8 @@ void LayoutEngine::clear() {
 
 void LayoutEngine::addMessage(const std::string& id, bool isMine,
                                float bubbleW, float bubbleH,
-                               unsigned int textureId, float texW, float texH) {
+                               unsigned int textureId, float texW, float texH,
+                               unsigned int tickTextureId, float tickW, float tickH) {
     BubbleLayout b;
     b.id = id;
     b.isMine = isMine;
@@ -18,6 +19,9 @@ void LayoutEngine::addMessage(const std::string& id, bool isMine,
     b.textureId = textureId;
     b.texW = texW;
     b.texH = texH;
+    b.tickTextureId = tickTextureId;
+    b.tickW = tickW;
+    b.tickH = tickH;
 
     // Right-align "mine" bubbles, left-align partner's — same convention
     // as MessageBubbleCanvasView's layout on the existing chat screen.
@@ -52,6 +56,11 @@ int LayoutEngine::hitTest(float x, float contentY) const {
         }
     }
     return -1;
+}
+
+const BubbleLayout* LayoutEngine::bubbleAt(int index) const {
+    if (index < 0 || static_cast<size_t>(index) >= bubbles_.size()) return nullptr;
+    return &bubbles_[index];
 }
 
 } // namespace fastchat

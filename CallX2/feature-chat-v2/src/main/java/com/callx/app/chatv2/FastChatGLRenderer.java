@@ -41,6 +41,7 @@ public class FastChatGLRenderer implements GLSurfaceView.Renderer {
     private final NativeChatEngine engine = new NativeChatEngine();
     private final BubbleTextureBuilder textureBuilder = new BubbleTextureBuilder();
     private final MediaTextureBuilder mediaTextureBuilder = new MediaTextureBuilder();
+    private final TickTextureBuilder tickTextureBuilder = new TickTextureBuilder();
 
     // messageId -> decoded bitmap, waiting for GL-thread upload.
     private final Map<String, Bitmap> mediaBitmapCache = new ConcurrentHashMap<>();
@@ -54,6 +55,15 @@ public class FastChatGLRenderer implements GLSurfaceView.Renderer {
     // applied on the GL thread on the next frame.
     private volatile List<MessageEntity> pendingMessages;
     private volatile List<MessageEntity> lastAppliedMessages;
+
+    // Stick-to-bottom: WhatsApp/Telegram-style — always jump to the
+    // latest message the first time a conversation loads, and keep
+    // auto-scrolling down as new messages arrive as long as the user
+    // was already at (or near) the bottom. If they've scrolled up to
+    // read history, an incoming message must NOT yank them back down.
+    private static final float NEAR_BOTTOM_SLOP_PX = 160f;
+    private int viewportHeightPx = 0;
+    private boolean hasAppliedFirstBatch = false;
 
     public void setMyUid(String uid) {
         this.myUid = uid;
@@ -114,6 +124,7 @@ public class FastChatGLRenderer implements GLSurfaceView.Renderer {
 
     @Override
     public void onSurfaceChanged(GL10 gl, int width, int height) {
+        viewportHeightPx = height;
         engine.nativeResize(width, height);
     }
 
@@ -136,6 +147,14 @@ public class FastChatGLRenderer implements GLSurfaceView.Renderer {
     }
 
     private void applyMessages(List<MessageEntity> messages) {
+        // Snapshot scroll position BEFORE the layout changes underneath it —
+        // "was the user at the bottom" only means something relative to the
+        // old content height.
+        float oldContentHeight = engine.nativeGetContentHeight();
+        float oldScrollY = engine.nativeGetScrollY();
+        boolean wasAtBottom = !hasAppliedFirstBatch
+                || oldScrollY >= (oldContentHeight - viewportHeightPx - NEAR_BOTTOM_SLOP_PX);
+
         lastAppliedMessages = messages;
         int n = messages.size();
         String[] ids = new String[n];
@@ -145,6 +164,9 @@ public class FastChatGLRenderer implements GLSurfaceView.Renderer {
         int[] textureIds = new int[n];
         float[] texW = new float[n];
         float[] texH = new float[n];
+        int[] tickTextureIds = new int[n];
+        float[] tickW = new float[n];
+        float[] tickH = new float[n];
 
         for (int i = 0; i < n; i++) {
             MessageEntity m = messages.get(i);
@@ -163,9 +185,28 @@ public class FastChatGLRenderer implements GLSurfaceView.Renderer {
                 texW[i] = tex.width;
                 texH[i] = tex.height;
             }
+
+            // Read-receipt tick — applies to any "mine" message type
+            // (text or media), not just text bubbles.
+            if (mine) {
+                TickTextureBuilder.TickTexture tick = tickTextureBuilder.buildOrGet(m.status);
+                if (tick != null) {
+                    tickTextureIds[i] = tick.textureId;
+                    tickW[i] = tick.width;
+                    tickH[i] = tick.height;
+                }
+            }
         }
 
-        engine.nativeSetMessages(ids, isMine, bubbleW, bubbleH, textureIds, texW, texH);
+        engine.nativeSetMessages(ids, isMine, bubbleW, bubbleH, textureIds, texW, texH,
+                tickTextureIds, tickW, tickH);
+
+        if (wasAtBottom) {
+            float newContentHeight = engine.nativeGetContentHeight();
+            float bottom = Math.max(0f, newContentHeight - viewportHeightPx);
+            engine.nativeSetScrollY(bottom);
+        }
+        hasAppliedFirstBatch = true;
     }
 
     private void resolveMediaTexture(MessageEntity m, int i,
@@ -206,6 +247,7 @@ public class FastChatGLRenderer implements GLSurfaceView.Renderer {
     public void destroy() {
         textureBuilder.clear();
         mediaTextureBuilder.clear();
+        tickTextureBuilder.clear();
         engine.nativeDestroy();
     }
 }
