@@ -277,13 +277,6 @@
                             android:textColor="?attr/colorOnSurface"
                             android:maxLines="1" android:ellipsize="end"/>
 
-                        <ImageView android:id="@+id/iv_display_name_verified"
-                            android:layout_width="14dp" android:layout_height="14dp"
-                            android:layout_marginStart="3dp"
-                            android:src="@drawable/ic_verified_pink"
-                            android:visibility="gone"
-                            android:contentDescription="Verified"/>
-
                         <View android:layout_width="0dp" android:layout_height="0dp"
                             android:layout_weight="1"/>
 
@@ -616,8 +609,14 @@
                         android:text="Follow"
                         android:textSize="13.5sp"
                         android:minHeight="0dp"
+                        android:minWidth="0dp"
+                        android:paddingStart="2dp"
+                        android:paddingEnd="2dp"
                         android:paddingTop="0dp"
                         android:paddingBottom="0dp"
+                        android:singleLine="true"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
                         android:fontFamily="sans-serif-black"
                         app:textAllCaps="false"
                         android:background="@drawable/bg_btn_follow_pill"

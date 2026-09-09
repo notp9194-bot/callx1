@@ -137,7 +137,6 @@ public class UserReelsActivity extends AppCompatActivity
     // Views
     private CircleImageView ivAvatar;
     private ImageView       ivVerified;
-    private ImageView       ivDisplayNameVerified;
     private View            viewStoryRing;
     // Story-ring reveal animation state (fixes v42-era infinite blink; see
     // handleStoryRingVisibility()/playStoryRingReveal()).
@@ -542,7 +541,6 @@ public class UserReelsActivity extends AppCompatActivity
     private void bindViews() {
         ivAvatar             = findViewById(R.id.iv_avatar);
         ivVerified           = findViewById(R.id.iv_verified);
-        ivDisplayNameVerified = findViewById(R.id.iv_display_name_verified);
         viewStoryRing        = findViewById(R.id.view_story_ring);
         // Ring stays hidden until checkActiveStory() resolves whether this
         // user has an active story and whether it's seen/unseen — avoids a
@@ -2586,12 +2584,12 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     private void loadVerifiedStatus() {
+        // Instagram-level: only ONE verified badge now — the fixed top nav
+        // bar's (ivVerified). The header display-name row's own badge
+        // (iv_display_name_verified) was a duplicate showing the same
+        // status twice on screen at once and has been removed (XML +
+        // ivDisplayNameVerified field also removed).
         com.callx.app.utils.VerifiedBadgeUtils.bindForUid(ivVerified, targetUid);
-        // Main profile header's display-name row (next to avatar, above the
-        // Reels/Followers/Following stats) — this is what's actually on
-        // screen before any scroll/collapse, distinct from ivVerified above
-        // which only lives in the collapsing toolbar title.
-        com.callx.app.utils.VerifiedBadgeUtils.bindForUid(ivDisplayNameVerified, targetUid);
     }
 
     // ── Mutual Followers (Feature 10) ─────────────────────────────────────
@@ -4426,7 +4424,7 @@ public class UserReelsActivity extends AppCompatActivity
     private void updateFollowButton() {
         if (btnFollow == null) return;
         if (isFollowing) {
-            btnFollow.setText("Following  ▾");
+            btnFollow.setText("Following ▾");
             btnFollow.setTextColor(0xFF222222);
             try {
                 android.graphics.drawable.Drawable d =
