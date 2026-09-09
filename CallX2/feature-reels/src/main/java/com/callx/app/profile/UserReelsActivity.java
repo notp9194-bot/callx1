@@ -11,6 +11,10 @@ import android.content.Intent;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.os.Bundle;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.StyleSpan;
+import android.graphics.Typeface;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
@@ -1039,7 +1043,45 @@ public class UserReelsActivity extends AppCompatActivity
           }
       }
 
-      /** Resolve the tappable view for a given TabLayout tab position (used as popup anchor). Cached after first resolve. */
+      /**
+     * Scrollable-tab "peek" sizing: Posts/Reels/Repost should fully occupy
+     * the strip like before, with the next tab (Duet) partially peeking in
+     * at the edge as a visual hint that more tabs (Collab Repost, Series)
+     * exist off-screen and are reachable by scrolling the strip — instead
+     * of all 6 being crammed onto the screen at once (the old fixed/fill
+     * behaviour) or all 6 fitting on-screen anyway with no scroll needed
+     * (what plain tabMode="scrollable" would give these icon-only tabs,
+     * since each tab's natural content width is small). So each tab
+     * view's width is stretched here to a fixed fraction of the screen
+     * instead of left at wrap_content.
+     */
+    private void applyScrollableTabPeekWidths() {
+        if (tabLayout == null) return;
+        tabLayout.post(() -> {
+            try {
+                android.view.ViewGroup strip = (android.view.ViewGroup) tabLayout.getChildAt(0);
+                if (strip == null) return;
+                int screenWidth = getResources().getDisplayMetrics().widthPixels;
+                // ~3.4 tabs per screen width: 3 full tabs fill most of the
+                // strip, the 4th (Duet) peeks in at the edge.
+                int tabWidth = Math.round(screenWidth / 3.4f);
+                for (int i = 0; i < strip.getChildCount(); i++) {
+                    android.view.View child = strip.getChildAt(i);
+                    android.view.ViewGroup.LayoutParams lp = child.getLayoutParams();
+                    if (lp == null) continue;
+                    lp.width = tabWidth;
+                    child.setLayoutParams(lp);
+                }
+                // Tab view widths just changed out from under it — the
+                // anchor-view cache (used for the Reels-tab filter popup)
+                // may hold stale pre-resize references; drop it so it
+                // re-resolves fresh on next use.
+                tabAnchorViewsCache = null;
+            } catch (Exception ignored) {}
+        });
+    }
+
+    /** Resolve the tappable view for a given TabLayout tab position (used as popup anchor). Cached after first resolve. */
       private android.view.View tabAnchorView(TabLayout.Tab tab) {
           int pos = tab.getPosition();
           if (tabAnchorViewsCache == null) {
@@ -1176,6 +1218,8 @@ public class UserReelsActivity extends AppCompatActivity
         // SurfaceFlinger — so this work can never compete with the pixels
         // the user is waiting to see.
         if (tabLayout == null) return;
+
+        applyScrollableTabPeekWidths();
 
         // Instagram-style: this screen opens with Reels as the active tab,
         // not the leftmost Posts tab (TabLayout otherwise auto-selects
@@ -2629,18 +2673,30 @@ public class UserReelsActivity extends AppCompatActivity
         }
 
         // ── Build text: "Followed by name1, name2 and X others" ──
-        String text;
-        if (count == 1) {
-            text = "Followed by " + names.get(0);
-        } else if (count == 2) {
-            text = "Followed by " + names.get(0) + " and " + names.get(1);
-        } else {
+        // Instagram-style: names are bold, connecting words stay regular weight.
+        SpannableStringBuilder ssb = new SpannableStringBuilder();
+        ssb.append("Followed by ");
+        int start;
+
+        start = ssb.length();
+        ssb.append(names.get(0));
+        ssb.setSpan(new StyleSpan(Typeface.BOLD), start, ssb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        if (count == 2) {
+            ssb.append(" and ");
+            start = ssb.length();
+            ssb.append(names.get(1));
+            ssb.setSpan(new StyleSpan(Typeface.BOLD), start, ssb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        } else if (count > 2) {
+            ssb.append(", ");
+            start = ssb.length();
+            ssb.append(names.get(1));
+            ssb.setSpan(new StyleSpan(Typeface.BOLD), start, ssb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             int others = count - 2;
-            text = "Followed by " + names.get(0) + ", " + names.get(1)
-                + " and " + others + (others == 1 ? " other" : " others");
+            ssb.append(" and ").append(String.valueOf(others)).append(others == 1 ? " other" : " others");
         }
 
-        if (tvMutualFollowers != null) tvMutualFollowers.setText(text);
+        if (tvMutualFollowers != null) tvMutualFollowers.setText(ssb);
         layoutMutualFollowers.setVisibility(View.VISIBLE);
         layoutMutualFollowers.setOnClickListener(v -> openMutualFollowers());
     }

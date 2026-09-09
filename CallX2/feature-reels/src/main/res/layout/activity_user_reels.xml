@@ -171,37 +171,47 @@
                             android:layout_weight="1"/>
                     </LinearLayout>
 
-                    <!-- Stats: Reels | Followers | Following — compact fixed-gap group
-                         (screenshot style: wrap_content columns, centered number/label,
-                         fixed marginEnd between groups instead of equal-weight stretch) -->
+                    <!-- Stats: Reels | Followers | Following — Instagram-style equal-
+                         weight columns with bold typography hierarchy:
+                         • Large bold numbers (21sp) draw focus
+                         • Smaller, lighter labels (10sp) provide context
+                         • Vertical spacing (4dp) for breathing room
+                         • All columns clickable with ripple feedback
+                         ================================================== -->
                     <LinearLayout
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:gravity="start">
+                        android:gravity="center_vertical"
+                        android:paddingTop="4dp" android:paddingBottom="4dp">
 
-                        <!-- Reels count -->
-                        <LinearLayout
-                            android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:layout_marginEnd="28dp"
+                        <!-- Reels count (now clickable like Instagram) -->
+                        <LinearLayout android:id="@+id/layout_reels_click"
+                            android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1"
                             android:orientation="vertical"
-                            android:gravity="center_horizontal">
+                            android:gravity="center_horizontal"
+                            android:clickable="true" android:focusable="true"
+                            android:foreground="?attr/selectableItemBackground">
                             <TextView android:id="@+id/tv_reel_count"
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="0"
-                                android:textSize="18sp"
-                                android:fontFamily="sans-serif-bold"
-                                android:textColor="?attr/colorOnSurface"/>
+                                android:textSize="21sp"
+                                android:fontFamily="sans-serif-black"
+                                android:textColor="?attr/colorOnSurface"
+                                android:letterSpacing="0.02"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="Post"
-                                android:textSize="11sp"
-                                android:textStyle="bold"
-                                android:textColor="?attr/colorOnSurfaceVariant"/>
+                                android:textSize="10sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:textColor="?attr/colorOnSurfaceVariant"
+                                android:letterSpacing="0.05"
+                                android:layout_marginTop="4dp"/>
                         </LinearLayout>
 
                         <!-- Followers count (clickable) -->
                         <LinearLayout android:id="@+id/layout_followers_click"
-                            android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:layout_marginEnd="28dp"
+                            android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1"
                             android:orientation="vertical"
                             android:gravity="center_horizontal"
                             android:clickable="true" android:focusable="true"
@@ -209,19 +219,23 @@
                             <TextView android:id="@+id/tv_followers"
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="0"
-                                android:textSize="18sp"
-                                android:fontFamily="sans-serif-bold"
-                                android:textColor="?attr/colorOnSurface"/>
+                                android:textSize="21sp"
+                                android:fontFamily="sans-serif-black"
+                                android:textColor="?attr/colorOnSurface"
+                                android:letterSpacing="0.02"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="Followers"
-                                android:textSize="11sp"
-                                android:textStyle="bold"
-                                android:textColor="?attr/colorOnSurfaceVariant"/>
+                                android:textSize="10sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:textColor="?attr/colorOnSurfaceVariant"
+                                android:letterSpacing="0.05"
+                                android:layout_marginTop="4dp"/>
                         </LinearLayout>
 
                         <!-- Following count (clickable) -->
                         <LinearLayout android:id="@+id/layout_following_click"
-                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1"
                             android:orientation="vertical"
                             android:gravity="center_horizontal"
                             android:clickable="true" android:focusable="true"
@@ -229,80 +243,91 @@
                             <TextView android:id="@+id/tv_following"
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="0"
-                                android:textSize="18sp"
-                                android:fontFamily="sans-serif-bold"
-                                android:textColor="?attr/colorOnSurface"/>
+                                android:textSize="21sp"
+                                android:fontFamily="sans-serif-black"
+                                android:textColor="?attr/colorOnSurface"
+                                android:letterSpacing="0.02"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="Following"
-                                android:textSize="11sp"
-                                android:textStyle="bold"
-                                android:textColor="?attr/colorOnSurfaceVariant"/>
+                                android:textSize="10sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:textColor="?attr/colorOnSurfaceVariant"
+                                android:letterSpacing="0.05"
+                                android:layout_marginTop="4dp"/>
                         </LinearLayout>
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- Bio (max 3 lines, tap to expand) -->
+            <!-- Bio (max 3 lines, tap to expand) — Instagram-style: clean typography -->
             <TextView android:id="@+id/tv_bio"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:paddingStart="16dp" android:paddingEnd="16dp"
-                android:paddingTop="2dp" android:paddingBottom="4dp"
+                android:paddingTop="6dp" android:paddingBottom="6dp"
                 android:textSize="13sp"
+                android:fontFamily="sans-serif"
                 android:textColor="?attr/colorOnSurface"
+                android:lineSpacingMultiplier="1.25"
                 android:maxLines="3" android:ellipsize="end"
                 android:clickable="true" android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
                 android:visibility="gone"/>
 
-            <!-- Mutual followers row -->
+            <!-- Mutual followers row — Instagram-style: bigger avatars w/ crisp
+                 border, bold names in text, better spacing -->
             <LinearLayout android:id="@+id/layout_mutual_followers"
-                android:layout_width="match_parent" android:layout_height="32dp"
+                android:layout_width="match_parent" android:layout_height="36dp"
                 android:orientation="horizontal" android:gravity="center_vertical"
                 android:paddingStart="16dp" android:paddingEnd="12dp"
-                android:layout_marginTop="2dp"
+                android:layout_marginTop="4dp"
                 android:clickable="true" android:focusable="true"
                 android:foreground="?attr/selectableItemBackground"
                 android:visibility="gone">
 
                 <FrameLayout android:id="@+id/frame_mutual_avatars"
-                    android:layout_width="60dp" android:layout_height="26dp"
-                    android:layout_marginEnd="8dp">
+                    android:layout_width="68dp" android:layout_height="30dp"
+                    android:layout_marginEnd="10dp">
 
                     <de.hdodenhof.circleimageview.CircleImageView
                         android:id="@+id/iv_mutual_3"
-                        android:layout_width="24dp" android:layout_height="24dp"
+                        android:layout_width="28dp" android:layout_height="28dp"
                         android:layout_gravity="center_vertical"
-                        android:layout_marginStart="18dp"
+                        android:layout_marginStart="20dp"
                         android:src="@drawable/ic_person"
+                        android:elevation="2dp"
                         android:visibility="gone"
-                        app:civ_border_width="1.5dp"
+                        app:civ_border_width="2dp"
                         app:civ_border_color="?attr/colorSurface"/>
 
                     <de.hdodenhof.circleimageview.CircleImageView
                         android:id="@+id/iv_mutual_2"
-                        android:layout_width="24dp" android:layout_height="24dp"
+                        android:layout_width="28dp" android:layout_height="28dp"
                         android:layout_gravity="center_vertical"
-                        android:layout_marginStart="9dp"
+                        android:layout_marginStart="10dp"
                         android:src="@drawable/ic_person"
+                        android:elevation="3dp"
                         android:visibility="gone"
-                        app:civ_border_width="1.5dp"
+                        app:civ_border_width="2dp"
                         app:civ_border_color="?attr/colorSurface"/>
 
                     <de.hdodenhof.circleimageview.CircleImageView
                         android:id="@+id/iv_mutual_1"
-                        android:layout_width="24dp" android:layout_height="24dp"
+                        android:layout_width="28dp" android:layout_height="28dp"
                         android:layout_gravity="center_vertical"
                         android:src="@drawable/ic_person"
+                        android:elevation="4dp"
                         android:visibility="gone"
-                        app:civ_border_width="1.5dp"
+                        app:civ_border_width="2dp"
                         app:civ_border_color="?attr/colorSurface"/>
                 </FrameLayout>
 
                 <TextView android:id="@+id/tv_mutual_followers"
                     android:layout_width="0dp" android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:textSize="12sp"
+                    android:textSize="12.5sp"
+                    android:fontFamily="sans-serif"
                     android:textColor="?attr/colorOnSurfaceVariant"
-                    android:maxLines="2" android:lineSpacingMultiplier="1.2"/>
+                    android:maxLines="2" android:lineSpacingMultiplier="1.25"/>
             </LinearLayout>
 
             <!-- ── Bio links — compact chip row (Screenshot 2 style) ── -->
@@ -463,29 +488,31 @@
                     android:layout_marginBottom="8dp"
                     android:visibility="gone">
 
-                    <!-- Following ▾ / Follow pill -->
+                    <!-- Following ▾ / Follow pill (Instagram-style: bold, prominent) -->
                     <Button android:id="@+id/btn_follow"
                         android:layout_width="0dp"
-                        android:layout_height="30dp"
+                        android:layout_height="32dp"
                         android:layout_weight="2.2"
                         android:text="Follow"
-                        android:textSize="13sp"
+                        android:textSize="13.5sp"
                         android:minHeight="0dp"
                         android:paddingTop="0dp"
                         android:paddingBottom="0dp"
-                        android:fontFamily="sans-serif-medium"
+                        android:fontFamily="sans-serif-black"
                         app:textAllCaps="false"
                         android:background="@drawable/bg_btn_follow_pill"
                         android:textColor="#FFFFFF"
-                        android:layout_marginEnd="6dp"/>
+                        android:layout_marginEnd="6dp"
+                        android:letterSpacing="0.01"
+                        android:elevation="2dp"/>
 
-                    <!-- Message pill -->
+                    <!-- Message pill (Instagram-style: outlined with medium weight) -->
                     <Button android:id="@+id/btn_message_cta"
                         android:layout_width="0dp"
-                        android:layout_height="30dp"
+                        android:layout_height="32dp"
                         android:layout_weight="2"
                         android:text="Message"
-                        android:textSize="13sp"
+                        android:textSize="13.5sp"
                         android:minHeight="0dp"
                         android:paddingTop="0dp"
                         android:paddingBottom="0dp"
@@ -493,7 +520,8 @@
                         app:textAllCaps="false"
                         android:background="@drawable/bg_btn_outline_pill"
                         android:textColor="?attr/colorOnSurface"
-                        android:layout_marginEnd="6dp"/>
+                        android:layout_marginEnd="6dp"
+                        android:letterSpacing="0.01"/>
 
                     <!-- Add Person / Suggestions circle button -->
                     <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btn_cta_call"
@@ -663,8 +691,8 @@
             android:layout_width="match_parent"
             android:layout_height="44dp"
             app:layout_scrollFlags="noScroll"
-            app:tabMode="fixed"
-            app:tabGravity="fill"
+            app:tabMode="scrollable"
+            app:tabGravity="start"
             app:tabSelectedTextColor="?attr/colorOnSurface"
             app:tabTextColor="?attr/colorOnSurfaceVariant"
             app:tabIndicatorColor="@android:color/transparent"
