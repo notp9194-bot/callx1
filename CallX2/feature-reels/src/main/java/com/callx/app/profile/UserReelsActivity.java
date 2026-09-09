@@ -285,7 +285,7 @@ public class UserReelsActivity extends AppCompatActivity
     private TabLayout       tabLayout;
     private RecyclerView    rvReels;
       private RecyclerView    rvSeries;
-    private androidx.swiperefreshlayout.widget.SwipeRefreshLayout swipeRefreshReels;
+    private InstagramSwipeRefreshLayout swipeRefreshReels;
     // Guards against a second pull-to-refresh network round-trip stacking on
     // top of one already in flight (e.g. user yanks the list twice fast).
     private boolean pullRefreshInFlight = false;
@@ -3249,6 +3249,17 @@ public class UserReelsActivity extends AppCompatActivity
                 R.color.brand_primary,
                 R.color.brand_primary_dark);
         swipeRefreshReels.setOnRefreshListener(this::onPullToRefresh);
+        // Instagram-level gating: swipe_refresh_reels now wraps the header
+        // + tabs + grid together (see activity_user_reels.xml), so its
+        // direct child is a plain CoordinatorLayout — never itself
+        // scrollable. Left at the library default, canChildScrollUp()
+        // would always report "at the top" and let refresh fire on ANY
+        // downward drag, no matter how far down the grid actually is. Wire
+        // in the real signals so it only fires once the header is fully
+        // expanded AND the currently-visible grid is scrolled to position 0.
+        swipeRefreshReels.setAppBarLayout(appBarLayout);
+        swipeRefreshReels.setActiveScrollTargetProvider(
+                () -> (activeTab == TAB_SERIES) ? rvSeries : rvReels);
     }
 
     private void onPullToRefresh() {

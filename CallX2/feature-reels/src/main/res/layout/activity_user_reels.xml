@@ -184,7 +184,7 @@
          require their target to be a direct sibling in the SAME
          CoordinatorLayout. Hence the inner CoordinatorLayout below.
          ══════════════════════════════════════════════════════════════ -->
-    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+    <com.callx.app.profile.InstagramSwipeRefreshLayout
         android:id="@+id/swipe_refresh_reels"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -1036,6 +1036,6 @@
 
         </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
-    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+    </com.callx.app.profile.InstagramSwipeRefreshLayout>
 
   </androidx.coordinatorlayout.widget.CoordinatorLayout>
