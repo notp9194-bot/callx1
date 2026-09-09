@@ -1128,6 +1128,15 @@ public class UserReelsActivity extends AppCompatActivity
                     Log.w(TAG, "applyScrollableTabPeekWidths: only resized " + resizedCount
                             + "/" + strip.getChildCount() + " tab children");
                 }
+                // TEMP DEBUG (remove once confirmed working on device): a
+                // visible, undeniable signal that THIS build's fix code
+                // actually ran and what width it computed — no adb/logcat
+                // needed to check. If this toast never appears, the device
+                // is running an old/cached build, not this code.
+                android.widget.Toast.makeText(UserReelsActivity.this,
+                        "PeekFix: tabWidth=" + tabWidth + "px, resized=" + resizedCount
+                                + "/" + strip.getChildCount(),
+                        android.widget.Toast.LENGTH_LONG).show();
                 // Job's done for this screen instance — stop listening so we
                 // don't keep re-forcing the width on every future layout
                 // pass (header collapse/expand, keyboard, rotation, etc.).
@@ -1307,13 +1316,16 @@ public class UserReelsActivity extends AppCompatActivity
                     activeTabPosition = newPos;
                     activeTab = VISIBLE_TAB_DATA[activeTabPosition];
                     exitMultiSelectMode();
-                    // FIX: previously the header's collapsed/expanded scroll
-                    // state just carried over across tabs — scroll down on
-                    // Reels to collapse the header, switch to Liked, and it's
-                    // still collapsed there even though Liked hasn't been
-                    // scrolled at all. Instagram resets the header on every tab
-                    // change; do the same here so each tab always starts fresh.
-                    if (appBarLayout != null) appBarLayout.setExpanded(true, true);
+                    // Instagram-level: tab switch NEVER touches the header's
+                    // collapse/expand (scroll) state. Whatever offset the
+                    // AppBarLayout is currently sitting at — fully expanded,
+                    // fully collapsed, or mid-drag — stays exactly there
+                    // across the tab change. Only the grid content below it
+                    // swaps. (A previous version force-called
+                    // appBarLayout.setExpanded(true, true) here thinking
+                    // that matched Instagram; it doesn't — that's what was
+                    // causing the header to visibly snap back open and the
+                    // scroll position to jump every time the tab changed.)
                     boolean isSeries = (activeTab == TAB_SERIES);
                     if (rvSeries != null) rvSeries.setVisibility(isSeries ? android.view.View.VISIBLE : android.view.View.GONE);
                     if (rvReels  != null) rvReels.setVisibility(isSeries  ? android.view.View.GONE   : android.view.View.VISIBLE);
