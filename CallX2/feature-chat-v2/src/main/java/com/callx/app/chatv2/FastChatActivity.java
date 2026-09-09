@@ -63,6 +63,7 @@ public class FastChatActivity extends AppCompatActivity {
 
         renderer = new FastChatGLRenderer();
         renderer.setMyUid(myUid);
+        renderer.setContext(getApplicationContext());
         surfaceView = new FastChatSurfaceView(this, renderer);
         FrameLayout.LayoutParams surfaceParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
