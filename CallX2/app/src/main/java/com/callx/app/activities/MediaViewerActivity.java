@@ -226,15 +226,30 @@ public class MediaViewerActivity extends AppCompatActivity {
 
         if (url == null) { finish(); return; }
 
-        if ("video".equals(type)) {
+        // WhatsApp-style GIF delivery: a "gif" message whose mediaUrl is
+        // actually a small mp4 rendition (see ChatGifPickerActivity's class
+        // doc + Message#gifIsVideo) plays through the same ExoPlayer path
+        // as a real video, just looped and muted with no scrub controls —
+        // that's the whole point of sending an mp4 instead of a raw .gif.
+        // A "gif" message without this flag (old raw-.gif sends, or a Tenor
+        // result that genuinely had no video rendition) falls through to
+        // the plain-image branch below exactly as before.
+        boolean gifIsVideo = "gif".equals(type) && getIntent().getBooleanExtra("gifIsVideo", false);
+
+        if ("video".equals(type) || gifIsVideo) {
             binding.player.setVisibility(View.VISIBLE);
             binding.ivFull.setVisibility(View.GONE);
-            binding.btnEdit.setVisibility(View.VISIBLE);
-            playVideo(url, singleItemLocalPath);
-            if (autoEdit) {
+            binding.btnEdit.setVisibility(gifIsVideo ? View.GONE : View.VISIBLE);
+            playVideo(url, singleItemLocalPath, gifIsVideo);
+            if (autoEdit && !gifIsVideo) {
                 binding.getRoot().post(this::onEditClicked);
             }
 
+            if (gifIsVideo) {
+                // No scrub bar/play-pause chrome for a GIF — it just loops
+                // silently, same as WhatsApp. Tap still toggles the top bar.
+                binding.player.setUseController(false);
+            }
             // For video — tap player toggles top bar
             binding.player.setOnClickListener(v -> toggleUI());
 
@@ -924,7 +939,13 @@ public class MediaViewerActivity extends AppCompatActivity {
         if (galleryItems != null && galleryActivePos >= 0 && galleryActivePos < galleryItems.size()) {
             return "video".equals(galleryItems.get(galleryActivePos).get("mediaType"));
         }
-        return "video".equals(getIntent().getStringExtra("type"));
+        String type = getIntent().getStringExtra("type");
+        // A WhatsApp-style GIF-as-mp4 (see onCreate's gifIsVideo) is a real
+        // video file on disk — Save-to-gallery/Edit must treat it as one
+        // (mp4 extension, video MediaStore collection), not fall through to
+        // the image path and write video bytes into a ".jpg".
+        boolean gifIsVideo = "gif".equals(type) && getIntent().getBooleanExtra("gifIsVideo", false);
+        return "video".equals(type) || gifIsVideo;
     }
 
     private void toggleUI() {
@@ -1013,50 +1034,70 @@ public class MediaViewerActivity extends AppCompatActivity {
 
     // ── Video playback (cache-first) ──────────────────────────────
     private void playVideo(String url) {
-        playVideo(url, null);
+        playVideo(url, null, false);
     }
 
     private void playVideo(String url, String localPath) {
+        playVideo(url, localPath, false);
+    }
+
+    /**
+     * @param loopMuted true for a WhatsApp-style GIF-as-mp4 (see the
+     *                  gifIsVideo branch in onCreate): loops forever with
+     *                  the volume at 0, instead of a normal one-shot video
+     *                  with audio and a scrub bar.
+     */
+    private void playVideo(String url, String localPath, boolean loopMuted) {
         // WhatsApp-style local-first: original local file still on the
         // device → play it directly, full quality, no download at all.
         // Falls back to the normal cache-first remote path the moment
         // the file's gone (deleted from gallery, storage cleared, etc).
         if (localPath != null && !localPath.isEmpty()
                 && com.callx.app.utils.LocalMediaAvailability.isAvailable(this, localPath)) {
-            startExoPlayer(Uri.parse(localPath));
+            startExoPlayer(Uri.parse(localPath), loopMuted);
             return;
         }
 
         File cached = MediaCache.getCached(this, url);
         if (cached != null) {
-            startExoPlayer(Uri.fromFile(cached));
+            startExoPlayer(Uri.fromFile(cached), loopMuted);
             return;
         }
         showLoading(true);
         MediaCache.get(this, url, new MediaCache.Callback() {
             @Override public void onReady(File file) {
                 showLoading(false);
-                startExoPlayer(Uri.fromFile(file));
+                startExoPlayer(Uri.fromFile(file), loopMuted);
             }
             @Override public void onError(String reason) {
                 showLoading(false);
-                startExoPlayer(Uri.parse(url));
+                startExoPlayer(Uri.parse(url), loopMuted);
             }
         });
     }
 
     private void startExoPlayer(Uri uri) {
+        startExoPlayer(uri, false);
+    }
+
+    private void startExoPlayer(Uri uri, boolean loopMuted) {
         if (isFinishing() || isDestroyed()) return;
         player = new ExoPlayer.Builder(this).build();
         binding.player.setPlayer(player);
         player.setMediaItem(MediaItem.fromUri(uri));
+        if (loopMuted) {
+            player.setRepeatMode(Player.REPEAT_MODE_ALL);
+            player.setVolume(0f);
+        }
         player.prepare();
         player.setPlayWhenReady(true);
 
         // Mirror actual play/pause state into chatPlayback — onIsPlayingChanged
         // fires for user pause/resume AND for buffering stalls, which is
-        // exactly the granularity we want for a "watching…" badge.
-        if (playbackChatId != null && messageIdPresent()) {
+        // exactly the granularity we want for a "watching…" badge. Skipped
+        // for a looping muted GIF — there's no meaningful "watching" state
+        // for something that's just silently looping in the background.
+        if (!loopMuted && playbackChatId != null && messageIdPresent()) {
             player.addListener(new Player.Listener() {
                 @Override public void onIsPlayingChanged(boolean isPlaying) {
                     publishPlaybackPresence(isPlaying);

@@ -10,6 +10,9 @@ import com.callx.app.social.DuetReelActivity;
 // — same crop screen (aspect chips, drag handles, rotate) lives in :core so any
 // feature module can launch it, same pattern already used for ReelCameraActivity.
 import com.callx.app.media.crop.MediaCropActivity;
+import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.AlertDialogStyler;
+import com.callx.app.models.ReelDraft;
 
 import android.animation.ObjectAnimator;
 import android.content.Intent;
@@ -88,6 +91,12 @@ public class ReelEditorActivity extends AppCompatActivity {
     public static final String EXTRA_DUET_OWNER_UID      = "editor_duet_owner_uid";
     public static final String EXTRA_DUET_LABEL          = "editor_duet_label";
     public static final String EXTRA_DUET_ORIGINAL_SOUND_ID = "editor_duet_original_sound_id";
+    /** Resume-from-draft: restores the trim range the user had set before saving. */
+    public static final String EXTRA_DRAFT_TRIM_START_MS = "editor_draft_trim_start_ms";
+    public static final String EXTRA_DRAFT_TRIM_END_MS   = "editor_draft_trim_end_ms";
+    /** Resume-from-draft: identifies the draft so it can be deleted once actually posted. */
+    public static final String EXTRA_DRAFT_ID        = "editor_draft_id";
+    public static final String EXTRA_DRAFT_THUMB_URI = "editor_draft_thumb_uri";
 
     // ✅ NEW: Live filter/text/sticker presets carried over from ReelCameraActivity
     public static final String EXTRA_PRESET_FILTER_NAME       = "preset_filter_name";
@@ -228,6 +237,7 @@ public class ReelEditorActivity extends AppCompatActivity {
     /** Background thread for extracting the Step-3 Filters preview frame off a video —
      *  frame decoding via MediaMetadataRetriever must never run on the UI thread. */
     private final ExecutorService filterPreviewExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService draftSaveExecutor = Executors.newSingleThreadExecutor();
     private ProgressBar   progressBuffering;
     private ImageButton   btnToolFilters, btnToolStickers, btnToolSubtitles,
                           btnToolTransitions, btnToolVoice, btnToolAudioMixer, btnToolThumbnail;
@@ -416,6 +426,13 @@ public class ReelEditorActivity extends AppCompatActivity {
     // attach-sheet pencil/Edit action — see EXTRA_ALLOW_MEDIA_EDIT_FALLBACK.
     private boolean allowMediaEditFallback = false;
     private androidx.activity.result.ActivityResultLauncher<Intent> mediaEditFallbackLauncher;
+    /** -1 means "no draft trim to restore" — set from EXTRA_DRAFT_TRIM_*_MS. */
+    private long draftTrimStartMs = -1;
+    private long draftTrimEndMs   = -1;
+    /** Non-empty only when this session was resumed from Drafts — see EXTRA_DRAFT_ID. */
+    private String resumedDraftId       = "";
+    private String resumedDraftVideoUri = "";
+    private String resumedDraftThumbUri = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -482,6 +499,13 @@ public class ReelEditorActivity extends AppCompatActivity {
         musicEndMs   = getIntent().getIntExtra("music_end_ms",   0);
         // "Use in Video" gallery flow: auto-open mixer once player is ready
         openAudioMixerOnLoad = getIntent().getBooleanExtra(EXTRA_OPEN_AUDIO_MIXER, false);
+        draftTrimStartMs = getIntent().getLongExtra(EXTRA_DRAFT_TRIM_START_MS, -1);
+        draftTrimEndMs   = getIntent().getLongExtra(EXTRA_DRAFT_TRIM_END_MS,   -1);
+        resumedDraftId       = nvl(getIntent().getStringExtra(EXTRA_DRAFT_ID));
+        resumedDraftThumbUri = nvl(getIntent().getStringExtra(EXTRA_DRAFT_THUMB_URI));
+        // Captured now, before any crop/merge below can mutate videoUriStr, so cleanup
+        // always targets the exact file the draft was resumed from.
+        if (!resumedDraftId.isEmpty() && videoUriStr != null) resumedDraftVideoUri = videoUriStr;
 
         if (videoUriStr == null || videoUriStr.isEmpty()) {
             Toast.makeText(this, "No video to edit", Toast.LENGTH_SHORT).show();
@@ -2615,12 +2639,20 @@ public class ReelEditorActivity extends AppCompatActivity {
         }
         trimStartMs = 0;
         trimEndMs   = totalDurationMs;
+        // Resuming a draft: restore the trim range the user had set before saving,
+        // as long as it still fits the (freshly re-measured) video duration.
+        if (draftTrimEndMs > draftTrimStartMs && draftTrimStartMs >= 0 && draftTrimEndMs <= totalDurationMs) {
+            trimStartMs = draftTrimStartMs;
+            trimEndMs   = draftTrimEndMs;
+        }
+        draftTrimStartMs = -1; // one-shot: later loadMetadata() calls (crop/merge) reset to full range as before
+        draftTrimEndMs   = -1;
         tvDuration.setText(formatMs(totalDurationMs));
-        tvTrimStart.setText("0:00");
-        tvTrimEnd.setText(formatMs(totalDurationMs));
+        tvTrimStart.setText(formatMs(trimStartMs));
+        tvTrimEnd.setText(formatMs(trimEndMs));
         if (trimFilmstripView != null) {
             trimFilmstripView.setDuration(totalDurationMs);
-            trimFilmstripView.setTrimRange(0, totalDurationMs);
+            trimFilmstripView.setTrimRange(trimStartMs, trimEndMs);
             trimFilmstripView.loadThumbnails(this, videoUriStr, isFilePath, totalDurationMs);
         }
     }
@@ -3184,7 +3216,159 @@ public class ReelEditorActivity extends AppCompatActivity {
             }
             // feature-chat not present on this build — fall through to plain cancel.
         }
-        finish();
+        promptSaveDraftThenFinish();
+    }
+
+    /**
+     * Plain-cancel exit from reel creation (physical back at wizard step 0, or the
+     * X button) — not the media-edit fallback path above, which has its own forwarding
+     * flow. Offers to save the current edit (trim, filter, text/sticker overlays,
+     * picked sound) as a resumable draft instead of losing it outright.
+     */
+    private void promptSaveDraftThenFinish() {
+        if (videoUriStr == null || videoUriStr.isEmpty()) { finish(); return; }
+        AlertDialogStyler.showReusableConfirm(this, "save_reel_draft",
+            AlertDialogStyler.DialogSize.DEFAULT,
+            "Save draft?",
+            "You can finish editing this reel later from Drafts.",
+            "Save Draft", this::saveDraftAndFinish,
+            "Discard", this::finish,
+            "Cancel");
+    }
+
+    /**
+     * Copies the working video + a cover frame into app-private persistent storage
+     * (survives cache clears, unlike getCacheDir()), then pushes a ReelDraft record
+     * to Firebase so it shows up in ReelDraftsActivity. Mirrors mergeTextOverlaysIntoStickerJson's
+     * synchronous-flush call in proceedToUpload() so a draft's sticker/text JSON is
+     * just as fresh as a real upload's.
+     */
+    private void saveDraftAndFinish() {
+        String uid;
+        try {
+            uid = FirebaseUtils.getCurrentUid();
+        } catch (Exception e) {
+            Toast.makeText(this, "Please log in to save drafts", Toast.LENGTH_SHORT).show();
+            finish();
+            return;
+        }
+        mergeTextOverlaysIntoStickerJson();
+
+        android.app.ProgressDialog dialog = new android.app.ProgressDialog(this);
+        dialog.setMessage("Saving draft…");
+        dialog.setCancelable(false);
+        dialog.show();
+
+        final String finalVideoUriStr = videoUriStr;
+        final boolean finalIsFilePath = isFilePath;
+        final long finalTrimStart = trimStartMs;
+        final long finalTrimEnd   = trimEndMs;
+        final String finalCaption = getAllTextOverlaysJoined();
+        final String finalMusicName = preSelectedSoundTitle;
+        final String finalFilterName       = filterName;
+        final float  finalFilterBrightness = filterBrightness;
+        final float  finalFilterContrast   = filterContrast;
+        final float  finalFilterSaturation = filterSaturation;
+        final float  finalFilterBeauty     = filterBeauty;
+        final String finalStickerJson      = stickerJson;
+
+        draftSaveExecutor.execute(() -> {
+            try {
+                File draftsDir = new File(getFilesDir(), "reel_drafts");
+                if (!draftsDir.exists()) draftsDir.mkdirs();
+                long stamp = System.currentTimeMillis();
+
+                // Video: copy (not move) into persistent storage so a draft survives
+                // even if the original cache/content:// source gets cleared later.
+                File videoOut = new File(draftsDir, "draft_" + stamp + ".mp4");
+                try (InputStream in = finalIsFilePath
+                            ? new java.io.FileInputStream(finalVideoUriStr)
+                            : getContentResolver().openInputStream(Uri.parse(finalVideoUriStr));
+                     FileOutputStream out = new FileOutputStream(videoOut)) {
+                    if (in == null) throw new java.io.IOException("Cannot open video source");
+                    byte[] buf = new byte[65536];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                }
+
+                // Cover frame at the trimmed-in point, saved alongside it.
+                String thumbFileUri = "";
+                MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+                try {
+                    mmr.setDataSource(videoOut.getAbsolutePath());
+                    Bitmap frame = mmr.getFrameAtTime(finalTrimStart * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+                    if (frame != null) {
+                        File thumbOut = new File(draftsDir, "draft_" + stamp + "_thumb.jpg");
+                        try (FileOutputStream fos = new FileOutputStream(thumbOut)) {
+                            frame.compress(Bitmap.CompressFormat.JPEG, 85, fos);
+                        }
+                        frame.recycle();
+                        thumbFileUri = "file://" + thumbOut.getAbsolutePath();
+                    }
+                } catch (Exception ignored) {
+                    // thumbnail is best-effort — draft is still usable without one
+                } finally {
+                    try { mmr.release(); } catch (Exception ignored) {}
+                }
+
+                ReelDraft draft = new ReelDraft(
+                    "file://" + videoOut.getAbsolutePath(),
+                    finalCaption,
+                    finalMusicName,
+                    finalTrimStart,
+                    finalTrimEnd);
+                draft.thumbUrl         = thumbFileUri;
+                draft.filterName       = finalFilterName;
+                draft.filterBrightness = finalFilterBrightness;
+                draft.filterContrast   = finalFilterContrast;
+                draft.filterSaturation = finalFilterSaturation;
+                draft.filterBeauty     = finalFilterBeauty;
+                draft.stickerJson      = finalStickerJson;
+
+                // Re-saving a draft that was resumed from Drafts updates that same
+                // record (and swaps out its old files) instead of piling up a duplicate.
+                boolean isUpdate = !resumedDraftId.isEmpty();
+                com.google.firebase.database.DatabaseReference ref = isUpdate
+                    ? FirebaseUtils.getReelDraftsRef(uid).child(resumedDraftId)
+                    : FirebaseUtils.getReelDraftsRef(uid).push();
+
+                ref.setValue(draft)
+                    .addOnCompleteListener(task -> handler.post(() -> {
+                        if (task.isSuccessful() && isUpdate) {
+                            deleteLocalFileIfOwnedByApp(resumedDraftVideoUri);
+                            deleteLocalFileIfOwnedByApp(resumedDraftThumbUri);
+                        }
+                        if (isFinishing() || isDestroyed()) return;
+                        dialog.dismiss();
+                        if (task.isSuccessful()) {
+                            Toast.makeText(this, "Saved to Drafts", Toast.LENGTH_SHORT).show();
+                        } else {
+                            Toast.makeText(this, "Video saved, but couldn't sync draft — try again later",
+                                Toast.LENGTH_LONG).show();
+                        }
+                        finish();
+                    }));
+            } catch (Exception e) {
+                handler.post(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    dialog.dismiss();
+                    Toast.makeText(this, "Couldn't save draft: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                });
+            }
+        });
+    }
+
+    /** Only deletes files under this app's own reel_drafts dir — never an arbitrary
+     *  content:// URI or a path outside app storage. Used when re-saving a resumed
+     *  draft replaces its previous video/thumb with freshly-written ones. */
+    private void deleteLocalFileIfOwnedByApp(String fileUriStr) {
+        if (fileUriStr == null || fileUriStr.isEmpty() || !fileUriStr.startsWith("file://")) return;
+        try {
+            File f = new File(Uri.parse(fileUriStr).getPath());
+            if (f.getAbsolutePath().startsWith(new File(getFilesDir(), "reel_drafts").getAbsolutePath())) {
+                f.delete();
+            }
+        } catch (Exception ignored) {}
     }
 
     /** Transparently forwards MediaEditActivity's result (whatever it is —
@@ -3964,6 +4148,11 @@ public class ReelEditorActivity extends AppCompatActivity {
         intent.putExtra(ReelUploadActivity.EXTRA_TRIM_END,     trimEndMs);
         intent.putExtra(ReelUploadActivity.EXTRA_TRIM_ALREADY_BAKED, trimBakedIntoFile);
         intent.putExtra(ReelUploadActivity.EXTRA_TEXT_OVERLAY, textOverlay);
+        if (!resumedDraftId.isEmpty()) {
+            intent.putExtra(ReelUploadActivity.EXTRA_DRAFT_ID_TO_DELETE,        resumedDraftId);
+            intent.putExtra(ReelUploadActivity.EXTRA_DRAFT_VIDEO_URI_TO_DELETE, resumedDraftVideoUri);
+            intent.putExtra(ReelUploadActivity.EXTRA_DRAFT_THUMB_URI_TO_DELETE, resumedDraftThumbUri);
+        }
 
         if (!preSelectedSoundId.isEmpty())
             intent.putExtra(ReelUploadActivity.EXTRA_SOUND_ID,    preSelectedSoundId);
@@ -4139,6 +4328,7 @@ public class ReelEditorActivity extends AppCompatActivity {
         }
         handler.removeCallbacksAndMessages(null);
         filterPreviewExecutor.shutdownNow();
+        draftSaveExecutor.shutdownNow();
         if (editorActiveStepRingSpin != null) editorActiveStepRingSpin.cancel();
         super.onDestroy();
     }

@@ -75,6 +75,24 @@ public class Message {
     public Integer mediaWidth;
     public Integer mediaHeight;
 
+    // ── WhatsApp-style GIF delivery ─────────────────────────────────────────
+    /**
+     * Present only on type="gif" messages. True when mediaUrl points at a
+     * small looping mp4 (Tenor's tinymp4/mp4 rendition) instead of a raw
+     * .gif — see ChatGifPickerActivity's class doc for why: an mp4 of the
+     * same clip is a fraction of the .gif's bytes and is hardware-decoded
+     * instead of Glide software-decoding it frame by frame. The in-bubble
+     * thumbnail path (MessagePagingAdapter's isGif branch) doesn't care —
+     * it always downloads to a local file first and lets Glide decode a
+     * single still frame from it either way — but MediaViewerActivity's
+     * fullscreen tap-to-view needs this flag to know whether to hand the
+     * file to ExoPlayer (looped, muted, no controls) or to Glide's
+     * animated-GIF drawable. Null/false on messages sent before this field
+     * existed (or on the rare result with no video rendition at all) —
+     * those fall back to the old raw-gif viewer path.
+     */
+    public Boolean gifIsVideo;
+
     // ── BlurHash placeholder ──────────────────────────────────────────────────
     /**
      * BlurHash string (~20-30 chars) encoding a tiny color-accurate blur of the
@@ -151,6 +169,12 @@ public class Message {
     public String replyToSenderName;
     public String replyToType;       // Added: type of original message
     public String replyToMediaUrl;   // Added: media URL of original (for thumbnail)
+    // WhatsApp-level self-contained reply thumbnail: small Base64 JPEG embedded
+    // directly in the message at send time (see StatusReplyBottomSheet#embedReplyThumbnail),
+    // so the quote-box thumbnail keeps rendering even if the original status later
+    // expires, gets deleted, or moves into a Highlight. Preferred over replyToMediaUrl
+    // when present; replyToMediaUrl stays as a fallback for older messages.
+    public String replyToThumbBase64;
 
     // ── Feature 3: Emoji Reactions ────────────────────────
     /** Map of uid → emoji.  Firebase path: messages/{id}/reactions/{uid} */
@@ -189,6 +213,13 @@ public class Message {
     public String reelShareCaption;
     /** Thumbnail URL for the reel card — may be blank if not available. */
     public String reelShareThumb;
+    // WhatsApp-level fix (same rationale as replyToThumbBase64): a
+    // self-contained small JPEG of the shared reel's thumbnail, embedded
+    // as Base64 at write-time so the card keeps rendering even if the
+    // original reel is later deleted or reelShareThumb's CDN link
+    // changes. Preferred over reelShareThumb when present; reelShareThumb
+    // stays as a fallback for older messages/clients.
+    public String reelShareThumbBase64;
     /** Owner profile photo URL — shown as circular avatar in card header. */
     public String reelShareOwnerPhoto;
 
@@ -197,6 +228,13 @@ public class Message {
     public String reelId;
     /** Reel thumbnail URL — shown in the reel_seen bubble. */
     public String reelThumbUrl;
+    // WhatsApp-level fix (same rationale as replyToThumbBase64 above): a
+    // self-contained small JPEG of the watched reel's thumbnail, embedded
+    // as Base64 at write-time so the bubble keeps rendering even if the
+    // reel is later deleted/expired or reelThumbUrl's CDN link changes.
+    // Preferred over reelThumbUrl when present; reelThumbUrl stays as a
+    // fallback for older messages/clients.
+    public String reelThumbBase64;
     /** UID of the reel's owner — set when type = "reel_seen". The bubble
      *  must render ONLY for this user (the person whose reel was watched),
      *  never for the viewer who watched it. See MessageAdapter /
@@ -210,6 +248,13 @@ public class Message {
     public String statusOwnerName;
     /** Status thumbnail URL — shown in the status_seen bubble (image/video statuses). */
     public String statusThumbUrl;
+    // WhatsApp-level fix (same rationale as replyToThumbBase64 above): a
+    // self-contained small JPEG of the seen status's thumbnail, embedded
+    // as Base64 at write-time so the bubble keeps rendering even after the
+    // status expires/gets deleted or statusThumbUrl's CDN link changes.
+    // Preferred over statusThumbUrl when present; statusThumbUrl stays as
+    // a fallback for older messages/clients.
+    public String statusThumbBase64;
 
     // ── Group flag ───────────────────────────────────────
     /** True if this message belongs to a group chat */

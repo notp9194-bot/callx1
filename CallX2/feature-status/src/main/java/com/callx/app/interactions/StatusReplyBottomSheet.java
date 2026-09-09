@@ -189,11 +189,7 @@ public class StatusReplyBottomSheet {
         msg.put("replyToText",         getPreviewText(item));
         msg.put("replyToSenderName",   statusReplyLabel(ownerName));
         msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
-        if (item.thumbnailUrl != null)
-            msg.put("replyToMediaUrl", item.thumbnailUrl);
-        else if ("image".equals(item.type) && item.mediaUrl != null)
-            msg.put("replyToMediaUrl", item.mediaUrl);
-        FirebaseUtils.db()
+        embedReplyThumbnail(item, msg, () -> FirebaseUtils.db()
             // BUG FIX: was writing to "chats/{chatId}/messages/{msgId}", but
             // ChatRepository (and every other send path in the app) reads/
             // listens on "messages/{chatId}/{msgId}" — a completely
@@ -244,10 +240,47 @@ public class StatusReplyBottomSheet {
                             }
                         }
                         @Override public void onCancelled(DatabaseError e) {}
-                    }));
+                    })));
     }
     private static int dp(Context ctx, int v) {
         return Math.round(v * ctx.getResources().getDisplayMetrics().density);
+    }
+
+    // ── WhatsApp-level embedded reply thumbnail ───────────────────────────────
+    /**
+     * Every status-reply chat message used to only store a pointer back to the
+     * status's live Firebase/Cloudinary URL (replyToMediaUrl) — so once that
+     * status expired, got deleted, or moved into a Highlight, the quoted
+     * thumbnail in the already-sent chat bubble depended on whatever happened
+     * to that URL next. WhatsApp's story-reply bubbles don't have this problem:
+     * the reply is a self-contained message with its own copy of the thumbnail
+     * from the moment it's sent, so it keeps rendering no matter what happens
+     * to the original story afterwards.
+     *
+     * This mirrors that: downloads the status's media once, downsamples +
+     * center-crops it to a small square JPEG, and embeds those bytes directly
+     * into the message as Base64 (replyToThumbBase64). replyToMediaUrl is
+     * still written too, purely as a fallback for older clients that don't
+     * understand replyToThumbBase64 yet, or if the download below fails.
+     *
+     * Runs the network+decode work off the calling thread and invokes
+     * {@code thenSend} — which does the actual message setValue()/notify —
+     * once the message map is ready, whether or not the embed succeeded.
+     */
+    private static void embedReplyThumbnail(StatusItem item, Map<String, Object> msg, Runnable thenSend) {
+        String url = item.thumbnailUrl != null ? item.thumbnailUrl
+                : ("image".equals(item.type) && item.mediaUrl != null ? item.mediaUrl : null);
+        if (url == null || url.isEmpty()) {
+            thenSend.run();
+            return;
+        }
+        msg.put("replyToMediaUrl", url); // fallback / older clients, or if the embed below fails
+        // Download/crop/compress logic lives in the shared ThumbnailEmbedder
+        // (core) — also used by StatusSeenTracker and ReelSeenTracker now.
+        com.callx.app.utils.ThumbnailEmbedder.embed(url, base64 -> {
+            if (base64 != null) msg.put("replyToThumbBase64", base64);
+            thenSend.run();
+        });
     }
 
     // ── Question-sticker tap-to-answer ──────────────────────────────────────
@@ -357,11 +390,7 @@ public class StatusReplyBottomSheet {
         msg.put("replyToText",         "\uD83D\uDCAC " + questionPrompt); // 💬
         msg.put("replyToSenderName",   statusReplyLabel(ownerName));
         msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
-        if (item.thumbnailUrl != null)
-            msg.put("replyToMediaUrl", item.thumbnailUrl);
-        else if ("image".equals(item.type) && item.mediaUrl != null)
-            msg.put("replyToMediaUrl", item.mediaUrl);
-        FirebaseUtils.db()
+        embedReplyThumbnail(item, msg, () -> FirebaseUtils.db()
             .getReference("messages").child(chatId).child(msgId)
             .setValue(msg)
             .addOnSuccessListener(u ->
@@ -380,7 +409,7 @@ public class StatusReplyBottomSheet {
                             } catch (Exception ignored) {}
                         }
                         @Override public void onCancelled(DatabaseError e) {}
-                    }));
+                    })));
     }
 
     // ── Quiz-sticker tap-to-answer ───────────────────────────────────────────
@@ -424,12 +453,7 @@ public class StatusReplyBottomSheet {
         msg.put("replyToText",         "\uD83E\uDDE0 " + question); // 🧠
         msg.put("replyToSenderName",   statusReplyLabel(ownerName));
         msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
-        if (item.thumbnailUrl != null)
-            msg.put("replyToMediaUrl", item.thumbnailUrl);
-        else if ("image".equals(item.type) && item.mediaUrl != null)
-            msg.put("replyToMediaUrl", item.mediaUrl);
-
-        FirebaseUtils.db()
+        embedReplyThumbnail(item, msg, () -> FirebaseUtils.db()
             .getReference("messages").child(chatId).child(msgId)
             .setValue(msg)
             .addOnSuccessListener(u ->
@@ -448,7 +472,7 @@ public class StatusReplyBottomSheet {
                             } catch (Exception ignored) {}
                         }
                         @Override public void onCancelled(DatabaseError e) {}
-                    }));
+                    })));
     }
 
     // ── Countdown "Remind me" subscribe ──────────────────────────────────────
@@ -492,12 +516,7 @@ public class StatusReplyBottomSheet {
         msg.put("replyToText",         "\u23F0 " + label); // ⏰
         msg.put("replyToSenderName",   statusReplyLabel(ownerName));
         msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
-        if (item.thumbnailUrl != null)
-            msg.put("replyToMediaUrl", item.thumbnailUrl);
-        else if ("image".equals(item.type) && item.mediaUrl != null)
-            msg.put("replyToMediaUrl", item.mediaUrl);
-
-        FirebaseUtils.db()
+        embedReplyThumbnail(item, msg, () -> FirebaseUtils.db()
             .getReference("messages").child(chatId).child(msgId)
             .setValue(msg)
             .addOnSuccessListener(u ->
@@ -516,7 +535,7 @@ public class StatusReplyBottomSheet {
                             } catch (Exception ignored) {}
                         }
                         @Override public void onCancelled(DatabaseError e) {}
-                    }));
+                    })));
     }
 
     // ── Poll-sticker tap-to-vote ──────────────────────────────────────────────
@@ -556,12 +575,7 @@ public class StatusReplyBottomSheet {
         msg.put("replyToText",         "\uD83D\uDDF3\uFE0F " + question);
         msg.put("replyToSenderName",   statusReplyLabel(ownerName));
         msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
-        if (item.thumbnailUrl != null)
-            msg.put("replyToMediaUrl", item.thumbnailUrl);
-        else if ("image".equals(item.type) && item.mediaUrl != null)
-            msg.put("replyToMediaUrl", item.mediaUrl);
-
-        FirebaseUtils.db()
+        embedReplyThumbnail(item, msg, () -> FirebaseUtils.db()
             .getReference("messages").child(chatId).child(msgId)
             .setValue(msg)
             .addOnSuccessListener(u ->
@@ -580,7 +594,7 @@ public class StatusReplyBottomSheet {
                             } catch (Exception ignored) {}
                         }
                         @Override public void onCancelled(DatabaseError e) {}
-                    }));
+                    })));
     }
 
     // ── Slider-sticker drag-to-submit ─────────────────────────────────────────
@@ -620,12 +634,7 @@ public class StatusReplyBottomSheet {
         msg.put("replyToText",         "\uD83C\uDF9A\uFE0F " + question);
         msg.put("replyToSenderName",   statusReplyLabel(ownerName));
         msg.put("replyToId",           "status_" + (item.id != null ? item.id : "unknown"));
-        if (item.thumbnailUrl != null)
-            msg.put("replyToMediaUrl", item.thumbnailUrl);
-        else if ("image".equals(item.type) && item.mediaUrl != null)
-            msg.put("replyToMediaUrl", item.mediaUrl);
-
-        FirebaseUtils.db()
+        embedReplyThumbnail(item, msg, () -> FirebaseUtils.db()
             .getReference("messages").child(chatId).child(msgId)
             .setValue(msg)
             .addOnSuccessListener(u ->
@@ -644,6 +653,6 @@ public class StatusReplyBottomSheet {
                             } catch (Exception ignored) {}
                         }
                         @Override public void onCancelled(DatabaseError e) {}
-                    }));
+                    })));
     }
 }

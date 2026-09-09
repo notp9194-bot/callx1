@@ -102,6 +102,7 @@ public class MessageEntity {
     public String replyToSenderName;
     public String replyToType;       // type of original message
     public String replyToMediaUrl;   // media URL of original for thumbnail
+    public String replyToThumbBase64; // embedded self-contained thumbnail — see Message#replyToThumbBase64
     public Boolean edited;
     public Long   editedAt;
     /** JSON array string of prior text versions, oldest first. See
@@ -128,6 +129,8 @@ public class MessageEntity {
     public String reelId;
     /** Reel thumbnail URL — shown in reel_seen bubble. */
     public String reelThumbUrl;
+    /** Embedded self-contained thumbnail — see Message#reelThumbBase64. */
+    public String reelThumbBase64;
     /** UID of the reel owner — the bubble renders ONLY for this user. */
     public String reelOwnerUid;
 
@@ -144,10 +147,14 @@ public class MessageEntity {
     public String statusOwnerName;
     /** Thumbnail URL of the viewed status — shown in the bubble. */
     public String statusThumbUrl;
+    /** Embedded self-contained thumbnail — see Message#statusThumbBase64. */
+    public String statusThumbBase64;
 
     // ── Reel Share Card (type = "reel_share") ─────────────────────────────
     public String reelShareUrl;
     public String reelShareThumb;
+    /** Embedded self-contained thumbnail — see Message#reelShareThumbBase64. */
+    public String reelShareThumbBase64;
     public String reelShareCaption;
     public String reelShareUsername;
     public String reelShareOwnerPhoto;

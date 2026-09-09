@@ -90,6 +90,7 @@ public class ContactsActivity extends AppCompatActivity {
     private String forwardReelId;
     private String forwardReelShareUrl;
     private String forwardReelShareThumb;
+    private String forwardReelShareThumbBase64;
     private String forwardReelShareCaption;
     private String forwardReelShareUsername;
     private String forwardReelShareOwnerPhoto;
@@ -139,6 +140,7 @@ public class ContactsActivity extends AppCompatActivity {
         forwardReelId              = getIntent().getStringExtra("forwardReelId");
         forwardReelShareUrl        = getIntent().getStringExtra("forwardReelShareUrl");
         forwardReelShareThumb      = getIntent().getStringExtra("forwardReelShareThumb");
+        forwardReelShareThumbBase64 = getIntent().getStringExtra("forwardReelShareThumbBase64");
         forwardReelShareCaption    = getIntent().getStringExtra("forwardReelShareCaption");
         forwardReelShareUsername   = getIntent().getStringExtra("forwardReelShareUsername");
         forwardReelShareOwnerPhoto = getIntent().getStringExtra("forwardReelShareOwnerPhoto");
@@ -320,6 +322,7 @@ public class ContactsActivity extends AppCompatActivity {
             if (forwardReelId              != null) i.putExtra("forwardReelId",              forwardReelId);
             if (forwardReelShareUrl        != null) i.putExtra("forwardReelShareUrl",        forwardReelShareUrl);
             if (forwardReelShareThumb      != null) i.putExtra("forwardReelShareThumb",      forwardReelShareThumb);
+            if (forwardReelShareThumbBase64 != null) i.putExtra("forwardReelShareThumbBase64", forwardReelShareThumbBase64);
             if (forwardReelShareCaption    != null) i.putExtra("forwardReelShareCaption",    forwardReelShareCaption);
             if (forwardReelShareUsername   != null) i.putExtra("forwardReelShareUsername",   forwardReelShareUsername);
             if (forwardReelShareOwnerPhoto != null) i.putExtra("forwardReelShareOwnerPhoto", forwardReelShareOwnerPhoto);

@@ -1871,6 +1871,7 @@ public class GroupChatActivity extends AppCompatActivity
         m.pollMultiChoice   = e.pollMultiChoice;
         m.reelShareUrl        = e.reelShareUrl;
         m.reelShareThumb      = e.reelShareThumb;
+        m.reelShareThumbBase64 = e.reelShareThumbBase64;
         m.reelShareCaption    = e.reelShareCaption;
         m.reelShareUsername   = e.reelShareUsername;
         m.reelShareOwnerPhoto = e.reelShareOwnerPhoto;
@@ -1990,6 +1991,7 @@ public class GroupChatActivity extends AppCompatActivity
         e.pollMultiChoice       = m.pollMultiChoice;
         e.reelShareUrl        = m.reelShareUrl;
         e.reelShareThumb      = m.reelShareThumb;
+        e.reelShareThumbBase64 = m.reelShareThumbBase64;
         e.reelShareCaption    = m.reelShareCaption;
         e.reelShareUsername   = m.reelShareUsername;
         e.reelShareOwnerPhoto = m.reelShareOwnerPhoto;
@@ -3871,7 +3873,8 @@ public class GroupChatActivity extends AppCompatActivity
                     if (result.getResultCode() != android.app.Activity.RESULT_OK
                             || result.getData() == null) return;
                     String url = result.getData().getStringExtra("gif_url");
-                    if (url != null && !url.isEmpty()) sendTenorGif(url);
+                    boolean isVideo = result.getData().getBooleanExtra("gif_is_video", false);
+                    if (url != null && !url.isEmpty()) sendTenorGif(url, isVideo);
                 });
         videoPicker = registerForActivityResult(new ActivityResultContracts.GetContent(),
                 uri -> { if (uri != null) uploadAndSend(uri, "video", "video", null); });
@@ -4342,6 +4345,7 @@ public class GroupChatActivity extends AppCompatActivity
                         String gifUrl = r.secureUrl;
                         m.mediaUrl = gifUrl;
                         m.imageUrl = gifUrl;
+                        m.fileSize = r.bytes; // PERF: lets the receiver show the size label with no getRemoteSize() round-trip
                         pushMessage(m, "🎞️ GIF");
                     }
                     @Override
@@ -4375,6 +4379,7 @@ public class GroupChatActivity extends AppCompatActivity
                         m.type     = "sticker";
                         m.mediaUrl = r.secureUrl;
                         m.imageUrl = r.secureUrl;
+                        m.fileSize = r.bytes; // PERF: lets the receiver show the size label with no getRemoteSize() round-trip
                         pushMessage(m, "🏷️ Sticker");
                     }
                     @Override
@@ -4389,12 +4394,13 @@ public class GroupChatActivity extends AppCompatActivity
 
     // ── GIF picker (Tenor) — direct send, no Cloudinary upload ──────────────
 
-    private void sendTenorGif(String gifUrl) {
+    private void sendTenorGif(String gifUrl, boolean isVideo) {
         if (gifUrl == null || gifUrl.isEmpty()) return;
-        Message m  = buildOutgoing();
-        m.type     = "gif";
-        m.mediaUrl = gifUrl;
-        m.imageUrl = gifUrl;
+        Message m    = buildOutgoing();
+        m.type       = "gif";
+        m.mediaUrl   = gifUrl;
+        m.imageUrl   = gifUrl;
+        m.gifIsVideo = isVideo; // WhatsApp-style mp4 delivery — see Message#gifIsVideo
         pushMessage(m, "🎞️ GIF");
     }
 

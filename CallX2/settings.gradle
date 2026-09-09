@@ -23,6 +23,10 @@ include ':patternlockview'
 include ':core-lite'
 include ':core'
 include ':feature-chat'
+// ── Fastest Chat: isolated native C++/OpenGL chat screen. Does NOT
+// depend on and is not depended on by :feature-chat — existing canvas
+// chat is untouched. See feature-chat-v2/src/main/cpp for the renderer.
+include ':feature-chat-v2'
 include ':feature-reels'
 include ':feature-calls'
 include ':feature-status'

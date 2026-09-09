@@ -1649,6 +1649,9 @@ public class MainActivity extends AppCompatActivity
         // "Broadcast List" sirf Chat tab pe visible ho
         android.view.MenuItem broadcast = menu.findItem(R.id.action_broadcast_list);
         if (broadcast != null) broadcast.setVisible(pos == TAB_CHATS);
+        // "⚡ Fastest Chat" sirf Chat tab pe visible ho
+        android.view.MenuItem fastestChat = menu.findItem(R.id.action_fastest_chat);
+        if (fastestChat != null) fastestChat.setVisible(pos == TAB_CHATS);
         // "Performance" report sirf Chat tab pe visible ho
         android.view.MenuItem performance = menu.findItem(R.id.action_performance_report);
         if (performance != null) performance.setVisible(pos == TAB_CHATS);
@@ -1672,6 +1675,13 @@ public class MainActivity extends AppCompatActivity
     @Override
     public boolean onOptionsItemSelected(android.view.MenuItem item) {
         int id = item.getItemId();
+
+        // ── ⚡ Fastest Chat entry point (native C++/OpenGL renderer) ─────────
+        if (id == R.id.action_fastest_chat) {
+            startActivity(new Intent(this,
+                com.callx.app.chatv2.FastestChatListActivity.class));
+            return true;
+        }
 
         // ── Broadcast List entry point ──────────────────────────────────────
         if (id == R.id.action_broadcast_list) {

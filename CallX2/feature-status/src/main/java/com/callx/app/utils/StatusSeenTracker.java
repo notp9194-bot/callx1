@@ -220,8 +220,16 @@ public final class StatusSeenTracker {
         msg.put("seen",            false);
         msg.put("statusOwnerUid",  ownerUid);
         msg.put("statusOwnerName", ownerName);
-        msg.put("statusThumbUrl",  statusThumbUrl);
-        ref.child(msgId).setValue(msg);
+        msg.put("statusThumbUrl",  statusThumbUrl); // fallback / older clients, or if the embed below fails
+        // WhatsApp-level fix: embed a self-contained copy of the thumbnail
+        // (statusThumbBase64) so this bubble keeps rendering even after the
+        // status expires/gets deleted or statusThumbUrl's CDN link changes.
+        // See ThumbnailEmbedder for the shared download/crop/compress logic
+        // (same helper StatusReplyBottomSheet uses for reply thumbnails).
+        com.callx.app.utils.ThumbnailEmbedder.embed(statusThumbUrl, base64 -> {
+            if (base64 != null) msg.put("statusThumbBase64", base64);
+            ref.child(msgId).setValue(msg);
+        });
     }
     private static void notifyReaction(String ownerUid, String statusId,
                                         String emoji, String reactorUid) {

@@ -123,6 +123,27 @@ public class ReelDraftsActivity extends AppCompatActivity
         Intent intent = new Intent(this, ReelEditorActivity.class);
         intent.putExtra(ReelEditorActivity.EXTRA_VIDEO_URI,    draft.videoUri);
         intent.putExtra(ReelEditorActivity.EXTRA_IS_FILE_PATH, false);
+        if (draft.trimEndMs > draft.trimStartMs) {
+            intent.putExtra(ReelEditorActivity.EXTRA_DRAFT_TRIM_START_MS, draft.trimStartMs);
+            intent.putExtra(ReelEditorActivity.EXTRA_DRAFT_TRIM_END_MS,   draft.trimEndMs);
+        }
+        if (draft.musicName != null && !draft.musicName.isEmpty()) {
+            intent.putExtra("selected_sound_title", draft.musicName);
+        }
+        if (draft.filterName != null && !draft.filterName.isEmpty()) {
+            intent.putExtra(ReelEditorActivity.EXTRA_PRESET_FILTER_NAME,       draft.filterName);
+            intent.putExtra(ReelEditorActivity.EXTRA_PRESET_FILTER_BRIGHTNESS, draft.filterBrightness);
+            intent.putExtra(ReelEditorActivity.EXTRA_PRESET_FILTER_CONTRAST,   draft.filterContrast);
+            intent.putExtra(ReelEditorActivity.EXTRA_PRESET_FILTER_SATURATION, draft.filterSaturation);
+            intent.putExtra(ReelEditorActivity.EXTRA_PRESET_FILTER_BEAUTY,     draft.filterBeauty);
+        }
+        if (draft.stickerJson != null && draft.stickerJson.length() > 2) {
+            intent.putExtra(ReelEditorActivity.EXTRA_PRESET_STICKERS_JSON, draft.stickerJson);
+        }
+        intent.putExtra(ReelEditorActivity.EXTRA_DRAFT_ID, draft.draftId);
+        if (draft.thumbUrl != null && !draft.thumbUrl.isEmpty()) {
+            intent.putExtra(ReelEditorActivity.EXTRA_DRAFT_THUMB_URI, draft.thumbUrl);
+        }
         startActivity(intent);
     }
 
@@ -146,10 +167,21 @@ public class ReelDraftsActivity extends AppCompatActivity
                     layoutEmpty.setVisibility(View.VISIBLE);
                     rvDrafts.setVisibility(View.GONE);
                 }
+                deleteLocalDraftFile(draft.videoUri);
+                deleteLocalDraftFile(draft.thumbUrl);
             })
             .addOnFailureListener(e ->
                 Toast.makeText(this, "Failed to delete: " + e.getMessage(),
                     Toast.LENGTH_SHORT).show());
+    }
+
+    /** Draft video/thumb files live under this app's own getFilesDir()/reel_drafts —
+     *  best-effort cleanup so deleted drafts don't leave orphaned files behind. */
+    private void deleteLocalDraftFile(String fileUriStr) {
+        if (fileUriStr == null || fileUriStr.isEmpty() || !fileUriStr.startsWith("file://")) return;
+        try {
+            new java.io.File(android.net.Uri.parse(fileUriStr).getPath()).delete();
+        } catch (Exception ignored) {}
     }
 
     @Override

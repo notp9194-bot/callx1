@@ -376,12 +376,19 @@ public final class ReelSeenTracker {
         msg.put("text",         "Watched your reel");
         msg.put("type",         "reel_seen");
         msg.put("reelId",       reelId);        // tap-to-open (most recent)
-        msg.put("reelThumbUrl", reelThumbUrl);  // thumbnail shown in bubble
+        msg.put("reelThumbUrl", reelThumbUrl);  // fallback / older clients, or if the embed below fails
         msg.put("timestamp",    ServerValue.TIMESTAMP);
         msg.put("seen",         false);         // no unread badge
         msg.put("reelOwnerUid", ownerUid);
 
-        messagesRef.child(msgId).setValue(msg);
+        // WhatsApp-level fix: embed a self-contained copy of the thumbnail
+        // (reelThumbBase64) so this bubble keeps rendering even after the
+        // reel expires/gets deleted or reelThumbUrl's CDN link changes.
+        // See ThumbnailEmbedder for the shared download/crop/compress logic.
+        com.callx.app.utils.ThumbnailEmbedder.embed(reelThumbUrl, base64 -> {
+            if (base64 != null) msg.put("reelThumbBase64", base64);
+            messagesRef.child(msgId).setValue(msg);
+        });
     }
 
     /** Fold a subsequent same-window view into the existing bubble in place. */
@@ -389,13 +396,19 @@ public final class ReelSeenTracker {
             DatabaseReference messagesRef, String msgId,
             String reelId, String reelThumbUrl, long count) {
 
-        Map<String, Object> updates = new HashMap<>();
-        updates.put("text",         count > 1 ? ("Watched " + count + " of your reels") : "Watched your reel");
-        updates.put("reelId",       reelId);
-        updates.put("reelThumbUrl", reelThumbUrl);
-        updates.put("timestamp",    ServerValue.TIMESTAMP); // bump to "now"
+        // Re-embed too — a later view in the same window can point at a
+        // different reel (lastReelId/lastReelThumb change), so the bubble's
+        // self-contained thumbnail needs to track whichever reel is latest.
+        com.callx.app.utils.ThumbnailEmbedder.embed(reelThumbUrl, base64 -> {
+            Map<String, Object> updates = new HashMap<>();
+            updates.put("text",         count > 1 ? ("Watched " + count + " of your reels") : "Watched your reel");
+            updates.put("reelId",       reelId);
+            updates.put("reelThumbUrl", reelThumbUrl);
+            if (base64 != null) updates.put("reelThumbBase64", base64);
+            updates.put("timestamp",    ServerValue.TIMESTAMP); // bump to "now"
 
-        messagesRef.child(msgId).updateChildren(updates);
+            messagesRef.child(msgId).updateChildren(updates);
+        });
     }
 
     private static String safeUid() {

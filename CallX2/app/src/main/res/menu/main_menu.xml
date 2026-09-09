@@ -2,6 +2,12 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
+    <!-- ⚡ Fastest Chat — native C++/OpenGL renderer entry point. Chat tab
+         pe hi dikhega, opens FastestChatListActivity (:feature-chat-v2). -->
+    <item android:id="@+id/action_fastest_chat"
+        android:title="⚡ Fastest Chat"
+        app:showAsAction="never"/>
+
     <!-- Broadcast List — chat tab pe hi dikhega -->
     <item android:id="@+id/action_broadcast_list"
         android:title="📢 Broadcast List"

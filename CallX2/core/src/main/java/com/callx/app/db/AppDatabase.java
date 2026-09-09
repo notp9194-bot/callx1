@@ -77,7 +77,7 @@ import com.callx.app.db.entity.*;
         // v61: durable outbound chat mutation journal.
         OutboxOperationEntity.class
     },
-    version = 61,
+    version = 64,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -944,6 +944,34 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    static final Migration MIGRATION_61_62 = new Migration(61, 62) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            // WhatsApp-level status-reply thumbnail: see Message#replyToThumbBase64.
+            db.execSQL("ALTER TABLE messages ADD COLUMN replyToThumbBase64 TEXT");
+        }
+    };
+
+    static final Migration MIGRATION_62_63 = new Migration(62, 63) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            // Same WhatsApp-level fix extended to "Seen your status" and
+            // "Watched your reel" bubbles: see Message#statusThumbBase64
+            // and Message#reelThumbBase64.
+            db.execSQL("ALTER TABLE messages ADD COLUMN statusThumbBase64 TEXT");
+            db.execSQL("ALTER TABLE messages ADD COLUMN reelThumbBase64 TEXT");
+        }
+    };
+
+    static final Migration MIGRATION_63_64 = new Migration(63, 64) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            // Same fix extended to the Reel Share card: see
+            // Message#reelShareThumbBase64.
+            db.execSQL("ALTER TABLE messages ADD COLUMN reelShareThumbBase64 TEXT");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -1007,7 +1035,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_54_55, MIGRATION_55_56,
                                     MIGRATION_56_57, MIGRATION_57_58,
                                     MIGRATION_58_59, MIGRATION_59_60,
-                                    MIGRATION_60_61)
+                                    MIGRATION_60_61, MIGRATION_61_62,
+                                    MIGRATION_62_63, MIGRATION_63_64)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

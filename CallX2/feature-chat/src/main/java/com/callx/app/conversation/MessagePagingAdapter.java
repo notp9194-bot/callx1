@@ -2379,8 +2379,36 @@ public class MessagePagingAdapter
         android.widget.ImageView ivThumb = h.ivStatusSeenThumb;
         android.widget.ImageView ivEye   = h.ivStatusSeenEye;
         if (ivThumb != null && flThumb != null) {
+            String thumbB64 = m.statusThumbBase64;
             String thumb = m.statusThumbUrl != null ? m.statusThumbUrl : "";
-            if (!thumb.isEmpty()) {
+            if (thumbB64 != null && !thumbB64.isEmpty()) {
+                // WhatsApp-level: this bubble carries its own copy of the
+                // thumbnail (embedded at write time — see
+                // StatusSeenTracker#doWriteSeenBubble via ThumbnailEmbedder),
+                // so it renders straight from local bytes: no network call,
+                // unaffected by the original status later expiring or being
+                // deleted. Same in-memory pool as the URL path so repeat
+                // rebinds don't re-decode the same JPEG.
+                flThumb.setVisibility(View.VISIBLE);
+                if (ivEye != null) ivEye.setVisibility(View.VISIBLE);
+                String b64PoolKey = poolKey("b64:" + thumbB64.hashCode(), 240, 240);
+                android.graphics.Bitmap b64PoolHit = DECODED_BITMAP_CACHE.get(b64PoolKey);
+                if (b64PoolHit != null && !b64PoolHit.isRecycled()) {
+                    ivThumb.setImageBitmap(b64PoolHit);
+                } else {
+                    android.graphics.Bitmap decoded = null;
+                    try {
+                        byte[] bytes = android.util.Base64.decode(thumbB64, android.util.Base64.NO_WRAP);
+                        decoded = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                    } catch (Exception ignored) { /* falls through to skeleton below */ }
+                    if (decoded != null) {
+                        DECODED_BITMAP_CACHE.put(b64PoolKey, decoded);
+                        ivThumb.setImageBitmap(decoded);
+                    } else {
+                        ivThumb.setImageResource(R.drawable.bg_skeleton_rect);
+                    }
+                }
+            } else if (!thumb.isEmpty()) {
                 flThumb.setVisibility(View.VISIBLE);
                 if (ivEye != null) ivEye.setVisibility(View.VISIBLE);
                 // Same fix as the avatar above — sync DECODED_BITMAP_CACHE
@@ -2525,8 +2553,36 @@ public class MessagePagingAdapter
         android.widget.ImageView ivThumb = h.ivReelSeenThumb;
         android.widget.ImageView ivPlay  = h.ivReelSeenPlay;
         if (ivThumb != null) {
+            String thumbB64 = m.reelThumbBase64;
             String thumb = m.reelThumbUrl != null ? m.reelThumbUrl : "";
-            if (!thumb.isEmpty()) {
+            if (thumbB64 != null && !thumbB64.isEmpty()) {
+                // WhatsApp-level: this bubble carries its own copy of the
+                // thumbnail (embedded at write time — see
+                // ReelSeenTracker#doWriteNew/updateExistingBubble via
+                // ThumbnailEmbedder), so it renders straight from local
+                // bytes: no network call, unaffected by the reel later
+                // expiring or being deleted. Same in-memory pool as the URL
+                // path so repeat rebinds don't re-decode the same JPEG.
+                ivThumb.setVisibility(android.view.View.VISIBLE);
+                if (ivPlay != null) ivPlay.setVisibility(android.view.View.VISIBLE);
+                String b64PoolKey = poolKey("b64:" + thumbB64.hashCode(), 240, 240);
+                android.graphics.Bitmap b64PoolHit = DECODED_BITMAP_CACHE.get(b64PoolKey);
+                if (b64PoolHit != null && !b64PoolHit.isRecycled()) {
+                    ivThumb.setImageBitmap(b64PoolHit);
+                } else {
+                    android.graphics.Bitmap decoded = null;
+                    try {
+                        byte[] bytes = android.util.Base64.decode(thumbB64, android.util.Base64.NO_WRAP);
+                        decoded = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                    } catch (Exception ignored) { /* falls through to skeleton below */ }
+                    if (decoded != null) {
+                        DECODED_BITMAP_CACHE.put(b64PoolKey, decoded);
+                        ivThumb.setImageBitmap(decoded);
+                    } else {
+                        ivThumb.setImageResource(R.drawable.bg_skeleton_rect);
+                    }
+                }
+            } else if (!thumb.isEmpty()) {
                 ivThumb.setVisibility(android.view.View.VISIBLE);
                 if (ivPlay != null) ivPlay.setVisibility(android.view.View.VISIBLE);
                 // Same fix — sync DECODED_BITMAP_CACHE check before an
@@ -3315,6 +3371,7 @@ public class MessagePagingAdapter
                         ctx.getPackageName(), "com.callx.app.activities.MediaViewerActivity");
                 i.putExtra("url", gifUrl);
                 i.putExtra("type", "gif");
+                i.putExtra("gifIsVideo", Boolean.TRUE.equals(m.gifIsVideo));
                 if (chatId != null) i.putExtra("chatId", chatId);
                 String mid = m.messageId != null ? m.messageId : m.id;
                 if (mid != null) i.putExtra("messageId", mid);
@@ -3523,7 +3580,14 @@ public class MessagePagingAdapter
             final String thumbUrl = isReelSeen
                     ? (m.reelThumbUrl != null ? m.reelThumbUrl : "")
                     : (m.statusThumbUrl != null ? m.statusThumbUrl : "");
-            final boolean hasThumb = !thumbUrl.isEmpty();
+            // WhatsApp-level: prefer the self-contained embedded copy (see
+            // ThumbnailEmbedder / ReelSeenTracker / StatusSeenTracker) —
+            // renders from local bytes, unaffected by the source reel/status
+            // later expiring or being deleted. thumbUrl above stays as the
+            // fallback for older messages that only carry a URL.
+            final String thumbB64 = isReelSeen ? m.reelThumbBase64 : m.statusThumbBase64;
+            final boolean hasThumbB64 = thumbB64 != null && !thumbB64.isEmpty();
+            final boolean hasThumb = hasThumbB64 || !thumbUrl.isEmpty();
             final String senderNameForSeen = (isGroup && m.senderName != null && !m.senderName.isEmpty())
                     ? m.senderName : null;
             // Batched reel-seen bubbles carry their display text directly in
@@ -3584,6 +3648,21 @@ public class MessagePagingAdapter
                 // height versus the actual non-square thumb slot.
                 final int seenThumbPxW = seenThumbPxW(ctx);
                 final int seenThumbPxH = seenThumbPxH(ctx);
+                if (hasThumbB64) {
+                    String b64PoolKey = poolKey("b64:" + thumbB64.hashCode(), seenThumbPxW, seenThumbPxH);
+                    android.graphics.Bitmap b64PoolHit = DECODED_BITMAP_CACHE.get(b64PoolKey);
+                    if (b64PoolHit != null && !b64PoolHit.isRecycled()) {
+                        cv.setSeenThumbBitmap(b64PoolHit);
+                    } else {
+                        android.graphics.Bitmap decoded = null;
+                        try {
+                            byte[] bytes = android.util.Base64.decode(thumbB64, android.util.Base64.NO_WRAP);
+                            decoded = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                        } catch (Exception ignored) { /* falls through to null below */ }
+                        if (decoded != null) DECODED_BITMAP_CACHE.put(b64PoolKey, decoded);
+                        cv.setSeenThumbBitmap(decoded);
+                    }
+                } else {
                 android.graphics.Bitmap seenThumbHit = DECODED_BITMAP_CACHE.get(poolKey(thumbUrl, seenThumbPxW, seenThumbPxH));
                 if (seenThumbHit != null && !seenThumbHit.isRecycled()) {
                     dashboardRecordHit(ctx, thumbUrl);
@@ -3608,6 +3687,7 @@ public class MessagePagingAdapter
                                     cv.setSeenThumbBitmap(null);
                                 }
                             });
+                }
                 }
             }
         } else if (isCallEntry) {
@@ -4179,7 +4259,15 @@ public class MessagePagingAdapter
                     });
                     }); // end resolveFullMediaKeyAsync
                 } else {
-                    // Manual download: show size label on the idle pill.
+                    // Manual download: show size label on the idle pill —
+                    // PERF: use the size already captured at send time
+                    // (m.fileSize, same pattern as the video branch above)
+                    // instead of firing a network round-trip just to show
+                    // a label. Only falls back to getRemoteSize() for
+                    // messages sent before fileSize existed.
+                    if (m.fileSize != null && m.fileSize > 0) {
+                        cv.setMediaDownloadGate(false, Integer.MIN_VALUE, formatFileSize(m.fileSize));
+                    } else {
                     cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Photo");
                     com.callx.app.utils.MediaCache.getRemoteSize(ctx, fullUrl,
                             new com.callx.app.utils.MediaCache.SizeCallback() {
@@ -4192,6 +4280,7 @@ public class MessagePagingAdapter
                         }
                         @Override public void onError(String reason) { /* keep "Photo" label */ }
                     });
+                    }
                 }
             } else {
                 cv.clearMediaDownloadGate();
@@ -4264,13 +4353,36 @@ public class MessagePagingAdapter
             // frame on this big 330×474 card before the image popped back
             // in. Same root cause as the reply/status-reply thumb flicker —
             // now fixed the same way: check DECODED_BITMAP_CACHE first.
+            String thumbB64 = m.reelShareThumbBase64;
             String thumb = m.reelShareThumb != null ? m.reelShareThumb : "";
             final String rKey = m.reelId != null ? m.reelId : "";
-            if (thumb.isEmpty() && !rKey.isEmpty()) {
+            if (thumb.isEmpty() && (thumbB64 == null || thumbB64.isEmpty()) && !rKey.isEmpty()) {
                 String cachedThumb = reelThumbCache.get(rKey);
                 if (cachedThumb != null) thumb = cachedThumb;
             }
-            if (!thumb.isEmpty()) {
+            if (thumbB64 != null && !thumbB64.isEmpty()) {
+                // WhatsApp-level: this card carries its own copy of the
+                // thumbnail (embedded at send time — see
+                // ReelShareSheetFragment via ThumbnailEmbedder), so it
+                // renders straight from local bytes: no network call,
+                // unaffected by the original reel later being deleted.
+                // Same in-memory pool as the URL path so repeat rebinds
+                // don't re-decode the same JPEG.
+                final int[] cardPxB64 = reelCardPx(ctx);
+                String b64PoolKey = poolKey("b64:" + thumbB64.hashCode(), cardPxB64[0], cardPxB64[1]);
+                android.graphics.Bitmap b64PoolHit = DECODED_BITMAP_CACHE.get(b64PoolKey);
+                if (b64PoolHit != null && !b64PoolHit.isRecycled()) {
+                    cv.setReelShareThumbBitmap(b64PoolHit);
+                } else {
+                    android.graphics.Bitmap decoded = null;
+                    try {
+                        byte[] bytes = android.util.Base64.decode(thumbB64, android.util.Base64.NO_WRAP);
+                        decoded = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                    } catch (Exception ignored) { /* falls through to null below */ }
+                    if (decoded != null) DECODED_BITMAP_CACHE.put(b64PoolKey, decoded);
+                    cv.setReelShareThumbBitmap(decoded);
+                }
+            } else if (!thumb.isEmpty()) {
                 final String finalThumbUrl = thumb;
                 final int[] cardPx = reelCardPx(ctx);
                 android.graphics.Bitmap reelThumbHit = DECODED_BITMAP_CACHE.get(poolKey(finalThumbUrl, cardPx[0], cardPx[1]));
@@ -4685,7 +4797,15 @@ public class MessagePagingAdapter
                             });
                 }
             } else if (!gifUrl.isEmpty()) {
-                // Not cached — show download gate; fetch remote size for the pill label.
+                // Not cached — show download gate. PERF: use m.fileSize
+                // (captured at send time for uploaded GIFs/stickers — see
+                // ChatMediaController/GroupChatActivity) instead of a
+                // getRemoteSize() network round-trip when it's known.
+                // Tenor-picker GIFs (direct CDN URL, never uploaded by us)
+                // have no fileSize, so they still fall back to fetching it.
+                if (m.fileSize != null && m.fileSize > 0) {
+                    cv.setMediaDownloadGate(false, Integer.MIN_VALUE, formatFileSize(m.fileSize));
+                } else {
                 cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "GIF");
                 com.callx.app.utils.MediaCache.getRemoteSize(ctx, gifUrl,
                         new com.callx.app.utils.MediaCache.SizeCallback() {
@@ -4696,6 +4816,7 @@ public class MessagePagingAdapter
                     }
                     @Override public void onError(String reason) { /* keep "GIF" label */ }
                 });
+                }
             }
 
             // NOTE: GIF taps (onGifClick) and the download-gate pill
@@ -4744,6 +4865,10 @@ public class MessagePagingAdapter
                             });
                 }
             } else if (!stickerUrl.isEmpty()) {
+                // PERF: same m.fileSize-first pattern as the image/gif branches above.
+                if (m.fileSize != null && m.fileSize > 0) {
+                    cv.setMediaDownloadGate(false, Integer.MIN_VALUE, formatFileSize(m.fileSize));
+                } else {
                 cv.setMediaDownloadGate(false, Integer.MIN_VALUE, "Sticker");
                 com.callx.app.utils.MediaCache.getRemoteSize(ctx, stickerUrl,
                         new com.callx.app.utils.MediaCache.SizeCallback() {
@@ -4754,6 +4879,7 @@ public class MessagePagingAdapter
                     }
                     @Override public void onError(String reason) { /* keep "Sticker" label */ }
                 });
+                }
             }
 
         } else if (isFile) {
@@ -4952,7 +5078,28 @@ public class MessagePagingAdapter
         // to the async Glide load, exactly like the media-bitmap path above.
         if (m.replyToId != null && !m.replyToId.isEmpty()) {
             final String replyThumbUrl = m.replyToMediaUrl;
-            if (replyThumbUrl != null && !replyThumbUrl.isEmpty()) {
+            final String replyThumbB64 = m.replyToThumbBase64;
+            if (replyThumbB64 != null && !replyThumbB64.isEmpty()) {
+                // WhatsApp-level: this message carries its own copy of the thumbnail
+                // (embedded at send time — see StatusReplyBottomSheet#embedReplyThumbnail),
+                // so it renders straight from local bytes: no network call, and
+                // completely unaffected by the original status later expiring, being
+                // deleted, or being moved into a Highlight. Same in-memory pool as the
+                // URL path below so repeat rebinds don't re-decode the same JPEG.
+                String b64PoolKey = poolKey("b64:" + replyThumbB64.hashCode(), 88, 88);
+                android.graphics.Bitmap b64PoolHit = DECODED_BITMAP_CACHE.get(b64PoolKey);
+                if (b64PoolHit != null && !b64PoolHit.isRecycled()) {
+                    cv.setReply(m.replyToSenderName, m.replyToText, b64PoolHit);
+                } else {
+                    android.graphics.Bitmap decoded = null;
+                    try {
+                        byte[] bytes = android.util.Base64.decode(replyThumbB64, android.util.Base64.NO_WRAP);
+                        decoded = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                    } catch (Exception ignored) { /* falls through to null below */ }
+                    if (decoded != null) DECODED_BITMAP_CACHE.put(b64PoolKey, decoded);
+                    cv.setReply(m.replyToSenderName, m.replyToText, decoded);
+                }
+            } else if (replyThumbUrl != null && !replyThumbUrl.isEmpty()) {
                 android.graphics.Bitmap replyPoolHit = DECODED_BITMAP_CACHE.get(poolKey(replyThumbUrl, 88, 88));
                 if (replyPoolHit != null && !replyPoolHit.isRecycled()) {
                     cv.setReply(m.replyToSenderName, m.replyToText, replyPoolHit);
@@ -5900,6 +6047,7 @@ public class MessagePagingAdapter
                 // only ever trigger ONE Firebase "reels/{id}" read for the
                 // lifetime of the app process instead of one per bind.
                 if (h.ivReelShareThumb != null) {
+                    String thumbB64 = m.reelShareThumbBase64;
                     String thumb = m.reelShareThumb != null ? m.reelShareThumb : "";
                     String rKey = m.reelId != null ? m.reelId : "";
                     // Tag the row with the reelId it's currently bound to, so an
@@ -5907,14 +6055,29 @@ public class MessagePagingAdapter
                     // recycled to a different message can detect the mismatch
                     // and skip touching views that no longer belong to it.
                     h.itemView.setTag(R.id.iv_reel_share_thumb, rKey);
-                    if (thumb.isEmpty() && !rKey.isEmpty()) {
+                    if (thumb.isEmpty() && (thumbB64 == null || thumbB64.isEmpty()) && !rKey.isEmpty()) {
                         String cachedThumb = reelThumbCache.get(rKey);
                         if (cachedThumb != null) {
                             thumb = cachedThumb;
                             m.reelShareThumb = cachedThumb;
                         }
                     }
-                    if (!thumb.isEmpty()) {
+                    if (thumbB64 != null && !thumbB64.isEmpty()) {
+                        // WhatsApp-level: local decode, no network — see
+                        // ReelShareSheetFragment / ThumbnailEmbedder.
+                        try {
+                            byte[] bytes = android.util.Base64.decode(thumbB64, android.util.Base64.NO_WRAP);
+                            android.graphics.Bitmap decoded =
+                                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                            if (decoded != null) {
+                                h.ivReelShareThumb.setImageBitmap(decoded);
+                            } else {
+                                h.ivReelShareThumb.setImageResource(android.R.color.darker_gray);
+                            }
+                        } catch (Exception ignored) {
+                            h.ivReelShareThumb.setImageResource(android.R.color.darker_gray);
+                        }
+                    } else if (!thumb.isEmpty()) {
                         int[] cardPx = reelCardPx(ctx);
                         glide(ctx)
                                 .load(thumb)
@@ -6953,6 +7116,11 @@ public class MessagePagingAdapter
         setDownloadPillState(h, isDownloading, isDownloading ? -1 : Integer.MIN_VALUE, "Photo");
 
         if (!isDownloading) {
+            // PERF: m.fileSize-first, same as the canvas media branches — see
+            // MessagePagingAdapter's isImage/isGif/isSticker bind blocks.
+            if (m.fileSize != null && m.fileSize > 0) {
+                h.tv_download_size.setText(formatFileSize(m.fileSize));
+            } else {
             // Fetch just the size for the label — doesn't download the file.
             com.callx.app.utils.MediaCache.getRemoteSize(ctx, fullUrl, new com.callx.app.utils.MediaCache.SizeCallback() {
                 @Override public void onSize(long bytes) {
@@ -6963,6 +7131,7 @@ public class MessagePagingAdapter
                 }
                 @Override public void onError(String reason) { /* keep "Photo" label */ }
             });
+            }
         }
 
         h.ll_download_pill.setOnClickListener(v -> {

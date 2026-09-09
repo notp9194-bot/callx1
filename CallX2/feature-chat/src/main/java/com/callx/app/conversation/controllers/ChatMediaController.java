@@ -322,7 +322,8 @@ public class ChatMediaController {
                     if (result.getResultCode() != android.app.Activity.RESULT_OK
                             || result.getData() == null) return;
                     String url = result.getData().getStringExtra("gif_url");
-                    if (url != null && !url.isEmpty()) sendTenorGif(url);
+                    boolean isVideo = result.getData().getBooleanExtra("gif_is_video", false);
+                    if (url != null && !url.isEmpty()) sendTenorGif(url, isVideo);
                 });
 
         videoPicker = activity.registerForActivityResult(
@@ -1218,6 +1219,7 @@ public class ChatMediaController {
                         m.type     = "gif";
                         m.mediaUrl = r.secureUrl;
                         m.imageUrl = r.secureUrl;
+                        m.fileSize = r.bytes; // PERF: lets the receiver show the size label with no getRemoteSize() round-trip
                         delegate.pushMessage(m, "\uD83C\uDEDF\uFE0F GIF");
                         delegate.clearReply();
                     }
@@ -1253,6 +1255,7 @@ public class ChatMediaController {
                         m.type     = "sticker";
                         m.mediaUrl = r.secureUrl;
                         m.imageUrl = r.secureUrl;
+                        m.fileSize = r.bytes; // PERF: lets the receiver show the size label with no getRemoteSize() round-trip
                         delegate.pushMessage(m, "\uD83C\uDFF7\uFE0F Sticker");
                         delegate.clearReply();
                     }
@@ -1269,12 +1272,13 @@ public class ChatMediaController {
     // just builds the message straight away — same "gif" type/preview text
     // as sendGifMessage(), just skipping the upload step entirely.
 
-    public void sendTenorGif(String gifUrl) {
+    public void sendTenorGif(String gifUrl, boolean isVideo) {
         if (gifUrl == null || gifUrl.isEmpty()) return;
         Message m = delegate.buildOutgoing();
-        m.type     = "gif";
-        m.mediaUrl = gifUrl;
-        m.imageUrl = gifUrl;
+        m.type       = "gif";
+        m.mediaUrl   = gifUrl;
+        m.imageUrl   = gifUrl;
+        m.gifIsVideo = isVideo; // WhatsApp-style mp4 delivery — see Message#gifIsVideo
         delegate.pushMessage(m, "\uD83C\uDEDF\uFE0F GIF");
         delegate.clearReply();
     }

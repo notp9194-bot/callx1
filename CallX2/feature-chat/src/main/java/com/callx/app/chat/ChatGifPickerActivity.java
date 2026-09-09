@@ -32,11 +32,29 @@ import java.util.concurrent.Executors;
  * feature-chat doesn't need a dependency on feature-x.
  *
  * Launched from ChatMediaController/GroupChatActivity's attach sheet
- * "GIF" option. Returns "gif_url" (full-res .gif) + "gif_preview_url"
- * (tinygif, used for the immediate first-frame preview) via setResult().
+ * "GIF" option. Returns "gif_url" + "gif_preview_url" + "gif_is_video"
+ * via setResult() — see WHATSAPP-STYLE GIF DELIVERY below.
  *
  * Uses the same Tenor demo key fallback as XGifPickerActivity — add a
  * real key to strings.xml (tenor_api_key) for production rate limits.
+ *
+ * ── WHATSAPP-STYLE GIF DELIVERY ──────────────────────────────────────────
+ * Tenor's raw "gif" format is a huge, CPU-decoded-frame-by-frame file —
+ * often 5-10x the bytes of the exact same clip as an h.264 mp4, and Glide
+ * has to software-decode every frame instead of handing it to the
+ * hardware video decoder. WhatsApp/Telegram never actually send a .gif —
+ * they send Tenor's small mp4 rendition and loop-play it muted like a
+ * video. This picker now does the same: "gif_url" is the "tinymp4"
+ * rendition (falling back to "mp4", then finally the old raw "gif" only
+ * if Tenor has no video rendition for a given result at all), and
+ * "gif_is_video" tells the send/render pipeline which case it got so it
+ * can route mp4 results through ExoPlayer (loop, muted, no controls)
+ * instead of Glide's animated-GIF decoder — see MediaViewerActivity's
+ * gif-is-video branch and Message#gifIsVideo's javadoc.
+ *
+ * The in-grid preview here still uses "tinygif" (already tiny — it's
+ * only ever decoded once per visible cell, not re-downloaded per chat
+ * message the way the sent GIF would be), so no change needed there.
  */
 public class ChatGifPickerActivity extends AppCompatActivity {
 
@@ -76,14 +94,20 @@ public class ChatGifPickerActivity extends AppCompatActivity {
         loadTrending();
     }
 
+    // Ask Tenor for the video renditions (tinymp4/mp4) alongside gif/tinygif
+    // in one call — mp4 is the send format now (see class doc), tinygif
+    // stays the grid-preview format, and gif is kept only as a last-resort
+    // fallback for the rare result that has no video rendition at all.
+    private static final String MEDIA_FILTER = "tinymp4,mp4,tinygif,gif";
+
     private void loadTrending() {
-        fetch(TENOR_BASE + "/featured?key=" + getTenorKey() + "&limit=24&media_filter=gif");
+        fetch(TENOR_BASE + "/featured?key=" + getTenorKey() + "&limit=24&media_filter=" + MEDIA_FILTER);
     }
 
     private void searchGifs(String query) {
         try {
             String encoded = URLEncoder.encode(query, "UTF-8");
-            fetch(TENOR_BASE + "/search?key=" + getTenorKey() + "&q=" + encoded + "&limit=24&media_filter=gif");
+            fetch(TENOR_BASE + "/search?key=" + getTenorKey() + "&q=" + encoded + "&limit=24&media_filter=" + MEDIA_FILTER);
         } catch (Exception ignored) {}
     }
 
@@ -106,17 +130,35 @@ public class ChatGifPickerActivity extends AppCompatActivity {
                     JSONObject res = results.getJSONObject(i);
                     JSONObject mediaFormats = res.optJSONObject("media_formats");
                     if (mediaFormats == null) continue;
-                    JSONObject gif = mediaFormats.optJSONObject("gif");
+                    JSONObject tinymp4 = mediaFormats.optJSONObject("tinymp4");
+                    JSONObject mp4     = mediaFormats.optJSONObject("mp4");
+                    JSONObject gif     = mediaFormats.optJSONObject("gif");
                     JSONObject tinygif = mediaFormats.optJSONObject("tinygif");
-                    if (gif == null && tinygif == null) continue;
+                    if (tinymp4 == null && mp4 == null && gif == null && tinygif == null) continue;
                     GifItem item = new GifItem();
                     item.id = res.optString("id");
-                    if (gif != null) item.url = gif.optString("url");
+                    // Send format: smallest video rendition first (WhatsApp-style —
+                    // see class doc), then the bigger mp4, and only fall back to
+                    // the heavy raw gif when Tenor genuinely has no video for this
+                    // result.
+                    if (tinymp4 != null) {
+                        item.url = tinymp4.optString("url");
+                        item.isVideo = true;
+                    } else if (mp4 != null) {
+                        item.url = mp4.optString("url");
+                        item.isVideo = true;
+                    } else if (gif != null) {
+                        item.url = gif.optString("url");
+                    }
+                    // Grid-preview format: always the small animated tinygif —
+                    // cheap regardless of which format the send URL ended up as.
                     if (tinygif != null) {
                         item.previewUrl = tinygif.optString("url");
-                        if (item.url == null || item.url.isEmpty()) item.url = item.previewUrl;
+                        if (item.url == null || item.url.isEmpty()) {
+                            item.url = item.previewUrl; // no mp4/gif at all — last resort
+                        }
                     }
-                    if (item.previewUrl == null) item.previewUrl = item.url;
+                    if (item.previewUrl == null || item.previewUrl.isEmpty()) item.previewUrl = item.url;
                     if (item.url != null && !item.url.isEmpty()) items.add(item);
                 }
                 runOnUiThread(() -> {
@@ -133,6 +175,7 @@ public class ChatGifPickerActivity extends AppCompatActivity {
         Intent result = new Intent();
         result.putExtra("gif_url", item.url);
         result.putExtra("gif_preview_url", item.previewUrl);
+        result.putExtra("gif_is_video", item.isVideo);
         setResult(RESULT_OK, result);
         finish();
     }
@@ -154,6 +197,8 @@ public class ChatGifPickerActivity extends AppCompatActivity {
 
     static class GifItem {
         String id, url, previewUrl;
+        /** true when {@code url} is a video (tinymp4/mp4) rendition rather than raw gif. */
+        boolean isVideo;
     }
 
     // ── GifAdapter ────────────────────────────────────────────────────────────

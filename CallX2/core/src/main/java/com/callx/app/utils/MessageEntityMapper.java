@@ -29,6 +29,7 @@ public final class MessageEntityMapper {
         m.readBy = GroupReceiptJsonUtil.receiptsFromJson(e.groupReadByJson);
         m.replyToText = e.replyToText; m.replyToSenderName = e.replyToSenderName;
         m.replyToType = e.replyToType; m.replyToMediaUrl = e.replyToMediaUrl;
+        m.replyToThumbBase64 = e.replyToThumbBase64;
         m.edited = e.edited; m.editedAt = e.editedAt; m.deleted = e.deleted; m.forwardedFrom = e.forwardedFrom;
         m.editHistory = com.callx.app.utils.EditHistoryJsonUtil.historyFromJson(e.editHistoryJson);
         m.starred = e.starred; m.pinned = e.pinned; m.reelId = e.reelId;
@@ -37,9 +38,10 @@ public final class MessageEntityMapper {
         m.broadcast = e.broadcast;
         m.reelOwnerUid = e.reelOwnerUid;
         m.statusOwnerUid = e.statusOwnerUid; m.statusOwnerName = e.statusOwnerName;
-        m.statusThumbUrl = e.statusThumbUrl;
+        m.statusThumbUrl = e.statusThumbUrl; m.statusThumbBase64 = e.statusThumbBase64;
         m.reactions = com.callx.app.utils.ReactionJsonUtil.reactionsFromJson(e.reactionsJson);
-        m.reelThumbUrl = e.reelThumbUrl; m.fontStyle = e.fontStyle; m.expiresAt = e.expiresAt;
+        m.reelThumbUrl = e.reelThumbUrl; m.reelThumbBase64 = e.reelThumbBase64;
+        m.fontStyle = e.fontStyle; m.expiresAt = e.expiresAt;
         m.viewOnce = e.viewOnce; m.viewOnceState = e.viewOnceState; m.openedAt = e.openedAt; m.viewOnceExpiresAt = e.viewOnceExpiresAt;
         m.pollQuestion = e.pollQuestion;
         m.pollOptions  = com.callx.app.utils.PollJsonUtil.optionsFromJson(e.pollOptionsJson);
@@ -49,6 +51,7 @@ public final class MessageEntityMapper {
         m.pollMultiChoice = e.pollMultiChoice;
         m.reelShareUrl        = e.reelShareUrl;
         m.reelShareThumb      = e.reelShareThumb;
+        m.reelShareThumbBase64 = e.reelShareThumbBase64;
         m.reelShareCaption    = e.reelShareCaption;
         m.reelShareUsername   = e.reelShareUsername;
         m.reelShareOwnerPhoto = e.reelShareOwnerPhoto;
@@ -116,6 +119,7 @@ public final class MessageEntityMapper {
         e.replyToSenderName = m.replyToSenderName;
         e.replyToType = m.replyToType;
         e.replyToMediaUrl = m.replyToMediaUrl;
+        e.replyToThumbBase64 = m.replyToThumbBase64;
         e.edited = m.edited;
         e.editedAt = m.editedAt;
         e.editHistoryJson = EditHistoryJsonUtil.historyToJson(m.editHistory);
@@ -128,12 +132,15 @@ public final class MessageEntityMapper {
         e.reactionsJson = ReactionJsonUtil.reactionsToJson(m.reactions);
         e.reelId = m.reelId;
         e.reelThumbUrl = m.reelThumbUrl;
+        e.reelThumbBase64 = m.reelThumbBase64;
         e.reelOwnerUid = m.reelOwnerUid;
         e.statusOwnerUid = m.statusOwnerUid;
         e.statusOwnerName = m.statusOwnerName;
         e.statusThumbUrl = m.statusThumbUrl;
+        e.statusThumbBase64 = m.statusThumbBase64;
         e.reelShareUrl = m.reelShareUrl;
         e.reelShareThumb = m.reelShareThumb;
+        e.reelShareThumbBase64 = m.reelShareThumbBase64;
         e.reelShareCaption = m.reelShareCaption;
         e.reelShareUsername = m.reelShareUsername;
         e.reelShareOwnerPhoto = m.reelShareOwnerPhoto;

@@ -279,6 +279,7 @@ public class ChatMessageSender {
                 m.pollMultiChoice     = pe.pollMultiChoice;
                 m.reelShareUrl        = pe.reelShareUrl;
                 m.reelShareThumb      = pe.reelShareThumb;
+                m.reelShareThumbBase64 = pe.reelShareThumbBase64;
                 m.reelShareCaption    = pe.reelShareCaption;
                 m.reelShareUsername   = pe.reelShareUsername;
                 m.reelShareOwnerPhoto = pe.reelShareOwnerPhoto;
@@ -378,6 +379,7 @@ public class ChatMessageSender {
         e.statusThumbUrl      = m.statusThumbUrl;
         e.reelShareUrl        = m.reelShareUrl;
         e.reelShareThumb      = m.reelShareThumb;
+        e.reelShareThumbBase64 = m.reelShareThumbBase64;
         e.reelShareCaption    = m.reelShareCaption;
         e.reelShareUsername   = m.reelShareUsername;
         e.reelShareOwnerPhoto = m.reelShareOwnerPhoto;

@@ -105,6 +105,14 @@ public class ReelUploadActivity extends AppCompatActivity {
     public static final String EXTRA_SOUND_ID    = "selected_sound_id";
     public static final String EXTRA_SOUND_TITLE = "selected_sound_title";
     public static final String EXTRA_SOUND_URL   = "selected_sound_url";
+    // Resume-from-draft cleanup: when the reel being posted was resumed from a saved
+    // draft (see ReelDraftsActivity/ReelEditorActivity.saveDraftAndFinish()), these
+    // identify that draft so it can be removed (Firebase record + local files) once
+    // the reel is actually posted — otherwise the finished reel would linger as a
+    // stale duplicate entry in Drafts forever.
+    public static final String EXTRA_DRAFT_ID_TO_DELETE          = "upload_draft_id_to_delete";
+    public static final String EXTRA_DRAFT_VIDEO_URI_TO_DELETE   = "upload_draft_video_uri_to_delete";
+    public static final String EXTRA_DRAFT_THUMB_URI_TO_DELETE   = "upload_draft_thumb_uri_to_delete";
     // ✅ FIX: cover/artist extras so the music disc shows the ORIGINAL
     // sound's photo immediately at post time, not just after the later
     // async Firebase patch in registerOrLinkSound().
@@ -245,6 +253,36 @@ public class ReelUploadActivity extends AppCompatActivity {
     private long    pendingTrimStartMs      = 0L;
     private long    pendingTrimEndMs        = 0L;
     private boolean pendingTrimAlreadyBaked = false;
+    // Resume-from-draft cleanup — see EXTRA_DRAFT_ID_TO_DELETE.
+    private String resumedDraftId        = "";
+    private String resumedDraftVideoUri  = "";
+    private String resumedDraftThumbUri  = "";
+
+    private static String nvl(String s) { return s == null ? "" : s; }
+
+    /**
+     * When this reel was resumed from Drafts and just posted successfully, removes
+     * that draft's Firebase record and its local video/thumb files (getFilesDir()/
+     * reel_drafts/…) so the now-published reel doesn't also linger as a stale
+     * duplicate in Drafts. Best-effort — a failure here doesn't affect the post
+     * that already succeeded.
+     */
+    private void deleteResumedDraftIfAny() {
+        if (resumedDraftId.isEmpty()) return;
+        try {
+            String uid = FirebaseUtils.getCurrentUid();
+            FirebaseUtils.getReelDraftsRef(uid).child(resumedDraftId).removeValue();
+        } catch (Exception ignored) {}
+        deleteLocalDraftFile(resumedDraftVideoUri);
+        deleteLocalDraftFile(resumedDraftThumbUri);
+    }
+
+    private void deleteLocalDraftFile(String fileUriStr) {
+        if (fileUriStr == null || fileUriStr.isEmpty() || !fileUriStr.startsWith("file://")) return;
+        try {
+            new java.io.File(android.net.Uri.parse(fileUriStr).getPath()).delete();
+        } catch (Exception ignored) {}
+    }
     private boolean trimBakeInProgress      = false;
     /** Tracks whether selectedUri currently points at a local file path (vs a content:// URI), so the quality-chip listener can re-run the same pipeline. */
     private boolean lastVideoIsFilePath     = true;
@@ -1262,6 +1300,9 @@ public class ReelUploadActivity extends AppCompatActivity {
         pendingTrimStartMs      = i.getLongExtra(EXTRA_TRIM_START, 0L);
         pendingTrimEndMs        = i.getLongExtra(EXTRA_TRIM_END, 0L);
         pendingTrimAlreadyBaked = i.getBooleanExtra(EXTRA_TRIM_ALREADY_BAKED, false);
+        resumedDraftId       = nvl(i.getStringExtra(EXTRA_DRAFT_ID_TO_DELETE));
+        resumedDraftVideoUri = nvl(i.getStringExtra(EXTRA_DRAFT_VIDEO_URI_TO_DELETE));
+        resumedDraftThumbUri = nvl(i.getStringExtra(EXTRA_DRAFT_THUMB_URI_TO_DELETE));
 
         showVideoPreview(uri);
         startCompressionPipeline(uri, isFilePath);
@@ -2846,6 +2887,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                             b.sendPendingCollabInvitesIfAny(reelId, reel.thumbUrl, myUid, finalMyName);
                             Toast.makeText(b, "Photo reel posted! 🎉", Toast.LENGTH_SHORT).show();
                             b.setResult(RESULT_OK);
+                            b.deleteResumedDraftIfAny();
                             b.layoutUploadProgress.setVisibility(View.GONE);
                             b.finish();
                         })
@@ -3039,6 +3081,7 @@ public class ReelUploadActivity extends AppCompatActivity {
                                 myUid, myName, finalReelId,
                                 reel.thumbUrl, caption, b.mentionedUids);
                         b.setResult(RESULT_OK);
+                        b.deleteResumedDraftIfAny();
 
                         // ✅ FIX (multi-duet gap #2/#3): this branch of saveReelToFirebase()
                         // is now ONLY reached for the final merged composite (raw participant

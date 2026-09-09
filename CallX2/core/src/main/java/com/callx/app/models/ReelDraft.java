@@ -13,6 +13,15 @@ public class ReelDraft {
     public long   trimStartMs;
     public long   trimEndMs;
     public long   timestamp;
+    // Filter + text/sticker overlay state — mirrors ReelEditorActivity's
+    // EXTRA_PRESET_FILTER_*/EXTRA_PRESET_STICKERS_JSON camera-preset extras,
+    // so resuming a draft reuses that same restore path unchanged.
+    public String filterName       = "";
+    public float  filterBrightness = 0f;
+    public float  filterContrast   = 1f;
+    public float  filterSaturation = 1f;
+    public float  filterBeauty     = 0f;
+    public String stickerJson      = "";
 
     public ReelDraft() {}
 

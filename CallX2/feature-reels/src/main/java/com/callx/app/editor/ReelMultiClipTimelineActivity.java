@@ -15,6 +15,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.OptIn;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.transformer.Composition;
@@ -158,18 +159,93 @@ public class ReelMultiClipTimelineActivity extends AppCompatActivity {
 
     // ── Per-clip trim ───────────────────────────────────────────────────
 
+    /** Minimum length either side of a split so both halves stay usable. */
+    private static final long MIN_SPLIT_PIECE_MS = 300;
+
+    @OptIn(markerClass = UnstableApi.class)
     private void openTrimSheet(int position) {
         TimelineClip clip = clips.get(position);
+        if (previewPlayer != null) previewPlayer.pause();
+
         BottomSheetDialog dialog = new BottomSheetDialog(this);
         View content = getLayoutInflater().inflate(R.layout.bottom_sheet_clip_trim, null);
         dialog.setContentView(content);
 
         VideoTrimFilmstripView trimView = content.findViewById(R.id.clip_trim_filmstrip);
         TextView tvClipDuration = content.findViewById(R.id.tv_clip_trim_duration);
+        PlayerView clipPlayerView = content.findViewById(R.id.clip_trim_player_view);
+        ImageButton btnPlayPause = content.findViewById(R.id.btn_clip_trim_play_pause);
+        ImageButton btnSplit = content.findViewById(R.id.btn_clip_trim_split);
+
         trimView.setDuration(clip.durationMs);
         trimView.setTrimRange(clip.trimStartMs, clip.trimEndMs);
         trimView.loadThumbnails(this, clip.uriOrPath, clip.isFilePath, clip.durationMs);
         tvClipDuration.setText(formatDuration(clip.trimmedDurationMs()));
+
+        // Small dedicated player for this one clip (unclipped, full duration) so the
+        // filmstrip's blue playhead line can be positioned anywhere in [trimStart,
+        // trimEnd] — that position is what "Split at playhead" cuts on.
+        ExoPlayer clipPlayer = new ExoPlayer.Builder(this).build();
+        clipPlayerView.setPlayer(clipPlayer);
+        clipPlayerView.setUseController(false);
+        clipPlayer.setMediaItem(MediaItem.fromUri(clip.toUri()));
+        clipPlayer.setRepeatMode(Player.REPEAT_MODE_OFF);
+        clipPlayer.prepare();
+        clipPlayer.seekTo(clip.trimStartMs);
+        clipPlayer.setPlayWhenReady(false);
+        trimView.setPlayheadPosition(clip.trimStartMs);
+
+        Handler playheadHandler = new Handler(Looper.getMainLooper());
+        Runnable playheadPoller = new Runnable() {
+            @Override public void run() {
+                if (clipPlayer.isPlaying()) {
+                    long pos = clipPlayer.getCurrentPosition();
+                    if (pos >= clip.trimEndMs) {
+                        clipPlayer.seekTo(clip.trimStartMs);
+                        pos = clip.trimStartMs;
+                    }
+                    trimView.setPlayheadPosition(pos);
+                }
+                playheadHandler.postDelayed(this, 50);
+            }
+        };
+        playheadHandler.post(playheadPoller);
+
+        btnPlayPause.setOnClickListener(v -> {
+            if (clipPlayer.isPlaying()) {
+                clipPlayer.pause();
+                btnPlayPause.setImageResource(R.drawable.ic_play);
+            } else {
+                if (clipPlayer.getCurrentPosition() >= clip.trimEndMs) {
+                    clipPlayer.seekTo(clip.trimStartMs);
+                }
+                clipPlayer.play();
+                btnPlayPause.setImageResource(R.drawable.ic_pause);
+            }
+        });
+
+        btnSplit.setOnClickListener(v -> {
+            long splitAt = clipPlayer.getCurrentPosition();
+            if (splitAt < clip.trimStartMs + MIN_SPLIT_PIECE_MS
+                    || splitAt > clip.trimEndMs - MIN_SPLIT_PIECE_MS) {
+                Toast.makeText(this, "Move the playhead further from the ends to split",
+                        Toast.LENGTH_SHORT).show();
+                return;
+            }
+            clipPlayer.pause();
+
+            TimelineClip second = new TimelineClip(clip.uriOrPath, clip.isFilePath, clip.durationMs);
+            second.trimStartMs = splitAt;
+            second.trimEndMs   = clip.trimEndMs;
+            clip.trimEndMs     = splitAt;
+
+            clips.add(position + 1, second);
+            adapter.notifyDataSetChanged();
+            rebuildPreviewPlaylist();
+            updateTotalDuration();
+            Toast.makeText(this, "Clip split ✓", Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+        });
 
         trimView.setOnTrimChangeListener(new VideoTrimFilmstripView.OnTrimChangeListener() {
             @Override public void onTrimChanged(long startMs, long endMs, boolean fromUser) {
@@ -180,12 +256,20 @@ public class ReelMultiClipTimelineActivity extends AppCompatActivity {
             @Override public void onTrimTouchEnd(long startMs, long endMs) {
                 clip.trimStartMs = startMs;
                 clip.trimEndMs   = endMs;
+                if (clipPlayer.getCurrentPosition() < startMs || clipPlayer.getCurrentPosition() > endMs) {
+                    clipPlayer.seekTo(startMs);
+                    trimView.setPlayheadPosition(startMs);
+                }
                 adapter.notifyItemChanged(position);
                 rebuildPreviewPlaylist();
                 updateTotalDuration();
             }
         });
 
+        dialog.setOnDismissListener(d -> {
+            playheadHandler.removeCallbacksAndMessages(null);
+            clipPlayer.release();
+        });
         content.findViewById(R.id.btn_clip_trim_done).setOnClickListener(v -> dialog.dismiss());
         dialog.show();
     }

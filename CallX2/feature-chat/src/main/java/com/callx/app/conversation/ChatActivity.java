@@ -2085,6 +2085,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             final String fwdReelId     = i.getStringExtra("forwardReelId");
             final String fwdReelUrl    = i.getStringExtra("forwardReelShareUrl");
             final String fwdReelThumb  = i.getStringExtra("forwardReelShareThumb");
+            final String fwdReelThumbB64 = i.getStringExtra("forwardReelShareThumbBase64");
             final String fwdReelCap    = i.getStringExtra("forwardReelShareCaption");
             final String fwdReelUser   = i.getStringExtra("forwardReelShareUsername");
             final String fwdReelPhoto  = i.getStringExtra("forwardReelShareOwnerPhoto");
@@ -2100,6 +2101,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     msg.reelId             = fwdReelId;
                     msg.reelShareUrl       = fwdReelUrl;
                     msg.reelShareThumb     = fwdReelThumb;
+                    // Reusing an already-embedded copy costs nothing (no
+                    // re-download) — carries the WhatsApp-level guarantee
+                    // forward too, so the forwarded card also survives the
+                    // original reel later being deleted.
+                    msg.reelShareThumbBase64 = (fwdReelThumbB64 != null && !fwdReelThumbB64.isEmpty())
+                            ? fwdReelThumbB64 : null;
                     msg.reelShareCaption   = fwdReelCap;
                     msg.reelShareUsername  = fwdReelUser;
                     msg.reelShareOwnerPhoto= fwdReelPhoto;
@@ -5124,6 +5131,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             i.putExtra("forwardReelId",            m.reelId             != null ? m.reelId             : "");
             i.putExtra("forwardReelShareUrl",       m.reelShareUrl       != null ? m.reelShareUrl       : "");
             i.putExtra("forwardReelShareThumb",     m.reelShareThumb     != null ? m.reelShareThumb     : "");
+            i.putExtra("forwardReelShareThumbBase64", m.reelShareThumbBase64 != null ? m.reelShareThumbBase64 : "");
             i.putExtra("forwardReelShareCaption",   m.reelShareCaption   != null ? m.reelShareCaption   : "");
             i.putExtra("forwardReelShareUsername",  m.reelShareUsername  != null ? m.reelShareUsername  : "");
             i.putExtra("forwardReelShareOwnerPhoto",m.reelShareOwnerPhoto!= null ? m.reelShareOwnerPhoto: "");

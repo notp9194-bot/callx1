@@ -548,27 +548,35 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment {
         msg.put("type",            "reel_share");
         msg.put("reelId",          reelId);
         msg.put("reelShareUrl",        link);
-        msg.put("reelShareThumb",      thumbUrl      != null ? thumbUrl      : "");
+        msg.put("reelShareThumb",      thumbUrl      != null ? thumbUrl      : ""); // fallback / older clients, or if the embed below fails
         msg.put("reelShareCaption",    caption       != null ? caption       : "");
         msg.put("reelShareUsername",   ownerUsername != null && !ownerUsername.isEmpty()
                                         ? ownerUsername : (ownerUid != null ? ownerUid : ""));
         msg.put("reelShareOwnerPhoto", ownerPhoto    != null ? ownerPhoto    : "");
         msg.put("timestamp",       System.currentTimeMillis());
-        msgRef.setValue(msg).addOnSuccessListener(unused -> {
-            // ── FCM push — receiver ko background/killed notification mile ──
-            String myName = "";
-            try { myName = FirebaseUtils.getCurrentName(); } catch (Exception ignored) {}
-            if (myName == null) myName = "";
-            com.callx.app.utils.PushNotify.notifyMessage(
-                contact.uid,       // toUid
-                myUid,             // fromUid
-                myName,            // fromName
-                chatId,            // chatId
-                msgKey != null ? msgKey : "",  // messageId
-                "🎬 Reel",         // preview text
-                "reel_share",      // type
-                thumbUrl != null ? thumbUrl : ""  // mediaUrl (thumb for notification)
-            );
+        // WhatsApp-level fix: embed a self-contained copy of the thumbnail
+        // (reelShareThumbBase64) so this card keeps rendering even if the
+        // original reel is later deleted or thumbUrl's CDN link changes.
+        // See ThumbnailEmbedder (core) for the shared download/crop/compress
+        // logic — same helper status-reply/status-seen/reel-seen use.
+        com.callx.app.utils.ThumbnailEmbedder.embed(thumbUrl, base64 -> {
+            if (base64 != null) msg.put("reelShareThumbBase64", base64);
+            msgRef.setValue(msg).addOnSuccessListener(unused -> {
+                // ── FCM push — receiver ko background/killed notification mile ──
+                String myName = "";
+                try { myName = FirebaseUtils.getCurrentName(); } catch (Exception ignored) {}
+                if (myName == null) myName = "";
+                com.callx.app.utils.PushNotify.notifyMessage(
+                    contact.uid,       // toUid
+                    myUid,             // fromUid
+                    myName,            // fromName
+                    chatId,            // chatId
+                    msgKey != null ? msgKey : "",  // messageId
+                    "🎬 Reel",         // preview text
+                    "reel_share",      // type
+                    thumbUrl != null ? thumbUrl : ""  // mediaUrl (thumb for notification)
+                );
+            });
         });
     }
 
@@ -664,7 +672,7 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment {
             msg.put("type",                "reel_share");
             msg.put("reelId",              reelId);
             msg.put("reelShareUrl",        link);
-            msg.put("reelShareThumb",      thumbUrl      != null ? thumbUrl      : "");
+            msg.put("reelShareThumb",      thumbUrl      != null ? thumbUrl      : ""); // fallback / older clients, or if the embed below fails
             msg.put("reelShareCaption",    caption       != null ? caption       : "");
             msg.put("reelShareUsername",   ownerUsername != null && !ownerUsername.isEmpty()
                                             ? ownerUsername : (ownerUid != null ? ownerUid : ""));
@@ -672,16 +680,22 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment {
             msg.put("timestamp",           System.currentTimeMillis());
             msg.put("status",              "sent");
 
-            msgRef.setValue(msg).addOnSuccessListener(unused2 ->
-                FirebaseUtils.sendGroupPushNotification(
-                    groupId, memberUids, myUid,
-                    myName.isEmpty() ? "New group" : myName,
-                    "🎬 Shared a reel in " + groupName,
-                    null));
+            // WhatsApp-level fix — same as sendReelToContact above: embed a
+            // self-contained thumbnail copy so the card survives the
+            // original reel later being deleted or thumbUrl changing.
+            com.callx.app.utils.ThumbnailEmbedder.embed(thumbUrl, base64 -> {
+                if (base64 != null) msg.put("reelShareThumbBase64", base64);
+                msgRef.setValue(msg).addOnSuccessListener(unused2 ->
+                    FirebaseUtils.sendGroupPushNotification(
+                        groupId, memberUids, myUid,
+                        myName.isEmpty() ? "New group" : myName,
+                        "🎬 Shared a reel in " + groupName,
+                        null));
 
-            incrementShareCount();
-            toast("Sent to new group with " + selectedContacts.size() + " people");
-            dismiss();
+                incrementShareCount();
+                toast("Sent to new group with " + selectedContacts.size() + " people");
+                dismiss();
+            });
         }).addOnFailureListener(e -> {
             btnSendToGroup.setEnabled(true);
             toast("Failed to create group. Try again.");
