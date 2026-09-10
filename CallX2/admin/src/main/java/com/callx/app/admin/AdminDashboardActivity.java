@@ -48,6 +48,8 @@ public class AdminDashboardActivity extends AppCompatActivity {
             () -> openMode("orgs"));
         addModule("Payments & trust", "Transactions, disputes, refunds, fraud flags, KYC and failure logs.",
             () -> openMode("payments"));
+        addModule("Reels monetization", "Review creator earnings, approve payouts, mark paid, or restore rejected balances.",
+            () -> open(AdminMonetizationActivity.class));
         addModule("System announcements", "Preview and send an FCM announcement to all users.",
             () -> open(AdminCommunicationsActivity.class));
         addModule("Crashes & audit", "Crash reports, admin actions and moderation history.",

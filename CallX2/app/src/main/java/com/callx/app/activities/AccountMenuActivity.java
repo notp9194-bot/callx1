@@ -26,6 +26,8 @@ import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.database.*;
 import com.callx.app.profile.UserReelsActivity;
 import com.callx.app.hub.GamesHubActivity;
+import com.callx.app.analytics.ReelCreatorDashboardActivity;
+import com.callx.app.creator.ReelMonetizationActivity;
 
 public class AccountMenuActivity extends AppCompatActivity {
 
@@ -111,6 +113,16 @@ public class AccountMenuActivity extends AppCompatActivity {
 
         configureRow(binding.rowCallxId.getRoot(), R.drawable.ic_person_add, "My CallX ID", myCallxId.isEmpty() ? "Tap to copy" : myCallxId);
         binding.rowCallxId.getRoot().setOnClickListener(v -> copyCallxId());
+
+        configureRow(binding.rowCreatorDashboard.getRoot(), R.drawable.ic_group,
+            "Creator Dashboard", "Analytics, earnings, and insights");
+        binding.rowCreatorDashboard.getRoot().setOnClickListener(v ->
+            startActivity(new Intent(this, ReelCreatorDashboardActivity.class)));
+
+        configureRow(binding.rowMonetization.getRoot(), R.drawable.ic_star_outline,
+            "Monetization", "Manage your earning settings");
+        binding.rowMonetization.getRoot().setOnClickListener(v ->
+            startActivity(new Intent(this, ReelMonetizationActivity.class)));
 
         configureRow(binding.rowPrivacy.getRoot(), R.drawable.ic_phone, "Privacy & Security", "App lock, fingerprint, PIN, pattern");
         binding.rowPrivacy.getRoot().setOnClickListener(v -> startActivity(new Intent(this, PrivacySecurityActivity.class)));

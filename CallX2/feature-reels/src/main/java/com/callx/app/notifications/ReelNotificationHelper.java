@@ -7,7 +7,7 @@ import com.callx.app.music.ReelTrendingAudioActivity;
 import com.callx.app.social.ReelShareSheetActivity;
 import com.callx.app.explore.ReelChallengeActivity;
 import com.callx.app.analytics.ReelAnalyticsActivity;
-import com.callx.app.creator.ReelCreatorFundActivity;
+import com.callx.app.creator.ReelMonetizationActivity;
 import com.callx.app.creator.ReelGiftingActivity;
 import com.callx.app.library.ReelDraftsActivity;
 import com.callx.app.live.ReelLiveActivity;
@@ -314,7 +314,7 @@ public class ReelNotificationHelper {
             String body   = "+" + coinValue + " coins added to your balance";
             NotificationCompat.Builder b = base(ctx, ReelNotificationChannelManager.CHANNEL_REEL_GIFTING, R.drawable.ic_music_note, title, body, 0xFFFF2D55)
                 .setContentIntent(genericPi(ctx, ReelGiftingActivity.class))
-                .addAction(R.drawable.ic_heart_filled, "💰 View Balance", genericPi(ctx, ReelCreatorFundActivity.class));
+                .addAction(R.drawable.ic_heart_filled, "💰 View Balance", genericPi(ctx, ReelMonetizationActivity.class));
             if (avatar != null) b.setLargeIcon(avatar);
             show(ctx, b, notifId("gift", gifterName));
         });
@@ -486,8 +486,8 @@ public class ReelNotificationHelper {
         String title = "💰 Creator Fund payout ready!";
         String body  = String.format(Locale.US, "%s coins ($%.2f) are ready for withdrawal.", fmt(coins), usd);
         NotificationCompat.Builder b = base(ctx, ReelNotificationChannelManager.CHANNEL_REEL_CREATOR_FUND, R.drawable.ic_music_note, title, body, 0xFFFFD700)
-            .setContentIntent(genericPi(ctx, ReelCreatorFundActivity.class))
-            .addAction(R.drawable.ic_music_note, "💰 Withdraw Now", genericPi(ctx, ReelCreatorFundActivity.class))
+            .setContentIntent(genericPi(ctx, ReelMonetizationActivity.class))
+            .addAction(R.drawable.ic_music_note, "💰 Withdraw Now", genericPi(ctx, ReelMonetizationActivity.class))
             .setStyle(new NotificationCompat.BigTextStyle().bigText(body));
         show(ctx, b, notifId("fund", "payout"));
     }

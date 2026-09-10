@@ -201,7 +201,9 @@ exports.mirrorPresenceOnGroupJoin = functions.database
   .ref("/users/{uid}/groups/{groupId}")
   .onCreate((snapshot, context) => mirrorUserPresence(context.params.uid));
 
-
+/**
+ * Remove pairing sessions that the web client left behind after expiry.
+ *
  * code that sat around without ever being approved (the web client
  * regenerates its QR locally long before this runs — this just keeps the
  * database tidy).
@@ -486,8 +488,9 @@ async function requireAdmin(context, operation) {
   if (superOnly.includes(operation) && role !== "super_admin" && !permissions[operation]) {
     throw new functions.https.HttpsError("permission-denied", "This role cannot perform that action.");
   }
-  if (operation === "paymentReview" && role !== "super_admin" && role !== "finance"
-      && !permissions.paymentReview) {
+  if ((operation === "paymentReview" || operation === "reviewCreatorPayout")
+      && role !== "super_admin" && role !== "finance"
+      && !permissions.paymentReview && !permissions.reviewCreatorPayout) {
     throw new functions.https.HttpsError("permission-denied", "Finance permission required.");
   }
   return { uid: context.auth.uid, role, permissions };
@@ -504,6 +507,241 @@ async function audit(adminUid, action, targetType, targetId, details) {
 function asObject(value) {
   return value && typeof value === "object" ? value : {};
 }
+
+const CREATOR_MONETIZATION_LEVELS = [
+  { key: "starter", name: "Starter", followers: 1000, posts30d: 20, totalViews: 10000, singleReelViews: 1000 },
+  { key: "pro", name: "Pro", followers: 5000, posts30d: 30, totalViews: 100000, singleReelViews: 1000 },
+  { key: "pro_plus", name: "Pro Plus", followers: 25000, posts30d: 30, totalViews: 500000, singleReelViews: 1000 },
+];
+
+function childCount(node) {
+  let count = 0;
+  if (node && typeof node.forEach === "function") node.forEach(() => { count++; });
+  return count;
+}
+
+function numericChild(value, keys) {
+  const object = asObject(value);
+  for (const key of keys) {
+    if (typeof object[key] === "number") return Number(object[key]);
+  }
+  return 0;
+}
+
+async function creatorStats(uid, db) {
+  const [userSnap, reelsSnap] = await Promise.all([
+    db.ref(`users/${uid}`).once("value"),
+    db.ref("reels").once("value"),
+  ]);
+  const user = asObject(userSnap.val());
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  let totalViews = 0;
+  let maxReelViews = 0;
+  let posts30d = 0;
+  reelsSnap.forEach((reelSnap) => {
+    const reel = asObject(reelSnap.val());
+    const owner = reel.ownerUid || reel.uid || reel.creatorUid || reel.userId;
+    if (owner !== uid) return;
+    const views = numericChild(reel, ["viewsCount", "viewCount", "views"]);
+    totalViews += views;
+    maxReelViews = Math.max(maxReelViews, views);
+    const createdAt = Number(reel.createdAt || reel.created_at || reel.timestamp || 0);
+    if (createdAt >= thirtyDaysAgo) posts30d++;
+  });
+  const followers = numericChild(user, ["followersCount", "followerCount"])
+    || childCount(userSnap.child("followers"));
+  const following = numericChild(user, ["followingCount"])
+    || childCount(userSnap.child("following"));
+  const talentPlan = String(user.talentPlan || user.talentTier || user.talent || "").toLowerCase();
+  const verified = user.isVerified === true || user.verified === true || user.blueBadge === true;
+  return {
+    followers, following, totalViews, maxReelViews, posts30d, verified,
+    hasTalentPlan: ["star", "gold", "platinum"].includes(talentPlan),
+    talentPlan: talentPlan || "none",
+  };
+}
+
+function creatorLevelFor(followers) {
+  if (followers >= 25000) return { label: "Level 3 Creator", goal: 0 };
+  if (followers >= 5000) return { label: "Level 2 Creator", goal: 25000 };
+  return { label: "Level 1 Creator", goal: followers < 1000 ? 1000 : 5000 };
+}
+
+function eligibleLevel(stats) {
+  let matched = null;
+  CREATOR_MONETIZATION_LEVELS.forEach((level) => {
+    const ok = stats.followers >= level.followers
+      && stats.posts30d >= level.posts30d
+      && stats.totalViews >= level.totalViews
+      && stats.maxReelViews >= level.singleReelViews
+      && stats.verified && stats.hasTalentPlan;
+    if (ok) matched = level;
+  });
+  return matched;
+}
+
+function centsToUsd(cents) {
+  return Number((Number(cents || 0) / 100).toFixed(2));
+}
+
+function reelRateCents(plan, views) {
+  const rates = plan === "pro_plus"
+    ? [[10000, 500], [25000, 1200], [50000, 2500], [100000, 5000], [250000, 10000]]
+    : plan === "pro"
+      ? [[5000, 100], [10000, 300], [25000, 700], [50000, 1500], [100000, 3000]]
+      : [[1000, 10], [2000, 50], [3000, 100], [5000, 200], [10000, 500]];
+  let earned = 0;
+  rates.forEach(([minimumViews, cents]) => {
+    if (views >= minimumViews) earned = cents;
+  });
+  return earned;
+}
+
+async function readCreatorState(uid, db) {
+  const [stateSnap, legacySnap] = await Promise.all([
+    db.ref(`creatorMonetization/${uid}`).once("value"),
+    db.ref(`reelCreatorFund/${uid}`).once("value"),
+  ]);
+  const state = asObject(stateSnap.val());
+  if (Object.keys(state).length > 0) return state;
+  const legacy = asObject(legacySnap.val());
+  return {
+    enrolled: legacy.enrolled === true,
+    balanceCents: Math.round(Number(legacy.balance || 0) / 10),
+    lifetimeCents: Math.round(Number(legacy.lifetimeEarnings || 0) / 10),
+    payouts: legacy.payouts || {},
+  };
+}
+
+/**
+ * View-count settlement is server-side and idempotent. Each reel stores the
+ * last rate already credited, so a repeated Firebase delivery cannot pay the
+ * same view milestone twice.
+ */
+exports.settleCreatorReelViews = functions.database
+  .ref("/reels/{reelId}/viewsCount")
+  .onWrite(async (change, context) => {
+    const afterViews = Number(change.after.val() || 0);
+    const beforeViews = Number(change.before.val() || 0);
+    if (!change.after.exists() || afterViews <= beforeViews) return null;
+    const reelSnap = await getDatabase().ref(`reels/${context.params.reelId}`).once("value");
+    const reel = asObject(reelSnap.val());
+    const uid = reel.ownerUid || reel.uid || reel.creatorUid || reel.userId;
+    if (!uid) return null;
+    const db = getDatabase();
+    const [stats, stateSnap] = await Promise.all([
+      creatorStats(uid, db),
+      db.ref(`creatorMonetization/${uid}`).once("value"),
+    ]);
+    const state = asObject(stateSnap.val());
+    if (state.enrolled !== true) return null;
+    const level = eligibleLevel(stats);
+    if (!level) return null;
+    const rateNow = reelRateCents(level.key, afterViews);
+    const creditedBefore = Number(state.reelEarnings
+      && state.reelEarnings[context.params.reelId] || 0);
+    const delta = rateNow - creditedBefore;
+    if (delta <= 0) return null;
+    const stateRef = db.ref(`creatorMonetization/${uid}`);
+    await stateRef.transaction((current) => {
+      const next = asObject(current);
+      next.balanceCents = Number(next.balanceCents || 0) + delta;
+      next.lifetimeCents = Number(next.lifetimeCents || 0) + delta;
+      next.reelEarnings = asObject(next.reelEarnings);
+      next.reelEarnings[context.params.reelId] = rateNow;
+      next.lastSettledAt = Date.now();
+      return next;
+    });
+    return null;
+  });
+
+async function creatorMonetizationView(uid, db) {
+  const [stats, state] = await Promise.all([creatorStats(uid, db), readCreatorState(uid, db)]);
+  const level = creatorLevelFor(stats.followers);
+  const eligible = eligibleLevel(stats);
+  const balanceCents = Number(state.balanceCents || 0);
+  const pendingCents = Number(state.pendingPayoutCents || 0);
+  const lifetimeCents = Number(state.lifetimeCents || 0);
+  const payouts = [];
+  Object.entries(asObject(state.payouts)).forEach(([id, payout]) => {
+    payouts.push({ id, ...asObject(payout) });
+  });
+  payouts.sort((a, b) => Number(b.requestedAt || 0) - Number(a.requestedAt || 0));
+  const missing = [];
+  const starter = CREATOR_MONETIZATION_LEVELS[0];
+  if (stats.followers < starter.followers) missing.push(`${starter.followers - stats.followers} more followers`);
+  if (stats.posts30d < starter.posts30d) missing.push(`${starter.posts30d - stats.posts30d} more posts in 30 days`);
+  if (stats.totalViews < starter.totalViews) missing.push(`${starter.totalViews - stats.totalViews} more total views`);
+  if (stats.maxReelViews < starter.singleReelViews) missing.push("1 reel with 1,000 views");
+  if (!stats.verified) missing.push("verified blue badge");
+  if (!stats.hasTalentPlan) missing.push("Star, Gold or Platinum talent plan");
+  const pending = payouts.find((payout) => ["pending", "approved", "processing"].includes(payout.status));
+  return {
+    stats,
+    creatorLevel: level.label,
+    nextFollowerGoal: level.goal,
+    eligible: !!eligible,
+    eligiblePlan: eligible ? eligible.name : "",
+    eligibilitySummary: eligible
+      ? `Eligible for ${eligible.name}. Keep creating to unlock the next level.`
+      : `Complete: ${missing.slice(0, 3).join(" • ")}${missing.length > 3 ? " • and more" : ""}`,
+    enrolled: state.enrolled === true,
+    earnings: {
+      availableCents: balanceCents, availableUsd: centsToUsd(balanceCents),
+      pendingCents, pendingUsd: centsToUsd(pendingCents),
+      lifetimeCents, lifetimeUsd: centsToUsd(lifetimeCents),
+    },
+    payoutSummary: pending
+      ? `Payout ${String(pending.status).toLowerCase()} • $${centsToUsd(pending.amountCents)}`
+      : "Payouts are reviewed and released after approval.",
+    payouts: payouts.slice(0, 20),
+  };
+}
+
+exports.creatorMonetizationAction = functions.https.onCall(async (data, context) => {
+  if (!context.auth || !context.auth.uid) {
+    throw new functions.https.HttpsError("unauthenticated", "Sign-in required.");
+  }
+  const action = data && data.action;
+  const uid = context.auth.uid;
+  const db = getDatabase();
+  const stateRef = db.ref(`creatorMonetization/${uid}`);
+  if (action === "get") return creatorMonetizationView(uid, db);
+
+  if (action === "setEnrollment") {
+    const enabled = data && data.payload && data.payload.enabled === true;
+    const view = await creatorMonetizationView(uid, db);
+    if (enabled && !view.eligible) {
+      throw new functions.https.HttpsError("failed-precondition",
+        "Your account has not met the Starter eligibility requirements yet.");
+    }
+    await stateRef.update({ enrolled: enabled, enrollmentUpdatedAt: ServerValue.TIMESTAMP });
+    return creatorMonetizationView(uid, db);
+  }
+
+  if (action === "requestPayout") {
+    const view = await creatorMonetizationView(uid, db);
+    if (!view.enrolled) throw new functions.https.HttpsError("failed-precondition", "Start monetization first.");
+    if (!view.eligible) throw new functions.https.HttpsError("failed-precondition", "Meet the creator requirements first.");
+    if (view.earnings.availableCents <= 0) throw new functions.https.HttpsError("failed-precondition", "There is no available balance.");
+    if (view.payouts.some((payout) => ["pending", "approved", "processing"].includes(payout.status))) {
+      throw new functions.https.HttpsError("already-exists", "A payout is already under review.");
+    }
+    const payoutRef = stateRef.child("payouts").push();
+    const amountCents = view.earnings.availableCents;
+    await stateRef.update({
+      balanceCents: 0, pendingPayoutCents: amountCents,
+      lastPayoutRequestedAt: ServerValue.TIMESTAMP,
+    });
+    await payoutRef.set({
+      amountCents, amountUsd: centsToUsd(amountCents), status: "pending",
+      requestedAt: ServerValue.TIMESTAMP, uid,
+    });
+    return { ok: true, payoutId: payoutRef.key, amountCents };
+  }
+
+  throw new functions.https.HttpsError("invalid-argument", `Unknown monetization action: ${action}`);
+});
 
 function safeTargetPath(type, value) {
   const v = asObject(value);
@@ -866,6 +1104,71 @@ exports.adminAction = functions.https.onCall(async (data, context) => {
     }
     await audit(context.auth.uid, `payment_${payload.operation}`, "payment", payload.transactionId, {});
     return { ok: true };
+  }
+
+  if (action === "listCreatorPayouts") {
+    const snap = await db.ref("creatorMonetization").once("value");
+    const creators = [];
+    const payouts = [];
+    snap.forEach((creatorSnap) => {
+      const state = asObject(creatorSnap.val());
+      creators.push({
+        uid: creatorSnap.key,
+        enrolled: state.enrolled === true,
+        balanceCents: Number(state.balanceCents || 0),
+        pendingPayoutCents: Number(state.pendingPayoutCents || 0),
+        lifetimeCents: Number(state.lifetimeCents || 0),
+      });
+      creatorSnap.child("payouts").forEach((payoutSnap) => {
+        const payout = asObject(payoutSnap.val());
+        payouts.push({
+          ...payout,
+          id: payoutSnap.key,
+          uid: creatorSnap.key,
+          amountCents: Number(payout.amountCents || 0),
+        });
+      });
+    });
+    payouts.sort((a, b) => Number(b.requestedAt || 0) - Number(a.requestedAt || 0));
+    return { creators, payouts: payouts.slice(0, 500) };
+  }
+
+  if (action === "reviewCreatorPayout") {
+    const uid = String(payload.uid || "");
+    const payoutId = String(payload.payoutId || "");
+    const operation = String(payload.operation || "");
+    if (!uid || !payoutId || !["approve", "reject", "paid"].includes(operation)) {
+      throw new functions.https.HttpsError("invalid-argument", "Creator payout details are required.");
+    }
+    const payoutRef = db.ref(`creatorMonetization/${uid}/payouts/${payoutId}`);
+    const payoutSnap = await payoutRef.once("value");
+    const payout = asObject(payoutSnap.val());
+    if (!payoutSnap.exists()) {
+      throw new functions.https.HttpsError("not-found", "Payout request not found.");
+    }
+    const currentStatus = String(payout.status || "pending");
+    if (["paid", "rejected"].includes(currentStatus)) {
+      throw new functions.https.HttpsError("failed-precondition", "Payout is already closed.");
+    }
+    const amountCents = Number(payout.amountCents || 0);
+    const nextStatus = operation === "approve" ? "approved"
+      : operation === "paid" ? "paid" : "rejected";
+    const updates = { status: nextStatus, reviewedBy: context.auth.uid,
+      reviewedAt: ServerValue.TIMESTAMP };
+    if (operation === "reject") {
+      updates.rejectionReason = String(payload.reason || "Rejected by admin").slice(0, 240);
+      updates.restoreBalanceCents = amountCents;
+      await db.ref(`creatorMonetization/${uid}`).update({
+        balanceCents: amountCents,
+        pendingPayoutCents: 0,
+      });
+    } else if (operation === "paid") {
+      await db.ref(`creatorMonetization/${uid}`).update({ pendingPayoutCents: 0 });
+    }
+    await payoutRef.update(updates);
+    await audit(context.auth.uid, `creator_payout_${operation}`, "creator_payout",
+      `${uid}/${payoutId}`, { amountCents });
+    return { ok: true, status: nextStatus };
   }
 
   if (action === "sendAnnouncement") {

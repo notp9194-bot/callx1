@@ -2,7 +2,7 @@ package com.callx.app.settings;
 
 import com.callx.app.feed.ReelFeedSettingsActivity;
 import com.callx.app.profile.ReelQRCodeActivity;
-import com.callx.app.creator.ReelCreatorFundActivity;
+import com.callx.app.creator.ReelMonetizationActivity;
 import com.callx.app.creator.ReelModerationActivity;
 import com.callx.app.followers.ReelCollabInboxActivity;
 
@@ -50,7 +50,7 @@ public class ReelPrivacyAndSecurityActivity extends AppCompatActivity {
         addAccountRow(root, "👤", "Manage my account");
         addRow(root, "🔒", "Privacy and safety",       ReelPrivacySettingsActivity.class);
         addRow(root, "📰", "Content preferences",      ReelFeedSettingsActivity.class);
-        addRow(root, "💰", "Creator Fund / Balance",   ReelCreatorFundActivity.class);
+        addRow(root, "💰", "Monetization / Balance",   ReelMonetizationActivity.class);
         addRow(root, "📤", "Share profile",             ReelQRCodeActivity.class);
         addRow(root, "📱", "Reel QR Code",              ReelQRCodeActivity.class);
 

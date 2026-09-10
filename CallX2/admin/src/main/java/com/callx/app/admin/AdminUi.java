@@ -108,6 +108,12 @@ public final class AdminUi {
         return card;
     }
 
+    public static MaterialCardView cardText(Context c, String text) {
+        MaterialCardView card = card(c);
+        card.addView(body(c, text));
+        return card;
+    }
+
     public static Button button(Context c, String text, View.OnClickListener click) {
         MaterialButton b = new MaterialButton(c);
         b.setText(text);

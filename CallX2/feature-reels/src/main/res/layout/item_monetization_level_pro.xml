@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:layout_marginTop="16dp" app:cardCornerRadius="18dp"
+    app:cardBackgroundColor="#FFFFFF" app:strokeColor="#B5A4F3" app:strokeWidth="1dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="20dp">
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="LEVEL 2   Pro" android:textColor="#7656D9" android:textSize="16sp" android:textStyle="bold"/>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="ELIGIBILITY\n\n● Reach 5,000 Followers\n● Upload 30 Posts / Reels in 30 Days\n● Complete 100,000 Total Views\n● Get 1,000 Views on Any Single Reel\n● Verified Blue Badge Required\n● Account must be Star, Gold or Platinum Talent\n● Maintain active engagement on posts &amp; reels"
+            android:textColor="#41404A" android:textSize="12sp" android:lineSpacingExtra="5dp"/>
+        <View android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginTop="16dp" android:background="#E9E8EE"/>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="EARNINGS PER REEL\n\n5,000 views                                      $1.00\n10,000 views                                    $3.00\n25,000 views                                    $7.00\n50,000 views                                    $15.00\n100,000 views                                  $30.00"
+            android:textColor="#575562" android:textSize="12sp" android:lineSpacingExtra="7dp"/>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:text="Pro keeps every Starter rate as well."
+            android:textColor="#8A8996" android:textSize="11sp"/>
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

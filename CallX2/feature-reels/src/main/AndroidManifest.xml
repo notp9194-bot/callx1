@@ -179,6 +179,9 @@
         <activity android:name="com.callx.app.creator.ReelCreatorFundActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.creator.ReelMonetizationActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
         <activity android:name="com.callx.app.library.ReelDraftsActivity"
             android:exported="false"/>
         <activity android:name="com.callx.app.upload.ReelSchedulerActivity"

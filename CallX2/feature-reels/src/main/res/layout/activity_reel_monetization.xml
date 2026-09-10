@@ -1,0 +1,311 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#F7F6FC">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="58dp"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:background="#F7F6FC">
+        <ImageButton
+            android:id="@+id/btn_monetization_back"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_arrow_back"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Back"/>
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:paddingStart="8dp">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Monetization"
+                android:textColor="#171722"
+                android:textSize="20sp"
+                android:textStyle="bold"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Explore all ways to earn"
+                android:textColor="#8A8996"
+                android:textSize="12sp"/>
+        </LinearLayout>
+        <Button
+            android:id="@+id/btn_monetization_earn"
+            android:layout_width="wrap_content"
+            android:layout_height="42dp"
+            android:text="Earn Now"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:backgroundTint="#F6A51A"/>
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/progress_monetization"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:visibility="gone"/>
+
+    <ScrollView
+        android:id="@+id/scroll_monetization"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="32dp">
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                app:cardBackgroundColor="#FFF8ED"
+                app:cardCornerRadius="18dp"
+                app:strokeColor="#F2D8A8"
+                app:strokeWidth="1dp">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="📣  Monetization is changing"
+                        android:textColor="#24232B"
+                        android:textSize="14sp"
+                        android:textStyle="bold"/>
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="Earning on CallX now requires a Talent plan — Star, Gold or Platinum — along with the creator requirements below."
+                        android:textColor="#777482"
+                        android:textSize="12sp"
+                        android:lineSpacingExtra="3dp"/>
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="Already earning? Everything you earned before this change is unaffected and will be paid on the original terms."
+                        android:textColor="#3A3842"
+                        android:textSize="12sp"
+                        android:textStyle="bold"/>
+                    <View android:layout_width="match_parent" android:layout_height="1dp"
+                        android:layout_marginTop="14dp" android:background="#F0DEC0"/>
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="YOUR PLAN SETS YOUR PAYOUT SPEED"
+                        android:textColor="#D59A35"
+                        android:textSize="10sp"
+                        android:textStyle="bold"/>
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Star        30% of approved payout                    within 30 days\nGold       50% of approved payout                    within 15 days\nPlatinum  80% of approved payout                    within 7 days"
+                        android:textColor="#4A4652"
+                        android:textSize="12sp"
+                        android:lineSpacingExtra="7dp"/>
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="Payouts are released only after your earnings are reviewed and approved. A 15% platform fee applies to each approved amount."
+                        android:textColor="#97939E"
+                        android:textSize="11sp"/>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                app:cardBackgroundColor="#E7E4FF"
+                app:cardCornerRadius="20dp"
+                app:strokeColor="#9084DC"
+                app:strokeWidth="1dp">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="20dp">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical">
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="🚀  Your Creator Journey"
+                                android:textColor="#23213A"
+                                android:textSize="15sp"
+                                android:textStyle="bold"/>
+                            <TextView
+                                android:id="@+id/tv_monetization_plan"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="3dp"
+                                android:text="Level 1 Creator"
+                                android:textColor="#6D61C5"
+                                android:textSize="12sp"/>
+                        </LinearLayout>
+                        <TextView
+                            android:id="@+id/tv_monetization_status"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="ACTIVE"
+                            android:textColor="#0B9F83"
+                            android:textSize="11sp"
+                            android:textStyle="bold"
+                            android:background="#C8F2E9"
+                            android:paddingStart="12dp"
+                            android:paddingEnd="12dp"
+                            android:paddingTop="7dp"
+                            android:paddingBottom="7dp"/>
+                    </LinearLayout>
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="24dp"
+                        android:gravity="center_vertical">
+                        <TextView android:id="@+id/tv_monetization_followers"
+                            android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="0"
+                            android:gravity="center" android:textColor="#5B4BC2" android:textSize="20sp" android:textStyle="bold"/>
+                        <TextView android:id="@+id/tv_monetization_views"
+                            android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="0"
+                            android:gravity="center" android:textColor="#5B4BC2" android:textSize="20sp" android:textStyle="bold"/>
+                        <TextView android:id="@+id/tv_monetization_following"
+                            android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="0"
+                            android:gravity="center" android:textColor="#5B4BC2" android:textSize="20sp" android:textStyle="bold"/>
+                    </LinearLayout>
+                    <LinearLayout
+                        android:layout_width="match_parent" android:layout_height="wrap_content">
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                            android:gravity="center" android:text="Followers" android:textColor="#78758B" android:textSize="11sp"/>
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                            android:gravity="center" android:text="Total Views" android:textColor="#78758B" android:textSize="11sp"/>
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                            android:gravity="center" android:text="Following" android:textColor="#78758B" android:textSize="11sp"/>
+                    </LinearLayout>
+                    <TextView
+                        android:id="@+id/tv_monetization_goal"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="18dp"
+                        android:gravity="end"
+                        android:text="1.0K goal"
+                        android:textColor="#8C7422"
+                        android:textSize="11sp"/>
+                    <ProgressBar
+                        android:layout_width="match_parent"
+                        android:layout_height="6dp"
+                        android:layout_marginTop="5dp"
+                        android:progress="3"
+                        android:max="100"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:progressTint="#F4C85B"
+                        android:progressBackgroundTint="#D9D4F2"/>
+                    <TextView
+                        android:id="@+id/tv_monetization_eligibility"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="Keep growing your audience and complete the requirements below."
+                        android:textColor="#77738B"
+                        android:textSize="11sp"/>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                app:cardBackgroundColor="#E2F4FF"
+                app:cardCornerRadius="20dp"
+                app:strokeColor="#B6DFF1"
+                app:strokeWidth="1dp">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:padding="20dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="WHY CALLX?"
+                        android:textColor="#36A9D7" android:textSize="10sp" android:textStyle="bold"/>
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="On most platforms, creators never clearly understand how to start monetizing.\n\nOn CallX, every creator knows exactly how to grow, qualify, and start earning."
+                        android:textColor="#515C70" android:textSize="13sp" android:lineSpacingExtra="5dp"/>
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="✅  No Hidden Rules\n✅  No Confusion\n✅  Full Transparency"
+                        android:textColor="#2D394C" android:textSize="13sp" android:lineSpacingExtra="9dp"/>
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_marginTop="15dp"
+                        android:text="🚀  Here's how you can start monetizing your account ↓"
+                        android:textColor="#2E7DAD" android:textSize="12sp" android:textStyle="bold"
+                        android:background="#CBEAFF" android:padding="13dp"/>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="Monetization Levels" android:textColor="#252331"
+                android:textSize="16sp" android:textStyle="bold"/>
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Unlock higher earnings as you grow" android:textColor="#888493" android:textSize="12sp"/>
+
+            <include layout="@layout/item_monetization_level_starter"
+                android:layout_width="match_parent" android:layout_height="wrap_content"/>
+            <include layout="@layout/item_monetization_level_pro"
+                android:layout_width="match_parent" android:layout_height="wrap_content"/>
+            <include layout="@layout/item_monetization_level_plus"
+                android:layout_width="match_parent" android:layout_height="wrap_content"/>
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="18dp" app:cardCornerRadius="18dp"
+                app:cardBackgroundColor="#FFFFFF" app:strokeColor="#D8D5E4" app:strokeWidth="1dp">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:padding="18dp">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Your earnings" android:textColor="#272531" android:textSize="16sp" android:textStyle="bold"/>
+                    <TextView android:id="@+id/tv_monetization_balance" android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp" android:text="$0.00 available"
+                        android:textColor="#0B9F83" android:textSize="24sp" android:textStyle="bold"/>
+                    <TextView android:id="@+id/tv_monetization_lifetime" android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="$0.00 lifetime earnings" android:textColor="#777482" android:textSize="12sp"/>
+                    <TextView android:id="@+id/tv_monetization_payout_status" android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp" android:text="Payouts are reviewed and released after approval."
+                        android:textColor="#777482" android:textSize="11sp"/>
+                    <Button android:id="@+id/btn_monetization_payout" android:layout_width="match_parent" android:layout_height="46dp"
+                        android:layout_marginTop="12dp" android:text="Request payout"
+                        android:textColor="#FFFFFF" android:enabled="false" android:backgroundTint="#5B4BC2"/>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

@@ -1,0 +1,13 @@
+{
+  "rules": {
+    "creatorMonetization": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).exists())",
+        ".write": false,
+        "payouts": {
+          ".write": false
+        }
+      }
+    }
+  }
+}

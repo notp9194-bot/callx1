@@ -92,7 +92,7 @@ public class ReelCreatorHubActivity extends AppCompatActivity {
         allItems.add(new HubItem("CREATOR TOOLS",    "🎬", "Creator Dashboard",      ReelCreatorDashboardActivity.class));
         allItems.add(new HubItem("CREATOR TOOLS",    "👥", "Audience Insights",       ReelAudienceInsightsActivity.class));
         allItems.add(new HubItem("CREATOR TOOLS",    "🔧", "Creator Tools",            ReelCreatorToolsActivity.class));
-        allItems.add(new HubItem("CREATOR TOOLS",    "💰", "Creator Fund",             ReelCreatorFundActivity.class));
+        allItems.add(new HubItem("CREATOR TOOLS",    "💰", "Monetization",             ReelMonetizationActivity.class));
         allItems.add(new HubItem("CREATOR TOOLS",    "📈", "Deep Analytics",           ReelDeepAnalyticsActivity.class));
         allItems.add(new HubItem("CREATOR TOOLS",    "🔴", "Go Live",                  ReelLiveActivity.class));
         allItems.add(new HubItem("CREATOR TOOLS",    "📹", "Live Replays",             ReelLiveReplayActivity.class));

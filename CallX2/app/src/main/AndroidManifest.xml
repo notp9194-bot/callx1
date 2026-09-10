@@ -766,8 +766,8 @@
             android:exported="false"
             android:screenOrientation="portrait"/>
 
-        <!-- Creator Fund — earnings dashboard, fund enrollment, payout history, withdrawal -->
-        <activity android:name=".activities.ReelCreatorFundActivity"
+        <!-- Reels monetization — creator journey, earnings and payout request -->
+        <activity android:name="com.callx.app.creator.ReelMonetizationActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
 

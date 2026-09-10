@@ -29,6 +29,7 @@
         <activity android:name=".AdminReportsActivity" android:exported="false"/>
         <activity android:name=".AdminCommunicationsActivity" android:exported="false"/>
         <activity android:name=".AdminOperationsActivity" android:exported="false"/>
+        <activity android:name=".AdminMonetizationActivity" android:exported="false"/>
         <activity android:name=".AdminConfigActivity" android:exported="false"/>
         <activity android:name=".AdminAdminsActivity" android:exported="false"/>
 

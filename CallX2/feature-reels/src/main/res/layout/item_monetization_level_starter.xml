@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:layout_marginTop="16dp" app:cardCornerRadius="18dp"
+    app:cardBackgroundColor="#FFFFFF" app:strokeColor="#A9E6D7" app:strokeWidth="1dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="20dp">
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="LEVEL 1   Starter" android:textColor="#0B9F83" android:textSize="16sp" android:textStyle="bold"/>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="ELIGIBILITY\n\n● Reach 1,000 Followers\n● Upload 20 Posts / Reels in 30 Days\n● Complete 10,000 Total Views\n● Get 1,000 Views on Any Single Reel\n● Account must have a Verified Blue Badge\n● Account must be Star, Gold or Platinum Talent"
+            android:textColor="#41404A" android:textSize="12sp" android:lineSpacingExtra="5dp"/>
+        <View android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginTop="16dp" android:background="#E9E8EE"/>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="EARNINGS PER REEL\n\n1,000 views                                      $0.10\n2,000 views                                      $0.50\n3,000 views                                      $1.00\n5,000 views                                      $2.00\n10,000 views                                    $5.00"
+            android:textColor="#575562" android:textSize="12sp" android:lineSpacingExtra="7dp"/>
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

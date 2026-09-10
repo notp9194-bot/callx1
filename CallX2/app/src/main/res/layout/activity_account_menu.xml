@@ -202,6 +202,43 @@
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 
+            <!-- Section: Creator Tools -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Creator Tools"
+                android:textColor="@color/brand_primary"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:paddingStart="20dp"
+                android:paddingBottom="4dp"/>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:layout_marginEnd="16dp"
+                android:layout_marginBottom="12dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="1dp">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+                    <include layout="@layout/item_menu_row"
+                        android:id="@+id/row_creator_dashboard"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"/>
+                    <View android:layout_width="match_parent" android:layout_height="1dp"
+                        android:background="@color/divider"
+                        android:layout_marginStart="56dp"/>
+                    <include layout="@layout/item_menu_row"
+                        android:id="@+id/row_monetization"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
             <!-- Section: Privacy -->
             <TextView
                 android:layout_width="match_parent"
