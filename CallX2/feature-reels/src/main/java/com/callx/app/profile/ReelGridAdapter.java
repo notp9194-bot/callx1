@@ -32,6 +32,7 @@ package com.callx.app.profile;
   import com.bumptech.glide.RequestManager;
   import com.bumptech.glide.load.DecodeFormat;
   import com.bumptech.glide.load.engine.DiskCacheStrategy;
+  import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
   import com.bumptech.glide.request.RequestOptions;
   import com.facebook.shimmer.ShimmerFrameLayout;
   import com.callx.app.reels.R;
@@ -777,6 +778,7 @@ package com.callx.app.profile;
                               .load(gridUrl)
                               .thumbnail(glideRequests.load(blurUrl).apply(GRID_OPTIONS))
                               .apply(GRID_OPTIONS)
+                              .transition(DrawableTransitionOptions.withCrossFade())
                               .placeholder(blurPlaceholder != null ? blurPlaceholder : context.getDrawable(R.drawable.ic_reels))
                               .into(h.ivThumb);
                   } finally {
@@ -955,6 +957,7 @@ package com.callx.app.profile;
                       .load(pinnedUrl)
                       .thumbnail(glideRequests.load(blurUrl).apply(GRID_OPTIONS))
                       .apply(GRID_OPTIONS)
+                      .transition(DrawableTransitionOptions.withCrossFade())
                       .placeholder(blurPlaceholder != null ? blurPlaceholder : context.getDrawable(R.drawable.ic_reels))
                       .into(h.ivThumb);
           } else h.ivThumb.setImageResource(R.drawable.ic_reels);

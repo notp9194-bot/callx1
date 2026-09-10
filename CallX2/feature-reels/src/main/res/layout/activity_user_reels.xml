@@ -401,13 +401,20 @@
                     android:layout_width="68dp" android:layout_height="30dp"
                     android:layout_marginEnd="10dp">
 
+                    <!-- No android:elevation here: CircleImageView doesn't
+                         supply a circular ViewOutlineProvider, so elevation
+                         casts its shadow using the view's plain RECTANGULAR
+                         bounds — a square shadow peeking out from behind
+                         the circular image at the corners. Stacking order
+                         (this one first / drawn first = furthest back) is
+                         achieved purely by declaration order below, no
+                         elevation needed. -->
                     <de.hdodenhof.circleimageview.CircleImageView
                         android:id="@+id/iv_mutual_3"
                         android:layout_width="28dp" android:layout_height="28dp"
                         android:layout_gravity="center_vertical"
                         android:layout_marginStart="20dp"
                         android:src="@drawable/ic_person"
-                        android:elevation="2dp"
                         android:visibility="gone"
                         app:civ_border_width="2dp"
                         app:civ_border_color="?attr/colorSurface"/>
@@ -418,7 +425,6 @@
                         android:layout_gravity="center_vertical"
                         android:layout_marginStart="10dp"
                         android:src="@drawable/ic_person"
-                        android:elevation="3dp"
                         android:visibility="gone"
                         app:civ_border_width="2dp"
                         app:civ_border_color="?attr/colorSurface"/>
@@ -428,7 +434,6 @@
                         android:layout_width="28dp" android:layout_height="28dp"
                         android:layout_gravity="center_vertical"
                         android:src="@drawable/ic_person"
-                        android:elevation="4dp"
                         android:visibility="gone"
                         app:civ_border_width="2dp"
                         app:civ_border_color="?attr/colorSurface"/>
@@ -619,7 +624,7 @@
                         android:includeFontPadding="false"
                         android:fontFamily="sans-serif-black"
                         app:textAllCaps="false"
-                        android:background="@drawable/bg_btn_follow_pill"
+                        android:background="@drawable/bg_btn_follow_capsule"
                         android:textColor="#FFFFFF"
                         android:layout_marginEnd="6dp"
                         android:letterSpacing="0.01"
@@ -637,7 +642,7 @@
                         android:paddingBottom="0dp"
                         android:fontFamily="sans-serif-medium"
                         app:textAllCaps="false"
-                        android:background="@drawable/bg_btn_outline_pill"
+                        android:background="@drawable/bg_btn_outline_capsule"
                         android:textColor="?attr/colorOnSurface"
                         android:layout_marginEnd="6dp"
                         android:letterSpacing="0.01"/>
@@ -647,7 +652,7 @@
                         android:layout_width="30dp"
                         android:layout_height="30dp"
                         android:src="@drawable/ic_person_add"
-                        android:background="@drawable/bg_btn_outline_pill"
+                        android:background="@drawable/bg_btn_outline_circle"
                         android:tint="?attr/colorOnSurface"
                         android:padding="6dp"
                         android:contentDescription="Suggestions"/>
@@ -734,7 +739,6 @@
                                 android:id="@+id/iv_anim_chat"
                                 android:layout_width="22dp" android:layout_height="22dp"
                                 android:layout_gravity="center"
-                                android:elevation="4dp"
                                 android:visibility="invisible"
                                 app:civ_border_width="1.5dp"
                                 app:civ_border_color="@color/brand_primary"/>

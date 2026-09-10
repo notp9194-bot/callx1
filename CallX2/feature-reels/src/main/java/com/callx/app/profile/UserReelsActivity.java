@@ -29,6 +29,7 @@ import androidx.core.view.ViewCompat;
 import com.google.android.material.tabs.TabLayout;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.bumptech.glide.ListPreloader;
 import com.bumptech.glide.integration.recyclerview.RecyclerViewPreloader;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
@@ -1126,15 +1127,6 @@ public class UserReelsActivity extends AppCompatActivity
                     Log.w(TAG, "applyScrollableTabPeekWidths: only resized " + resizedCount
                             + "/" + strip.getChildCount() + " tab children");
                 }
-                // TEMP DEBUG (remove once confirmed working on device): a
-                // visible, undeniable signal that THIS build's fix code
-                // actually ran and what width it computed — no adb/logcat
-                // needed to check. If this toast never appears, the device
-                // is running an old/cached build, not this code.
-                android.widget.Toast.makeText(UserReelsActivity.this,
-                        "PeekFix: tabWidth=" + tabWidth + "px, resized=" + resizedCount
-                                + "/" + strip.getChildCount(),
-                        android.widget.Toast.LENGTH_LONG).show();
                 // Job's done for this screen instance — stop listening so we
                 // don't keep re-forcing the width on every future layout
                 // pass (header collapse/expand, keyboard, rotation, etc.).
@@ -1210,7 +1202,7 @@ public class UserReelsActivity extends AppCompatActivity
               android.widget.TextView tv = new android.widget.TextView(this);
               tv.setText(labels[i]);
               tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14.5f);
-              tv.setTextColor(0xFF111111);
+              tv.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurface, 0xFF111111));
               android.widget.LinearLayout.LayoutParams tvLp = new android.widget.LinearLayout.LayoutParams(
                       0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
               row.addView(tv, tvLp);
@@ -1233,7 +1225,7 @@ public class UserReelsActivity extends AppCompatActivity
 
               if (i < labels.length - 1) {
                   android.view.View divider = new android.view.View(this);
-                  divider.setBackgroundColor(0xFFEDEDED);
+                  divider.setBackgroundColor(resolveAttrColor(com.google.android.material.R.attr.colorOutline, 0xFFEDEDED));
                   menu.addView(divider, android.view.ViewGroup.LayoutParams.MATCH_PARENT, (int) density);
               }
           }
@@ -2734,6 +2726,7 @@ public class UserReelsActivity extends AppCompatActivity
                 Glide.with(this).load(photos.get(i))
                     .placeholder(R.drawable.ic_person)
                     .error(R.drawable.ic_person)
+                    .transition(DrawableTransitionOptions.withCrossFade())
                     .circleCrop()
                     .override(240, 240)
                     .into(ivs[i]);
@@ -4107,6 +4100,7 @@ public class UserReelsActivity extends AppCompatActivity
                     com.bumptech.glide.Glide.with(this)
                         .load(photo).circleCrop()
                         .placeholder(R.drawable.ic_person)
+                        .transition(DrawableTransitionOptions.withCrossFade())
                         .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
                         .override(128, 128)
                         .into(ivAvatar);
@@ -4199,6 +4193,7 @@ public class UserReelsActivity extends AppCompatActivity
             .diskCacheStrategy(DiskCacheStrategy.ALL)      // source + decoded bitmap permanently cached
             .override(720, 720)                            // HD always — xxxhdpi pe bhi sharp
             .placeholder(R.drawable.ic_person)
+            .transition(DrawableTransitionOptions.withCrossFade())
             .skipMemoryCache(false)                        // memory cache active — revisit pe instant display
             .into(ivAvatar);
     }
@@ -4244,6 +4239,7 @@ public class UserReelsActivity extends AppCompatActivity
                             .load(photo).circleCrop()
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
                             .placeholder(R.drawable.ic_person)
+                            .transition(DrawableTransitionOptions.withCrossFade())
                             .skipMemoryCache(false)
                             .override(96, 96)
                             .into(ivAnimChat);
@@ -4425,20 +4421,25 @@ public class UserReelsActivity extends AppCompatActivity
         if (btnFollow == null) return;
         if (isFollowing) {
             btnFollow.setText("Following ▾");
-            btnFollow.setTextColor(0xFF222222);
+            // Theme-aware, not a hardcoded dark grey: 0xFF222222 was nearly
+            // invisible against the dark-mode outline pill's dark
+            // background (only readable in light mode). colorOnSurface
+            // flips automatically with the theme, same as the Message
+            // button beside it already does via ?attr/colorOnSurface in XML.
+            btnFollow.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurface, 0xFF222222));
             try {
                 android.graphics.drawable.Drawable d =
-                    androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_btn_outline_pill);
+                    androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_btn_outline_capsule);
                 btnFollow.setBackground(d != null ? d.mutate() : null);
             } catch (Exception e) {
-                btnFollow.setBackgroundColor(0xFFEEEEEE);
+                btnFollow.setBackgroundColor(resolveAttrColor(com.google.android.material.R.attr.colorSurfaceVariant, 0xFFEEEEEE));
             }
         } else {
             btnFollow.setText("Follow");
             btnFollow.setTextColor(0xFFFFFFFF);
             try {
                 android.graphics.drawable.Drawable d =
-                    androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_btn_follow_pill);
+                    androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_btn_follow_capsule);
                 btnFollow.setBackground(d != null ? d.mutate() : null);
             } catch (Exception e) {
                 btnFollow.setBackgroundColor(0xFF6C5CE7);
@@ -4462,7 +4463,7 @@ public class UserReelsActivity extends AppCompatActivity
         android.widget.LinearLayout container = new android.widget.LinearLayout(this);
         container.setOrientation(android.widget.LinearLayout.VERTICAL);
         container.setPadding(0, 24, 0, 40);
-        container.setBackgroundColor(android.graphics.Color.WHITE);
+        container.setBackgroundColor(resolveAttrColor(com.google.android.material.R.attr.colorSurface, android.graphics.Color.WHITE));
 
         // Title
         android.widget.TextView title = new android.widget.TextView(this);
@@ -4471,12 +4472,12 @@ public class UserReelsActivity extends AppCompatActivity
         title.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
         title.setGravity(android.view.Gravity.CENTER);
         title.setPadding(0, 0, 0, 16);
-        title.setTextColor(0xFF111111);
+        title.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurface, 0xFF111111));
         container.addView(title);
 
         // Divider
         android.view.View div = new android.view.View(this);
-        div.setBackgroundColor(0xFFEEEEEE);
+        div.setBackgroundColor(resolveAttrColor(com.google.android.material.R.attr.colorOutline, 0xFFEEEEEE));
         android.widget.LinearLayout.LayoutParams divLp = new android.widget.LinearLayout.LayoutParams(
             android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1);
         container.addView(div, divLp);
@@ -4517,7 +4518,7 @@ public class UserReelsActivity extends AppCompatActivity
                 android.widget.TextView arrow = new android.widget.TextView(this);
                 arrow.setText("›");
                 arrow.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 20f);
-                arrow.setTextColor(0xFF888888);
+                arrow.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant, 0xFF888888));
                 row.addView(arrow);
             }
 
@@ -4531,7 +4532,7 @@ public class UserReelsActivity extends AppCompatActivity
             // Light divider between rows (not after last)
             if (i < labels.length - 1) {
                 android.view.View rowDiv = new android.view.View(this);
-                rowDiv.setBackgroundColor(0xFFF2F2F2);
+                rowDiv.setBackgroundColor(resolveAttrColor(com.google.android.material.R.attr.colorOutline, 0xFFF2F2F2));
                 android.widget.LinearLayout.LayoutParams rdLp =
                     new android.widget.LinearLayout.LayoutParams(
                         android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1);
@@ -4594,7 +4595,7 @@ public class UserReelsActivity extends AppCompatActivity
 
         android.widget.LinearLayout root = new android.widget.LinearLayout(this);
         root.setOrientation(android.widget.LinearLayout.VERTICAL);
-        root.setBackgroundColor(android.graphics.Color.WHITE);
+        root.setBackgroundColor(resolveAttrColor(com.google.android.material.R.attr.colorSurface, android.graphics.Color.WHITE));
 
         float dp = getResources().getDisplayMetrics().density;
         int padH = (int)(20 * dp);
@@ -4616,7 +4617,7 @@ public class UserReelsActivity extends AppCompatActivity
         tvTitle.setText("Mute");
         tvTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 17f);
         tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
-        tvTitle.setTextColor(0xFF111111);
+        tvTitle.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurface, 0xFF111111));
         android.widget.LinearLayout.LayoutParams titleLp = new android.widget.LinearLayout.LayoutParams(
             0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         titleLp.leftMargin = (int)(12 * dp);
@@ -4625,7 +4626,7 @@ public class UserReelsActivity extends AppCompatActivity
 
         // Divider
         android.view.View topDiv = new android.view.View(this);
-        topDiv.setBackgroundColor(0xFFEEEEEE);
+        topDiv.setBackgroundColor(resolveAttrColor(com.google.android.material.R.attr.colorOutline, 0xFFEEEEEE));
         root.addView(topDiv, android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 1);
 
         // Mute toggle items
@@ -4652,7 +4653,7 @@ public class UserReelsActivity extends AppCompatActivity
             android.widget.TextView label = new android.widget.TextView(this);
             label.setText(muteItems[i]);
             label.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f);
-            label.setTextColor(0xFF111111);
+            label.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurface, 0xFF111111));
             android.widget.LinearLayout.LayoutParams lblLp = new android.widget.LinearLayout.LayoutParams(
                 0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
             row.addView(label, lblLp);
@@ -4689,7 +4690,7 @@ public class UserReelsActivity extends AppCompatActivity
             // Divider between rows
             if (i < muteItems.length - 1) {
                 android.view.View div = new android.view.View(this);
-                div.setBackgroundColor(0xFFF2F2F2);
+                div.setBackgroundColor(resolveAttrColor(com.google.android.material.R.attr.colorOutline, 0xFFF2F2F2));
                 android.widget.LinearLayout.LayoutParams divLp =
                     new android.widget.LinearLayout.LayoutParams(
                         android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1);
@@ -4702,7 +4703,7 @@ public class UserReelsActivity extends AppCompatActivity
         android.widget.TextView tvNote = new android.widget.TextView(this);
         tvNote.setText("We won't let them know you muted them.");
         tvNote.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
-        tvNote.setTextColor(0xFF888888);
+        tvNote.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant, 0xFF888888));
         tvNote.setPadding(padH, (int)(12 * dp), padH, (int)(32 * dp));
 
         android.widget.ScrollView sv = new android.widget.ScrollView(this);
@@ -4887,6 +4888,7 @@ public class UserReelsActivity extends AppCompatActivity
                     targetPhoto = url;
                     Glide.with(UserReelsActivity.this).load(url).circleCrop()
                         .override(240, 240)
+                        .transition(DrawableTransitionOptions.withCrossFade())
                         .placeholder(R.drawable.ic_person).into(ivAvatar);
                 }
                 // Bio / about
@@ -5036,6 +5038,7 @@ public class UserReelsActivity extends AppCompatActivity
                     String displayPhoto = (photoThumb != null && !photoThumb.isEmpty()) ? photoThumb : photo;
                     Glide.with(UserReelsActivity.this).load(displayPhoto).circleCrop()
                         .override(240, 240)
+                        .transition(DrawableTransitionOptions.withCrossFade())
                         .placeholder(R.drawable.ic_person).into(ivAvatar);
                 }
 

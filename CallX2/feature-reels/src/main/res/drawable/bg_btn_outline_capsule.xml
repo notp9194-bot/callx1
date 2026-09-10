@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Same border color/width as bg_btn_outline_pill — just a true
+     capsule/stadium radius (16dp = half of this row's 32dp button height)
+     so Message and the Following-state button render as a fully-rounded
+     pill (Instagram-style), not a slightly-rounded rectangle. Kept as its
+     own drawable (rather than editing bg_btn_outline_pill's radius)
+     because that one is shared with other screens at 8dp — bumping it
+     there would change unrelated UI. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@android:color/transparent"/>
+    <stroke android:width="1dp" android:color="#CCCCCC"/>
+    <corners android:radius="16dp"/>
+</shape>

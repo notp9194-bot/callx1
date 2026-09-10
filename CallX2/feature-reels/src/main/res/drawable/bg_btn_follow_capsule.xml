@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Same colors as bg_btn_follow_pill — just a true capsule/stadium radius
+     (16dp = half of this row's 32dp button height) to match
+     bg_btn_outline_capsule and bg_btn_outline_circle used elsewhere in this
+     same action row. Kept as its own drawable rather than editing
+     bg_btn_follow_pill's radius because that one is shared (at 8dp) with
+     several other screens — bumping it there would change unrelated UI. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/follow_button_pressed"/>
+            <corners android:radius="16dp"/>
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/follow_button_primary"/>
+            <corners android:radius="16dp"/>
+        </shape>
+    </item>
+</selector>
