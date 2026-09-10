@@ -20,6 +20,10 @@ upgrade adds a separate production operations surface and a privileged
 - Runtime `appConfig` editor and admin/crash audit view.
 - Role management for `super_admin`, `moderator`, `support`, and `finance`.
 - Optional per-admin permission grants on top of the role.
+- Verified badge plan requests from Reels settings are reviewed in the
+  verification queue and applied server-side after approval.
+- Star, Gold, and Platinum Talent applications have a dedicated Admin
+  Dashboard queue; approval activates the creator's `talentPlan`.
 
 ## Security model
 

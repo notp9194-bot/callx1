@@ -60,6 +60,8 @@ public class AdminDashboardActivity extends AppCompatActivity {
             () -> open(AdminAdminsActivity.class));
         addModule("Verification approvals", "Existing verification badge queue.",
             () -> open(AdminVerificationListActivity.class));
+        addModule("Star Talent applications", "Review creator tier applications and activate approved talent badges.",
+            () -> open(AdminStarTalentActivity.class));
 
         content.addView(AdminUi.button(this, "Sign out", v -> {
             com.google.firebase.auth.FirebaseAuth.getInstance().signOut();
@@ -95,6 +97,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
                     + "   Storage bytes: " + AdminApi.number(metrics.get("storageBytes"))
                     + "\nPending reports: " + AdminApi.number(metrics.get("pendingReports"))
                     + "   Pending verification: " + AdminApi.number(metrics.get("pendingVerification"))
+                    + "   Pending talent: " + AdminApi.number(metrics.get("pendingTalent"))
                     + "\nLast refreshed: just now");
             }
             @Override public void onError(String message) {

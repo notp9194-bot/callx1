@@ -41,6 +41,7 @@ import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.MutableData;
 import com.google.firebase.database.Transaction;
+import com.google.firebase.functions.FirebaseFunctions;
 
 import com.callx.app.reels.R;
 import com.callx.app.social.ReelContactShareAdapter;
@@ -100,7 +101,7 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment {
     // ── Views ──────────────────────────────────────────────────────────────
     private RecyclerView rvContacts;
     private ProgressBar  progressBar;
-    private View         btnCopyLink, btnShareExternal;
+    private View         btnCopyLink, btnShareExternal, btnShareWhatsapp;
     private View         btnAddToStory, btnShareToStatus, btnRepostWithCaption;
 
     // ★ NEW: multi-select "Send to" — search box, message input, and the
@@ -349,6 +350,7 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment {
         progressBar          = view.findViewById(R.id.progress_share);
         btnCopyLink          = view.findViewById(R.id.btn_copy_link);
         btnShareExternal     = view.findViewById(R.id.btn_share_external);
+        btnShareWhatsapp     = view.findViewById(R.id.btn_share_whatsapp);
         btnAddToStory        = view.findViewById(R.id.btn_add_to_story);
         btnShareToStatus     = view.findViewById(R.id.btn_share_to_status);
         btnRepostWithCaption = view.findViewById(R.id.btn_repost_with_caption);
@@ -404,6 +406,7 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment {
         // Buttons
         btnCopyLink.setOnClickListener(v -> copyLink());
         btnShareExternal.setOnClickListener(v -> shareExternal());
+        if (btnShareWhatsapp != null) btnShareWhatsapp.setOnClickListener(v -> shareWhatsApp());
 
         // ★ Add to Story — Instagram-style gradient story in Reels home
         if (btnAddToStory != null)
@@ -769,6 +772,35 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment {
                     });
         } else {
             shareExternalTextOnly(shareText);
+        }
+    }
+
+    /**
+     * Explicit WhatsApp route used by the milestone rules. A generic Android
+     * chooser cannot prove which app was selected, so only this direct action
+     * records a WhatsApp share event.
+     */
+    private void shareWhatsApp() {
+        if (!isAdded() || getContext() == null) return;
+        Intent intent = new Intent(Intent.ACTION_SEND);
+        intent.setType("text/plain");
+        intent.setPackage("com.whatsapp");
+        String link = DEEP_LINK_PREFIX + reelId;
+        intent.putExtra(Intent.EXTRA_TEXT, (caption != null && !caption.isEmpty()
+            ? caption + "\n" : "") + link);
+        try {
+            startActivity(intent);
+            Map<String, Object> request = new HashMap<>();
+            request.put("action", "recordWhatsappShare");
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("reelId", reelId);
+            request.put("payload", payload);
+            FirebaseFunctions.getInstance().getHttpsCallable("milestoneEarningsAction")
+                .call(request);
+            toast("Shared on WhatsApp. Milestone progress updated.");
+            dismiss();
+        } catch (Exception e) {
+            toast("WhatsApp is not installed on this device.");
         }
     }
 

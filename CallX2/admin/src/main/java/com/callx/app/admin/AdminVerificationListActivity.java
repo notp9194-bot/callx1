@@ -16,9 +16,7 @@ import com.google.firebase.database.Query;
 import com.google.firebase.database.ValueEventListener;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Lists every verification_requests/{uid} node with status == "pending" and
@@ -74,29 +72,21 @@ public class AdminVerificationListActivity extends AppCompatActivity {
         pendingQuery.addValueEventListener(pendingListener);
     }
 
-    /** Approve sets users/{uid}/isVerified = true; reject just flips status.
-     *  Both also stamp status/reviewedAt/reviewedBy on the request itself so
-     *  there's a record of who decided and when. */
+    /** All privileged verification writes go through adminAction. */
     private void decide(VerificationRequest request, boolean approve) {
-        String adminUid = FirebaseUtils.getCurrentUid();
-        Map<String, Object> update = new HashMap<>();
-        update.put("status", approve ? FirebaseUtils.STATUS_APPROVED : FirebaseUtils.STATUS_REJECTED);
-        update.put("reviewedAt", com.google.firebase.database.ServerValue.TIMESTAMP);
-        update.put("reviewedBy", adminUid);
-
-        FirebaseUtils.getVerificationRequestRef(request.uid).updateChildren(update)
-            .addOnFailureListener(e -> Toast.makeText(this, "Failed: " + e.getMessage(), Toast.LENGTH_SHORT).show());
-
-        if (approve) {
-            FirebaseUtils.getIsVerifiedRef(request.uid).setValue(true)
-                .addOnSuccessListener(unused -> Toast.makeText(this, "Approved", Toast.LENGTH_SHORT).show())
-                .addOnFailureListener(e -> Toast.makeText(this, "Failed: " + e.getMessage(), Toast.LENGTH_SHORT).show());
-        } else {
-            Toast.makeText(this, "Rejected", Toast.LENGTH_SHORT).show();
-        }
-        // No manual list refresh needed — the "status" query above stops
-        // matching this node the instant it flips away from "pending", so
-        // the live ValueEventListener drops it from the list on its own.
+        java.util.Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("uid", request.uid);
+        payload.put("decision", approve ? "approve" : "reject");
+        AdminApi.call("reviewVerificationRequest", payload, new AdminApi.Callback() {
+            @Override public void onSuccess(Object data) {
+                Toast.makeText(AdminVerificationListActivity.this,
+                    approve ? "Approved" : "Rejected", Toast.LENGTH_SHORT).show();
+            }
+            @Override public void onError(String message) {
+                Toast.makeText(AdminVerificationListActivity.this,
+                    "Failed: " + message, Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     @Override

@@ -210,7 +210,7 @@
         android:layout_width="match_parent"
         android:layout_height="92dp"
         android:orientation="horizontal"
-        android:weightSum="5"
+        android:weightSum="6"
         android:paddingTop="10dp"
         android:paddingBottom="6dp">
 
@@ -256,6 +256,29 @@
             </FrameLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_marginTop="6dp" android:text="Share via"
+                android:textSize="11sp" android:maxLines="1" android:ellipsize="end"
+                android:textColor="?attr/colorOnSurface"/>
+        </LinearLayout>
+
+        <!-- Direct WhatsApp share — the only external share counted by
+             milestone earnings. Generic "Share via" remains unchanged. -->
+        <LinearLayout
+            android:id="@+id/btn_share_whatsapp"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="?attr/selectableItemBackgroundBorderless">
+            <FrameLayout android:layout_width="48dp" android:layout_height="48dp">
+                <View android:layout_width="48dp" android:layout_height="48dp"
+                    android:background="@drawable/bg_share_icon_circle"/>
+                <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_whatsapp"/>
+            </FrameLayout>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="6dp" android:text="WhatsApp"
                 android:textSize="11sp" android:maxLines="1" android:ellipsize="end"
                 android:textColor="?attr/colorOnSurface"/>
         </LinearLayout>

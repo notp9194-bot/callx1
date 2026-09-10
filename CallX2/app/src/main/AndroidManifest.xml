@@ -770,6 +770,9 @@
         <activity android:name="com.callx.app.creator.ReelMonetizationActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.creator.MilestoneEarningsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
 
         <!-- Mentions — reels in which the current user has been @mentioned -->
         <activity android:name=".activities.ReelMentionsActivity"

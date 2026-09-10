@@ -52,7 +52,12 @@ public class VerificationRequestAdapter extends RecyclerView.Adapter<Verificatio
         VerificationRequest req = items.get(position);
         holder.name.setText(req.name == null || req.name.isEmpty() ? "(no name)" : req.name);
         holder.uid.setText(req.uid);
-        holder.reason.setText(req.reason == null || req.reason.isEmpty() ? "(no reason given)" : req.reason);
+        String reason = req.reason == null || req.reason.isEmpty() ? "(no reason given)" : req.reason;
+        if (req.planName != null && !req.planName.isEmpty()) {
+            reason = req.planName + " • INR " + (req.priceRupees == null ? "—" : req.priceRupees)
+                + "\n" + reason;
+        }
+        holder.reason.setText(reason);
         // Keep avatar loading while avoiding a third-party image dependency.
         AdminImageLoader.load(holder.avatar, req.photoUrl);
         holder.btnApprove.setOnClickListener(v -> listener.onApprove(req));

@@ -8,6 +8,27 @@
           ".write": false
         }
       }
+    },
+    "milestoneEarnings": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).exists())",
+        ".write": false,
+        "payouts": {
+          ".write": false
+        }
+      }
+    },
+    "milestoneShareEvents": {
+      "$uid": {
+        ".read": false,
+        ".write": false
+      }
+    },
+    "appConfig": {
+      "milestoneEarnings": {
+        ".read": false,
+        ".write": false
+      }
     }
   }
 }

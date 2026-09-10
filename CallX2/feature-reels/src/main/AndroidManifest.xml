@@ -42,6 +42,13 @@
         <activity android:name="com.callx.app.creator.ReelReportActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
+        <activity android:name="com.callx.app.creator.VerifiedBadgeActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.creator.StarTalentActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
         <activity android:name="com.callx.app.editor.ReelEditActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
@@ -180,6 +187,9 @@
             android:exported="false"
             android:screenOrientation="portrait"/>
         <activity android:name="com.callx.app.creator.ReelMonetizationActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"/>
+        <activity android:name="com.callx.app.creator.MilestoneEarningsActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
         <activity android:name="com.callx.app.library.ReelDraftsActivity"

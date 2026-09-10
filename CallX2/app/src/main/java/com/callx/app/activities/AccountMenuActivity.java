@@ -28,6 +28,9 @@ import com.callx.app.profile.UserReelsActivity;
 import com.callx.app.hub.GamesHubActivity;
 import com.callx.app.analytics.ReelCreatorDashboardActivity;
 import com.callx.app.creator.ReelMonetizationActivity;
+import com.callx.app.creator.MilestoneEarningsActivity;
+import com.callx.app.creator.VerifiedBadgeActivity;
+import com.callx.app.creator.StarTalentActivity;
 
 public class AccountMenuActivity extends AppCompatActivity {
 
@@ -123,6 +126,21 @@ public class AccountMenuActivity extends AppCompatActivity {
             "Monetization", "Manage your earning settings");
         binding.rowMonetization.getRoot().setOnClickListener(v ->
             startActivity(new Intent(this, ReelMonetizationActivity.class)));
+
+        configureRow(binding.rowMilestoneEarnings.getRoot(), R.drawable.ic_star_outline,
+            "Milestone Earnings", "Like & follow to earn rewards");
+        binding.rowMilestoneEarnings.getRoot().setOnClickListener(v ->
+            startActivity(new Intent(this, MilestoneEarningsActivity.class)));
+
+        configureRow(binding.rowVerifiedBadge.getRoot(), R.drawable.ic_verified_pink,
+            "Get Verified Badge", "Stand out with a blue verified badge");
+        binding.rowVerifiedBadge.getRoot().setOnClickListener(v ->
+            startActivity(new Intent(this, VerifiedBadgeActivity.class)));
+
+        configureRow(binding.rowStarTalent.getRoot(), R.drawable.ic_star_outline,
+            "Apply for Star Talent", "Join our exclusive creator program");
+        binding.rowStarTalent.getRoot().setOnClickListener(v ->
+            startActivity(new Intent(this, StarTalentActivity.class)));
 
         configureRow(binding.rowPrivacy.getRoot(), R.drawable.ic_phone, "Privacy & Security", "App lock, fingerprint, PIN, pattern");
         binding.rowPrivacy.getRoot().setOnClickListener(v -> startActivity(new Intent(this, PrivacySecurityActivity.class)));

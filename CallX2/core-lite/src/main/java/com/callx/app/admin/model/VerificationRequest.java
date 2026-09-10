@@ -9,6 +9,10 @@ public class VerificationRequest {
     public String name;
     public String photoUrl;
     public String reason;
+    public String source;
+    public String planKey;
+    public String planName;
+    public Long priceRupees;
     public String status;
     public Long submittedAt;
 

@@ -144,6 +144,30 @@
           ".validate": "newData.hasChildren(['uid','category','description','timestamp','status'])"
         }
       }
+    },
+    "milestoneEarnings": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).exists())",
+        ".write": false
+      }
+    },
+    "milestoneShareEvents": {
+      "$uid": {
+        ".read": false,
+        ".write": false
+      }
+    },
+    "verificationBadgeRequests": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).exists())",
+        ".write": false
+      }
+    },
+    "starTalentApplications": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).exists())",
+        ".write": false
+      }
     }
   },
   "_comment_merge": "v244 merge: reelComments/reelCommentReplies/reelCommentReports/reelReplyReports server-side rules folded in from firebase_reel_comments_rules.json. Root .read/.write narrowed from blanket 'auth != null' to false so the new nested restrictions actually take effect (RTDB cascades ancestor grants down, which was silently bypassing them). Every previously-blanket-covered path now has its own explicit .read/.write (deliveryPending given one here; reelSeenDedup/broadcast_lists/broadcast_messages already had their own)."

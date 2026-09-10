@@ -484,13 +484,16 @@ async function requireAdmin(context, operation) {
   const role = adminRole(node);
   if (!role) throw new functions.https.HttpsError("permission-denied", "Admin access revoked.");
   const permissions = node && typeof node === "object" ? (node.permissions || {}) : {};
-  const superOnly = ["deleteUser", "organizationAction", "setConfig", "setAdmin", "removeAdmin"];
+  const superOnly = ["deleteUser", "organizationAction", "setConfig", "setAdmin",
+    "removeAdmin", "updateMilestoneConfig"];
   if (superOnly.includes(operation) && role !== "super_admin" && !permissions[operation]) {
     throw new functions.https.HttpsError("permission-denied", "This role cannot perform that action.");
   }
-  if ((operation === "paymentReview" || operation === "reviewCreatorPayout")
+  if ((operation === "paymentReview" || operation === "reviewCreatorPayout"
+      || operation === "reviewMilestonePayout")
       && role !== "super_admin" && role !== "finance"
-      && !permissions.paymentReview && !permissions.reviewCreatorPayout) {
+      && !permissions.paymentReview && !permissions.reviewCreatorPayout
+      && !permissions.reviewMilestonePayout) {
     throw new functions.https.HttpsError("permission-denied", "Finance permission required.");
   }
   return { uid: context.auth.uid, role, permissions };
@@ -513,6 +516,298 @@ const CREATOR_MONETIZATION_LEVELS = [
   { key: "pro", name: "Pro", followers: 5000, posts30d: 30, totalViews: 100000, singleReelViews: 1000 },
   { key: "pro_plus", name: "Pro Plus", followers: 25000, posts30d: 30, totalViews: 500000, singleReelViews: 1000 },
 ];
+
+const DEFAULT_MILESTONE_EARNINGS = {
+  enabled: true,
+  levels: [
+    { level: 1, likes: 100, following: 200, shares: 50, rewardPaise: 500 },
+    { level: 2, likes: 250, following: 500, shares: 100, rewardPaise: 1000 },
+    { level: 3, likes: 500, following: 800, shares: 200, rewardPaise: 2000 },
+    { level: 4, likes: 1000, following: 1200, shares: 300, rewardPaise: 4000 },
+    { level: 5, likes: 1500, following: 1600, shares: 400, rewardPaise: 7500 },
+    { level: 6, likes: 2500, following: 2000, shares: 500, rewardPaise: 15000 },
+    { level: 7, likes: 5000, following: 2500, shares: 600, rewardPaise: 30000 },
+    { level: 8, likes: 10000, following: 3000, shares: 700, rewardPaise: 50000 },
+  ],
+};
+
+// These catalog entries are returned by callable functions so the client and
+// admin app always review the same plan keys, prices, and benefits.
+const VERIFIED_BADGE_PLANS = [
+  { key: "monthly", name: "Verified Badge", priceRupees: 49, period: "Monthly",
+    benefits: ["Verified badge on your profile", "Enhanced discovery in feed & explore",
+      "Access to exclusive creator benefits"] },
+  { key: "quarterly", name: "Verified Badge Plus", priceRupees: 99, period: "3 Months",
+    benefits: ["Everything in Verified Badge", "Priority eligibility in reels",
+      "Go Live and Watch Live included"] },
+  { key: "half_year", name: "Verified Badge Premium", priceRupees: 199, period: "6 Months",
+    benefits: ["Long-term creator advantages", "6 months of Go Live access",
+      "6 months of Watch Live access"] },
+  { key: "yearly", name: "Verified Badge Super Plus", priceRupees: 349, period: "Yearly",
+    benefits: ["Verified badge for a full year", "50 free boost credits every month",
+      "Priority creator support"] },
+];
+
+const STAR_TALENT_TIERS = [
+  { key: "star", name: "Become a Star Talent", priceRupees: 195,
+    benefits: ["Star Talent badge on your profile", "Listed in the Star Talent directory",
+      "Priority creator support"] },
+  { key: "gold", name: "Become a Gold Talent", priceRupees: 299,
+    benefits: ["Gold Talent badge on your profile", "Listed in the Gold Talent showcase",
+      "Everything in Star Talent included"] },
+  { key: "platinum", name: "Become a Platinum Talent", priceRupees: 499,
+    benefits: ["Platinum Talent badge — our highest tier",
+      "Featured placement in the Platinum Talent directory",
+      "Everything in Gold Talent included"] },
+];
+
+function catalogItem(catalog, key) {
+  return catalog.find((item) => item.key === String(key || "")) || null;
+}
+
+async function verificationBadgeView(uid, db) {
+  const [userSnap, requestSnap] = await Promise.all([
+    db.ref(`users/${uid}`).once("value"),
+    db.ref(`verification_requests/${uid}`).once("value"),
+  ]);
+  const user = asObject(userSnap.val());
+  const request = asObject(requestSnap.val());
+  return {
+    plans: VERIFIED_BADGE_PLANS,
+    isVerified: user.isVerified === true || user.verified === true || user.blueBadge === true,
+    currentPlan: user.verificationPlan || "",
+    status: request.status || "",
+    request: requestSnap.exists() ? request : null,
+  };
+}
+
+exports.verificationBadgeAction = functions.https.onCall(async (data, context) => {
+  if (!context.auth || !context.auth.uid) {
+    throw new functions.https.HttpsError("unauthenticated", "Sign-in required.");
+  }
+  const uid = context.auth.uid;
+  const db = getDatabase();
+  const action = String(data && data.action || "get");
+  const payload = asObject(data && data.payload);
+  if (action === "get") return verificationBadgeView(uid, db);
+  if (action !== "purchase") {
+    throw new functions.https.HttpsError("invalid-argument", "Unknown verification action.");
+  }
+  const plan = catalogItem(VERIFIED_BADGE_PLANS, payload.planKey);
+  if (!plan) throw new functions.https.HttpsError("invalid-argument", "Choose a valid badge plan.");
+  const view = await verificationBadgeView(uid, db);
+  if (view.isVerified) {
+    throw new functions.https.HttpsError("failed-precondition", "This profile is already verified.");
+  }
+  if (view.status === "pending") {
+    throw new functions.https.HttpsError("already-exists", "A verification request is already under review.");
+  }
+  const userSnap = await db.ref(`users/${uid}`).once("value");
+  const user = asObject(userSnap.val());
+  const request = {
+    uid, name: user.name || user.displayName || "CallX creator",
+    photoUrl: user.photoUrl || user.photo || "", reason: "Paid verified badge plan",
+    source: "verified_badge_plan", planKey: plan.key, planName: plan.name,
+    priceRupees: plan.priceRupees, amountPaise: plan.priceRupees * 100,
+    status: "pending", submittedAt: ServerValue.TIMESTAMP,
+  };
+  await Promise.all([
+    db.ref(`verification_requests/${uid}`).set(request),
+    db.ref(`verificationBadgeRequests/${uid}`).set(request),
+  ]);
+  return { ...(await verificationBadgeView(uid, db)), submitted: true };
+});
+
+async function starTalentView(uid, db) {
+  const [userSnap, applicationSnap] = await Promise.all([
+    db.ref(`users/${uid}`).once("value"),
+    db.ref(`starTalentApplications/${uid}`).once("value"),
+  ]);
+  const user = asObject(userSnap.val());
+  const application = asObject(applicationSnap.val());
+  return {
+    tiers: STAR_TALENT_TIERS,
+    currentTier: user.talentPlan || user.talentTier || user.talent || "normal",
+    status: application.status || "",
+    application: applicationSnap.exists() ? application : null,
+  };
+}
+
+exports.starTalentAction = functions.https.onCall(async (data, context) => {
+  if (!context.auth || !context.auth.uid) {
+    throw new functions.https.HttpsError("unauthenticated", "Sign-in required.");
+  }
+  const uid = context.auth.uid;
+  const db = getDatabase();
+  const action = String(data && data.action || "get");
+  const payload = asObject(data && data.payload);
+  if (action === "get") return starTalentView(uid, db);
+  if (action !== "apply") {
+    throw new functions.https.HttpsError("invalid-argument", "Unknown talent action.");
+  }
+  const tier = catalogItem(STAR_TALENT_TIERS, payload.tierKey);
+  const category = String(payload.category || "").trim().slice(0, 80);
+  const reason = String(payload.reason || "").trim().slice(0, 1000);
+  if (!tier || !category || reason.length < 20) {
+    throw new functions.https.HttpsError("invalid-argument",
+      "Choose a tier and provide a category plus at least 20 characters about your work.");
+  }
+  const view = await starTalentView(uid, db);
+  if (["pending", "approved", "active"].includes(view.status)) {
+    throw new functions.https.HttpsError("already-exists", "A talent application is already active.");
+  }
+  const userSnap = await db.ref(`users/${uid}`).once("value");
+  const user = asObject(userSnap.val());
+  const application = {
+    uid, name: user.name || user.displayName || "CallX creator",
+    photoUrl: user.photoUrl || user.photo || "", tierKey: tier.key,
+    tierName: tier.name, priceRupees: tier.priceRupees, category, reason,
+    status: "pending", submittedAt: ServerValue.TIMESTAMP,
+  };
+  await db.ref(`starTalentApplications/${uid}`).set(application);
+  return { ...(await starTalentView(uid, db)), submitted: true };
+});
+
+function normalizeMilestoneConfig(value) {
+  const source = asObject(value);
+  const rawLevels = Array.isArray(source.levels) ? source.levels : [];
+  const levels = rawLevels.map((raw, index) => {
+    const row = asObject(raw);
+    return {
+      level: Number(row.level || index + 1),
+      likes: Math.max(0, Number(row.likes || 0)),
+      following: Math.max(0, Number(row.following || 0)),
+      shares: Math.max(0, Number(row.shares || 0)),
+      rewardPaise: Math.max(0, Number(row.rewardPaise || 0)),
+    };
+  }).filter((row) => row.level > 0 && row.likes > 0 && row.following > 0 && row.shares > 0)
+    .sort((a, b) => a.level - b.level).slice(0, 20);
+  return {
+    enabled: source.enabled !== false,
+    levels: levels.length ? levels : DEFAULT_MILESTONE_EARNINGS.levels,
+  };
+}
+
+async function milestoneConfig(db) {
+  const snap = await db.ref("appConfig/milestoneEarnings").once("value");
+  return normalizeMilestoneConfig(snap.val());
+}
+
+async function milestoneStats(uid, db) {
+  const [likes, following, shares] = await Promise.all([
+    db.ref(`reelLikedByUser/${uid}`).once("value"),
+    db.ref(`reelFollows/${uid}`).once("value"),
+    db.ref(`milestoneShareEvents/${uid}`).once("value"),
+  ]);
+  return {
+    uniqueLikes: likes.numChildren(),
+    following: following.numChildren(),
+    whatsappShares: shares.numChildren(),
+  };
+}
+
+function milestoneProgress(stats, config) {
+  const levels = config.levels;
+  const completedLevels = levels.filter((level) =>
+    stats.uniqueLikes >= level.likes
+      && stats.following >= level.following
+      && stats.whatsappShares >= level.shares);
+  const highestCompletedLevel = completedLevels.length
+    ? completedLevels[completedLevels.length - 1].level : 0;
+  const active = levels.find((level) => level.level > highestCompletedLevel) || levels[levels.length - 1];
+  const pct = (value, target) => target <= 0
+    ? 100 : Math.min(100, Math.round((value / target) * 100));
+  const likesPercent = pct(stats.uniqueLikes, active.likes);
+  const followingPercent = pct(stats.following, active.following);
+  const sharesPercent = pct(stats.whatsappShares, active.shares);
+  return {
+    completedLevels, highestCompletedLevel, active,
+    overallPercent: Math.round((likesPercent + followingPercent + sharesPercent) / 3),
+    likesPercent, followingPercent, sharesPercent,
+  };
+}
+
+async function syncMilestoneRewards(uid, db, progress) {
+  const ref = db.ref(`milestoneEarnings/${uid}`);
+  await ref.transaction((current) => {
+    const state = asObject(current);
+    const rewards = asObject(state.rewards);
+    const history = asObject(state.history);
+    let balancePaise = Number(state.balancePaise || 0);
+    let lifetimePaise = Number(state.lifetimePaise || 0);
+    const completedKeys = new Set(progress.completedLevels.map((level) => `level_${level.level}`));
+    Object.entries(rewards).forEach(([key, reward]) => {
+      if (!completedKeys.has(key) && reward && reward.status === "credited") {
+        const amount = Number(reward.amountPaise || 0);
+        balancePaise = Math.max(0, balancePaise - amount);
+        rewards[key] = {
+          ...reward, status: "reversed", reversedAt: Date.now(),
+        };
+        history[key] = rewards[key];
+      }
+    });
+    progress.completedLevels.forEach((level) => {
+      const key = `level_${level.level}`;
+      if (rewards[key]) return;
+      rewards[key] = {
+        type: "milestone_reward", level: level.level,
+        amountPaise: level.rewardPaise, status: "credited",
+        creditedAt: Date.now(),
+      };
+      history[key] = rewards[key];
+      balancePaise += level.rewardPaise;
+      lifetimePaise += level.rewardPaise;
+    });
+    return {
+      ...state, rewards, history, balancePaise, lifetimePaise,
+      highestCompletedLevel: Math.max(Number(state.highestCompletedLevel || 0),
+        progress.highestCompletedLevel),
+      updatedAt: Date.now(),
+    };
+  });
+  return ref.once("value");
+}
+
+async function milestoneView(uid, db) {
+  const [config, stats] = await Promise.all([milestoneConfig(db), milestoneStats(uid, db)]);
+  const progress = milestoneProgress(stats, config);
+  const stateSnap = await syncMilestoneRewards(uid, db, progress);
+  const state = asObject(stateSnap.val());
+  const history = Object.entries(asObject(state.history)).map(([id, value]) => ({
+    id, ...asObject(value),
+  })).sort((a, b) => Number(b.creditedAt || b.requestedAt || 0)
+    - Number(a.creditedAt || a.requestedAt || 0));
+  const active = progress.active || {};
+  return {
+    enabled: config.enabled,
+    config,
+    stats: {
+      uniqueLikes: stats.uniqueLikes,
+      following: stats.following,
+      whatsappShares: stats.whatsappShares,
+    },
+    currentLevel: active.level || 1,
+    highestCompletedLevel: progress.highestCompletedLevel,
+    overallPercent: progress.overallPercent,
+    metricPercents: {
+      likes: progress.likesPercent,
+      following: progress.followingPercent,
+      shares: progress.sharesPercent,
+    },
+    activeLevel: active,
+    availablePaise: Number(state.balancePaise || 0),
+    pendingPaise: Number(state.pendingPayoutPaise || 0),
+    lifetimePaise: Number(state.lifetimePaise || 0),
+    withdrawalsUnlocked: progress.highestCompletedLevel >= 3,
+    payoutSummary: state.pendingPayoutPaise
+      ? "Withdrawal request is under review."
+      : progress.highestCompletedLevel >= 3
+        ? "Withdrawals are unlocked at Level 3."
+        : "Withdrawals unlock at Level 3.",
+    history: history.slice(0, 50),
+    levels: config.levels,
+  };
+}
 
 function childCount(node) {
   let count = 0;
@@ -743,6 +1038,66 @@ exports.creatorMonetizationAction = functions.https.onCall(async (data, context)
   throw new functions.https.HttpsError("invalid-argument", `Unknown monetization action: ${action}`);
 });
 
+exports.milestoneEarningsAction = functions.https.onCall(async (data, context) => {
+  if (!context.auth || !context.auth.uid) {
+    throw new functions.https.HttpsError("unauthenticated", "Sign-in required.");
+  }
+  const action = String(data && data.action || "get");
+  const payload = asObject(data && data.payload);
+  const uid = context.auth.uid;
+  const db = getDatabase();
+  const stateRef = db.ref(`milestoneEarnings/${uid}`);
+
+  if (action === "get") return milestoneView(uid, db);
+
+  if (action === "recordWhatsappShare") {
+    const reelId = String(payload.reelId || "");
+    if (!reelId || /[.#$\[\]/]/.test(reelId)) {
+      throw new functions.https.HttpsError("invalid-argument", "A valid reel is required.");
+    }
+    const event = db.ref(`milestoneShareEvents/${uid}`).push();
+    await event.set({
+      reelId, channel: "whatsapp", createdAt: ServerValue.TIMESTAMP,
+    });
+    return milestoneView(uid, db);
+  }
+
+  if (action === "requestPayout") {
+    const view = await milestoneView(uid, db);
+    if (!view.withdrawalsUnlocked) {
+      throw new functions.https.HttpsError("failed-precondition",
+        "Complete Level 3 to unlock withdrawals.");
+    }
+    if (view.availablePaise <= 0) {
+      throw new functions.https.HttpsError("failed-precondition",
+        "There is no available milestone reward balance.");
+    }
+    if (view.pendingPaise > 0) {
+      throw new functions.https.HttpsError("already-exists",
+        "A milestone withdrawal is already under review.");
+    }
+    const payoutRef = stateRef.child("payouts").push();
+    const historyKey = `payout_${payoutRef.key}`;
+    const amountPaise = view.availablePaise;
+    await stateRef.update({
+      balancePaise: 0,
+      pendingPayoutPaise: amountPaise,
+      lastPayoutRequestedAt: ServerValue.TIMESTAMP,
+      [`history/${historyKey}`]: {
+        type: "milestone_payout", amountPaise, status: "pending",
+        requestedAt: ServerValue.TIMESTAMP,
+      },
+    });
+    await payoutRef.set({
+      amountPaise, status: "pending", requestedAt: ServerValue.TIMESTAMP, uid,
+    });
+    return { ok: true, payoutId: payoutRef.key, amountPaise };
+  }
+
+  throw new functions.https.HttpsError("invalid-argument",
+    `Unknown milestone action: ${action}`);
+});
+
 function safeTargetPath(type, value) {
   const v = asObject(value);
   const id = v.reelId || v.tweetId || v.soundId || v.groupId || v.channelId
@@ -898,9 +1253,10 @@ exports.adminAction = functions.https.onCall(async (data, context) => {
   const db = getDatabase();
 
   if (action === "dashboard") {
-    const [users, calls, reports, verification, config] = await Promise.all([
+    const [users, calls, reports, verification, talent, config] = await Promise.all([
       db.ref("users").once("value"), db.ref("activeCalls").once("value"),
       listAllReports(500), db.ref("verification_requests").orderByChild("status").equalTo("pending").once("value"),
+      db.ref("starTalentApplications").orderByChild("status").equalTo("pending").once("value"),
       db.ref("appConfig").once("value"),
     ]);
     const now = Date.now();
@@ -916,6 +1272,7 @@ exports.adminAction = functions.https.onCall(async (data, context) => {
       users: users.numChildren(), dau, mau, online, activeCalls: calls.numChildren(),
       storageBytes: Number(storage.totalBytes || 0),
       pendingReports: reports.length, pendingVerification: verification.numChildren(),
+      pendingTalent: talent.numChildren(),
       config: config.val() || {},
     } };
   }
@@ -1106,6 +1463,87 @@ exports.adminAction = functions.https.onCall(async (data, context) => {
     return { ok: true };
   }
 
+  if (action === "reviewVerificationRequest") {
+    const uid = String(payload.uid || "");
+    const decision = String(payload.decision || "");
+    if (!uid || !["approve", "reject"].includes(decision)) {
+      throw new functions.https.HttpsError("invalid-argument",
+        "Verification request and decision are required.");
+    }
+    const requestRef = db.ref(`verification_requests/${uid}`);
+    const requestSnap = await requestRef.once("value");
+    if (!requestSnap.exists()) {
+      throw new functions.https.HttpsError("not-found", "Verification request not found.");
+    }
+    const request = asObject(requestSnap.val());
+    if (["approved", "rejected"].includes(String(request.status || ""))) {
+      throw new functions.https.HttpsError("failed-precondition", "Request is already closed.");
+    }
+    const nextStatus = decision === "approve" ? "approved" : "rejected";
+    const requestUpdate = {
+      status: nextStatus, reviewedBy: context.auth.uid,
+      reviewedAt: ServerValue.TIMESTAMP,
+    };
+    const updates = { [`verification_requests/${uid}/status`]: nextStatus,
+      [`verification_requests/${uid}/reviewedBy`]: context.auth.uid,
+      [`verification_requests/${uid}/reviewedAt`]: ServerValue.TIMESTAMP,
+      [`verificationBadgeRequests/${uid}/status`]: nextStatus,
+      [`verificationBadgeRequests/${uid}/reviewedBy`]: context.auth.uid,
+      [`verificationBadgeRequests/${uid}/reviewedAt`]: ServerValue.TIMESTAMP };
+    if (decision === "approve") {
+      updates[`users/${uid}/isVerified`] = true;
+      updates[`users/${uid}/verificationPlan`] = request.planKey || "manual";
+      updates[`users/${uid}/verificationApprovedAt`] = ServerValue.TIMESTAMP;
+    }
+    await db.ref().update(updates);
+    await audit(context.auth.uid, `verification_${decision}`, "verification", uid,
+      { planKey: request.planKey || "manual", ...requestUpdate });
+    return { ok: true, status: nextStatus };
+  }
+
+  if (action === "listStarTalentApplications") {
+    const snap = await db.ref("starTalentApplications")
+      .orderByChild("status").equalTo("pending").once("value");
+    const items = [];
+    snap.forEach((child) => items.push({ id: child.key, ...asObject(child.val()) }));
+    items.sort((a, b) => Number(b.submittedAt || 0) - Number(a.submittedAt || 0));
+    return { tiers: STAR_TALENT_TIERS, items: items.slice(0, 500) };
+  }
+
+  if (action === "reviewStarTalentApplication") {
+    const uid = String(payload.uid || "");
+    const decision = String(payload.decision || "");
+    if (!uid || !["approve", "reject"].includes(decision)) {
+      throw new functions.https.HttpsError("invalid-argument",
+        "Talent application and decision are required.");
+    }
+    const applicationRef = db.ref(`starTalentApplications/${uid}`);
+    const applicationSnap = await applicationRef.once("value");
+    if (!applicationSnap.exists()) {
+      throw new functions.https.HttpsError("not-found", "Talent application not found.");
+    }
+    const application = asObject(applicationSnap.val());
+    if (["approved", "rejected"].includes(String(application.status || ""))) {
+      throw new functions.https.HttpsError("failed-precondition", "Application is already closed.");
+    }
+    const nextStatus = decision === "approve" ? "approved" : "rejected";
+    const updates = {
+      [`starTalentApplications/${uid}/status`]: nextStatus,
+      [`starTalentApplications/${uid}/reviewedBy`]: context.auth.uid,
+      [`starTalentApplications/${uid}/reviewedAt`]: ServerValue.TIMESTAMP,
+    };
+    if (decision === "approve") {
+      updates[`users/${uid}/talentPlan`] = application.tierKey || "star";
+      updates[`users/${uid}/talentTier`] = application.tierKey || "star";
+      updates[`users/${uid}/talentStatus`] = "active";
+      updates[`users/${uid}/talentApprovedAt`] = ServerValue.TIMESTAMP;
+    }
+    await db.ref().update(updates);
+    await audit(context.auth.uid, `star_talent_${decision}`, "star_talent", uid,
+      { tierKey: application.tierKey || "star" });
+    return { ok: true, status: nextStatus };
+  }
+
   if (action === "listCreatorPayouts") {
     const snap = await db.ref("creatorMonetization").once("value");
     const creators = [];
@@ -1168,6 +1606,97 @@ exports.adminAction = functions.https.onCall(async (data, context) => {
     await payoutRef.update(updates);
     await audit(context.auth.uid, `creator_payout_${operation}`, "creator_payout",
       `${uid}/${payoutId}`, { amountCents });
+    return { ok: true, status: nextStatus };
+  }
+
+  if (action === "listMilestoneEarnings") {
+    const [config, usersSnap, eventsSnap] = await Promise.all([
+      milestoneConfig(db),
+      db.ref("milestoneEarnings").once("value"),
+      db.ref("milestoneShareEvents").once("value"),
+    ]);
+    const users = [];
+    const payouts = [];
+    usersSnap.forEach((userSnap) => {
+      const state = asObject(userSnap.val());
+      users.push({
+        uid: userSnap.key,
+        balancePaise: Number(state.balancePaise || 0),
+        pendingPayoutPaise: Number(state.pendingPayoutPaise || 0),
+        lifetimePaise: Number(state.lifetimePaise || 0),
+        highestCompletedLevel: Number(state.highestCompletedLevel || 0),
+      });
+      userSnap.child("payouts").forEach((payoutSnap) => {
+        payouts.push({
+          ...asObject(payoutSnap.val()),
+          id: payoutSnap.key, uid: userSnap.key,
+          amountPaise: Number(asObject(payoutSnap.val()).amountPaise || 0),
+        });
+      });
+    });
+    const shareCounts = {};
+    eventsSnap.forEach((userSnap) => { shareCounts[userSnap.key] = userSnap.numChildren(); });
+    users.forEach((row) => { row.whatsappShares = shareCounts[row.uid] || 0; });
+    payouts.sort((a, b) => Number(b.requestedAt || 0) - Number(a.requestedAt || 0));
+    return { config, users, payouts: payouts.slice(0, 500) };
+  }
+
+  if (action === "updateMilestoneConfig") {
+    const next = normalizeMilestoneConfig(payload.config);
+    if (!Array.isArray(payload.config && payload.config.levels)
+        || payload.config.levels.length < 1) {
+      throw new functions.https.HttpsError("invalid-argument", "At least one level is required.");
+    }
+    await db.ref("appConfig/milestoneEarnings").set({
+      ...next, updatedBy: context.auth.uid, updatedAt: ServerValue.TIMESTAMP,
+    });
+    await audit(context.auth.uid, "update_milestone_config", "app_config",
+      "milestoneEarnings", next);
+    return { ok: true, config: next };
+  }
+
+  if (action === "reviewMilestonePayout") {
+    const uid = String(payload.uid || "");
+    const payoutId = String(payload.payoutId || "");
+    const operation = String(payload.operation || "");
+    if (!uid || !payoutId || !["approve", "reject", "paid"].includes(operation)) {
+      throw new functions.https.HttpsError("invalid-argument",
+        "Milestone payout details are required.");
+    }
+    const payoutRef = db.ref(`milestoneEarnings/${uid}/payouts/${payoutId}`);
+    const payoutSnap = await payoutRef.once("value");
+    const payout = asObject(payoutSnap.val());
+    if (!payoutSnap.exists()) {
+      throw new functions.https.HttpsError("not-found", "Milestone payout not found.");
+    }
+    const currentStatus = String(payout.status || "pending");
+    if (["paid", "rejected"].includes(currentStatus)) {
+      throw new functions.https.HttpsError("failed-precondition", "Payout is already closed.");
+    }
+    const amountPaise = Number(payout.amountPaise || 0);
+    const nextStatus = operation === "approve" ? "approved"
+      : operation === "paid" ? "paid" : "rejected";
+    const updates = {
+      status: nextStatus, reviewedBy: context.auth.uid,
+      reviewedAt: ServerValue.TIMESTAMP,
+    };
+    if (operation === "reject") {
+      updates.rejectionReason = String(payload.reason || "Rejected by admin").slice(0, 240);
+      await db.ref(`milestoneEarnings/${uid}`).update({
+        balancePaise: amountPaise, pendingPayoutPaise: 0,
+        [`history/payout_${payoutId}/status`]: "rejected",
+      });
+    } else if (operation === "paid") {
+      await db.ref(`milestoneEarnings/${uid}`).update({
+        pendingPayoutPaise: 0, [`history/payout_${payoutId}/status`]: "paid",
+      });
+    } else {
+      await db.ref(`milestoneEarnings/${uid}`)
+        .update({ [`history/payout_${payoutId}/status`]: "approved" });
+    }
+    await payoutRef.update(updates);
+    await audit(context.auth.uid, `milestone_payout_${operation}`, "milestone_payout",
+      `${uid}/${payoutId}`, { amountPaise });
     return { ok: true, status: nextStatus };
   }
 
