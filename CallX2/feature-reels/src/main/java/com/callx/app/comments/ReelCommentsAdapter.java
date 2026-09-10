@@ -2,6 +2,8 @@ package com.callx.app.comments;
 import com.callx.app.utils.AlertDialogStyler;
 
 import android.content.Context;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.text.format.DateUtils;
 import android.view.*;
 import android.widget.*;
@@ -65,10 +67,11 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     // key instead of the fallback photo silently reusing a stale one.
     private static final LruCache<String, Long> avatarVersionCache = new LruCache<>(200);
 
-    // Comment avatar is a fixed 36dp circular tile (see item_reel_comment.xml),
-    // bucketed to the shared SMALL tier (48dp) so this decode is reused across
-    // any other 36-48dp avatar view in the app instead of caching separately.
-    // Kept in sync with ReelCommentAvatarBinder.TIER — see that class.
+    // Comment avatar is a fixed 32dp circular tile (Instagram-parity size,
+    // see item_reel_comment.xml), bucketed to the shared TINY tier (32dp) so
+    // this decode is reused across any other <=32dp avatar view in the app
+    // instead of caching separately. Kept in sync with
+    // ReelCommentAvatarBinder.TIER — see that class.
     private static final AvatarSizeTier AVATAR_TIER = ReelCommentAvatarBinder.TIER;
 
     // Comment photo attachment decode size — iv_comment_image in
@@ -110,6 +113,11 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         void onPinComment(ReelComment comment);
         void onReportComment(ReelComment comment);
         void onReactComment(ReelComment comment, String emoji, int position);
+        /** Instagram-style "Translate" long-press action — actual translation
+         *  (ML Kit / API call) happens wherever the fragment already has that
+         *  capability; the adapter only surfaces the menu entry and forwards
+         *  which comment + row was tapped. */
+        void onTranslateComment(ReelComment comment, int position);
         /** Fired when the user taps a comment that's in the "failed" send
          *  state — re-attempt the same Firebase write with the same key. */
         void onRetryComment(ReelComment comment);
@@ -290,7 +298,7 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     private void bindLikeState(VH h, ReelComment c) {
         Context ctx = h.itemView.getContext();
         boolean liked = c.isLikedBy(myUid);
-        h.tvLikes.setText(c.likesCount > 0 ? String.valueOf(c.likesCount) : "");
+        h.tvLikes.setText(c.likesCount > 0 ? formatCount(c.likesCount) : "");
         h.btnLike.setImageResource(liked
             ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
         h.btnLike.setColorFilter(liked
@@ -462,6 +470,24 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
 
     /** Quick scale-up/scale-down pulse on the heart icon — visual feedback
      *  for double-tap-to-like, mirroring Instagram's comment interaction. */
+    /** Instagram-style abbreviated count for the comment like counter —
+     *  "999" stays raw, "1K"/"1.2K" from 1,000, "3M"/"3.4M" from 1,000,000.
+     *  Truncates (not rounds) the decimal and drops a trailing ".0", same
+     *  as Instagram's own counter. */
+    private static String formatCount(int count) {
+        if (count < 1000) return String.valueOf(count);
+        if (count < 1_000_000) return abbreviate(count / 1000.0, "K");
+        return abbreviate(count / 1_000_000.0, "M");
+    }
+
+    private static String abbreviate(double value, String suffix) {
+        double truncated = Math.floor(value * 10) / 10;
+        String s = (truncated == Math.floor(truncated))
+                ? String.valueOf((long) truncated)
+                : String.valueOf(truncated);
+        return s + suffix;
+    }
+
     private static void bounceLikeButton(ImageButton btnLike) {
         if (btnLike == null) return;
         btnLike.animate().cancel();
@@ -675,6 +701,20 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
         // React (everyone)
         opts.add("React with emoji");
         actions.add(() -> showEmojiPanel(ctx, c, position));
+
+        // Copy text (everyone) — Instagram-style, handled locally, no
+        // listener round-trip needed for a plain clipboard write.
+        opts.add("Copy text");
+        actions.add(() -> {
+            ClipboardManager cm = (ClipboardManager) ctx.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("comment", c.text));
+            Toast.makeText(ctx, "Text copied", Toast.LENGTH_SHORT).show();
+        });
+
+        // Translate (everyone) — actual translation call lives with the
+        // fragment/host; adapter just surfaces the entry.
+        opts.add("Translate");
+        actions.add(() -> { if (listener != null) listener.onTranslateComment(c, position); });
 
         if (isOwn) {
             // Edit own comment

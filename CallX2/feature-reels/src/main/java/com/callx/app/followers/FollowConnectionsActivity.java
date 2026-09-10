@@ -64,6 +64,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
     private TabLayout    tabLayout;
     private ViewPager2   viewPager;
     private EditText     etSearch;
+    private ImageButton  btnSearchClear;
     private ImageButton  btnBack;
     private TextView     tvUsername;
 
@@ -118,9 +119,26 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         tabLayout  = findViewById(R.id.tab_layout);
         viewPager  = findViewById(R.id.view_pager);
         etSearch   = findViewById(R.id.et_search);
+        btnSearchClear = findViewById(R.id.btn_search_clear);
 
         if (btnBack    != null) btnBack.setOnClickListener(v -> finish());
+        // FIX (Instagram-level header): targetName is the display name, not
+        // the handle — use it only as an instant placeholder, then resolve
+        // the real username from users/{uid}/username (same field
+        // FollowConnectionsActivity's own search/UserReelsActivity's header
+        // now read) and overwrite the header with it.
         if (tvUsername != null) tvUsername.setText(targetName != null ? targetName : "");
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("users").child(targetUid).child("username")
+            .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
+                @Override public void onDataChange(@NonNull com.google.firebase.database.DataSnapshot snap) {
+                    String username = snap.getValue(String.class);
+                    if (tvUsername != null && username != null && !username.isEmpty()) {
+                        tvUsername.setText(username);
+                    }
+                }
+                @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError error) {}
+            });
 
         // Initialise per-tab lists
         for (int i = 0; i < TAB_COUNT; i++) {
@@ -140,14 +158,22 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         // Jump to requested start tab
         viewPager.setCurrentItem(startTab, false);
 
-        // Search watcher — filters active tab
+        // Search watcher — filters active tab, also toggles the clear (X) button
         if (etSearch != null) {
             etSearch.addTextChangedListener(new TextWatcher() {
                 @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
                 @Override public void afterTextChanged(Editable s) {}
                 @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
                     filterTab(viewPager.getCurrentItem(), s.toString().trim());
+                    if (btnSearchClear != null) {
+                        btnSearchClear.setVisibility(s.length() > 0 ? View.VISIBLE : View.GONE);
+                    }
                 }
+            });
+        }
+        if (btnSearchClear != null) {
+            btnSearchClear.setOnClickListener(v -> {
+                if (etSearch != null) etSearch.setText("");
             });
         }
 
@@ -469,11 +495,29 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             filteredItems[tab].addAll(allItems[tab]);
         } else {
             String lq = query.toLowerCase(Locale.getDefault());
+            // FIX (Instagram-level search): match username as well as name —
+            // Instagram's follow-list search matches both fields, with
+            // username-prefix matches ranked first, then name-prefix, then
+            // any-position contains matches. Bio kept as a lowest-priority
+            // fallback (pre-existing behavior on this screen).
+            java.util.List<UserItem> scored = new ArrayList<>();
+            java.util.Map<UserItem, Integer> rank = new java.util.HashMap<>();
             for (UserItem u : allItems[tab]) {
+                String username = u.username != null ? u.username.toLowerCase(Locale.getDefault()) : "";
                 String name = u.name != null ? u.name.toLowerCase(Locale.getDefault()) : "";
                 String bio  = u.bio  != null ? u.bio.toLowerCase(Locale.getDefault())  : "";
-                if (name.contains(lq) || bio.contains(lq)) filteredItems[tab].add(u);
+                int r;
+                if (username.startsWith(lq))      r = 0;
+                else if (name.startsWith(lq))      r = 1;
+                else if (username.contains(lq))    r = 2;
+                else if (name.contains(lq))        r = 3;
+                else if (bio.contains(lq))         r = 4;
+                else continue;
+                rank.put(u, r);
+                scored.add(u);
             }
+            scored.sort((a, b) -> rank.get(a) - rank.get(b));
+            filteredItems[tab].addAll(scored);
         }
 
         // PERF: submitList() runs AsyncListDiffer's old-list/new-list diff on
@@ -510,7 +554,8 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             if (t == currentTab) continue;
             for (UserItem u : allItems[t]) {
                 String name = u.name != null ? u.name.toLowerCase(Locale.getDefault()) : "";
-                if (name.contains(lq)) { found = u; foundTab = t; break outer; }
+                String username = u.username != null ? u.username.toLowerCase(Locale.getDefault()) : "";
+                if (name.contains(lq) || username.contains(lq)) { found = u; foundTab = t; break outer; }
             }
         }
         if (found == null || isFinishing() || isDestroyed()) return;
@@ -717,6 +762,7 @@ public class FollowConnectionsActivity extends AppCompatActivity {
                 @Override
                 public boolean areContentsTheSame(@NonNull UserItem a, @NonNull UserItem b) {
                     return Objects.equals(a.name, b.name)
+                        && Objects.equals(a.username, b.username)
                         && Objects.equals(a.photo, b.photo)
                         && Objects.equals(a.bio, b.bio)
                         && a.avatarVersion == b.avatarVersion;
@@ -805,10 +851,17 @@ public class FollowConnectionsActivity extends AppCompatActivity {
             // avatar and Stories tray already use — see StoryRingApplier.
             com.callx.app.utils.StoryRingApplier.applyWithClick(FollowConnectionsActivity.this, h.ivStoryRing, u.uid);
 
-            // Name + bio
-            h.tvName.setText(u.name != null ? u.name : u.uid);
-            if (u.bio != null && !u.bio.isEmpty()) {
-                h.tvBio.setText(u.bio);
+            // Instagram-level: username is primary (bold, top line); name
+            // shown as a secondary line underneath, but ONLY when it differs
+            // from the username — same as Instagram's followers/following
+            // list (a plain second line, not the bio).
+            String primary = (u.username != null && !u.username.isEmpty()) ? u.username
+                    : (u.name != null ? u.name : u.uid);
+            h.tvName.setText(primary);
+            boolean nameDiffersFromUsername = u.name != null && !u.name.isEmpty()
+                    && !u.name.equalsIgnoreCase(primary);
+            if (nameDiffersFromUsername) {
+                h.tvBio.setText(u.name);
                 h.tvBio.setVisibility(View.VISIBLE);
             } else {
                 h.tvBio.setVisibility(View.GONE);
@@ -1078,6 +1131,11 @@ public class FollowConnectionsActivity extends AppCompatActivity {
 
     private UserItem parseUser(String uid, DataSnapshot snap) {
         String name  = snap.child("name").getValue(String.class);
+        // FIX (Instagram-level search): "username" is the same field search,
+        // mentions and tagging already read across the app (ProfileActivity,
+        // ReelTagPeopleActivity, ReelSearchHistoryActivity, HomeFragment) —
+        // wire it here too so Followers/Following/Mutual search can match it.
+        String username = snap.child("username").getValue(String.class);
         String thumb = snap.child("thumbUrl").getValue(String.class);
         String photo = snap.child("photoUrl").getValue(String.class);
         String bio   = snap.child("bio").getValue(String.class);
@@ -1086,7 +1144,8 @@ public class FollowConnectionsActivity extends AppCompatActivity {
         // screen (chat list, profile, search, status) already reads.
         Long avatarVer = snap.child("avatarVersion").getValue(Long.class);
         String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
-        return new UserItem(uid, name != null ? name : uid, p != null ? p : "", bio != null ? bio : "",
+        return new UserItem(uid, name != null ? name : uid, username != null ? username : "",
+                p != null ? p : "", bio != null ? bio : "",
                 avatarVer != null ? avatarVer : 0L);
     }
 
@@ -1109,10 +1168,10 @@ public class FollowConnectionsActivity extends AppCompatActivity {
     // ══════════════════════════════════════════════════════════════════════
 
     static class UserItem {
-        String uid, name, photo, bio;
+        String uid, name, username, photo, bio;
         long avatarVersion; // FIX: denormalized for FollowAvatarBinder.url()'s responsive/version-tagged URL
-        UserItem(String uid, String name, String photo, String bio, long avatarVersion) {
-            this.uid = uid; this.name = name; this.photo = photo; this.bio = bio;
+        UserItem(String uid, String name, String username, String photo, String bio, long avatarVersion) {
+            this.uid = uid; this.name = name; this.username = username; this.photo = photo; this.bio = bio;
             this.avatarVersion = avatarVersion;
         }
     }

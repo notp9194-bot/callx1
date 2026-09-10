@@ -197,16 +197,26 @@ public class UserProfileActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
 
-                // Name
+                // FIX (Instagram-level header): tv_name (top, bold) is the
+                // primary line — show the @callxId handle there, same as
+                // FollowConnectionsActivity/UserReelsActivity's headers.
+                // tv_callx_id (bottom, secondary) now shows the display
+                // name instead, only when it differs from the handle.
+                boolean cachedHasCallxId = cached.callxId != null && !cached.callxId.isEmpty();
+                String cachedPrimary = cachedHasCallxId ? cached.callxId
+                        : (cached.name != null ? cached.name : partnerUid);
+                binding.tvName.setText(cachedPrimary);
+                binding.collapsingToolbar.setTitle(cachedPrimary);
                 if (cached.name != null && !cached.name.isEmpty()) {
-                    binding.tvName.setText(cached.name);
-                    binding.collapsingToolbar.setTitle(cached.name);
                     partnerName = cached.name;
                 }
-
-                // CallX ID
-                if (cached.callxId != null && !cached.callxId.isEmpty()) {
-                    binding.tvCallxId.setText("@" + cached.callxId);
+                boolean cachedNameDiffers = cached.name != null && !cached.name.isEmpty()
+                        && (!cachedHasCallxId || !cached.name.equalsIgnoreCase(cached.callxId));
+                if (cachedNameDiffers) {
+                    binding.tvCallxId.setText(cached.name);
+                    binding.tvCallxId.setVisibility(View.VISIBLE);
+                } else if (cachedHasCallxId) {
+                    binding.tvCallxId.setVisibility(View.GONE);
                 }
 
                 // About
@@ -311,13 +321,25 @@ public class UserProfileActivity extends AppCompatActivity {
                     if (!name.isEmpty())  partnerName  = name;
                     if (avatarVer != null) partnerAvatarVersion = avatarVer;
 
-                    // Name + collapsing title
-                    binding.tvName.setText(name.isEmpty() ? orEmpty(partnerName) : name);
-                    binding.collapsingToolbar.setTitle(name.isEmpty() ? orEmpty(partnerName) : name);
+                    // Name + collapsing title — Instagram-level: tv_name
+                    // (top, bold) is the primary @callxId handle; tv_callx_id
+                    // (secondary) now shows the display name, only when it
+                    // differs from the handle. Same convention as
+                    // FollowConnectionsActivity/UserReelsActivity headers.
+                    boolean hasCallxId = !callxId.isEmpty();
+                    String resolvedName = name.isEmpty() ? orEmpty(partnerName) : name;
+                    String primary = hasCallxId ? callxId : (!resolvedName.isEmpty() ? resolvedName : partnerUid);
+                    binding.tvName.setText(primary);
+                    binding.collapsingToolbar.setTitle(primary);
 
-                    // CallX ID
-                    if (!callxId.isEmpty()) {
-                        binding.tvCallxId.setText("@" + callxId);
+                    // CallX ID / secondary name line
+                    boolean nameDiffers = !resolvedName.isEmpty()
+                            && (!hasCallxId || !resolvedName.equalsIgnoreCase(callxId));
+                    if (nameDiffers) {
+                        binding.tvCallxId.setText(resolvedName);
+                        binding.tvCallxId.setVisibility(View.VISIBLE);
+                    } else {
+                        binding.tvCallxId.setVisibility(View.GONE);
                     }
 
                     // Bio

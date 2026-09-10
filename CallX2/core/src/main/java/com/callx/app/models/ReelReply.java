@@ -36,6 +36,18 @@ public class ReelReply {
     /** Timestamp of the last edit (ms). */
     public long editedAt;
 
+    // ── Local-first send state (NOT written to Firebase) ────────────────
+    // Mirrors ReelComment's own sendState field/constants (see that class'
+    // doc) — extends the same instant-bubble / tap-to-retry pattern from
+    // top-level comments down to replies, which previously fired a plain
+    // fire-and-forget setValue() with no local row and no failure handling.
+    public static final String SEND_STATE_SENDING = "sending";
+    public static final String SEND_STATE_FAILED  = "failed";
+    /** null = normal/confirmed-sent reply. Only set locally while a reply
+     *  is in flight or has failed to send; never present on data read back
+     *  from Firebase (@IgnoreExtraProperties simply leaves it null). */
+    public transient String sendState;
+
     public ReelReply() {}
 
     public ReelReply(String replyId, String parentCommentId, String uid,

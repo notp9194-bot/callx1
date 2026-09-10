@@ -99,12 +99,39 @@ public class ReelUserProfileSheet {
         }
 
         // ── Name + Avatar (initial — photoUrl se) ─────────────────────────
+        // FIX (Instagram-level header): `name` here is the display name
+        // (whatever the caller passed), not the handle — use it only as an
+        // instant placeholder, then resolve the real username + avatarVersion
+        // below and overwrite tvName / re-bind the avatar, same convention
+        // as UserReelsActivity/FollowConnectionsActivity/UserProfileActivity.
         if (tvName != null) tvName.setText(name != null ? name : "User");
-        if (photoUrl != null && !photoUrl.isEmpty() && ivAvatar != null) {
-            Glide.with(activity).load(photoUrl)
-                .apply(RequestOptions.circleCropTransform())
-                .placeholder(R.drawable.ic_person).into(ivAvatar);
+        // FIX: avatar now goes through FollowAvatarBinder — the SAME shared
+        // pipeline FollowConnectionsActivity's row avatars use (density-aware
+        // tier sizing, L2/L3 bitmap reuse, version-tagged URL, dedupe-by-tag)
+        // instead of this sheet's own plain Glide().load().circleCrop() call.
+        // avatarVersion isn't known yet at this point (only photoUrl was
+        // passed in) — bind once now at version 0 so the avatar appears
+        // immediately, then FollowAvatarBinder.bind() runs again below once
+        // the real avatarVersion resolves, upgrading to the version-tagged
+        // (cache-busted) URL.
+        if (ivAvatar != null) {
+            com.callx.app.followers.FollowAvatarBinder.bind(activity, ivAvatar, photoUrl, 0L, R.drawable.ic_person);
         }
+        FirebaseUtils.getUserRef(uid)
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(DataSnapshot snap) {
+                    if (activity.isFinishing()) return;
+                    String username = snap.child("username").getValue(String.class);
+                    if (tvName != null && username != null && !username.isEmpty()) {
+                        tvName.setText(username);
+                    }
+                    Long avatarVer = snap.child("avatarVersion").getValue(Long.class);
+                    if (ivAvatar != null && avatarVer != null && avatarVer > 0L) {
+                        com.callx.app.followers.FollowAvatarBinder.bind(activity, ivAvatar, photoUrl, avatarVer, R.drawable.ic_person);
+                    }
+                }
+                @Override public void onCancelled(DatabaseError e) {}
+            });
 
         if (hideYoutube) {
             // ── YouTube mode: avatar = YouTube channel photo ───────────────

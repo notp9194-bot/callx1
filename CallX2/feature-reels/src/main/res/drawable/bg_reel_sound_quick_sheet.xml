@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Root background for bottom_sheet_reel_sound_quick.xml.
+     Unlike bg_more_sheet.xml (hardcoded #121212 — correct for the always-
+     dark ReelMoreBottomSheet over the video player), this sheet was asked
+     to follow day/light mode, so the fill is @color/surface_card, which
+     already resolves to white in values/colors.xml and #000000 in
+     values-night/colors.xml. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/surface_card"/>
+    <corners
+        android:topLeftRadius="20dp"
+        android:topRightRadius="20dp"/>
+</shape>

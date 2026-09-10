@@ -38,7 +38,7 @@
                 android:layout_height="wrap_content"
                 android:textSize="12sp"
                 android:fontFamily="sans-serif-medium"
-                android:textColor="#FFFFFF"/>
+                android:textColor="@color/text_primary"/>
 
             <ImageView
                 android:id="@+id/iv_verified"
@@ -101,7 +101,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
             android:textSize="12.5sp"
-            android:textColor="@color/text_secondary"
+            android:textColor="@color/comment_text_body"
             android:maxLines="8"
             android:ellipsize="end"/>
 

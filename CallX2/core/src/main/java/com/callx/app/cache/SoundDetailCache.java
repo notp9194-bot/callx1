@@ -207,7 +207,10 @@ public final class SoundDetailCache {
 
     public static final class ProfileEntry {
         public final String name, photo;
-        ProfileEntry(String name, String photo) { this.name = name; this.photo = photo; }
+        public final long avatarVersion;
+        ProfileEntry(String name, String photo, long avatarVersion) {
+            this.name = name; this.photo = photo; this.avatarVersion = avatarVersion;
+        }
     }
 
     public interface ProfileCallback { void onReady(@NonNull ProfileEntry profile); }
@@ -229,7 +232,9 @@ public final class SoundDetailCache {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 String name  = firstOf(snap, "displayName", "handle");
                 String photo = firstOf(snap, "photoUrl", "thumbUrl");
-                if (name != null && !name.isEmpty()) finishProfile(uid, new ProfileEntry(name, photo));
+                Long avatarVer = snap.child("avatarVersion").getValue(Long.class);
+                if (name != null && !name.isEmpty())
+                    finishProfile(uid, new ProfileEntry(name, photo, avatarVer != null ? avatarVer : 0L));
                 else fetchFromMainUsersNode(uid);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) { fetchFromMainUsersNode(uid); }
@@ -241,10 +246,11 @@ public final class SoundDetailCache {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 String name  = firstOf(snap, "displayName", "username", "name");
                 String photo = firstOf(snap, "photoUrl", "profilePic", "avatar");
-                finishProfile(uid, new ProfileEntry(name != null ? name : "Unknown", photo));
+                Long avatarVer = snap.child("avatarVersion").getValue(Long.class);
+                finishProfile(uid, new ProfileEntry(name != null ? name : "Unknown", photo, avatarVer != null ? avatarVer : 0L));
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {
-                finishProfile(uid, new ProfileEntry("Unknown", null));
+                finishProfile(uid, new ProfileEntry("Unknown", null, 0L));
             }
         });
     }

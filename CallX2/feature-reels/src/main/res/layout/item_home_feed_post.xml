@@ -208,21 +208,18 @@
                 app:layout_constraintEnd_toStartOf="@id/btn_post_follow"
                 app:layout_constraintTop_toTopOf="parent"/>
 
-            <!-- Follow pill — GONE by default -->
+            <!-- Follow — Instagram-style plain bold text, no pill (overlaid on dark video header, same as Reels) -->
             <TextView
                 android:id="@+id/btn_post_follow"
                 android:layout_width="wrap_content"
-                android:layout_height="32dp"
+                android:layout_height="wrap_content"
                 android:text="Follow"
                 android:textColor="#FFFFFF"
                 android:textSize="13sp"
                 android:fontFamily="sans-serif-medium"
                 android:gravity="center"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
-                android:background="@drawable/bg_reel_follow_btn"
                 android:visibility="gone"
-                android:layout_marginEnd="6dp"
+                android:layout_marginEnd="10dp"
                 android:clickable="true"
                 android:focusable="true"
                 app:layout_constraintEnd_toStartOf="@id/btn_post_more"

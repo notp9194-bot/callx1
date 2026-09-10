@@ -859,13 +859,18 @@ public class ReelSearchHistoryActivity extends AppCompatActivity {
                 // Same gradient/seen/hidden story ring HomeFragment's feed post
                 // avatar and Stories tray already use — see StoryRingApplier.
                 com.callx.app.utils.StoryRingApplier.applyWithClick(ReelSearchHistoryActivity.this, h.ivStoryRing, r.uid);
-                h.tvName.setText(highlighted(r.name != null ? r.name : r.uid));
-                // Bold name + "@callxId" (Instagram-style handle line) —
-                // same callxId-as-username field SearchActivity/
-                // SearchResultAdapter's tv_callx_id already display.
+                h.tvName.setText(highlighted((r.callxId != null && !r.callxId.isEmpty()) ? r.callxId
+                        : (r.name != null ? r.name : r.uid)));
+                // Instagram-level: username is the primary bold line; name
+                // becomes the secondary line below it, and only shows when
+                // it differs from what's already shown as the username —
+                // same convention as FollowConnectionsActivity's row bind.
                 if (h.tvUsername != null) {
-                    if (r.callxId != null && !r.callxId.isEmpty()) {
-                        h.tvUsername.setText(highlighted("@" + r.callxId));
+                    boolean hasCallxId = r.callxId != null && !r.callxId.isEmpty();
+                    boolean nameDiffers = r.name != null && !r.name.isEmpty()
+                        && (!hasCallxId || !r.name.equalsIgnoreCase(r.callxId));
+                    if (nameDiffers) {
+                        h.tvUsername.setText(highlighted(r.name));
                         h.tvUsername.setVisibility(View.VISIBLE);
                     } else {
                         h.tvUsername.setVisibility(View.GONE);

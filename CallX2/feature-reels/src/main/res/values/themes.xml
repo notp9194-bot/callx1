@@ -21,4 +21,24 @@
         <item name="cornerSizeBottomLeft">0dp</item>
     </style>
 
+    <!-- ReelSoundQuickActionSheet theme — unlike ReelMoreBottomSheetTheme
+         above (forced Light, hardcoded #121212 sheet bg — fine for the
+         always-dark video player chrome it's used for), this sheet's own
+         request was to follow the device/app day-night setting instead of
+         being pinned dark. Parent is Theme.Material3.DayNight.BottomSheetDialog
+         (not .Light) so it resolves against whichever mode is active, and
+         bg_reel_sound_quick_sheet.xml (the sheet's root background) reads
+         @color/surface_card, which already has a values-night override —
+         no separate dark/light branching needed here beyond that. -->
+    <style name="ReelSoundQuickActionSheetTheme" parent="Theme.Material3.DayNight.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/ReelSoundQuickActionSheetStyle</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0.6</item>
+    </style>
+
+    <style name="ReelSoundQuickActionSheetStyle" parent="Widget.Material3.BottomSheet.Modal">
+        <item name="android:background">@android:color/transparent</item>
+        <item name="shapeAppearanceOverlay">@style/ReelMoreShapeOverlay</item>
+    </style>
+
 </resources>

@@ -201,6 +201,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private boolean autoPlayAttempted = false; // Instagram-style: fire the auto-play exactly once per screen open, whenever the playback URL first becomes available (bundle args or async Firebase fetch)
 
     private String  creatorUid, creatorName, creatorPhoto;
+    private long    creatorAvatarVersion;
     // Gap #2: guards resolveCreatorAfterSoundLoad() so it (and the
     // loadCreatorProfile() bundle-args fast-path) only ever resolve the
     // creator once — see resolveCreatorAfterSoundLoad()'s doc.
@@ -628,8 +629,9 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             creatorUid    = vm.creatorUid;
             creatorName   = vm.creatorName;
             creatorPhoto  = vm.creatorPhoto;
+            creatorAvatarVersion = vm.creatorAvatarVersion;
             creatorProfileResolutionAttempted = true;
-            bindCreatorRow(creatorUid, creatorName, creatorPhoto);
+            bindCreatorRow(creatorUid, creatorName, creatorPhoto, creatorAvatarVersion);
         }
 
         if (vm.reelsLoaded) {
@@ -1207,7 +1209,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         if (snap.creatorPhoto != null && !snap.creatorPhoto.isEmpty()) creatorPhoto = snap.creatorPhoto;
 
         if (!creatorUid.isEmpty() && creatorName != null && !creatorName.isEmpty()) {
-            bindCreatorRow(creatorUid, creatorName, creatorPhoto);
+            bindCreatorRow(creatorUid, creatorName, creatorPhoto, creatorAvatarVersion);
             sortAndApplyReelItems();
             creatorProfileResolutionAttempted = true; // resolved straight from this read — no separate creator fetch needed
         } else {
@@ -2022,7 +2024,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
      */
     private void loadCreatorProfile() {
         if (!creatorUid.isEmpty() && creatorName != null && !creatorName.isEmpty()) {
-            bindCreatorRow(creatorUid, creatorName, creatorPhoto);
+            bindCreatorRow(creatorUid, creatorName, creatorPhoto, creatorAvatarVersion);
             creatorProfileResolutionAttempted = true;
             return;
         }
@@ -2045,7 +2047,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         if (creatorProfileResolutionAttempted) return;
         creatorProfileResolutionAttempted = true;
         if (!creatorUid.isEmpty() && creatorName != null && !creatorName.isEmpty()) {
-            bindCreatorRow(creatorUid, creatorName, creatorPhoto);
+            bindCreatorRow(creatorUid, creatorName, creatorPhoto, creatorAvatarVersion);
         } else if (!creatorUid.isEmpty()) {
             fetchCreatorUserData(creatorUid);
         }
@@ -2065,11 +2067,12 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             if (isGone()) return;
             creatorName  = profile.name;
             creatorPhoto = profile.photo;
-            bindCreatorRow(uid, profile.name, profile.photo);
+            creatorAvatarVersion = profile.avatarVersion;
+            bindCreatorRow(uid, profile.name, profile.photo, profile.avatarVersion);
         });
     }
 
-    private void bindCreatorRow(String uid, String name, String photo) {
+    private void bindCreatorRow(String uid, String name, String photo, long avatarVersion) {
         // PERF (#4): snapshot regardless of the early-return below, so a
         // creator resolved right before a rotation still gets remembered.
         if (vm != null) {
@@ -2077,15 +2080,17 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             vm.creatorUid    = uid;
             vm.creatorName   = name;
             vm.creatorPhoto  = photo;
+            vm.creatorAvatarVersion = avatarVersion;
         }
         if (layoutCreator == null || isGone()) return;
         if (tvCreatorName != null) tvCreatorName.setText("@" + name);
         if (ivCreatorAvatar != null) {
-            if (photo != null && !photo.isEmpty())
-                Glide.with(requireContext()).load(photo).transform(new CircleCrop())
-                    .placeholder(R.drawable.ic_person).error(R.drawable.ic_person)
-                    .override(avatarDecodePx(), avatarDecodePx()).into(ivCreatorAvatar);
-            else ivCreatorAvatar.setImageResource(R.drawable.ic_person);
+            // FIX: routed through FollowAvatarBinder — the SAME shared
+            // pipeline FollowConnectionsActivity's row avatars use (density-
+            // aware tier sizing, L2/L3 bitmap reuse, version-tagged URL,
+            // dedupe-by-tag) — instead of this row's own plain
+            // Glide().load().transform(CircleCrop()) call.
+            com.callx.app.followers.FollowAvatarBinder.bind(requireContext(), ivCreatorAvatar, photo, avatarVersion, R.drawable.ic_person);
         }
         layoutCreator.setVisibility(View.VISIBLE);
         // Same gradient/seen/hidden story ring HomeFragment's feed post

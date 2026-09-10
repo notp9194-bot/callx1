@@ -44,17 +44,17 @@
         android:paddingTop="10dp"
         android:paddingBottom="8dp">
 
-        <!-- Avatar with Story Ring -->
+        <!-- Avatar with Story Ring (Instagram-parity size: 32dp avatar / 36dp ring) -->
         <FrameLayout
-            android:layout_width="42dp"
-            android:layout_height="42dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:layout_marginEnd="10dp"
             android:layout_marginTop="2dp">
 
             <ImageView
                 android:id="@+id/iv_avatar"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
                 android:layout_gravity="center"
                 android:scaleType="centerCrop"
                 android:background="@drawable/bg_comment_avatar_circle"
@@ -63,8 +63,8 @@
 
             <ImageView
                 android:id="@+id/iv_story_ring"
-                android:layout_width="42dp"
-                android:layout_height="42dp"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
                 android:layout_gravity="center"
                 android:background="@drawable/story_ring_insta_gradient"
                 android:clickable="true"
@@ -94,7 +94,7 @@
                     android:text="Username"
                     android:textSize="13sp"
                     android:fontFamily="sans-serif-medium"
-                    android:textColor="#FFFFFF"/>
+                    android:textColor="@color/text_primary"/>
 
                 <ImageView
                     android:id="@+id/iv_verified"
@@ -162,7 +162,7 @@
                 android:layout_marginTop="3dp"
                 android:text=""
                 android:textSize="13sp"
-                android:textColor="@color/text_secondary"
+                android:textColor="@color/comment_text_body"
                 android:maxLines="8"
                 android:ellipsize="end"/>
 

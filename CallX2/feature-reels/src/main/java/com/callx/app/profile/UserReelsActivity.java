@@ -145,6 +145,11 @@ public class UserReelsActivity extends AppCompatActivity
     private Runnable        storyRingRevealRunnable;
     private android.animation.ValueAnimator storyRingRevealAnimator;
     private TextView        tvName, tvDisplayName, tvReelCount, tvFollowers, tvFollowing, tvBio;
+    // Raw counts backing tvFollowers — kept separate from the displayed
+    // text because tvFollowers now shows an abbreviated "1.2K" once
+    // formatCount() kicks in, and delta updates (follow/unfollow) need the
+    // real number, not a re-parse of the abbreviated string.
+    private int lastKnownFollowerCount = 0;
     private TextView        tvMutualFollowers;
     private LinearLayout    layoutMutualFollowers;
     private CircleImageView ivMutual1, ivMutual2, ivMutual3;
@@ -331,7 +336,7 @@ public class UserReelsActivity extends AppCompatActivity
       private android.widget.LinearLayout         llFilterChips;
 
     // State
-    private String  targetUid, targetName, targetPhoto;
+    private String  targetUid, targetName, targetUsername, targetPhoto;
     // Offline-first Room executor — was a single-thread executor; several
     // independent read/write tasks (loadReelGridFromRoom, cache writes,
     // highlight loads) were queuing behind each other on one thread even
@@ -657,6 +662,12 @@ public class UserReelsActivity extends AppCompatActivity
             finish();
         });
 
+        // FIX (Instagram-level header): tv_name is the toolbar's big bold
+        // USERNAME line — targetName is the display name, not the handle,
+        // so use it only as an instant placeholder until loadUserProfile()
+        // resolves the real username below. tv_display_name (the name row
+        // above the stats) is correctly the display name, so it keeps
+        // targetName.
         if (targetName  != null) { tvName.setText(targetName); if (tvDisplayName != null) tvDisplayName.setText(targetName); }
         // Avatar placeholder only — actual HD load happens in loadAvatarAndStartAnimation()
         // after Firebase returns photoUrl. Permanently cached (DiskCacheStrategy.ALL).
@@ -4467,7 +4478,7 @@ public class UserReelsActivity extends AppCompatActivity
 
         // Title
         android.widget.TextView title = new android.widget.TextView(this);
-        title.setText(targetName != null ? targetName : "");
+        title.setText(targetUsername != null ? targetUsername : (targetName != null ? targetName : ""));
         title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16f);
         title.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
         title.setGravity(android.view.Gravity.CENTER);
@@ -4509,7 +4520,14 @@ public class UserReelsActivity extends AppCompatActivity
             android.widget.TextView tv = new android.widget.TextView(this);
             tv.setText(labels[idx]);
             tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f);
-            tv.setTextColor(idx == 4 ? 0xFFE53935 : 0xFF111111); // Unfollow in red
+            // FIX (dark mode): was a flat 0xFF111111 for every non-Unfollow
+            // row — fine in light mode, but that's near-black text on a
+            // dark colorSurface once the sheet follows the theme, same
+            // invisibility bug the Follow button's text color already had
+            // (see updateFollowButton() above). Unfollow keeps its
+            // deliberate red warning color in both modes.
+            tv.setTextColor(idx == 4 ? 0xFFE53935
+                : resolveAttrColor(com.google.android.material.R.attr.colorOnSurface, 0xFF111111));
             tv.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
                 0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
             row.addView(tv);
@@ -4731,10 +4749,16 @@ public class UserReelsActivity extends AppCompatActivity
 
     private void updateFollowerCountUI(int delta) {
         if (tvFollowers == null) return;
-        try {
-            int cur = Integer.parseInt(tvFollowers.getText().toString().split(" ")[0]);
-            tvFollowers.setText(String.valueOf(cur + delta));
-        } catch (Exception ignored) {}
+        lastKnownFollowerCount = Math.max(0, lastKnownFollowerCount + delta);
+        tvFollowers.setText(formatCount(lastKnownFollowerCount));
+    }
+
+    /** Instagram-style abbreviated count — "1.2K" / "3.4M" — for the
+     *  profile stats row (followers/following/reels). */
+    private static String formatCount(int n) {
+        if (n >= 1_000_000) return String.format(java.util.Locale.getDefault(), "%.1fM", n / 1_000_000.0);
+        if (n >= 1_000)     return String.format(java.util.Locale.getDefault(), "%.1fK", n / 1_000.0);
+        return String.valueOf(n);
     }
 
     // ── Profile data ──────────────────────────────────────────────────────
@@ -5018,6 +5042,23 @@ public class UserReelsActivity extends AppCompatActivity
     }
 
     private void loadUserProfile() {
+        // FIX (Instagram-level header): tv_name (toolbar) must show the
+        // real @username, not the display name — fetch it from the same
+        // users/{uid}/username field FollowConnectionsActivity's search,
+        // ProfileActivity, and everywhere else already read. This node is
+        // separate from reels/users/{uid} below (which only has
+        // displayName), so it's a parallel single-value fetch.
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .getReference("users").child(targetUid).child("username")
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                    String username = snap.getValue(String.class);
+                    targetUsername = (username != null && !username.isEmpty()) ? username : targetUid;
+                    if (tvName != null) tvName.setText(targetUsername);
+                }
+                @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError error) {}
+            });
+
         // Reels profile load karo (reels/users/{uid}) — chat profile nahi
         com.google.firebase.database.FirebaseDatabase.getInstance()
             .getReference("reels/users").child(targetUid)
@@ -5032,7 +5073,11 @@ public class UserReelsActivity extends AppCompatActivity
                 String youtube   = snap.child("youtubeChannelUrl").getValue(String.class);
                 String twitter   = snap.child("twitterHandle").getValue(String.class);
 
-                if (name != null) { targetName = name; if (tvName != null) tvName.setText(name); if (tvDisplayName != null) tvDisplayName.setText(name); }
+                // FIX (Instagram-level header): only the display-name row
+                // (tv_display_name) gets updated here now — tv_name (toolbar
+                // username) is owned by the users/username fetch above, so
+                // it isn't overwritten back to the display name once loaded.
+                if (name != null) { targetName = name; if (tvDisplayName != null) tvDisplayName.setText(name); }
                 if (photo != null && !photo.isEmpty()) {
                     targetPhoto = photo;
                     String displayPhoto = (photoThumb != null && !photoThumb.isEmpty()) ? photoThumb : photo;
@@ -5210,13 +5255,16 @@ public class UserReelsActivity extends AppCompatActivity
         // (called inside onDataChange above via saveToRoom)
         FirebaseUtils.getReelFollowersRef(targetUid).addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                if (tvFollowers != null) tvFollowers.setText(String.valueOf(snap.getChildrenCount()));
+                if (tvFollowers != null) {
+                    lastKnownFollowerCount = (int) snap.getChildrenCount();
+                    tvFollowers.setText(formatCount(lastKnownFollowerCount));
+                }
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });
         FirebaseUtils.getReelFollowsRef(targetUid).addListenerForSingleValueEvent(new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
-                if (tvFollowing != null) tvFollowing.setText(String.valueOf(snap.getChildrenCount()));
+                if (tvFollowing != null) tvFollowing.setText(formatCount((int) snap.getChildrenCount()));
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });
@@ -5501,7 +5549,7 @@ public class UserReelsActivity extends AppCompatActivity
         reelCountLiveListener = new ValueEventListener() {
             @Override public void onDataChange(@NonNull DataSnapshot snap) {
                 if (tvReelCount != null)
-                    tvReelCount.setText(String.valueOf(snap.getChildrenCount()));
+                    tvReelCount.setText(formatCount((int) snap.getChildrenCount()));
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };

@@ -552,6 +552,55 @@ public class MessagePagingAdapter
         };
     }
 
+    // ── WhatsApp-level: off-main-thread decode for embedded base64 thumbnails ──
+    // PERF FIX (v_jank1): Base64.decode() + BitmapFactory.decodeByteArray() for
+    // the embedded-thumbnail fast path (status-seen, reel-seen, reel-share,
+    // reply-thumb bubbles) used to run SYNCHRONOUSLY inside bindCanvasMessage()/
+    // onBindViewHolder() on every cache miss — i.e. the first time each such
+    // row scrolls on screen, or after a process-cold LruCache eviction. A JPEG
+    // decode on the main thread during a fling is exactly the kind of frame
+    // it takes to jank a scroll. DECODED_BITMAP_CACHE hits still resolve
+    // synchronously (no thread hop needed for the common repeat-bind case);
+    // only a genuine miss goes to this single-thread executor, with the
+    // result posted back to the main thread. Callers are responsible for
+    // their own staleness check inside the callback (h.canvasBindToken for
+    // canvas-bound rows, h.getBindingAdapterPosition()/tag compare for plain
+    // ViewHolder rows) before touching a view, same convention already used
+    // by every other async bitmap path in this file.
+    private static final java.util.concurrent.ExecutorService B64_DECODE_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+    private static final android.os.Handler B64_DECODE_MAIN_HANDLER =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+
+    /** Callback for {@link #decodeB64ThumbAsync}; bitmap is null on decode failure. */
+    private interface B64ThumbCallback {
+        void onDecoded(android.graphics.Bitmap bitmap);
+    }
+
+    /**
+     * Cache-hit fast path resolves synchronously (no thread hop). On a miss,
+     * decodes off the main thread on a single background executor and posts
+     * the result (caching it first) back via the main-thread handler. Never
+     * blocks the calling thread.
+     */
+    private static void decodeB64ThumbAsync(String base64, String poolKey, B64ThumbCallback cb) {
+        android.graphics.Bitmap hit = DECODED_BITMAP_CACHE.get(poolKey);
+        if (hit != null && !hit.isRecycled()) {
+            cb.onDecoded(hit);
+            return;
+        }
+        B64_DECODE_EXECUTOR.execute(() -> {
+            android.graphics.Bitmap decoded = null;
+            try {
+                byte[] bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP);
+                decoded = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+            } catch (Exception ignored) { /* cb receives null below */ }
+            final android.graphics.Bitmap result = decoded;
+            if (result != null) DECODED_BITMAP_CACHE.put(poolKey, result);
+            B64_DECODE_MAIN_HANDLER.post(() -> cb.onDecoded(result));
+        });
+    }
+
     // ── DASHBOARD WIRING (Settings → Storage & Cache / CacheStatsActivity) ──
     // That screen only reads com.callx.app.cache.CacheManager's MemoryCache/
     // DiskCache — a completely separate tier from DECODED_BITMAP_CACHE and
@@ -1019,9 +1068,14 @@ public class MessagePagingAdapter
     // is already capped with real LRU eviction below. Static/process-wide —
     // same treatment as reelOwnerAvatarCache/reelThumbCache further down —
     // means reopening a chat (or opening a different one) reuses whatever's
-    // already warm instead of starting from zero every time. Access stays
-    // main-thread only (RecyclerView bind path), same as before, so no new
-    // synchronization need beyond the existing lock around linkifiedTextCache.
+    // already warm instead of starting from zero every time.
+    // PERF FIX (v_jank2): access is NO LONGER main-thread only — see
+    // prewarmLinkifyCache() below, called from ChatActivity's
+    // e2eeDecryptExecutor background thread right after decrypt, so the
+    // regex work is done and cached before bindMessage() ever needs it.
+    // Both writers (background prewarm + main-thread bind fallback) and the
+    // main-thread reader go through the same precomputeCacheLock, so this
+    // stays correct with two threads touching it instead of one.
     private static final Object precomputeCacheLock = new Object();
     private static final java.util.LinkedHashMap<String, CharSequence> linkifiedTextCache =
             new java.util.LinkedHashMap<String, CharSequence>(64, 0.75f, true) {
@@ -1031,6 +1085,54 @@ public class MessagePagingAdapter
                     return size() > 120;
                 }
             };
+
+    /**
+     * WhatsApp-level: pre-computes and caches the Linkify pass for a plain
+     * text/emoji message OFF the main thread, so that by the time this
+     * message scrolls into view, bindMessage()'s cache lookup at the
+     * linkifiedTextCache.get(linkCacheKey) call site is a guaranteed hit —
+     * no regex scan on the UI thread, ever, for a message that went through
+     * this path first.
+     * <p>
+     * Call this from a background thread (e.g. ChatActivity's
+     * e2eeDecryptExecutor, right after decryptIncomingIfNeeded() has put the
+     * real plaintext on m.text) for every newly-received/changed message.
+     * A no-op for non-text types, spoiler messages (they use a separate
+     * reveal-on-tap span, not this cache), and messages already cached —
+     * cheap enough to call unconditionally.
+     */
+    public static void prewarmLinkifyCache(Message m) {
+        if (m == null) return;
+        String type = m.type != null ? m.type : "text";
+        if (!"text".equals(type) && !"emoji".equals(type)) return;
+        String txt = m.text != null ? m.text : "";
+        if (txt.isEmpty()) return;
+        if (com.callx.app.utils.SpoilerTextHelper.hasSpoiler(txt)) return;
+        if (Boolean.TRUE.equals(m.edited)) txt += " (edited)";
+        String linkCacheKey = (m.messageId != null ? m.messageId : m.id) + "#" + txt.hashCode();
+        synchronized (precomputeCacheLock) {
+            if (linkifiedTextCache.containsKey(linkCacheKey)) return; // already warm
+        }
+        boolean mightHaveLink = txt.contains("http://")
+                || txt.contains("https://")
+                || txt.contains("www.")
+                || txt.contains("@")
+                || (txt.length() >= 7 && txt.contains("+"));
+        CharSequence spanned;
+        if (mightHaveLink) {
+            android.text.SpannableString linkSpanned = new android.text.SpannableString(txt);
+            android.text.util.Linkify.addLinks(linkSpanned,
+                android.text.util.Linkify.WEB_URLS |
+                android.text.util.Linkify.PHONE_NUMBERS |
+                android.text.util.Linkify.EMAIL_ADDRESSES);
+            spanned = linkSpanned;
+        } else {
+            spanned = txt;
+        }
+        synchronized (precomputeCacheLock) {
+            linkifiedTextCache.put(linkCacheKey, spanned);
+        }
+    }
 
     // WHATSAPP-STYLE HEIGHT CACHE: LRU cache of measured message row heights
     // keyed by messageId. When a new message is bound, if we've previously
@@ -2392,22 +2494,15 @@ public class MessagePagingAdapter
                 flThumb.setVisibility(View.VISIBLE);
                 if (ivEye != null) ivEye.setVisibility(View.VISIBLE);
                 String b64PoolKey = poolKey("b64:" + thumbB64.hashCode(), 240, 240);
-                android.graphics.Bitmap b64PoolHit = DECODED_BITMAP_CACHE.get(b64PoolKey);
-                if (b64PoolHit != null && !b64PoolHit.isRecycled()) {
-                    ivThumb.setImageBitmap(b64PoolHit);
-                } else {
-                    android.graphics.Bitmap decoded = null;
-                    try {
-                        byte[] bytes = android.util.Base64.decode(thumbB64, android.util.Base64.NO_WRAP);
-                        decoded = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                    } catch (Exception ignored) { /* falls through to skeleton below */ }
+                ivThumb.setImageResource(R.drawable.bg_skeleton_rect);
+                decodeB64ThumbAsync(thumbB64, b64PoolKey, decoded -> {
+                    if (h.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
                     if (decoded != null) {
-                        DECODED_BITMAP_CACHE.put(b64PoolKey, decoded);
                         ivThumb.setImageBitmap(decoded);
                     } else {
                         ivThumb.setImageResource(R.drawable.bg_skeleton_rect);
                     }
-                }
+                });
             } else if (!thumb.isEmpty()) {
                 flThumb.setVisibility(View.VISIBLE);
                 if (ivEye != null) ivEye.setVisibility(View.VISIBLE);
@@ -2566,22 +2661,15 @@ public class MessagePagingAdapter
                 ivThumb.setVisibility(android.view.View.VISIBLE);
                 if (ivPlay != null) ivPlay.setVisibility(android.view.View.VISIBLE);
                 String b64PoolKey = poolKey("b64:" + thumbB64.hashCode(), 240, 240);
-                android.graphics.Bitmap b64PoolHit = DECODED_BITMAP_CACHE.get(b64PoolKey);
-                if (b64PoolHit != null && !b64PoolHit.isRecycled()) {
-                    ivThumb.setImageBitmap(b64PoolHit);
-                } else {
-                    android.graphics.Bitmap decoded = null;
-                    try {
-                        byte[] bytes = android.util.Base64.decode(thumbB64, android.util.Base64.NO_WRAP);
-                        decoded = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                    } catch (Exception ignored) { /* falls through to skeleton below */ }
+                ivThumb.setImageResource(R.drawable.bg_skeleton_rect);
+                decodeB64ThumbAsync(thumbB64, b64PoolKey, decoded -> {
+                    if (h.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
                     if (decoded != null) {
-                        DECODED_BITMAP_CACHE.put(b64PoolKey, decoded);
                         ivThumb.setImageBitmap(decoded);
                     } else {
                         ivThumb.setImageResource(R.drawable.bg_skeleton_rect);
                     }
-                }
+                });
             } else if (!thumb.isEmpty()) {
                 ivThumb.setVisibility(android.view.View.VISIBLE);
                 if (ivPlay != null) ivPlay.setVisibility(android.view.View.VISIBLE);
@@ -3650,18 +3738,10 @@ public class MessagePagingAdapter
                 final int seenThumbPxH = seenThumbPxH(ctx);
                 if (hasThumbB64) {
                     String b64PoolKey = poolKey("b64:" + thumbB64.hashCode(), seenThumbPxW, seenThumbPxH);
-                    android.graphics.Bitmap b64PoolHit = DECODED_BITMAP_CACHE.get(b64PoolKey);
-                    if (b64PoolHit != null && !b64PoolHit.isRecycled()) {
-                        cv.setSeenThumbBitmap(b64PoolHit);
-                    } else {
-                        android.graphics.Bitmap decoded = null;
-                        try {
-                            byte[] bytes = android.util.Base64.decode(thumbB64, android.util.Base64.NO_WRAP);
-                            decoded = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                        } catch (Exception ignored) { /* falls through to null below */ }
-                        if (decoded != null) DECODED_BITMAP_CACHE.put(b64PoolKey, decoded);
+                    decodeB64ThumbAsync(thumbB64, b64PoolKey, decoded -> {
+                        if (h.canvasBindToken != myToken) return;
                         cv.setSeenThumbBitmap(decoded);
-                    }
+                    });
                 } else {
                 android.graphics.Bitmap seenThumbHit = DECODED_BITMAP_CACHE.get(poolKey(thumbUrl, seenThumbPxW, seenThumbPxH));
                 if (seenThumbHit != null && !seenThumbHit.isRecycled()) {
@@ -4370,18 +4450,10 @@ public class MessagePagingAdapter
                 // don't re-decode the same JPEG.
                 final int[] cardPxB64 = reelCardPx(ctx);
                 String b64PoolKey = poolKey("b64:" + thumbB64.hashCode(), cardPxB64[0], cardPxB64[1]);
-                android.graphics.Bitmap b64PoolHit = DECODED_BITMAP_CACHE.get(b64PoolKey);
-                if (b64PoolHit != null && !b64PoolHit.isRecycled()) {
-                    cv.setReelShareThumbBitmap(b64PoolHit);
-                } else {
-                    android.graphics.Bitmap decoded = null;
-                    try {
-                        byte[] bytes = android.util.Base64.decode(thumbB64, android.util.Base64.NO_WRAP);
-                        decoded = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                    } catch (Exception ignored) { /* falls through to null below */ }
-                    if (decoded != null) DECODED_BITMAP_CACHE.put(b64PoolKey, decoded);
+                decodeB64ThumbAsync(thumbB64, b64PoolKey, decoded -> {
+                    if (h.canvasBindToken != myToken) return;
                     cv.setReelShareThumbBitmap(decoded);
-                }
+                });
             } else if (!thumb.isEmpty()) {
                 final String finalThumbUrl = thumb;
                 final int[] cardPx = reelCardPx(ctx);
@@ -5087,18 +5159,11 @@ public class MessagePagingAdapter
                 // deleted, or being moved into a Highlight. Same in-memory pool as the
                 // URL path below so repeat rebinds don't re-decode the same JPEG.
                 String b64PoolKey = poolKey("b64:" + replyThumbB64.hashCode(), 88, 88);
-                android.graphics.Bitmap b64PoolHit = DECODED_BITMAP_CACHE.get(b64PoolKey);
-                if (b64PoolHit != null && !b64PoolHit.isRecycled()) {
-                    cv.setReply(m.replyToSenderName, m.replyToText, b64PoolHit);
-                } else {
-                    android.graphics.Bitmap decoded = null;
-                    try {
-                        byte[] bytes = android.util.Base64.decode(replyThumbB64, android.util.Base64.NO_WRAP);
-                        decoded = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                    } catch (Exception ignored) { /* falls through to null below */ }
-                    if (decoded != null) DECODED_BITMAP_CACHE.put(b64PoolKey, decoded);
+                cv.setReply(m.replyToSenderName, m.replyToText, null);
+                decodeB64ThumbAsync(replyThumbB64, b64PoolKey, decoded -> {
+                    if (h.canvasBindToken != myToken) return;
                     cv.setReply(m.replyToSenderName, m.replyToText, decoded);
-                }
+                });
             } else if (replyThumbUrl != null && !replyThumbUrl.isEmpty()) {
                 android.graphics.Bitmap replyPoolHit = DECODED_BITMAP_CACHE.get(poolKey(replyThumbUrl, 88, 88));
                 if (replyPoolHit != null && !replyPoolHit.isRecycled()) {
@@ -6063,20 +6128,24 @@ public class MessagePagingAdapter
                         }
                     }
                     if (thumbB64 != null && !thumbB64.isEmpty()) {
-                        // WhatsApp-level: local decode, no network — see
-                        // ReelShareSheetFragment / ThumbnailEmbedder.
-                        try {
-                            byte[] bytes = android.util.Base64.decode(thumbB64, android.util.Base64.NO_WRAP);
-                            android.graphics.Bitmap decoded =
-                                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                        // WhatsApp-level: local decode, off the main thread — see
+                        // ReelShareSheetFragment / ThumbnailEmbedder. Was a
+                        // synchronous decode with no cache check at all (worse
+                        // than the other embedded-thumb spots — this one
+                        // re-decoded on EVERY bind, not just cache misses).
+                        h.ivReelShareThumb.setImageResource(android.R.color.darker_gray);
+                        String b64PoolKey = poolKey("b64:" + thumbB64.hashCode(), 240, 240);
+                        final String fRKeyTag = rKey;
+                        decodeB64ThumbAsync(thumbB64, b64PoolKey, decoded -> {
+                            if (h.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
+                            Object curTag = h.itemView.getTag(R.id.iv_reel_share_thumb);
+                            if (!fRKeyTag.equals(curTag)) return; // recycled/rebound to a different row
                             if (decoded != null) {
                                 h.ivReelShareThumb.setImageBitmap(decoded);
                             } else {
                                 h.ivReelShareThumb.setImageResource(android.R.color.darker_gray);
                             }
-                        } catch (Exception ignored) {
-                            h.ivReelShareThumb.setImageResource(android.R.color.darker_gray);
-                        }
+                        });
                     } else if (!thumb.isEmpty()) {
                         int[] cardPx = reelCardPx(ctx);
                         glide(ctx)

@@ -35,6 +35,14 @@ public class CommunityAnalyticsDashboardActivity extends AppCompatActivity {
 
     private CommunityRepository repo;
 
+    /** Instagram-style abbreviated count — "1.2K" / "3.4M" — for the
+     *  members/posts stats row. */
+    private static String formatCount(long n) {
+        if (n >= 1_000_000) return String.format(java.util.Locale.getDefault(), "%.1fM", n / 1_000_000.0);
+        if (n >= 1_000)     return String.format(java.util.Locale.getDefault(), "%.1fK", n / 1_000.0);
+        return String.valueOf(n);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -65,8 +73,8 @@ public class CommunityAnalyticsDashboardActivity extends AppCompatActivity {
 
     private void onCommunityLoaded(CommunityEntity c) {
         if (c == null) return;
-        tvTotalMembers.setText(String.valueOf(c.memberCount));
-        tvTotalPosts.setText(String.valueOf(c.postCount));
+        tvTotalMembers.setText(formatCount(c.memberCount));
+        tvTotalPosts.setText(formatCount(c.postCount));
 
         SimpleDateFormat sdf = new SimpleDateFormat("MMM d, yyyy", Locale.getDefault());
         if (c.createdAt > 0) {
@@ -91,7 +99,7 @@ public class CommunityAnalyticsDashboardActivity extends AppCompatActivity {
         long avgLikes    = totalLikes    / count;
         long avgComments = totalComments / count;
         tvEngagementRate.setText(avgLikes + " likes, " + avgComments + " comments avg.");
-        tvTotalPosts.setText(String.valueOf(count));
+        tvTotalPosts.setText(formatCount(count));
 
         // Build top 5 posts by likes
         List<CommunityPostEntity> sorted = new java.util.ArrayList<>(posts);

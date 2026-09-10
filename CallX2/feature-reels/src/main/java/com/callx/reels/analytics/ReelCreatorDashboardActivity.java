@@ -20,6 +20,15 @@ public class ReelCreatorDashboardActivity extends AppCompatActivity {
     private LinearLayout layoutTopGifters;
     private String myUid;
 
+    /** Instagram-style abbreviated count — "1.2K" / "3.4M" — for the
+     *  dashboard's total-views stat. */
+    private static String formatCount(Long n) {
+        long v = (n == null) ? 0 : n;
+        if (v >= 1_000_000) return String.format(java.util.Locale.getDefault(), "%.1fM", v / 1_000_000.0);
+        if (v >= 1_000)     return String.format(java.util.Locale.getDefault(), "%.1fK", v / 1_000.0);
+        return String.valueOf(v);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -49,7 +58,7 @@ public class ReelCreatorDashboardActivity extends AppCompatActivity {
             @Override
             public void onDataChange(@NonNull DataSnapshot snap) {
                 if (!snap.exists()) return;
-                tvTotalViews.setText(String.valueOf(snap.child("views_7d").getValue(Long.class)));
+                tvTotalViews.setText(formatCount(snap.child("views_7d").getValue(Long.class)));
                 tvTotalReach.setText(String.valueOf(snap.child("reach_7d").getValue(Long.class)));
                 tvNewFollowers.setText("+" + snap.child("followers_7d").getValue(Long.class));
                 

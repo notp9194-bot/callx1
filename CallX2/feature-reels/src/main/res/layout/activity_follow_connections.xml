@@ -68,34 +68,55 @@
         android:layout_height="0.5dp"
         android:background="@color/divider"/>
 
-    <!-- ③ Search bar -->
-    <LinearLayout
+    <!-- ③ Search bar — reused from the Chats tab's search field (bg_search_field,
+         from :core, already theme-adaptive + has a proper clear button). -->
+    <FrameLayout
+        android:id="@+id/follow_search_container"
         android:layout_width="match_parent"
-        android:layout_height="52dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:paddingTop="6dp"
-        android:paddingBottom="6dp"
-        android:background="?attr/colorSurface">
+        android:layout_height="44dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:background="@drawable/bg_search_field">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_gravity="center_vertical|start"
+            android:layout_marginStart="14dp"
+            android:src="@drawable/ic_search"
+            android:alpha="0.6"
+            app:tint="?attr/colorOnSurfaceVariant"
+            android:contentDescription="Search"/>
 
         <EditText
             android:id="@+id/et_search"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="match_parent"
+            android:paddingStart="44dp"
+            android:paddingEnd="40dp"
             android:hint="Search"
-            android:textSize="14sp"
-            android:background="@drawable/bg_comment_input"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
             android:singleLine="true"
             android:inputType="text"
-            android:drawableStart="@drawable/ic_search"
-            android:drawablePadding="8dp"
-            android:drawableTint="?attr/colorOnSurfaceVariant"
-            android:imeOptions="actionSearch"/>
-    </LinearLayout>
+            android:textSize="15sp"
+            android:textColorHint="?attr/colorOnSurfaceVariant"
+            android:textColor="?attr/colorOnSurface"
+            android:imeOptions="actionSearch"
+            android:background="@null"/>
+
+        <ImageButton
+            android:id="@+id/btn_search_clear"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_gravity="center_vertical|end"
+            android:layout_marginEnd="4dp"
+            android:src="@drawable/ic_close"
+            android:tint="?attr/colorOnSurfaceVariant"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="8dp"
+            android:visibility="gone"
+            android:contentDescription="Clear search"/>
+    </FrameLayout>
 
     <!-- ④ ViewPager2 — 3 swipeable pages -->
     <androidx.viewpager2.widget.ViewPager2

@@ -38,6 +38,14 @@ import org.junit.runner.RunWith
  *  SoundDetailCache made the underlying Firebase reads. See
  *  generateSoundDetailFlow() below.
  *
+ *  v401: generateChatListStartup() now also passes
+ *  includeInStartupProfile = true — previously ONLY baseline-prof.txt was
+ *  ever produced (dexLayoutOptimization in app/build.gradle had no
+ *  startup-prof.txt to act on). Output now includes
+ *  app/src/main/startup-prof.txt too: a narrower profile of methods
+ *  touched before first-frame, used to physically place those
+ *  classes/methods at the front of the dex for faster cold-start page-in.
+ *
  *  10 real user journeys cover:
  *    1. Cold start → chat list
  *    2. Open chat → scroll messages
@@ -61,6 +69,19 @@ class CallXBaselineProfileGenerator {
     @Test
     fun generateChatListStartup() = baselineProfileRule.collect(
         packageName = TARGET_PACKAGE, stableIterations = 3, maxIterations = 8,
+        // v401 — this is the one journey that's genuinely "cold start", so
+        // it's the one that should also produce app/src/main/startup-prof.txt
+        // (a SEPARATE, narrower profile from baseline-prof.txt: only the
+        // methods touched before first-frame, used by AGP's
+        // dexLayoutOptimization to physically place those classes/methods
+        // at the front of the dex for faster page-in on cold start).
+        // dexLayoutOptimization = true was already set in app/build.gradle,
+        // but had nothing to act on — no collect() call here ever passed
+        // includeInStartupProfile, so only baseline-prof.txt was ever being
+        // generated/committed. Every other journey below stays false —
+        // startup-prof.txt should stay narrow (cold-start methods only),
+        // not accumulate every scrolled/tapped screen's methods too.
+        includeInStartupProfile = true,
     ) { journeyChatListStartup() }
 
     @Test

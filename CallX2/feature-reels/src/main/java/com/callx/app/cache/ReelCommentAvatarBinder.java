@@ -82,8 +82,8 @@ public final class ReelCommentAvatarBinder {
 
     private ReelCommentAvatarBinder() {}
 
-    /** Comment row avatar — item_reel_comment.xml iv_avatar is a fixed 36dp circle; SMALL(48) is the shared tier ReelCommentsAdapter already bucketed to. */
-    public static final AvatarSizeTier TIER = AvatarSizeTier.SMALL;
+    /** Comment row avatar — item_reel_comment.xml iv_avatar is now a 32dp circle (Instagram-parity size, down from 36dp); TINY(32) is the smallest tier that still meets forViewSizeDp's never-under-resolve rule, and it's a ~55% smaller pixel budget than the old SMALL(48) bucket. */
+    public static final AvatarSizeTier TIER = AvatarSizeTier.TINY;
     /** Tiny blur-up tier chained via .thumbnail() — same tier every other binder's blur-up frame uses. */
     private static final AvatarSizeTier THUMBNAIL_TIER = AvatarSizeTier.TINY;
 

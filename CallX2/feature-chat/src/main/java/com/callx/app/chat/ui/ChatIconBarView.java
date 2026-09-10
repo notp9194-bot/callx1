@@ -4,12 +4,14 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
+import android.util.SparseArray;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -69,9 +71,11 @@ public class ChatIconBarView extends View {
     private final Rect cameraRect = new Rect();
     private final Rect micSendRect = new Rect();
 
-    private Drawable attachIcon, cameraIcon, micIcon, sendIcon;
+    private Bitmap attachIcon, cameraIcon, micIcon, sendIcon;
     private Paint circlePaint;
     private Paint pressPaint;
+    private Paint iconPaint;
+    private final Rect iconDestRect = new Rect(); // reused every drawIcon() call — no per-frame alloc
 
     // Expand/collapse (attach+camera) state
     private boolean iconsExpanded = true;
@@ -118,21 +122,50 @@ public class ChatIconBarView extends View {
         pressPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         pressPaint.setColor(Color.WHITE);
         pressPaint.setAlpha(40);
+        iconPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     }
 
-    private void initIcons() {
-        attachIcon = tinted(R.drawable.ic_attach);
-        cameraIcon = tinted(R.drawable.ic_camera);
-        micIcon = tinted(R.drawable.ic_mic);
-        sendIcon = tinted(R.drawable.ic_send);
-    }
+    // ── PERF (v_jank4): icon caching ──────────────────────────────────────
+    // Was: initIcons() called ContextCompat.getDrawable() + .mutate() +
+    // DrawableCompat.setTint() for all 4 icons on EVERY ChatIconBarView
+    // construction — i.e. every single time a chat screen (1:1 or group)
+    // opened, on the main thread, right in the critical inflate/onCreate
+    // path. The tint color and render size are identical across every
+    // instance in this process, so there was nothing instance-specific
+    // being computed — pure repeated work.
+    // Fix: render each icon to a small ARGB_8888 Bitmap exactly ONCE per
+    // process (static cache keyed by resId) and have every instance reuse
+    // the same Bitmap. Bitmaps are immutable once drawn, so — unlike
+    // sharing a single Drawable instance (which would fight over
+    // setBounds()/setAlpha() if two chat screens were ever visible at once,
+    // e.g. split-screen) — this is safe to share across any number of
+    // simultaneously-visible ChatIconBarView instances with zero risk.
+    private static final SparseArray<Bitmap> ICON_BITMAP_CACHE = new SparseArray<>(4);
 
-    private Drawable tinted(int resId) {
+    private Bitmap tintedBitmap(int resId) {
+        synchronized (ICON_BITMAP_CACHE) {
+            Bitmap cached = ICON_BITMAP_CACHE.get(resId);
+            if (cached != null && !cached.isRecycled()) return cached;
+        }
+        int size = Math.max(1, slotSizePx - iconInsetPx * 2);
         Drawable d = ContextCompat.getDrawable(getContext(), resId);
         if (d == null) return null;
         d = d.mutate();
         DrawableCompat.setTint(d, ContextCompat.getColor(getContext(), R.color.white));
-        return d;
+        Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        d.setBounds(0, 0, size, size);
+        d.draw(new Canvas(bmp));
+        synchronized (ICON_BITMAP_CACHE) {
+            ICON_BITMAP_CACHE.put(resId, bmp);
+        }
+        return bmp;
+    }
+
+    private void initIcons() {
+        attachIcon = tintedBitmap(R.drawable.ic_attach);
+        cameraIcon = tintedBitmap(R.drawable.ic_camera);
+        micIcon = tintedBitmap(R.drawable.ic_mic);
+        sendIcon = tintedBitmap(R.drawable.ic_send);
     }
 
     // ── Measure / layout ─────────────────────────────────────────────────
@@ -189,20 +222,20 @@ public class ChatIconBarView extends View {
         }
     }
 
-    private void drawIcon(Canvas canvas, Drawable icon, Rect slot, float alpha, float scale) {
+    private void drawIcon(Canvas canvas, Bitmap icon, Rect slot, float alpha, float scale) {
         drawIcon(canvas, icon, slot, alpha, scale, 255);
     }
 
-    private void drawIcon(Canvas canvas, Drawable icon, Rect slot, float alpha, float scale, int baseAlpha) {
+    private void drawIcon(Canvas canvas, Bitmap icon, Rect slot, float alpha, float scale, int baseAlpha) {
         if (icon == null || alpha <= 0f) return;
         int cx = slot.centerX();
         int cy = slot.centerY();
         canvas.save();
         canvas.scale(scale, scale, cx, cy);
-        icon.setBounds(slot.left + iconInsetPx, slot.top + iconInsetPx,
+        iconDestRect.set(slot.left + iconInsetPx, slot.top + iconInsetPx,
                 slot.right - iconInsetPx, slot.bottom - iconInsetPx);
-        icon.setAlpha(Math.round(alpha * baseAlpha));
-        icon.draw(canvas);
+        iconPaint.setAlpha(Math.round(alpha * baseAlpha));
+        canvas.drawBitmap(icon, null, iconDestRect, iconPaint);
         canvas.restore();
     }
 

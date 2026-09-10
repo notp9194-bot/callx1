@@ -1487,6 +1487,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     protected void onDestroy() {
         super.onDestroy();
         saveDraft();
+        // Pair with the keepSynced(true) set when messagesRef was created
+        // above — stop actively syncing this chat's path once it's closed,
+        // so we don't accumulate a permanently-synced path per chat ever
+        // opened. setPersistenceEnabled(true)'s normal on-disk cache still
+        // applies regardless, this only turns off the ACTIVE background sync.
+        if (messagesRef != null) {
+            try { messagesRef.keepSynced(false); } catch (Exception ignored) {}
+        }
         // Cancel any remaining Glide preloads before the activity is torn down.
         clearActivePreloadTargets();
         shimmerHandler.removeCallbacks(shimmerShowRunnable);
@@ -2011,6 +2019,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         currentUid = fu != null ? fu.getUid() : "";
         chatId     = buildChatId(currentUid, partnerUid);
         messagesRef= FirebaseUtils.getMessagesRef(chatId);
+        // PERF FIX: keepSynced(true) tells the Firebase SDK to actively
+        // maintain this path's local disk cache in the background (not
+        // just lazily cache whatever a listener happens to touch) — so
+        // the very first ChildEventListener attach on reopen can resolve
+        // straight from disk with zero network round-trip, on top of the
+        // setPersistenceEnabled(true) already set in CallxApp. Only kept
+        // on while THIS chat is open (turned off in onDestroy() below) —
+        // leaving it on for every chat ever visited would keep all of them
+        // permanently synced in the background, wasting bandwidth/battery.
+        try { messagesRef.keepSynced(true); } catch (Exception ignored) {}
 
         // Forward payload handling
         String fwdText  = i.getStringExtra("forwardText");
@@ -3316,6 +3334,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // runOnUiThread() once decrypt is done.
                 e2eeDecryptExecutor().execute(() -> {
                     decryptIncomingIfNeeded(m);
+                    // PERF (v_jank2): pre-compute the Linkify pass here too — same
+                    // background thread already paying for decrypt, so the chat
+                    // UI thread never has to run link-regex on this message.
+                    com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
                     runOnUiThread(() -> {
                         saveToRoom(m, false);
                         // TICK FIX v2: this is where our own just-sent message
@@ -3356,6 +3378,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // Same off-main-thread decrypt fix as onChildAdded above.
                 e2eeDecryptExecutor().execute(() -> {
                     decryptIncomingIfNeeded(m);
+                    // PERF (v_jank2): pre-compute the Linkify pass here too — same
+                    // background thread already paying for decrypt, so the chat
+                    // UI thread never has to run link-regex on this message.
+                    com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
                     runOnUiThread(() -> {
                         saveToRoom(m, true);
                         if (m.senderId != null && m.senderId.equals(currentUid) && !"read".equals(m.status)) {
@@ -3448,6 +3474,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // I/O in EncryptedSharedPreferences).
                 e2eeDecryptExecutor().execute(() -> {
                     decryptIncomingIfNeeded(m);
+                    // PERF (v_jank2): pre-compute the Linkify pass here too — same
+                    // background thread already paying for decrypt, so the chat
+                    // UI thread never has to run link-regex on this message.
+                    com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
                     runOnUiThread(() -> {
                         queueRoomWrite(m);
                         if (m.senderId != null && m.senderId.equals(currentUid) && !"read".equals(m.status)) {
@@ -3658,6 +3688,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 m.id = snapshot.getKey();
                 e2eeDecryptExecutor().execute(() -> {
                     decryptIncomingIfNeeded(m);
+                    // PERF (v_jank2): pre-compute the Linkify pass here too — same
+                    // background thread already paying for decrypt, so the chat
+                    // UI thread never has to run link-regex on this message.
+                    com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
                     runOnUiThread(() -> {
                         saveToRoom(m, true);
                         // Only messages still not 'read' after this batch
@@ -3716,6 +3750,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 // decrypted plaintext row with raw "e2r1:" ciphertext.
                 e2eeDecryptExecutor().execute(() -> {
                     decryptIncomingIfNeeded(m);
+                    // PERF (v_jank2): pre-compute the Linkify pass here too — same
+                    // background thread already paying for decrypt, so the chat
+                    // UI thread never has to run link-regex on this message.
+                    com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
                     runOnUiThread(() -> {
                         saveToRoom(m, true);
                         if ("read".equals(m.status)) {

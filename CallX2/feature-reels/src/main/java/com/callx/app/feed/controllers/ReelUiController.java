@@ -1602,7 +1602,7 @@ public class ReelUiController {
         reelPinnedCommentContainer.setVisibility(View.VISIBLE);
         if (tvPinnedAuthor != null) tvPinnedAuthor.setText(reel.pinnedCommentAuthorName);
         if (tvPinnedText != null) tvPinnedText.setText(reel.pinnedCommentText);
-        if (tvPinnedLikes != null) tvPinnedLikes.setText(String.valueOf(reel.pinnedCommentLikes));
+        if (tvPinnedLikes != null) tvPinnedLikes.setText(delegate.formatCount(reel.pinnedCommentLikes));
         if (ivPinnedAvatar != null && delegate.isAdded()) {
             Glide.with(delegate.requireContext())
                 .load(reel.pinnedCommentAuthorAvatar)

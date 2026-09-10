@@ -49,6 +49,7 @@ import com.callx.app.reels.R;
 import com.callx.app.utils.CloudinaryUploader;
 import com.callx.app.utils.Constants;
 import com.callx.app.utils.FirebaseUtils;
+import com.callx.app.utils.ImageCompressor;
 import com.callx.app.workers.ReelCommentNotifWorker;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
@@ -204,6 +205,25 @@ public class ReelCommentFragment extends Fragment {
      *  thread but tags the reply's author. */
     private ReelReply   replyingToReplyMention = null;
 
+    // ── Reply local-first (optimistic) state ─────────────────────────────
+    // Replies aren't backed by a live RecyclerView list like top-level
+    // comments (allComments/adapter) — buildReplyRow()'s container is a
+    // plain LinearLayout rebuilt from scratch by loadRepliesInto() every
+    // time "View replies" is toggled. So an in-flight/failed reply's
+    // sendState needs to be remembered OUTSIDE that container to survive
+    // a collapse→expand cycle — this map is that memory, keyed by parent
+    // commentId. Entries are removed once Firebase confirms the write.
+    private final Map<String, java.util.List<ReelReply>> pendingRepliesByParent = new HashMap<>();
+    /** The container/toggle most recently built by loadRepliesInto() —
+     *  used so a freshly-posted reply can be appended and shown instantly
+     *  (same "show it now, reconcile later" idea as postComment()) without
+     *  waiting for the next full toggle rebuild. Only one thread is ever
+     *  being actively replied to at a time in this UI, so "most recent"
+     *  is always the right one. */
+    private LinearLayout activeRepliesContainer;
+    private TextView     activeRepliesToggle;
+    private String       activeRepliesParentId;
+
     // ── @mention autocomplete state ─────────────────────────────────────────
     /** lowercase display-name → full candidate (uid + name + avatar url),
      *  built from everyone visible in this thread so far (commenters +
@@ -262,6 +282,7 @@ public class ReelCommentFragment extends Fragment {
     private final Runnable refreshRunnable = () -> {
         refreshQueued = false;
         applyFilterAndSort();
+        saveCommentsToDiskCache();
         if (pendingAutoScroll) {
             pendingAutoScroll = false;
             autoScrollIfAtTop();
@@ -419,7 +440,18 @@ public class ReelCommentFragment extends Fragment {
         loadMyPhoto();
         restoreDraft();
 
-        if (!reelId.isEmpty()) { showCommentsShimmer(); loadComments(); listenCommentsCount(); }
+        if (!reelId.isEmpty()) {
+            showCommentsShimmer();
+            loadComments();
+            listenCommentsCount();
+            // Disk-cache warm-start: paints the last cached window
+            // immediately so the sheet doesn't sit on the shimmer while
+            // Firebase's first read is in flight — see
+            // ReelCommentCacheManager's class doc. Pure paint layer, does
+            // NOT touch allComments/loadedCommentIds, so it never
+            // interferes with the real ChildEventListener burst above.
+            paintFromDiskCacheIfEmpty();
+        }
         else showEmpty(true);
         listenBlockedUsers();
 
@@ -715,6 +747,17 @@ public class ReelCommentFragment extends Fragment {
             @Override
             public void onRetryComment(ReelComment comment) {
                 retryComment(comment);
+            }
+
+            @Override
+            public void onTranslateComment(ReelComment comment, int position) {
+                // TODO: wire to an actual translation call (ML Kit Translate
+                // or a backend endpoint) once one is added to the project —
+                // this stub just confirms the menu entry reached the host.
+                // Instagram shows the translated text inline, replacing
+                // tv_comment_text with a "See original" toggle; do the same
+                // here once a real translate() call is available.
+                Toast.makeText(requireContext(), "Translate: coming soon", Toast.LENGTH_SHORT).show();
             }
         });
 
@@ -1369,6 +1412,39 @@ public class ReelCommentFragment extends Fragment {
         maybeAutoFillViewport();
     }
 
+    /** Disk-cache warm-start (see ReelCommentCacheManager's class doc):
+     *  reads the last cached window in the background and, ONLY if the
+     *  real Firebase burst hasn't landed anything yet by the time the
+     *  read comes back, paints it straight into the adapter so the sheet
+     *  shows something instantly instead of sitting on the shimmer.
+     *  Deliberately does not touch allComments/loadedCommentIds — the
+     *  real ChildEventListener burst still drives the actual data exactly
+     *  as before and will transparently overwrite this via the normal
+     *  applyFilterAndSort() path once it settles. */
+    private void paintFromDiskCacheIfEmpty() {
+        if (reelId.isEmpty()) return;
+        ReelCommentCacheManager.loadPageAsync(requireContext(), reelId, cached -> {
+            if (!isAdded() || cached.isEmpty()) return;
+            if (!allComments.isEmpty()) return; // real data already arrived first
+            List<ReelComment> sorted = new ArrayList<>(cached);
+            Collections.sort(sorted, sortByTop
+                ? ReelCommentsAdapter.TOP_FIRST : ReelCommentsAdapter.NEWEST_FIRST);
+            adapter.setComments(sorted);
+            showEmpty(false);
+        });
+    }
+
+    /** Fire-and-forget disk cache write of the current live window — keeps
+     *  paintFromDiskCacheIfEmpty() warm for the NEXT open. Only runs off
+     *  the real (network-driven) refresh path in refreshRunnable, and
+     *  skipped mid-search so a filtered view never clobbers the real
+     *  cached page — see ReelCommentCacheManager's class doc for which
+     *  rows actually get persisted. */
+    private void saveCommentsToDiskCache() {
+        if (reelId.isEmpty() || !searchQuery.isEmpty() || !isAdded()) return;
+        ReelCommentCacheManager.savePage(requireContext(), reelId, allComments);
+    }
+
     /** BUG FIX: pagination was purely scroll-delta-triggered (see the
      *  OnScrollListener in setupAdapter()), which silently never fires when
      *  the currently-loaded batch is short enough to fit entirely on
@@ -1586,15 +1662,40 @@ public class ReelCommentFragment extends Fragment {
             Glide.with(this).load(uri).into(ivImagePreview);
         }
 
+        // PERF: reuses the same ImageCompressor pipeline the reel photo/chat
+        // upload flows already use (WhatsApp-style EXIF-fix + resize + WebP
+        // re-encode, Standard tier) instead of uploading the raw picked file
+        // straight to Cloudinary — a comment photo doesn't need HD, so
+        // hd=false, same default the single-image chat send path uses.
+        ImageCompressor.compress(requireContext(), uri, false, new ImageCompressor.Callback() {
+            @Override public void onSuccess(ImageCompressor.Result result) {
+                if (!isAdded()) return;
+                // User may have removed the preview while this was still
+                // compressing — don't resurrect it.
+                if (pickedImageUri == null || !pickedImageUri.equals(uri)) return;
+                uploadCompressedCommentImage(uri, Uri.fromFile(result.fullFile));
+            }
+
+            @Override public void onError(Exception e) {
+                if (!isAdded()) return;
+                uploadingImage = false;
+                Toast.makeText(requireContext(), "Photo upload failed", Toast.LENGTH_SHORT).show();
+                clearPickedImage();
+            }
+        });
+    }
+
+    /** Uploads the ImageCompressor-produced file to Cloudinary. originalUri is
+     *  only used to guard against a stale/removed preview, same check the
+     *  pre-compression code used against the raw picked uri. */
+    private void uploadCompressedCommentImage(Uri originalUri, Uri compressedUri) {
         try {
-            CloudinaryUploader.upload(requireContext(), uri, "callx/reel_comments", "image",
+            CloudinaryUploader.upload(requireContext(), compressedUri, "callx/reel_comments", "image",
                 new CloudinaryUploader.UploadCallback() {
                     @Override public void onSuccess(CloudinaryUploader.Result result) {
                         if (!isAdded()) return;
                         uploadingImage = false;
-                        // User may have removed the preview while this was
-                        // still uploading — don't resurrect it.
-                        if (pickedImageUri == null || !pickedImageUri.equals(uri)) return;
+                        if (pickedImageUri == null || !pickedImageUri.equals(originalUri)) return;
                         uploadedImageUrl = result.secureUrl;
                         if (progressImage != null) progressImage.setVisibility(View.GONE);
                     }
@@ -1754,76 +1855,164 @@ public class ReelCommentFragment extends Fragment {
         String text = getInputText();
         if (text == null) return;
         ReelComment parent = replyingToComment;
+        ReelReply   mention = replyingToReplyMention;
+
+        DatabaseReference repliesRef = FirebaseDatabase.getInstance(Constants.DB_URL)
+            .getReference("reelCommentReplies")
+            .child(reelId)
+            .child(parent.commentId);
+
+        String key = repliesRef.push().getKey();
+        if (key == null) return;
+
+        // ── Local-first: same "show it now, reconcile later" pattern
+        // postComment() already uses for top-level comments — see
+        // ReelReply.sendState doc. Previously this fired a plain
+        // fire-and-forget setValue() with no local row at all, so a
+        // posted reply only ever appeared once the NEXT "View replies"
+        // toggle re-fetched it from Firebase, and a failed/offline write
+        // silently vanished with just a one-off Toast.
+        ReelReply local = new ReelReply(key, parent.commentId, myUid, myName, myPhoto, text,
+            System.currentTimeMillis());
+        if (mention != null) {
+            local.mentionUid  = mention.uid;
+            local.mentionName = mention.ownerName;
+        }
+        local.sendState = ReelReply.SEND_STATE_SENDING;
+        pendingRepliesByParent.computeIfAbsent(parent.commentId, k -> new java.util.ArrayList<>()).add(local);
+
+        // Render instantly if this parent's replies section is the one
+        // currently open — same instant-bubble feel as the main comment
+        // list, without needing a live RecyclerView for replies.
+        if (parent.commentId.equals(activeRepliesParentId)
+                && activeRepliesContainer != null && activeRepliesToggle != null) {
+            View row = buildReplyRow(local, parent, activeRepliesContainer, activeRepliesToggle);
+            if (row != null) {
+                activeRepliesContainer.addView(row);
+                activeRepliesContainer.setVisibility(View.VISIBLE);
+                activeRepliesToggle.setText("Hide replies");
+            }
+        }
+
+        clearInput();
+        clearDraft();
+        cancelReply();
+        pendingMentions.clear();
+
+        sendReplyToFirebase(repliesRef, key, local, parent, mention, text);
+    }
+
+    /** Fires the actual Firebase write for a local-first ReelReply and
+     *  flips its sendState based on the real result — mirrors
+     *  sendCommentToFirebase()'s role for top-level comments. Used by both
+     *  postReply() and retryReply() (same push key, no duplicate reply). */
+    private void sendReplyToFirebase(DatabaseReference repliesRef, String key, ReelReply local,
+                                     ReelComment parent, @Nullable ReelReply mention, String text) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("replyId",         key);
+        data.put("parentCommentId", parent.commentId);
+        data.put("uid",             local.uid);
+        data.put("ownerName",       local.ownerName);
+        data.put("ownerPhoto",      local.ownerPhoto);
+        data.put("text",            local.text);
+        data.put("timestamp",       local.timestamp);
+        data.put("likesCount",      0);
+        if (mention != null) {
+            data.put("mentionUid",  mention.uid);
+            data.put("mentionName", mention.ownerName);
+        }
 
         try {
-            DatabaseReference repliesRef = FirebaseDatabase.getInstance(Constants.DB_URL)
-                .getReference("reelCommentReplies")
-                .child(reelId)
-                .child(parent.commentId);
+            repliesRef.child(key).setValue(data)
+                .addOnSuccessListener(a -> {
+                    if (!isAdded()) return;
+                    local.sendState = null; // confirmed sent
+                    java.util.List<ReelReply> pending = pendingRepliesByParent.get(parent.commentId);
+                    if (pending != null) pending.remove(local);
 
-            String key = repliesRef.push().getKey();
-            if (key == null) return;
+                    FirebaseUtils.getReelCommentsRef(reelId)
+                        .child(parent.commentId).child("replyCount")
+                        .runTransaction(new Transaction.Handler() {
+                            @NonNull @Override
+                            public Transaction.Result doTransaction(@NonNull MutableData d) {
+                                Integer v = d.getValue(Integer.class);
+                                d.setValue(v != null ? v + 1 : 1);
+                                return Transaction.success(d);
+                            }
+                            @Override public void onComplete(@Nullable DatabaseError e,
+                                                             boolean b, @Nullable DataSnapshot s) {}
+                        });
 
-            ReelReply mention = replyingToReplyMention;
-
-            Map<String, Object> data = new HashMap<>();
-            data.put("replyId",         key);
-            data.put("parentCommentId", parent.commentId);
-            data.put("uid",             myUid);
-            data.put("ownerName",       myName);
-            data.put("ownerPhoto",      myPhoto);
-            data.put("text",            text);
-            data.put("timestamp",       System.currentTimeMillis());
-            data.put("likesCount",      0);
-            if (mention != null) {
-                data.put("mentionUid",  mention.uid);
-                data.put("mentionName", mention.ownerName);
-            }
-            repliesRef.child(key).setValue(data);
-
-            FirebaseUtils.getReelCommentsRef(reelId)
-                .child(parent.commentId).child("replyCount")
-                .runTransaction(new Transaction.Handler() {
-                    @NonNull @Override
-                    public Transaction.Result doTransaction(@NonNull MutableData d) {
-                        Integer v = d.getValue(Integer.class);
-                        d.setValue(v != null ? v + 1 : 1);
-                        return Transaction.success(d);
+                    if (!parent.uid.equals(myUid)) {
+                        ReelCommentNotifWorker.enqueueReply(
+                            requireContext(), reelId, parent.uid, myUid, myName, key, text);
                     }
-                    @Override public void onComplete(@Nullable DatabaseError e,
-                                                     boolean b, @Nullable DataSnapshot s) {}
+                    if (mention != null && mention.uid != null
+                            && !mention.uid.equals(myUid) && !mention.uid.equals(parent.uid)) {
+                        ReelCommentNotifWorker.enqueueReply(
+                            requireContext(), reelId, mention.uid, myUid, myName, key, text);
+                    }
+                    Map<String, String> extraMentions = resolveMentionsInText(text);
+                    for (Map.Entry<String, String> e : extraMentions.entrySet()) {
+                        String uid = e.getKey();
+                        if (uid.equals(myUid) || uid.equals(parent.uid)) continue;
+                        if (mention != null && uid.equals(mention.uid)) continue;
+                        ReelCommentNotifWorker.enqueueMention(
+                            requireContext(), reelId, uid, myUid, myName, key, text);
+                    }
+
+                    // Re-render this row's send-state chrome (dim/failed
+                    // text removed) if its parent's replies are still open.
+                    if (parent.commentId.equals(activeRepliesParentId)
+                            && activeRepliesContainer != null && activeRepliesToggle != null) {
+                        loadRepliesInto(parent, activeRepliesContainer, activeRepliesToggle);
+                    }
+                })
+                .addOnFailureListener(e -> {
+                    if (!isAdded()) return;
+                    local.sendState = ReelReply.SEND_STATE_FAILED;
+                    if (parent.commentId.equals(activeRepliesParentId)
+                            && activeRepliesContainer != null && activeRepliesToggle != null) {
+                        loadRepliesInto(parent, activeRepliesContainer, activeRepliesToggle);
+                    }
+                    Toast.makeText(requireContext(),
+                        "Reply not sent — check your connection", Toast.LENGTH_SHORT).show();
                 });
-
-            clearInput();
-            clearDraft();
-            cancelReply();
-
-            if (!parent.uid.equals(myUid)) {
-                ReelCommentNotifWorker.enqueueReply(
-                    requireContext(), reelId, parent.uid, myUid, myName, key, text);
-            }
-            if (mention != null && mention.uid != null
-                    && !mention.uid.equals(myUid) && !mention.uid.equals(parent.uid)) {
-                ReelCommentNotifWorker.enqueueReply(
-                    requireContext(), reelId, mention.uid, myUid, myName, key, text);
-            }
-
-            Map<String, String> extraMentions = resolveMentionsInText(text);
-            for (Map.Entry<String, String> e : extraMentions.entrySet()) {
-                String uid = e.getKey();
-                if (uid.equals(myUid) || uid.equals(parent.uid)) continue;
-                if (mention != null && uid.equals(mention.uid)) continue;
-                ReelCommentNotifWorker.enqueueMention(
-                    requireContext(), reelId, uid, myUid, myName, key, text);
-            }
-            pendingMentions.clear();
-
         } catch (Exception e) {
-            Toast.makeText(requireContext(), "Failed to post reply", Toast.LENGTH_SHORT).show();
+            local.sendState = ReelReply.SEND_STATE_FAILED;
+            if (parent.commentId.equals(activeRepliesParentId)
+                    && activeRepliesContainer != null && activeRepliesToggle != null) {
+                loadRepliesInto(parent, activeRepliesContainer, activeRepliesToggle);
+            }
         }
     }
 
+    /** Tap-to-retry on a failed reply row — re-sends with the same push
+     *  key (no duplicate reply) via sendReplyToFirebase(). */
+    private void retryReply(ReelReply r, ReelComment parent, LinearLayout container, TextView tvToggle) {
+        if (r == null || r.replyId == null || !ReelReply.SEND_STATE_FAILED.equals(r.sendState)) return;
+        r.sendState = ReelReply.SEND_STATE_SENDING;
+        loadRepliesInto(parent, container, tvToggle);
+
+        DatabaseReference repliesRef = FirebaseDatabase.getInstance(Constants.DB_URL)
+            .getReference("reelCommentReplies")
+            .child(reelId)
+            .child(parent.commentId);
+        // sendReplyToFirebase only reads mention.uid/ownerName — rebuild a
+        // minimal stand-in from what's already stored on the failed reply
+        // itself (mentionUid/mentionName), no need to keep the original
+        // reply-to-reply mention object around just for a retry.
+        ReelReply mention = null;
+        if (r.mentionUid != null) {
+            mention = new ReelReply();
+            mention.uid       = r.mentionUid;
+            mention.ownerName = r.mentionName;
+        }
+        sendReplyToFirebase(repliesRef, r.replyId, r, parent, mention, r.text);
+    }
+
     // ── Like ──────────────────────────────────────────────────────────────────
+
 
     private void toggleLike(ReelComment comment, int position) {
         if (myUid.isEmpty()) {
@@ -2036,6 +2225,12 @@ public class ReelCommentFragment extends Fragment {
 
     private void loadRepliesInto(ReelComment parent,
                                  LinearLayout container, TextView tvToggle) {
+        // Remember this as the "active" replies UI so a reply posted while
+        // it's open can be appended instantly — see field doc above.
+        activeRepliesContainer = container;
+        activeRepliesToggle    = tvToggle;
+        activeRepliesParentId  = parent.commentId;
+
         FirebaseDatabase.getInstance(Constants.DB_URL)
             .getReference("reelCommentReplies")
             .child(reelId)
@@ -2046,16 +2241,31 @@ public class ReelCommentFragment extends Fragment {
                     if (!isAdded()) return;
                     container.removeAllViews();
                     int count = 0;
+                    java.util.Set<String> confirmedIds = new java.util.HashSet<>();
                     for (DataSnapshot s : snapshot.getChildren()) {
                         try {
                             ReelReply r = s.getValue(ReelReply.class);
                             if (r == null || TextUtils.isEmpty(r.text)) continue;
                             if (r.uid != null && blockedUids.contains(r.uid)) continue; // blocked user's reply, hide it
                             if (r.replyId == null) r.replyId = s.getKey();
+                            confirmedIds.add(r.replyId);
                             registerMentionCandidate(r.uid, r.ownerName, r.ownerPhoto);
                             View row = buildReplyRow(r, parent, container, tvToggle);
                             if (row != null) { container.addView(row); count++; }
                         } catch (Exception ignored) {}
+                    }
+                    // Merge in still-pending (sending/failed) local replies for
+                    // this parent that Firebase hasn't confirmed yet — without
+                    // this, collapsing then re-expanding "View replies" would
+                    // silently drop an in-flight or failed reply on the floor
+                    // since this listener rebuilds the container from scratch.
+                    java.util.List<ReelReply> pending = pendingRepliesByParent.get(parent.commentId);
+                    if (pending != null) {
+                        for (ReelReply r : new java.util.ArrayList<>(pending)) {
+                            if (confirmedIds.contains(r.replyId)) continue;
+                            View row = buildReplyRow(r, parent, container, tvToggle);
+                            if (row != null) { container.addView(row); count++; }
+                        }
                     }
                     container.setVisibility(count > 0 ? View.VISIBLE : View.GONE);
                     tvToggle.setText(count > 0 ? "Hide replies" : "No replies yet");
@@ -2134,6 +2344,22 @@ public class ReelCommentFragment extends Fragment {
                 showReplyContextMenu(r, parent, container, tvToggle);
                 return true;
             });
+
+            // ── Local-first send state (Instagram-level optimistic write,
+            //    extended to replies — see ReelReply.sendState doc) ──────
+            if (ReelReply.SEND_STATE_SENDING.equals(r.sendState)) {
+                v.setAlpha(0.55f);
+                v.setLongClickable(false);
+            } else if (ReelReply.SEND_STATE_FAILED.equals(r.sendState)) {
+                v.setAlpha(1f);
+                if (tvTime != null) {
+                    tvTime.setText("Failed — tap to retry");
+                    tvTime.setTextColor(getResources().getColor(android.R.color.holo_red_light));
+                }
+                v.setOnClickListener(v2 -> retryReply(r, parent, container, tvToggle));
+            } else {
+                v.setAlpha(1f);
+            }
 
             return v;
         } catch (Exception e) {

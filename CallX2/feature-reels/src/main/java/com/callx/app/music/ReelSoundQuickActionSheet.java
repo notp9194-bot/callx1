@@ -11,7 +11,7 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
-import com.bumptech.glide.Glide;
+import com.callx.app.followers.FollowAvatarBinder;
 import com.callx.app.reels.R;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
@@ -51,6 +51,11 @@ public class ReelSoundQuickActionSheet extends BottomSheetDialogFragment {
     private OnActionListener listener;
     private String soundTitle;
     private String coverUrl;
+    // Reused so onDestroyView can cancel the in-flight FollowAvatarBinder
+    // request the same way FollowConnectionsActivity cancels row avatars
+    // on recycle — this sheet is short-lived but the dialog can be
+    // dismissed mid-decode, no reason to let that Glide request run on.
+    private ImageView ivCover;
 
     // ── Factory ───────────────────────────────────────────────────────────────
 
@@ -78,7 +83,11 @@ public class ReelSoundQuickActionSheet extends BottomSheetDialogFragment {
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setStyle(STYLE_NORMAL, R.style.ReelMoreBottomSheetTheme);
+        // Day/night-aware theme — unlike ReelMoreBottomSheet (forced dark,
+        // sits over the always-dark video player), this sheet was asked to
+        // follow the device/app light-dark setting instead of being pinned
+        // dark. See themes.xml for ReelSoundQuickActionSheetTheme.
+        setStyle(STYLE_NORMAL, R.style.ReelSoundQuickActionSheetTheme);
         if (getArguments() != null) {
             soundTitle = getArguments().getString(ARG_TITLE,     "Original Audio");
             coverUrl   = getArguments().getString(ARG_COVER_URL, "");
@@ -105,15 +114,21 @@ public class ReelSoundQuickActionSheet extends BottomSheetDialogFragment {
         }
 
         // Sound cover + title
-        TextView  tvTitle = view.findViewById(R.id.tv_quick_sound_title);
-        ImageView ivCover = view.findViewById(R.id.iv_quick_sound_cover);
+        // FIX (avatar pipeline parity): this cover was a flat, untiered
+        // Glide.load(coverUrl) — no L2/L3 reuse, no density-aware tier
+        // decode, nothing cancelling the request if the sheet is dismissed
+        // mid-decode. Reused FollowAvatarBinder — the SAME shared pipeline
+        // FollowConnectionsActivity's row avatars use (L2 memory + L3 disk
+        // cache via ReelsAvatarL2Cache, SMALL tier sizing, dedupe-by-URL-tag)
+        // — instead of standing up a separate cache for one more avatar-
+        // shaped image. No avatarVersion exists for a sound cover, so pass
+        // 0L, same as MutualFollowersActivity/ReelCloseFriendsActivity do
+        // for their own version-less binds.
+        TextView tvTitle = view.findViewById(R.id.tv_quick_sound_title);
+        ivCover = view.findViewById(R.id.iv_quick_sound_cover);
         if (tvTitle != null) tvTitle.setText(soundTitle);
-        if (ivCover != null && coverUrl != null && !coverUrl.isEmpty()) {
-            Glide.with(this)
-                .load(coverUrl)
-                .placeholder(R.drawable.ic_music_note)
-                .error(R.drawable.ic_music_note)
-                .into(ivCover);
+        if (ivCover != null) {
+            FollowAvatarBinder.bind(requireContext(), ivCover, coverUrl, 0L, R.drawable.ic_music_note);
         }
 
         // ── Row 1: Remix ──────────────────────────────────────────────────────
@@ -142,5 +157,14 @@ public class ReelSoundQuickActionSheet extends BottomSheetDialogFragment {
                 if (listener != null) listener.onSoundInfoSelected();
             });
         }
+    }
+
+    @Override
+    public void onDestroyView() {
+        if (ivCover != null) {
+            FollowAvatarBinder.cancel(requireContext(), ivCover);
+            ivCover = null;
+        }
+        super.onDestroyView();
     }
 }

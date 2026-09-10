@@ -48,11 +48,13 @@ public class CallxApp extends Application {
     // FIX #STARTUP: Heavy init ko background thread pe daala gaya hai.
     //
     // MAIN THREAD (instant, blocking nahi):
-    //   - Notification channels register
-    //   - WorkManager workers schedule
-    //   - Activity lifecycle callbacks register
+    //   - Activity lifecycle callbacks register (PresenceManager, foreground tracking)
+    //   - Domain verification check (async internally)
     //
     // BACKGROUND THREAD (app-init-bg):
+    //   - WorkManager workers schedule (v401 — see comment below)
+    //   - Privacy settings sync to Firebase (v401)
+    //   - Notification channels
     //   - Firebase persistence config
     //   - Photo URL cache
     //   - Cache system + SyncWorker
@@ -236,46 +238,66 @@ public class CallxApp extends Application {
         // in front of the very first frame. None of this needs to be ready
         // before the UI paints — channels only need to exist before the
         // FIRST notification is ever shown, which is always well after
-        // launch. WorkManager schedule/enqueue calls stay here — that's a
-        // one-line enqueue into a DB write queue, not a per-item Binder call.
+        // launch.
+        //
+        // PERF FIX v401 — WorkManager schedule() calls AND the privacy
+        // sync moved to the background thread below too. The old comment
+        // here said these were "one-line enqueue, not heavy" — true for
+        // each individual call, but WorkManager.getInstance(context) on
+        // its FIRST call in the process is not free: it lazily builds
+        // WorkManager's own Configuration + opens ITS OWN Room database
+        // (androidx.work.impl.WorkDatabase) right there, sychronously, on
+        // whatever thread makes that first call. With 6 separate
+        // schedule()/scheduleIfNeeded() calls stacked here before the very
+        // first frame, that one-time WorkManager-DB-open tax (plus 6
+        // small enqueue writes) sat directly on the cold-start critical
+        // path for no benefit — none of these workers need to be
+        // scheduled before the user sees the Chat List, only before their
+        // OWN next periodic/one-off run window. Same reasoning for the
+        // privacy-sync Firebase write. Moved to app-init-bg below,
+        // unchanged otherwise.
 
-        // WorkManager workers schedule — sirf enqueue karta hai, heavy nahi
-        XNotificationWorker.schedule(this);
-        com.callx.app.notifications.ReelNotificationWorker.schedule(this);
-        // YouTube background polling worker — killed/background state notifications
-        com.callx.app.notifications.YouTubeNotificationWorker.schedule(this);
-        // ✅ FIX: Trending Sound worker was built but never scheduled anywhere,
-        // so it never actually ran. Enqueue it here alongside the other workers.
-        com.callx.app.workers.TrendingSoundWorker.scheduleIfNeeded(this);
-        // Reels avatar background pre-warm — charging+WiFi(+idle) only, see
-        // AvatarPreWarmWorker's own doc. One-line enqueue, same as every
-        // other WorkManager schedule() call on this thread.
-        com.callx.app.workers.AvatarPreWarmWorker.schedule(this);
-        // ✅ Channel scheduled posts: auto-publish overdue posts every 15 min.
-        // Must run at startup so posts scheduled before the last app kill are
-        // published promptly — not just when the user opens the composer.
-        com.callx.app.channel.ChannelScheduledPostWorker.schedulePeriodicWork(this);
-        // ✅ Status scheduled posts: auto-publish overdue scheduled statuses
-        // every 15 min, same cadence/pattern as the channel worker above.
-        com.callx.app.services.StatusScheduledPostWorker.schedulePeriodicWork(this);
-
-        // Activity lifecycle + AppLock wiring — must be main thread
+        // Activity lifecycle + AppLock wiring — must stay on main thread
+        // (registerActivityLifecycleCallbacks has to be registered before
+        // any Activity can start, so this can't be deferred).
         com.callx.app.utils.PresenceManager.getInstance().init(this);
         registerForegroundTracking();
-
-        // Sync privacy settings to Firebase (if user already logged in)
-        try {
-            if (com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser() != null) {
-                new com.callx.app.utils.SecurityManager(this).syncAllPrivacyToFirebase();
-            }
-        } catch (Exception ignored) {}
 
         // Domain verification check — async internally, safe on main thread
         checkAndRequestDomainVerification();
 
         // ── BACKGROUND THREAD: heavy init ─────────────────────────────
         new Thread(() -> {
+            // PERF FIX v401 — WorkManager schedule calls + privacy sync,
+            // moved off the main thread (see comment above where these
+            // used to live). Enqueue-only work, safe to run here — no UI
+            // depends on any of these having run by first frame.
+            try {
+                XNotificationWorker.schedule(this);
+                com.callx.app.notifications.ReelNotificationWorker.schedule(this);
+                // YouTube background polling worker — killed/background state notifications
+                com.callx.app.notifications.YouTubeNotificationWorker.schedule(this);
+                // Trending Sound worker enqueue.
+                com.callx.app.workers.TrendingSoundWorker.scheduleIfNeeded(this);
+                // Reels avatar background pre-warm — charging+WiFi(+idle) only.
+                com.callx.app.workers.AvatarPreWarmWorker.schedule(this);
+                // Channel scheduled posts: auto-publish overdue posts every 15 min.
+                com.callx.app.channel.ChannelScheduledPostWorker.schedulePeriodicWork(this);
+                // Status scheduled posts: same cadence/pattern as the channel worker above.
+                com.callx.app.services.StatusScheduledPostWorker.schedulePeriodicWork(this);
+            } catch (Exception e) {
+                Log.w(TAG, "WorkManager schedule (background) failed: " + e.getMessage());
+            }
+
+            // Sync privacy settings to Firebase (if user already logged in)
+            try {
+                if (com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser() != null) {
+                    new com.callx.app.utils.SecurityManager(CallxApp.this).syncAllPrivacyToFirebase();
+                }
+            } catch (Exception ignored) {}
+
             // PERF FIX v238 — "app fresh open / recent-apps-kill open slow":
+
             // Notification channel registration (createChannels() — ~15
             // channels — plus ReelNotificationChannelManager's 39 and
             // YouTubeNotificationChannelManager's) used to run synchronously
@@ -288,10 +310,10 @@ public class CallxApp extends Application {
             // None of this needs to be done before the UI paints — a
             // channel only needs to exist before the FIRST notification
             // through it is shown, which is always well after the user is
-            // already looking at the Chat List. Moved here, first thing on
-            // this background thread, so it's off the critical path to
-            // first paint but still finishes well before any notification
-            // could realistically be posted.
+            // already looking at the Chat List. Runs early on this
+            // background thread (right after the WorkManager/privacy-sync
+            // block above), off the critical path to first paint but well
+            // before any notification could realistically be posted.
             try {
                 createChannels();
                 com.callx.app.notifications.ReelNotificationChannelManager.ensureChannels(CallxApp.this);

@@ -160,7 +160,12 @@ android {
 // generateBaselineProfile task ke baad automatically:
 //   1. :macrobenchmark module se measured profile lete hai
 //   2. app/src/main/baseline-prof.txt update karta hai
-//   3. dexLayoutOptimization = true se dex reorder hota hai
+//   3. dexLayoutOptimization = true se dex reorder hota hai — v401 se
+//      generateChatListStartup()'s includeInStartupProfile=true bhi
+//      app/src/main/startup-prof.txt produce karta hai, jise yeh
+//      dexLayoutOptimization actually consume karta hai (pehle sirf
+//      baseline-prof.txt tha, startup-prof.txt kabhi generate hi nahi
+//      hua tha)
 baselineProfile {
     dexLayoutOptimization = true
     saveInSrc = true

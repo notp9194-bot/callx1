@@ -61,6 +61,7 @@ public class SoundDetailViewModel extends ViewModel {
     // ── Creator row ──────────────────────────────────────────────────────
     public boolean creatorLoaded = false;
     public String  creatorUid, creatorName, creatorPhoto;
+    public long    creatorAvatarVersion;
 
     // ── Reels grid + pagination cursor ──────────────────────────────────
     public boolean reelsLoaded = false;

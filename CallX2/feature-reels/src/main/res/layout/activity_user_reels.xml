@@ -622,7 +622,7 @@
                         android:singleLine="true"
                         android:ellipsize="end"
                         android:includeFontPadding="false"
-                        android:fontFamily="sans-serif-black"
+                        android:fontFamily="sans-serif-medium"
                         app:textAllCaps="false"
                         android:background="@drawable/bg_btn_follow_capsule"
                         android:textColor="#FFFFFF"

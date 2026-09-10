@@ -663,11 +663,7 @@
                         android:text="Follow"
                         android:textColor="@color/follow_button_text"
                         android:textSize="13sp"
-                        android:paddingStart="8dp"
-                        android:paddingEnd="8dp"
-                        android:paddingTop="2dp"
-                        android:paddingBottom="2dp"
-                        android:background="@drawable/bg_reel_follow_btn"
+                        android:fontFamily="sans-serif-medium"
                         android:visibility="visible"/>
                 </LinearLayout>
 

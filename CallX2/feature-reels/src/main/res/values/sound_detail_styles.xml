@@ -7,4 +7,15 @@
         <item name="cornerFamily">rounded</item>
         <item name="cornerSize">18dp</item>
     </style>
+
+    <!-- Corner rounding for iv_quick_sound_cover in
+         bottom_sheet_reel_sound_quick.xml (ReelSoundQuickActionSheet).
+         The view clips the bound bitmap itself via this shape appearance —
+         same "widget clips, no Glide transform" convention FollowAvatarBinder
+         relies on for CircleImageView rows, just square-rounded here
+         instead of circular. -->
+    <style name="ShapeAppearance.ReelSoundQuick.Cover" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">14dp</item>
+    </style>
 </resources>

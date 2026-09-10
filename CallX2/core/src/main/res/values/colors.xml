@@ -32,6 +32,14 @@
     <color name="chat_input_text">#000000</color>
     <color name="text_secondary">#64748B</color>
     <color name="text_muted">#94A3B8</color>
+    <!-- Instagram-level approach: reel/post comment body text — high-contrast,
+         theme-aware, slightly softer than the username (which stays full
+         #FFFFFF/near-black) but NOT the muted text_secondary gray (that
+         token is a light-theme color and reads as low-contrast dark-gray-
+         on-dark when the comment sheet is dark, per feature-reels'
+         ReelCommentsAdapter). Light theme: ~90% opacity black, matching
+         Instagram's light-mode comment text. -->
+    <color name="comment_text_body">#262626</color>
     <color name="error_red">#E53935</color>
     <color name="tick_read_blue">#34B7F1</color>
     <color name="chat_time_color">#FFFFFF</color>

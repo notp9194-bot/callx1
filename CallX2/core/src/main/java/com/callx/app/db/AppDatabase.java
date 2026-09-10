@@ -75,9 +75,12 @@ import com.callx.app.db.entity.*;
         // MediaHashCacheEntity's class doc.
         MediaHashCacheEntity.class,
         // v61: durable outbound chat mutation journal.
-        OutboxOperationEntity.class
+        OutboxOperationEntity.class,
+        // v65: disk-backed Reel comments sheet cache — see
+        // ReelCommentCacheEntity's class doc.
+        ReelCommentCacheEntity.class
     },
-    version = 64,
+    version = 65,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -132,6 +135,9 @@ public abstract class AppDatabase extends RoomDatabase {
 
     // Local content-hash media dedup cache (v59)
     public abstract MediaHashCacheDao          mediaHashCacheDao();
+
+    // Reel comments sheet offline cache (v65)
+    public abstract ReelCommentCacheDao        reelCommentCacheDao();
 
     // ─── Migrations ───────────────────────────────────────────────────────────
 
@@ -972,6 +978,26 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    static final Migration MIGRATION_64_65 = new Migration(64, 65) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            // New disk cache for the Reel comments sheet — see
+            // ReelCommentCacheEntity's class doc.
+            db.execSQL("CREATE TABLE IF NOT EXISTS `reel_comment_cache` (" +
+                    "`reelId` TEXT NOT NULL, `commentId` TEXT NOT NULL, " +
+                    "`uid` TEXT, `ownerName` TEXT, `ownerPhoto` TEXT, `text` TEXT, " +
+                    "`imageUrl` TEXT, `timestamp` INTEGER NOT NULL, " +
+                    "`likesCount` INTEGER NOT NULL, `replyCount` INTEGER NOT NULL, " +
+                    "`avatarVersion` INTEGER NOT NULL, `isPinned` INTEGER NOT NULL, " +
+                    "`isEdited` INTEGER NOT NULL, `editedAt` INTEGER NOT NULL, " +
+                    "`likedByJson` TEXT, `reactionsJson` TEXT, `mentionsJson` TEXT, " +
+                    "`sortOrder` INTEGER NOT NULL, `cachedAt` INTEGER NOT NULL, " +
+                    "PRIMARY KEY(`reelId`, `commentId`))");
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_reel_comment_cache_reelId_sortOrder` " +
+                    "ON `reel_comment_cache` (`reelId`, `sortOrder`)");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -1036,7 +1062,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_56_57, MIGRATION_57_58,
                                     MIGRATION_58_59, MIGRATION_59_60,
                                     MIGRATION_60_61, MIGRATION_61_62,
-                                    MIGRATION_62_63, MIGRATION_63_64)
+                                    MIGRATION_62_63, MIGRATION_63_64,
+                                    MIGRATION_64_65)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

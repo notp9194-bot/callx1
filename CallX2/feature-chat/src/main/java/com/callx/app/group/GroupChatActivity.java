@@ -409,6 +409,12 @@ public class GroupChatActivity extends AppCompatActivity
         currentUid  = FirebaseUtils.getCurrentUid();
         currentName = FirebaseUtils.getCurrentName();
         groupMessagesRef = FirebaseUtils.getGroupMessagesRef(groupId);
+        // PERF FIX: same fix as ChatActivity's 1:1 messagesRef — keeps this
+        // group's path actively synced to disk while the chat is open, so
+        // reopen resolves from disk with no network round-trip on top of
+        // CallxApp's setPersistenceEnabled(true). Turned off in onDestroy()
+        // below so we don't keep every group ever opened permanently synced.
+        try { groupMessagesRef.keepSynced(true); } catch (Exception ignored) {}
         // Restore the last known group window synchronously after process
         // death. Room/Firebase still reconcile it silently in the background.
         LastMessagesDiskCache.loadIntoMemory(this, currentUid, groupId);
@@ -745,6 +751,10 @@ public class GroupChatActivity extends AppCompatActivity
     @Override
     protected void onDestroy() {
         saveGroupDraft();
+        // Pair with the keepSynced(true) set on groupMessagesRef above.
+        if (groupMessagesRef != null) {
+            try { groupMessagesRef.keepSynced(false); } catch (Exception ignored) {}
+        }
         // FIX (avatar pipeline parity): stop the toolbar group-icon request
         // from GroupAvatarBinder.bind() if it's still in flight.
         com.callx.app.cache.GroupAvatarBinder.cancel(this, binding.ivPartnerAvatar);
@@ -1585,16 +1595,36 @@ public class GroupChatActivity extends AppCompatActivity
                 if (m == null) return;
                 m.id = s.getKey();
                 if (cursor != null && !isAfterSyncCursor(m, cursor)) return;
-                decryptIncomingGroupTextIfNeeded(m);
-                saveToRoom(m);
-                markRead(m);
+                // PERF FIX (v_jank3): same root cause as 1:1 ChatActivity's
+                // decryptIncomingIfNeeded() fix — decryptIncomingGroupTextIfNeeded()
+                // does real crypto (Sender Key decrypt) and ChildEventListener
+                // fires on the main thread, so this blocked the UI thread for
+                // every single incoming group message, including the initial
+                // burst on chat-open. Hops onto E2eeDecryptExecutor, sharded by
+                // senderId so this sender's messages still decrypt strictly in
+                // order (required — Sender Key is a ratchet, same reasoning as
+                // the 1:1 fix) while other senders' messages decrypt in
+                // parallel. Also prewarms the Linkify cache here so
+                // bindMessage() never has to run link-regex on the UI thread.
+                com.callx.app.utils.E2eeDecryptExecutor.execute(m.senderId, () -> {
+                    decryptIncomingGroupTextIfNeeded(m);
+                    com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
+                    runOnUiThread(() -> {
+                        saveToRoom(m);
+                        markRead(m);
+                    });
+                });
             }
             @Override public void onChildChanged(DataSnapshot s, String prev) {
                 Message m = s.getValue(Message.class);
                 if (m == null) return;
                 m.id = s.getKey();
-                decryptIncomingGroupTextIfNeeded(m);
-                saveToRoom(m);
+                // Same off-main-thread decrypt + Linkify-prewarm fix as onChildAdded above.
+                com.callx.app.utils.E2eeDecryptExecutor.execute(m.senderId, () -> {
+                    decryptIncomingGroupTextIfNeeded(m);
+                    com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
+                    runOnUiThread(() -> saveToRoom(m));
+                });
             }
             @Override public void onChildRemoved(DataSnapshot s) {
                 String key = s.getKey();
@@ -1635,8 +1665,12 @@ public class GroupChatActivity extends AppCompatActivity
                 Message m = s.getValue(Message.class);
                 if (m == null) return;
                 m.id = s.getKey();
-                decryptIncomingGroupTextIfNeeded(m);
-                saveToRoom(m);
+                // Same off-main-thread decrypt + Linkify-prewarm fix as messageListener above.
+                com.callx.app.utils.E2eeDecryptExecutor.execute(m.senderId, () -> {
+                    decryptIncomingGroupTextIfNeeded(m);
+                    com.callx.app.conversation.MessagePagingAdapter.prewarmLinkifyCache(m);
+                    runOnUiThread(() -> saveToRoom(m));
+                });
             }
             @Override public void onChildRemoved(DataSnapshot s) {
                 String key = s.getKey();
