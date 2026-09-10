@@ -154,13 +154,40 @@ public class CloudinaryUploader {
      */
     public static void upload(Context ctx, Uri uri, String folder,
                               String resourceType, String fileNameHint, UploadCallback cb) {
+        upload(ctx, uri, folder, resourceType, fileNameHint, false, cb);
+    }
+
+    /**
+     * Same as {@link #upload(Context, Uri, String, String, String, UploadCallback)}
+     * but with {@code alreadyCompressed} to skip readBytes()'s automatic
+     * image re-compression.
+     *
+     * FIX (reel-comment image send failing 100% since ImageCompressor was
+     * added to that flow): readBytes() below unconditionally re-compresses
+     * ANY image/* uri via MediaCompressor.compressImage(), which ALWAYS
+     * outputs JPEG bytes (its useWebP param is hardcoded false there) —
+     * but the filename/Content-Type sent to Cloudinary is derived
+     * separately, from the URI's own extension/mime, computed BEFORE
+     * knowing readBytes() would re-encode it. For a plain gallery JPEG
+     * this coincidentally matched (jpeg in → jpeg out). But
+     * ReelCommentFragment now hands this a Uri.fromFile() pointing at an
+     * ImageCompressor-produced ".webp" file: the mime/extension resolve to
+     * "image/webp", while the bytes actually uploaded are re-encoded JPEG
+     * — Cloudinary receives a file tagged webp whose content parses as
+     * JPEG and rejects it. Passing alreadyCompressed=true here skips the
+     * redundant/mismatching re-compression entirely: the already-optimized
+     * bytes go up as-is, tagged with their real (matching) mime.
+     */
+    public static void upload(Context ctx, Uri uri, String folder,
+                              String resourceType, String fileNameHint,
+                              boolean alreadyCompressed, UploadCallback cb) {
         // PERF: shared bounded pool instead of a raw `new Thread()` per
         // upload — see MediaUploadExecutor's class doc (unbounded thread
         // creation under a big multi-select send is wasted overhead, not
         // extra speed, since uplink bandwidth is the real bottleneck).
         MediaUploadExecutor.execute(() -> {
             try {
-                byte[] bytes = readBytes(ctx, uri);
+                byte[] bytes = readBytes(ctx, uri, alreadyCompressed);
                 if (bytes == null || bytes.length == 0) {
                     post(cb, null, "Empty file");
                     return;
@@ -386,10 +413,18 @@ public class CloudinaryUploader {
         });
     }
     private static byte[] readBytes(Context ctx, Uri uri) throws IOException {
+        return readBytes(ctx, uri, false);
+    }
+
+    /** @param alreadyCompressed true = skip the MediaCompressor re-encode
+     *  below entirely (uri already points at an ImageCompressor/similar
+     *  pre-compressed file) — see the alreadyCompressed upload() overload's
+     *  doc for the mismatched-mime bug this avoids. */
+    private static byte[] readBytes(Context ctx, Uri uri, boolean alreadyCompressed) throws IOException {
         // Images: compress before upload (resize + JPEG 80%)
         // GIF ko compress MAT karo — MediaCompressor JPEG banata hai, animation destroy ho jaati hai
         String mime = ctx.getContentResolver().getType(uri);
-        if (mime != null && mime.startsWith("image/") && !"image/gif".equals(mime)) {
+        if (!alreadyCompressed && mime != null && mime.startsWith("image/") && !"image/gif".equals(mime)) {
             byte[] compressed = MediaCompressor.compressImage(ctx, uri);
             if (compressed != null && compressed.length > 0) {
                 Log.d(TAG, "Image compressed for upload: " + compressed.length / 1024 + " KB");

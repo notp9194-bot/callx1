@@ -1690,7 +1690,14 @@ public class ReelCommentFragment extends Fragment {
      *  pre-compression code used against the raw picked uri. */
     private void uploadCompressedCommentImage(Uri originalUri, Uri compressedUri) {
         try {
+            // alreadyCompressed=true: compressedUri already went through
+            // ImageCompressor (WebP) above — skip CloudinaryUploader's own
+            // internal re-compression, which otherwise re-encodes to JPEG
+            // while still tagging the upload as image/webp and breaks
+            // every send. See CloudinaryUploader#upload's alreadyCompressed
+            // overload doc for the full root cause.
             CloudinaryUploader.upload(requireContext(), compressedUri, "callx/reel_comments", "image",
+                null, true,
                 new CloudinaryUploader.UploadCallback() {
                     @Override public void onSuccess(CloudinaryUploader.Result result) {
                         if (!isAdded()) return;
