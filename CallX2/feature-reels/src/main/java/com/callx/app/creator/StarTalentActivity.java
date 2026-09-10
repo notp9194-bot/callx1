@@ -218,6 +218,11 @@ public class StarTalentActivity extends AppCompatActivity {
                 ? "Talent application failed" : error.getMessage()));
     }
 
+    private interface Callback {
+        void success(Map<String, Object> data);
+        void error(String message);
+    }
+
     private EditText input(String hint) {
         EditText out = new EditText(this);
         out.setHint(hint);
