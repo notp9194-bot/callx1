@@ -41,7 +41,7 @@ import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.MutableData;
 import com.google.firebase.database.Transaction;
-import com.google.firebase.functions.FirebaseFunctions;
+import com.callx.app.corelite.RenderActionClient;
 
 import com.callx.app.reels.R;
 import com.callx.app.social.ReelContactShareAdapter;
@@ -795,8 +795,7 @@ public class ReelShareSheetFragment extends BottomSheetDialogFragment {
             Map<String, Object> payload = new HashMap<>();
             payload.put("reelId", reelId);
             request.put("payload", payload);
-            FirebaseFunctions.getInstance().getHttpsCallable("milestoneEarningsAction")
-                .call(request);
+            RenderActionClient.post("/milestone-earnings/action", "recordWhatsappShare", payload);
             toast("Shared on WhatsApp. Milestone progress updated.");
             dismiss();
         } catch (Exception e) {

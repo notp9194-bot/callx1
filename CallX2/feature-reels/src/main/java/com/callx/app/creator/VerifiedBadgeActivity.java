@@ -16,7 +16,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.callx.app.reels.R;
-import com.google.firebase.functions.FirebaseFunctions;
+import com.callx.app.corelite.RenderActionClient;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -233,11 +233,15 @@ public class VerifiedBadgeActivity extends AppCompatActivity {
         Map<String, Object> request = new HashMap<>();
         request.put("action", action);
         request.put("payload", payload == null ? new HashMap<>() : payload);
-        FirebaseFunctions.getInstance().getHttpsCallable("verificationBadgeAction")
-            .call(request)
-            .addOnSuccessListener(result -> callback.success(map(result == null ? null : result.getData())))
-            .addOnFailureListener(error -> callback.error(error.getMessage() == null
-                ? "Verification request failed" : error.getMessage()));
+        RenderActionClient.post("/verification/action", action, payload,
+            new RenderActionClient.Result() {
+                @Override public void onSuccess(Map<String, Object> data) {
+                    callback.success(data);
+                }
+                @Override public void onError(String message) {
+                    callback.error(message == null ? "Verification request failed" : message);
+                }
+            });
     }
 
     private interface Callback {

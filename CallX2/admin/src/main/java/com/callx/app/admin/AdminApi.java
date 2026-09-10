@@ -2,8 +2,7 @@ package com.callx.app.admin;
 
 import androidx.annotation.NonNull;
 
-import com.google.firebase.functions.FirebaseFunctions;
-import com.google.firebase.functions.HttpsCallableResult;
+import com.callx.app.corelite.RenderActionClient;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -32,15 +31,15 @@ public final class AdminApi {
         request.put("action", action);
         request.put("payload", payload == null ? new HashMap<>() : payload);
 
-        FirebaseFunctions.getInstance()
-            .getHttpsCallable("adminAction")
-            .call(request)
-            .addOnSuccessListener(result -> {
-                Object data = result == null ? null : result.getData();
-                callback.onSuccess(data);
-            })
-            .addOnFailureListener(error -> callback.onError(
-                error.getMessage() == null ? "Admin operation failed" : error.getMessage()));
+        RenderActionClient.post("/admin/action", action, payload,
+            new RenderActionClient.Result() {
+                @Override public void onSuccess(Map<String, Object> data) {
+                    callback.onSuccess(data);
+                }
+                @Override public void onError(String message) {
+                    callback.onError(message == null ? "Admin operation failed" : message);
+                }
+            });
     }
 
     @SuppressWarnings("unchecked")

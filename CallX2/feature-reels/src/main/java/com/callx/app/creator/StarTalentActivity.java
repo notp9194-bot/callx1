@@ -15,7 +15,7 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.google.firebase.functions.FirebaseFunctions;
+import com.callx.app.corelite.RenderActionClient;
 import com.callx.app.reels.R;
 
 import java.util.ArrayList;
@@ -211,11 +211,15 @@ public class StarTalentActivity extends AppCompatActivity {
         Map<String, Object> request = new HashMap<>();
         request.put("action", action);
         request.put("payload", payload == null ? new HashMap<>() : payload);
-        FirebaseFunctions.getInstance().getHttpsCallable("starTalentAction")
-            .call(request)
-            .addOnSuccessListener(result -> callback.success(map(result == null ? null : result.getData())))
-            .addOnFailureListener(error -> callback.error(error.getMessage() == null
-                ? "Talent application failed" : error.getMessage()));
+        RenderActionClient.post("/star-talent/action", action, payload,
+            new RenderActionClient.Result() {
+                @Override public void onSuccess(Map<String, Object> data) {
+                    callback.success(data);
+                }
+                @Override public void onError(String message) {
+                    callback.error(message == null ? "Talent application failed" : message);
+                }
+            });
     }
 
     private interface Callback {

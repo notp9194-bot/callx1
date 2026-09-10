@@ -14,8 +14,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.callx.app.reels.R;
 import com.callx.app.utils.FirebaseUtils;
-import com.google.firebase.functions.FirebaseFunctions;
-import com.google.firebase.functions.HttpsCallableResult;
+import com.callx.app.corelite.RenderActionClient;
 
 import java.util.HashMap;
 import java.util.Locale;
@@ -178,14 +177,15 @@ public class ReelMonetizationActivity extends AppCompatActivity {
         Map<String, Object> request = new HashMap<>();
         request.put("action", action);
         request.put("payload", payload == null ? new HashMap<>() : payload);
-        FirebaseFunctions.getInstance().getHttpsCallable("creatorMonetizationAction")
-            .call(request)
-            .addOnSuccessListener(result -> {
-                Object raw = result == null ? null : result.getData();
-                callback.success(map(raw));
-            })
-            .addOnFailureListener(error -> callback.error(
-                error.getMessage() == null ? "Monetization request failed" : error.getMessage()));
+        RenderActionClient.post("/creator-monetization/action", action, payload,
+            new RenderActionClient.Result() {
+                @Override public void onSuccess(Map<String, Object> data) {
+                    callback.success(data);
+                }
+                @Override public void onError(String message) {
+                    callback.error(message == null ? "Monetization request failed" : message);
+                }
+            });
     }
 
     private static Map<String, Object> map(Object raw) {
