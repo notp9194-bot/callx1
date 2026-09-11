@@ -17,7 +17,7 @@ import com.callx.app.R;
 import com.callx.app.cache.CacheAnalytics;
 import com.callx.app.cache.CacheDashboardStats;
 import com.callx.app.cache.CacheManager;
-import com.callx.app.cache.DiskCache;
+import com.callx.app.cache.DynamicCachePolicy;
 import com.callx.app.cache.MemoryCache;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.UserEntity;
@@ -213,7 +213,6 @@ public class CacheStatsActivity extends AppCompatActivity {
             try {
                 CacheManager   cm        = CacheManager.getInstance(getApplicationContext());
                 MemoryCache    mem       = cm.getMemoryCache();
-                DiskCache      disk      = cm.getDiskCache();
                 CacheAnalytics analytics = cm.getAnalytics();
                 AppDatabase    db        = cm.getDatabase();
                 CacheDashboardStats dashboardStats =
@@ -230,14 +229,13 @@ public class CacheStatsActivity extends AppCompatActivity {
                 long memMax    = glideMemory.maxBytes;
 
                 // Disk
-                long glideDiskUsed = CacheDashboardStats.getGlideDiskCacheSizeBytes(
+                // One central budget covers the app's image/API cache family:
+                // custom DiskCache, Glide, all avatar L3 folders and HTTP
+                // response caches. Video caches remain a separate media row.
+                long diskUsed = DynamicCachePolicy.getManagedDiskUsageBytes(
                         getApplicationContext());
-                long chatAvatarDiskUsed = CacheDashboardStats.getChatAvatarDiskCacheSizeBytes(
+                long diskMax = DynamicCachePolicy.getTotalDiskBudgetBytes(
                         getApplicationContext());
-                long diskUsed = disk.getCacheSizeBytes() + glideDiskUsed + chatAvatarDiskUsed;
-                long diskMax  = disk.getMaxSizeBytes()
-                        + CacheDashboardStats.getGlideDiskMaxSizeBytes()
-                        + CacheDashboardStats.getChatAvatarDiskCacheMaxSizeBytes();
 
                 // Media Cache (audio/video/files)
                 Log.d(TAG, "Loading media cache stats...");
@@ -312,7 +310,7 @@ public class CacheStatsActivity extends AppCompatActivity {
         DecimalFormat pct = new DecimalFormat("##.#");
 
         // ── System status ─────────────────────────────────────────
-        tvCacheEnabled.setText("✓ Persistent stats active · Exact Glide RAM usage");
+        tvCacheEnabled.setText("✓ Dynamic budgets · RAM + free-storage based");
         tvCacheEnabled.setTextColor(getColor(R.color.brand_primary));
         tvEncryptedStatus.setText("✓ SQLCipher AES-256 Encrypted");
         tvEncryptedStatus.setTextColor(getColor(R.color.brand_primary));

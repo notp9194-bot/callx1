@@ -38,15 +38,14 @@ import okhttp3.OkHttpClient;
  *   behavior built into OkHttp's Cache; we only have to supply one.
  *
  * Kept separate from NetworkCacheHelper's client on purpose: that one is
- * a small 10MB cache sized for REST/API JSON payloads (see its own class
- * doc) — mixing in image bytes would blow through it fast and evict useful
+ * a small dynamically-sized cache for REST/API JSON payloads (see its own
+ * class doc) — mixing in image bytes would blow through it fast and evict useful
  * API cache entries. Avatars are tiny and extremely repeat-heavy (same
  * handful of URLs requested across many screens/tiers), so they get their
  * own larger, dedicated budget instead.
  */
 public final class AvatarHttpCache {
 
-    private static final long   CACHE_SIZE_BYTES = 20L * 1024 * 1024; // 20 MB — thousands of small avatar responses
     private static final String CACHE_DIR        = "avatar_http_cache";
 
     private static volatile OkHttpClient sClient;
@@ -60,7 +59,8 @@ public final class AvatarHttpCache {
                 client = sClient;
                 if (client == null) {
                     File cacheDir = new File(ctx.getApplicationContext().getCacheDir(), CACHE_DIR);
-                    Cache httpCache = new Cache(cacheDir, CACHE_SIZE_BYTES);
+                    Cache httpCache = new Cache(cacheDir,
+                            DynamicCachePolicy.getAvatarHttpCacheBytes(ctx));
                     client = new OkHttpClient.Builder()
                             .cache(httpCache)
                             .connectTimeout(15, TimeUnit.SECONDS)
@@ -83,6 +83,16 @@ public final class AvatarHttpCache {
             client.connectionPool().evictAll();
             Cache cache = client.cache();
             if (cache != null) cache.flush();
+        } catch (Exception ignored) {}
+    }
+
+    /** Best-effort disk eviction used when Android reports low storage. */
+    public static void evictAll() {
+        OkHttpClient client = sClient;
+        if (client == null) return;
+        try {
+            Cache cache = client.cache();
+            if (cache != null) cache.evictAll();
         } catch (Exception ignored) {}
     }
 }

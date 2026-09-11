@@ -46,13 +46,17 @@ public final class AvatarL3DiskCache {
     private static final String TAG = "AvatarL3DiskCache";
 
     private final File dir;
-    private final long maxBytes;
+    private final Context appContext;
+    private final String subdir;
+    private final long fallbackMaxBytes;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
 
     public AvatarL3DiskCache(Context ctx, String subdir, long maxBytes) {
-        this.dir = new File(ctx.getApplicationContext().getCacheDir(), "avatar_l3/" + subdir);
-        this.maxBytes = maxBytes;
+        this.appContext = ctx.getApplicationContext();
+        this.subdir = subdir;
+        this.dir = new File(appContext.getCacheDir(), "avatar_l3/" + subdir);
+        this.fallbackMaxBytes = maxBytes;
         io.execute(() -> dir.mkdirs());
     }
 
@@ -122,6 +126,8 @@ public final class AvatarL3DiskCache {
         if (files == null) return;
         long total = 0;
         for (File f : files) total += f.length();
+        long maxBytes = DynamicCachePolicy.getAvatarModuleBudgetBytes(
+                appContext, subdir, fallbackMaxBytes);
         if (total <= maxBytes) return;
         Arrays.sort(files, Comparator.comparingLong(File::lastModified)); // oldest-touched first
         for (File f : files) {
