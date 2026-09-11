@@ -75,6 +75,14 @@ import java.util.concurrent.atomic.AtomicInteger;
  * nudged by a bounded multiplier that {@link #maybeAutoTune} periodically
  * adjusts from AvatarCacheAnalytics's rolling CDN-network hit ratio instead
  * of staying a fixed hand-tuned constant forever.
+ *
+ * v6 — cold-start priority queue: {@link #prefetch}'s actual network-issuing
+ * work now routes through {@link AvatarColdStartQueue}, which staggers
+ * (never cancels) it during the short post-launch window so several
+ * adapters/lists initializing at once on a cold open never all fire
+ * LOW-priority prefetch in the same frame the visible screen's own
+ * HIGH-priority {@link #bind} calls are racing to paint. bind() itself is
+ * untouched — it never routes through that queue.
  */
 public final class AvatarBinderCore {
 
@@ -417,15 +425,25 @@ public final class AvatarBinderCore {
         }
 
         int size = source.size();
+        // FIX (cold-start priority queue): the actual network-issuing work
+        // below is staggered (never skipped) during the short post-launch
+        // window — see AvatarColdStartQueue's class doc. Outside that
+        // window (the overwhelming majority of calls) this is a same-frame
+        // no-op passthrough, identical to calling prefetchRange directly.
         if (previousFromIndex != null && fromIndex < previousFromIndex) {
             // Reversed — warm a small window just behind fromIndex too,
             // half the forward depth (this is a secondary/speculative
             // window on top of the primary forward one, kept smaller on
             // purpose so a reversal never doubles the total prefetch cost).
             int backDepth = Math.max(1, depth / 2);
-            prefetchRange(appCtx, source, Math.max(0, fromIndex - backDepth), fromIndex, size, tier, cache, inFlight);
+            int backStart = Math.max(0, fromIndex - backDepth);
+            AvatarColdStartQueue.runStaggered(() ->
+                    prefetchRange(appCtx, source, backStart, fromIndex, size, tier, cache, inFlight));
         }
-        prefetchRange(appCtx, source, Math.max(0, fromIndex), fromIndex + depth, size, tier, cache, inFlight);
+        int forwardStart = Math.max(0, fromIndex);
+        int forwardEnd = fromIndex + depth;
+        AvatarColdStartQueue.runStaggered(() ->
+                prefetchRange(appCtx, source, forwardStart, forwardEnd, size, tier, cache, inFlight));
     }
 
     /** Issues LOW-priority, bytes-only preload() calls for [start, end) —

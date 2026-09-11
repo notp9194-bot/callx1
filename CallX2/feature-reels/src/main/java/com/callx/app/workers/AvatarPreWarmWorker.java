@@ -1,7 +1,6 @@
 package com.callx.app.workers;
 
 import android.content.Context;
-import android.graphics.Bitmap;
 import android.os.Build;
 import android.util.Log;
 
@@ -14,11 +13,16 @@ import androidx.work.WorkManager;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 
-import com.bumptech.glide.Glide;
-import com.callx.app.cache.AvatarCacheAnalytics;
+import com.callx.app.cache.AvatarBatchPrefetcher;
+import com.callx.app.cache.AvatarBinderCore;
+import com.callx.app.cache.AvatarL2MemoryCache;
+import com.callx.app.cache.AvatarL3DiskCache;
+import com.callx.app.cache.ChatAvatarBinder;
+import com.callx.app.cache.ChatAvatarL2Cache;
 import com.callx.app.cache.ReelsAvatarL2Cache;
+import com.callx.app.db.AppDatabase;
+import com.callx.app.db.entity.ChatEntity;
 import com.callx.app.utils.AvatarSizeTier;
-import com.callx.app.utils.AvatarUrlBuilder;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
@@ -26,7 +30,9 @@ import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.ValueEventListener;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -42,6 +48,13 @@ import java.util.concurrent.TimeUnit;
  * both owner-avatar tiers straight into {@link ReelsAvatarL2Cache}'s L2
  * memory and L3 disk tiers — so the very first cold-open of the reels feed
  * after this runs can paint those avatars with zero network round-trip.
+ *
+ * It also warms recent DM-partner avatars into {@link ChatAvatarL2Cache} —
+ * the cache ChatsFragment/ChatListAdapter actually read from — so a cold
+ * open of the chat list gets the same zero-round-trip benefit. Unlike the
+ * following/closeFriends path, DM targets need NO Firebase read at all:
+ * ChatEntity already denormalizes partnerPhoto + partnerAvatarVersion for
+ * every 1:1 chat row, so this reads straight out of Room.
  *
  * Every constraint below has to hold simultaneously before the system will
  * even start this job, and there's no foreground-visible cost either way —
@@ -62,6 +75,12 @@ public class AvatarPreWarmWorker extends Worker {
     // ordering) rather than trying to cover everyone every run.
     private static final int MAX_TARGETS = 60;
     private static final int PER_UID_TIMEOUT_SEC = 15;
+
+    // Same courtesy-bound reasoning as MAX_TARGETS, applied to the DM side —
+    // caps both the Room read size and the worker's own runtime; recent
+    // chats first (getChatsPagedSync's own lastMessageAt DESC ordering)
+    // covers the DMs someone is actually likely to reopen soon.
+    private static final int MAX_DM_TARGETS = 40;
 
     public AvatarPreWarmWorker(@NonNull Context ctx, @NonNull WorkerParameters params) {
         super(ctx, params);
@@ -94,6 +113,8 @@ public class AvatarPreWarmWorker extends Worker {
         String myUid = FirebaseUtils.getCurrentUid();
         if (myUid == null || myUid.isEmpty()) return Result.success();
 
+        Context appCtx = getApplicationContext();
+
         List<String> targets = new ArrayList<>();
         for (String uid : fetchUidChildrenSync(FirebaseUtils.getReelFollowsRef(myUid), MAX_TARGETS)) {
             if (!targets.contains(uid)) targets.add(uid);
@@ -102,15 +123,12 @@ public class AvatarPreWarmWorker extends Worker {
             if (targets.size() >= MAX_TARGETS) break;
             if (!targets.contains(uid)) targets.add(uid);
         }
-        if (targets.isEmpty()) return Result.success();
 
-        Context appCtx = getApplicationContext();
-        int warmed = 0;
-        for (String uid : targets) {
-            if (isStopped()) break; // constraints stopped holding mid-run (e.g. unplugged) — bail cleanly, no partial-retry storm
-            if (warmAvatar(appCtx, uid)) warmed++;
-        }
-        Log.d(TAG, "pre-warmed " + warmed + "/" + targets.size() + " avatars (charging+unmetered+idle window)");
+        int reelsWarmed = warmReelsTargets(appCtx, targets);
+        int dmWarmed = warmDmTargets(appCtx, new HashSet<>(targets));
+
+        Log.d(TAG, "pre-warmed " + reelsWarmed + "/" + targets.size() + " following/closeFriends avatars + "
+                + dmWarmed + " DM avatars (charging+unmetered+idle window)");
         return Result.success();
     }
 
@@ -137,12 +155,40 @@ public class AvatarPreWarmWorker extends Worker {
     }
 
     /**
-     * Targeted read of ONLY "photoUrl" + "avatarVersion" for one uid — two
-     * scalar child reads, never the whole "users/{uid}" node — then decodes
-     * and stores the SMALL + TINY tiers (the exact tiers AvatarPrefetcher /
-     * ReelUiController bind at) into L2 + L3 so a later real bind is a hit.
+     * Following/closeFriends path: still needs one Firebase read per uid
+     * (photoUrl + avatarVersion aren't denormalized anywhere reel-side),
+     * but the actual avatar DOWNLOAD is now batched — AvatarBatchPrefetcher
+     * composes each chunk of up to MAX_BATCH_SIZE avatars into a single
+     * Cloudinary request instead of firing one Glide submit() per uid per
+     * tier, for both the SMALL and TINY tiers this cache warms.
      */
-    private boolean warmAvatar(Context appCtx, String uid) {
+    private int warmReelsTargets(Context appCtx, List<String> targets) {
+        if (targets.isEmpty() || isStopped()) return 0;
+
+        List<AvatarBatchPrefetcher.Item> items = new ArrayList<>(targets.size());
+        for (String uid : targets) {
+            if (isStopped()) break; // constraints stopped holding mid-run (e.g. unplugged) — bail cleanly, no partial-retry storm
+            AvatarBatchPrefetcher.Item item = fetchProfileSync(uid);
+            if (item != null) items.add(item);
+        }
+        if (items.isEmpty()) return 0;
+
+        AvatarBinderCore.CacheProvider reelsCache = new AvatarBinderCore.CacheProvider() {
+            @Override public AvatarL2MemoryCache l2(Context ctx) { return ReelsAvatarL2Cache.get(ctx); }
+            @Override public AvatarL3DiskCache l3(Context ctx) { return ReelsAvatarL2Cache.l3(ctx); }
+        };
+        // AvatarPrefetcher / ReelUiController bind at exactly these two
+        // tiers — same pair warmAvatar() used to warm one uid at a time.
+        AvatarBatchPrefetcher.prefetchBatch(appCtx, items, AvatarSizeTier.SMALL, reelsCache);
+        AvatarBatchPrefetcher.prefetchBatch(appCtx, items, AvatarSizeTier.TINY, reelsCache);
+        return items.size();
+    }
+
+    /**
+     * Targeted read of ONLY "photoUrl" + "avatarVersion" for one uid — two
+     * scalar child reads, never the whole "users/{uid}" node.
+     */
+    private AvatarBatchPrefetcher.Item fetchProfileSync(String uid) {
         String[] photoHolder = new String[1];
         long[] versionHolder = new long[1];
         CountDownLatch latch = new CountDownLatch(2);
@@ -165,29 +211,43 @@ public class AvatarPreWarmWorker extends Worker {
 
         try { latch.await(PER_UID_TIMEOUT_SEC, TimeUnit.SECONDS); } catch (InterruptedException ignored) {}
         String photoUrl = photoHolder[0];
-        if (photoUrl == null || photoUrl.isEmpty()) return false;
+        if (photoUrl == null || photoUrl.isEmpty()) return null;
+        return new AvatarBatchPrefetcher.Item(photoUrl, versionHolder[0]);
+    }
 
-        boolean any = false;
-        for (AvatarSizeTier tier : new AvatarSizeTier[]{AvatarSizeTier.SMALL, AvatarSizeTier.TINY}) {
-            String url = AvatarUrlBuilder.buildResponsive(appCtx, photoUrl, tier, versionHolder[0]);
-            int px = AvatarUrlBuilder.tierPx(appCtx, tier);
-            try {
-                Bitmap bmp = Glide.with(appCtx)
-                        .asBitmap()
-                        .load(url)
-                        .override(px, px)
-                        .submit()
-                        .get(PER_UID_TIMEOUT_SEC, TimeUnit.SECONDS);
-                if (bmp != null) {
-                    ReelsAvatarL2Cache.get(appCtx).put(url, bmp);
-                    ReelsAvatarL2Cache.l3(appCtx).put(url, bmp);
-                    AvatarCacheAnalytics.getInstance(appCtx).record(AvatarCacheAnalytics.Tier.PREWARM);
-                    any = true;
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "warm failed for " + uid + " tier " + tier + ": " + e.getMessage());
-            }
+    /**
+     * DM path: recent 1:1 chats straight from Room
+     * ({@link com.callx.app.db.dao.ChatDao#getChatsPagedSync(int)}), filtered
+     * to type=="private", deduped against uids already warmed via
+     * following/closeFriends. ChatEntity's partnerPhoto + partnerAvatarVersion
+     * are already denormalized onto the row — zero Firebase reads needed for
+     * these targets, straight into a batched warm of ChatAvatarL2Cache/L3
+     * (the SAME cache ChatsFragment/ChatListAdapter bind from, via
+     * ChatAvatarBinder.tier() so this never drifts from their real bind tier).
+     */
+    private int warmDmTargets(Context appCtx, Set<String> alreadyWarmed) {
+        if (isStopped()) return 0;
+
+        List<ChatEntity> recentChats = AppDatabase.getInstance(appCtx).chatDao().getChatsPagedSync(MAX_DM_TARGETS);
+        if (recentChats == null || recentChats.isEmpty()) return 0;
+
+        List<AvatarBatchPrefetcher.Item> dmItems = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (ChatEntity chat : recentChats) {
+            if (dmItems.size() >= MAX_DM_TARGETS) break;
+            if (chat == null || !"private".equals(chat.type)) continue;
+            if (chat.partnerUid == null || chat.partnerUid.isEmpty()) continue;
+            if (alreadyWarmed.contains(chat.partnerUid) || !seen.add(chat.partnerUid)) continue;
+            if (chat.partnerPhoto == null || chat.partnerPhoto.isEmpty()) continue;
+            dmItems.add(new AvatarBatchPrefetcher.Item(chat.partnerPhoto, chat.partnerAvatarVersion));
         }
-        return any;
+        if (dmItems.isEmpty() || isStopped()) return 0;
+
+        AvatarBinderCore.CacheProvider chatCache = new AvatarBinderCore.CacheProvider() {
+            @Override public AvatarL2MemoryCache l2(Context ctx) { return ChatAvatarL2Cache.get(ctx); }
+            @Override public AvatarL3DiskCache l3(Context ctx) { return ChatAvatarL2Cache.l3(ctx); }
+        };
+        AvatarBatchPrefetcher.prefetchBatch(appCtx, dmItems, ChatAvatarBinder.tier(), chatCache);
+        return dmItems.size();
     }
 }

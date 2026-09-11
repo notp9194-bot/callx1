@@ -44,6 +44,14 @@ public final class ChatAvatarBinder {
     /** Chat list row avatar (~50dp, item_chat row) -- SMALL(48) under-resolves it, so this rounds up to MEDIUM(64). */
     private static final AvatarSizeTier TIER = AvatarSizeTier.forViewSizeDp(50);
 
+    /** The exact tier ChatsFragment/ChatListAdapter bind chat list rows at —
+     *  callers that need to warm this same cache slot ahead of time (e.g.
+     *  AvatarPreWarmWorker's DM pre-warm) should reference this instead of
+     *  re-deriving/duplicating the 50dp -> tier mapping themselves. */
+    public static AvatarSizeTier tier() {
+        return TIER;
+    }
+
     /** Small inline avatars drawn straight onto a canvas (reel-share card
      *  header, 24dp) -- TINY tier, same bucket every other ~24-32dp avatar
      *  in the app shares (see AvatarSizeTier class doc on cross-screen

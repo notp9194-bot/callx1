@@ -73,7 +73,7 @@ public final class AvatarUrlBuilder {
      * to be refetched.
      */
     public static String build(Context ctx, String baseUrl, AvatarSizeTier tier) {
-        return buildPx(baseUrl, tierPx(ctx, tier));
+        return buildPx(ctx, baseUrl, tierPx(ctx, tier));
     }
 
     /**
@@ -124,11 +124,33 @@ public final class AvatarUrlBuilder {
     @Deprecated
     public static String build(Context ctx, String baseUrl, int sizeDp) {
         int sizePx = dpToPx(ctx, sizeDp) * 2;
-        return buildPx(baseUrl, sizePx);
+        return buildPx(ctx, baseUrl, sizePx);
     }
 
-    /** Build a resized avatar URL for an exact target pixel size (already 2x'd if needed). */
+    /**
+     * @deprecated no {@link Context} available here means no adaptive
+     * network-quality signal (see {@link AvatarNetworkQuality}) — this
+     * always requests the flat "q_auto" level. Prefer
+     * {@link #buildPx(Context, String, int)} wherever a Context is
+     * reachable, which is every real call site left in the app (this
+     * overload has no remaining callers — kept only as a safety net for
+     * any external/reflective caller this pass didn't find).
+     */
+    @Deprecated
     public static String buildPx(String baseUrl, int sizePx) {
+        return buildPx(baseUrl, sizePx, "q_auto");
+    }
+
+    /** Build a resized avatar URL for an exact target pixel size (already
+     *  2x'd if needed), with the Cloudinary quality level chosen adaptively
+     *  from the device's current connection (FIX #14 — see
+     *  {@link AvatarNetworkQuality}). */
+    public static String buildPx(Context ctx, String baseUrl, int sizePx) {
+        String q = AvatarNetworkQuality.qAutoParam(AvatarNetworkQuality.current(ctx));
+        return buildPx(baseUrl, sizePx, q);
+    }
+
+    private static String buildPx(String baseUrl, int sizePx, String qAuto) {
         if (baseUrl == null || baseUrl.isEmpty()) return baseUrl;
         String marker = "/upload/";
         int idx = baseUrl.indexOf(marker);
@@ -146,8 +168,16 @@ public final class AvatarUrlBuilder {
         // (tier × density-bucket) split above, so each combination resolves
         // to exactly one cached CDN variant, now also split by this
         // OS-version format bucket.
+        //
+        // FIX (#14 — adaptive quality per network): qAuto is no longer
+        // hardcoded "q_auto" — see AvatarNetworkQuality. A slow 2G/3G
+        // connection requests a cheaper q_auto:eco/q_auto:low variant
+        // instead, which is ALSO a distinct Cloudinary-cached CDN variant
+        // (same "one URL per real input combination" property the
+        // tier/density/format split already relies on), so this never
+        // collides with the GOOD-network variant's cache entry.
         String transform = "w_" + sizePx + ",h_" + sizePx
-                + ",c_fill,g_face,q_auto," + bestFormatParam() + "/";
+                + ",c_fill,g_face," + qAuto + "," + bestFormatParam() + "/";
         return baseUrl.substring(0, idx + marker.length())
                 + transform
                 + baseUrl.substring(idx + marker.length());
@@ -192,8 +222,13 @@ public final class AvatarUrlBuilder {
         if (idx < 0) return baseUrl; // not a Cloudinary delivery URL — return as-is, no-op
 
         AvatarSizeTier effective = AvatarSizeTier.effectiveTier(ctx, tier); // same low-RAM downgrade as tierPx()
+        // FIX (#14 — adaptive quality per network): see AvatarNetworkQuality —
+        // same q_auto:<level> degrade-on-slow-connection buildPx() now does,
+        // applied here too since buildResponsive() is the path ~95% of real
+        // avatar binds actually go through (see AvatarBinderCore#url).
+        String qAuto = AvatarNetworkQuality.qAutoParam(AvatarNetworkQuality.current(ctx));
         String transform = "w_" + effective.dp + ",h_" + effective.dp
-                + ",c_fill,g_face,dpr_" + dprBucket(ctx) + ",q_auto," + bestFormatParam() + "/";
+                + ",c_fill,g_face,dpr_" + dprBucket(ctx) + "," + qAuto + "," + bestFormatParam() + "/";
         return baseUrl.substring(0, idx + marker.length())
                 + transform
                 + baseUrl.substring(idx + marker.length());

@@ -30,6 +30,13 @@ android {
 dependencies {
     implementation project(':core')
     implementation project(':feature-status')
+    // AvatarPreWarmWorker warms DM-partner avatars straight into feature-chat's
+    // own ChatAvatarL2Cache/L3 (the cache ChatsFragment/ChatListAdapter actually
+    // read from) — needs a direct dep since feature-status's own dependency on
+    // feature-chat is `implementation`, not `api`, so it isn't exposed
+    // transitively. No circular dependency: feature-chat only depends on
+    // :core + :feature-payments, neither of which depends back on :feature-reels.
+    implementation project(':feature-chat')
 
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.transition:transition:1.4.1'

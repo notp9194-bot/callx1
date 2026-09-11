@@ -76,6 +76,15 @@ public class CallxApp extends Application {
         // instead of lazily whenever the Reels tab first happens to load.
         com.callx.app.utils.AppSessionTracker.getSessionStartMs();
 
+        // FIX (cold-start priority queue): marks process-start time so
+        // AvatarBinderCore#prefetch can stagger its LOW-priority
+        // scroll-ahead work for the next couple seconds instead of letting
+        // it compete with the visible screen's own HIGH-priority avatar
+        // binds during the exact window first-paint matters most. Released
+        // by markFirstScreenPainted() below (first Activity resume) or its
+        // own safety-ceiling timeout — see AvatarColdStartQueue.
+        com.callx.app.cache.AvatarColdStartQueue.onProcessStart();
+
         // ── CRASH CAPTURE: on-device crash trace (no adb/logcat needed) ────
         // Registered first so it wraps every subsequent line in onCreate too.
         // On any uncaught exception anywhere in the app: saves the full
