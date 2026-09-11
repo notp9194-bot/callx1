@@ -141,12 +141,12 @@ public class ChatScheduledMessageWorker extends Worker {
 
         Map<String, Object> myUpd = new HashMap<>();
         myUpd.put("lastMessage", previewText);
-        myUpd.put("lastTs", ts);
+        myUpd.put("lastMessageAt", ts);
         FirebaseUtils.getContactsRef(sm.senderId).child(sm.partnerUid).updateChildren(myUpd);
 
         Map<String, Object> theirUpd = new HashMap<>();
         theirUpd.put("lastMessage", previewText);
-        theirUpd.put("lastTs", ts);
+        theirUpd.put("lastMessageAt", ts);
         FirebaseUtils.getContactsRef(sm.partnerUid).child(sm.senderId).updateChildren(theirUpd);
 
         FirebaseUtils.getContactsRef(sm.partnerUid).child(sm.senderId).child("unread")

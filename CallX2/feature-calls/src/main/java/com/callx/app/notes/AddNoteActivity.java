@@ -282,7 +282,7 @@ public class AddNoteActivity extends AppCompatActivity {
 
         Map<String, Object> upd = new HashMap<>();
         upd.put("lastMessage", preview);
-        upd.put("lastTs", ts);
+        upd.put("lastMessageAt", ts);
         FirebaseUtils.getContactsRef(myUid).child(partnerUid).updateChildren(upd);
         FirebaseUtils.getContactsRef(partnerUid).child(myUid).updateChildren(upd);
         // increment unread for partner

@@ -187,7 +187,7 @@ public class ChatMessageSender {
 
         Map<String, Object> myUpd = new HashMap<>();
         myUpd.put("lastMessage", previewText);
-        myUpd.put("lastTs", ts);
+        myUpd.put("lastMessageAt", ts);
         // v22: chat-list read receipts (ticks) + media label support — see
         // User.lastMessageType/Status/SenderUid/Id and ChatListAdapter.
         myUpd.put("lastMessageType", m.type != null ? m.type : "text");
@@ -198,7 +198,7 @@ public class ChatMessageSender {
 
         Map<String, Object> theirUpd = new HashMap<>();
         theirUpd.put("lastMessage", previewText);
-        theirUpd.put("lastTs", ts);
+        theirUpd.put("lastMessageAt", ts);
         theirUpd.put("lastMessageType", m.type != null ? m.type : "text");
         theirUpd.put("lastMessageSenderUid", currentUid);
         theirUpd.put("lastMessageStatus", "sent");

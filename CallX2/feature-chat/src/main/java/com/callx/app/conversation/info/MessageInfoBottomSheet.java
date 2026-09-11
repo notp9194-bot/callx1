@@ -178,9 +178,18 @@ public class MessageInfoBottomSheet extends BottomSheetDialogFragment {
             mainHandler.post(() -> {
                 // Fragment may have been dismissed while rows were building
                 // on the background thread — view's gone, nothing to bind.
-                if (!isAdded() || getView() == null || adapter == null
-                        || initialVersion != renderVersion) return;
-                adapter.submitList(rows);
+                if (!isAdded() || getView() == null || adapter == null) return;
+                // NOTE: intentionally NOT gated on `initialVersion != renderVersion`
+                // for the visibility flip below. GroupChatActivity's live receipt
+                // correction (fresh Firebase read + GroupMessageReadObserver) can
+                // call updateGroupData() and bump renderVersion before this,
+                // this sheet's OWN first build, finishes — if the row *content*
+                // is skipped in favor of the fresher one, that's correct, but the
+                // ProgressBar→RecyclerView swap must still happen here since
+                // updateGroupData()'s own callback never touches those views.
+                // Skipping it left the spinner spinning forever even though rows
+                // had already been submitted underneath it.
+                if (initialVersion == renderVersion) adapter.submitList(rows);
                 progressBar.setVisibility(View.GONE);
                 rv.setVisibility(View.VISIBLE);
             });
@@ -236,6 +245,13 @@ public class MessageInfoBottomSheet extends BottomSheetDialogFragment {
                 if (!isAdded() || getView() == null || adapter == null
                         || version != renderVersion) return;
                 adapter.submitList(rows);
+                // Same spinner-stuck fix as the initial build: if a live
+                // receipt correction resolves before this sheet's own
+                // first build finished, that first build's post gets
+                // skipped by the version check above — so this callback
+                // must also be able to reveal the list itself.
+                if (progressBar != null) progressBar.setVisibility(View.GONE);
+                if (rv != null) rv.setVisibility(View.VISIBLE);
             });
         });
     }

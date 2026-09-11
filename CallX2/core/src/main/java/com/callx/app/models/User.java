@@ -1,4 +1,5 @@
 package com.callx.app.models;
+import com.google.firebase.database.Exclude;
 public class User {
     public String uid;
     public String email;
@@ -43,5 +44,8 @@ public class User {
     public String instagram;     // Instagram handle or URL
     public String youtube;       // YouTube channel URL
     public String otherLink;     // Any other link (website, Twitter, etc.)
+    // WhatsApp-level pin-to-top for the Chats tab (mirrors Group.localPinned).
+    // Local-only — never written to/read from Firebase.
+    @Exclude public boolean localPinned;
     public User() {}
 }

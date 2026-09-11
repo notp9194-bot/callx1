@@ -349,7 +349,7 @@ public class SmallWindowManager {
         // same convention ChatActivity's ChatMessageSender uses.
         Map<String, Object> myUpd = new HashMap<>();
         myUpd.put("lastMessage",         text);
-        myUpd.put("lastTs",              ts);
+        myUpd.put("lastMessageAt",       ts);
         myUpd.put("lastMessageType",     "text");
         myUpd.put("lastMessageSenderUid", myUid);
         myUpd.put("lastMessageStatus",   "sent");

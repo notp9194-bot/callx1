@@ -65,6 +65,21 @@
                 android:clickable="true"
                 android:focusable="true"/>
 
+            <!-- Pin/Unpin selected -->
+            <TextView
+                android:id="@+id/btn_pin_selected_chats"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Pin"
+                android:textColor="@color/white"
+                android:textSize="13sp"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:clickable="true"
+                android:focusable="true"/>
+
             <!-- Delete selected -->
             <ImageView
                 android:id="@+id/btn_delete_selected_chats"

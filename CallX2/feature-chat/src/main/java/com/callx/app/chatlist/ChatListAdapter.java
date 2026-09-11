@@ -103,7 +103,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
                 && safeEq(a.lastMessageStatus, b.lastMessageStatus)
                 && safeEq(a.lastMessageSenderUid, b.lastMessageSenderUid)
                 && longEq(a.lastMessageAt, b.lastMessageAt)
-                && longEq(a.unread, b.unread);
+                && longEq(a.unread, b.unread)
+                && a.localPinned == b.localPinned;
         }
 
         /**
@@ -116,7 +117,8 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         public Object getChangePayload(@NonNull User a, @NonNull User b) {
             int flags = 0;
             if (!safeEq(a.name, b.name) || !safeEq(a.photoUrl, b.photoUrl)
-                    || !safeEq(a.thumbUrl, b.thumbUrl))          flags |= CHANGE_IDENTITY;
+                    || !safeEq(a.thumbUrl, b.thumbUrl)
+                    || a.localPinned != b.localPinned)           flags |= CHANGE_IDENTITY;
             if (!safeEq(a.lastMessage, b.lastMessage)
                     || !safeEq(a.lastMessageType, b.lastMessageType)
                     || !safeEq(a.lastMessageStatus, b.lastMessageStatus)
@@ -539,7 +541,7 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         // is now a cheap field write instead of 6-7 allocations.
         h.boundUser = u;
 
-        h.nameTimeView.setName(u.name == null ? "User" : u.name);
+        h.nameTimeView.setName((u.localPinned ? "📌 " : "") + (u.name == null ? "User" : u.name));
         com.callx.app.utils.VerifiedBadgeUtils.bindForUid(h.nameTimeView, h.nameTimeView::setVerified, u.uid);
 
         Long when = u.lastMessageAt != null ? u.lastMessageAt : u.lastSeen;

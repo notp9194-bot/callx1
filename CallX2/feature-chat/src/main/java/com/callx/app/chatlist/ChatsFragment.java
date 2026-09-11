@@ -10,6 +10,7 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.view.*;
 import android.widget.*;
 import androidx.annotation.NonNull;
@@ -97,6 +98,14 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     // still writes it on the main thread — plain HashSet isn't safe across
     // that, so this is a thread-safe set now (ConcurrentHashMap#newKeySet).
     private final Set<String> specialRequestUids = ConcurrentHashMap.newKeySet();
+
+    // WhatsApp-level pin-to-top for the Chats tab — mirrors GroupsFragment's
+    // localPinned/KEY_PINNED pattern. Local-only (SharedPreferences), same as
+    // the group list's pin state; not synced through Firebase.
+    private static final String CHAT_LIST_PREFS = "chat_list_settings";
+    private static final String KEY_PINNED_CHATS = "pinned_chats";
+    private SharedPreferences chatListPrefs;
+    private final Set<String> pinnedChatUids = ConcurrentHashMap.newKeySet();
 
     // PERF FIX: AppBgExecutor is a 3-thread pool, so if onDataChange() fires
     // twice in quick succession (two Firebase updates close together) the two
@@ -243,6 +252,10 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         lastAppliedSearchQuery = null;
         lastAppliedSearchDataVersion = -1L;
         setupChatSearch();
+
+        chatListPrefs = requireContext().getSharedPreferences(CHAT_LIST_PREFS, Context.MODE_PRIVATE);
+        pinnedChatUids.clear();
+        pinnedChatUids.addAll(chatListPrefs.getStringSet(KEY_PINNED_CHATS, Collections.emptySet()));
 
         View banner = v.findViewById(R.id.banner_requests);
         if (banner != null) banner.setVisibility(View.GONE);
@@ -440,6 +453,9 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         v.findViewById(R.id.btn_delete_selected_chats).setOnClickListener(x ->
             confirmDeleteSelected());
 
+        v.findViewById(R.id.btn_pin_selected_chats).setOnClickListener(x ->
+            togglePinnedSelected());
+
         // Feature 1: Chat Folders — setup folder chip row
         hsvFolders   = v.findViewById(R.id.hsv_folders);
         llFolderTabs = v.findViewById(R.id.ll_folder_tabs);
@@ -476,14 +492,14 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             List<User> warmCache = viewModel != null ? viewModel.getCachedContacts() : null;
             if (warmCache != null && !warmCache.isEmpty()) {
                 List<User> copy = new ArrayList<>(warmCache);
-                sortContactsList(copy, specialRequestUids);
+                sortContactsList(copy, specialRequestUids, pinnedChatUids);
                 diffUpdateContacts(copy);
                 showingInstantSnapshotOnly = false;
                 if (emptyState != null) emptyState.setVisibility(View.GONE);
             } else {
                 List<User> instant = ChatSnapshotCache.loadInstantSnapshot(requireContext());
                 if (!instant.isEmpty()) {
-                    sortContactsList(instant, specialRequestUids);
+                    sortContactsList(instant, specialRequestUids, pinnedChatUids);
                     diffUpdateContacts(instant);
                     showingInstantSnapshotOnly = true;
                     if (emptyState != null) emptyState.setVisibility(View.GONE);
@@ -1137,7 +1153,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 contacts.add(changed);
             }
         }
-        sortContactsList(contacts, specialRequestUids);
+        sortContactsList(contacts, specialRequestUids, pinnedChatUids);
         // NOTE: diffUpdateContacts() does contacts.clear()+addAll(newList) —
         // passing `contacts` itself here would wipe it before the addAll can
         // read it back. Must pass a distinct list.
@@ -1298,7 +1314,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             }
         }
         if (!addedAny) return;
-        sortContactsList(contacts, specialRequestUids);
+        sortContactsList(contacts, specialRequestUids, pinnedChatUids);
         diffUpdateContacts(new ArrayList<>(contacts));
     }
 
@@ -1357,13 +1373,24 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         return 0L;
     }
 
-    /** Special-request senders float to top; everything else by most-recent activity. */
-    private static void sortContactsList(List<User> list, Set<String> specialUids) {
+    /**
+     * WhatsApp-level ordering: pinned chats always float to the very top
+     * (mirrors GroupsFragment.sortGroups' localPinned tier), then
+     * special-request senders, then everything else by most-recent
+     * activity, with a name tiebreak when timestamps match.
+     */
+    private static void sortContactsList(List<User> list, Set<String> specialUids, Set<String> pinnedUids) {
+        for (User u : list) u.localPinned = u.uid != null && pinnedUids.contains(u.uid);
         Collections.sort(list, (a, b) -> {
+            if (a.localPinned != b.localPinned) return a.localPinned ? -1 : 1;
             boolean aS = a.uid != null && specialUids.contains(a.uid);
             boolean bS = b.uid != null && specialUids.contains(b.uid);
             if (aS != bS) return aS ? -1 : 1;
-            return Long.compare(effTs(b), effTs(a));
+            int time = Long.compare(effTs(b), effTs(a));
+            if (time != 0) return time;
+            String an = a.name == null ? "" : a.name;
+            String bn = b.name == null ? "" : b.name;
+            return an.compareToIgnoreCase(bn);
         });
     }
 
@@ -1549,7 +1576,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     }
 
     private void sortByLatestMessage() {
-        sortContactsList(contacts, specialRequestUids);
+        sortContactsList(contacts, specialRequestUids, pinnedChatUids);
     }
 
     /**
@@ -1619,6 +1646,39 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         int total = contacts.size();
         if (tvSelectedCount != null)
             tvSelectedCount.setText(count + " / " + total + " selected");
+    }
+
+    // ── WhatsApp-level PIN SELECTED ─────────────────────────────────────────
+    // Same local-pref pin pattern as GroupsFragment.togglePinnedSelected():
+    // toggles each selected uid in/out of pinnedChatUids, persists, then
+    // re-sorts + re-renders so pinned chats float to the top immediately.
+
+    private void togglePinnedSelected() {
+        if (adapter == null) return;
+        List<User> selected = adapter.getSelectedItems();
+        if (selected.isEmpty()) {
+            Toast.makeText(getContext(), "Koi bhi select nahi kiya", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // If everything selected is already pinned, this pass unpins all of
+        // them; otherwise it pins every selected chat (matches WhatsApp's
+        // "pin all / unpin all" toggle behavior for a mixed selection).
+        boolean allPinned = true;
+        for (User u : selected) {
+            if (u.uid == null || !pinnedChatUids.contains(u.uid)) { allPinned = false; break; }
+        }
+        for (User u : selected) {
+            if (u.uid == null) continue;
+            if (allPinned) pinnedChatUids.remove(u.uid);
+            else pinnedChatUids.add(u.uid);
+        }
+        if (chatListPrefs != null) {
+            chatListPrefs.edit().putStringSet(KEY_PINNED_CHATS, new HashSet<>(pinnedChatUids)).apply();
+        }
+        adapter.clearSelection();
+        if (llSelectionBar != null) llSelectionBar.setVisibility(View.GONE);
+        sortContactsList(contacts, specialRequestUids, pinnedChatUids);
+        diffUpdateContacts(new ArrayList<>(contacts));
     }
 
     // ── v21 DELETE SELECTED ────────────────────────────────────────────────
