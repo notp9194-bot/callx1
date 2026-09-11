@@ -84,6 +84,21 @@ public class GroupSettingsActivity extends AppCompatActivity {
     // ── Local state ───────────────────────────────────────────────────────
     private int currentSlowModeSecs = 0;
 
+    // WHATSAPP-LEVEL FIX (false-fire guard): setupSwitchListeners() runs
+    // BEFORE loadFirebaseSettings() in onCreate(), so the switches already
+    // have listeners attached when loadFirebaseSettings() calls
+    // setChecked(...) to reflect the value it just read from Firebase. That
+    // programmatic setChecked() fires the listener exactly like a real user
+    // tap would — without this guard, every future "post an audit log /
+    // system message on settings change" hook would fire once on every
+    // single Settings screen open, even when nothing actually changed.
+    // Two separate flags because groupSettings (approvalRequired,
+    // adminAddOnly, anonymousPostingEnabled) and topicsEnabled load via two
+    // independent async Firebase reads — one finishing doesn't mean the
+    // other has.
+    private boolean firebaseSettingsLoaded = false;
+    private boolean topicsLoaded = false;
+
     // Views — Privacy
     private TextView    tvDisappearing;
     private TextView    tvMsgTimer;
@@ -305,6 +320,7 @@ public class GroupSettingsActivity extends AppCompatActivity {
             if (!isAdmin) { swAnonymousPosting.setChecked(!checked); return; }
             saveGroupSetting("anonymousPostingEnabled", checked ? "true" : "false");
             Toast.makeText(this, checked ? "Anonymous posting enabled" : "Anonymous posting disabled", Toast.LENGTH_SHORT).show();
+            if (firebaseSettingsLoaded) postSettingsAudit("Anonymous posting: " + (checked ? "On" : "Off"));
         });
 
         swTopicsEnabled.setOnCheckedChangeListener((btn, checked) -> {
@@ -317,16 +333,19 @@ public class GroupSettingsActivity extends AppCompatActivity {
             // saw the real value — Topics button visibility never updated.
             FirebaseUtils.getGroupsRef().child(groupId).child("topicsEnabled").setValue(checked);
             Toast.makeText(this, checked ? "Topics enabled" : "Topics disabled", Toast.LENGTH_SHORT).show();
+            if (topicsLoaded) postSettingsAudit("Topics: " + (checked ? "On" : "Off"));
         });
 
         swApprovalRequired.setOnCheckedChangeListener((btn, checked) -> {
             if (!isAdmin) { swApprovalRequired.setChecked(!checked); return; }
             saveGroupSetting("approvalRequired", checked ? "1" : "0");
+            if (firebaseSettingsLoaded) postSettingsAudit("Approval required to join: " + (checked ? "On" : "Off"));
         });
 
         swAdminAddOnly.setOnCheckedChangeListener((btn, checked) -> {
             if (!isAdmin) { swAdminAddOnly.setChecked(!checked); return; }
             saveGroupSetting("adminAddOnly", checked ? "1" : "0");
+            if (firebaseSettingsLoaded) postSettingsAudit("Only admins can add members: " + (checked ? "On" : "Off"));
         });
     }
 
@@ -592,6 +611,7 @@ public class GroupSettingsActivity extends AppCompatActivity {
                     if (s < 0) s = 0;
                     tvSendPerm.setText(opts[s]);
                     saveGroupSetting("sendPermission", s == 1 ? "admins" : "all");
+                    postSettingsAudit("Who can send messages: " + opts[s]);
                     Toast.makeText(this, "Permission updated", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
@@ -615,6 +635,7 @@ public class GroupSettingsActivity extends AppCompatActivity {
                     if (s < 0) s = 1;
                     tvEditPerm.setText(opts[s]);
                     saveGroupSetting("editPermission", s == 0 ? "all" : "admins");
+                    postSettingsAudit("Who can edit group info: " + opts[s]);
                     Toast.makeText(this, "Permission updated", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
@@ -715,6 +736,10 @@ public class GroupSettingsActivity extends AppCompatActivity {
                         if (swAnonymousPosting != null)
                             swAnonymousPosting.setChecked(Boolean.TRUE.equals(anonEnabled));
 
+                        // Guard set LAST — after every setChecked() above has
+                        // already had its chance to fire the (currently
+                        // harmless) listener while this flag was still false.
+                        firebaseSettingsLoaded = true;
                     }
                     @Override public void onCancelled(DatabaseError e) {}
                 });
@@ -728,6 +753,7 @@ public class GroupSettingsActivity extends AppCompatActivity {
                         Object raw = snap.getValue();
                         boolean topicsOn = (raw instanceof Boolean) && (Boolean) raw;
                         if (swTopicsEnabled != null) swTopicsEnabled.setChecked(topicsOn);
+                        topicsLoaded = true;
                     }
                     @Override public void onCancelled(DatabaseError e) {}
                 });
@@ -800,6 +826,7 @@ public class GroupSettingsActivity extends AppCompatActivity {
                     updateSlowModeStatus();
                     String msg = currentSlowModeSecs == 0 ? "Slow mode disabled"
                             : "Slow mode: " + labels[sel[0]];
+                    postSettingsAudit("Slow mode: " + labels[sel[0]]);
                     Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
@@ -816,5 +843,38 @@ public class GroupSettingsActivity extends AppCompatActivity {
     private void saveGroupSettingInt(String key, int value) {
         FirebaseUtils.getGroupsRef().child(groupId).child("groupSettings")
                 .child(key).setValue(value);
+    }
+
+    // WHATSAPP-LEVEL FIX (audit trail): a group setting change previously
+    // left no trace anywhere in the group — not in the chat, not anywhere
+    // an admin could review later. Every ADMIN-ONLY setting change now
+    // drops a system message into the group chat (same visible pattern as
+    // rename/remove-member in GroupInfoActivity) plus a structured entry
+    // under groups/{groupId}/auditLog (see FirebaseUtils#getGroupAuditLogRef).
+    // Callers MUST check firebaseSettingsLoaded/topicsLoaded before calling
+    // this from a setOnCheckedChangeListener — see the flags' doc comment
+    // for why (programmatic setChecked() during initial load fires the
+    // listener too, and that isn't a real change).
+    private void postSettingsAudit(String label) {
+        String name = FirebaseUtils.getCurrentName();
+        String text = (name != null ? name : "An admin") + " changed group settings: " + label;
+
+        DatabaseReference sysRef = FirebaseUtils.getGroupMessagesRef(groupId).push();
+        Map<String, Object> sys = new HashMap<>();
+        sys.put("id",        sysRef.getKey());
+        sys.put("senderId",  "system");
+        sys.put("senderName","System");
+        sys.put("text",      text);
+        sys.put("type",      "system");
+        sys.put("timestamp", System.currentTimeMillis());
+        sysRef.setValue(sys);
+
+        Map<String, Object> audit = new HashMap<>();
+        audit.put("action",    "settings_change");
+        audit.put("detail",    label);
+        audit.put("byUid",     currentUid);
+        audit.put("byName",    name != null ? name : "Admin");
+        audit.put("timestamp", System.currentTimeMillis());
+        FirebaseUtils.getGroupAuditLogRef(groupId).push().setValue(audit);
     }
 }

@@ -426,6 +426,32 @@ public class FirebaseUtils {
         return db().getReference("groupSenderKeyRequests").child(targetUid);
     }
 
+    /**
+     * groups/{groupId}/joinRequests/{uid} = {name, requestedAt}. Written by
+     * a non-member when groupSettings/approvalRequired == "1" (see
+     * JoinGroupActivity), instead of adding them straight to "members".
+     * Cleared (either promoted into "members" or simply removed) by an
+     * admin via JoinRequestsBottomSheet.
+     */
+    public static DatabaseReference getGroupJoinRequestsRef(String groupId) {
+        return db().getReference("groups").child(groupId).child("joinRequests");
+    }
+
+    public static DatabaseReference getGroupJoinRequestRef(String groupId, String uid) {
+        return getGroupJoinRequestsRef(groupId).child(uid);
+    }
+
+    /**
+     * groups/{groupId}/auditLog/{pushId} = {action, detail, byUid, byName,
+     * timestamp} — WhatsApp-level admin activity trail (settings changes,
+     * promote/demote, remove member, join-request approve/reject) kept
+     * alongside the human-readable system messages already posted into the
+     * group's chat, so admins have a structured record to review later.
+     */
+    public static DatabaseReference getGroupAuditLogRef(String groupId) {
+        return db().getReference("groups").child(groupId).child("auditLog");
+    }
+
     public static DatabaseReference getStatusRef() {
         return db().getReference("status");
     }

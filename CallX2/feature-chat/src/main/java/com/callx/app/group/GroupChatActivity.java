@@ -226,6 +226,14 @@ public class GroupChatActivity extends AppCompatActivity
     private boolean anonymousPostingEnabled = false;
     private boolean postAnonymously         = false;  // current toggle state
 
+    // ── Send Permission ("Admins Only" toggle, GroupSettingsActivity) ───────
+    // WHATSAPP-LEVEL FIX: groupSettings/sendPermission was being saved from
+    // GroupSettingsActivity but never read back here — any member could
+    // still send messages into an "Admins Only" group. Now enforced both in
+    // the input-bar UI (locked() below) and as a server-write safety net in
+    // pushMessage(), so a stale/bypassed client still can't push a message.
+    private boolean sendPermissionAdminsOnly = false;
+
     // ── "Watching banner" — overlapping avatars for members who currently
     //    have this group's chat screen open & foregrounded ────────────────
     private GroupWatchingController watchingController;
@@ -2214,9 +2222,37 @@ public class GroupChatActivity extends AppCompatActivity
                         Boolean anon = snap.child("anonymousPostingEnabled").getValue(Boolean.class);
                         anonymousPostingEnabled = Boolean.TRUE.equals(anon);
                         updateAnonButtonVisibility();
+
+                        // Send permission ("Admins Only" vs "All Members") —
+                        // see sendPermissionAdminsOnly field doc above.
+                        String sendPerm = snap.child("sendPermission").getValue(String.class);
+                        sendPermissionAdminsOnly = "admins".equals(sendPerm);
+                        updateInputLockState();
                     }
                     @Override public void onCancelled(com.google.firebase.database.DatabaseError e) {}
                 });
+    }
+
+    /**
+     * WHATSAPP-LEVEL FIX: locks the input bar (EditText + send/attach/mic/
+     * gif buttons) and shows a "Only admins can send messages" banner when
+     * sendPermission == "admins" and the current user isn't an admin —
+     * matching WhatsApp's own "Admins Only" group behavior. Safe to call
+     * repeatedly; loadGroupAdminSettings() and checkAdminStatus() resolve
+     * independently/async, so both call this to converge on the right state.
+     */
+    private void updateInputLockState() {
+        boolean locked = sendPermissionAdminsOnly && !isAdmin;
+        View inputBar = findViewById(R.id.layout_input_bar);
+        if (inputBar != null) inputBar.setVisibility(locked ? View.GONE : View.VISIBLE);
+
+        View lockBanner = findViewById(R.id.layout_send_locked_banner);
+        if (lockBanner == null) {
+            // Layout may not have the banner id wired up yet on this screen
+            // size/variant — degrade gracefully to just hiding the input bar.
+            return;
+        }
+        lockBanner.setVisibility(locked ? View.VISIBLE : View.GONE);
     }
 
     private void updateAnonButtonVisibility() {
@@ -2258,6 +2294,12 @@ public class GroupChatActivity extends AppCompatActivity
                 if (rvBotSuggestions != null) rvBotSuggestions.setVisibility(android.view.View.GONE);
                 return;
             }
+        }
+
+        // ── Send Permission enforcement ("Admins Only") ─────────────────────
+        if (sendPermissionAdminsOnly && !isAdmin) {
+            Toast.makeText(this, "Only admins can send messages in this group", Toast.LENGTH_SHORT).show();
+            return;
         }
 
         // ── Slow Mode enforcement ───────────────────────────────────────────
@@ -2426,6 +2468,17 @@ public class GroupChatActivity extends AppCompatActivity
 
     // v17: Local-first push — pehle Room (pending), phir Firebase
     private void pushMessage(Message m, String preview) {
+        // WHATSAPP-LEVEL FIX: hard gate, not just a hidden input bar — every
+        // outgoing message type (text, image, video, gif, sticker, poll,
+        // forward, voice note, event) funnels through here before it's
+        // written to Firebase, so this is the single safety net that can't
+        // be bypassed by a stale UI state. Bot replies (senderId == "bot")
+        // are exempt — those are the group's own automation, not a member
+        // sending a message.
+        if (sendPermissionAdminsOnly && !isAdmin && !"bot".equals(m.senderId)) {
+            Toast.makeText(this, "Only admins can send messages in this group", Toast.LENGTH_SHORT).show();
+            return;
+        }
         String key = groupMessagesRef.push().getKey();
         if (key == null) return;
         m.id = key;
@@ -3792,6 +3845,7 @@ public class GroupChatActivity extends AppCompatActivity
                     @Override public void onDataChange(@NonNull DataSnapshot s) {
                         isAdmin = "admin".equals(s.getValue(String.class));
                         invalidateOptionsMenu();
+                        updateInputLockState();
                     }
                     @Override public void onCancelled(@NonNull DatabaseError e) {}
                 });

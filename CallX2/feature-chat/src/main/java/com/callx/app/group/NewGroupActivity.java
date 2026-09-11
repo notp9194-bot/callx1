@@ -132,14 +132,88 @@ public class NewGroupActivity extends AppCompatActivity {
         for (String uid : members.keySet()) unread.put(uid, 0L);
         g.put("unread", unread);
         ref.setValue(g).addOnSuccessListener(x -> {
+            // WhatsApp-level fix: track each member's userGroups write so a
+            // rules/permission failure for any invited member surfaces
+            // instead of silently leaving their Groups tab out of sync.
             for (String uid : members.keySet()) {
-                FirebaseUtils.getUserGroupsRef(uid).child(groupId).setValue(true);
+                FirebaseUtils.getUserGroupsRef(uid).child(groupId).setValue(true)
+                    .addOnFailureListener(e -> runOnUiThread(() ->
+                        Toast.makeText(NewGroupActivity.this,
+                            "Group sync failed for a member: " + e.getMessage(),
+                            Toast.LENGTH_LONG).show()));
             }
+
+            // WHATSAPP-LEVEL FIX: GroupInfoActivity already posts a
+            // "X added Y" system message when members are added AFTER
+            // creation (see showAddMemberDialog there) — but a brand new
+            // group's own initial members never got any such entry, so the
+            // chat opened completely blank with no history of who was in
+            // it from the start. Post the same two system-message lines
+            // WhatsApp shows right when a group is created.
+            postGroupCreatedSystemMessages(groupId, name);
+
             Intent i = new Intent(this, GroupChatActivity.class);
             i.putExtra("groupId", groupId);
             i.putExtra("groupName", name);
             startActivity(i);
             finish();
+        }).addOnFailureListener(e -> runOnUiThread(() ->
+            Toast.makeText(NewGroupActivity.this,
+                "Group banane me error: " + e.getMessage(), Toast.LENGTH_LONG).show()));
+    }
+
+    /** "{You} created this group" + "{You} added {names}" — same combined-
+     *  name formatting GroupInfoActivity uses for later add-member events,
+     *  duplicated here since these two activities don't share a base class. */
+    private void postGroupCreatedSystemMessages(String groupId, String groupName) {
+        String myName = FirebaseUtils.getCurrentName();
+        List<String> addedNames = new ArrayList<>();
+        for (User u : contacts) {
+            if (selected.contains(u.uid)) {
+                addedNames.add(u.name != null && !u.name.isEmpty() ? u.name : "Member");
+            }
+        }
+
+        DatabaseReference createdRef = FirebaseUtils.getGroupMessagesRef(groupId).push();
+        Map<String, Object> created = new HashMap<>();
+        created.put("id",        createdRef.getKey());
+        created.put("senderId",  "system");
+        created.put("senderName","System");
+        created.put("text",      myName + " created this group");
+        created.put("type",      "system");
+        created.put("timestamp", System.currentTimeMillis());
+        createdRef.setValue(created);
+
+        if (addedNames.isEmpty()) return;
+        String who;
+        if (addedNames.size() == 1) {
+            who = addedNames.get(0);
+        } else if (addedNames.size() == 2) {
+            who = addedNames.get(0) + " and " + addedNames.get(1);
+        } else {
+            who = addedNames.get(0) + ", " + addedNames.get(1)
+                    + " and " + (addedNames.size() - 2) + " other"
+                    + (addedNames.size() - 2 == 1 ? "" : "s");
+        }
+        String addedText = myName + " added " + who;
+        long addedAt = System.currentTimeMillis() + 1; // keep strictly after the "created" line
+        DatabaseReference addedRef = FirebaseUtils.getGroupMessagesRef(groupId).push();
+        Map<String, Object> added = new HashMap<>();
+        added.put("id",        addedRef.getKey());
+        added.put("senderId",  "system");
+        added.put("senderName","System");
+        added.put("text",      addedText);
+        added.put("type",      "system");
+        added.put("timestamp", addedAt);
+        addedRef.setValue(added).addOnSuccessListener(v -> {
+            // Reflect the latest system line in the chat-list preview too,
+            // same as a normal message would.
+            Map<String, Object> lastUpd = new HashMap<>();
+            lastUpd.put("lastMessage",     addedText);
+            lastUpd.put("lastMessageType", "system");
+            lastUpd.put("lastMessageAt",   addedAt);
+            lastUpd.put("lastSenderName",  "");
+            FirebaseUtils.getGroupsRef().child(groupId).updateChildren(lastUpd);
         });
     }
 }

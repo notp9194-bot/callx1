@@ -198,7 +198,18 @@ public class AddGroupMembersBottomSheet extends BottomSheetDialogFragment {
                         remaining[0]--;
                         if (remaining[0] == 0) onBatchAddComplete(addedUids, addedNames);
                     });
-            FirebaseUtils.db().getReference("userGroups").child(uid).child(groupId).setValue(true);
+            // WhatsApp-level fix: surface a rules/permission failure here
+            // instead of silently leaving the added member's Groups tab
+            // out of sync (this is the write that makes the group show up
+            // automatically on the invited member's device).
+            FirebaseUtils.db().getReference("userGroups").child(uid).child(groupId).setValue(true)
+                    .addOnFailureListener(e -> {
+                        if (getContext() != null) {
+                            Toast.makeText(getContext(),
+                                    "Sync failed for " + addedNames.get(i) + ": " + e.getMessage(),
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    });
         }
     }
 

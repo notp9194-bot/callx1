@@ -313,12 +313,13 @@
         ".write": "auth != null && (!data.exists() || data.child('members').child(auth.uid).exists())",
         "members": {
           "$uid": {
-            ".write": "auth != null && (auth.uid === $uid || data.parent().parent().child('ownerId').val() === auth.uid)"
+            ".write": "auth != null && (auth.uid === $uid || data.parent().parent().child('ownerId').val() === auth.uid || data.parent().parent().child('adminUid').val() === auth.uid || data.parent().parent().child('members').child(auth.uid).child('role').val() === 'admin' || data.parent().parent().child('admins').child(auth.uid).exists() || data.parent().parent().child('groupSettings').child('adminAddOnly').val() === '0')",
+            ".validate": "auth.uid === $uid || data.parent().parent().child('ownerId').val() === auth.uid || data.parent().parent().child('adminUid').val() === auth.uid || data.parent().parent().child('members').child(auth.uid).child('role').val() === 'admin' || data.parent().parent().child('admins').child(auth.uid).exists() || (data.parent().parent().child('groupSettings').child('adminAddOnly').val() === '0' && data.parent().parent().child('members').child(auth.uid).exists())"
           }
         },
         "messages": {
           "$msgId": {
-            ".validate": "newData.hasChildren(['senderId','timestamp']) && newData.child('timestamp').val() <= now + 5000",
+            ".validate": "newData.hasChildren(['senderId','timestamp']) && newData.child('timestamp').val() <= now + 5000 && (data.parent().parent().child('groupSettings').child('sendPermission').val() !== 'admins' || data.parent().parent().child('members').child(auth.uid).child('role').val() === 'admin' || data.parent().parent().child('admins').child(auth.uid).exists() || data.parent().parent().child('adminUid').val() === auth.uid || data.parent().parent().child('ownerId').val() === auth.uid || newData.child('senderId').val() === 'bot')",
             "status": {
               "$uid": {
                 ".write": "auth != null && auth.uid === $uid",
@@ -331,6 +332,21 @@
                 ".validate": "newData.isString() && newData.val().length <= 10"
               }
             }
+          }
+        },
+        "joinRequests": {
+          ".read": "auth != null && (data.parent().child('members').child(auth.uid).child('role').val() === 'admin' || data.parent().child('admins').child(auth.uid).exists() || data.parent().child('adminUid').val() === auth.uid || data.parent().child('ownerId').val() === auth.uid)",
+          "$uid": {
+            ".read": "auth != null && (auth.uid === $uid || data.parent().parent().child('members').child(auth.uid).child('role').val() === 'admin' || data.parent().parent().child('admins').child(auth.uid).exists() || data.parent().parent().child('adminUid').val() === auth.uid || data.parent().parent().child('ownerId').val() === auth.uid)",
+            ".write": "auth != null && (auth.uid === $uid || data.parent().parent().child('members').child(auth.uid).child('role').val() === 'admin' || data.parent().parent().child('admins').child(auth.uid).exists() || data.parent().parent().child('adminUid').val() === auth.uid || data.parent().parent().child('ownerId').val() === auth.uid)",
+            ".validate": "auth.uid === $uid ? newData.hasChildren(['name','requestedAt']) && newData.child('requestedAt').val() <= now + 5000 : true"
+          }
+        },
+        "auditLog": {
+          ".read": "auth != null && data.parent().child('members').child(auth.uid).exists()",
+          "$logId": {
+            ".write": "auth != null && !data.exists() && (data.parent().parent().child('members').child(auth.uid).child('role').val() === 'admin' || data.parent().parent().child('admins').child(auth.uid).exists() || data.parent().parent().child('adminUid').val() === auth.uid || data.parent().parent().child('ownerId').val() === auth.uid)",
+            ".validate": "newData.hasChildren(['action','byUid','byName','timestamp']) && newData.child('timestamp').val() <= now + 5000"
           }
         }
       }

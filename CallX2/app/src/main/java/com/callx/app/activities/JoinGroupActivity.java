@@ -72,16 +72,32 @@ public class JoinGroupActivity extends AppCompatActivity {
                             finish(); return;
                         }
 
+                        // WHATSAPP-LEVEL FIX: groupSettings/approvalRequired was
+                        // saveable from GroupSettingsActivity but never actually
+                        // checked here — every invite link added the tapper
+                        // straight to "members" regardless of the toggle. Read
+                        // it once alongside the group snapshot we already have.
+                        String approvalStr = snap.child("groupSettings")
+                                .child("approvalRequired").getValue(String.class);
+                        final boolean approvalRequired = "1".equals(approvalStr);
+
                         // BUG FIX: previously this always called setValue(),
                         // silently overwriting an existing member's role
                         // (e.g. admin/owner) back to "member" and resetting
                         // their joinedAt just for tapping their own invite
                         // link again. Now: already a member → skip the
-                        // write entirely and just open the chat.
+                        // write entirely (and skip the approval flow, since
+                        // they're already in) and just open the chat.
                         FirebaseUtils.getGroupMembersRef(groupId).child(uid)
                                 .addListenerForSingleValueEvent(new ValueEventListener() {
                                     @Override public void onDataChange(DataSnapshot memberSnap) {
-                                        if (!memberSnap.exists()) {
+                                        if (memberSnap.exists()) {
+                                            openGroup(groupId, groupName);
+                                            return;
+                                        }
+                                        if (approvalRequired) {
+                                            requestToJoin(groupId, groupName, uid, name);
+                                        } else {
                                             Map<String, Object> memberData = new HashMap<>();
                                             memberData.put("name", name != null ? name : "Member");
                                             memberData.put("role", "member");
@@ -94,8 +110,8 @@ public class JoinGroupActivity extends AppCompatActivity {
                                             Toast.makeText(JoinGroupActivity.this,
                                                     "Joined '" + groupName + "'! 🎉",
                                                     Toast.LENGTH_SHORT).show();
+                                            openGroup(groupId, groupName);
                                         }
-                                        openGroup(groupId, groupName);
                                     }
                                     @Override public void onCancelled(DatabaseError e) {
                                         openGroup(groupId, groupName);
@@ -105,6 +121,44 @@ public class JoinGroupActivity extends AppCompatActivity {
                     @Override public void onCancelled(DatabaseError e) {
                         Toast.makeText(JoinGroupActivity.this,
                                 "Error joining group", Toast.LENGTH_SHORT).show();
+                        finish();
+                    }
+                });
+    }
+
+    /**
+     * groupSettings/approvalRequired is on — don't add the tapper as a
+     * member directly. Instead drop a request under
+     * groups/{groupId}/joinRequests/{uid} for an admin to approve/reject
+     * from GroupInfoActivity's "Join Requests" row, and let them know we
+     * did. They aren't a member yet, so we don't open the chat.
+     */
+    private void requestToJoin(String groupId, String groupName, String uid, String name) {
+        FirebaseUtils.getGroupJoinRequestRef(groupId, uid)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(DataSnapshot reqSnap) {
+                        if (reqSnap.exists()) {
+                            Toast.makeText(JoinGroupActivity.this,
+                                    "Your request to join '" + groupName + "' is still pending approval",
+                                    Toast.LENGTH_LONG).show();
+                            finish();
+                            return;
+                        }
+                        Map<String, Object> request = new HashMap<>();
+                        request.put("name", name != null ? name : "Member");
+                        request.put("requestedAt", System.currentTimeMillis());
+                        FirebaseUtils.getGroupJoinRequestRef(groupId, uid).setValue(request)
+                                .addOnCompleteListener(t -> {
+                                    Toast.makeText(JoinGroupActivity.this,
+                                            "Request sent! Waiting for admin approval to join '"
+                                                    + groupName + "'",
+                                            Toast.LENGTH_LONG).show();
+                                    finish();
+                                });
+                    }
+                    @Override public void onCancelled(DatabaseError e) {
+                        Toast.makeText(JoinGroupActivity.this,
+                                "Could not send join request", Toast.LENGTH_SHORT).show();
                         finish();
                     }
                 });

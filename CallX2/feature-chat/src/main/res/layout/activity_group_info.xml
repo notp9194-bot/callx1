@@ -578,6 +578,36 @@
                     <View android:layout_width="match_parent" android:layout_height="1dp"
                         android:background="@color/divider" android:layout_marginStart="16dp"/>
 
+                    <!-- Show QR -->
+                    <LinearLayout
+                        android:id="@+id/btn_show_qr"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <ImageView
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:src="@drawable/ic_qr_code"
+                            android:tint="@color/brand_primary"
+                            android:layout_marginEnd="14dp"/>
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Show QR Code"
+                            android:textColor="@color/brand_primary"
+                            android:textSize="15sp"
+                            android:textStyle="bold"/>
+                    </LinearLayout>
+
+                    <View android:layout_width="match_parent" android:layout_height="1dp"
+                        android:background="@color/divider" android:layout_marginStart="16dp"/>
+
                     <!-- Reset link (admin only) -->
                     <LinearLayout
                         android:id="@+id/btn_reset_link"
@@ -603,6 +633,52 @@
                             android:text="Reset Invite Link"
                             android:textColor="@color/action_danger"
                             android:textSize="15sp"/>
+                    </LinearLayout>
+
+                    <View android:layout_width="match_parent" android:layout_height="1dp"
+                        android:background="@color/divider" android:layout_marginStart="16dp"/>
+
+                    <!-- Join requests (admin only) — groups/{id}/joinRequests pending count -->
+                    <LinearLayout
+                        android:id="@+id/btn_join_requests"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:visibility="gone">
+                        <ImageView
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:src="@drawable/ic_group_add"
+                            android:tint="@color/brand_primary"
+                            android:layout_marginEnd="14dp"/>
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Join Requests"
+                            android:textColor="@color/text_primary"
+                            android:textSize="15sp"/>
+                        <TextView
+                            android:id="@+id/tv_join_requests_badge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:minWidth="20dp"
+                            android:gravity="center"
+                            android:paddingStart="6dp"
+                            android:paddingEnd="6dp"
+                            android:paddingTop="2dp"
+                            android:paddingBottom="2dp"
+                            android:background="@drawable/badge_bg"
+                            android:textColor="@android:color/white"
+                            android:textSize="11sp"
+                            android:textStyle="bold"
+                            android:visibility="gone"/>
                     </LinearLayout>
                 </LinearLayout>
             </androidx.cardview.widget.CardView>

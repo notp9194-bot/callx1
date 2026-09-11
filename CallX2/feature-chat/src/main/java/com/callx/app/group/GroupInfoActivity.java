@@ -71,12 +71,22 @@ public class GroupInfoActivity extends AppCompatActivity {
 
     // Admin-only views
     private View btnAddMember, btnResetLink, btnDeleteGroup;
+    private View btnJoinRequests;
+    private TextView tvJoinRequestsBadge;
 
     // State
     private String groupId, groupName;
     private String currentUid;
     private boolean isAdmin = false;
     private String currentIconUrl = null;
+
+    // WHATSAPP-LEVEL FIX: groupSettings/adminAddOnly was saved from
+    // GroupSettingsActivity ("Only Admins Can Add Members") but never read
+    // here — btnAddMember was unconditionally admin-only regardless of the
+    // toggle. Default true (admin-only) until the real value loads, and for
+    // groups that never set it — same restrictive behavior as before this
+    // fix existed, so no existing group's permissions loosen silently.
+    private boolean adminAddOnlySetting = true;
 
     // Adapters
     private GroupMemberAdapter memberAdapter;
@@ -86,7 +96,7 @@ public class GroupInfoActivity extends AppCompatActivity {
     private final List<String>                         mediaUrls = new ArrayList<>();
 
     // Firebase listeners (for cleanup)
-    private ValueEventListener groupListener, membersListener, mediaListener;
+    private ValueEventListener groupListener, membersListener, mediaListener, groupSettingsListener;
 
     // Image picker for group icon
     private ActivityResultLauncher<String> iconPicker;
@@ -117,6 +127,7 @@ public class GroupInfoActivity extends AppCompatActivity {
         loadGroupData();
         listenMembers();
         listenMediaMessages();
+        listenGroupSettings();
     }
 
     @Override
@@ -124,6 +135,8 @@ public class GroupInfoActivity extends AppCompatActivity {
         if (groupListener  != null) FirebaseUtils.getGroupsRef().child(groupId).removeEventListener(groupListener);
         if (membersListener != null) FirebaseUtils.getGroupMembersRef(groupId).removeEventListener(membersListener);
         if (mediaListener  != null) FirebaseUtils.getGroupMessagesRef(groupId).removeEventListener(mediaListener);
+        if (groupSettingsListener != null) FirebaseUtils.getGroupsRef().child(groupId).child("groupSettings").removeEventListener(groupSettingsListener);
+        if (joinRequestsListener != null) FirebaseUtils.getGroupJoinRequestsRef(groupId).removeEventListener(joinRequestsListener);
         // FIX (avatar pipeline parity): stop the header group-icon request
         // from GroupAvatarBinder.bind() if it's still in flight.
         if (ivGroupIcon != null) com.callx.app.cache.GroupAvatarBinder.cancel(this, ivGroupIcon);
@@ -150,6 +163,8 @@ public class GroupInfoActivity extends AppCompatActivity {
         btnAddMember    = findViewById(R.id.btn_add_member);
         btnResetLink    = findViewById(R.id.btn_reset_link);
         btnDeleteGroup  = findViewById(R.id.btn_delete_group);
+        btnJoinRequests     = findViewById(R.id.btn_join_requests);
+        tvJoinRequestsBadge = findViewById(R.id.tv_join_requests_badge);
     }
 
     // ── Toolbar ───────────────────────────────────────────────────────────
@@ -344,6 +359,14 @@ public class GroupInfoActivity extends AppCompatActivity {
         // Reset invite link (admin)
         btnResetLink.setOnClickListener(v -> showResetLinkConfirm());
 
+        // Join requests (admin) — approve/reject pending groups/{id}/joinRequests
+        if (btnJoinRequests != null) {
+            btnJoinRequests.setOnClickListener(v -> showJoinRequestsSheet());
+        }
+
+        // Show QR code for invite link
+        findViewById(R.id.btn_show_qr).setOnClickListener(v -> showGroupQrDialog());
+
         // View all media
         findViewById(R.id.tv_view_all_media).setOnClickListener(v -> {
             Intent i = new Intent(this, GroupMediaViewerActivity.class);
@@ -461,10 +484,80 @@ public class GroupInfoActivity extends AppCompatActivity {
         btnChangeIcon.setVisibility(admin ? View.VISIBLE : View.GONE);
         btnEditName.setVisibility(admin ? View.VISIBLE : View.GONE);
         cardDescEdit.setVisibility(admin ? View.VISIBLE : View.GONE);
-        btnAddMember.setVisibility(admin ? View.VISIBLE : View.GONE);
+        refreshAddMemberVisibility();
         btnResetLink.setVisibility(admin ? View.VISIBLE : View.GONE);
         btnDeleteGroup.setVisibility(admin ? View.VISIBLE : View.GONE);
+        if (btnJoinRequests != null) btnJoinRequests.setVisibility(admin ? View.VISIBLE : View.GONE);
         if (memberAdapter != null) memberAdapter.setIsAdmin(admin);
+
+        // Firebase rules only grant read on groups/{id}/joinRequests to an
+        // admin — only attach the count listener once we're sure we are
+        // one, and only once (setAdminMode can be called again on every
+        // group snapshot update).
+        if (admin && !joinRequestsListenerAttached) {
+            joinRequestsListenerAttached = true;
+            listenJoinRequestsCount();
+        } else if (!admin && joinRequestsListenerAttached) {
+            joinRequestsListenerAttached = false;
+            if (joinRequestsListener != null) {
+                FirebaseUtils.getGroupJoinRequestsRef(groupId).removeEventListener(joinRequestsListener);
+                joinRequestsListener = null;
+            }
+            if (tvJoinRequestsBadge != null) tvJoinRequestsBadge.setVisibility(View.GONE);
+        }
+    }
+
+    // ── Join requests (admin) ────────────────────────────────────────────
+    private boolean joinRequestsListenerAttached = false;
+    private ValueEventListener joinRequestsListener;
+
+    private void listenJoinRequestsCount() {
+        joinRequestsListener = new ValueEventListener() {
+            @Override public void onDataChange(DataSnapshot snap) {
+                long count = snap.getChildrenCount();
+                if (tvJoinRequestsBadge == null) return;
+                if (count > 0) {
+                    tvJoinRequestsBadge.setText(count > 99 ? "99+" : String.valueOf(count));
+                    tvJoinRequestsBadge.setVisibility(View.VISIBLE);
+                } else {
+                    tvJoinRequestsBadge.setVisibility(View.GONE);
+                }
+            }
+            @Override public void onCancelled(DatabaseError e) {}
+        };
+        FirebaseUtils.getGroupJoinRequestsRef(groupId).addValueEventListener(joinRequestsListener);
+    }
+
+    private void showJoinRequestsSheet() {
+        JoinRequestsBottomSheet sheet = JoinRequestsBottomSheet.newInstance(groupId, groupName);
+        sheet.show(getSupportFragmentManager(), JoinRequestsBottomSheet.TAG);
+    }
+
+    /**
+     * WHATSAPP-LEVEL FIX: "Add Member" is visible when the current user is
+     * an admin, OR when the group's "Only Admins Can Add Members" toggle is
+     * off (groupSettings/adminAddOnly == "0"). Safe to call repeatedly —
+     * setAdminMode() and listenGroupSettings() resolve independently/async,
+     * so both call this to converge on the right state.
+     */
+    private void refreshAddMemberVisibility() {
+        if (btnAddMember == null) return;
+        boolean canAdd = isAdmin || !adminAddOnlySetting;
+        btnAddMember.setVisibility(canAdd ? View.VISIBLE : View.GONE);
+    }
+
+    private void listenGroupSettings() {
+        groupSettingsListener = new ValueEventListener() {
+            @Override public void onDataChange(DataSnapshot snap) {
+                // Stored as "1"/"0" strings — see GroupSettingsActivity#saveGroupSetting.
+                String v = snap.child("adminAddOnly").getValue(String.class);
+                adminAddOnlySetting = !"0".equals(v);
+                refreshAddMemberVisibility();
+            }
+            @Override public void onCancelled(DatabaseError e) {}
+        };
+        FirebaseUtils.getGroupsRef().child(groupId).child("groupSettings")
+                .addValueEventListener(groupSettingsListener);
     }
 
     // ── Firebase: Members listener ────────────────────────────────────────
@@ -687,13 +780,22 @@ public class GroupInfoActivity extends AppCompatActivity {
     }
 
     private void setMemberRole(String uid, String role) {
+        String name = "Member";
+        for (GroupMemberAdapter.MemberItem m : members)
+            if (uid.equals(m.uid)) { name = m.name; break; }
+        final String finalName = name;
+
         FirebaseUtils.getGroupMembersRef(groupId).child(uid).child("role").setValue(role);
         if ("admin".equals(role)) {
             FirebaseUtils.getGroupsRef().child(groupId).child("admins").child(uid).setValue(true);
             Toast.makeText(this, "Made admin 👑", Toast.LENGTH_SHORT).show();
+            postSystemMessage(finalName + " is now an admin");
+            postAuditLog("promote_admin", finalName);
         } else {
             FirebaseUtils.getGroupsRef().child(groupId).child("admins").child(uid).removeValue();
             Toast.makeText(this, "Admin revoked", Toast.LENGTH_SHORT).show();
+            postSystemMessage(finalName + " is no longer an admin");
+            postAuditLog("revoke_admin", finalName);
         }
     }
 
@@ -738,6 +840,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                     sys.put("type",      "system");
                     sys.put("timestamp", System.currentTimeMillis());
                     sysRef.setValue(sys);
+                    postAuditLog("remove_member", finalName);
                     Toast.makeText(this, finalName + " removed", Toast.LENGTH_SHORT).show();
                 },
                 null, null,
@@ -761,6 +864,7 @@ public class GroupInfoActivity extends AppCompatActivity {
                     tvGroupName.setText(newName);
                     FirebaseUtils.getGroupsRef().child(groupId).child("name").setValue(newName);
                     postSystemMessage(FirebaseUtils.getCurrentName() + " changed the group name to \"" + newName + "\"");
+                    postAuditLog("rename", newName);
                     Toast.makeText(this, "Group renamed", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
@@ -772,6 +876,8 @@ public class GroupInfoActivity extends AppCompatActivity {
         String desc = etDescEdit.getText().toString().trim();
         FirebaseUtils.getGroupsRef().child(groupId).child("description").setValue(desc);
         tvGroupDesc.setText(desc.isEmpty() ? "Tap to add description" : desc);
+        postSystemMessage(FirebaseUtils.getCurrentName() + " changed the group description");
+        postAuditLog("description_change", desc);
         Toast.makeText(this, "Description saved", Toast.LENGTH_SHORT).show();
     }
 
@@ -802,6 +908,8 @@ public class GroupInfoActivity extends AppCompatActivity {
                                 r.secureUrl, com.callx.app.cache.GroupAvatarBinder.TIER_HEADER,
                                 R.drawable.ic_group);
                         FirebaseUtils.getGroupsRef().child(groupId).child("iconUrl").setValue(r.secureUrl);
+                        postSystemMessage(FirebaseUtils.getCurrentName() + " changed the group icon");
+                        postAuditLog("icon_change", "");
                         Toast.makeText(GroupInfoActivity.this, "Icon updated", Toast.LENGTH_SHORT).show();
                     }
 
@@ -871,6 +979,81 @@ public class GroupInfoActivity extends AppCompatActivity {
                 },
                 null, null,
                 "Cancel");
+    }
+
+    // ── QR code (WhatsApp-level fix: invite link had no QR, only text-share) ──
+    // Reuses the same zxing BarcodeEncoder pattern as ChannelInviteLinkActivity.
+    private android.graphics.Bitmap groupQrBitmap = null;
+
+    private void showGroupQrDialog() {
+        // tvInviteLink reflects the CURRENT link (including a reset token,
+        // if any) — same string the user sees on screen, so the QR always
+        // matches what "Copy"/"Share" would send.
+        String link = tvInviteLink != null ? tvInviteLink.getText().toString() : null;
+        if (link == null || link.isEmpty() || link.contains("…")) {
+            Toast.makeText(this, "Invite link not loaded yet", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_group_qr_code, null);
+        TextView tvName = dialogView.findViewById(R.id.tv_qr_group_name);
+        ImageView ivQr  = dialogView.findViewById(R.id.iv_group_qr_code);
+        View btnSave    = dialogView.findViewById(R.id.btn_qr_save);
+        View btnShare   = dialogView.findViewById(R.id.btn_qr_share);
+
+        if (tvName != null) tvName.setText(groupName != null ? groupName : "Group");
+
+        try {
+            com.journeyapps.barcodescanner.BarcodeEncoder encoder = new com.journeyapps.barcodescanner.BarcodeEncoder();
+            groupQrBitmap = encoder.encodeBitmap(link, com.google.zxing.BarcodeFormat.QR_CODE, 600, 600);
+            if (ivQr != null) ivQr.setImageBitmap(groupQrBitmap);
+        } catch (com.google.zxing.WriterException e) {
+            Toast.makeText(this, "Could not generate QR code", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(dialogView)
+                .create();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        }
+
+        if (btnSave != null)  btnSave.setOnClickListener(v -> saveGroupQrToGallery());
+        if (btnShare != null) btnShare.setOnClickListener(v -> shareGroupQrCode());
+
+        dialog.show();
+    }
+
+    private void saveGroupQrToGallery() {
+        if (groupQrBitmap == null) return;
+        String saved = android.provider.MediaStore.Images.Media.insertImage(
+                getContentResolver(), groupQrBitmap,
+                "CallX_Group_QR_" + groupId,
+                "Invite QR code for " + groupName);
+        Toast.makeText(this, saved != null ? "QR code saved to gallery!" : "Could not save QR code.",
+                Toast.LENGTH_SHORT).show();
+    }
+
+    private void shareGroupQrCode() {
+        if (groupQrBitmap == null) return;
+        try {
+            java.io.File cacheDir = new java.io.File(getCacheDir(), "qr");
+            cacheDir.mkdirs();
+            java.io.File file = new java.io.File(cacheDir, "group_qr_" + groupId + ".png");
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(file);
+            groupQrBitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
+            fos.close();
+            Uri uri = androidx.core.content.FileProvider.getUriForFile(this,
+                    getPackageName() + ".provider", file);
+            Intent i = new Intent(Intent.ACTION_SEND);
+            i.setType("image/png");
+            i.putExtra(Intent.EXTRA_STREAM, uri);
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(i, "Share group QR code"));
+        } catch (Exception e) {
+            Toast.makeText(this, "Could not share QR code.", Toast.LENGTH_SHORT).show();
+        }
     }
 
     // ── Report group ──────────────────────────────────────────────────────
@@ -963,6 +1146,22 @@ public class GroupInfoActivity extends AppCompatActivity {
         i.putExtra("gcall_is_video",   isVideo);
         i.putExtra("gcall_is_caller",  true);
         startActivity(i);
+    }
+
+    // WHATSAPP-LEVEL FIX: admin actions (promote/demote, remove member,
+    // rename, description/icon change, settings changes in
+    // GroupSettingsActivity) only ever showed up as a system message in the
+    // chat feed, with nothing an admin could look back on separately from
+    // regular conversation. Every such action also gets a structured entry
+    // here so it's queryable on its own — see FirebaseUtils#getGroupAuditLogRef.
+    private void postAuditLog(String action, String detail) {
+        Map<String, Object> audit = new HashMap<>();
+        audit.put("action",    action);
+        audit.put("detail",    detail);
+        audit.put("byUid",     currentUid);
+        audit.put("byName",    FirebaseUtils.getCurrentName());
+        audit.put("timestamp", System.currentTimeMillis());
+        FirebaseUtils.getGroupAuditLogRef(groupId).push().setValue(audit);
     }
 
     private void postSystemMessage(String text) {
