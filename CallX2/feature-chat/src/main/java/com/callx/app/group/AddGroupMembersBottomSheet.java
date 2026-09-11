@@ -188,9 +188,10 @@ public class AddGroupMembersBottomSheet extends BottomSheetDialogFragment {
         int pending = addedUids.size();
         final int[] remaining = {pending};
         for (int i = 0; i < addedUids.size(); i++) {
-            String uid = addedUids.get(i);
+            final String uid = addedUids.get(i);
+            final String memberName = addedNames.get(i);
             java.util.Map<String, Object> memberData = new java.util.HashMap<>();
-            memberData.put("name", addedNames.get(i));
+            memberData.put("name", memberName);
             memberData.put("role", "member");
             memberData.put("addedAt", now);
             FirebaseUtils.getGroupMembersRef(groupId).child(uid).setValue(memberData)
@@ -206,7 +207,7 @@ public class AddGroupMembersBottomSheet extends BottomSheetDialogFragment {
                     .addOnFailureListener(e -> {
                         if (getContext() != null) {
                             Toast.makeText(getContext(),
-                                    "Sync failed for " + addedNames.get(i) + ": " + e.getMessage(),
+                                    "Sync failed for " + memberName + ": " + e.getMessage(),
                                     Toast.LENGTH_LONG).show();
                         }
                     });
