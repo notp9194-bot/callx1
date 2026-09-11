@@ -214,6 +214,17 @@ public class GroupChatActivity extends AppCompatActivity
     private final Map<String, String> memberRoles = new HashMap<>();
     private final Map<String, Long>   memberLastSeen = new HashMap<>();
     private final Map<String, String> memberPhotos   = new HashMap<>();
+    // WHATSAPP-LEVEL FIX: memberPhotos used to be fed ONLY from
+    // groups/{id}/memberPresence, which mirrorUserPresence() (functions/
+    // index.js) only populates once that member's presence has actually
+    // synced at least once. A freshly-added member (or one who simply
+    // hasn't opened the app since joining) has no memberPresence entry
+    // yet, so their avatar stayed blank in Message Info / mentions /
+    // typing strip indefinitely. This set tracks which uids we've already
+    // fetched a real profile photo for directly from users/{uid}, so each
+    // member is resolved once from the authoritative source regardless of
+    // presence state; memberPresence can still refresh it later.
+    private final Set<String> photoResolvedUids = new HashSet<>();
     private final Map<String, String> typingNames    = new HashMap<>();
     private int   totalMembers = 0;
     private boolean amTyping   = false;
@@ -3438,6 +3449,7 @@ public class GroupChatActivity extends AppCompatActivity
                     String role = c.child("role").getValue(String.class);
                     memberNames.put(uid, name != null ? name : "Member");
                     memberRoles.put(uid, role != null ? role : "member");
+                    resolveMemberProfileIfNeeded(uid, name == null || name.isEmpty());
                 }
                 // GROUP TICK FIX v62: memberNames/memberRoles were only ever
                 // ADDED to above, never pruned — a member who leaves the
@@ -3481,6 +3493,56 @@ public class GroupChatActivity extends AppCompatActivity
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         };
         memberPresenceRef.addValueEventListener(memberPresenceListener);
+    }
+
+    /**
+     * WHATSAPP-LEVEL FIX: resolves a member's avatar straight from
+     * users/{uid}/photoUrl (falling back to thumbUrl) the first time we
+     * see that uid, instead of waiting indefinitely for memberPresence to
+     * populate it. Single-value read per uid (not a live listener) to
+     * keep this cheap — memberPresenceListener above still refreshes the
+     * value afterwards if/when that member's presence syncs.
+     */
+    /**
+     * WHATSAPP-LEVEL FIX (follow-up): originally resolved photo only —
+     * Kamala reported the real NAME is also missing in Message Info for
+     * members whose groups/{id}/members/{uid} node predates the
+     * NewGroupActivity fix (a plain `true` boolean, no name/role/addedAt —
+     * see bug #1) or otherwise never got a name written. c.child("name")
+     * on such a node returns null, so memberNames fell back to the literal
+     * string "Member" and Message Info's readBy/deliveredOnly/pending rows
+     * showed that instead of the person's actual name. Now resolves BOTH
+     * name and photo straight from users/{uid} (the authoritative profile)
+     * the first time we see a uid whose group-node name is missing —
+     * independent of whatever shape that group's stored member data is in.
+     */
+    private void resolveMemberProfileIfNeeded(String uid, boolean nameMissing) {
+        if (uid == null || uid.equals(currentUid)) return;
+        if (!photoResolvedUids.add(uid)) return; // already fetched once
+        FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(@NonNull DataSnapshot userSnap) {
+                boolean changed = false;
+                String photo = userSnap.child("photoUrl").getValue(String.class);
+                if (photo == null) photo = userSnap.child("thumbUrl").getValue(String.class);
+                if (photo != null && !photo.isEmpty()) {
+                    memberPhotos.put(uid, photo);
+                    changed = true;
+                }
+                if (nameMissing) {
+                    String realName = userSnap.child("name").getValue(String.class);
+                    if (realName != null && !realName.isEmpty()) {
+                        memberNames.put(uid, realName);
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    if (groupMentionController != null)
+                        groupMentionController.updateMembers(memberNames, memberPhotos);
+                    if (pagingAdapter != null) pagingAdapter.setMemberPhotos(memberPhotos);
+                }
+            }
+            @Override public void onCancelled(@NonNull DatabaseError e) {}
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────

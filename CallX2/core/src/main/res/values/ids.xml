@@ -28,4 +28,13 @@
     <!-- Tag key for VerifiedBadgeUtils.bindForUid — guards against a
          recycled RecyclerView row applying a stale async result. -->
     <item name="verified_badge_uid_tag" type="id"/>
+
+    <!-- AvatarBinderCore.bind()/cancel() — tag key on an avatar ImageView
+         holding whichever resolved URL is already loaded/loading into it,
+         so a recycled row rebinding to the same person/photo doesn't
+         re-issue an identical Glide request. Shared here (instead of
+         feature-reels' own copy of the same id) since AvatarBinderCore
+         itself now lives in :core and every module's binder (ChatAvatarBinder,
+         FollowAvatarBinder, future ones) resolves R.id via this module. -->
+    <item name="tag_avatar_url" type="id"/>
 </resources>

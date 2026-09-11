@@ -5,7 +5,6 @@ import android.graphics.Bitmap;
 import android.widget.ImageView;
 
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.Priority;
 import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
@@ -14,67 +13,45 @@ import com.callx.app.utils.AvatarSizeTier;
 import com.callx.app.utils.AvatarUrlBuilder;
 
 /**
- * ChatAvatarBinder — brings the SAME deep avatar pipeline reels already has
- * (see FollowAvatarBinder in feature-reels) to the chat list
- * (ChatListAdapter / ChatsFragment).
+ * ChatAvatarBinder — the chat list's (ChatListAdapter / ChatsFragment /
+ * GroupMemberAdapter) own thin wrapper around the shared
+ * {@link AvatarBinderCore} pipeline in :core.
  *
- * Before this, ChatListAdapter's avatar bind was a flat
- * {@code Glide.load(u.thumbUrl)} — a raw un-tiered dp size (see the old
- * getAvatarSizePx: flat 50dp * density, no bucketing), no CDN transform/
- * format param, no L2/L3 reuse, no velocity-aware prefetch, and a
- * disk-only-decode-deferred gate only existed for the single "next row"
- * (preloadAdjacentAvatar), not a real scroll-speed-aware window.
+ * bind()/cancel()/prefetch() used to each carry their own full copy of the
+ * L2-check -> Glide-decode -> L2/L3-write-through logic (a second copy of
+ * exactly what FollowAvatarBinder in feature-reels also carried) -- that
+ * shared shape now lives once in AvatarBinderCore, and this class only
+ * supplies what's genuinely chat-specific:
+ *   - which cache instance    -- ChatAvatarL2Cache (its own TRIM_MEMORY_MODERATE
+ *                                 lifecycle, independent of reels' cache -- see
+ *                                 AvatarL2MemoryCache's class doc for why that
+ *                                 per-module independence matters)
+ *   - which tier(s)           -- TIER (list rows) / TIER_INLINE (canvas-drawn
+ *                                 reel-share header)
+ *   - bind knobs              -- circle-crop in software (chat rows aren't all
+ *                                 CircleImageView), HARDWARE-eligible decode
+ *                                 format, dashboard-stats recording
  *
- * This class is the chat list's single choke point for all of that,
- * exactly mirroring FollowAvatarBinder's shape so avatar behavior is
- * consistent across every list screen in the app:
- *
- *  • url()      — AvatarUrlBuilder#buildResponsive: shared AvatarSizeTier
- *                 bucket + density-bucketed dpr_ param + WebP/AVIF format
- *                 param (bestFormatParam) + ?v=<avatarVersion> cache-bust,
- *                 all server-side (see AvatarUrlBuilder class doc).
- *  • bind()     — L2 memory fast-path (ChatAvatarL2Cache, survives
- *                 TRIM_MEMORY_MODERATE) before falling back to a real Glide
- *                 decode; decode result is written back into L2 (+ L3 disk)
- *                 so the next bind of this exact URL is instant.
- *  • cancel()   — call from onViewRecycled(); stops an in-flight request for
- *                 a row that just scrolled off screen.
- *  • prefetch() — velocity-based depth (same thresholds as AvatarPrefetcher/
- *                 FollowAvatarBinder — fast fling skips entirely, slow
- *                 scroll warms several rows ahead), using
- *                 DiskCacheStrategy.DATA (raw bytes only, decode deferred to
- *                 a real bind()) so a row that gets flung past without ever
- *                 actually binding never pays a speculative CPU decode.
- *
- * ETag/Last-Modified conditional requests are NOT re-implemented here —
- * same as FollowAvatarBinder, every Glide request app-wide (this screen
- * included) already gets that for free via CallxGlideModule routing through
- * AvatarHttpCache's shared OkHttpClient.
+ * bindBitmap() (the canvas-target variant, for MessageBubbleCanvasView which
+ * isn't an ImageView Glide can .into()) stays chat-specific since
+ * AvatarBinderCore's bind() is ImageView-only -- it still shares the same
+ * ChatAvatarL2Cache/L3 entries as bind() above for an identical photo/tier.
  */
 public final class ChatAvatarBinder {
 
     private ChatAvatarBinder() {}
 
-    /** Chat list row avatar (~50dp, item_chat row) — SMALL(48) under-resolves it, so this rounds up to MEDIUM(64). */
+    /** Chat list row avatar (~50dp, item_chat row) -- SMALL(48) under-resolves it, so this rounds up to MEDIUM(64). */
     private static final AvatarSizeTier TIER = AvatarSizeTier.forViewSizeDp(50);
 
     /** Small inline avatars drawn straight onto a canvas (reel-share card
-     *  header, 24dp) — TINY tier, same bucket every other ~24-32dp avatar
+     *  header, 24dp) -- TINY tier, same bucket every other ~24-32dp avatar
      *  in the app shares (see AvatarSizeTier class doc on cross-screen
      *  cache reuse). */
     private static final AvatarSizeTier TIER_INLINE = AvatarSizeTier.forViewSizeDp(24);
 
-    // Same thresholds/depths as AvatarPrefetcher/FollowAvatarBinder — kept in
-    // sync deliberately so "fast fling" and "slow scroll" mean the same
-    // thing across every avatar list in the app.
-    private static final float FAST_FLING_THRESHOLD = 3.5f;  // px/ms — flinging past rows
-    private static final float SLOW_SCROLL_THRESHOLD = 1.0f; // px/ms — deliberate scroll
-    private static final int DEPTH_DEFAULT = 1;
-    private static final int DEPTH_SLOW    = 4;
-    private static final int DEPTH_FAST    = 0;
-
     /**
-     * v90-equivalent avatar decode format — same API-level HARDWARE-bitmap
+     * v90-equivalent avatar decode format -- same API-level HARDWARE-bitmap
      * gate ChatListAdapter's original bind used (see that class's removed
      * AVATAR_FORMAT doc): PREFER_ARGB_8888 on API 26+ lets Glide promote the
      * decoded+circleCropped bitmap to Bitmap.Config.HARDWARE (zero-copy
@@ -86,26 +63,35 @@ public final class ChatAvatarBinder {
                     ? DecodeFormat.PREFER_ARGB_8888
                     : DecodeFormat.PREFER_RGB_565;
 
-    /** Read-only view over whatever list a screen is scrolling — same shape as FollowAvatarBinder.AvatarSource. */
-    public interface AvatarSource {
-        String photo(int index);
-        long avatarVersion(int index);
-        int size();
-    }
+    /** Read-only view over whatever list a screen is scrolling. Extends
+     *  AvatarBinderCore's own interface (rather than re-declaring the same
+     *  3 methods) so every existing anonymous implementation across
+     *  ChatListAdapter/GroupMemberAdapter/etc. keeps compiling unchanged
+     *  while also satisfying AvatarBinderCore.prefetch()'s signature. */
+    public interface AvatarSource extends com.callx.app.cache.AvatarBinderCore.AvatarSource {}
 
-    /** Server-side responsive, version-tagged URL for one row — thumbUrl-equivalent input, same as the reel owner avatar. */
+    /** This module's own L2/L3 cache pair, handed to AvatarBinderCore per
+     *  call instead of AvatarBinderCore owning/sharing an instance -- keeps
+     *  chat's cache lifecycle fully independent of reels'/any other
+     *  module's, same as before this class delegated its plumbing. */
+    private static final com.callx.app.cache.AvatarBinderCore.CacheProvider CACHE =
+            new com.callx.app.cache.AvatarBinderCore.CacheProvider() {
+                @Override public AvatarL2MemoryCache l2(Context ctx) { return ChatAvatarL2Cache.get(ctx); }
+                @Override public AvatarL3DiskCache l3(Context ctx) { return ChatAvatarL2Cache.l3(ctx); }
+            };
+
+    /** Server-side responsive, version-tagged URL for one row -- thumbUrl-equivalent input, same as the reel owner avatar. */
     public static String url(Context ctx, String photo, long avatarVersion) {
-        if (photo == null || photo.isEmpty()) return null;
-        return AvatarUrlBuilder.buildResponsive(ctx, photo, TIER, avatarVersion);
+        return com.callx.app.cache.AvatarBinderCore.url(ctx, photo, avatarVersion, TIER);
     }
 
     /**
-     * FIX (advance avatar optimization — reused from FollowAvatarBinder /
+     * FIX (advance avatar optimization -- reused from FollowAvatarBinder /
      * this class's own ImageView bind()): canvas-drawn avatars (e.g. the
-     * chat reel-share card header, rendered by MessageBubbleCanvasView —
+     * chat reel-share card header, rendered by MessageBubbleCanvasView --
      * NOT an ImageView, so Glide can't .into() it directly) used to go
-     * through a flat, un-tiered {@code glide().asBitmap().load(rawUrl)}
-     * into a plain process-wide LruCache — no responsive/version-tagged
+     * through a flat, un-tiered glide().asBitmap().load(rawUrl)
+     * into a plain process-wide LruCache -- no responsive/version-tagged
      * URL (AvatarUrlBuilder#buildResponsive), no L2/L3 tier reuse with the
      * REST of chat's avatars, and none of the CDN/cache-tier analytics
      * every other avatar surface feeds into.
@@ -113,11 +99,11 @@ public final class ChatAvatarBinder {
      * This brings the exact same pipeline bind() above already gives
      * ImageView targets to a raw-Bitmap callback instead, so canvas
      * consumers get identical L2 memory fast-path, L2+L3 write-through on
-     * a fresh decode, and AvatarCacheAnalytics recording — sharing the
+     * a fresh decode, and AvatarCacheAnalytics recording -- sharing the
      * SAME ChatAvatarL2Cache entries an ImageView-bound avatar for the
      * same photo/tier would have populated (e.g. the legacy non-canvas
      * reel-share ViewHolder path, which now also calls bind() with
-     * TIER_INLINE — see MessagePagingAdapter).
+     * TIER_INLINE -- see MessagePagingAdapter).
      */
     public interface BitmapCallback {
         void onBitmap(Bitmap bitmap);
@@ -185,59 +171,15 @@ public final class ChatAvatarBinder {
     }
 
     /** Same as {@link #bind(Context, ImageView, String, long, int)} but for
-     *  a caller-specified tier — e.g. TIER_INLINE for the ~24dp reel-share
+     *  a caller-specified tier -- e.g. TIER_INLINE for the ~24dp reel-share
      *  avatar, so it shares L2/L3 cache entries with bindBitmap()'s canvas
      *  path for the same photo instead of decoding/caching a second,
      *  differently-sized copy under the chat-list row's MEDIUM tier. */
     public static void bind(Context ctx, ImageView iv, String photo, long avatarVersion, int placeholderRes, AvatarSizeTier tier) {
-        if (photo == null || photo.isEmpty()) {
-            iv.setImageResource(placeholderRes);
-            return;
-        }
-        String url = AvatarUrlBuilder.buildResponsive(ctx, photo, tier, avatarVersion);
-        Bitmap l2Hit = ChatAvatarL2Cache.get(ctx).get(url);
-        if (l2Hit != null) {
-            iv.setImageBitmap(l2Hit);
-            CacheDashboardStats dashboard = CacheDashboardStats.getInstance(ctx);
-            dashboard.recordMemoryHit("avatar:" + url);
-            dashboard.recordMemoryEntry("avatar:" + url, l2Hit.getByteCount());
-            AvatarCacheAnalytics.getInstance(ctx).record(AvatarCacheAnalytics.Tier.L2_MEMORY);
-            return;
-        }
-        Glide.with(ctx)
-            .load(url)
-            .dontAnimate()
-            .apply(RequestOptions.circleCropTransform()
-                    .format(AVATAR_FORMAT)
-                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
-            .placeholder(placeholderRes)
-            .error(placeholderRes)
-            .listener(new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
-                @Override
-                public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model,
-                                             com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
-                                             boolean isFirstResource) {
-                    CacheDashboardStats.getInstance(ctx).recordMemoryMiss("avatar:" + url);
-                    CacheDashboardStats.getInstance(ctx).recordDiskMiss("avatar:" + url);
-                    return false;
-                }
-                @Override
-                public boolean onResourceReady(android.graphics.drawable.Drawable resource, Object model,
-                                                com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
-                                                com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
-                    CacheDashboardStats.getInstance(ctx)
-                            .recordGlideResult("avatar:" + url, dataSource, resource);
-                    AvatarCacheAnalytics.getInstance(ctx)
-                        .record(AvatarCacheAnalytics.fromGlideDataSource(dataSource));
-                    if (resource instanceof android.graphics.drawable.BitmapDrawable) {
-                        Bitmap bmp = ((android.graphics.drawable.BitmapDrawable) resource).getBitmap();
-                        ChatAvatarL2Cache.get(ctx).put(url, bmp);
-                        ChatAvatarL2Cache.l3(ctx).put(url, bmp);
-                    }
-                    return false;
-                }
-            })
-            .into(iv);
+        com.callx.app.cache.AvatarBinderCore.bind(ctx, iv, photo, avatarVersion,
+                CACHE, new com.callx.app.cache.AvatarBinderCore.BindOptions(
+                        tier, AVATAR_FORMAT, /*circleCrop=*/true, /*dontAnimate=*/true,
+                        /*recordDashboardStats=*/true, placeholderRes));
     }
 
     /**
@@ -247,42 +189,21 @@ public final class ChatAvatarBinder {
      * bandwidth/decode time against whatever's now actually visible.
      */
     public static void cancel(Context ctx, ImageView iv) {
-        try { Glide.with(ctx).clear(iv); } catch (Exception ignored) {}
+        com.callx.app.cache.AvatarBinderCore.cancel(ctx, iv);
     }
 
     /**
      * FIX (velocity-based prefetch + disk-only gate): fast fling past the
-     * chat list → skip prefetch entirely (would be wasted work — the user
+     * chat list -> skip prefetch entirely (would be wasted work -- the user
      * blows past a row before its avatar even finishes decoding); slow/
-     * deliberate scroll → warm several rows ahead. Uses
-     * {@link DiskCacheStrategy#DATA} — raw bytes cached, NOT the full
-     * decoded bitmap — for rows that might still get flung past without
-     * ever binding; the full RESOURCE decode only happens in {@link #bind}
+     * deliberate scroll -> warm several rows ahead. Uses
+     * DiskCacheStrategy.DATA -- raw bytes cached, NOT the full
+     * decoded bitmap -- for rows that might still get flung past without
+     * ever binding; the full RESOURCE decode only happens in bind()
      * once a row genuinely becomes visible, so this never pays CPU decode
      * cost speculatively, only the (cheap, disk-cached) network fetch.
      */
     public static void prefetch(Context context, AvatarSource source, int fromIndex, float velocityPxPerMs) {
-        if (context == null || source == null) return;
-        int depth = depthForVelocity(velocityPxPerMs);
-        if (depth == 0) return;
-        Context appCtx = context.getApplicationContext();
-        int size = source.size();
-        for (int i = Math.max(0, fromIndex); i < fromIndex + depth && i < size; i++) {
-            String photo = source.photo(i);
-            if (photo == null || photo.isEmpty()) continue;
-            String url = url(appCtx, photo, source.avatarVersion(i));
-            Glide.with(appCtx)
-                .load(url)
-                .diskCacheStrategy(DiskCacheStrategy.DATA) // bytes only — decode deferred to a real bind
-                .priority(Priority.LOW)                    // never competes with a visible row's own request
-                .preload();
-        }
-    }
-
-    private static int depthForVelocity(float v) {
-        if (v <= 0f) return DEPTH_DEFAULT;
-        if (v >= FAST_FLING_THRESHOLD) return DEPTH_FAST;
-        if (v <= SLOW_SCROLL_THRESHOLD) return DEPTH_SLOW;
-        return DEPTH_DEFAULT;
+        com.callx.app.cache.AvatarBinderCore.prefetch(context, source, fromIndex, velocityPxPerMs, TIER);
     }
 }

@@ -121,9 +121,36 @@ public class NewGroupActivity extends AppCompatActivity {
         if (groupIconUrl != null && !groupIconUrl.isEmpty()) {
             g.put("iconUrl", groupIconUrl);
         }
-        Map<String, Boolean> members = new HashMap<>();
-        members.put(currentUid, true);
-        for (String uid : selected) members.put(uid, true);
+        // WHATSAPP-LEVEL FIX: this used to write members as a bare
+        // Map<String, Boolean> (uid -> true). GroupInfoActivity /
+        // GroupChatActivity read member.child("name")/child("role") off
+        // this same "members" node — on a plain boolean node those reads
+        // return null, so every initial member showed the generic
+        // "Member" fallback forever (only members added later via
+        // AddGroupMembersBottomSheet got a real name, since that flow
+        // already wrote a full object). Mirror AddGroupMembersBottomSheet's
+        // memberData shape ({name, role, addedAt}) here so creation-time
+        // members are indistinguishable from later-added ones.
+        long now = System.currentTimeMillis();
+        Map<String, String> nameByUid = new HashMap<>();
+        for (User u : contacts) {
+            if (u.uid != null && u.name != null) nameByUid.put(u.uid, u.name);
+        }
+        String myName = FirebaseUtils.getCurrentName();
+
+        Map<String, Object> members = new HashMap<>();
+        Map<String, Object> creatorData = new HashMap<>();
+        creatorData.put("name", myName != null ? myName : "");
+        creatorData.put("role", "creator");
+        creatorData.put("addedAt", now);
+        members.put(currentUid, creatorData);
+        for (String uid : selected) {
+            Map<String, Object> memberData = new HashMap<>();
+            memberData.put("name", nameByUid.containsKey(uid) ? nameByUid.get(uid) : "");
+            memberData.put("role", "member");
+            memberData.put("addedAt", now);
+            members.put(uid, memberData);
+        }
         g.put("members", members);
         Map<String, Boolean> admins = new HashMap<>();
         admins.put(currentUid, true);

@@ -802,7 +802,8 @@ public class CallxMessagingService extends FirebaseMessagingService {
         final String mediaUrl   = data.getOrDefault("mediaUrl", "");
         final String rawTextEncrypted = data.getOrDefault("text", "Naya message");
         final String type       = data.getOrDefault("type", "message");
-        final String msgIdForDecrypt = data.getOrDefault("msgId", "");
+        final String extractedMsgIdFor1to1 = extractMsgId(data);
+        final String msgIdForDecrypt = extractedMsgIdFor1to1 != null ? extractedMsgIdFor1to1 : "";
         // E2EE FIX: server never sees plaintext for 1:1 E2E messages — the
         // "text" field in the FCM payload is the SAME ratchet envelope
         // ("e2r1:{...}") that's stored on Firebase. Every other place that
@@ -848,7 +849,8 @@ public class CallxMessagingService extends FirebaseMessagingService {
             showTypingNotification(fromUid, fromName, chatId, notifId, subText);
             return;
         }
-        final String msgId = data.getOrDefault("msgId", fromUid + "_" + System.currentTimeMillis());
+        final String msgId = extractedMsgIdFor1to1 != null ? extractedMsgIdFor1to1
+                : fromUid + "_" + System.currentTimeMillis();
         saveMessageToDb(msgId, chatId, fromUid, fromName, rawText, type, mediaUrl,
             data.getOrDefault("fileName", null), false);
 
@@ -1643,7 +1645,9 @@ public class CallxMessagingService extends FirebaseMessagingService {
         final String text = previewTextFor(messageTypeFromGroupType(type), rawText);
 
         // ── Real-time DB insert: save group message to Room DB immediately ────
-        final String grpMsgId = data.getOrDefault("msgId", fromUid + "_" + System.currentTimeMillis());
+        final String extractedGrpMsgId = extractMsgId(data);
+        final String grpMsgId = extractedGrpMsgId != null ? extractedGrpMsgId
+                : fromUid + "_" + System.currentTimeMillis();
         saveMessageToDb(grpMsgId, groupId, fromUid, fromName,
             rawText, messageTypeFromGroupType(type),
             data.getOrDefault("mediaUrl", ""),
@@ -2157,6 +2161,27 @@ public class CallxMessagingService extends FirebaseMessagingService {
                 android.util.Log.w("STATUS_NOTIF", "Failed to save status notif: " + e.getMessage());
             }
         });
+    }
+
+    /**
+     * WHATSAPP-LEVEL FIX: the send side (PushNotify.notifyMessage /
+     * notifyGroupRich) POSTs the real message's push key under the JSON
+     * field "messageId" — but this FCM data-payload reader was only ever
+     * looking for "msgId". Whenever the server forwards that field through
+     * to FCM under its original name (no server-side rename), data.get("msgId")
+     * came back null and every call site below fell through to a fabricated
+     * fromUid+"_"+timestamp id that matches nothing in Firebase — so
+     * deliveredBy/readBy acks (and E2EE's per-message decrypt cache) wrote
+     * to a phantom node the real message never sees. Checking every known
+     * key name — not just one — makes this resilient regardless of which
+     * name the payload actually arrives under.
+     */
+    private static String extractMsgId(Map<String, String> data) {
+        for (String key : new String[]{"msgId", "messageId", "message_id"}) {
+            String v = data.get(key);
+            if (v != null && !v.isEmpty()) return v;
+        }
+        return null;
     }
 
     // ════════════════════════════════════════════════════════════════
