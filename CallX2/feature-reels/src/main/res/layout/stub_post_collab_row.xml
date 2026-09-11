@@ -40,19 +40,23 @@
                 android:textSize="13.5sp"
                 android:textStyle="bold"
                 android:fontFamily="sans-serif-medium"/>
+            <!-- Same premium outline style as btn_post_follow above — no
+                 fill colour, 8dp rounded corners, bigger tap box, blue
+                 brand-colour border + text (light background row). -->
             <TextView
                 android:id="@+id/tv_collab_follow_btn"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="10dp"
                 android:text="Follow"
-                android:textColor="@color/follow_button_text"
+                android:textColor="@color/follow_button_primary"
                 android:textSize="13sp"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp"
-                android:paddingTop="2dp"
-                android:paddingBottom="2dp"
-                android:background="@drawable/bg_btn_follow_pill"
+                android:gravity="center"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:paddingTop="5dp"
+                android:paddingBottom="5dp"
+                android:background="@drawable/bg_follow_btn_premium_light"
                 android:visibility="gone"/>
         </LinearLayout>
 

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Premium outline Follow button — light-background twin of
+     bg_follow_btn_premium_dark.xml, reused by item_post_feed_photo.xml's
+     btn_post_follow and stub_post_collab_row.xml's tv_collab_follow_btn
+     (both sit on @color/background_light rows, not video overlays). No
+     solid fill (transparent box only), 8dp rounded corners, brand-colour
+     border matching the existing follow_button_primary text colour. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent"/>
+            <stroke android:width="1.2dp" android:color="@color/follow_button_pressed"/>
+            <corners android:radius="8dp"/>
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent"/>
+            <stroke android:width="1.2dp" android:color="@color/follow_button_primary"/>
+            <corners android:radius="8dp"/>
+        </shape>
+    </item>
+</selector>

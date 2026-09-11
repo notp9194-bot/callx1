@@ -39,6 +39,8 @@
                 android:textSize="15sp"
                 android:textStyle="bold"
                 android:fontFamily="sans-serif-medium"/>
+            <!-- Same premium outline style as the non-collab tv_follow_btn —
+                 no fill colour, 8dp rounded corners, bigger tap box. -->
             <TextView
                 android:id="@+id/tv_collab_follow_btn"
                 android:layout_width="wrap_content"
@@ -47,11 +49,12 @@
                 android:text="Follow"
                 android:textColor="@color/follow_button_text"
                 android:textSize="13sp"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp"
-                android:paddingTop="2dp"
-                android:paddingBottom="2dp"
-                android:background="@drawable/bg_reel_follow_btn"
+                android:gravity="center"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:paddingTop="5dp"
+                android:paddingBottom="5dp"
+                android:background="@drawable/bg_follow_btn_premium_dark"
                 android:visibility="gone"/>
         </LinearLayout>
 

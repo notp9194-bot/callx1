@@ -208,7 +208,9 @@
                 app:layout_constraintEnd_toStartOf="@id/btn_post_follow"
                 app:layout_constraintTop_toTopOf="parent"/>
 
-            <!-- Follow — Instagram-style plain bold text, no pill (overlaid on dark video header, same as Reels) -->
+            <!-- Follow — premium outline style (no fill colour, 8dp rounded
+                 corners, bigger tap box), reused identically from Reels'
+                 tv_follow_btn (overlaid on dark video header, same as Reels) -->
             <TextView
                 android:id="@+id/btn_post_follow"
                 android:layout_width="wrap_content"
@@ -218,6 +220,11 @@
                 android:textSize="13sp"
                 android:fontFamily="sans-serif-medium"
                 android:gravity="center"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:paddingTop="5dp"
+                android:paddingBottom="5dp"
+                android:background="@drawable/bg_follow_btn_premium_dark"
                 android:visibility="gone"
                 android:layout_marginEnd="10dp"
                 android:clickable="true"

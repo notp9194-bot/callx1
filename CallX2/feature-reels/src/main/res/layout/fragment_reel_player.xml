@@ -655,6 +655,10 @@
                         android:src="@drawable/ic_verified_pink"
                         android:visibility="gone"
                         android:contentDescription="Verified"/>
+                    <!-- Premium outline style: no fill colour, 8dp rounded
+                         corners, slightly bigger tap box — reused identically
+                         for the collab variant (tv_collab_follow_btn) and on
+                         Home feed / Post feed. -->
                     <TextView
                         android:id="@+id/tv_follow_btn"
                         android:layout_width="wrap_content"
@@ -664,6 +668,12 @@
                         android:textColor="@color/follow_button_text"
                         android:textSize="13sp"
                         android:fontFamily="sans-serif-medium"
+                        android:gravity="center"
+                        android:paddingStart="14dp"
+                        android:paddingEnd="14dp"
+                        android:paddingTop="5dp"
+                        android:paddingBottom="5dp"
+                        android:background="@drawable/bg_follow_btn_premium_dark"
                         android:visibility="visible"/>
                 </LinearLayout>
 
