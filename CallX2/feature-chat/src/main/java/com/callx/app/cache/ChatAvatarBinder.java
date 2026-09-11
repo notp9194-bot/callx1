@@ -204,6 +204,6 @@ public final class ChatAvatarBinder {
      * cost speculatively, only the (cheap, disk-cached) network fetch.
      */
     public static void prefetch(Context context, AvatarSource source, int fromIndex, float velocityPxPerMs) {
-        com.callx.app.cache.AvatarBinderCore.prefetch(context, source, fromIndex, velocityPxPerMs, TIER);
+        com.callx.app.cache.AvatarBinderCore.prefetch(context, source, fromIndex, velocityPxPerMs, TIER, CACHE);
     }
 }
