@@ -169,7 +169,7 @@ public class ChannelInviteLinkActivity extends AppCompatActivity {
             qrBitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
             fos.close();
             android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(this,
-                getPackageName() + ".provider", file);
+                getPackageName() + ".fileprovider", file);
             Intent i = new Intent(Intent.ACTION_SEND);
             i.setType("image/png"); i.putExtra(Intent.EXTRA_STREAM, uri);
             i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);

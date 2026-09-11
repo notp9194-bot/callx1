@@ -1045,7 +1045,7 @@ public class GroupInfoActivity extends AppCompatActivity {
             groupQrBitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
             fos.close();
             Uri uri = androidx.core.content.FileProvider.getUriForFile(this,
-                    getPackageName() + ".provider", file);
+                    getPackageName() + ".fileprovider", file);
             Intent i = new Intent(Intent.ACTION_SEND);
             i.setType("image/png");
             i.putExtra(Intent.EXTRA_STREAM, uri);

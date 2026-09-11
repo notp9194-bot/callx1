@@ -23,6 +23,12 @@
         <activity android:name="com.callx.app.starred.StarredMessagesActivity"
             android:exported="false"
             android:parentActivityName="com.callx.app.conversation.ChatActivity"/>
+
+        <!-- In-app .txt file viewer — WhatsApp-level "view after send" for
+             large-text-sent-as-file messages (see TextFileViewerActivity). -->
+        <activity android:name="com.callx.app.conversation.TextFileViewerActivity"
+            android:exported="false"
+            android:parentActivityName="com.callx.app.conversation.ChatActivity"/>
         <activity android:name="com.callx.app.settings.MutedChatsActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>

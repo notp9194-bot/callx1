@@ -3516,12 +3516,37 @@ public class MessagePagingAdapter
                     final String fileNameForOpen = m.fileName != null ? m.fileName : "File";
                     final String mimeForOpen = guessMimeFromFileName(fileNameForOpen);
                     android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
-                            ctx, ctx.getPackageName() + ".provider", cached);
+                            ctx, ctx.getPackageName() + ".fileprovider", cached);
+
+                    // WhatsApp-level: .txt files open in an in-app reader
+                    // instead of bouncing out to an external app chooser.
+                    if ("text/plain".equalsIgnoreCase(mimeForOpen)
+                            || fileNameForOpen.toLowerCase(java.util.Locale.ROOT).endsWith(".txt")) {
+                        com.callx.app.conversation.TextFileViewerActivity.start(
+                                ctx, uri, fileNameForOpen);
+                        return;
+                    }
+
                     android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
                     intent.setDataAndType(uri, mimeForOpen.isEmpty() ? "*/*" : mimeForOpen);
                     intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
                             | android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                    ctx.startActivity(intent);
+                    try {
+                        ctx.startActivity(intent);
+                    } catch (android.content.ActivityNotFoundException noApp) {
+                        // No app can handle this mime type — offer a chooser so the
+                        // user isn't left with a silent no-op tap (WhatsApp shows
+                        // "No application can open this file" + a chooser prompt).
+                        try {
+                            android.content.Intent chooser = android.content.Intent.createChooser(
+                                    intent, "Open " + fileNameForOpen + " with");
+                            chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                            ctx.startActivity(chooser);
+                        } catch (Exception ignored2) {
+                            android.widget.Toast.makeText(ctx,
+                                    "No app found to open this file", android.widget.Toast.LENGTH_SHORT).show();
+                        }
+                    }
                 } catch (Exception ignored) { /* no app handles this type */ }
             }
 
