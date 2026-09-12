@@ -5762,7 +5762,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private float headerHideThresholdPx = 0f;
 
     private void setupHeaderAutoHide() {
-        if (binding.cvHeaderCapsule == null || binding.rvMessages == null) return;
+        if (binding.toolbar == null || binding.rvMessages == null) return;
         headerHideThresholdPx = 24f * getResources().getDisplayMetrics().density;
         // PERF (scroll-listener consolidation): onScrolled/onScrollStateChanged
         // bodies moved into handleHeaderAutoHideScrolled()/
@@ -5771,7 +5771,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     private void handleHeaderAutoHideScrolled(int dy) {
-        if (binding.cvHeaderCapsule == null) return;
+        if (binding.toolbar == null) return;
         if (Math.abs(dy) < 2) return;
 
         // Don't fight with selection/search modes — keep header visible there.
@@ -5801,7 +5801,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     private void handleHeaderAutoHideStateChanged(@NonNull RecyclerView rv, int newState) {
-        if (binding.cvHeaderCapsule == null) return;
+        if (binding.toolbar == null) return;
         // Always reveal the header once the list comes to rest at the very
         // top of the loaded page — avoids it staying hidden with nothing
         // left to scroll.
@@ -5814,10 +5814,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     private void hideHeaderCapsule() {
-        if (binding.cvHeaderCapsule == null || isHeaderCapsuleHidden) return;
+        if (binding.toolbar == null || isHeaderCapsuleHidden) return;
         isHeaderCapsuleHidden = true;
-        float distance = binding.cvHeaderCapsule.getHeight()
-                + binding.cvHeaderCapsule.getTop()
+        float distance = binding.toolbar.getHeight()
+                + binding.toolbar.getTop()
                 + (16f * getResources().getDisplayMetrics().density);
         // PERF (ultra-opt pass): withLayer() caches the capsule's whole
         // subtree (avatar, ripple buttons, card corner clip + elevation
@@ -5828,7 +5828,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // flinging, so it's directly competing for the same 16ms frame
         // budget. ViewPropertyAnimator auto-restores LAYER_TYPE_NONE when
         // the animation ends, so no manual cleanup needed.
-        binding.cvHeaderCapsule.animate()
+        binding.toolbar.animate()
                 .translationY(-distance)
                 .alpha(0f)
                 .setDuration(220)
@@ -5838,9 +5838,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     private void showHeaderCapsule() {
-        if (binding.cvHeaderCapsule == null || !isHeaderCapsuleHidden) return;
+        if (binding.toolbar == null || !isHeaderCapsuleHidden) return;
         isHeaderCapsuleHidden = false;
-        binding.cvHeaderCapsule.animate()
+        binding.toolbar.animate()
                 .translationY(0f)
                 .alpha(1f)
                 .setDuration(220)
