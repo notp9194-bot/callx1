@@ -135,7 +135,9 @@ public class ChatThemeManager {
     }
 
     public int getChatBgColor(Context ctx) {
-        return resolveColor(ctx, com.callx.app.core.R.color.surface_chat_bg);
+        // Kept in sync with applyScreenTheme()'s unified chatBgColor —
+        // header, chat background, and input bar are all bar_background now.
+        return resolveColor(ctx, com.callx.app.core.R.color.bar_background);
     }
 
     public int getInputBarColor(Context ctx) {
@@ -157,8 +159,17 @@ public class ChatThemeManager {
         Context ctx = toolbar.getContext();
 
         int barColor    = resolveColor(ctx, com.callx.app.core.R.color.bar_background);
-        int chatBgColor = resolveColor(ctx, com.callx.app.core.R.color.surface_chat_bg);
         int brandColor  = resolveColor(ctx, com.callx.app.core.R.color.brand_primary);
+
+        // UNIFIED BACKGROUND: header, chat background, and the input bar all
+        // use the exact same @color/bar_background — previously chatRoot used
+        // @color/surface_chat_bg (a different, lighter color) while the
+        // toolbar/input bar used bar_background, so the header/input strip
+        // visibly didn't match the chat body behind them. Same color also
+        // shows through the transparent status bar / nav bar (see
+        // ImmersiveModeUtils), so status bar, header, chat background, and
+        // bottom nav bar all read as one continuous color.
+        int chatBgColor = barColor;
 
         // Solid toolbar — matches @color/bar_background in XML (no gradient override)
         GradientDrawable toolbarBg = new GradientDrawable();

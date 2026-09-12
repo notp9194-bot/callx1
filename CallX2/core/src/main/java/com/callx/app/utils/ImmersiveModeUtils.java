@@ -70,8 +70,18 @@ public final class ImmersiveModeUtils {
                 | View.SYSTEM_UI_FLAG_FULLSCREEN
                 | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
 
-        window.setStatusBarColor(Color.TRANSPARENT);
-        window.setNavigationBarColor(Color.TRANSPARENT);
+        // Explicit color (not TRANSPARENT) so the system status/nav bars are
+        // *guaranteed* to match the header/chat-background/input-bar color
+        // exactly (see ChatThemeManager's unified bar_background), rather
+        // than depending on whichever content happens to sit behind a
+        // transparent bar. Content still draws edge-to-edge underneath
+        // (decorFitsSystemWindows(false) above), so this only changes what's
+        // visible in the ~1px sliver during a swipe-reveal — brief and now
+        // color-matched instead of see-through.
+        int barColor = androidx.core.content.ContextCompat.getColor(
+                activity, com.callx.app.core.R.color.bar_background);
+        window.setStatusBarColor(barColor);
+        window.setNavigationBarColor(barColor);
     }
 
     /**
@@ -98,8 +108,15 @@ public final class ImmersiveModeUtils {
 
         window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
 
-        window.setStatusBarColor(Color.TRANSPARENT);
-        window.setNavigationBarColor(Color.TRANSPARENT);
+        // Same reasoning as enterImmersive(): explicit color instead of
+        // TRANSPARENT. It matters even more here since decorFitsSystemWindows
+        // is true in this mode, so content does NOT draw behind the bars —
+        // TRANSPARENT would show the OS's own default rather than matching
+        // the header/chat background/input bar.
+        int barColor = androidx.core.content.ContextCompat.getColor(
+                activity, com.callx.app.core.R.color.bar_background);
+        window.setStatusBarColor(barColor);
+        window.setNavigationBarColor(barColor);
     }
 
     /** Convenience: applies immersive or normal chrome based on a single flag. */
