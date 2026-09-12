@@ -894,13 +894,13 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@android:color/transparent"
+            android:background="@color/surface_chat_bg"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingTop="10dp"
-            android:paddingBottom="10dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="12dp"
             android:paddingStart="8dp"
-            android:paddingEnd="10dp">
+            android:paddingEnd="12dp">
 
                 <!-- Back button — iOS chevron, no circular ripple/tail bar -->
                 <ImageButton
@@ -912,25 +912,34 @@
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="Back"/>
 
-                <!-- Avatar + online dot (clickable to open profile) -->
+                <!-- Avatar + soft glow halo + online dot (clickable to open profile) -->
                 <FrameLayout
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:layout_marginStart="4dp">
+                    android:layout_width="54dp"
+                    android:layout_height="54dp"
+                    android:layout_marginStart="2dp">
+
+                    <!-- Soft glow halo behind the avatar, matches reference screenshot -->
+                    <View
+                        android:layout_width="54dp"
+                        android:layout_height="54dp"
+                        android:background="@drawable/bg_header_avatar_glow"/>
 
                     <de.hdodenhof.circleimageview.CircleImageView
                         android:id="@+id/iv_partner_avatar"
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
+                        android:layout_width="42dp"
+                        android:layout_height="42dp"
+                        android:layout_gravity="center"
                         android:src="@drawable/ic_person"
                         android:clickable="true"
                         android:focusable="true"/>
 
                     <View
                         android:id="@+id/view_header_online_dot"
-                        android:layout_width="12dp"
-                        android:layout_height="12dp"
+                        android:layout_width="15dp"
+                        android:layout_height="15dp"
                         android:layout_gravity="bottom|end"
+                        android:layout_marginEnd="4dp"
+                        android:layout_marginBottom="4dp"
                         android:background="@drawable/bg_header_online_dot"
                         android:visibility="gone"/>
                 </FrameLayout>
@@ -959,7 +968,7 @@
                             android:layout_height="wrap_content"
                             android:text="Contact Name"
                             android:textColor="@color/white"
-                            android:textSize="16sp"
+                            android:textSize="18sp"
                             android:textStyle="bold"
                             android:maxLines="1"
                             android:ellipsize="end"/>
@@ -1054,36 +1063,40 @@
                     android:visibility="gone"
                     android:contentDescription="View YouTube Channel"/>
 
-                <!-- Video call button -->
+                <!-- Video call button — frosted circle, matches reference screenshot -->
                 <ImageButton
                     android:id="@+id/btn_toolbar_video_call"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="4dp"
                     android:src="@drawable/ic_video_call"
                     android:tint="@color/white"
-                    android:background="@null"
-                    android:padding="6dp"
+                    android:background="@drawable/bg_header_icon_circle"
+                    android:padding="9dp"
                     android:contentDescription="Video call"/>
 
-                <!-- Voice call button -->
+                <!-- Voice call button — frosted circle, matches reference screenshot -->
                 <ImageButton
                     android:id="@+id/btn_toolbar_voice_call"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="6dp"
                     android:src="@drawable/ic_phone"
                     android:tint="@color/white"
-                    android:background="@null"
-                    android:padding="7dp"
+                    android:background="@drawable/bg_header_icon_circle"
+                    android:padding="10dp"
                     android:contentDescription="Voice call"/>
 
-                <!-- More options (3-dot menu) -->
+                <!-- More options (3-dot menu) — frosted circle, matches reference screenshot -->
                 <ImageButton
                     android:id="@+id/btn_more_options"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="6dp"
                     android:src="@drawable/ic_more_vert"
                     android:tint="@color/white"
-                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:background="@drawable/bg_header_icon_circle"
+                    android:padding="9dp"
                     android:contentDescription="More options"/>
 
         </LinearLayout>

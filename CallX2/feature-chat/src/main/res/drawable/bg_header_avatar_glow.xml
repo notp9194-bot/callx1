@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Soft light-blue halo behind the header avatar (reference screenshot
+     shows a gentle glow around the avatar circle). Radial gradient fades
+     to fully transparent so it blends into whatever sits behind the
+     header (wallpaper or the flat header background). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <gradient
+        android:type="radial"
+        android:gradientRadius="27dp"
+        android:centerColor="#4DBFD8FF"
+        android:endColor="#00BFD8FF"
+        android:useLevel="false"/>
+</shape>
