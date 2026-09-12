@@ -62,8 +62,13 @@ public class CommunityMentionSuggestionsAdapter
         CommunityMemberEntity m = differ.getCurrentList().get(pos);
         h.tvName.setText("@" + (m.name != null ? m.name : "Member"));
         if (m.photoUrl != null && !m.photoUrl.isEmpty()) {
+            // FIX (avatar delta-sync gap): m.photoUrl is a real user avatar —
+            // resolve avatarVersion via AvatarVersionSyncManager's cached
+            // fallback, same as CommunityMemberAdapter's row avatar.
+            long version = (m.uid != null && !m.uid.isEmpty())
+                    ? com.callx.app.cache.AvatarVersionSyncManager.getInstance(h.ivAvatar.getContext()).getCachedVersion(m.uid) : 0L;
             com.callx.app.cache.CommunityAvatarBinder.bindIcon(h.ivAvatar.getContext(), h.ivAvatar,
-                    m.photoUrl, com.callx.app.cache.CommunityAvatarBinder.TIER_POST_AUTHOR, R.drawable.ic_person);
+                    m.photoUrl, com.callx.app.cache.CommunityAvatarBinder.TIER_POST_AUTHOR, R.drawable.ic_person, version);
         } else {
             h.ivAvatar.setImageResource(R.drawable.ic_person);
         }

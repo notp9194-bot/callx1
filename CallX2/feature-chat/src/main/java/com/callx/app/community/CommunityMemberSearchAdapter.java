@@ -8,13 +8,9 @@ import androidx.recyclerview.widget.AsyncListDiffer;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.DecodeFormat;
-import com.bumptech.glide.load.engine.DiskCacheStrategy;
-import com.bumptech.glide.request.RequestOptions;
-import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.target.Target;
-import com.bumptech.glide.request.transition.Transition;
+import com.callx.app.cache.AvatarVersionSyncManager;
+import com.callx.app.cache.CommunityAvatarBinder;
 import com.callx.app.community.canvas.CommunityMemberSearchCanvasView;
 import com.callx.app.db.entity.CommunityMemberEntity;
 
@@ -40,21 +36,9 @@ public class CommunityMemberSearchAdapter
             };
 
     private final AsyncListDiffer<CommunityMemberEntity> differ = new AsyncListDiffer<>(this, DIFF);
-    private RequestOptions avatarOptions;
 
     public void submitList(List<CommunityMemberEntity> list) {
         differ.submitList(list == null ? Collections.emptyList() : list);
-    }
-
-    private RequestOptions avatarOptions(android.content.Context ctx) {
-        if (avatarOptions == null) {
-            int px = Math.round(40 * ctx.getResources().getDisplayMetrics().density);
-            avatarOptions = RequestOptions.circleCropTransform()
-                    .override(px, px)
-                    .format(DecodeFormat.PREFER_RGB_565)
-                    .diskCacheStrategy(DiskCacheStrategy.ALL);
-        }
-        return avatarOptions;
     }
 
     @NonNull @Override
@@ -70,21 +54,20 @@ public class CommunityMemberSearchAdapter
         CommunityMemberEntity m = differ.getCurrentList().get(pos);
         h.canvasView.bind(m);
 
-        if (h.avatarTarget != null) Glide.with(h.canvasView.getContext()).clear(h.avatarTarget);
+        if (h.avatarTarget != null) CommunityAvatarBinder.cancelBitmap(h.canvasView.getContext(), h.avatarTarget);
 
+        // FIX (avatar-pipeline parity): was a hand-rolled 40dp*density
+        // override, RGB_565, Glide's own ALL disk cache only — disconnected
+        // from CommunityAvatarBinder's tiered/responsive URL and
+        // ChatAvatarL2Cache L2/L3 + analytics. TIER_POST_AUTHOR (40dp)
+        // matches this row's actual draw size, so the same member's photo
+        // shares cache entries with their post-author avatar elsewhere.
         if (m.photoUrl != null && !m.photoUrl.isEmpty()) {
-            h.avatarTarget = new CustomTarget<Bitmap>() {
-                @Override public void onResourceReady(@NonNull Bitmap bmp, Transition<? super Bitmap> t) {
-                    h.canvasView.setAvatarBitmap(bmp);
-                }
-                @Override public void onLoadCleared(android.graphics.drawable.Drawable p) {
-                    h.canvasView.setAvatarBitmap(null);
-                }
-            };
-            Glide.with(h.canvasView.getContext()).asBitmap()
-                    .load(m.photoUrl)
-                    .apply(avatarOptions(h.canvasView.getContext()))
-                    .into(h.avatarTarget);
+            long memberVersion = (m.uid != null && !m.uid.isEmpty())
+                    ? AvatarVersionSyncManager.getInstance(h.canvasView.getContext()).getCachedVersion(m.uid) : 0L;
+            h.avatarTarget = CommunityAvatarBinder.bindBitmap(
+                    h.canvasView.getContext(), m.photoUrl, CommunityAvatarBinder.TIER_POST_AUTHOR,
+                    memberVersion, bmp -> h.canvasView.setAvatarBitmap(bmp));
         } else {
             h.avatarTarget = null;
         }
@@ -93,7 +76,7 @@ public class CommunityMemberSearchAdapter
     @Override public void onViewRecycled(@NonNull VH h) {
         super.onViewRecycled(h);
         if (h.avatarTarget != null) {
-            Glide.with(h.canvasView.getContext()).clear(h.avatarTarget);
+            CommunityAvatarBinder.cancelBitmap(h.canvasView.getContext(), h.avatarTarget);
             h.avatarTarget = null;
         }
     }

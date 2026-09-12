@@ -9,6 +9,7 @@ import androidx.recyclerview.widget.AsyncListDiffer;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.cache.ChatAvatarBinder;
+import com.callx.app.cache.AvatarVersionSyncManager;
 import com.callx.app.chat.R;
 import com.callx.app.group.canvas.MemberIdentityCanvasView;
 import com.callx.app.utils.Constants;
@@ -211,7 +212,13 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
         String avatarUrl = (m.thumbUrl != null && !m.thumbUrl.isEmpty())
             ? m.thumbUrl
             : (m.photoUrl != null && !m.photoUrl.isEmpty() ? m.photoUrl : null);
-        ChatAvatarBinder.bind(ctx, h.ivAvatar, avatarUrl, m.avatarVersion, R.drawable.ic_person);
+        // FIX (avatar delta-sync gap): fall back through AvatarVersionSyncManager's
+        // cached version when this member row's own snapshot hasn't resolved one —
+        // same reasoning/shape as ChatListAdapter#resolveAvatarVersion, so a member
+        // who just changed their photo (observed by their profile screen, a status,
+        // a reel...) shows up-to-date here on the next bind instead of only after
+        // GroupInfoActivity's whole member list is refetched.
+        ChatAvatarBinder.bind(ctx, h.ivAvatar, avatarUrl, resolveAvatarVersion(ctx, m.uid, m.avatarVersion), R.drawable.ic_person);
 
         // Options menu
         h.btnOptions.setOnClickListener(v -> {
@@ -282,15 +289,27 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
     }
 
     /** Read-only view over `items` for {@link ChatAvatarBinder#prefetch}. */
-    private ChatAvatarBinder.AvatarSource avatarSource() {
+    private ChatAvatarBinder.AvatarSource avatarSource(Context ctx) {
         return new ChatAvatarBinder.AvatarSource() {
             @Override public String photo(int index) {
                 MemberItem m = differ.getCurrentList().get(index);
                 return (m.thumbUrl != null && !m.thumbUrl.isEmpty()) ? m.thumbUrl : m.photoUrl;
             }
-            @Override public long avatarVersion(int index) { return differ.getCurrentList().get(index).avatarVersion; }
+            @Override public long avatarVersion(int index) {
+                MemberItem m = differ.getCurrentList().get(index);
+                return resolveAvatarVersion(ctx, m.uid, m.avatarVersion);
+            }
             @Override public int size() { return differ.getCurrentList().size(); }
         };
+    }
+
+    /** See ChatListAdapter#resolveAvatarVersion — same fallback shape, kept local
+     *  since AvatarVersionSyncManager.getInstance() only needs a Context, not a
+     *  shared static across adapters. */
+    private static long resolveAvatarVersion(Context ctx, String uid, long modelVersion) {
+        if (modelVersion > 0) return modelVersion;
+        if (ctx == null || uid == null || uid.isEmpty()) return 0L;
+        return AvatarVersionSyncManager.getInstance(ctx).getCachedVersion(uid);
     }
 
     /**
@@ -307,7 +326,7 @@ public class GroupMemberAdapter extends RecyclerView.Adapter<GroupMemberAdapter.
      * scroll warms several members ahead via DiskCacheStrategy.DATA.
      */
     public void prefetchAvatarsFrom(Context ctx, int fromIndex, float velocityPxPerMs) {
-        ChatAvatarBinder.prefetch(ctx, avatarSource(), fromIndex, velocityPxPerMs);
+        ChatAvatarBinder.prefetch(ctx, avatarSource(ctx), fromIndex, velocityPxPerMs);
     }
 
     private static String formatLastSeen(long ts) {

@@ -15,6 +15,7 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.chat.R;
 import com.callx.app.cache.ChatAvatarBinder;
+import com.callx.app.cache.AvatarVersionSyncManager;
 
 import com.callx.app.chatlist.canvas.ChatListCallButtonsView;
 import com.callx.app.chatlist.canvas.ChatListLastMessageView;
@@ -569,7 +570,17 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
         // fast path (survives TRIM_MEMORY_MODERATE), and L2/L3 write-through
         // on a real decode that AvatarPrefetcher/FollowAvatarBinder already
         // give reels and the follow lists. See ChatAvatarBinder class doc.
-        ChatAvatarBinder.bind(ctx, h.ivAvatar, u.thumbUrl, u.avatarVersion, R.drawable.ic_person);
+        // FIX (avatar delta-sync gap): u.avatarVersion is whatever this row's
+        // Room/Firestore snapshot last carried -- it does NOT live-update while
+        // the chat list sits on screen (no per-row AvatarVersionSyncManager.watch()
+        // here, deliberately -- see resolveAvatarVersion() doc: N rows x a live
+        // Firebase listener each is exactly what that manager exists to avoid).
+        // Falling back through AvatarVersionSyncManager.getCachedVersion() means
+        // that if the partner's avatar bump was ALREADY observed by any other
+        // screen (their profile open, a reel/status of theirs), this row's next
+        // bind picks up the fresh version -- same fallback StatusListAdapter's
+        // resolveAvatarVersion() uses for its own carousel/list rows.
+        ChatAvatarBinder.bind(ctx, h.ivAvatar, u.thumbUrl, resolveAvatarVersion(ctx, u.uid, u.avatarVersion), R.drawable.ic_person);
         // v85: pre-warm Glide decode for next contact — DEFERRED below along
         // with the typing listener (see BIND_SETTLE_DELAY_MS comment) instead
         // of firing synchronously on every bind. Building a second Glide
@@ -849,12 +860,33 @@ public class ChatListAdapter extends RecyclerView.Adapter<ChatListAdapter.VH> {
      */
     private void preloadAdjacentAvatar(Context ctx, User adj) {
         if (adj == null) return;
-        String url = ChatAvatarBinder.url(ctx, adj.thumbUrl, adj.avatarVersion);
+        String url = ChatAvatarBinder.url(ctx, adj.thumbUrl, resolveAvatarVersion(ctx, adj.uid, adj.avatarVersion));
         if (url == null || url.isEmpty()) return;
         Glide.with(ctx)
                 .load(url)
                 .diskCacheStrategy(DiskCacheStrategy.DATA)
                 .preload();
+    }
+
+    /**
+     * FIX (avatar delta-sync wiring — AvatarVersionSyncManager was reaching
+     * every other avatar surface — UserProfileActivity, StatusListAdapter,
+     * ReelUiController — except the chat list): prefers whatever version
+     * this row's own model carries (0 if the chat-list data layer hasn't
+     * resolved one yet), falling back to AvatarVersionSyncManager's
+     * refcounted, targeted "avatarVersion" watch cache for this uid. A
+     * real bump observed by ANY screen (partner's profile opened, one of
+     * their reels/status viewed) is picked up on this row's very next
+     * bind — without the chat list needing to attach its own per-row live
+     * Firebase listener (would be N outstanding listeners for a scrolling
+     * list of chats, exactly what AvatarVersionSyncManager's targeted/
+     * refcounted design exists to avoid). Same fallback shape as
+     * StatusListAdapter#resolveAvatarVersion.
+     */
+    private static long resolveAvatarVersion(Context ctx, String uid, long modelVersion) {
+        if (modelVersion > 0) return modelVersion;
+        if (uid == null || uid.isEmpty()) return 0L;
+        return AvatarVersionSyncManager.getInstance(ctx).getCachedVersion(uid);
     }
 
     /**

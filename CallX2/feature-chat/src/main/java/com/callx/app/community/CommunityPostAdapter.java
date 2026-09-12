@@ -18,6 +18,7 @@ import com.bumptech.glide.request.transition.Transition;
 import com.callx.app.community.canvas.CommunityPostCanvasView;
 import com.callx.app.community.canvas.OnPostClickListener;
 import com.callx.app.db.entity.CommunityPostEntity;
+import com.callx.app.cache.AvatarVersionSyncManager;
 
 import java.util.Collections;
 import java.util.List;
@@ -179,9 +180,19 @@ public class CommunityPostAdapter extends RecyclerView.Adapter<CommunityPostAdap
         // override with no tier bucketing (see CommunityAvatarBinder class
         // doc) — same author photo shown here AND in the member list
         // decoded/cached separately before this.
+        //
+        // FIX (avatar delta-sync gap): p.authorPhoto is a real user avatar
+        // (carries an avatarVersion on the User model, unlike the community/
+        // group ICON this binder also serves) — now resolves that version
+        // via AvatarVersionSyncManager's cached fallback so a stale cached
+        // photo refreshes once ANY screen (author's profile, a reel/status
+        // of theirs) has observed their real bump. See CommunityAvatarBinder's
+        // versioned url()/bindBitmap() overloads.
+        long authorVersion = (p.authorUid != null && !p.authorUid.isEmpty())
+                ? AvatarVersionSyncManager.getInstance(cv.getContext()).getCachedVersion(p.authorUid) : 0L;
         h.avatarTarget = com.callx.app.cache.CommunityAvatarBinder.bindBitmap(
                 cv.getContext(), p.authorPhoto, com.callx.app.cache.CommunityAvatarBinder.TIER_POST_AUTHOR,
-                bmp -> cv.setAuthorAvatarBitmap(p.id, bmp));
+                authorVersion, bmp -> cv.setAuthorAvatarBitmap(p.id, bmp));
 
         if (p.mediaUrl != null && !p.mediaUrl.isEmpty()) {
             h.mediaTarget = new CustomTarget<Bitmap>() {

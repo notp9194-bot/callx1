@@ -181,8 +181,12 @@ public class CommunityReactionsDetailActivity extends AppCompatActivity {
             h.tvName.setText(r.name != null ? r.name : r.uid);
             h.tvEmoji.setText(CommunityReaction.getEmoji(r.type));
             if (r.photoUrl != null && !r.photoUrl.isEmpty()) {
+                // FIX (avatar delta-sync gap): r.photoUrl is a real user avatar —
+                // resolve avatarVersion via AvatarVersionSyncManager's cached fallback.
+                long version = (r.uid != null && !r.uid.isEmpty())
+                        ? com.callx.app.cache.AvatarVersionSyncManager.getInstance(h.itemView.getContext()).getCachedVersion(r.uid) : 0L;
                 com.callx.app.cache.CommunityAvatarBinder.bindIcon(h.itemView.getContext(), h.ivAvatar,
-                        r.photoUrl, com.callx.app.cache.CommunityAvatarBinder.TIER_POST_AUTHOR, 0);
+                        r.photoUrl, com.callx.app.cache.CommunityAvatarBinder.TIER_POST_AUTHOR, 0, version);
             }
         }
 

@@ -6223,13 +6223,17 @@ public class MessagePagingAdapter
                                     if (ap != null && !ap.isEmpty()) {
                                         if (u != null && !u.isEmpty()) reelOwnerAvatarCache.put(u, ap);
                                         if (fh.ivReelShareAvatar != null) {
-                                            glide(fCtxT)
-                                                    .load(ap)
-                                                    .apply(THUMB_RGB565)
-                                                    .override(48, 48)
-                                                    .circleCrop()
-                                                    .placeholder(android.R.drawable.ic_menu_camera)
-                                                    .into(fh.ivReelShareAvatar);
+                                            // FIX (avatar-optimization — reuse core pipeline): was a
+                                            // flat, un-tiered 48x48 Glide load straight into the
+                                            // ImageView — the one reel-share avatar spot that stayed
+                                            // disconnected from ChatAvatarBinder/AvatarBinderCore.
+                                            // Now shares the same responsive/version-tagged URL,
+                                            // ChatAvatarL2Cache/L3 write-through, and
+                                            // AvatarCacheAnalytics recording as the happy-path bind
+                                            // above (24dp tier, same cache entries for this photo).
+                                            com.callx.app.cache.ChatAvatarBinder.bind(fCtxT, fh.ivReelShareAvatar,
+                                                    ap, 0L, android.R.drawable.ic_menu_camera,
+                                                    com.callx.app.utils.AvatarSizeTier.forViewSizeDp(24));
                                         }
                                     }
                                     String c = snap.child("caption").getValue(String.class);

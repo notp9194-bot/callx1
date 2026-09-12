@@ -56,8 +56,13 @@ public class CommunityPostSearchAdapter
                 ? DateUtils.getRelativeTimeSpanString(p.createdAt,
                 System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS) : "");
         if (p.authorPhoto != null && !p.authorPhoto.isEmpty()) {
+            // FIX (avatar delta-sync gap): p.authorPhoto is a real user avatar —
+            // resolve avatarVersion via AvatarVersionSyncManager's cached fallback,
+            // same as CommunityPostAdapter's author avatar.
+            long version = (p.authorUid != null && !p.authorUid.isEmpty())
+                    ? com.callx.app.cache.AvatarVersionSyncManager.getInstance(h.ivAvatar.getContext()).getCachedVersion(p.authorUid) : 0L;
             com.callx.app.cache.CommunityAvatarBinder.bindIcon(h.ivAvatar.getContext(), h.ivAvatar,
-                    p.authorPhoto, com.callx.app.cache.CommunityAvatarBinder.TIER_POST_AUTHOR, R.drawable.ic_person);
+                    p.authorPhoto, com.callx.app.cache.CommunityAvatarBinder.TIER_POST_AUTHOR, R.drawable.ic_person, version);
         } else {
             h.ivAvatar.setImageResource(R.drawable.ic_person);
         }

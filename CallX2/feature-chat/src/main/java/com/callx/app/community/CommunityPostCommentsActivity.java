@@ -573,9 +573,15 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
             CommentItem c = items.get(pos);
 
             // Avatar
+            // FIX (avatar delta-sync gap): c.authorPhoto is a real user avatar —
+            // resolve avatarVersion via AvatarVersionSyncManager's cached fallback
+            // (same reasoning as CommunityPostAdapter's author avatar) so a
+            // commenter's photo change picked up elsewhere shows up here too.
+            long commentAuthorVersion = (c.authorUid != null && !c.authorUid.isEmpty())
+                    ? com.callx.app.cache.AvatarVersionSyncManager.getInstance(h.ivAvatar.getContext()).getCachedVersion(c.authorUid) : 0L;
             if (c.authorPhoto != null && !c.authorPhoto.isEmpty())
                 com.callx.app.cache.CommunityAvatarBinder.bindIcon(h.ivAvatar.getContext(), h.ivAvatar,
-                        c.authorPhoto, com.callx.app.cache.CommunityAvatarBinder.TIER_POST_AUTHOR, R.drawable.ic_person);
+                        c.authorPhoto, com.callx.app.cache.CommunityAvatarBinder.TIER_POST_AUTHOR, R.drawable.ic_person, commentAuthorVersion);
             else h.ivAvatar.setImageResource(R.drawable.ic_person);
 
             h.tvAuthor.setText(c.authorName != null ? c.authorName : "");
@@ -695,9 +701,14 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
         public void onBindViewHolder(@NonNull VH h, int pos) {
             ReplyItem r = items.get(pos);
 
+            // FIX (avatar delta-sync gap): same as CommentAdapter above — a
+            // reply author's photo is a real user avatar, resolve version
+            // via AvatarVersionSyncManager's cached fallback.
+            long replyAuthorVersion = (r.authorUid != null && !r.authorUid.isEmpty())
+                    ? com.callx.app.cache.AvatarVersionSyncManager.getInstance(h.ivAvatar.getContext()).getCachedVersion(r.authorUid) : 0L;
             if (r.authorPhoto != null && !r.authorPhoto.isEmpty())
                 com.callx.app.cache.CommunityAvatarBinder.bindIcon(h.ivAvatar.getContext(), h.ivAvatar,
-                        r.authorPhoto, com.callx.app.cache.CommunityAvatarBinder.TIER_POST_AUTHOR, R.drawable.ic_person);
+                        r.authorPhoto, com.callx.app.cache.CommunityAvatarBinder.TIER_POST_AUTHOR, R.drawable.ic_person, replyAuthorVersion);
             else h.ivAvatar.setImageResource(R.drawable.ic_person);
 
             h.tvAuthor.setText(r.authorName != null ? r.authorName : "");

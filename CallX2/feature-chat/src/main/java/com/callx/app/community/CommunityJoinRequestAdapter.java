@@ -8,13 +8,9 @@ import androidx.recyclerview.widget.AsyncListDiffer;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.DecodeFormat;
-import com.bumptech.glide.load.engine.DiskCacheStrategy;
-import com.bumptech.glide.request.RequestOptions;
-import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.target.Target;
-import com.bumptech.glide.request.transition.Transition;
+import com.callx.app.cache.AvatarVersionSyncManager;
+import com.callx.app.cache.CommunityAvatarBinder;
 import com.callx.app.community.canvas.CommunityJoinRequestCanvasView;
 import com.callx.app.db.entity.CommunityJoinRequestEntity;
 
@@ -52,7 +48,6 @@ public class CommunityJoinRequestAdapter
     private final AsyncListDiffer<CommunityJoinRequestEntity> differ =
             new AsyncListDiffer<>(this, DIFF);
     private final Listener listener;
-    private RequestOptions avatarOptions;
 
     public CommunityJoinRequestAdapter(Listener listener) {
         this.listener = listener;
@@ -60,17 +55,6 @@ public class CommunityJoinRequestAdapter
 
     public void submitList(List<CommunityJoinRequestEntity> list) {
         differ.submitList(list == null ? Collections.emptyList() : list);
-    }
-
-    private RequestOptions avatarOptions(android.content.Context ctx) {
-        if (avatarOptions == null) {
-            int px = Math.round(44 * ctx.getResources().getDisplayMetrics().density);
-            avatarOptions = RequestOptions.circleCropTransform()
-                    .override(px, px)
-                    .format(DecodeFormat.PREFER_RGB_565)
-                    .diskCacheStrategy(DiskCacheStrategy.ALL);
-        }
-        return avatarOptions;
     }
 
     @NonNull
@@ -91,22 +75,22 @@ public class CommunityJoinRequestAdapter
             @Override public void onReject(CommunityJoinRequestEntity r)  { if (listener != null) listener.onReject(r);  }
         });
 
-        if (h.avatarTarget != null) Glide.with(h.canvasView.getContext()).clear(h.avatarTarget);
+        if (h.avatarTarget != null) CommunityAvatarBinder.cancelBitmap(h.canvasView.getContext(), h.avatarTarget);
 
+        // FIX (avatar-pipeline parity): was a hand-rolled 44dp*density
+        // override, RGB_565, Glide's own ALL disk cache only — completely
+        // disconnected from CommunityAvatarBinder's tiered/responsive URL
+        // and ChatAvatarL2Cache L2/L3 + analytics every other community
+        // avatar surface shares. TIER_MEMBER (44dp) matches this row's
+        // actual draw size and lets the same requester's photo share
+        // cache entries with a CommunityMemberAdapter row for that uid.
         if (req.requesterPhoto != null && !req.requesterPhoto.isEmpty()) {
             final String reqId = req.id;
-            h.avatarTarget = new CustomTarget<Bitmap>() {
-                @Override public void onResourceReady(@NonNull Bitmap bmp, Transition<? super Bitmap> t) {
-                    h.canvasView.setAvatarBitmap(reqId, bmp);
-                }
-                @Override public void onLoadCleared(android.graphics.drawable.Drawable p) {
-                    h.canvasView.setAvatarBitmap(reqId, null);
-                }
-            };
-            Glide.with(h.canvasView.getContext()).asBitmap()
-                    .load(req.requesterPhoto)
-                    .apply(avatarOptions(h.canvasView.getContext()))
-                    .into(h.avatarTarget);
+            long requesterVersion = (req.requesterUid != null && !req.requesterUid.isEmpty())
+                    ? AvatarVersionSyncManager.getInstance(h.canvasView.getContext()).getCachedVersion(req.requesterUid) : 0L;
+            h.avatarTarget = CommunityAvatarBinder.bindBitmap(
+                    h.canvasView.getContext(), req.requesterPhoto, CommunityAvatarBinder.TIER_MEMBER,
+                    requesterVersion, bmp -> h.canvasView.setAvatarBitmap(reqId, bmp));
         } else {
             h.avatarTarget = null;
         }
@@ -116,7 +100,7 @@ public class CommunityJoinRequestAdapter
     public void onViewRecycled(@NonNull VH h) {
         super.onViewRecycled(h);
         if (h.avatarTarget != null) {
-            Glide.with(h.canvasView.getContext()).clear(h.avatarTarget);
+            CommunityAvatarBinder.cancelBitmap(h.canvasView.getContext(), h.avatarTarget);
             h.avatarTarget = null;
         }
     }

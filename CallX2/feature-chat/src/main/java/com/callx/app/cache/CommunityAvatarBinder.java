@@ -53,6 +53,15 @@ import com.callx.app.utils.AvatarUrlBuilder;
  *                   ChatAvatarBinder#bindBitmap — but still shares its
  *                   L2/L3 cache entries with bindIcon() for the same
  *                   photo/tier via the identical {@link #url} + CACHE.
+ * FIX (avatar delta-sync gap): a post author's / member's photo IS a real
+ * user avatar with a real avatarVersion — unlike the community/group ICON
+ * itself, which stays genuinely versionless (a new icon upload already
+ * produces a brand-new Cloudinary URL). url()/bindIcon()/bindBitmap() each
+ * now have a 4/5/5-arg overload that takes that avatarVersion so post/
+ * member/comment/reply/reaction avatars cache-bust and pick up
+ * AvatarVersionSyncManager updates the same way chat's avatars do; the
+ * community/group icon call sites keep using the shorter, version-less
+ * overloads unchanged.
  */
 public final class CommunityAvatarBinder {
 
@@ -83,10 +92,29 @@ public final class CommunityAvatarBinder {
                     ? DecodeFormat.PREFER_ARGB_8888
                     : DecodeFormat.PREFER_RGB_565;
 
-    /** Server-side responsive, tier-bucketed URL. Communities/posts/members don't carry an avatarVersion counter (see GroupAvatarBinder doc), so no version param here either. */
+    /** Server-side responsive, tier-bucketed URL. Communities/group icons don't
+     *  carry an avatarVersion counter (see GroupAvatarBinder doc) — use this
+     *  overload for those. Post authors/members ARE real user photos with a
+     *  real avatarVersion on the User model — see the 4-arg overload below. */
     public static String url(Context ctx, String rawUrl, AvatarSizeTier tier) {
+        return url(ctx, rawUrl, tier, 0L);
+    }
+
+    /**
+     * FIX (avatar delta-sync gap): a post author's / member's photo IS a real
+     * user avatar with a real avatarVersion (same field ChatAvatarBinder/
+     * GroupMemberAdapter key their cache-busting on) — this class's original
+     * doc lumped it in with the community/group ICON's genuine versionlessness
+     * (a new icon upload already produces a brand-new Cloudinary URL, so no
+     * version param was ever needed there). Author/member avatars never got
+     * that same cache-bust: {@link AvatarUrlBuilder#appendVersion} needs a
+     * real version to have anything to bump. Callers that have (or can
+     * resolve via {@link AvatarVersionSyncManager#getCachedVersion}) a uid
+     * for the photo should use this overload instead of the 3-arg one.
+     */
+    public static String url(Context ctx, String rawUrl, AvatarSizeTier tier, long avatarVersion) {
         if (rawUrl == null || rawUrl.isEmpty()) return null;
-        return AvatarUrlBuilder.buildResponsive(ctx, rawUrl, tier);
+        return AvatarUrlBuilder.buildResponsive(ctx, rawUrl, tier, avatarVersion);
     }
 
     /** Delivers a resolved Bitmap (or null on clear/failure) to a Canvas-based row. */
@@ -107,7 +135,17 @@ public final class CommunityAvatarBinder {
      * URL is byte-for-byte what {@link #url} already produced.
      */
     public static void bindIcon(Context ctx, ImageView iv, String rawUrl, AvatarSizeTier tier, int placeholderRes) {
-        com.callx.app.cache.AvatarBinderCore.bind(ctx, iv, rawUrl, /*avatarVersion=*/0L,
+        bindIcon(ctx, iv, rawUrl, tier, placeholderRes, 0L);
+    }
+
+    /**
+     * Same as the 5-arg {@link #bindIcon} but for a real user avatar (post
+     * author / member / comment author) that carries an avatarVersion —
+     * see the {@link #url(Context, String, AvatarSizeTier, long)} doc for
+     * why the community/group ICON overload above stays hardcoded at 0.
+     */
+    public static void bindIcon(Context ctx, ImageView iv, String rawUrl, AvatarSizeTier tier, int placeholderRes, long avatarVersion) {
+        com.callx.app.cache.AvatarBinderCore.bind(ctx, iv, rawUrl, avatarVersion,
                 CACHE, new com.callx.app.cache.AvatarBinderCore.BindOptions(
                         tier, AVATAR_FORMAT, /*circleCrop=*/true, /*dontAnimate=*/true,
                         /*recordDashboardStats=*/false, placeholderRes));
@@ -144,11 +182,18 @@ public final class CommunityAvatarBinder {
      * L2 hit already delivered synchronously).
      */
     public static Target<Bitmap> bindBitmap(Context ctx, String rawUrl, AvatarSizeTier tier, BitmapCallback callback) {
+        return bindBitmap(ctx, rawUrl, tier, 0L, callback);
+    }
+
+    /** Same as the 4-arg {@link #bindBitmap} but for a real user avatar
+     *  (post author / member) that carries an avatarVersion — see
+     *  {@link #url(Context, String, AvatarSizeTier, long)}. */
+    public static Target<Bitmap> bindBitmap(Context ctx, String rawUrl, AvatarSizeTier tier, long avatarVersion, BitmapCallback callback) {
         if (rawUrl == null || rawUrl.isEmpty()) {
             callback.onBitmap(null);
             return null;
         }
-        String url = url(ctx, rawUrl, tier);
+        String url = url(ctx, rawUrl, tier, avatarVersion);
         Bitmap l2Hit = ChatAvatarL2Cache.get(ctx).get(url);
         if (l2Hit != null) {
             callback.onBitmap(l2Hit);

@@ -4,7 +4,6 @@ import android.view.View;
 
 import androidx.annotation.NonNull;
 
-import com.callx.app.chat.R;
 import com.callx.app.chat.databinding.ActivityChatBinding;
 import com.callx.app.models.Message;
 import com.callx.app.utils.ChatPresenceRepo;
@@ -429,7 +428,18 @@ public class ChatPresenceController {
 
             binding.tvStatus.setText(statusText);
             binding.tvStatus.setVisibility(statusText.length() > 0 ? View.VISIBLE : View.GONE);
+            // FIX (missing symbol): showAsOnline was computed but never
+            // applied anywhere — wire it to the header avatar's dot, same
+            // as the ghost-mode branch above already tried to.
+            setHeaderOnlineDotVisible(binding, showAsOnline);
         });
+    }
+
+    /** Toggles the small green dot on the chat header's partner avatar
+     *  (view_header_online_dot in activity_chat.xml). */
+    private void setHeaderOnlineDotVisible(ActivityChatBinding binding, boolean visible) {
+        if (binding.viewHeaderOnlineDot == null) return;
+        binding.viewHeaderOnlineDot.setVisibility(visible ? View.VISIBLE : View.GONE);
     }
 
     // ── PERF (WhatsApp-level formatter caching) ─────────────────────────────
@@ -665,18 +675,16 @@ public class ChatPresenceController {
         if (binding.llWatchingBanner == null) return;
 
         String name = delegate.getPartnerName();
-        binding.tvWatchingName.setText((name != null ? name : "") + " aapko dekh rha hai");
+        binding.llWatchingBanner.setName((name != null ? name : "") + " aapko dekh rha hai");
 
         // FIX (avatar optimization — reuse core pipeline): was a flat,
         // hardcoded-720px Glide load with no tier/L2/L3 reuse — same
         // partner as the chat list row / header / recording strip, now
-        // routed through ChatAvatarBinder.bind() so this shares those
-        // cache entries instead of decoding its own 720px copy.
+        // routed through ChatAvatarBinder.bindBitmap() (via the canvas
+        // view's own setAvatarUrl()) so this shares those cache entries
+        // instead of decoding its own 720px copy.
         String photo = delegate.getPartnerPhoto();
-        if (photo != null && !photo.isEmpty() && delegate.getActivity() != null) {
-            com.callx.app.cache.ChatAvatarBinder.bind(delegate.getActivity(),
-                    binding.ivWatchingAvatar, photo, 0L, R.drawable.ic_person);
-        }
+        binding.llWatchingBanner.setAvatarUrl(photo);
 
         boolean alreadyShowing = binding.llWatchingBanner.getVisibility() == View.VISIBLE;
         if (!alreadyShowing) {
@@ -695,8 +703,6 @@ public class ChatPresenceController {
             return;
         }
 
-        binding.ivWatchingAvatar.setScaleX(1f);
-        binding.ivWatchingAvatar.setScaleY(1f);
         binding.llWatchingBanner.setVisibility(View.VISIBLE);
 
         // New arrival — immediately yield to typing if it's already showing,
@@ -735,7 +741,7 @@ public class ChatPresenceController {
                 if (b.llWatchingBanner == null || b.llWatchingBanner.getVisibility() != View.VISIBLE) return;
                 long mins = elapsed / 60_000L;
                 String agoText = mins < 1 ? "abhi tak active tha" : ("active " + mins + "m pehle");
-                b.tvWatchingName.setText(label.isEmpty() ? agoText : (label + " " + agoText));
+                b.llWatchingBanner.setName(label.isEmpty() ? agoText : (label + " " + agoText));
                 justLeftTickHandler.postDelayed(this, 20_000);
             }
         };

@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.request.target.Target;
 import com.callx.app.community.canvas.CommunityMemberCanvasView;
 import com.callx.app.db.entity.CommunityMemberEntity;
+import com.callx.app.cache.AvatarVersionSyncManager;
 
 import java.util.Collections;
 import java.util.List;
@@ -89,9 +90,19 @@ public class CommunityMemberAdapter extends RecyclerView.Adapter<CommunityMember
         // override with no tier bucketing — see CommunityAvatarBinder class
         // doc (same member's photo shown as a post author elsewhere now
         // shares the SMALL tier's cached decode instead of a distinct one).
+        // FIX (avatar pipeline parity): was a hand-rolled 44dp*density
+        // override with no tier bucketing — see CommunityAvatarBinder class
+        // doc (same member's photo shown as a post author elsewhere now
+        // shares the SMALL tier's cached decode instead of a distinct one).
+        //
+        // FIX (avatar delta-sync gap): m.photoUrl is a real user avatar —
+        // resolve its avatarVersion via AvatarVersionSyncManager's cached
+        // fallback (same reasoning as CommunityPostAdapter's author avatar).
+        long memberVersion = (m.uid != null && !m.uid.isEmpty())
+                ? AvatarVersionSyncManager.getInstance(h.canvasView.getContext()).getCachedVersion(m.uid) : 0L;
         h.avatarTarget = com.callx.app.cache.CommunityAvatarBinder.bindBitmap(
                 h.canvasView.getContext(), m.photoUrl, com.callx.app.cache.CommunityAvatarBinder.TIER_MEMBER,
-                bmp -> h.canvasView.setAvatarBitmap(bmp));
+                memberVersion, bmp -> h.canvasView.setAvatarBitmap(bmp));
     }
 
     @Override

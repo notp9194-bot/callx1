@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Chat header avatar's online-status dot. Solid status_online (green) fill
+     with a white ring so it reads clearly against any avatar photo, same
+     visual language as feature-reels' bg_online_indicator but kept local to
+     this module since feature-chat doesn't depend on feature-reels. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="@android:color/white"/>
+        </shape>
+    </item>
+    <item android:top="1.5dp" android:bottom="1.5dp" android:start="1.5dp" android:end="1.5dp">
+        <shape android:shape="oval">
+            <solid android:color="@color/status_online"/>
+        </shape>
+    </item>
+</layer-list>

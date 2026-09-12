@@ -71,84 +71,32 @@
              it) so the chat area behind it stays full height — messages
              don't get squeezed when the banner pops in/out.
 
-             1:1 chats (ChatPresenceController) only ever touch
-             iv_watching_avatar + tv_watching_name — iv_watching_avatar2 and
-             tv_watching_more stay gone, so the banner looks identical to
-             before. Group chats (GroupWatchingController) additionally use
-             iv_watching_avatar2 (2nd watcher, overlapping) and
-             tv_watching_more ("+N" badge) for 3+ watchers, e.g.
-             "Asha, Ravi aur 2 others dekh rahe hain".
+             Canvas-rendered replacement for the old LinearLayout tree
+             (ll_watching_avatars[iv_watching_avatar + iv_watching_avatar2 +
+             tv_watching_more] + tv_watching_name) — ONE view now paints the
+             avatar(s), "+N" badge and name pill directly, same rationale as
+             ll_typing_strip's TypingStripCanvasView: this banner toggles
+             show/hide on every partner-arrives/leaves tick, so it pays a
+             5-deep measure/layout pass on every single toggle otherwise.
+             See WatchingBannerCanvasView for the full design doc.
+
+             1:1 chats (ChatPresenceController) only ever call setName()/
+             setAvatarUrl() — the secondary avatar and "+N" badge stay
+             unset, so the banner looks identical to before. Group chats
+             (GroupWatchingController) additionally call
+             setSecondaryAvatarUrl()/setBadgeText() for 2 and 3+ watchers
+             respectively, e.g. "Asha, Ravi aur 2 others dekh rahe hain".
              ══════════════════════════════════════════════════════════════ -->
-        <LinearLayout
+        <com.callx.app.conversation.canvas.WatchingBannerCanvasView
             android:id="@+id/ll_watching_banner"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="top|center_horizontal"
             android:layout_marginTop="68dp"
-            android:orientation="vertical"
-            android:gravity="center_horizontal"
             android:paddingTop="10dp"
             android:paddingBottom="10dp"
             android:foreground="?attr/selectableItemBackground"
-            android:visibility="gone">
-
-            <LinearLayout
-                android:id="@+id/ll_watching_avatars"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <de.hdodenhof.circleimageview.CircleImageView
-                    android:id="@+id/iv_watching_avatar"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:src="@drawable/ic_person"
-                    app:civ_border_width="2dp"
-                    app:civ_border_color="#22C55E"/>
-
-                <!-- Group only: 2nd watcher's avatar, overlaps 1st -->
-                <de.hdodenhof.circleimageview.CircleImageView
-                    android:id="@+id/iv_watching_avatar2"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:layout_marginStart="-14dp"
-                    android:src="@drawable/ic_person"
-                    android:visibility="gone"
-                    app:civ_border_width="2dp"
-                    app:civ_border_color="#22C55E"/>
-
-                <!-- Group only: "+N" badge when 3+ members are watching -->
-                <TextView
-                    android:id="@+id/tv_watching_more"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:layout_marginStart="-14dp"
-                    android:background="@drawable/bg_watching_more_badge"
-                    android:gravity="center"
-                    android:textColor="#FFFFFF"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
-                    android:visibility="gone"/>
-
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/tv_watching_name"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:background="@drawable/bg_watching_strip"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
-                android:paddingTop="5dp"
-                android:paddingBottom="5dp"
-                android:text="aapko dekh rha hai"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:textStyle="bold"/>
-
-        </LinearLayout>
+            android:visibility="gone"/>
 
         <!-- ══════════════════════════════════════════════════════════════
              TYPING STRIP — floats bottom-left over the message list while
@@ -809,6 +757,18 @@
                         android:src="@drawable/ic_person"
                         android:clickable="true"
                         android:focusable="true"/>
+
+                    <!-- FIX: view was missing even though ChatPresenceController
+                         already had online/ghost logic referencing a header
+                         online dot — added so that logic has something to
+                         actually toggle. -->
+                    <View
+                        android:id="@+id/view_header_online_dot"
+                        android:layout_width="10dp"
+                        android:layout_height="10dp"
+                        android:layout_gravity="bottom|end"
+                        android:background="@drawable/bg_header_online_dot"
+                        android:visibility="gone"/>
                 </FrameLayout>
 
                 <!-- Name + status/typing (fills remaining space) -->

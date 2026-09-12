@@ -30,12 +30,13 @@ import java.util.Map;
  *   2 watchers → "Asha, Ravi dekh rahe hain"              (2 overlapping avatars)
  *   3+ watchers→ "Asha, Ravi aur 2 others dekh rahe hain" (2 avatars + "+N" badge)
  *
- * Reuses the exact same chatPresence/{id}/{uid}=true node and banner views
- * (ll_watching_banner / iv_watching_avatar / tv_watching_name) as the 1:1
- * flow — {id} is just the groupId here instead of a 1:1 chatId, and the
- * two never collide (see FirebaseUtils.getChatPresenceRef). The group-only
- * views (iv_watching_avatar2, tv_watching_more) stay gone for 1:1 chats,
- * so ChatPresenceController's behaviour is completely unchanged.
+ * Reuses the exact same chatPresence/{id}/{uid}=true node and banner view
+ * (ll_watching_banner, a WatchingBannerCanvasView) as the 1:1 flow — {id}
+ * is just the groupId here instead of a 1:1 chatId, and the two never
+ * collide (see FirebaseUtils.getChatPresenceRef). The group-only content —
+ * the secondary avatar and "+N" badge, driven via setSecondaryAvatarUrl()/
+ * setBadgeText() — stays unset for 1:1 chats, so ChatPresenceController's
+ * behaviour is completely unchanged.
  */
 public class GroupWatchingController {
 
@@ -179,20 +180,15 @@ public class GroupWatchingController {
         binding.llWatchingBanner.setFocusable(true);
         binding.llWatchingBanner.setOnClickListener(v -> showWatchersSheet());
 
-        // Avatars are clickable in their own right (consumes the tap before
-        // it bubbles to llWatchingBanner above), so tapping a specific face
-        // jumps straight to THAT person's current position — no need to
-        // open the sheet first. The "+N" badge still opens the sheet since
-        // it represents multiple people at once.
-        if (binding.ivWatchingAvatar != null) {
-            binding.ivWatchingAvatar.setOnClickListener(v -> jumpToWatcherAt(0));
-        }
-        if (binding.ivWatchingAvatar2 != null) {
-            binding.ivWatchingAvatar2.setOnClickListener(v -> jumpToWatcherAt(1));
-        }
-        if (binding.tvWatchingMore != null) {
-            binding.tvWatchingMore.setOnClickListener(v -> fanOutThenShowSheet());
-        }
+        // Avatars/badge are hit-tested as their own sub-regions inside
+        // WatchingBannerCanvasView's onTouchEvent() (consumed before falling
+        // through to the whole-banner OnClickListener above), so tapping a
+        // specific face jumps straight to THAT person's current position —
+        // no need to open the sheet first. The "+N" badge still opens the
+        // sheet since it represents multiple people at once.
+        binding.llWatchingBanner.setOnAvatar1ClickListener(() -> jumpToWatcherAt(0));
+        binding.llWatchingBanner.setOnAvatar2ClickListener(() -> jumpToWatcherAt(1));
+        binding.llWatchingBanner.setOnBadgeClickListener(this::fanOutThenShowSheet);
     }
 
     // ── "+N" badge tap → quick fan-out flourish, then bottom sheet ─────────
@@ -216,35 +212,15 @@ public class GroupWatchingController {
             return;
         }
 
-        Activity activity = delegate.getActivity();
-        float density = activity != null ? activity.getResources().getDisplayMetrics().density : 1f;
-        float spread = 10f * density;
-
-        de.hdodenhof.circleimageview.CircleImageView a1 = binding.ivWatchingAvatar;
-        de.hdodenhof.circleimageview.CircleImageView a2 = binding.ivWatchingAvatar2;
-        android.widget.TextView badge = binding.tvWatchingMore;
-
-        boolean a2Visible = a2 != null && a2.getVisibility() == View.VISIBLE;
-        boolean badgeVisible = badge != null && badge.getVisibility() == View.VISIBLE;
-
         fanOutInProgress = true;
-        // Fan animation removed for performance — open sheet instantly
+        // Fan animation removed for performance — open sheet instantly.
+        // (Previously staged per-avatar translate/scale on the individual
+        // CircleImageView/TextView children; those no longer exist as
+        // separate Views now that WatchingBannerCanvasView paints the
+        // avatar stack + badge in one onDraw() pass, so there's nothing
+        // left here to stage a fan-out against.)
         showWatchersSheet();
         fanOutInProgress = false;
-    }
-
-    /** Restores the avatar stack to its normal overlapped resting position.
-     *  Called right after the sheet is launched — by the time it's visible
-     *  the user's attention is on the sheet, so this resolves invisibly
-     *  underneath it with no jarring snap-back on screen. */
-    private void snapFanBackToRest() {
-        ActivityChatBinding binding = delegate.getBinding();
-        if (binding == null || binding.llWatchingBanner == null) {
-            fanOutInProgress = false;
-            return;
-        }
-        fanOutInProgress = false;
-        // Snap-back animation removed for performance
     }
 
     /** Jump to whatever message the Nth currently-shown watcher avatar
@@ -340,6 +316,25 @@ public class GroupWatchingController {
         sheet.show();
     }
 
+    /** Only used for the bottom sheet's per-watcher rows above — those are
+     *  plain CircleImageViews built dynamically, unlike the banner's own
+     *  avatar(s), which are painted directly by WatchingBannerCanvasView
+     *  via setAvatarUrl()/setSecondaryAvatarUrl(). */
+    private void loadAvatar(de.hdodenhof.circleimageview.CircleImageView iv, String photoUrl) {
+        Activity activity = delegate.getActivity();
+        if (activity == null) return;
+        if (photoUrl != null && !photoUrl.isEmpty()) {
+            // FIX (avatar optimization — reuse core pipeline): was a flat
+            // hardcoded-720px Glide load — shares L2/L3 with the group
+            // member list/chat list row for this exact member now,
+            // instead of a fresh 720px decode every time someone opens
+            // the group chat.
+            com.callx.app.cache.ChatAvatarBinder.bind(activity, iv, photoUrl, 0L, R.drawable.ic_person);
+        } else {
+            iv.setImageResource(R.drawable.ic_person);
+        }
+    }
+
     // ── Publish our own in-chat-screen presence ─────────────────────────────
     // Identical debounce behaviour to the 1:1 controller: quick away-and-back
     // navigation (rotation, brief app-switch) won't flicker the banner for
@@ -431,7 +426,7 @@ public class GroupWatchingController {
                 ActivityChatBinding b = delegate.getBinding();
                 if (b.llWatchingBanner == null || b.llWatchingBanner.getVisibility() != View.VISIBLE) return;
                 long mins = elapsed / 60_000L;
-                b.tvWatchingName.setText(mins < 1 ? "abhi tak active tha" : ("active " + mins + "m pehle"));
+                b.llWatchingBanner.setName(mins < 1 ? "abhi tak active tha" : ("active " + mins + "m pehle"));
                 justLeftTickHandler.postDelayed(this, 20_000);
             }
         };
@@ -464,30 +459,32 @@ public class GroupWatchingController {
         }
 
         String name1 = names.getOrDefault(watcherUids.get(0), "Member");
-        loadAvatar(binding.ivWatchingAvatar, photos.get(watcherUids.get(0)));
-        binding.ivWatchingAvatar.setVisibility(View.VISIBLE);
+        // FIX (avatar optimization — reuse core pipeline): setAvatarUrl()/
+        // setSecondaryAvatarUrl() route through ChatAvatarBinder.bindBitmap()
+        // internally — shares L2/L3 with the group member list/chat list
+        // row for this exact member, instead of a fresh decode every time
+        // someone opens the group chat.
+        binding.llWatchingBanner.setAvatarUrl(photos.get(watcherUids.get(0)));
 
         String label;
         if (total == 1) {
             label = name1 + " aapko dekh rha hai";
-            binding.ivWatchingAvatar2.setVisibility(View.GONE);
-            binding.tvWatchingMore.setVisibility(View.GONE);
+            binding.llWatchingBanner.setSecondaryAvatarUrl(null);
+            binding.llWatchingBanner.setBadgeText(null);
         } else {
             String name2 = names.getOrDefault(watcherUids.get(1), "Member");
-            loadAvatar(binding.ivWatchingAvatar2, photos.get(watcherUids.get(1)));
-            binding.ivWatchingAvatar2.setVisibility(View.VISIBLE);
+            binding.llWatchingBanner.setSecondaryAvatarUrl(photos.get(watcherUids.get(1)));
 
             if (total == 2) {
                 label = name1 + ", " + name2 + " dekh rahe hain";
-                binding.tvWatchingMore.setVisibility(View.GONE);
+                binding.llWatchingBanner.setBadgeText(null);
             } else {
                 int more = total - 2;
                 label = name1 + ", " + name2 + " aur " + more + " others dekh rahe hain";
-                binding.tvWatchingMore.setText("+" + more);
-                binding.tvWatchingMore.setVisibility(View.VISIBLE);
+                binding.llWatchingBanner.setBadgeText("+" + more);
             }
         }
-        binding.tvWatchingName.setText(label);
+        binding.llWatchingBanner.setName(label);
 
         boolean isNewJoin = total > lastWatcherCount;
         lastWatcherCount = total;
@@ -504,33 +501,12 @@ public class GroupWatchingController {
             return;
         }
 
-        binding.ivWatchingAvatar.setScaleX(1f);
-        binding.ivWatchingAvatar.setScaleY(1f);
-        binding.ivWatchingAvatar2.setScaleX(1f);
-        binding.ivWatchingAvatar2.setScaleY(1f);
-        binding.tvWatchingMore.setScaleX(1f);
-        binding.tvWatchingMore.setScaleY(1f);
         binding.llWatchingBanner.setVisibility(View.VISIBLE);
 
         // New arrival — immediately yield to typing if it's already showing,
         // instead of waiting for the next typing Firebase tick.
         com.callx.app.chat.ui.BannerPriorityCoordinator.applyCurrentPriority(
                 binding.llWatchingBanner, binding.llTypingStrip);
-    }
-
-    private void loadAvatar(de.hdodenhof.circleimageview.CircleImageView iv, String photoUrl) {
-        Activity activity = delegate.getActivity();
-        if (activity == null) return;
-        if (photoUrl != null && !photoUrl.isEmpty()) {
-            // FIX (avatar optimization — reuse core pipeline): was a flat
-            // hardcoded-720px Glide load — shares L2/L3 with the group
-            // member list/chat list row for this exact member now,
-            // instead of a fresh 720px decode every time someone opens
-            // the group chat.
-            com.callx.app.cache.ChatAvatarBinder.bind(activity, iv, photoUrl, 0L, R.drawable.ic_person);
-        } else {
-            iv.setImageResource(R.drawable.ic_person);
-        }
     }
 
     private void hideWatchingBanner() {

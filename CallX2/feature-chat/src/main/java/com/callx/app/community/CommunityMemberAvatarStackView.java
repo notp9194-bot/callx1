@@ -11,15 +11,8 @@ import android.view.View;
 
 import androidx.annotation.Nullable;
 
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.engine.DiskCacheStrategy;
-import com.bumptech.glide.request.RequestOptions;
-import com.bumptech.glide.request.target.CustomTarget;
-import com.bumptech.glide.request.transition.Transition;
-import com.callx.app.cache.AvatarCacheAnalytics;
-import com.callx.app.cache.ChatAvatarL2Cache;
+import com.bumptech.glide.request.target.Target;
 import com.callx.app.cache.CommunityAvatarBinder;
-import com.callx.app.utils.AvatarUrlBuilder;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -46,11 +39,12 @@ public class CommunityMemberAvatarStackView extends View {
     private final Paint mOverflowTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     private final List<Bitmap> mBitmaps = new ArrayList<>();
+    private final List<Target<Bitmap>> mAvatarTargets = new ArrayList<>();
     private int mTotalCount = 0;
     private float mDensity;
-    // Bumped on every bind() — lets async L3-disk / Glide callbacks from a
-    // PREVIOUS bind() detect the view has since been rebound (recycled row)
-    // and drop their stale result instead of overwriting a newer bind's data.
+    // Bumped on every bind() — lets an async callback from a PREVIOUS
+    // bind() detect the view has since been rebound (recycled row) and
+    // drop its stale result instead of overwriting a newer bind's data.
     private int mBindGeneration = 0;
 
     public CommunityMemberAvatarStackView(Context context) {
@@ -79,98 +73,48 @@ public class CommunityMemberAvatarStackView extends View {
      * needs raw Bitmaps, not Drawables/ImageViews) and redraws once each
      * has loaded. totalCount drives the "+N" overflow badge.
      *
-     * FIX (avatar-pipeline parity): this used to key L2/L3 by the raw,
-     * un-tiered photo URL and decode at a hardcoded override(96, 96) that
-     * ignored this view's actual ~26dp draw size — so a member's photo
-     * shown here NEVER shared a cache entry with the same photo shown as
-     * a CommunityAvatarBinder-bound post author or member row (different
-     * cache key, different pixel size, decoded/cached a 3rd time), and
-     * every avatar in the stack over-decoded to 96px regardless of
-     * density. Now goes through CommunityAvatarBinder.url()'s same
-     * tier-bucketed/responsive CDN URL (TIER_STACK, 26dp) so this shares
-     * L2/L3 entries with anything else that resolves to that tier, plus
-     * the same AvatarCacheAnalytics recording every other avatar surface
-     * feeds into.
+     * FIX (avatar-pipeline parity): this used to hand-roll its own
+     * L2-check -> Glide-decode -> L2/L3-write-through copy of exactly the
+     * pipeline {@link CommunityAvatarBinder#bindBitmap} already provides —
+     * a third copy of that logic per the class's own doc. Now delegates
+     * straight to bindBitmap() at TIER_STACK (26dp), so this shares
+     * L2/L3 cache entries with anything else resolving to that tier
+     * (and the same responsive/version-tagged URL + AvatarCacheAnalytics
+     * recording) instead of maintaining its own parallel copy of it.
      */
     public void bind(List<String> photoUrls, int totalCount) {
+        for (Target<Bitmap> t : mAvatarTargets) CommunityAvatarBinder.cancelBitmap(getContext(), t);
+        mAvatarTargets.clear();
+
         mTotalCount = totalCount;
         mBitmaps.clear();
         invalidate();
         final int generation = ++mBindGeneration;
 
         int visible = Math.min(photoUrls.size(), MAX_VISIBLE);
-        int size = AvatarUrlBuilder.tierPx(getContext(), CommunityAvatarBinder.TIER_STACK);
         for (int i = 0; i < visible; i++) {
             String rawUrl = photoUrls.get(i);
             if (rawUrl == null || rawUrl.isEmpty()) { mBitmaps.add(null); continue; }
             final int index = i;
-            final String url = CommunityAvatarBinder.url(getContext(), rawUrl, CommunityAvatarBinder.TIER_STACK);
-            if (url == null) { mBitmaps.add(null); continue; }
+            mBitmaps.add(null); // placeholder slot, filled in (possibly synchronously) below
 
-            // FIX #5 (onTrimMemory / L2 cache): per-module cache that
-            // survives TRIM_MEMORY_MODERATE (see ChatAvatarL2Cache) — a
-            // warm restart right after routine backgrounding often still
-            // hits here even when Glide's own memory cache was trimmed,
-            // so the stack repaints instantly with no Glide round-trip.
-            Bitmap l2Hit = ChatAvatarL2Cache.get(getContext()).get(url);
-            if (l2Hit != null) {
-                mBitmaps.add(l2Hit);
-                AvatarCacheAnalytics.getInstance(getContext()).record(AvatarCacheAnalytics.Tier.L2_MEMORY);
-                continue;
-            }
-
-            mBitmaps.add(null); // placeholder slot, filled in asynchronously below
-
-            // FIX (L3 disk tier): covers process death, which L2 (in-memory)
-            // can't. Fired in parallel with the Glide load below — if the
-            // disk read wins the race AND this row hasn't been recycled to
-            // a different bind() since, paint it immediately; Glide is
-            // still the source of truth and will simply overwrite it when
-            // it resolves (a no-op visually if the bytes match).
-            ChatAvatarL2Cache.l3(getContext()).getAsync(url, l3Bmp -> {
-                if (l3Bmp == null || generation != mBindGeneration) return;
-                while (mBitmaps.size() <= index) mBitmaps.add(null);
-                mBitmaps.set(index, l3Bmp);
-                ChatAvatarL2Cache.get(getContext()).put(url, l3Bmp); // warm L2 too
-                invalidate();
-            });
-
-            Glide.with(getContext()).asBitmap().load(url)
-                    .apply(new RequestOptions()
-                            .format(CommunityAvatarBinder.AVATAR_FORMAT)
-                            .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-                            .override(size, size))
-                    .circleCrop()
-                    .listener(new com.bumptech.glide.request.RequestListener<Bitmap>() {
-                        @Override
-                        public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model,
-                                                     com.bumptech.glide.request.target.Target<Bitmap> target, boolean isFirstResource) {
-                            return false;
-                        }
-                        @Override
-                        public boolean onResourceReady(Bitmap resource, Object model,
-                                                        com.bumptech.glide.request.target.Target<Bitmap> target,
-                                                        com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
-                            AvatarCacheAnalytics.getInstance(getContext())
-                                    .record(AvatarCacheAnalytics.fromGlideDataSource(dataSource));
-                            return false;
-                        }
-                    })
-                    .into(new CustomTarget<Bitmap>(size, size) {
-                        @Override
-                        public void onResourceReady(@androidx.annotation.NonNull Bitmap resource,
-                                                     @Nullable Transition<? super Bitmap> transition) {
-                            if (generation != mBindGeneration) return; // recycled to a different bind() since
-                            while (mBitmaps.size() <= index) mBitmaps.add(null);
-                            mBitmaps.set(index, resource);
-                            ChatAvatarL2Cache.get(getContext()).put(url, resource);
-                            ChatAvatarL2Cache.l3(getContext()).put(url, resource); // persist for next cold start
-                            invalidate();
-                        }
-                        @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
+            Target<Bitmap> target = CommunityAvatarBinder.bindBitmap(
+                    getContext(), rawUrl, CommunityAvatarBinder.TIER_STACK, bmp -> {
+                        if (generation != mBindGeneration) return; // recycled to a different bind() since
+                        while (mBitmaps.size() <= index) mBitmaps.add(null);
+                        mBitmaps.set(index, bmp);
+                        invalidate();
                     });
+            if (target != null) mAvatarTargets.add(target);
         }
         requestLayout();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        for (Target<Bitmap> t : mAvatarTargets) CommunityAvatarBinder.cancelBitmap(getContext(), t);
+        mAvatarTargets.clear();
     }
 
     @Override

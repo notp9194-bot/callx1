@@ -21,6 +21,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.callx.app.chat.R;
 import com.callx.app.chatlist.ChatListAdapter;
 import com.callx.app.cache.ChatAvatarBinder;
+import com.callx.app.cache.AvatarVersionSyncManager;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.ChatEntity;
 import com.callx.app.db.entity.ChatFolderEntity;
@@ -835,7 +836,18 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             // ChatAvatarBinder.bind() resolves at real bind time, so this
             // warming produces the exact cache key the row bind will look
             // for instead of a near-miss.
-            String url = ChatAvatarBinder.url(appCtx, u.thumbUrl, u.avatarVersion);
+            //
+            // FIX (avatar delta-sync consistency): was raw u.avatarVersion —
+            // now falls back through AvatarVersionSyncManager.getCachedVersion()
+            // same as ChatListAdapter#resolveAvatarVersion/chatAvatarSource().
+            // Without this, a row with avatarVersion==0 whose fresh version was
+            // ALREADY observed elsewhere would preload one cache key here and
+            // then bind() a DIFFERENT (versioned) key at real bind time — a
+            // guaranteed miss on the very warm-up this method exists to avoid.
+            long version = u.avatarVersion > 0 ? u.avatarVersion
+                    : (u.uid != null && !u.uid.isEmpty()
+                        ? AvatarVersionSyncManager.getInstance(appCtx).getCachedVersion(u.uid) : 0L);
+            String url = ChatAvatarBinder.url(appCtx, u.thumbUrl, version);
             if (url == null || url.isEmpty()) continue;
             Glide.with(appCtx)
                     .asBitmap()
@@ -922,11 +934,20 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         });
     }
 
-    /** AvatarSource view over `contacts` for ChatAvatarBinder.prefetch() — mirrors FollowersListActivity#followAvatarSource(). */
+    /** AvatarSource view over `contacts` for ChatAvatarBinder.prefetch() — mirrors FollowersListActivity#followAvatarSource().
+     *  FIX (avatar delta-sync wiring): avatarVersion(index) now falls back through
+     *  AvatarVersionSyncManager.getCachedVersion() when this contact's own snapshot
+     *  hasn't resolved a version yet — same reasoning as ChatListAdapter#resolveAvatarVersion,
+     *  so a prefetched row's cache key matches whatever bind() will actually key on. */
     private ChatAvatarBinder.AvatarSource chatAvatarSource() {
         return new ChatAvatarBinder.AvatarSource() {
             @Override public String photo(int index) { return contacts.get(index).thumbUrl; }
-            @Override public long avatarVersion(int index) { return contacts.get(index).avatarVersion; }
+            @Override public long avatarVersion(int index) {
+                com.callx.app.models.User c = contacts.get(index);
+                if (c.avatarVersion > 0) return c.avatarVersion;
+                if (c.uid == null || c.uid.isEmpty()) return 0L;
+                return AvatarVersionSyncManager.getInstance(requireContext()).getCachedVersion(c.uid);
+            }
             @Override public int size() { return contacts.size(); }
         };
     }

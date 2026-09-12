@@ -18,6 +18,8 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.viewpager2.widget.ViewPager2;
 import com.bumptech.glide.Glide;
+import com.callx.app.cache.ChatAvatarBinder;
+import com.callx.app.cache.AvatarVersionSyncManager;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.bumptech.glide.request.RequestOptions;
@@ -553,9 +555,22 @@ public class MainActivity extends AppCompatActivity
         String avatarUrl = mgr.getAvatarUrl();
         if (!java.util.Objects.equals(avatarUrl, miniPlayerLoadedAvatarUrl)) {
             miniPlayerLoadedAvatarUrl = avatarUrl;
+            // FIX (avatar optimization wiring): this mini-player avatar is the same
+            // chat partner shown in ChatListAdapter/ChatActivity, but was a raw
+            // Glide.load() with no tier bucketing, no L2/L3 write-through, and no
+            // shared cache entry with the rest of chat's avatar pipeline — every
+            // play/pause-triggered rebind (guarded above) paid a fresh decode even
+            // if the SAME partner's avatar was already hot in ChatAvatarL2Cache
+            // from the chat list/ChatActivity. Now routed through ChatAvatarBinder
+            // (34dp tier) so it reuses those entries instead of a separate copy,
+            // and picks up AvatarVersionSyncManager's cached version for a
+            // mid-session avatar change the same way chat list rows do.
+            String partnerUid = mgr.getCurrentPartnerUid();
+            long version = (partnerUid != null && !partnerUid.isEmpty())
+                    ? AvatarVersionSyncManager.getInstance(this).getCachedVersion(partnerUid) : 0L;
             if (avatarUrl != null && !avatarUrl.isEmpty()) {
-                Glide.with(this).load(avatarUrl).placeholder(R.drawable.ic_person)
-                        .into(miniPlayerIvAvatar);
+                ChatAvatarBinder.bind(this, miniPlayerIvAvatar, avatarUrl, version, R.drawable.ic_person,
+                        com.callx.app.utils.AvatarSizeTier.forViewSizeDp(34));
             } else {
                 miniPlayerIvAvatar.setImageResource(R.drawable.ic_person);
             }
