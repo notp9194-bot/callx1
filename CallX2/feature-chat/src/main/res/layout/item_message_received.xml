@@ -138,7 +138,7 @@
                     android:id="@+id/tv_reply_text"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="@color/bubble_received_text"
+                     android:textColor="@color/chat_bubble_secondary_text"
                     android:textSize="12sp"
                     android:maxLines="2"
                     android:ellipsize="end"/>
@@ -183,7 +183,7 @@
                 android:paddingEnd="6dp"
                 android:paddingTop="4dp"
                 android:paddingBottom="2dp"
-                android:textColor="@color/bubble_received_text"
+                 android:textColor="@color/chat_bubble_text"
                 android:textSize="15sp"
                 android:includeFontPadding="false"
                 android:lineSpacingExtra="0dp"
@@ -441,7 +441,7 @@
                     android:id="@+id/tv_time"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="@color/bubble_time_received"
+                     android:textColor="@color/chat_bubble_time"
                     android:textSize="9sp"/>
 
                 <!-- tv_status stub — always GONE for received -->

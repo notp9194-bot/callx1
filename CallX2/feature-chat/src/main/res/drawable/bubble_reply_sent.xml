@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="@color/bubble_sent"/>
+    <gradient android:angle="315" android:startColor="@color/chat_bubble_sent_start"
+        android:endColor="@color/chat_bubble_sent_end"/>
     <corners android:topLeftRadius="14dp" android:topRightRadius="14dp"
         android:bottomLeftRadius="14dp" android:bottomRightRadius="4dp"/>
 </shape>

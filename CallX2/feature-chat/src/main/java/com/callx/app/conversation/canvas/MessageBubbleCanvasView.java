@@ -313,7 +313,7 @@ public class MessageBubbleCanvasView extends View {
     static final float AUDIO_WAVEFORM_HEIGHT_DP = 28f;
     static final int   AUDIO_BAR_COUNT         = 28;
     static final float AUDIO_BAR_GAP_RATIO     = 0.45f; // fraction of each bar's slot left as gap
-    static final int   AUDIO_BTN_BG_COLOR      = 0xFFD4AF37; // COLOR/SIGNATURE: champagne-gold play button (was WhatsApp teal 0xFF008069) — waveform played-portion shares this same constant, so both stay in lockstep
+    static final int   AUDIO_BTN_BG_COLOR      = 0xFF7786FF; // Indigo play button; waveform played-portion shares this accent.
     static final int   AUDIO_BTN_ICON_COLOR    = 0xFFFFFFFF;
     static final float AUDIO_PLAY_TRIANGLE_DP  = 14f;
     static final float AUDIO_PAUSE_BAR_W_DP    = 3.5f;
@@ -590,8 +590,8 @@ public class MessageBubbleCanvasView extends View {
     static final float VO_LABEL_SUBLABEL_GAP_DP = 2f;
     static final float VO_ROW_GAP_TOP_DP       = 8f;
     static final float VO_OPENED_AT_GAP_DP     = 2f;
-    static final int   VO_COLOR_RECEIVED       = 0xFF00897B;
-    static final int   VO_COLOR_WAITING        = 0xFF1A5C4A;
+    static final int   VO_COLOR_RECEIVED       = 0xFF315A92;
+    static final int   VO_COLOR_WAITING        = 0xFF514BD8;
     static final int   VO_COLOR_EXPIRED        = 0xFF555555;
     static final int   VO_LABEL_COLOR          = 0xFFFFFFFF;
     static final int   VO_SUBLABEL_COLOR       = 0xCCFFFFFF;
@@ -1294,8 +1294,10 @@ public class MessageBubbleCanvasView extends View {
     // against these on every lookup means a theme change rebuilds the
     // pool lazily instead of leaving stale colors baked in forever.
     private static float sBubblePoolDensity = -1f;
-    private static int sBubblePoolSentColor = 0;
-    private static int sBubblePoolReceivedColor = 0;
+    private static int sBubblePoolSentStart = 0;
+    private static int sBubblePoolSentEnd = 0;
+    private static int sBubblePoolReceivedStart = 0;
+    private static int sBubblePoolReceivedEnd = 0;
 
     // ── Perf gap #5: requestLayout() skip-if-unchanged ──────────────────
     // Every bind*/set* method used to call requestLayout() unconditionally,
@@ -4022,7 +4024,7 @@ public class MessageBubbleCanvasView extends View {
         this.groupSenderName = name != null ? name : "";
         if (hasGroupSender) {
             groupSenderPaint.setColor(androidx.core.content.ContextCompat.getColor(
-                    getContext(), com.callx.app.core.R.color.brand_primary));
+                    getContext(), com.callx.app.core.R.color.chat_accent));
         }
         requestLayoutIfSizeChanged();
         invalidate();
@@ -4235,10 +4237,10 @@ public class MessageBubbleCanvasView extends View {
             linkCardBgPaint.setColor(SENT_REPLY_BG);
         } else {
             replyBgPaint.setColor(RECEIVED_REPLY_BG);
-            int brand = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.brand_primary);
+            int brand = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.chat_accent);
             replyBarPaint.setColor(brand);
             replySenderPaint.setColor(brand);
-            replyTextPaint.setColor(androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_received_text));
+            replyTextPaint.setColor(androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.chat_bubble_secondary_text));
             // bg_reply_preview_received — same #22000000 card background.
             linkCardBgPaint.setColor(RECEIVED_REPLY_BG);
         }
@@ -4257,24 +4259,33 @@ public class MessageBubbleCanvasView extends View {
      * from behind the media rect (MEDIA_TAIL_RADIUS_DP vs TAIL_RADIUS_DP).
      */
     private static GradientDrawable sharedBubbleDrawable(Context ctx, boolean sent, boolean isMediaTail, float density) {
-        int sentColor = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_sent);
-        int receivedColor = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.bubble_received);
+        int sentStart = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.chat_bubble_sent_start);
+        int sentEnd = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.chat_bubble_sent_end);
+        int receivedStart = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.chat_bubble_received_start);
+        int receivedEnd = androidx.core.content.ContextCompat.getColor(ctx, com.callx.app.core.R.color.chat_bubble_received_end);
         if (density != sBubblePoolDensity
-                || sentColor != sBubblePoolSentColor
-                || receivedColor != sBubblePoolReceivedColor) {
+                || sentStart != sBubblePoolSentStart
+                || sentEnd != sBubblePoolSentEnd
+                || receivedStart != sBubblePoolReceivedStart
+                || receivedEnd != sBubblePoolReceivedEnd) {
             // Density changed (shouldn't happen mid-process, but cheap to
             // guard) or the bubble colors changed (day/night switch) —
             // invalidate the whole pool so nothing stale lingers.
             java.util.Arrays.fill(BUBBLE_DRAWABLE_POOL, null);
             sBubblePoolDensity = density;
-            sBubblePoolSentColor = sentColor;
-            sBubblePoolReceivedColor = receivedColor;
+            sBubblePoolSentStart = sentStart;
+            sBubblePoolSentEnd = sentEnd;
+            sBubblePoolReceivedStart = receivedStart;
+            sBubblePoolReceivedEnd = receivedEnd;
         }
         int idx = (sent ? 2 : 0) | (isMediaTail ? 1 : 0);
         GradientDrawable gd = BUBBLE_DRAWABLE_POOL[idx];
         if (gd == null) {
             gd = new GradientDrawable();
-            gd.setColor(sent ? sentColor : receivedColor);
+            gd.setColors(sent
+                    ? new int[]{sentStart, sentEnd}
+                    : new int[]{receivedStart, receivedEnd},
+                    null, GradientDrawable.Orientation.TL_BR);
             float r = CORNER_RADIUS_DP * density;
             float tail = (isMediaTail ? MEDIA_TAIL_RADIUS_DP : TAIL_RADIUS_DP) * density;
             if (sent) {

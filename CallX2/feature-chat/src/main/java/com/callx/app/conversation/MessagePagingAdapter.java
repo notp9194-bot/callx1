@@ -6706,9 +6706,8 @@ public class MessagePagingAdapter
         Context ctx = h.itemView.getContext();
         h.llPoll.setVisibility(View.VISIBLE);
 
-        int textColor = sent
-                ? androidx.core.content.ContextCompat.getColor(ctx, R.color.bubble_sent_text)
-                : androidx.core.content.ContextCompat.getColor(ctx, R.color.bubble_received_text);
+        int textColor = androidx.core.content.ContextCompat.getColor(
+                ctx, com.callx.app.core.R.color.chat_bubble_text);
 
         // Recolor the fixed-white header icon to match the bubble's text color
         // so it stays legible on both light and dark bubble/theme combinations.
@@ -7821,7 +7820,7 @@ public class MessagePagingAdapter
         if (h.tvAudioDur != null) {
             try {
                 int color = ctx.getResources().getColor(
-                        sent ? R.color.bubble_sent_text : R.color.bubble_received_text);
+                        com.callx.app.core.R.color.chat_bubble_text);
                 h.tvAudioDur.setTextColor(color);
             } catch (Exception ignored) {}
         }

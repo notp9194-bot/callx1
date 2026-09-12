@@ -102,4 +102,21 @@
     <color name="trim_circle_btn_bg_on_photo">#66000000</color>
     <color name="trim_tooltip_bg">#E6FFFFFF</color>
     <color name="trim_tooltip_text">#14141A</color>
+
+    <!-- Chat screen premium night palette. -->
+    <color name="chat_bg_start">#081329</color>
+    <color name="chat_bg_end">#020817</color>
+    <color name="chat_header_start">#17365D</color>
+    <color name="chat_header_end">#0D1B35</color>
+    <color name="chat_input">#142343</color>
+    <color name="chat_stroke">#395A9D</color>
+    <color name="chat_accent">#7786FF</color>
+    <color name="chat_accent_deep">#514BD8</color>
+    <color name="chat_bubble_sent_start">#756EFF</color>
+    <color name="chat_bubble_sent_end">#3D3B91</color>
+    <color name="chat_bubble_received_start">#1E3B61</color>
+    <color name="chat_bubble_received_end">#10223E</color>
+    <color name="chat_bubble_text">#F5F7FF</color>
+    <color name="chat_bubble_secondary_text">#B7C4EE</color>
+    <color name="chat_bubble_time">#B9C8F4</color>
 </resources>
