@@ -136,17 +136,21 @@ public class ChatThemeManager {
 
     public int getChatBgColor(Context ctx) {
         // Kept in sync with applyScreenTheme()'s unified chatBgColor —
-        // header, chat background, and input bar are all bar_background now.
-        return resolveColor(ctx, com.callx.app.core.R.color.bar_background);
+        // header, chat background, and input bar are all chat_unified_bg,
+        // which is theme-aware (light value in values/, dark value in
+        // values-night/) unlike bar_background which never changed with
+        // the theme.
+        return resolveColor(ctx, com.callx.app.core.R.color.chat_unified_bg);
     }
 
     public int getInputBarColor(Context ctx) {
-        return resolveColor(ctx, com.callx.app.core.R.color.bar_background);
+        return resolveColor(ctx, com.callx.app.core.R.color.chat_unified_bg);
     }
 
     /**
      * Apply screen theme — uses color resources instead of hardcoded gradients.
-     * Toolbar and input bar get @color/bar_background (WhatsApp green / dark green).
+     * Toolbar and input bar get @color/chat_unified_bg (theme-aware: light
+     * mode keeps its own light look, dark mode keeps the dark navy).
      */
     public void applyScreenTheme(
             View toolbar,
@@ -158,20 +162,21 @@ public class ChatThemeManager {
         if (toolbar == null) return;
         Context ctx = toolbar.getContext();
 
-        int barColor    = resolveColor(ctx, com.callx.app.core.R.color.bar_background);
-        int brandColor  = resolveColor(ctx, com.callx.app.core.R.color.brand_primary);
-
         // UNIFIED BACKGROUND: header, chat background, and the input bar all
-        // use the exact same @color/bar_background — previously chatRoot used
-        // @color/surface_chat_bg (a different, lighter color) while the
-        // toolbar/input bar used bar_background, so the header/input strip
-        // visibly didn't match the chat body behind them. Same color also
-        // shows through the transparent status bar / nav bar (see
+        // use the exact same @color/chat_unified_bg. This resource is
+        // theme-aware (values/colors.xml has the light value, values-night/
+        // has the dark one) — bar_background can't be used here since it's
+        // a fixed dark navy in BOTH themes, which was forcing the whole chat
+        // screen dark even under the light theme. Same color also shows
+        // through the transparent status bar / nav bar (see
         // ImmersiveModeUtils), so status bar, header, chat background, and
-        // bottom nav bar all read as one continuous color.
+        // bottom nav bar all read as one continuous color, correctly per
+        // light/dark theme.
+        int barColor    = resolveColor(ctx, com.callx.app.core.R.color.chat_unified_bg);
+        int brandColor  = resolveColor(ctx, com.callx.app.core.R.color.brand_primary);
         int chatBgColor = barColor;
 
-        // Solid toolbar — matches @color/bar_background in XML (no gradient override)
+        // Solid toolbar — matches @color/chat_unified_bg in XML (no gradient override)
         GradientDrawable toolbarBg = new GradientDrawable();
         toolbarBg.setColor(barColor);
         toolbar.setBackground(toolbarBg);

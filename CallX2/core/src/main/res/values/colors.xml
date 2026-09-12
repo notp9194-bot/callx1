@@ -19,6 +19,14 @@
     <color name="surface_bg">#F5F6FA</color>
     <color name="surface_card">#FFFFFF</color>
     <color name="surface_chat_bg">#ECE5DD</color>
+    <!-- Light-mode value for the header/chat-background/input-bar/status-bar/
+         nav-bar "everything matches" unification (see ChatThemeManager /
+         ImmersiveModeUtils) — same as the original light-theme
+         surface_chat_bg. bar_background stays a fixed dark navy in BOTH
+         themes (see below), so it can't be reused here without forcing
+         dark mode's look onto light theme too — this gives each theme its
+         own self-consistent matching color instead. -->
+    <color name="chat_unified_bg">#ECE5DD</color>
     <color name="surface_input">#F1F3F8</color>
     <!-- Skeleton/shimmer loading placeholders (e.g. reel comments list before
          first page loads). Distinct from surface_input so the placeholder is

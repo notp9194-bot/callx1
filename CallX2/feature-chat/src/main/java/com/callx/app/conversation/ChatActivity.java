@@ -904,12 +904,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         setupBackPressHandler();
         setupSwipeToReply();
         setupFabBackToLatest();
-        setupHeaderAutoHide();
         setupStickyDateHeader();
         // PERF: single consolidated OnScrollListener for rv_messages — see
         // attachUnifiedMessagesScrollListener()'s doc. Must come after the
         // setup*() calls above/setupFabBackToLatest() so their state
-        // (headerHideThresholdPx, hideStickyDateHeaderRunnable, etc.) is ready.
+        // (hideStickyDateHeaderRunnable, etc.) is ready. Header auto-hide was
+        // removed entirely (see note near attachUnifiedMessagesScrollListener) —
+        // the header is now permanently fixed at the top.
         attachUnifiedMessagesScrollListener();
         setupNetworkMonitor();
 
@@ -5751,104 +5752,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     // ═════════════════════════════════════════════════════════════════
-    // HEADER AUTO-HIDE ON SCROLL — the floating header capsule slides up
-    // + fades out when the user scrolls down (towards newer messages) and
-    // slides back down + fades in when they scroll up, giving the message
-    // list more screen space while actively reading. Skipped while the
-    // selection toolbar or search bar is showing since those replace/need
-    // the header area.
+    // HEADER — now permanently fixed at the top (auto-hide-on-scroll
+    // removed for performance: no per-scroll-frame accumulator math, no
+    // animate()/withLayer() hardware-layer churn while the list is
+    // actively flinging). See attachUnifiedMessagesScrollListener() —
+    // it no longer calls into any header-hide handler at all.
     // ═════════════════════════════════════════════════════════════════
-    private boolean isHeaderCapsuleHidden = false;
-    private float headerScrollAccum = 0f;
-    private float headerHideThresholdPx = 0f;
-
-    private void setupHeaderAutoHide() {
-        if (binding.toolbar == null || binding.rvMessages == null) return;
-        headerHideThresholdPx = 24f * getResources().getDisplayMetrics().density;
-        // PERF (scroll-listener consolidation): onScrolled/onScrollStateChanged
-        // bodies moved into handleHeaderAutoHideScrolled()/
-        // handleHeaderAutoHideStateChanged(), invoked from the single unified
-        // listener — see attachUnifiedMessagesScrollListener()'s doc.
-    }
-
-    private void handleHeaderAutoHideScrolled(int dy) {
-        if (binding.toolbar == null) return;
-        if (Math.abs(dy) < 2) return;
-
-        // Don't fight with selection/search modes — keep header visible there.
-        boolean selectionActive = binding.llSelectionToolbar != null
-                && binding.llSelectionToolbar.getVisibility() == View.VISIBLE;
-        boolean searchActive = binding.llSearchBar != null
-                && binding.llSearchBar.getVisibility() == View.VISIBLE;
-        if (selectionActive || searchActive) {
-            if (isHeaderCapsuleHidden) showHeaderCapsule();
-            return;
-        }
-
-        // Reset the accumulator on a direction flip so a quick reversal
-        // feels immediately responsive instead of fighting stale momentum.
-        if ((dy > 0 && headerScrollAccum < 0) || (dy < 0 && headerScrollAccum > 0)) {
-            headerScrollAccum = 0f;
-        }
-        headerScrollAccum += dy;
-
-        if (headerScrollAccum > headerHideThresholdPx && !isHeaderCapsuleHidden) {
-            hideHeaderCapsule();
-            headerScrollAccum = 0f;
-        } else if (headerScrollAccum < -headerHideThresholdPx && isHeaderCapsuleHidden) {
-            showHeaderCapsule();
-            headerScrollAccum = 0f;
-        }
-    }
-
-    private void handleHeaderAutoHideStateChanged(@NonNull RecyclerView rv, int newState) {
-        if (binding.toolbar == null) return;
-        // Always reveal the header once the list comes to rest at the very
-        // top of the loaded page — avoids it staying hidden with nothing
-        // left to scroll.
-        if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-            LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
-            if (lm != null && lm.findFirstVisibleItemPosition() == 0 && isHeaderCapsuleHidden) {
-                showHeaderCapsule();
-            }
-        }
-    }
-
-    private void hideHeaderCapsule() {
-        if (binding.toolbar == null || isHeaderCapsuleHidden) return;
-        isHeaderCapsuleHidden = true;
-        float distance = binding.toolbar.getHeight()
-                + binding.toolbar.getTop()
-                + (16f * getResources().getDisplayMetrics().density);
-        // PERF (ultra-opt pass): withLayer() caches the capsule's whole
-        // subtree (avatar, ripple buttons, card corner clip + elevation
-        // shadow) into a single hardware layer for the animation's
-        // duration, so each of these frames only needs to re-composite one
-        // cached texture instead of re-issuing every child's draw calls —
-        // this animation always fires while rv_messages is actively
-        // flinging, so it's directly competing for the same 16ms frame
-        // budget. ViewPropertyAnimator auto-restores LAYER_TYPE_NONE when
-        // the animation ends, so no manual cleanup needed.
-        binding.toolbar.animate()
-                .translationY(-distance)
-                .alpha(0f)
-                .setDuration(220)
-                .setInterpolator(new android.view.animation.AccelerateInterpolator())
-                .withLayer()
-                .start();
-    }
-
-    private void showHeaderCapsule() {
-        if (binding.toolbar == null || !isHeaderCapsuleHidden) return;
-        isHeaderCapsuleHidden = false;
-        binding.toolbar.animate()
-                .translationY(0f)
-                .alpha(1f)
-                .setDuration(220)
-                .setInterpolator(new android.view.animation.DecelerateInterpolator())
-                .withLayer()
-                .start();
-    }
 
     // ═════════════════════════════════════════════════════════════════
     // STICKY DATE HEADER — Telegram-style. Shows whichever date is
@@ -5937,14 +5846,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * PERF (scroll-listener consolidation): rv_messages previously had FOUR
      * separate RecyclerView.OnScrollListener instances registered on it —
      * layer-type toggle (setupPagingRecyclerView), header auto-hide
-     * (setupHeaderAutoHide), sticky date chip (setupStickyDateHeader), and
-     * bottom/FAB-tracking + Glide pause-resume + presence-publish
-     * (setupFabBackToLatest) — each an independent object RecyclerView
-     * invoked on every single scroll frame. They're combined into ONE
-     * listener here, registered once every chat open, so a scroll frame
-     * does one dispatch instead of four; each original behavior is
-     * preserved unchanged in its own handle*() method, still individually
-     * null/flag-guarded exactly as it was before.
+     * (now removed entirely — header is permanently fixed at the top),
+     * sticky date chip (setupStickyDateHeader), and bottom/FAB-tracking +
+     * Glide pause-resume + presence-publish (setupFabBackToLatest) — each
+     * an independent object RecyclerView invoked on every single scroll
+     * frame. The remaining three are combined into ONE listener here,
+     * registered once every chat open, so a scroll frame does one dispatch
+     * instead of three; each original behavior is preserved unchanged in
+     * its own handle*() method, still individually null/flag-guarded
+     * exactly as it was before.
      *
      * Glide's RecyclerViewPreloader (registered separately in
      * setupFabBackToLatest) is intentionally left out of this merge — it's
@@ -5952,22 +5862,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * one of ours to combine.
      *
      * Must run after setupPagingRecyclerView()/setupFabBackToLatest()/
-     * setupHeaderAutoHide()/setupStickyDateHeader() so every field each
-     * handler touches (pagingAdapter, headerHideThresholdPx,
-     * hideStickyDateHeaderRunnable, etc.) is already initialized.
+     * setupStickyDateHeader() so every field each handler touches
+     * (pagingAdapter, hideStickyDateHeaderRunnable, etc.) is already
+     * initialized.
      */
     private void attachUnifiedMessagesScrollListener() {
         if (binding.rvMessages == null) return;
         binding.rvMessages.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                handleHeaderAutoHideScrolled(dy);
                 handleStickyDateScrolled(dy);
                 handleBottomTrackingScrolled(rv, dy);
             }
 
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
                 handleLayerTypeStateChanged(rv, newState);
-                handleHeaderAutoHideStateChanged(rv, newState);
                 handleStickyDateStateChanged(newState);
                 handleGlideAndPresenceStateChanged(rv, newState);
             }

@@ -72,14 +72,14 @@ public final class ImmersiveModeUtils {
 
         // Explicit color (not TRANSPARENT) so the system status/nav bars are
         // *guaranteed* to match the header/chat-background/input-bar color
-        // exactly (see ChatThemeManager's unified bar_background), rather
+        // exactly (see ChatThemeManager's unified chat_unified_bg (theme-aware)), rather
         // than depending on whichever content happens to sit behind a
         // transparent bar. Content still draws edge-to-edge underneath
         // (decorFitsSystemWindows(false) above), so this only changes what's
         // visible in the ~1px sliver during a swipe-reveal — brief and now
         // color-matched instead of see-through.
         int barColor = androidx.core.content.ContextCompat.getColor(
-                activity, com.callx.app.core.R.color.bar_background);
+                activity, com.callx.app.core.R.color.chat_unified_bg);
         window.setStatusBarColor(barColor);
         window.setNavigationBarColor(barColor);
     }
@@ -114,7 +114,7 @@ public final class ImmersiveModeUtils {
         // TRANSPARENT would show the OS's own default rather than matching
         // the header/chat background/input bar.
         int barColor = androidx.core.content.ContextCompat.getColor(
-                activity, com.callx.app.core.R.color.bar_background);
+                activity, com.callx.app.core.R.color.chat_unified_bg);
         window.setStatusBarColor(barColor);
         window.setNavigationBarColor(barColor);
     }

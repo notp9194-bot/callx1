@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bar_background">
+    android:background="@color/chat_unified_bg">
     <!-- FrameLayout wraps wallpaper + shimmer + RecyclerView + floating bars + FAB -->
     <FrameLayout
         android:layout_width="match_parent"
@@ -711,12 +711,12 @@
                     android:layout_marginStart="10dp"
                     android:layout_marginEnd="10dp"
                     app:cardCornerRadius="28dp"
-                    app:cardElevation="6dp"
+                    app:cardElevation="0dp"
                     app:cardBackgroundColor="@color/surface_input"
                     app:strokeColor="@color/divider"
                     app:strokeWidth="0.5dp"
                     app:cardPreventCornerOverlap="false"
-                    app:cardUseCompatPadding="true">
+                    app:cardUseCompatPadding="false">
 
                     <!-- Input row — view-once toggle on the left, message
                          field in the middle, attach+camera grouped on the
@@ -894,7 +894,7 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@color/bar_background"
+            android:background="@color/chat_unified_bg"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:paddingTop="12dp"
