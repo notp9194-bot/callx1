@@ -4281,11 +4281,9 @@ public class MessageBubbleCanvasView extends View {
         int idx = (sent ? 2 : 0) | (isMediaTail ? 1 : 0);
         GradientDrawable gd = BUBBLE_DRAWABLE_POOL[idx];
         if (gd == null) {
-            gd = new GradientDrawable();
-            gd.setColors(sent
+            gd = new GradientDrawable(GradientDrawable.Orientation.TL_BR, sent
                     ? new int[]{sentStart, sentEnd}
-                    : new int[]{receivedStart, receivedEnd},
-                    null, GradientDrawable.Orientation.TL_BR);
+                    : new int[]{receivedStart, receivedEnd});
             float r = CORNER_RADIUS_DP * density;
             float tail = (isMediaTail ? MEDIA_TAIL_RADIUS_DP : TAIL_RADIUS_DP) * density;
             if (sent) {

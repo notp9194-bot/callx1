@@ -99,8 +99,8 @@ public class ChatThemeManager {
         int end = resolveColor(bubbleView.getContext(), sent
                 ? com.callx.app.core.R.color.chat_bubble_sent_end
                 : com.callx.app.core.R.color.chat_bubble_received_end);
-        owned.setColors(new int[]{start, end}, null,
-                GradientDrawable.Orientation.TL_BR);
+        owned.setColors(new int[]{start, end});
+        owned.setOrientation(GradientDrawable.Orientation.TL_BR);
         owned.setCornerRadii(sent ? sentRadii : receivedRadii);
         if (bubbleView.getBackground() != owned) {
             bubbleView.setBackground(owned);
@@ -163,8 +163,8 @@ public class ChatThemeManager {
         int brandColor  = resolveColor(ctx, com.callx.app.core.R.color.chat_accent);
 
         GradientDrawable toolbarBg = new GradientDrawable();
-        toolbarBg.setColors(new int[]{barColor, barColorEnd}, null,
-                GradientDrawable.Orientation.TL_BR);
+        toolbarBg.setColors(new int[]{barColor, barColorEnd});
+        toolbarBg.setOrientation(GradientDrawable.Orientation.TL_BR);
         toolbar.setBackground(toolbarBg);
 
         if (chatRoot != null) {
