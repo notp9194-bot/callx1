@@ -44,6 +44,14 @@ final class ReelShareRenderer {
     private final Path clipPath = new Path();
     private float lastClipLeft = Float.NaN, lastClipTop, lastClipRight, lastClipBottom;
 
+    // PERF: reused across every draw() instead of the no-arg
+    // paint.getFontMetrics(), which allocates a new FontMetrics object
+    // every call — same GC-pressure-at-60fps class of bug already fixed
+    // for the reactions badge / audio waveform.
+    private final Paint.FontMetrics usernameFm = new Paint.FontMetrics();
+    private final Paint.FontMetrics playIconFm = new Paint.FontMetrics();
+    private final Paint.FontMetrics labelFm = new Paint.FontMetrics();
+
     ReelShareRenderer(MessageBubbleCanvasView host) {
         this.host = host;
     }
@@ -126,7 +134,8 @@ final class ReelShareRenderer {
         }
 
         float usernameX = host.reelAvatarRect.right + MessageBubbleCanvasView.REEL_AVATAR_TEXT_GAP_DP * host.density;
-        Paint.FontMetrics ufm = host.reelUsernamePaint.getFontMetrics();
+        host.reelUsernamePaint.getFontMetrics(usernameFm);
+        Paint.FontMetrics ufm = usernameFm;
         float usernameBaselineY = host.reelAvatarRect.centerY() - (ufm.ascent + ufm.descent) / 2f;
         float usernameMaxW = host.reelCardRect.right - MessageBubbleCanvasView.REEL_HEADER_PAD_H_DP * host.density - usernameX;
         float safeUsernameMaxW = Math.max(1, usernameMaxW);
@@ -143,14 +152,16 @@ final class ReelShareRenderer {
         canvas.drawText(usernameToDraw, usernameX, usernameBaselineY, host.reelUsernamePaint);
 
         // ── Centered play glyph ──
-        Paint.FontMetrics pfm = host.reelPlayIconPaint.getFontMetrics();
+        host.reelPlayIconPaint.getFontMetrics(playIconFm);
+        Paint.FontMetrics pfm = playIconFm;
         float playBaselineY = host.reelCardRect.centerY() - (pfm.ascent + pfm.descent) / 2f;
         canvas.drawText(MessageBubbleCanvasView.REEL_PLAY_GLYPH, host.reelCardRect.centerX(), playBaselineY, host.reelPlayIconPaint);
 
         // ── Bottom: caption + "⬡ Reels" label ──
         float bottomPadH = MessageBubbleCanvasView.REEL_BOTTOM_PAD_H_DP * host.density;
         float bottomPadBottom = MessageBubbleCanvasView.REEL_BOTTOM_PAD_BOTTOM_DP * host.density;
-        Paint.FontMetrics lfm = host.reelLabelPaint.getFontMetrics();
+        host.reelLabelPaint.getFontMetrics(labelFm);
+        Paint.FontMetrics lfm = labelFm;
         float labelBaselineY = host.reelCardRect.bottom - bottomPadBottom - lfm.descent;
         canvas.drawText(MessageBubbleCanvasView.REEL_LABEL_TEXT, host.reelCardRect.left + bottomPadH, labelBaselineY, host.reelLabelPaint);
 

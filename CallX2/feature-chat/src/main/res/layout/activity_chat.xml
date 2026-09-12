@@ -575,8 +575,8 @@
                         android:layout_height="wrap_content"
                         android:paddingStart="4dp"
                         android:paddingEnd="4dp"
-                        android:paddingTop="8dp"
-                        android:paddingBottom="8dp"
+                        android:paddingTop="4dp"
+                        android:paddingBottom="4dp"
                         android:background="@android:color/transparent">
 
                         <ImageButton
@@ -607,8 +607,8 @@
                             android:textColorHint="@color/text_muted"
                             android:textColor="@color/chat_input_text"
                             android:background="@color/transparent"
-                            android:paddingTop="10dp"
-                            android:paddingBottom="10dp"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="6dp"
                             android:paddingStart="10dp"
                             android:paddingEnd="10dp"
                             android:textSize="17sp"
@@ -754,7 +754,7 @@
                 <FrameLayout
                     android:layout_width="36dp"
                     android:layout_height="36dp"
-                    android:layout_marginStart="6dp">
+                    android:layout_marginStart="12dp">
 
                     <de.hdodenhof.circleimageview.CircleImageView
                         android:id="@+id/iv_partner_avatar"

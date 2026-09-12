@@ -22,6 +22,16 @@ final class ViewOnceRenderer {
         this.host = host;
     }
 
+    // PERF: reused across every draw() instead of the no-arg
+    // paint.getFontMetrics(), which allocates a new FontMetrics object
+    // every call — same GC-pressure-at-60fps class of bug already fixed
+    // for the reactions badge / audio waveform.
+    private final Paint.FontMetrics iconFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics labelFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics sublabelFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics timeFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics openedAtFmScratch = new Paint.FontMetrics();
+
     void draw(Canvas canvas) {
         float r = MessageBubbleCanvasView.VO_CORNER_RADIUS_DP * host.density;
         int bg;
@@ -47,12 +57,15 @@ final class ViewOnceRenderer {
         float right = host.viewOnceCardRect.right - pad;
         float top = host.viewOnceCardRect.top + pad;
 
-        Paint.FontMetrics iconFm = host.viewOnceIconPaint.getFontMetrics();
+        host.viewOnceIconPaint.getFontMetrics(iconFmScratch);
+        Paint.FontMetrics iconFm = iconFmScratch;
         float iconH = iconFm.descent - iconFm.ascent;
 
         if (host.viewOnceVariant == MessageBubbleCanvasView.VIEW_ONCE_RECEIVED) {
-            Paint.FontMetrics lfm = host.viewOnceLabelPaint.getFontMetrics();
-            Paint.FontMetrics sfm = host.viewOnceSublabelPaint.getFontMetrics();
+            host.viewOnceLabelPaint.getFontMetrics(labelFmScratch);
+            host.viewOnceSublabelPaint.getFontMetrics(sublabelFmScratch);
+            Paint.FontMetrics lfm = labelFmScratch;
+            Paint.FontMetrics sfm = sublabelFmScratch;
             float labelH = lfm.descent - lfm.ascent;
             float sublabelH = sfm.descent - sfm.ascent;
             float textColH = labelH + MessageBubbleCanvasView.VO_LABEL_SUBLABEL_GAP_DP * host.density + sublabelH;
@@ -68,7 +81,8 @@ final class ViewOnceRenderer {
                         host.viewOnceSublabelPaint);
             }
         } else if (host.viewOnceVariant == MessageBubbleCanvasView.VIEW_ONCE_WAITING) {
-            Paint.FontMetrics lfm = host.viewOnceLabelPaint.getFontMetrics();
+            host.viewOnceLabelPaint.getFontMetrics(labelFmScratch);
+            Paint.FontMetrics lfm = labelFmScratch;
             float labelH = lfm.descent - lfm.ascent;
             float rowH = Math.max(iconH, labelH);
             float rowCenterY = top + rowH / 2f;
@@ -76,7 +90,8 @@ final class ViewOnceRenderer {
             float textX = left + host.viewOnceIconPaint.measureText(MessageBubbleCanvasView.VO_LOCK_GLYPH) + MessageBubbleCanvasView.VO_ICON_TEXT_GAP_DP * host.density;
             canvas.drawText(MessageBubbleCanvasView.VO_WAITING_LABEL_TEXT, textX, rowCenterY - (lfm.ascent + lfm.descent) / 2f, host.viewOnceLabelPaint);
         } else { // VIEW_ONCE_EXPIRED
-            Paint.FontMetrics lfm = host.viewOnceLabelPaint.getFontMetrics();
+            host.viewOnceLabelPaint.getFontMetrics(labelFmScratch);
+            Paint.FontMetrics lfm = labelFmScratch;
             float labelH = lfm.descent - lfm.ascent;
             float rowH = Math.max(iconH, labelH);
             float rowCenterY = top + rowH / 2f;
@@ -90,7 +105,8 @@ final class ViewOnceRenderer {
                 int savedColor = openedAtPaint.getColor();
                 openedAtPaint.setTextSize(MessageBubbleCanvasView.VO_OPENED_AT_SP * host.density);
                 openedAtPaint.setColor(MessageBubbleCanvasView.VO_OPENED_AT_COLOR);
-                Paint.FontMetrics ofm = openedAtPaint.getFontMetrics();
+                openedAtPaint.getFontMetrics(openedAtFmScratch);
+                Paint.FontMetrics ofm = openedAtFmScratch;
                 float openedAtTop = top + rowH + MessageBubbleCanvasView.VO_OPENED_AT_GAP_DP * host.density;
                 canvas.drawText(host.viewOnceOpenedAtText, textX, openedAtTop - ofm.ascent, openedAtPaint);
                 openedAtPaint.setTextSize(savedSize);
@@ -98,7 +114,8 @@ final class ViewOnceRenderer {
             }
         }
 
-        Paint.FontMetrics tfm = host.viewOnceTimePaint.getFontMetrics();
+        host.viewOnceTimePaint.getFontMetrics(timeFmScratch);
+        Paint.FontMetrics tfm = timeFmScratch;
         float timeBaselineY = host.viewOnceCardRect.bottom - pad - tfm.descent;
         canvas.drawText(host.footerTimeText, right, timeBaselineY, host.viewOnceTimePaint);
     }

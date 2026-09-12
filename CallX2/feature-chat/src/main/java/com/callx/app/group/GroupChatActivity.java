@@ -5610,7 +5610,8 @@ public class GroupChatActivity extends AppCompatActivity
         // ChatIconBarView, so the accent is applied via setAccentColor()
         // instead of swapping a GradientDrawable background on separate
         // btnSend/btnMic ImageButtons.
-        binding.chatIconBar.setAccentColor(mgr.getPrimaryColor());
+        binding.chatIconBar.setAccentColor(
+                com.callx.app.utils.FollowButtonStyler.primaryColor(this));
 
         // Apply wallpaper
         applyWallpaper();

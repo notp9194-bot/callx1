@@ -192,17 +192,15 @@ public class ChatIconBarView extends View {
             drawIcon(canvas, cameraIcon, cameraRect, Math.min(1f, f), 0.6f + 0.4f * f);
         }
 
-        // Mic/send shared slot: colored circle background now only shows
-        // behind the SEND icon (WhatsApp-style), not the mic — mic icon is
-        // drawn plain with no background, per request. Circle fades in
-        // proportionally with sendFraction so it doesn't pop in abruptly.
+        // Mic/send shared slot: same accent circle (follow-button color, via
+        // circlePaint) now sits behind BOTH icons — mic and send reuse one
+        // background rather than send-only. Drawn once at full alpha since
+        // exactly one of mic/send is ever the "active" icon in this slot.
         if (!micSendVisible) return;
         int cx = micSendRect.centerX();
         int cy = micSendRect.centerY();
-        if (sendFraction > 0.005f) {
-            circlePaint.setAlpha(Math.round(Math.min(1f, sendFraction) * 255));
-            canvas.drawCircle(cx, cy, slotSizePx / 2f, circlePaint);
-        }
+        circlePaint.setAlpha(255);
+        canvas.drawCircle(cx, cy, slotSizePx / 2f, circlePaint);
 
         if (sendFraction < 0.995f) {
             int alpha = Math.round((1f - sendFraction) * 255);

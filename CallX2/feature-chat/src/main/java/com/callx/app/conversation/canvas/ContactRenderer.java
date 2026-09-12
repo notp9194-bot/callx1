@@ -38,14 +38,52 @@ final class ContactRenderer {
     private float lastPhoneMaxW = -1f;
     private String cachedPhoneDisplay;
 
+    // PERF: reused across every draw() call instead of the no-arg
+    // paint.getFontMetrics(), which allocates a brand-new FontMetrics
+    // object every single call — same GC-pressure-at-60fps class of bug
+    // already fixed for the reactions badge / audio waveform.
+    private final Paint.FontMetrics nameFm = new Paint.FontMetrics();
+    private final Paint.FontMetrics phoneFm = new Paint.FontMetrics();
+    private final Paint.FontMetrics buttonFm = new Paint.FontMetrics();
+
+    // PERF: cached rounded-rect clip path — was `new Path()` + addRoundRect()
+    // on every single draw() during scroll. Same recompute-on-change pattern
+    // as ReelShareRenderer's clipPath: only rebuilt when contactCardRect's
+    // bounds (or the corner radius) actually change since the last draw.
+    private final android.graphics.Path clipPath = new android.graphics.Path();
+    private float lastClipLeft = Float.NaN, lastClipTop, lastClipRight, lastClipBottom, lastClipR;
+
+    private void ensureClipPath(float r) {
+        android.graphics.RectF rect = host.contactCardRect;
+        if (rect.left == lastClipLeft && rect.top == lastClipTop && rect.right == lastClipRight
+                && rect.bottom == lastClipBottom && r == lastClipR) {
+            return;
+        }
+        clipPath.reset();
+        clipPath.addRoundRect(rect, r, r, android.graphics.Path.Direction.CW);
+        lastClipLeft = rect.left;
+        lastClipTop = rect.top;
+        lastClipRight = rect.right;
+        lastClipBottom = rect.bottom;
+        lastClipR = r;
+    }
+
+    // PERF: cached avatar BitmapShader — was `new BitmapShader(...)` on
+    // every single draw() while a photo avatar is showing. Same pattern as
+    // MediaGroupRenderer's cellShaders: rebuilt only when the bitmap
+    // reference or its scale/translate (derived from the avatar rect)
+    // actually changed since the last draw.
+    private android.graphics.BitmapShader avatarShader;
+    private android.graphics.Bitmap lastAvatarBitmap;
+    private float lastAvatarScale = Float.NaN, lastAvatarDx, lastAvatarDy;
+
     void draw(Canvas canvas) {
         float r = MessageBubbleCanvasView.CONTACT_CORNER_RADIUS_DP * host.density;
         canvas.save();
         // Clip to the card's rounded shape (android:clipToOutline on the
         // legacy ll_contact_card) so the flat divider/button-row rects
         // drawn below don't square off the bottom corners.
-        android.graphics.Path clipPath = new android.graphics.Path();
-        clipPath.addRoundRect(host.contactCardRect, r, r, android.graphics.Path.Direction.CW);
+        ensureClipPath(r);
         canvas.clipPath(clipPath);
 
         canvas.drawRect(host.contactCardRect, host.contactCardBgPaint);
@@ -56,14 +94,21 @@ final class ContactRenderer {
                     host.contactAvatarRect.height() / host.contactAvatarBitmap.getHeight());
             float dx = host.contactAvatarRect.left - (host.contactAvatarBitmap.getWidth() * scale - host.contactAvatarRect.width()) / 2f;
             float dy = host.contactAvatarRect.top - (host.contactAvatarBitmap.getHeight() * scale - host.contactAvatarRect.height()) / 2f;
-            host.contactAvatarShaderMatrix.reset();
-            host.contactAvatarShaderMatrix.setScale(scale, scale);
-            host.contactAvatarShaderMatrix.postTranslate(dx, dy);
 
-            android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
-                    host.contactAvatarBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
-            shader.setLocalMatrix(host.contactAvatarShaderMatrix);
-            host.contactAvatarPaint.setShader(shader);
+            if (avatarShader == null || lastAvatarBitmap != host.contactAvatarBitmap
+                    || scale != lastAvatarScale || dx != lastAvatarDx || dy != lastAvatarDy) {
+                host.contactAvatarShaderMatrix.reset();
+                host.contactAvatarShaderMatrix.setScale(scale, scale);
+                host.contactAvatarShaderMatrix.postTranslate(dx, dy);
+                avatarShader = new android.graphics.BitmapShader(
+                        host.contactAvatarBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+                avatarShader.setLocalMatrix(host.contactAvatarShaderMatrix);
+                lastAvatarBitmap = host.contactAvatarBitmap;
+                lastAvatarScale = scale;
+                lastAvatarDx = dx;
+                lastAvatarDy = dy;
+            }
+            host.contactAvatarPaint.setShader(avatarShader);
             canvas.drawOval(host.contactAvatarRect, host.contactAvatarPaint);
         } else {
             canvas.drawOval(host.contactAvatarRect, host.contactAvatarPlaceholderPaint);
@@ -94,8 +139,10 @@ final class ContactRenderer {
             cachedPhoneDisplay = phoneToDraw;
         }
 
-        Paint.FontMetrics nfm = host.contactNamePaint.getFontMetrics();
-        Paint.FontMetrics phfm = host.contactPhonePaint.getFontMetrics();
+        host.contactNamePaint.getFontMetrics(nameFm);
+        host.contactPhonePaint.getFontMetrics(phoneFm);
+        Paint.FontMetrics nfm = nameFm;
+        Paint.FontMetrics phfm = phoneFm;
         float nameH = nfm.descent - nfm.ascent;
         float phoneH = phfm.descent - phfm.ascent;
         boolean hasPhone = !phoneToDraw.isEmpty();
@@ -115,7 +162,8 @@ final class ContactRenderer {
                 dividerTop + MessageBubbleCanvasView.CONTACT_DIVIDER_HEIGHT_DP * host.density, host.contactDividerPaint);
 
         // ── "View Contact" row ──
-        Paint.FontMetrics bfm = host.contactButtonTextPaint.getFontMetrics();
+        host.contactButtonTextPaint.getFontMetrics(buttonFm);
+        Paint.FontMetrics bfm = buttonFm;
         float btnBaselineY = host.contactButtonRect.centerY() - (bfm.ascent + bfm.descent) / 2f;
         canvas.drawText(MessageBubbleCanvasView.CONTACT_BUTTON_TEXT, host.contactButtonRect.centerX(), btnBaselineY, host.contactButtonTextPaint);
 

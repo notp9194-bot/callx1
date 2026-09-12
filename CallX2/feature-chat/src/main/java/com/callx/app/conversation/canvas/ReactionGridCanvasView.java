@@ -3,6 +3,7 @@ package com.callx.app.conversation.canvas;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.view.MotionEvent;
 import android.view.View;
 
@@ -49,6 +50,20 @@ public class ReactionGridCanvasView extends View {
     private int cellSize;
     private int pressedRow = -1, pressedCol = -1;
 
+    // PERF: reused across every onDraw() instead of the no-arg
+    // paint.getFontMetrics() — same GC-pressure class of bug already fixed
+    // elsewhere. Already hoisted outside the 80-emoji loop (one lookup per
+    // onDraw, not 80), this just removes the last per-draw allocation too.
+    private final Paint.FontMetrics emojiFm = new Paint.FontMetrics();
+
+    // PERF ADV: press-highlight changes used to call the no-arg invalidate()
+    // — a full repaint of all 80 emojis (10 rows) for a highlight circle
+    // that only ever touches one 44dp cell. Restricting to invalidate(Rect)
+    // for the affected cell(s) shrinks the actual repaint area the same way
+    // MessageBubbleCanvasView's invalidateAudioRow()/invalidateGroupCellRegion()
+    // already do for bubbles.
+    private final Rect dirtyCellRect = new Rect();
+
     private OnEmojiPickListener listener;
 
     public ReactionGridCanvasView(Context ctx) {
@@ -81,7 +96,8 @@ public class ReactionGridCanvasView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        Paint.FontMetrics fm = emojiPaint.getFontMetrics();
+        emojiPaint.getFontMetrics(emojiFm);
+        Paint.FontMetrics fm = emojiFm;
 
         for (int i = 0; i < ALL_EMOJIS.length; i++) {
             int row = i / COLUMNS;
@@ -105,23 +121,41 @@ public class ReactionGridCanvasView extends View {
 
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-                if (valid) { pressedRow = row; pressedCol = col; invalidate(); }
+                if (valid) { pressedRow = row; pressedCol = col; invalidateCell(row, col); }
                 return true;
             case MotionEvent.ACTION_MOVE:
                 if (!valid || row != pressedRow || col != pressedCol) {
-                    if (pressedRow != -1) { pressedRow = -1; pressedCol = -1; invalidate(); }
+                    if (pressedRow != -1) {
+                        int oldRow = pressedRow, oldCol = pressedCol;
+                        pressedRow = -1; pressedCol = -1;
+                        invalidateCell(oldRow, oldCol);
+                    }
                 }
                 return true;
-            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_UP: {
+                int oldRow = pressedRow, oldCol = pressedCol;
                 pressedRow = -1; pressedCol = -1;
-                invalidate();
+                if (oldRow != -1) invalidateCell(oldRow, oldCol);
                 if (valid && listener != null) listener.onEmojiPicked(ALL_EMOJIS[index]);
                 return true;
-            case MotionEvent.ACTION_CANCEL:
+            }
+            case MotionEvent.ACTION_CANCEL: {
+                int oldRow = pressedRow, oldCol = pressedCol;
                 pressedRow = -1; pressedCol = -1;
-                invalidate();
+                if (oldRow != -1) invalidateCell(oldRow, oldCol);
                 return true;
+            }
         }
         return super.onTouchEvent(event);
+    }
+
+    /** Invalidates just the one cell's bounds (plus a small AA-bleed pad) instead of the whole grid. */
+    private void invalidateCell(int row, int col) {
+        if (row < 0 || col < 0) return;
+        int pad = 4;
+        int left = col * cellSize - pad;
+        int top = row * cellSize - pad;
+        dirtyCellRect.set(left, top, left + cellSize + 2 * pad, top + cellSize + 2 * pad);
+        invalidate(dirtyCellRect);
     }
 }

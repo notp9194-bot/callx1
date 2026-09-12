@@ -42,7 +42,8 @@ public class ChatThemeController {
                 binding.llInputRow,
                 binding.fabBackToLatest,
                 binding.viewReplyAccent);
-        binding.chatIconBar.setAccentColor(mgr.getPrimaryColor());
+        binding.chatIconBar.setAccentColor(
+                com.callx.app.utils.FollowButtonStyler.primaryColor(delegate.getActivity()));
 
         applyWallpaper();
     }

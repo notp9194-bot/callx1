@@ -1413,6 +1413,15 @@ public class MessagePagingAdapter
                     android.graphics.Typeface.NORMAL);
 
     private ActionListener actionListener;
+    // PERF ADV: showActionBottomSheet()/showFullEmojiPicker() used to `new`
+    // a fresh ReactionQuickBarCanvasView/ReactionGridCanvasView on EVERY
+    // long-press — reallocating each view's Paint/RectF fields for a widget
+    // whose visual content is fully re-derived via bind() anyway. Both
+    // views are stateless enough to be built once and reused across every
+    // open (see reuseInWrapper() below, which detaches from the previous
+    // dialog's wrapper before re-adding).
+    private com.callx.app.conversation.canvas.ReactionQuickBarCanvasView cachedEmojiBar;
+    private com.callx.app.conversation.canvas.ReactionGridCanvasView cachedEmojiGrid;
     private MediaPlayer player;
     private int playingPos = -1;
     // PERF: mirrors player.isPlaying() without the MediaPlayer binder/JNI
@@ -2575,7 +2584,13 @@ public class MessagePagingAdapter
                 // rebinds don't re-decode the same JPEG.
                 flThumb.setVisibility(View.VISIBLE);
                 if (ivEye != null) ivEye.setVisibility(View.VISIBLE);
-                String b64PoolKey = poolKey("b64:" + thumbB64.hashCode(), 240, 240);
+                // PERF: decode at the real 120×80dp display size (seenThumbPxW/H,
+                // same fix already applied to the canvas-based bindSeenBubble()
+                // path) instead of a hardcoded 240×240 square — that was
+                // 2x-oversized on width and ~3x-oversized on height.
+                final int seenThumbPxW = seenThumbPxW(ctx);
+                final int seenThumbPxH = seenThumbPxH(ctx);
+                String b64PoolKey = poolKey("b64:" + thumbB64.hashCode(), seenThumbPxW, seenThumbPxH);
                 ivThumb.setImageResource(R.drawable.bg_skeleton_rect);
                 decodeB64ThumbAsync(thumbB64, b64PoolKey, decoded -> {
                     if (h.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
@@ -2588,9 +2603,12 @@ public class MessagePagingAdapter
             } else if (!thumb.isEmpty()) {
                 flThumb.setVisibility(View.VISIBLE);
                 if (ivEye != null) ivEye.setVisibility(View.VISIBLE);
+                // PERF: same density-aware sizing as the b64 branch above.
+                final int seenThumbPxW = seenThumbPxW(ctx);
+                final int seenThumbPxH = seenThumbPxH(ctx);
                 // Same fix as the avatar above — sync DECODED_BITMAP_CACHE
                 // check before falling back to an async load.
-                android.graphics.Bitmap statusThumbHit = DECODED_BITMAP_CACHE.get(poolKey(thumb, 240, 240));
+                android.graphics.Bitmap statusThumbHit = DECODED_BITMAP_CACHE.get(poolKey(thumb, seenThumbPxW, seenThumbPxH));
                 if (statusThumbHit != null && !statusThumbHit.isRecycled()) {
                     dashboardRecordHit(ctx, thumb);
                     ivThumb.setImageBitmap(statusThumbHit);
@@ -2599,7 +2617,7 @@ public class MessagePagingAdapter
                     glide(ctx).asBitmap()
                         .load(thumb)
                         .apply(THUMB_RGB565)
-                        .override(240, 240)
+                        .override(seenThumbPxW, seenThumbPxH)
                         .centerCrop()
                         .listener(com.callx.app.cache.CacheDashboardStats.glideListener(
                                 ctx, thumb))
@@ -2607,7 +2625,7 @@ public class MessagePagingAdapter
                             @Override
                             public void onResourceReady(@NonNull Bitmap resource,
                                     @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                DECODED_BITMAP_CACHE.put(poolKey(thumb, 240, 240), resource);
+                                DECODED_BITMAP_CACHE.put(poolKey(thumb, seenThumbPxW, seenThumbPxH), resource);
                                 dashboardRecordDecoded(ctx, thumb, resource);
                                 if (h.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
                                 ivThumb.setImageBitmap(resource);
@@ -2716,7 +2734,12 @@ public class MessagePagingAdapter
                 // path so repeat rebinds don't re-decode the same JPEG.
                 ivThumb.setVisibility(android.view.View.VISIBLE);
                 if (ivPlay != null) ivPlay.setVisibility(android.view.View.VISIBLE);
-                String b64PoolKey = poolKey("b64:" + thumbB64.hashCode(), 240, 240);
+                // PERF: decode at the real 120×80dp display size (seenThumbPxW/H,
+                // same fix already applied to the canvas-based bindSeenBubble()
+                // path) instead of a hardcoded 240×240 square.
+                final int seenThumbPxW = seenThumbPxW(ctx);
+                final int seenThumbPxH = seenThumbPxH(ctx);
+                String b64PoolKey = poolKey("b64:" + thumbB64.hashCode(), seenThumbPxW, seenThumbPxH);
                 ivThumb.setImageResource(R.drawable.bg_skeleton_rect);
                 decodeB64ThumbAsync(thumbB64, b64PoolKey, decoded -> {
                     if (h.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
@@ -2729,9 +2752,12 @@ public class MessagePagingAdapter
             } else if (!thumb.isEmpty()) {
                 ivThumb.setVisibility(android.view.View.VISIBLE);
                 if (ivPlay != null) ivPlay.setVisibility(android.view.View.VISIBLE);
+                // PERF: same density-aware sizing as the b64 branch above.
+                final int seenThumbPxW = seenThumbPxW(ctx);
+                final int seenThumbPxH = seenThumbPxH(ctx);
                 // Same fix — sync DECODED_BITMAP_CACHE check before an
                 // async load, same as the status-seen thumb above.
-                android.graphics.Bitmap reelSeenThumbHit = DECODED_BITMAP_CACHE.get(poolKey(thumb, 240, 240));
+                android.graphics.Bitmap reelSeenThumbHit = DECODED_BITMAP_CACHE.get(poolKey(thumb, seenThumbPxW, seenThumbPxH));
                 if (reelSeenThumbHit != null && !reelSeenThumbHit.isRecycled()) {
                     ivThumb.setImageBitmap(reelSeenThumbHit);
                 } else {
@@ -2739,13 +2765,13 @@ public class MessagePagingAdapter
                     glide(ctx).asBitmap()
                         .load(thumb)
                         .apply(THUMB_RGB565)
-                        .override(240, 240)
+                        .override(seenThumbPxW, seenThumbPxH)
                         .centerCrop()
                         .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
                             @Override
                             public void onResourceReady(@NonNull Bitmap resource,
                                     @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                DECODED_BITMAP_CACHE.put(poolKey(thumb, 240, 240), resource);
+                                DECODED_BITMAP_CACHE.put(poolKey(thumb, seenThumbPxW, seenThumbPxH), resource);
                                 if (h.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
                                 ivThumb.setImageBitmap(resource);
                             }
@@ -6178,7 +6204,19 @@ public class MessagePagingAdapter
                         // than the other embedded-thumb spots — this one
                         // re-decoded on EVERY bind, not just cache misses).
                         h.ivReelShareThumb.setImageResource(android.R.color.darker_gray);
-                        String b64PoolKey = poolKey("b64:" + thumbB64.hashCode(), 240, 240);
+                        // PERF/consistency: decodeB64ThumbAsync() decodes the
+                        // embedded bytes at full resolution regardless of this
+                        // key — the dimensions here only affect the
+                        // DECODED_BITMAP_CACHE key, not the actual decode size.
+                        // This branch hardcoded a 240×240 key while the URL and
+                        // Firebase-fetch branches just below already key on the
+                        // card's real density-scaled size via reelCardPx() — so
+                        // the same reel's thumbnail could land in the cache
+                        // under two different keys depending on which branch
+                        // bound it first. Matching the key here lets both
+                        // branches share one cache entry for the same reel.
+                        int[] cardPxB64 = reelCardPx(ctx);
+                        String b64PoolKey = poolKey("b64:" + thumbB64.hashCode(), cardPxB64[0], cardPxB64[1]);
                         final String fRKeyTag = rKey;
                         decodeB64ThumbAsync(thumbB64, b64PoolKey, decoded -> {
                             if (h.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
@@ -7676,6 +7714,17 @@ public class MessagePagingAdapter
         return (int)(value * ctx.getResources().getDisplayMetrics().density);
     }
 
+    /** Pulls a reused View out of its previous parent (if any) so it can be
+     *  re-added to a new wrapper — a View can only ever have one parent, and
+     *  cachedEmojiBar/cachedEmojiGrid are now reused across dialog opens
+     *  instead of being recreated each time. */
+    private void detachFromParent(android.view.View v) {
+        android.view.ViewParent p = v.getParent();
+        if (p instanceof android.view.ViewGroup) {
+            ((android.view.ViewGroup) p).removeView(v);
+        }
+    }
+
     private android.graphics.drawable.Drawable getRippleDrawable(Context ctx) {
         android.graphics.drawable.ColorDrawable content =
                 new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT);
@@ -7694,8 +7743,14 @@ public class MessagePagingAdapter
         // main thread right as the chat list is settling from the touch).
         // Now a single custom View that paints everything in one onDraw()
         // pass — see ReactionQuickBarCanvasView for the full rationale.
-        com.callx.app.conversation.canvas.ReactionQuickBarCanvasView emojiBar =
-                new com.callx.app.conversation.canvas.ReactionQuickBarCanvasView(ctx);
+        // PERF ADV 2: that single View is now built once and reused across
+        // every long-press too, instead of `new`-ing a fresh instance (with
+        // fresh Paint/RectF fields) each time — detachFromParent() below
+        // pulls it out of whichever previous dialog's wrapper still holds
+        // it before this call re-parents it.
+        if (cachedEmojiBar == null) cachedEmojiBar = new com.callx.app.conversation.canvas.ReactionQuickBarCanvasView(ctx);
+        com.callx.app.conversation.canvas.ReactionQuickBarCanvasView emojiBar = cachedEmojiBar;
+        detachFromParent(emojiBar);
         String alreadyReacted = currentUid != null && m.reactions != null
                 ? m.reactions.get(currentUid) : null;
         emojiBar.bind(alreadyReacted);
@@ -7796,8 +7851,12 @@ public class MessagePagingAdapter
     private void showFullEmojiPicker(Context ctx, Message m) {
         if (actionListener == null) return;
 
-        com.callx.app.conversation.canvas.ReactionGridCanvasView grid =
-                new com.callx.app.conversation.canvas.ReactionGridCanvasView(ctx);
+        // PERF ADV 2: reused across opens, same as the quick-react bar above
+        // — detachFromParent() pulls it out of whichever previous
+        // ScrollView still holds it.
+        if (cachedEmojiGrid == null) cachedEmojiGrid = new com.callx.app.conversation.canvas.ReactionGridCanvasView(ctx);
+        com.callx.app.conversation.canvas.ReactionGridCanvasView grid = cachedEmojiGrid;
+        detachFromParent(grid);
 
         android.widget.ScrollView scrollHost = new android.widget.ScrollView(ctx);
         int pad = (int) (12 * ctx.getResources().getDisplayMetrics().density);

@@ -22,11 +22,46 @@ final class LocationRenderer {
         this.host = host;
     }
 
+    // PERF: reused across every draw() instead of the no-arg
+    // paint.getFontMetrics(), which allocates a new FontMetrics object
+    // every call — same GC-pressure-at-60fps class of bug already fixed
+    // for the reactions badge / audio waveform.
+    private final Paint.FontMetrics buttonFm = new Paint.FontMetrics();
+
+    // PERF: cached rounded-rect clip path — was `new Path()` +
+    // addRoundRect() on every single draw() during scroll. Same
+    // recompute-on-change pattern as ReelShareRenderer's clipPath: only
+    // rebuilt when locationCardRect's bounds or the corner radius change.
+    private final android.graphics.Path clipPath = new android.graphics.Path();
+    private float lastClipLeft = Float.NaN, lastClipTop, lastClipRight, lastClipBottom, lastClipR;
+
+    private void ensureClipPath(float r) {
+        android.graphics.RectF rect = host.locationCardRect;
+        if (rect.left == lastClipLeft && rect.top == lastClipTop && rect.right == lastClipRight
+                && rect.bottom == lastClipBottom && r == lastClipR) {
+            return;
+        }
+        clipPath.reset();
+        clipPath.addRoundRect(rect, r, r, android.graphics.Path.Direction.CW);
+        lastClipLeft = rect.left;
+        lastClipTop = rect.top;
+        lastClipRight = rect.right;
+        lastClipBottom = rect.bottom;
+        lastClipR = r;
+    }
+
+    // PERF: cached map BitmapShader — was `new BitmapShader(...)` on every
+    // single draw() while a decoded map bitmap is showing. Same pattern as
+    // MediaGroupRenderer's cellShaders: rebuilt only when the bitmap
+    // reference or its scale/translate actually changed since the last draw.
+    private android.graphics.BitmapShader mapShader;
+    private android.graphics.Bitmap lastMapBitmap;
+    private float lastMapScale = Float.NaN, lastMapDx, lastMapDy;
+
     void draw(Canvas canvas) {
         float r = MessageBubbleCanvasView.LOCATION_CORNER_RADIUS_DP * host.density;
         canvas.save();
-        android.graphics.Path clipPath = new android.graphics.Path();
-        clipPath.addRoundRect(host.locationCardRect, r, r, android.graphics.Path.Direction.CW);
+        ensureClipPath(r);
         canvas.clipPath(clipPath);
 
         // ── Map header ──
@@ -36,14 +71,21 @@ final class LocationRenderer {
                     host.locationMapRect.height() / host.locationMapBitmap.getHeight());
             float dx = host.locationMapRect.left - (host.locationMapBitmap.getWidth() * scale - host.locationMapRect.width()) / 2f;
             float dy = host.locationMapRect.top - (host.locationMapBitmap.getHeight() * scale - host.locationMapRect.height()) / 2f;
-            host.locationMapShaderMatrix.reset();
-            host.locationMapShaderMatrix.setScale(scale, scale);
-            host.locationMapShaderMatrix.postTranslate(dx, dy);
 
-            android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
-                    host.locationMapBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
-            shader.setLocalMatrix(host.locationMapShaderMatrix);
-            host.locationMapBitmapPaint.setShader(shader);
+            if (mapShader == null || lastMapBitmap != host.locationMapBitmap
+                    || scale != lastMapScale || dx != lastMapDx || dy != lastMapDy) {
+                host.locationMapShaderMatrix.reset();
+                host.locationMapShaderMatrix.setScale(scale, scale);
+                host.locationMapShaderMatrix.postTranslate(dx, dy);
+                mapShader = new android.graphics.BitmapShader(
+                        host.locationMapBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+                mapShader.setLocalMatrix(host.locationMapShaderMatrix);
+                lastMapBitmap = host.locationMapBitmap;
+                lastMapScale = scale;
+                lastMapDx = dx;
+                lastMapDy = dy;
+            }
+            host.locationMapBitmapPaint.setShader(mapShader);
             canvas.drawRect(host.locationMapRect, host.locationMapBitmapPaint);
         } else {
             // Placeholder pin — teardrop + circular head, matches
@@ -82,7 +124,8 @@ final class LocationRenderer {
 
         // ── "Open in Maps" row ──
         canvas.drawRect(host.locationButtonRect, host.locationButtonBgPaint);
-        Paint.FontMetrics lbfm = host.locationButtonTextPaint.getFontMetrics();
+        host.locationButtonTextPaint.getFontMetrics(buttonFm);
+        Paint.FontMetrics lbfm = buttonFm;
         float locBtnBaselineY = host.locationButtonRect.centerY() - (lbfm.ascent + lbfm.descent) / 2f;
         canvas.drawText(MessageBubbleCanvasView.LOCATION_BUTTON_TEXT, host.locationButtonRect.centerX(), locBtnBaselineY, host.locationButtonTextPaint);
 

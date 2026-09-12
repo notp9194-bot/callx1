@@ -3,6 +3,7 @@ package com.callx.app.conversation.canvas;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.view.MotionEvent;
 import android.view.View;
@@ -58,10 +59,28 @@ public class ReactionQuickBarCanvasView extends View {
     private final RectF[] cellRects;
     private final RectF moreRect = new RectF();
 
+    // PERF: reused across every onDraw() instead of the no-arg
+    // paint.getFontMetrics() — same GC-pressure class of bug already fixed
+    // in the bubble renderers, but here it was worse: the old code called
+    // it INSIDE the per-emoji loop, so a single onDraw() allocated a fresh
+    // FontMetrics object once per emoji (same Paint/text-size every
+    // iteration, so one lookup covers all of them) plus once more for the
+    // "more" button. This view also redraws on every ACTION_MOVE while the
+    // finger drags across cells for press feedback, so this ran far more
+    // often than a typical scroll-frame allocation.
+    private final Paint.FontMetrics emojiFm = new Paint.FontMetrics();
+    private final Paint.FontMetrics moreFm = new Paint.FontMetrics();
+
     private String[] emojis = DEFAULT_QUICK_EMOJIS;
     private int selectedIndex = -1;
     private int cellSize;
     private int touchedIndex = -1; // for press feedback, -2 = "more" button
+
+    // PERF ADV: same fix as ReactionGridCanvasView — touch-feedback
+    // invalidate() calls used to repaint the whole 7-cell strip for a
+    // highlight on one 44dp cell. Reused Rect avoids an allocation per touch
+    // event on top of shrinking the actual repaint area.
+    private final Rect dirtyCellRect = new Rect();
 
     private OnEmojiPickListener listener;
 
@@ -132,6 +151,11 @@ public class ReactionQuickBarCanvasView extends View {
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
 
+        // Same Paint/text-size for every cell, so this is a single lookup
+        // for the whole loop below instead of one per emoji.
+        emojiPaint.getFontMetrics(emojiFm);
+        float emojiBaselineOffset = (emojiFm.ascent + emojiFm.descent) / 2f;
+
         for (int i = 0; i < emojis.length; i++) {
             RectF r = cellRects[i];
             boolean selected = i == selectedIndex;
@@ -143,8 +167,7 @@ public class ReactionQuickBarCanvasView extends View {
             }
 
             float scale = selected ? 1.22f : 1.0f;
-            Paint.FontMetrics fm = emojiPaint.getFontMetrics();
-            float baselineY = r.centerY() - (fm.ascent + fm.descent) / 2f;
+            float baselineY = r.centerY() - emojiBaselineOffset;
 
             if (scale != 1.0f) {
                 canvas.save();
@@ -160,9 +183,9 @@ public class ReactionQuickBarCanvasView extends View {
             canvas.drawCircle(moreRect.centerX(), moreRect.centerY(),
                     cellSize * 0.42f, highlightBgPaint);
         }
-        Paint.FontMetrics mfm = morePaint.getFontMetrics();
+        morePaint.getFontMetrics(moreFm);
         canvas.drawText("+", moreRect.centerX(),
-                moreRect.centerY() - (mfm.ascent + mfm.descent) / 2f, morePaint);
+                moreRect.centerY() - (moreFm.ascent + moreFm.descent) / 2f, morePaint);
     }
 
     @Override
@@ -172,31 +195,52 @@ public class ReactionQuickBarCanvasView extends View {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 touchedIndex = hitIndex(x, y);
-                invalidate();
+                invalidateTouchCell(touchedIndex);
                 return true;
             case MotionEvent.ACTION_MOVE:
                 int nowOver = hitIndex(x, y);
                 if (nowOver != touchedIndex) {
+                    int old = touchedIndex;
                     touchedIndex = -1;
-                    invalidate();
+                    invalidateTouchCell(old);
                 }
                 return true;
-            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_UP: {
                 int idx = hitIndex(x, y);
+                int old = touchedIndex;
                 touchedIndex = -1;
-                invalidate();
+                invalidateTouchCell(old);
                 if (idx >= 0 && listener != null) {
                     listener.onEmojiPicked(emojis[idx]);
                 } else if (idx == -2 && listener != null) {
                     listener.onMoreTapped();
                 }
                 return true;
-            case MotionEvent.ACTION_CANCEL:
+            }
+            case MotionEvent.ACTION_CANCEL: {
+                int old = touchedIndex;
                 touchedIndex = -1;
-                invalidate();
+                invalidateTouchCell(old);
                 return true;
+            }
         }
         return super.onTouchEvent(event);
+    }
+
+    /** Invalidates just one cell's bounds (plus a small AA-bleed pad) instead of the whole strip. idx: 0..N-1 emoji cell, -2 "more" button, -1 no-op. */
+    private void invalidateTouchCell(int idx) {
+        RectF r;
+        if (idx == -2) {
+            r = moreRect;
+        } else if (idx >= 0 && idx < cellRects.length) {
+            r = cellRects[idx];
+        } else {
+            return;
+        }
+        float pad = 4f * density;
+        dirtyCellRect.set((int) (r.left - pad), (int) (r.top - pad),
+                (int) Math.ceil(r.right + pad), (int) Math.ceil(r.bottom + pad));
+        invalidate(dirtyCellRect);
     }
 
     /** @return 0..N-1 for an emoji cell, -2 for the "more" button, -1 for a miss */

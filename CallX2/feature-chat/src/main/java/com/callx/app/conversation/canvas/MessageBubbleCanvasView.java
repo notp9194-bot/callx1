@@ -2904,6 +2904,14 @@ public class MessageBubbleCanvasView extends View {
      * that first layout has happened).
      */
     private void invalidateAudioRow() {
+        // PERF ADV: the outer full-bubble cache is now only bypassed while
+        // audioPlaying is true (see onDraw's audioTicking). That means once
+        // playback stops, caching resumes on the very next draw — so the
+        // cache must be marked dirty here, or that resumed cache could
+        // replay a stale Picture/RenderNode recorded before this row's last
+        // change (wrong play/pause icon, stale progress, stale elapsed
+        // label) instead of picking up the final state.
+        fullBubbleDirty = true;
         if (audioBtnRect.isEmpty() && audioWaveformRect.isEmpty()) {
             invalidate();
             return;
@@ -4313,6 +4321,15 @@ public class MessageBubbleCanvasView extends View {
      * pixels a digit-count change (e.g. "1:00" → "0:59") can shift things by.
      */
     private void invalidateExpiryRegion() {
+        // PERF ADV: this path draws real content changes (tick color in
+        // setDeliveryStatus(), countdown text in setExpiryText()) that live
+        // inside the outer full-bubble cache. Without marking it dirty, a
+        // same-size cache hit on the next draw would replay the stale
+        // pre-change Picture/RenderNode — the tick/countdown update would
+        // never actually appear on screen. These are low-frequency changes
+        // (a tick flips once, a countdown ticks ~1/sec), so re-recording the
+        // cache here is cheap — same trade as the audio-row fix above.
+        fullBubbleDirty = true;
         float pad = 16f * density;
         float footerBandH = spToPx(FOOTER_TEXT_SP) + FOOTER_GAP_DP * density;
         float left = bubbleRect.left;
@@ -5685,7 +5702,15 @@ public class MessageBubbleCanvasView extends View {
         boolean groupDownloadActive = isMediaGroup
                 && (mediaGroupRenderer.hasActiveIndeterminateSpinner() || hasActiveGroupCellDownload());
         boolean downloadTicking = mediaDownloadActive || fileDownloadActive || groupDownloadActive;
-        boolean skipFullCache = isAudio || downloadTicking;
+        // PERF ADV: previously `isAudio` alone bypassed the outer cache for
+        // EVERY voice-note bubble, even idle ones just scrolling past —
+        // forcing a full background+waveform+text+footer+reactions
+        // re-record on every frame. Only a bubble whose audio is actually
+        // playing needs the ~60fps waveform-progress bypass; idle audio
+        // bubbles now get the same cached RenderNode/Picture replay as
+        // text/media bubbles.
+        boolean audioTicking = isAudio && audioPlaying;
+        boolean skipFullCache = audioTicking || downloadTicking;
 
         int w = getWidth(), h = getHeight();
         if (!skipFullCache && w > 0 && h > 0) {
