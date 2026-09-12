@@ -179,7 +179,7 @@ public final class ChatLockGate {
 
         ImageView icon = new ImageView(ctx);
         icon.setImageResource(android.R.drawable.ic_lock_lock);
-        icon.setColorFilter(Color.WHITE);
+        com.callx.app.utils.IconResolver.tintExisting(icon, com.callx.app.core.R.color.icon_on_media_tint);
         LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams((int) (48 * d), (int) (48 * d));
         iconLp.bottomMargin = (int) (16 * d);
         col.addView(icon, iconLp);

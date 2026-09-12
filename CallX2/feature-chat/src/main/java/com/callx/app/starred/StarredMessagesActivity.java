@@ -47,6 +47,13 @@ public class StarredMessagesActivity extends AppCompatActivity
     // Last submitted list — guarded so Room doesn't clobber a fresh Firebase result
     private volatile boolean firebaseLoaded = false;
 
+    // PERF-FIX: stored so the permanent starred-list listener from
+    // loadFromFirebase() can be detached in onDestroy() — was previously
+    // anonymous, so it kept firing (and updating a destroyed activity's
+    // adapter) after this screen was closed.
+    private Query starredRef;
+    private ValueEventListener starredListener;
+
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_starred_messages);
@@ -145,8 +152,8 @@ public class StarredMessagesActivity extends AppCompatActivity
                 ? FirebaseUtils.getGroupMessagesRef(chatId)
                 : FirebaseUtils.getMessagesRef(chatId);
 
-        ref.orderByChild("starred").equalTo(true)
-                .addValueEventListener(new ValueEventListener() {
+        starredRef = ref.orderByChild("starred").equalTo(true);
+        starredListener = new ValueEventListener() {
                     @Override public void onDataChange(DataSnapshot snap) {
                         List<Message> fresh = new ArrayList<>();
                         String currentUid = FirebaseUtils.getCurrentUid();
@@ -189,7 +196,17 @@ public class StarredMessagesActivity extends AppCompatActivity
                                     Toast.LENGTH_SHORT).show();
                         }
                     }
-                });
+                };
+        starredRef.addValueEventListener(starredListener);
+    }
+
+    @Override protected void onDestroy() {
+        if (starredRef != null && starredListener != null) {
+            starredRef.removeEventListener(starredListener);
+        }
+        starredRef = null;
+        starredListener = null;
+        super.onDestroy();
     }
 
     private void updateEmptyState(boolean isEmpty) {

@@ -14,6 +14,14 @@
     <color name="brand_accent">#D4AF37</color>
     <color name="brand_gradient_start">#145C46</color>
     <color name="brand_gradient_end">#0A3327</color>
+
+    <!-- IconResolver's default semantic tints — see values/colors.xml for
+         why these are their own tokens. Lighter grey than the light-theme
+         default so inactive icons stay visible against dark surfaces. -->
+    <color name="icon_default_tint">#9AA0A8</color>
+    <color name="icon_active_tint">@color/brand_primary</color>
+    <color name="icon_on_media_tint">#FFFFFFFF</color>
+
     <color name="surface_bg">#000000</color>
     <color name="surface_card">#000000</color>
     <color name="surface_chat_bg">#0B141A</color>

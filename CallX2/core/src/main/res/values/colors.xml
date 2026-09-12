@@ -16,6 +16,21 @@
     <color name="brand_accent">#D4AF37</color>
     <color name="brand_gradient_start">#145C46</color>
     <color name="brand_gradient_end">#0A3327</color>
+
+    <!-- IconResolver's default semantic tints (see IconResolver.java) —
+         "default" = normal/inactive icon state, "active" = selected/on
+         state (nav bar selected tab, toggled toolbar icon, etc). Kept as
+         their own tokens rather than reusing text_muted/brand_primary
+         directly so icon theming can be retuned without touching text or
+         brand chrome colors. -->
+    <color name="icon_default_tint">#8A8F98</color>
+    <color name="icon_active_tint">@color/brand_primary</color>
+    <!-- White icon sitting on a dark toolbar / media overlay (back button
+         on a photo/video screen, play badge on a media thumbnail) — always
+         white regardless of theme, since it tracks the media/overlay
+         underneath it, not the app's light/dark surface. -->
+    <color name="icon_on_media_tint">#FFFFFFFF</color>
+
     <color name="surface_bg">#F5F6FA</color>
     <color name="surface_card">#FFFFFF</color>
     <color name="surface_chat_bg">#ECE5DD</color>

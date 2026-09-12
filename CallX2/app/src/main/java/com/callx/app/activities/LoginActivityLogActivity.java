@@ -40,7 +40,7 @@ public class LoginActivityLogActivity extends AppCompatActivity {
         tb.setTitleTextColor(0xFFFFFFFF);
         tb.setBackgroundColor(getColor(R.color.brand_primary));
         tb.setNavigationIcon(R.drawable.ic_back);
-        tb.getNavigationIcon().setTint(0xFFFFFFFF);
+        tb.setNavigationIcon(com.callx.app.utils.IconResolver.tintOnMedia(tb.getNavigationIcon(), this));
         tb.setNavigationOnClickListener(v -> finish());
         tb.inflateMenu(R.menu.main_menu); // we'll add clear option
         tb.setOnMenuItemClickListener(item -> {

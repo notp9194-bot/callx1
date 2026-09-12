@@ -36,6 +36,7 @@ import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.Query;
 import com.google.firebase.database.ValueEventListener;
 
 import java.util.ArrayList;
@@ -91,6 +92,12 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
     private String postAuthorUid;
     private CommunityRepository repo;
     private DatabaseReference commentsRef;
+
+    // PERF-FIX: stored so listenComments()'s permanent listener can be
+    // detached in onDestroy() — was previously anonymous, so it kept
+    // rebuilding `comments`/adapter after this screen was closed.
+    private Query commentsListenerQuery;
+    private ValueEventListener commentsListener;
 
     private RecyclerView rvComments;
     private CommentAdapter adapter;
@@ -333,7 +340,8 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
     // ─── Firebase listener ───────────────────────────────────────────────────
 
     private void listenComments() {
-        commentsRef.orderByChild("createdAt").addValueEventListener(new ValueEventListener() {
+        commentsListenerQuery = commentsRef.orderByChild("createdAt");
+        commentsListener = new ValueEventListener() {
             @Override public void onDataChange(@Nullable DataSnapshot snapshot) {
                 if (snapshot == null) return;
                 List<CommentItem> result = new ArrayList<>();
@@ -351,7 +359,17 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
                 });
             }
             @Override public void onCancelled(@Nullable DatabaseError error) {}
-        });
+        };
+        commentsListenerQuery.addValueEventListener(commentsListener);
+    }
+
+    @Override protected void onDestroy() {
+        if (commentsListenerQuery != null && commentsListener != null) {
+            commentsListenerQuery.removeEventListener(commentsListener);
+        }
+        commentsListenerQuery = null;
+        commentsListener = null;
+        super.onDestroy();
     }
 
     private CommentItem parseComment(DataSnapshot cs) {

@@ -5770,7 +5770,7 @@ public class HomeFragment extends Fragment
             btnClose.setLayoutParams(closeLp);
             btnClose.setBackgroundResource(R.drawable.bg_icon_semi);
             btnClose.setImageResource(R.drawable.ic_close);
-            btnClose.setColorFilter(0xFFFFFFFF);
+            com.callx.app.utils.IconResolver.tintExisting(btnClose, com.callx.app.core.R.color.icon_on_media_tint);
             btnClose.setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4));
             card.addView(btnClose);
 
@@ -6328,7 +6328,7 @@ public class HomeFragment extends Fragment
 
             ImageView btnMore = new ImageView(ctx);
             btnMore.setImageResource(R.drawable.ic_more_vert);
-            btnMore.setColorFilter(0xFFFFFFFF);
+            com.callx.app.utils.IconResolver.tintExisting(btnMore, com.callx.app.core.R.color.icon_on_media_tint);
             LinearLayout.LayoutParams moreLp = new LinearLayout.LayoutParams(dpToPx(20), dpToPx(20));
             btnMore.setLayoutParams(moreLp);
             btnMore.setOnClickListener(v -> {

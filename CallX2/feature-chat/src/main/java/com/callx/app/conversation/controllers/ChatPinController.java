@@ -26,6 +26,12 @@ public class ChatPinController {
     private String pinnedMsgId   = null;
     private String pinnedMsgText = null;
 
+    // PERF-FIX: stored so watchPinnedMessage()'s listener can actually be
+    // detached in release() — was previously anonymous/local, so it lived
+    // for the process lifetime even after the chat screen was destroyed.
+    private DatabaseReference pinnedMsgRef;
+    private ValueEventListener pinnedMsgListener;
+
     // PERF: ll_pinned_banner is behind a ViewStub in activity_chat.xml
     // (see layout_pinned_banner.xml) — only inflated the first time a
     // message is actually pinned in this chat, instead of on every chat
@@ -47,8 +53,8 @@ public class ChatPinController {
     // ── Watch ─────────────────────────────────────────────────────────────
 
     private void watchPinnedMessage() {
-        FirebaseUtils.db().getReference("pinnedMessages").child(delegate.getChatId())
-                .addValueEventListener(new ValueEventListener() {
+        pinnedMsgRef = FirebaseUtils.db().getReference("pinnedMessages").child(delegate.getChatId());
+        pinnedMsgListener = new ValueEventListener() {
                     @Override public void onDataChange(@NonNull DataSnapshot s) {
                         pinnedMsgId   = s.child("id").getValue(String.class);
                         pinnedMsgText = s.child("text").getValue(String.class);
@@ -73,7 +79,20 @@ public class ChatPinController {
                         }
                     }
                     @Override public void onCancelled(@NonNull DatabaseError e) {}
-                });
+                };
+        pinnedMsgRef.addValueEventListener(pinnedMsgListener);
+    }
+
+    // ── Cleanup ───────────────────────────────────────────────────────────
+
+    /** Detaches the pinned-message listener. Must be called from the host
+     *  screen's onDestroy() — see ChatActivity. */
+    public void release() {
+        if (pinnedMsgRef != null && pinnedMsgListener != null) {
+            pinnedMsgRef.removeEventListener(pinnedMsgListener);
+        }
+        pinnedMsgRef = null;
+        pinnedMsgListener = null;
     }
 
     /** Lazily inflates the pinned-banner ViewStub on first use, wiring the

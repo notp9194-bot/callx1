@@ -500,6 +500,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private ChatLiveTypingController liveTypingController;
     private ChatEmojiBurstController emojiBurstController;
     private ChatPinController      pinController;
+    private TextWatcher messageTextWatcher; // PERF-FIX: stored so it can be detached in onDestroy()
     private MessageEditHistoryController editHistoryController;
     private ChatReactionController reactionController;
     private ChatPollController     pollController;
@@ -1592,6 +1593,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         if (liveTypingController != null) liveTypingController.destroy();
         if (emojiBurstController != null) emojiBurstController.release();
         if (blockController    != null) blockController.release();
+        if (pinController      != null) pinController.release();
+        if (messageTextWatcher != null && binding != null && binding.etMessage != null) {
+            binding.etMessage.removeTextChangedListener(messageTextWatcher);
+        }
+        messageTextWatcher = null;
         if (scheduledSendController != null) scheduledSendController.release();
         if (viewOnceController != null) viewOnceController.release();
         if (screenshotNotifier != null) screenshotNotifier.release();
@@ -4338,7 +4344,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     binding.btnCancelLinkPreview);
         }
 
-        binding.etMessage.addTextChangedListener(new TextWatcher() {
+        messageTextWatcher = new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
             @Override public void afterTextChanged(Editable s) {}
             @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
@@ -4391,7 +4397,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 if (liveTypingController != null) liveTypingController.onOurTextChanged(text);
                 if (composeLinkPreview != null) composeLinkPreview.onTextChanged(text);
             }
-        });
+        };
+        binding.etMessage.addTextChangedListener(messageTextWatcher);
 
         binding.chatIconBar.setOnSendClickListener(this::sendTextMessage);
         binding.chatIconBar.setOnSendLongClickListener(() -> {
@@ -5638,6 +5645,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             MessageHighlightAnimator.scrollAndHighlight(binding.rvMessages, pos, binding.fabBackToLatest);
             final int highlightPos = pos; // lambda below needs an effectively-final capture
             binding.rvMessages.postDelayed(() -> {
+                if (binding == null) return; // PERF-FIX: guard against post firing after onDestroy() nulls binding
                 RecyclerView.ViewHolder vh = binding.rvMessages.findViewHolderForAdapterPosition(highlightPos);
                 if (vh != null) MessageHighlightAnimator.flashHighlight(vh.itemView);
             }, SCROLL_SETTLE_DELAY_MS);
@@ -5710,8 +5718,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             if (pos >= 0) {
                 final int fpos = pos;
                 binding.rvMessages.post(() -> {
+                    if (binding == null) return; // PERF-FIX: guard — this whole chain is async across a Pager reload
                     MessageHighlightAnimator.scrollAndHighlight(binding.rvMessages, fpos, binding.fabBackToLatest);
                     binding.rvMessages.postDelayed(() -> {
+                        if (binding == null) return;
                         RecyclerView.ViewHolder vh = binding.rvMessages.findViewHolderForAdapterPosition(fpos);
                         if (vh != null) MessageHighlightAnimator.flashHighlight(vh.itemView);
                     }, SCROLL_SETTLE_DELAY_MS);

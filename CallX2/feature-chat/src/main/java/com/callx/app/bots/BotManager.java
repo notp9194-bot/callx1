@@ -35,6 +35,13 @@ public class BotManager {
     private static final Random RNG = new Random();
     private int cachedMembers = 0, cachedMessages = 0;
 
+    // PERF-FIX: stored so the permanent botCommands listener can be detached.
+    // get() replaces the static `instance` field whenever the group changes,
+    // but the old BotManager's listener was never removed — each group
+    // switch left one more listener firing forever in the background.
+    private DatabaseReference botCommandsRef;
+    private ValueEventListener botCommandsListener;
+
     private BotManager(Context ctx, String gid) {
         this.ctx = ctx.getApplicationContext();
         this.groupId = gid;
@@ -43,9 +50,22 @@ public class BotManager {
     }
 
     public static BotManager get(Context ctx, String groupId) {
-        if (instance == null || !groupId.equals(instance.groupId))
+        if (instance == null || !groupId.equals(instance.groupId)) {
+            if (instance != null) instance.release();
             instance = new BotManager(ctx, groupId);
+        }
         return instance;
+    }
+
+    /** Detaches the permanent botCommands listener. Called automatically by
+     *  get() when switching to a different group; call explicitly too if
+     *  the app is fully backgrounded / the last group chat is closed. */
+    public void release() {
+        if (botCommandsRef != null && botCommandsListener != null) {
+            botCommandsRef.removeEventListener(botCommandsListener);
+        }
+        botCommandsRef = null;
+        botCommandsListener = null;
     }
 
     /** All built-ins + custom for suggestion list. */
@@ -157,8 +177,8 @@ public class BotManager {
     }
 
     private void loadCustom() {
-        FirebaseUtils.getGroupsRef().child(groupId).child("botCommands")
-                .addValueEventListener(new ValueEventListener() {
+        botCommandsRef = FirebaseUtils.getGroupsRef().child(groupId).child("botCommands");
+        botCommandsListener = new ValueEventListener() {
                     @Override public void onDataChange(DataSnapshot s) {
                         custom.clear();
                         for (DataSnapshot c : s.getChildren()) {
@@ -167,7 +187,8 @@ public class BotManager {
                         }
                     }
                     @Override public void onCancelled(DatabaseError e) {}
-                });
+                };
+        botCommandsRef.addValueEventListener(botCommandsListener);
     }
 
     private void preloadStats() {

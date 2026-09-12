@@ -230,7 +230,7 @@ public class StatusLayoutPreviewView extends FrameLayout {
                 if (isVideoUri(uri)) {
                     ImageView playBadge = new ImageView(getContext());
                     playBadge.setImageResource(android.R.drawable.ic_media_play);
-                    playBadge.setColorFilter(Color.WHITE);
+                    com.callx.app.utils.IconResolver.tintExisting(playBadge, com.callx.app.core.R.color.icon_on_media_tint);
                     int badgeSizePx = (int) (28 * density);
                     FrameLayout.LayoutParams badgeLp =
                             new FrameLayout.LayoutParams(badgeSizePx, badgeSizePx);

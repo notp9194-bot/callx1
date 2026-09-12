@@ -375,7 +375,7 @@ public class MediaGroupLayoutHelper {
             icon.setImageResource(isAudio
                     ? android.R.drawable.ic_btn_speak_now
                     : android.R.drawable.ic_menu_save);
-            icon.setColorFilter(Color.WHITE);
+            com.callx.app.utils.IconResolver.tintExisting(icon, com.callx.app.core.R.color.icon_on_media_tint);
             cell.addView(icon);
 
             String label = isAudio
@@ -418,7 +418,7 @@ public class MediaGroupLayoutHelper {
                 iconLp.gravity = Gravity.CENTER;
                 icon.setLayoutParams(iconLp);
                 icon.setImageResource(android.R.drawable.ic_media_play);
-                icon.setColorFilter(Color.WHITE);
+                com.callx.app.utils.IconResolver.tintExisting(icon, com.callx.app.core.R.color.icon_on_media_tint);
                 cell.addView(icon);
             }
         } else {
@@ -490,7 +490,7 @@ public class MediaGroupLayoutHelper {
             playLp.gravity = Gravity.CENTER;
             play.setLayoutParams(playLp);
             play.setImageResource(android.R.drawable.ic_media_play);
-            play.setColorFilter(Color.WHITE);
+            com.callx.app.utils.IconResolver.tintExisting(play, com.callx.app.core.R.color.icon_on_media_tint);
             play.setContentDescription("Video, tap to play");
             cell.addView(play);
 

@@ -79,7 +79,7 @@ public class ReelRepostListActivity extends AppCompatActivity {
         btnBack = new ImageButton(this);
         btnBack.setImageResource(R.drawable.ic_arrow_back);
         btnBack.setBackground(null);
-        btnBack.getDrawable().setTint(0xFFFFFFFF);
+        com.callx.app.utils.IconResolver.tintExistingOnMedia(btnBack);
         btnBack.setLayoutParams(new LinearLayout.LayoutParams(dp(48), dp(48)));
         btnBack.setOnClickListener(v -> finish());
         tb.addView(btnBack);

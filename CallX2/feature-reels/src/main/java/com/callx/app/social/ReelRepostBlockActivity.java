@@ -68,7 +68,7 @@ public class ReelRepostBlockActivity extends AppCompatActivity {
         tb.setPadding(dp(4), 0, dp(16), 0);
         ImageButton btnBack = new ImageButton(this);
         btnBack.setImageResource(R.drawable.ic_arrow_back);
-        btnBack.setBackground(null); btnBack.getDrawable().setTint(0xFFFFFFFF);
+        btnBack.setBackground(null); com.callx.app.utils.IconResolver.tintExistingOnMedia(btnBack);
         btnBack.setLayoutParams(new LinearLayout.LayoutParams(dp(48), dp(48)));
         btnBack.setOnClickListener(v -> finish());
         tb.addView(btnBack);
