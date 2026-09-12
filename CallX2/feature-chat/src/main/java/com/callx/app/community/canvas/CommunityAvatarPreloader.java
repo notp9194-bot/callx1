@@ -17,6 +17,9 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.RequestOptions;
 import com.bumptech.glide.util.FixedPreloadSizeProvider;
 
+import com.callx.app.cache.CommunityAvatarBinder;
+import com.callx.app.utils.AvatarSizeTier;
+
 import java.util.Collections;
 import java.util.List;
 
@@ -38,6 +41,22 @@ import java.util.List;
  * Usage (in Fragment.onViewCreated or Activity.onCreate, after setting adapter):
  *   CommunityAvatarPreloader.attachAvatar(this, rvMembers, pos -> adapter.photoAt(pos),
  *       () -> adapter.getItemCount(), 44);
+ *
+ * FIX (avatar-pipeline parity): {@link #attachAvatar} used to preload the
+ * raw photo URL at a hand-rolled dp*density size straight into Glide's OWN
+ * memory/disk cache — a completely different cache key from the
+ * tier-bucketed, CDN-responsive URL {@link CommunityAvatarBinder} actually
+ * binds with (see that class), so this preloader's fling-ahead work never
+ * warmed anything the real bind() call could hit; the row still paid a
+ * fresh decode when it scrolled into view. Now builds the exact same
+ * {@link CommunityAvatarBinder#url} for the caller's size (bucketed via
+ * {@link AvatarSizeTier#forViewSizeDp}) and, on a successful preload
+ * decode, write-throughs it into {@code ChatAvatarL2Cache}/L3 via
+ * {@link CommunityAvatarBinder#warmCache} — so binding the row when it
+ * scrolls into view is a real L2 hit, not just a second Glide fetch.
+ * {@link #attachCover} is untouched: cover images aren't square avatars,
+ * don't go through the avatar tier system, and have no matching bind()
+ * call site to share a cache key with.
  */
 public final class CommunityAvatarPreloader {
 
@@ -99,27 +118,77 @@ public final class CommunityAvatarPreloader {
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
+    /** Avatar path — tier-bucketed to share a cache key/entry with CommunityAvatarBinder's real bind(). */
     private static RecyclerViewPreloader<String> attach(
             Context ctx, RecyclerView rv, UrlProvider provider, int sizeDp, boolean circle) {
-        int sizePx = Math.round(sizeDp * ctx.getResources().getDisplayMetrics().density);
-        return attach(ctx, rv, provider, new int[]{sizePx, sizePx}, circle);
+        if (!circle) {
+            int sizePx = Math.round(sizeDp * ctx.getResources().getDisplayMetrics().density);
+            return attachCoverInternal(ctx, rv, provider, new int[]{sizePx, sizePx});
+        }
+
+        AvatarSizeTier tier = AvatarSizeTier.forViewSizeDp(sizeDp);
+        int sizePx = com.callx.app.utils.AvatarUrlBuilder.tierPx(ctx, tier);
+        FixedPreloadSizeProvider<String> sizeProvider = new FixedPreloadSizeProvider<>(sizePx, sizePx);
+
+        RequestOptions opts = RequestOptions.circleCropTransform()
+                .override(sizePx, sizePx)
+                .format(CommunityAvatarBinder.AVATAR_FORMAT)
+                .diskCacheStrategy(DiskCacheStrategy.RESOURCE);
+
+        ListPreloader.PreloadModelProvider<String> modelProvider =
+                new ListPreloader.PreloadModelProvider<String>() {
+                    @NonNull @Override
+                    public List<String> getPreloadItems(int position) {
+                        if (position < 0 || position >= provider.count()) return Collections.emptyList();
+                        String rawUrl = provider.urlAt(position);
+                        if (rawUrl == null || rawUrl.isEmpty()) return Collections.emptyList();
+                        return Collections.singletonList(rawUrl);
+                    }
+                    @Nullable @Override
+                    public RequestBuilder<Bitmap> getPreloadRequestBuilder(@NonNull String rawUrl) {
+                        String url = CommunityAvatarBinder.url(ctx, rawUrl, tier);
+                        if (url == null) return null;
+                        return Glide.with(ctx).asBitmap().load(url).apply(opts)
+                                .listener(new com.bumptech.glide.request.RequestListener<Bitmap>() {
+                                    @Override
+                                    public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model,
+                                                                 com.bumptech.glide.request.target.Target<Bitmap> target, boolean isFirstResource) {
+                                        return false;
+                                    }
+                                    @Override
+                                    public boolean onResourceReady(Bitmap resource, Object model,
+                                                                    com.bumptech.glide.request.target.Target<Bitmap> target,
+                                                                    com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
+                                        // write-through so the real bind() below hits L2 instead of decoding again
+                                        CommunityAvatarBinder.warmCache(ctx, rawUrl, tier, resource);
+                                        return false;
+                                    }
+                                });
+                    }
+                };
+
+        RecyclerViewPreloader<String> preloader = new RecyclerViewPreloader<>(
+                Glide.with(ctx), modelProvider, sizeProvider, MAX_PRELOAD);
+        rv.addOnScrollListener(preloader);
+        return preloader;
     }
 
+    /** Cover-image path (Events) — untouched flat Glide preload, no avatar tier/cache involved. */
     private static RecyclerViewPreloader<String> attach(
             Context ctx, RecyclerView rv, UrlProvider provider,
             int[] sizePx, boolean circle) {
+        return attachCoverInternal(ctx, rv, provider, sizePx);
+    }
+
+    private static RecyclerViewPreloader<String> attachCoverInternal(
+            Context ctx, RecyclerView rv, UrlProvider provider, int[] sizePx) {
 
         FixedPreloadSizeProvider<String> sizeProvider = new FixedPreloadSizeProvider<>(sizePx[0], sizePx[1]);
 
-        RequestOptions opts = circle
-                ? RequestOptions.circleCropTransform()
-                        .override(sizePx[0], sizePx[1])
-                        .format(DecodeFormat.PREFER_RGB_565)
-                        .diskCacheStrategy(DiskCacheStrategy.ALL)
-                : RequestOptions.centerCropTransform()
-                        .override(sizePx[0], sizePx[1])
-                        .format(DecodeFormat.PREFER_RGB_565)
-                        .diskCacheStrategy(DiskCacheStrategy.ALL);
+        RequestOptions opts = RequestOptions.centerCropTransform()
+                .override(sizePx[0], sizePx[1])
+                .format(DecodeFormat.PREFER_RGB_565)
+                .diskCacheStrategy(DiskCacheStrategy.ALL);
 
         ListPreloader.PreloadModelProvider<String> modelProvider =
                 new ListPreloader.PreloadModelProvider<String>() {

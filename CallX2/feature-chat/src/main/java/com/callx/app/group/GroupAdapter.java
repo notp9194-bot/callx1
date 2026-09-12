@@ -11,10 +11,7 @@ import androidx.recyclerview.widget.AsyncListDiffer;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.DecodeFormat;
-import com.bumptech.glide.load.engine.DiskCacheStrategy;
-import com.bumptech.glide.request.RequestOptions;
+import com.callx.app.cache.GroupAvatarBinder;
 import com.callx.app.chat.R;
 import com.callx.app.chatlist.ChatListTimeCache;
 import com.callx.app.chatlist.canvas.ChatListLastMessageView;
@@ -230,14 +227,13 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
                 ? ChatListTimeCache.getFormatted(when) : "");
 
         if (g.iconUrl != null && !g.iconUrl.isEmpty()) {
-            int px = Math.round(50f * ctx.getResources().getDisplayMetrics().density);
-            Glide.with(ctx).load(g.iconUrl).dontAnimate().override(px, px)
-                    .format(android.os.Build.VERSION.SDK_INT >= 26
-                            ? DecodeFormat.PREFER_ARGB_8888 : DecodeFormat.PREFER_RGB_565)
-                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-                    .apply(RequestOptions.circleCropTransform())
-                    .placeholder(R.drawable.ic_group).error(R.drawable.ic_group)
-                    .into(h.avatar);
+            // FIX (avatar-optimization — Groups list): was a flat
+            // Glide.load().override(px,px) with no L2/L3 reuse and no CDN
+            // analytics — GroupAvatarBinder.TIER_LIST_ROW (50dp) exists for
+            // exactly this row but wasn't wired up yet. Now shares cache
+            // entries with the SAME group's toolbar/header icon.
+            GroupAvatarBinder.bind(ctx, h.avatar, g.iconUrl,
+                    GroupAvatarBinder.TIER_LIST_ROW, R.drawable.ic_group);
             h.avatar.setPadding(0, 0, 0, 0);
         } else {
             h.avatar.setImageResource(R.drawable.ic_group);
@@ -347,7 +343,7 @@ public class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.VH> {
             h.itemView.removeCallbacks(h.pendingPrewarmRunnable);
             h.pendingPrewarmRunnable = null;
         }
-        try { Glide.with(h.avatar.getContext()).clear(h.avatar); } catch (Exception ignored) { }
+        GroupAvatarBinder.cancel(h.avatar.getContext(), h.avatar);
         h.typingNow = false;
     }
 

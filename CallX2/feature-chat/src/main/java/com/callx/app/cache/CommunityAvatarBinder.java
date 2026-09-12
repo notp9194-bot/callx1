@@ -2,7 +2,6 @@ package com.callx.app.cache;
 
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.widget.ImageView;
 
@@ -41,14 +40,32 @@ import com.callx.app.utils.AvatarUrlBuilder;
  * both a post author and a member-list row decoded and cached TWICE.
  *
  * Two shapes, matching how the two call sites already work:
- *  • bindIcon()   — plain ImageView target (community/gate icon).
+ *  • bindIcon()   — plain ImageView target (community/gate icon). Delegates
+ *                   to {@link AvatarBinderCore#bind} — same shared
+ *                   L2-check -> Glide-decode -> L2/L3-write-through pipeline
+ *                   {@link ChatAvatarBinder}/{@link GroupAvatarBinder} use,
+ *                   instead of a third hand-rolled copy of it.
  *  • bindBitmap() — CustomTarget<Bitmap> target (post/member rows are
  *                   Canvas views, same as CommunityMemberAvatarStackView —
  *                   they need a raw Bitmap, not a Drawable/ImageView).
+ *                   AvatarBinderCore#bind is ImageView-only, so this stays
+ *                   its own implementation — same reasoning as
+ *                   ChatAvatarBinder#bindBitmap — but still shares its
+ *                   L2/L3 cache entries with bindIcon() for the same
+ *                   photo/tier via the identical {@link #url} + CACHE.
  */
 public final class CommunityAvatarBinder {
 
     private CommunityAvatarBinder() {}
+
+    /** This module's own L2/L3 cache pair, handed to AvatarBinderCore per
+     *  bindIcon() call — same {@link ChatAvatarL2Cache} instance bindBitmap()
+     *  below and ChatAvatarBinder/GroupAvatarBinder already use. */
+    private static final com.callx.app.cache.AvatarBinderCore.CacheProvider CACHE =
+            new com.callx.app.cache.AvatarBinderCore.CacheProvider() {
+                @Override public AvatarL2MemoryCache l2(Context ctx) { return ChatAvatarL2Cache.get(ctx); }
+                @Override public AvatarL3DiskCache l3(Context ctx) { return ChatAvatarL2Cache.l3(ctx); }
+            };
 
     /** CommunityActivity toolbar icon (iv_community_icon, 36dp). */
     public static final AvatarSizeTier TIER_TOOLBAR = AvatarSizeTier.forViewSizeDp(36);
@@ -58,6 +75,8 @@ public final class CommunityAvatarBinder {
     public static final AvatarSizeTier TIER_POST_AUTHOR = AvatarSizeTier.forViewSizeDp(40);
     /** CommunityMemberAdapter row avatar (44dp). */
     public static final AvatarSizeTier TIER_MEMBER = AvatarSizeTier.forViewSizeDp(44);
+    /** CommunityMemberAvatarStackView overlapping stack avatar (26dp). */
+    public static final AvatarSizeTier TIER_STACK = AvatarSizeTier.forViewSizeDp(26);
 
     public static final DecodeFormat AVATAR_FORMAT =
             android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
@@ -77,50 +96,44 @@ public final class CommunityAvatarBinder {
 
     /**
      * ImageView bind — CommunityActivity's toolbar icon and join-gate
-     * header icon. L2 fast-path first, else a tier-sized circleCrop decode
-     * written back into L2+L3 on success.
+     * header icon. Routes through {@link AvatarBinderCore#bind}: L2
+     * fast-path first, else a tier-sized circleCrop decode written back
+     * into L2+L3 on success — same shared pipeline every other ImageView
+     * avatar bind in the app now goes through, plus the HIGH-priority
+     * request + same-URL-already-bound skip that check gives for free.
+     * Communities/posts don't carry an avatarVersion counter (see
+     * GroupAvatarBinder's class doc), so this always passes
+     * avatarVersion=0 — a no-op for AvatarUrlBuilder#appendVersion, so the
+     * URL is byte-for-byte what {@link #url} already produced.
      */
     public static void bindIcon(Context ctx, ImageView iv, String rawUrl, AvatarSizeTier tier, int placeholderRes) {
-        if (rawUrl == null || rawUrl.isEmpty()) {
-            if (placeholderRes != 0) iv.setImageResource(placeholderRes);
-            return;
-        }
-        String url = url(ctx, rawUrl, tier);
-        Bitmap l2Hit = ChatAvatarL2Cache.get(ctx).get(url);
-        if (l2Hit != null) {
-            iv.setImageBitmap(l2Hit);
-            AvatarCacheAnalytics.getInstance(ctx).record(AvatarCacheAnalytics.Tier.L2_MEMORY);
-            return;
-        }
-        RequestOptions opts = RequestOptions.circleCropTransform()
-                .format(AVATAR_FORMAT)
-                .diskCacheStrategy(DiskCacheStrategy.RESOURCE);
-        com.bumptech.glide.RequestBuilder<Drawable> req = Glide.with(ctx).load(url).dontAnimate().apply(opts);
-        if (placeholderRes != 0) req = req.placeholder(placeholderRes).error(placeholderRes);
-        req.listener(new RequestListener<Drawable>() {
-                @Override
-                public boolean onLoadFailed(GlideException e, Object model, Target<Drawable> target, boolean isFirstResource) {
-                    return false;
-                }
-                @Override
-                public boolean onResourceReady(Drawable resource, Object model, Target<Drawable> target,
-                                                DataSource dataSource, boolean isFirstResource) {
-                    AvatarCacheAnalytics.getInstance(ctx)
-                        .record(AvatarCacheAnalytics.fromGlideDataSource(dataSource));
-                    if (resource instanceof BitmapDrawable) {
-                        Bitmap bmp = ((BitmapDrawable) resource).getBitmap();
-                        ChatAvatarL2Cache.get(ctx).put(url, bmp);
-                        ChatAvatarL2Cache.l3(ctx).put(url, bmp);
-                    }
-                    return false;
-                }
-            })
-            .into(iv);
+        com.callx.app.cache.AvatarBinderCore.bind(ctx, iv, rawUrl, /*avatarVersion=*/0L,
+                CACHE, new com.callx.app.cache.AvatarBinderCore.BindOptions(
+                        tier, AVATAR_FORMAT, /*circleCrop=*/true, /*dontAnimate=*/true,
+                        /*recordDashboardStats=*/false, placeholderRes));
     }
 
     /** Call from onViewRecycled()/onDestroy() for an ImageView bound via {@link #bindIcon}. */
     public static void cancelIcon(Context ctx, ImageView iv) {
-        try { Glide.with(ctx).clear(iv); } catch (Exception ignored) {}
+        com.callx.app.cache.AvatarBinderCore.cancel(ctx, iv);
+    }
+
+    /**
+     * Write-through helper for out-of-band loaders that decode a bitmap for
+     * one of this binder's tiers themselves — currently only
+     * {@link com.callx.app.community.canvas.CommunityAvatarPreloader}'s
+     * RecyclerView fling-ahead preload, which needs to land its decode in
+     * the SAME {@link ChatAvatarL2Cache}/L3 slot {@link #bindBitmap} will
+     * later look up, keyed by the exact tiered/responsive URL (not the raw
+     * photo URL) so the preload and the real bind actually share one entry
+     * instead of silently missing each other.
+     */
+    public static void warmCache(Context ctx, String rawUrl, AvatarSizeTier tier, Bitmap bitmap) {
+        if (rawUrl == null || rawUrl.isEmpty() || bitmap == null) return;
+        String url = url(ctx, rawUrl, tier);
+        if (url == null) return;
+        ChatAvatarL2Cache.get(ctx).put(url, bitmap);
+        ChatAvatarL2Cache.l3(ctx).put(url, bitmap);
     }
 
     /**

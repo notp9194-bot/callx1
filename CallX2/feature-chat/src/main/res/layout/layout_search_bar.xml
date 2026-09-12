@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- In-chat message search bar.
+     PERF: extracted out of activity_chat.xml and lazily inflated via
+     ViewStub (stub_search_bar) — most chat opens never use search, so
+     these 6 views no longer inflate on every chat open. See
+     ChatSearchController. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/ll_search_bar"
+    android:layout_width="match_parent"
+    android:layout_height="52dp"
+    android:orientation="horizontal"
+    android:background="@color/bar_background"
+    android:paddingStart="8dp"
+    android:paddingEnd="4dp"
+    android:gravity="center_vertical">
+    <ImageView
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:src="@drawable/ic_search"
+        android:layout_marginEnd="8dp"/>
+    <EditText
+        android:id="@+id/et_search"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:hint="Search messages…"
+        android:textColorHint="@color/text_muted"
+        android:textColor="@color/text_primary"
+        android:textSize="14sp"
+        android:background="@android:color/transparent"
+        android:singleLine="true"
+        android:imeOptions="actionSearch"
+        android:inputType="text"/>
+    <TextView
+        android:id="@+id/tv_search_count"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:textColor="@color/text_muted"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:visibility="gone"/>
+    <ImageButton
+        android:id="@+id/btn_search_prev"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:src="@drawable/ic_arrow_back"
+        android:rotation="90"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Previous result"
+        android:visibility="gone"/>
+    <ImageButton
+        android:id="@+id/btn_search_next"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:src="@drawable/ic_arrow_back"
+        android:rotation="270"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Next result"
+        android:visibility="gone"/>
+    <ImageButton
+        android:id="@+id/btn_close_search"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:src="@drawable/ic_back"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Close search"/>
+</LinearLayout>

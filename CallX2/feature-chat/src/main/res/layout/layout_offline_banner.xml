@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Offline banner.
+     PERF: extracted out of activity_chat.xml and lazily inflated via
+     ViewStub (stub_offline_banner) — only needed while the device is
+     actually offline; most chat opens happen while online and never
+     inflate it. -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tv_offline_banner"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:text="No internet — showing cached messages"
+    android:textColor="#FFFFFF"
+    android:textSize="12sp"
+    android:gravity="center"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp"
+    android:background="#CC5500"/>

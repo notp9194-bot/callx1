@@ -9,9 +9,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
-import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
-import android.util.SparseArray;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -19,7 +17,6 @@ import android.view.animation.DecelerateInterpolator;
 import android.view.animation.OvershootInterpolator;
 
 import androidx.core.content.ContextCompat;
-import androidx.core.graphics.drawable.DrawableCompat;
 
 import com.callx.app.chat.R;
 
@@ -140,25 +137,13 @@ public class ChatIconBarView extends View {
     // setBounds()/setAlpha() if two chat screens were ever visible at once,
     // e.g. split-screen) — this is safe to share across any number of
     // simultaneously-visible ChatIconBarView instances with zero risk.
-    private static final SparseArray<Bitmap> ICON_BITMAP_CACHE = new SparseArray<>(4);
-
     private Bitmap tintedBitmap(int resId) {
-        synchronized (ICON_BITMAP_CACHE) {
-            Bitmap cached = ICON_BITMAP_CACHE.get(resId);
-            if (cached != null && !cached.isRecycled()) return cached;
-        }
+        // Delegates to the process-wide shared cache (IconTintCache) so this
+        // view's icons and any other chat screen's static icons (e.g.
+        // btn_view_once) draw from the SAME cached bitmaps instead of each
+        // view keeping its own private cache.
         int size = Math.max(1, slotSizePx - iconInsetPx * 2);
-        Drawable d = ContextCompat.getDrawable(getContext(), resId);
-        if (d == null) return null;
-        d = d.mutate();
-        DrawableCompat.setTint(d, ContextCompat.getColor(getContext(), R.color.white));
-        Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-        d.setBounds(0, 0, size, size);
-        d.draw(new Canvas(bmp));
-        synchronized (ICON_BITMAP_CACHE) {
-            ICON_BITMAP_CACHE.put(resId, bmp);
-        }
-        return bmp;
+        return IconTintCache.get(getContext(), resId, R.color.chat_input_text, size);
     }
 
     private void initIcons() {

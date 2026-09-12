@@ -9,7 +9,6 @@ import android.view.View;
 
 import androidx.annotation.NonNull;
 
-import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
 import com.callx.app.chat.databinding.ActivityChatBinding;
 import com.callx.app.utils.FirebaseUtils;
@@ -208,31 +207,44 @@ public class ChatScreenshotNotifier {
 
     // ── Banner UI ─────────────────────────────────────────────────────────
 
+    // PERF: cached after first inflate — see ensureScreenshotBanner().
+    private View screenshotBannerRoot;
+
+    /** Lazily inflates the screenshot-banner ViewStub on first use. Safe to
+     *  call repeatedly — only actually inflates once per activity lifetime. */
+    private View ensureScreenshotBanner(ActivityChatBinding binding) {
+        if (screenshotBannerRoot == null && binding.stubScreenshotBanner != null) {
+            screenshotBannerRoot = binding.stubScreenshotBanner.inflate();
+        }
+        return screenshotBannerRoot;
+    }
+
     private void showScreenshotBanner() {
         ActivityChatBinding binding = delegate.getBinding();
         if (binding == null) return;
 
-        View banner = binding.getRoot().findViewById(R.id.ll_screenshot_banner);
+        View banner = ensureScreenshotBanner(binding);
         if (banner == null) return;
 
         // Populate name + avatar
-        android.widget.TextView tvMsg = binding.getRoot()
-                .findViewById(R.id.tv_screenshot_msg);
+        android.widget.TextView tvMsg = banner.findViewById(R.id.tv_screenshot_msg);
         if (tvMsg != null) {
             String name = delegate.getPartnerName();
             tvMsg.setText((name != null ? name : "Partner") + " ne screenshot liya \uD83D\uDCF8");
         }
 
-        de.hdodenhof.circleimageview.CircleImageView ivAvatar = binding.getRoot()
+        de.hdodenhof.circleimageview.CircleImageView ivAvatar = banner
                 .findViewById(R.id.iv_screenshot_avatar);
         if (ivAvatar != null && delegate.getActivity() != null) {
             String photo = delegate.getPartnerPhoto();
             if (photo != null && !photo.isEmpty()) {
-                Glide.with(delegate.getActivity())
-                        .load(photo)
-                        .placeholder(R.drawable.ic_person)
-                        .override(720, 720)
-                        .into(ivAvatar);
+                // FIX (avatar optimization — reuse core pipeline): was a
+                // flat, hardcoded-720px Glide load with no tier/L2/L3
+                // reuse — same partner as the chat list row / header /
+                // watching banner, now shares those cache entries via
+                // ChatAvatarBinder.bind().
+                com.callx.app.cache.ChatAvatarBinder.bind(delegate.getActivity(),
+                        ivAvatar, photo, 0L, R.drawable.ic_person);
             }
         }
 

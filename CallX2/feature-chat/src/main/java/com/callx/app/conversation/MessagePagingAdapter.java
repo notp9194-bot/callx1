@@ -697,6 +697,11 @@ public class MessagePagingAdapter
     private static final float SEEN_THUMB_W_DP_MIRROR = 120f;
     private static final float SEEN_THUMB_H_DP_MIRROR = 80f;
 
+    /** ChatAvatarBinder.bindBitmap()'s tier for the seen-bubble's ~36dp
+     *  avatar -- default TIER_INLINE (24dp) would under-resolve this. */
+    private static final com.callx.app.utils.AvatarSizeTier SEEN_AVATAR_TIER =
+            com.callx.app.utils.AvatarSizeTier.forViewSizeDp(36);
+
     private static volatile int sSeenAvatarPx = 0;
     static int seenAvatarPx(android.content.Context ctx) {
         if (sSeenAvatarPx > 0) return sSeenAvatarPx;
@@ -2076,6 +2081,52 @@ public class MessagePagingAdapter
         return false;
     }
 
+    // ── PERF ADV: static shared RecycledViewPool across chat opens ──────────
+    // Previously ChatActivity created `new RecyclerView.RecycledViewPool()`
+    // fresh on EVERY chat open, then immediately warmed it with 6 Canvas
+    // ViewHolders (each ~30 Paint/TextPaint fields) — a real allocation cost
+    // paid again even for reopening the SAME chat in the same process. A
+    // single process-wide pool means the second (and every subsequent) chat
+    // open in a session finds already-warm Canvas ViewHolders waiting.
+    //
+    // Correctness note: a pooled Canvas ViewHolder's OnBubbleClickListener
+    // is built once (see onCreateViewHolder) and closes over the adapter
+    // instance that created it. Reusing the SAME ViewHolder object under a
+    // DIFFERENT MessagePagingAdapter (a different chat's activity) would
+    // fire the OLD chat's listener if left unchecked — onBindViewHolder's
+    // canvasListenerOwner check (see there) detects the mismatch and
+    // rebuilds the listener for whichever adapter binds it, so this is
+    // handled on the read side. See trimSharedCanvasPool() for the
+    // corresponding write-side (leak) safeguard.
+    private static RecyclerView.RecycledViewPool sSharedCanvasPool;
+
+    /** Call once, from setupPagingRecyclerView(), instead of `new RecycledViewPool()`. */
+    public static RecyclerView.RecycledViewPool getSharedCanvasPool() {
+        if (sSharedCanvasPool == null) {
+            sSharedCanvasPool = new RecyclerView.RecycledViewPool();
+        }
+        return sSharedCanvasPool;
+    }
+
+    /**
+     * Call from ChatActivity.onDestroy(). A closing chat's Canvas
+     * ViewHolders may still be sitting in the now-shared pool with their
+     * click listener pointing back at THIS (dying) adapter/Activity. Since
+     * the pool itself outlives any one chat, those references would
+     * otherwise keep this Activity reachable from a static field until some
+     * future chat happens to reuse those exact pooled slots. Trimming each
+     * canvas type to 0 and immediately back up forces the pool to drop
+     * (and let GC reclaim) every currently-held instance right now, instead
+     * of leaving that to chance.
+     */
+    public static void trimSharedCanvasPool() {
+        if (sSharedCanvasPool == null) return;
+        sSharedCanvasPool.setMaxRecycledViews(TYPE_CANVAS_SENT, 0);
+        sSharedCanvasPool.setMaxRecycledViews(TYPE_CANVAS_RECEIVED, 0);
+        sSharedCanvasPool.setMaxRecycledViews(TYPE_CANVAS_SENT, 18);
+        sSharedCanvasPool.setMaxRecycledViews(TYPE_CANVAS_RECEIVED, 18);
+    }
+
     // ── PERF (v176): RecycledViewPool pre-warm ──────────────────────────────
     // Everything else in this file avoids paying inflation/construction cost
     // *during* scroll — but the very first fling after cold-open still has to
@@ -2094,8 +2145,17 @@ public class MessagePagingAdapter
     public void warmUpRecycledViewPool(@NonNull ViewGroup parent,
                                         @NonNull RecyclerView.RecycledViewPool pool,
                                         int countPerType) {
-        for (int i = 0; i < countPerType; i++) {
+        // PERF ADV: pool is now shared/static across chat opens (see
+        // getSharedCanvasPool()) — a second+ chat opened in the same
+        // process usually finds it already warm from a previous chat.
+        // Only top up whatever's actually missing instead of unconditionally
+        // creating countPerType MORE holders on top of what's already there.
+        int haveSent     = pool.getRecycledViewCount(TYPE_CANVAS_SENT);
+        int haveReceived = pool.getRecycledViewCount(TYPE_CANVAS_RECEIVED);
+        for (int i = haveSent; i < countPerType; i++) {
             pool.putRecycledView(onCreateViewHolder(parent, TYPE_CANVAS_SENT));
+        }
+        for (int i = haveReceived; i < countPerType; i++) {
             pool.putRecycledView(onCreateViewHolder(parent, TYPE_CANVAS_RECEIVED));
         }
     }
@@ -2141,6 +2201,7 @@ public class MessagePagingAdapter
             // class on every bindCanvasMessage() call. See
             // createBubbleClickListener() doc for details.
             cv.setOnBubbleClickListener(createBubbleClickListener(vh));
+            vh.canvasListenerOwner = this;
             return vh;
         }
         int layout;
@@ -2276,6 +2337,31 @@ public class MessagePagingAdapter
         
         // Store reference for height caching on recycle
         h.boundMessage = m;
+
+        // PERF ADV: cross-adapter pool sharing safety net.
+        // createBubbleClickListener() closes over THIS adapter instance
+        // (multiSelectMode, selectedMessageIds, actionListener, chatId —
+        // all instance fields) and is normally set ONCE at
+        // onCreateViewHolder time, never touched again on ordinary binds —
+        // that's the whole point of the fix documented there. That's safe
+        // as long as a VH only ever gets bound by the SAME adapter that
+        // created it.
+        // Now that the RecycledViewPool itself is a static/shared instance
+        // (see getSharedCanvasPool()) so a freshly-opened chat can reuse
+        // another chat's already-warm Canvas ViewHolders instead of paying
+        // the ~30-Paint-field allocation again, a VH can arrive here having
+        // been created (and last listener-bound) by a DIFFERENT
+        // MessagePagingAdapter — a different, possibly-finished
+        // ChatActivity. onViewRecycled() already nulls the listener out
+        // before a holder goes back into the pool (breaks the reference so
+        // the old Activity isn't leaked), so canvasListenerOwner != this
+        // is exactly "this holder's listener is missing or stale" — cheap
+        // to check, and only ever pays the small re-create cost on that
+        // first cross-chat bind, never on ordinary same-chat scrolling.
+        if (h.canvasView != null && h.canvasListenerOwner != this) {
+            h.canvasView.setOnBubbleClickListener(createBubbleClickListener(h));
+            h.canvasListenerOwner = this;
+        }
 
         // TELEGRAM-STYLE SEND ANIMATION — one-shot spring rise+fade, only
         // for the bubble we just sent (see markMessageForSendAnimation /
@@ -2446,45 +2532,16 @@ public class MessagePagingAdapter
         // Avatar
         de.hdodenhof.circleimageview.CircleImageView ivAvatar = h.ivStatusSeenAvatar;
         if (ivAvatar != null) {
+            // FIX (avatar-optimization — reuse core pipeline): was a flat,
+            // un-tiered Glide load into the shared AVATAR_BITMAP_CACHE with
+            // a hardcoded 96×96 override — now routed through
+            // ChatAvatarBinder.bind() at SEEN_AVATAR_TIER (36dp, matches
+            // the canvas seen-bubble fix above), so this shares
+            // ChatAvatarL2Cache/L3 + CDN analytics with every other chat
+            // avatar surface instead of its own private pool.
             String photo = m.senderPhoto != null ? m.senderPhoto : "";
-            if (!photo.isEmpty()) {
-                // PERF FIX: same root cause as the chat-list flicker bug —
-                // this used to fire an unconditional async Glide load on
-                // EVERY bind (including plain scroll-recycle and any
-                // rebind this row picks up from an unrelated list change),
-                // guaranteeing a blank/placeholder flash before the avatar
-                // popped back in even though it was already decoded a
-                // moment ago. Check AVATAR_BITMAP_CACHE synchronously
-                // first — same shared pool the canvas seen-avatar path uses.
-                android.graphics.Bitmap statusAvatarHit = AVATAR_BITMAP_CACHE.get(photo);
-                if (statusAvatarHit != null && !statusAvatarHit.isRecycled()) {
-                    dashboardRecordHit(ctx, photo);
-                    ivAvatar.setImageBitmap(statusAvatarHit);
-                } else {
-                    ivAvatar.setImageResource(R.drawable.ic_person);
-                    glide(ctx).asBitmap()
-                        .load(photo)
-                        .apply(THUMB_RGB565)
-                        .override(96, 96)
-                        .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
-                        .listener(com.callx.app.cache.CacheDashboardStats.glideListener(
-                                ctx, photo))
-                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                            @Override
-                            public void onResourceReady(@NonNull Bitmap resource,
-                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                AVATAR_BITMAP_CACHE.put(photo, resource);
-                                dashboardRecordDecoded(ctx, photo, resource);
-                                if (h.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
-                                ivAvatar.setImageBitmap(resource);
-                            }
-                            @Override
-                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
-                        });
-                }
-            } else {
-                ivAvatar.setImageResource(R.drawable.ic_person);
-            }
+            com.callx.app.cache.ChatAvatarBinder.bind(ctx, ivAvatar, photo, 0L,
+                    R.drawable.ic_person, SEEN_AVATAR_TIER);
         }
 
         // Status thumbnail
@@ -2608,39 +2665,13 @@ public class MessagePagingAdapter
         // Avatar
         de.hdodenhof.circleimageview.CircleImageView ivAvatar = h.ivReelSeenAvatar;
         if (ivAvatar != null) {
+            // FIX (avatar-optimization — reuse core pipeline): same fix as
+            // bindStatusSeenBubble above — routed through
+            // ChatAvatarBinder.bind() at SEEN_AVATAR_TIER instead of a flat
+            // 96×96 load into the private AVATAR_BITMAP_CACHE.
             String photo = m.senderPhoto != null ? m.senderPhoto : "";
-            if (!photo.isEmpty()) {
-                // Same sync-cache-first fix as bindStatusSeenBubble above —
-                // check AVATAR_BITMAP_CACHE before firing an async Glide load.
-                android.graphics.Bitmap reelSeenAvatarHit = AVATAR_BITMAP_CACHE.get(photo);
-                if (reelSeenAvatarHit != null && !reelSeenAvatarHit.isRecycled()) {
-                    dashboardRecordHit(ctx, photo);
-                    ivAvatar.setImageBitmap(reelSeenAvatarHit);
-                } else {
-                    ivAvatar.setImageResource(R.drawable.ic_person);
-                    glide(ctx).asBitmap()
-                        .load(photo)
-                        .apply(THUMB_RGB565)
-                        .override(96, 96)
-                        .apply(com.bumptech.glide.request.RequestOptions.circleCropTransform())
-                        .listener(com.callx.app.cache.CacheDashboardStats.glideListener(
-                                ctx, photo))
-                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                            @Override
-                            public void onResourceReady(@NonNull Bitmap resource,
-                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                AVATAR_BITMAP_CACHE.put(photo, resource);
-                                dashboardRecordDecoded(ctx, photo, resource);
-                                if (h.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
-                                ivAvatar.setImageBitmap(resource);
-                            }
-                            @Override
-                            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {}
-                        });
-                }
-            } else {
-                ivAvatar.setImageResource(R.drawable.ic_person);
-            }
+            com.callx.app.cache.ChatAvatarBinder.bind(ctx, ivAvatar, photo, 0L,
+                    R.drawable.ic_person, SEEN_AVATAR_TIER);
         }
 
         // Click handler — reelId se reel kholo (thumb ho ya na ho, always kaam kare)
@@ -3726,37 +3757,19 @@ public class MessagePagingAdapter
 
             final String avatarUrl = m.senderPhoto != null ? m.senderPhoto : "";
             if (!avatarUrl.isEmpty()) {
-                // PERF ADV: check shared avatar pool first — same sender appears in
-                // every message in a group chat; without the pool each cell triggers
-                // a separate Glide decode of the identical URL.
-                android.graphics.Bitmap avatarHit = AVATAR_BITMAP_CACHE.get(avatarUrl);
-                if (avatarHit != null && !avatarHit.isRecycled()) {
-                    dashboardRecordHit(ctx, avatarUrl);
-                    cv.setSeenAvatarBitmap(avatarHit);
-                } else {
-                    // PERF: decode at the real 36dp display size (see
-                    // seenAvatarPx()) instead of a hardcoded 96×96 square.
-                    int avatarPx = seenAvatarPx(ctx);
-                    glide(ctx).asBitmap().load(avatarUrl).apply(THUMB_RGB565)
-                            .override(avatarPx, avatarPx).circleCrop()
-                            .listener(com.callx.app.cache.CacheDashboardStats.glideListener(
-                                    ctx, avatarUrl))
-                            .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                                @Override
-                                public void onResourceReady(@NonNull Bitmap resource,
-                                        @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                    AVATAR_BITMAP_CACHE.put(avatarUrl, resource);
-                                    dashboardRecordDecoded(ctx, avatarUrl, resource);
-                                    if (h.canvasBindToken != myToken) return;
-                                    cv.setSeenAvatarBitmap(resource);
-                                }
-                                @Override
-                                public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
-                                    if (h.canvasBindToken != myToken) return;
-                                    cv.setSeenAvatarBitmap(null);
-                                }
-                            });
-                }
+                // FIX (avatar-optimization — reuse core pipeline): was a
+                // flat, un-tiered Glide load into this adapter's own
+                // private AVATAR_BITMAP_CACHE — completely disconnected
+                // from ChatAvatarBinder's ChatAvatarL2Cache/L3 + CDN
+                // analytics every other chat avatar surface shares (same
+                // fix already applied to the contact-share bubble above).
+                // No avatarVersion tracked for senderPhoto, so unversioned
+                // (0L), same as that fix. SEEN_AVATAR_TIER (36dp) keeps the
+                // real display size instead of TIER_INLINE's default 24dp.
+                com.callx.app.cache.ChatAvatarBinder.bindBitmap(ctx, avatarUrl, 0L, SEEN_AVATAR_TIER, resource -> {
+                    if (h.canvasBindToken != myToken) return;
+                    cv.setSeenAvatarBitmap(resource);
+                });
             }
             if (hasThumb) {
                 // FIX: same root cause as the reel-share 330×474 thumb flicker —
@@ -4728,46 +4741,27 @@ public class MessagePagingAdapter
             }
         } else if (isContact) {
             // Mirrors the legacy "contact" case (ChatContactShareController.
-            // bindBubble) — same contactPhotoUrl Glide load (placeholder
-            // ic_person if absent), just pushed through
-            // cv.bindContact()/setContactAvatarBitmap() instead of
-            // CircleImageView/TextView calls. No caption, no timestamp/
-            // tick footer for this type (see MessageBubbleCanvasView's
-            // CONTACT_* doc).
+            // bindBubble) — just pushed through cv.bindContact()/
+            // setContactAvatarBitmap() instead of CircleImageView/TextView
+            // calls. No caption, no timestamp/tick footer for this type
+            // (see MessageBubbleCanvasView's CONTACT_* doc).
             cv.bindContact(null, m.contactName, m.contactPhone, sent);
             cv.setDeletedStyle(false);
 
             final String contactPhotoUrl = m.contactPhotoUrl;
             if (contactPhotoUrl != null && !contactPhotoUrl.isEmpty()) {
-                // FIX: same flicker root cause as seen-bubble/reel-share —
-                // no cache check meant every rebind (scroll, or a new
-                // message elsewhere triggering a rebind of this visible
-                // contact-card row) blanked the avatar for a frame.
-                android.graphics.Bitmap contactHit = DECODED_BITMAP_CACHE.get(poolKey(contactPhotoUrl, 96, 96));
-                if (contactHit != null && !contactHit.isRecycled()) {
-                    dashboardRecordHit(ctx, contactPhotoUrl);
-                    cv.setContactAvatarBitmap(contactHit);
-                } else {
-                    glide(ctx).asBitmap().load(contactPhotoUrl).apply(THUMB_RGB565)
-                            .override(96, 96).circleCrop()
-                            .listener(com.callx.app.cache.CacheDashboardStats.glideListener(
-                                    ctx, contactPhotoUrl))
-                            .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                                @Override
-                                public void onResourceReady(@NonNull Bitmap resource,
-                                        @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                    DECODED_BITMAP_CACHE.put(poolKey(contactPhotoUrl, 96, 96), resource);
-                                    dashboardRecordDecoded(ctx, contactPhotoUrl, resource);
-                                    if (h.canvasBindToken != myToken) return;
-                                    cv.setContactAvatarBitmap(resource);
-                                }
-                                @Override
-                                public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
-                                    if (h.canvasBindToken != myToken) return;
-                                    cv.setContactAvatarBitmap(null);
-                                }
-                            });
-                }
+                // FIX (avatar-optimization — reuse core pipeline): was a
+                // flat un-tiered Glide load into this adapter's own private
+                // DECODED_BITMAP_CACHE — completely disconnected from
+                // ChatAvatarBinder's ChatAvatarL2Cache/L3 + CDN analytics
+                // every other chat avatar surface shares (same pattern the
+                // reel-share avatar above already uses). No avatarVersion
+                // tracked for a shared-contact photo, so unversioned (0L)
+                // like the reel-share fallback path above.
+                com.callx.app.cache.ChatAvatarBinder.bindBitmap(ctx, contactPhotoUrl, 0L, resource -> {
+                    if (h.canvasBindToken != myToken) return;
+                    cv.setContactAvatarBitmap(resource);
+                });
             }
         } else if (isLocation) {
             // Mirrors the legacy "location" case (ChatLocationShareController.
@@ -8388,6 +8382,13 @@ public class MessagePagingAdapter
         // normal findViewById-based fields below, all of which stay null
         // for this holder (harmless — a bare custom View has no ids to find).
         com.callx.app.conversation.canvas.MessageBubbleCanvasView canvasView;
+        // PERF ADV: which MessagePagingAdapter instance last wired
+        // canvasView's OnBubbleClickListener. Only relevant now that the
+        // RecycledViewPool is shared/static across chat opens — see
+        // getSharedCanvasPool()/canvasListenerOwner check in
+        // onBindViewHolder for why this can legitimately differ from the
+        // currently-binding adapter.
+        MessagePagingAdapter canvasListenerOwner;
         // Bumped on every bindCanvasMessage() call and checked before an
         // async Glide result (image bitmap / reply thumb) is applied — a
         // slow load that resolves after this holder has been recycled and

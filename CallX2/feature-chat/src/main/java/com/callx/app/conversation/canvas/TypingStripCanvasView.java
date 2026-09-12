@@ -16,9 +16,7 @@ import android.view.View;
 
 import androidx.annotation.Nullable;
 
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.request.target.CustomTarget;
-import com.bumptech.glide.request.transition.Transition;
+import com.callx.app.cache.ChatAvatarBinder;
 
 /**
  * TypingStripCanvasView — Canvas-rendered replacement for ll_typing_strip
@@ -128,7 +126,6 @@ public class TypingStripCanvasView extends View {
     private int bounceHeightPx;
 
     private Bitmap avatarBitmap; // already circleCrop()-ped by Glide
-    private CustomTarget<Bitmap> pendingAvatarTarget;
     private String pendingAvatarUrl;
 
     private String nameText = "";
@@ -203,7 +200,18 @@ public class TypingStripCanvasView extends View {
         invalidate();
     }
 
-    /** Loads and circle-crops the avatar once; cheap no-op if the URL hasn't changed. */
+    /**
+     * Loads and circle-crops the avatar once; cheap no-op if the URL hasn't
+     * changed. FIX (avatar optimization — reuse core pipeline): routed
+     * through {@link ChatAvatarBinder#bindBitmap} instead of a flat
+     * un-tiered Glide load into a one-off target — same responsive/
+     * version-tagged URL, L2 memory + L3 disk tiers, and analytics every
+     * other chat avatar surface uses (see this class's sibling,
+     * RecordingStripCanvasView, for the identical pattern). This strip's
+     * avatar is almost always the SAME partner already shown in the chat
+     * list row, so this shares those cache entries — typically an instant
+     * L2 hit the moment a typing notice pops up instead of a fresh decode.
+     */
     public void setAvatarUrl(@Nullable String url) {
         if (url != null && url.equals(pendingAvatarUrl) && avatarBitmap != null) return;
         pendingAvatarUrl = url;
@@ -212,35 +220,15 @@ public class TypingStripCanvasView extends View {
             invalidate();
             return;
         }
-        if (pendingAvatarTarget != null) {
-            // Defensive: a typing event can arrive right as the hosting
-            // Activity is finishing (listener callback racing teardown).
-            // Real loads still use the Activity/Fragment context on purpose
-            // (so Glide can auto-pause/resume with the lifecycle) — this
-            // just stops that same race from crashing here too.
-            try {
-                Glide.with(getContext()).clear(pendingAvatarTarget);
-            } catch (Exception ignored) {}
-        }
-        pendingAvatarTarget = new CustomTarget<Bitmap>() {
-            @Override public void onResourceReady(@androidx.annotation.NonNull Bitmap resource,
-                                                    @Nullable Transition<? super Bitmap> transition) {
-                avatarBitmap = resource;
-                if (avatarBoundsInt.isEmpty()) invalidate();
-                else invalidate(avatarBoundsInt);
-            }
-            @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
-                avatarBitmap = null;
-            }
-        };
-        try {
-            Glide.with(getContext())
-                    .asBitmap()
-                    .circleCrop()
-                    .load(url)
-                    .override(avatarSizePx, avatarSizePx)
-                    .into(pendingAvatarTarget);
-        } catch (Exception ignored) {}
+        final String requestedUrl = url;
+        ChatAvatarBinder.bindBitmap(getContext(), url, 0L, resource -> {
+            // Stale — strip has been rebound (or cleared) to a different
+            // photo since this request went out; drop the result.
+            if (!requestedUrl.equals(pendingAvatarUrl)) return;
+            avatarBitmap = resource;
+            if (avatarBoundsInt.isEmpty()) invalidate();
+            else invalidate(avatarBoundsInt);
+        });
     }
 
     // ── Dot bounce animation — Choreographer-driven, dirty-rect only ────
@@ -389,21 +377,11 @@ public class TypingStripCanvasView extends View {
             dotsRunning = false;
             Choreographer.getInstance().removeFrameCallback(frameCallback);
         }
-        if (pendingAvatarTarget != null) {
-            // BUG FIX: Glide.with(getContext()) here throws
-            // "You cannot start a load for a destroyed activity" — even for
-            // a .clear() call — because Glide.with(Activity/Fragment context)
-            // checks that context's lifecycle state before handing back a
-            // RequestManager at all, and onDetachedFromWindow() during
-            // Activity teardown is exactly when that state is already
-            // DESTROYED. Application context isn't tied to any Activity's
-            // lifecycle, so it skips that check entirely — correct for a
-            // pure cleanup call like this, which was never a real "load"
-            // request. Try-catch kept as a last-resort net (comment above
-            // already calls this "belt-and-suspenders").
-            try {
-                Glide.with(getContext().getApplicationContext()).clear(pendingAvatarTarget);
-            } catch (Exception ignored) {}
-        }
+        // bindBitmap() (see RecordingStripCanvasView's identical pattern)
+        // has no external target to Glide.clear() — its in-flight request
+        // is left to finish, and the staleness check in setAvatarUrl()'s
+        // callback (pendingAvatarUrl) discards the result if this strip
+        // has since been rebound to a different photo.
+        pendingAvatarUrl = null;
     }
 }

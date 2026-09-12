@@ -39,92 +39,28 @@
             android:clipToPadding="false"
             android:visibility="gone"/>
 
-        <!-- FIX [P3-4]: Empty chat state — no messages yet -->
-        <LinearLayout
-            android:id="@+id/ll_empty_chat"
+        <!-- FIX [P3-4]: Empty chat state — no messages yet.
+             PERF: lazily inflated via ViewStub — only needed the first time
+             a chat is confirmed to have zero messages (see
+             layout_empty_chat_state.xml); most chat opens never hit this,
+             so it no longer inflates 3 TextViews on every screen open. -->
+        <ViewStub
+            android:id="@+id/stub_empty_chat"
+            android:inflatedId="@+id/ll_empty_chat"
+            android:layout="@layout/layout_empty_chat_state"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:orientation="vertical"
-            android:gravity="center"
-            android:visibility="gone">
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="👋"
-                android:textSize="56sp"/>
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Say hello!"
-                android:textSize="18sp"
-                android:textStyle="bold"
-                android:textColor="@color/text_primary"
-                android:layout_marginTop="8dp"/>
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="No messages yet. Send the first one!"
-                android:textSize="14sp"
-                android:textColor="@color/text_secondary"
-                android:layout_marginTop="4dp"
-                android:gravity="center"/>
-        </LinearLayout>
+            android:layout_height="match_parent"/>
 
-        <!-- ══════════════════════════════════════════════════════════════
-             SCREENSHOT BANNER — Snapchat-style red pill that slides in
-             from the top when the partner takes a screenshot of this chat.
-             Shows: [avatar] "Rahul ne screenshot liya 📸"
-             Auto-hides after 3 s with a slide-up + fade-out.
-             Driven by ChatScreenshotNotifier#showScreenshotBanner.
-             ══════════════════════════════════════════════════════════════ -->
-        <LinearLayout
-            android:id="@+id/ll_screenshot_banner"
+        <!-- Screenshot banner.
+             PERF: lazily inflated via ViewStub — see
+             layout_screenshot_banner.xml. Most chat sessions never see a
+             screenshot event. -->
+        <ViewStub
+            android:id="@+id/stub_screenshot_banner"
+            android:inflatedId="@+id/ll_screenshot_banner"
+            android:layout="@layout/layout_screenshot_banner"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top|center_horizontal"
-            android:layout_marginTop="76dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:background="@drawable/bg_screenshot_banner"
-            android:elevation="16dp"
-            android:translationZ="16dp"
-            android:paddingStart="8dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="7dp"
-            android:paddingBottom="7dp"
-            android:visibility="gone">
-
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_screenshot_avatar"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:src="@drawable/ic_person"
-                app:civ_border_width="1.5dp"
-                app:civ_border_color="#FFCCCC"/>
-
-            <!-- Camera flash icon -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="7dp"
-                android:text="📸"
-                android:textSize="13sp"
-                android:importantForAccessibility="no"/>
-
-            <TextView
-                android:id="@+id/tv_screenshot_msg"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:maxWidth="200dp"
-                android:text="ne screenshot liya"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:textStyle="bold"/>
-
-        </LinearLayout>
+            android:layout_height="wrap_content"/>
 
         <!-- ══════════════════════════════════════════════════════════════
              PARTNER / MEMBERS "WATCHING" BANNER — appears when someone
@@ -258,67 +194,16 @@
              instead of the three bouncing dots.
              Driven by ChatPresenceController#watchPartnerRecording.
              ══════════════════════════════════════════════════════════════ -->
-        <LinearLayout
-            android:id="@+id/ll_voice_recording_strip"
+        <!-- Voice recording indicator (partner recording a voice note).
+             PERF: lazily inflated via ViewStub — see
+             layout_voice_recording_strip.xml. Most chat sessions never
+             see the partner recording. -->
+        <ViewStub
+            android:id="@+id/stub_voice_recording_strip"
+            android:inflatedId="@+id/ll_voice_recording_strip"
+            android:layout="@layout/layout_voice_recording_strip"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom|start"
-            android:layout_margin="10dp"
-            android:layout_marginBottom="76dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:background="@drawable/bg_watching_strip"
-            android:paddingStart="6dp"
-            android:paddingEnd="14dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
-            android:visibility="gone">
-
-            <de.hdodenhof.circleimageview.CircleImageView
-                android:id="@+id/iv_recording_avatar"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
-                android:src="@drawable/ic_person"
-                app:civ_border_width="1dp"
-                app:civ_border_color="#80FFFFFF"/>
-
-            <!-- Pulsing mic icon (alpha-animated by ChatPresenceController) -->
-            <ImageView
-                android:id="@+id/iv_recording_mic"
-                android:layout_width="14dp"
-                android:layout_height="14dp"
-                android:layout_marginStart="7dp"
-                android:src="@drawable/ic_mic"
-                android:tint="#FFFFFF"
-                android:importantForAccessibility="no"/>
-
-            <TextView
-                android:id="@+id/tv_recording_name"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="5dp"
-                android:layout_marginEnd="6dp"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:maxWidth="160dp"
-                android:text="recording…"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:textStyle="bold"/>
-
-            <!-- Live waveform driven by the partner's REAL mic amplitude —
-                 see RecordingPreviewController. Replaces the old static
-                 5-bar fake waveform (whose animator was already disabled
-                 for perf); this View is allocation-free per frame
-                 (RecordingWaveformView: fixed-capacity ring buffer, single
-                 onDraw pass), same class already used for our OWN
-                 recording bar in ll_recording_bar below. -->
-            <com.callx.app.chat.ui.RecordingWaveformView
-                android:id="@+id/waveform_recording_preview"
-                android:layout_width="46dp"
-                android:layout_height="18dp"/>
-
-        </LinearLayout>
+            android:layout_height="wrap_content"/>
 
         <!-- ══════════════════════════════════════════════════════════════
              LIVE TYPING PREVIEW BOX — bottom-left, shows the partner's
@@ -751,10 +636,8 @@
                             android:layout_width="34dp"
                             android:layout_height="34dp"
                             android:padding="6dp"
-                            android:src="@drawable/ic_view_once"
-                            android:tint="@color/white"
-                            android:background="?attr/selectableItemBackgroundBorderless"
                             android:contentDescription="View Once"
+                            android:background="?attr/selectableItemBackgroundBorderless"
                             app:layout_constraintStart_toStartOf="parent"
                             app:layout_constraintTop_toTopOf="parent"
                             app:layout_constraintBottom_toBottomOf="parent"/>
@@ -897,8 +780,8 @@
             android:background="@color/chat_unified_bg"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingTop="12dp"
-            android:paddingBottom="12dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
             android:paddingStart="8dp"
             android:paddingEnd="12dp">
 
@@ -912,36 +795,20 @@
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="Back"/>
 
-                <!-- Avatar + soft glow halo + online dot (clickable to open profile) -->
+                <!-- Avatar + online dot (clickable to open profile) -->
                 <FrameLayout
-                    android:layout_width="54dp"
-                    android:layout_height="54dp"
+                    android:layout_width="34dp"
+                    android:layout_height="34dp"
                     android:layout_marginStart="2dp">
-
-                    <!-- Soft glow halo behind the avatar, matches reference screenshot -->
-                    <View
-                        android:layout_width="54dp"
-                        android:layout_height="54dp"
-                        android:background="@drawable/bg_header_avatar_glow"/>
 
                     <de.hdodenhof.circleimageview.CircleImageView
                         android:id="@+id/iv_partner_avatar"
-                        android:layout_width="42dp"
-                        android:layout_height="42dp"
+                        android:layout_width="34dp"
+                        android:layout_height="34dp"
                         android:layout_gravity="center"
                         android:src="@drawable/ic_person"
                         android:clickable="true"
                         android:focusable="true"/>
-
-                    <View
-                        android:id="@+id/view_header_online_dot"
-                        android:layout_width="15dp"
-                        android:layout_height="15dp"
-                        android:layout_gravity="bottom|end"
-                        android:layout_marginEnd="4dp"
-                        android:layout_marginBottom="4dp"
-                        android:background="@drawable/bg_header_online_dot"
-                        android:visibility="gone"/>
                 </FrameLayout>
 
                 <!-- Name + status/typing (fills remaining space) -->
@@ -1063,29 +930,29 @@
                     android:visibility="gone"
                     android:contentDescription="View YouTube Channel"/>
 
-                <!-- Video call button -->
-                <ImageButton
-                    android:id="@+id/btn_toolbar_video_call"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:layout_marginStart="4dp"
-                    android:src="@drawable/ic_video_call"
-                    android:tint="@color/text_primary"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:padding="9dp"
-                    android:contentDescription="Video call"/>
-
                 <!-- Voice call button -->
                 <ImageButton
                     android:id="@+id/btn_toolbar_voice_call"
                     android:layout_width="40dp"
                     android:layout_height="40dp"
-                    android:layout_marginStart="6dp"
+                    android:layout_marginStart="4dp"
                     android:src="@drawable/ic_phone"
                     android:tint="@color/text_primary"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:padding="10dp"
                     android:contentDescription="Voice call"/>
+
+                <!-- Video call button -->
+                <ImageButton
+                    android:id="@+id/btn_toolbar_video_call"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="6dp"
+                    android:src="@drawable/ic_video_call"
+                    android:tint="@color/text_primary"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:padding="9dp"
+                    android:contentDescription="Video call"/>
 
                 <!-- More options (3-dot menu) -->
                 <ImageButton
@@ -1111,265 +978,61 @@
             layout="@layout/layout_chat_profile_card"/>
 
         <!-- ══════════════════════════════════════════════════════════════
-             MULTI-SELECT TOOLBAR (WhatsApp style) — visibility=gone by default
-             Shows on top replacing normal toolbar feel when messages selected
+             MULTI-SELECT TOOLBAR (WhatsApp style).
+             PERF: lazily inflated via ViewStub — see
+             layout_selection_toolbar.xml. Most chat sessions never enter
+             multi-select, so these 7 views no longer inflate on every
+             chat open.
              ══════════════════════════════════════════════════════════════ -->
-        <LinearLayout
-            android:id="@+id/ll_selection_toolbar"
+        <ViewStub
+            android:id="@+id/stub_selection_toolbar"
+            android:inflatedId="@+id/ll_selection_toolbar"
+            android:layout="@layout/layout_selection_toolbar"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@color/bar_background"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:paddingStart="4dp"
-            android:paddingEnd="4dp"
-            android:visibility="gone">
+            android:layout_height="wrap_content"/>
 
-            <!-- Cancel / Close selection -->
-            <ImageButton
-                android:id="@+id/btn_selection_close"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:src="@drawable/ic_back"
-                android:tint="@color/white"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Cancel selection"/>
-
-            <!-- Selected count -->
-            <TextView
-                android:id="@+id/tv_selection_count"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="1"
-                android:textColor="@color/white"
-                android:textSize="18sp"
-                android:textStyle="bold"
-                android:layout_marginStart="8dp"/>
-
-            <!-- Reply -->
-            <ImageButton
-                android:id="@+id/btn_selection_reply"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:src="@drawable/ic_reply"
-                android:tint="@color/white"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:padding="8dp"
-                android:contentDescription="Reply"/>
-
-            <!-- Star -->
-            <ImageButton
-                android:id="@+id/btn_selection_star"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:src="@drawable/ic_star_outline"
-                android:tint="@color/white"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:padding="8dp"
-                android:contentDescription="Star"/>
-
-            <!-- Info — single select only -->
-            <ImageButton
-                android:id="@+id/btn_selection_info"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:src="@drawable/ic_info"
-                android:tint="@color/white"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:padding="8dp"
-                android:contentDescription="Info"/>
-
-            <!-- Delete -->
-            <ImageButton
-                android:id="@+id/btn_selection_delete"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:src="@drawable/ic_delete"
-                android:tint="@color/white"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:padding="8dp"
-                android:contentDescription="Delete"/>
-
-            <!-- Forward -->
-            <ImageButton
-                android:id="@+id/btn_selection_forward"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:src="@drawable/ic_forward"
-                android:tint="@color/white"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:padding="8dp"
-                android:contentDescription="Forward"/>
-
-        </LinearLayout>
-
-        <!-- Offline banner -->
-        <TextView
-            android:id="@+id/tv_offline_banner"
+        <!-- Offline banner.
+             PERF: lazily inflated via ViewStub — see
+             layout_offline_banner.xml. Only needed while actually
+             offline. -->
+        <ViewStub
+            android:id="@+id/stub_offline_banner"
+            android:inflatedId="@+id/tv_offline_banner"
+            android:layout="@layout/layout_offline_banner"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="No internet — showing cached messages"
-            android:textColor="#FFFFFF"
-            android:textSize="12sp"
-            android:gravity="center"
-            android:paddingTop="4dp"
-            android:paddingBottom="4dp"
-            android:background="#CC5500"
-            android:visibility="gone"/>
+            android:layout_height="wrap_content"/>
 
-        <!-- Search bar -->
-        <LinearLayout
-            android:id="@+id/ll_search_bar"
+        <!-- Search bar.
+             PERF: lazily inflated via ViewStub — see
+             layout_search_bar.xml. Most chat opens never use search. -->
+        <ViewStub
+            android:id="@+id/stub_search_bar"
+            android:inflatedId="@+id/ll_search_bar"
+            android:layout="@layout/layout_search_bar"
             android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:orientation="horizontal"
-            android:background="@color/bar_background"
-            android:paddingStart="8dp"
-            android:paddingEnd="4dp"
-            android:gravity="center_vertical"
-            android:visibility="gone">
-            <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:src="@drawable/ic_search"
-                android:layout_marginEnd="8dp"/>
-            <EditText
-                android:id="@+id/et_search"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="Search messages…"
-                android:textColorHint="@color/text_muted"
-                android:textColor="@color/text_primary"
-                android:textSize="14sp"
-                android:background="@android:color/transparent"
-                android:singleLine="true"
-                android:imeOptions="actionSearch"
-                android:inputType="text"/>
-            <TextView
-                android:id="@+id/tv_search_count"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textSize="12sp"
-                android:textColor="@color/text_muted"
-                android:paddingStart="4dp"
-                android:paddingEnd="4dp"
-                android:visibility="gone"/>
-            <ImageButton
-                android:id="@+id/btn_search_prev"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:src="@drawable/ic_arrow_back"
-                android:rotation="90"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Previous result"
-                android:visibility="gone"/>
-            <ImageButton
-                android:id="@+id/btn_search_next"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:src="@drawable/ic_arrow_back"
-                android:rotation="270"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Next result"
-                android:visibility="gone"/>
-            <ImageButton
-                android:id="@+id/btn_close_search"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:src="@drawable/ic_back"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Close search"/>
-        </LinearLayout>
+            android:layout_height="wrap_content"/>
 
-        <!-- Pinned message banner -->
-        <LinearLayout
-            android:id="@+id/ll_pinned_banner"
+        <!-- Pinned message banner.
+             PERF: lazily inflated via ViewStub — see
+             layout_pinned_banner.xml. Only needed once a message is
+             actually pinned; most chats never pin anything. -->
+        <ViewStub
+            android:id="@+id/stub_pinned_banner"
+            android:inflatedId="@+id/ll_pinned_banner"
+            android:layout="@layout/layout_pinned_banner"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:background="@color/bar_background"
-            android:paddingStart="12dp"
-            android:paddingEnd="8dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
-            android:gravity="center_vertical"
-            android:visibility="gone">
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="📌 Pinned Message"
-                    android:textColor="#E65100"
-                    android:textSize="11sp"
-                    android:textStyle="bold"/>
-                <TextView
-                    android:id="@+id/tv_pinned_preview"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textColor="#555555"
-                    android:textSize="12sp"
-                    android:maxLines="1"
-                    android:ellipsize="end"/>
-            </LinearLayout>
-            <ImageButton
-                android:id="@+id/btn_unpin"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:src="@drawable/ic_back"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Unpin"/>
-        </LinearLayout>
+            android:layout_height="wrap_content"/>
 
-        <!-- Scheduled messages banner — shows count of pending scheduled sends -->
-        <LinearLayout
-            android:id="@+id/ll_scheduled_banner"
+        <!-- Scheduled messages banner — shows count of pending scheduled sends.
+             PERF: lazily inflated via ViewStub — see
+             layout_scheduled_banner.xml. Only needed once a message is
+             actually scheduled; most chats never use scheduled send. -->
+        <ViewStub
+            android:id="@+id/stub_scheduled_banner"
+            android:inflatedId="@+id/ll_scheduled_banner"
+            android:layout="@layout/layout_scheduled_banner"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:background="@color/bar_background"
-            android:paddingStart="12dp"
-            android:paddingEnd="8dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
-            android:gravity="center_vertical"
-            android:clickable="true"
-            android:focusable="true"
-            android:visibility="gone">
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="⏱ Scheduled"
-                    android:textColor="#1565C0"
-                    android:textSize="11sp"
-                    android:textStyle="bold"/>
-                <TextView
-                    android:id="@+id/tv_scheduled_preview"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textColor="#555555"
-                    android:textSize="12sp"
-                    android:maxLines="1"
-                    android:ellipsize="end"/>
-            </LinearLayout>
-            <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:src="@drawable/ic_timer"
-                app:tint="#1565C0"/>
-        </LinearLayout>
+            android:layout_height="wrap_content"/>
 
     </LinearLayout>
 

@@ -1,18 +1,9 @@
 package com.callx.app.cache;
 
 import android.content.Context;
-import android.graphics.Bitmap;
-import android.graphics.drawable.BitmapDrawable;
-import android.graphics.drawable.Drawable;
 import android.widget.ImageView;
 
-import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.DecodeFormat;
-import com.bumptech.glide.load.engine.DiskCacheStrategy;
-import com.bumptech.glide.load.engine.GlideException;
-import com.bumptech.glide.request.RequestListener;
-import com.bumptech.glide.request.RequestOptions;
-import com.bumptech.glide.request.target.Target;
 
 import com.callx.app.utils.AvatarSizeTier;
 import com.callx.app.utils.AvatarUrlBuilder;
@@ -28,17 +19,26 @@ import com.callx.app.utils.AvatarUrlBuilder;
  * no CDN transform/format param, no L2/L3 reuse, and no cache-bust when a
  * group's icon is changed mid-session on another device.
  *
- * Mirrors ChatAvatarBinder's shape (same module, same
- * {@link ChatAvatarL2Cache} instance — a group icon and a chat-row avatar
- * are both "small circular image this module shows a lot of", no reason to
- * split them into a separate L2/L3 instance and fragment the module's own
- * trim-independence boundary further).
+ * FIX (avatar-pipeline parity — code dedup): bind()/cancel() used to carry
+ * their own full copy of the L2-check -> Glide-decode -> L2/L3-write-through
+ * logic — the exact same shape ChatAvatarBinder used to hand-roll before it
+ * was extracted into {@link AvatarBinderCore}. Now delegates to that one
+ * shared implementation instead of a second (by-then third-generation)
+ * copy: same HIGH-priority bind, same "skip re-request if already loaded"
+ * ImageView tag check, same CacheDashboardStats + AvatarCacheAnalytics
+ * recording, same L2/L3 write-through. This class only supplies what's
+ * genuinely group-specific: which cache instance ({@link ChatAvatarL2Cache}
+ * — a group icon and a chat-row avatar are both "small circular image this
+ * module shows a lot of", no reason to split them into a separate
+ * instance), which tier per call site, and the decode format.
  *
  * Groups don't carry an avatarVersion counter the way user profiles do
  * (see AvatarUrlBuilder's 4-arg build()/buildResponsive() overloads), so
- * this always uses the un-versioned overload — a genuine icon change
- * already produces a brand-new Cloudinary URL at upload time, which is
- * cache-bust enough on its own.
+ * this always passes avatarVersion=0 into {@link AvatarBinderCore} — a
+ * genuine icon change already produces a brand-new Cloudinary URL at
+ * upload time, which is cache-bust enough on its own, and
+ * {@code AvatarUrlBuilder#appendVersion} no-ops for version <= 0, so this
+ * is byte-for-byte the same URL the old un-versioned overload produced.
  */
 public final class GroupAvatarBinder {
 
@@ -56,6 +56,16 @@ public final class GroupAvatarBinder {
                     ? DecodeFormat.PREFER_ARGB_8888
                     : DecodeFormat.PREFER_RGB_565;
 
+    /** This module's own L2/L3 cache pair, handed to AvatarBinderCore per
+     *  call — same {@link ChatAvatarL2Cache} instance ChatAvatarBinder uses,
+     *  since a group icon and a chat-row avatar share the same module's
+     *  trim-independence boundary. */
+    private static final com.callx.app.cache.AvatarBinderCore.CacheProvider CACHE =
+            new com.callx.app.cache.AvatarBinderCore.CacheProvider() {
+                @Override public AvatarL2MemoryCache l2(Context ctx) { return ChatAvatarL2Cache.get(ctx); }
+                @Override public AvatarL3DiskCache l3(Context ctx) { return ChatAvatarL2Cache.l3(ctx); }
+            };
+
     /** Server-side responsive, tier-bucketed URL for a group icon. */
     public static String url(Context ctx, String iconUrl, AvatarSizeTier tier) {
         if (iconUrl == null || iconUrl.isEmpty()) return null;
@@ -63,62 +73,22 @@ public final class GroupAvatarBinder {
     }
 
     /**
-     * Bind a group icon into an ImageView. L2 memory fast-path first
-     * (instant paint, survives TRIM_MEMORY_MODERATE); otherwise a real
-     * Glide decode at the tier's density-bucketed size, written back into
-     * L2 (+ L3 disk) on success so the next bind of this exact icon
-     * (toolbar → header, or a warm restart) is instant.
+     * Bind a group icon into an ImageView. Routes through
+     * {@link AvatarBinderCore#bind} — L2 memory fast-path first (instant
+     * paint, survives TRIM_MEMORY_MODERATE), otherwise a real Glide decode
+     * at the tier's density-bucketed size, written back into L2 (+ L3 disk)
+     * on success so the next bind of this exact icon (toolbar → header, or
+     * a warm restart) is instant.
      */
     public static void bind(Context ctx, ImageView iv, String iconUrl, AvatarSizeTier tier, int placeholderRes) {
-        if (iconUrl == null || iconUrl.isEmpty()) {
-            iv.setImageResource(placeholderRes);
-            return;
-        }
-        String url = url(ctx, iconUrl, tier);
-        Bitmap l2Hit = ChatAvatarL2Cache.get(ctx).get(url);
-        if (l2Hit != null) {
-            iv.setImageBitmap(l2Hit);
-            CacheDashboardStats dashboard = CacheDashboardStats.getInstance(ctx);
-            dashboard.recordMemoryHit("group_avatar:" + url);
-            dashboard.recordMemoryEntry("group_avatar:" + url, l2Hit.getByteCount());
-            AvatarCacheAnalytics.getInstance(ctx).record(AvatarCacheAnalytics.Tier.L2_MEMORY);
-            return;
-        }
-        Glide.with(ctx)
-            .load(url)
-            .dontAnimate()
-            .apply(RequestOptions.circleCropTransform()
-                    .format(AVATAR_FORMAT)
-                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
-            .placeholder(placeholderRes)
-            .error(placeholderRes)
-            .listener(new RequestListener<Drawable>() {
-                @Override
-                public boolean onLoadFailed(GlideException e, Object model, Target<Drawable> target, boolean isFirstResource) {
-                    CacheDashboardStats.getInstance(ctx).recordMemoryMiss("group_avatar:" + url);
-                    CacheDashboardStats.getInstance(ctx).recordDiskMiss("group_avatar:" + url);
-                    return false;
-                }
-                @Override
-                public boolean onResourceReady(Drawable resource, Object model, Target<Drawable> target,
-                                                com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
-                    CacheDashboardStats.getInstance(ctx)
-                            .recordGlideResult("group_avatar:" + url, dataSource, resource);
-                    AvatarCacheAnalytics.getInstance(ctx)
-                        .record(AvatarCacheAnalytics.fromGlideDataSource(dataSource));
-                    if (resource instanceof BitmapDrawable) {
-                        Bitmap bmp = ((BitmapDrawable) resource).getBitmap();
-                        ChatAvatarL2Cache.get(ctx).put(url, bmp);
-                        ChatAvatarL2Cache.l3(ctx).put(url, bmp);
-                    }
-                    return false;
-                }
-            })
-            .into(iv);
+        com.callx.app.cache.AvatarBinderCore.bind(ctx, iv, iconUrl, /*avatarVersion=*/0L,
+                CACHE, new com.callx.app.cache.AvatarBinderCore.BindOptions(
+                        tier, AVATAR_FORMAT, /*circleCrop=*/true, /*dontAnimate=*/true,
+                        /*recordDashboardStats=*/true, placeholderRes));
     }
 
     /** Call from onDestroy()/onViewRecycled() to stop an in-flight request. */
     public static void cancel(Context ctx, ImageView iv) {
-        try { Glide.with(ctx).clear(iv); } catch (Exception ignored) {}
+        com.callx.app.cache.AvatarBinderCore.cancel(ctx, iv);
     }
 }

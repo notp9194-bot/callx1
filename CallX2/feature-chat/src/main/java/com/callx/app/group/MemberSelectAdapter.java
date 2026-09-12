@@ -4,7 +4,6 @@ import android.widget.CheckBox;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
-import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
 import com.callx.app.models.User;
 import de.hdodenhof.circleimageview.CircleImageView;
@@ -28,7 +27,13 @@ public class MemberSelectAdapter
         h.tvName.setText(u.name == null ? "User" : u.name);
         String avatarUrl = (u.thumbUrl != null && !u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
         if (avatarUrl != null && !avatarUrl.isEmpty()) {
-            Glide.with(h.itemView.getContext()).load(avatarUrl).circleCrop().override(96, 96).into(h.ivAvatar);
+            // FIX (avatar optimization — reuse core pipeline): was a flat
+            // hardcoded-96px Glide load; ChatAvatarBinder.bind() at the
+            // default TIER shares L2/L3 with the chat list row for this
+            // exact user (avatarVersion available here, unlike most other
+            // spots, so it also gets proper cache-busting on photo change).
+            com.callx.app.cache.ChatAvatarBinder.bind(h.itemView.getContext(), h.ivAvatar,
+                    avatarUrl, u.avatarVersion, R.drawable.ic_person);
         } else h.ivAvatar.setImageResource(R.drawable.ic_person);
         h.cb.setOnCheckedChangeListener(null);
         h.cb.setChecked(selected.contains(u.uid));
@@ -38,6 +43,10 @@ public class MemberSelectAdapter
         h.itemView.setOnClickListener(v -> h.cb.setChecked(!h.cb.isChecked()));
     }
     @Override public int getItemCount() { return users.size(); }
+    @Override public void onViewRecycled(@NonNull VH h) {
+        super.onViewRecycled(h);
+        com.callx.app.cache.ChatAvatarBinder.cancel(h.ivAvatar.getContext(), h.ivAvatar);
+    }
     static class VH extends RecyclerView.ViewHolder {
         TextView tvName;
         CircleImageView ivAvatar;

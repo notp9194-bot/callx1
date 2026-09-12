@@ -4,6 +4,8 @@ import android.view.View;
 
 import androidx.annotation.NonNull;
 
+import com.callx.app.chat.databinding.ActivityChatBinding;
+import com.callx.app.chat.databinding.LayoutPinnedBannerBinding;
 import com.callx.app.models.Message;
 import com.callx.app.utils.FirebaseUtils;
 import com.google.firebase.database.DataSnapshot;
@@ -24,6 +26,14 @@ public class ChatPinController {
     private String pinnedMsgId   = null;
     private String pinnedMsgText = null;
 
+    // PERF: ll_pinned_banner is behind a ViewStub in activity_chat.xml
+    // (see layout_pinned_banner.xml) — only inflated the first time a
+    // message is actually pinned in this chat, instead of on every chat
+    // screen open (most chats never pin anything). Cached here once
+    // inflated; null until then — use pinnedBanner(binding) to get it,
+    // never reference the field directly.
+    private LayoutPinnedBannerBinding pinnedBannerBinding;
+
     public ChatPinController(ChatActivityDelegate delegate) {
         this.delegate = delegate;
     }
@@ -43,25 +53,39 @@ public class ChatPinController {
                         pinnedMsgId   = s.child("id").getValue(String.class);
                         pinnedMsgText = s.child("text").getValue(String.class);
 
-                        com.callx.app.chat.databinding.ActivityChatBinding binding = delegate.getBinding();
-                        if (binding.llPinnedBanner == null) return;
+                        ActivityChatBinding binding = delegate.getBinding();
+                        if (binding == null) return;
 
                         if (pinnedMsgId != null) {
-                            binding.llPinnedBanner.setVisibility(View.VISIBLE);
-                            if (binding.tvPinnedPreview != null)
-                                binding.tvPinnedPreview.setText(
-                                        pinnedMsgText != null ? pinnedMsgText : "Pinned message");
+                            // PERF: only inflates the banner the first time
+                            // a chat actually has a pinned message.
+                            LayoutPinnedBannerBinding pb = pinnedBanner(binding);
+                            pb.getRoot().setVisibility(View.VISIBLE);
+                            pb.tvPinnedPreview.setText(
+                                    pinnedMsgText != null ? pinnedMsgText : "Pinned message");
                             final String msgId = pinnedMsgId;
-                            binding.llPinnedBanner.setOnClickListener(v -> delegate.navigateToOriginal(msgId));
-                            if (binding.btnUnpin != null)
-                                binding.btnUnpin.setOnClickListener(v -> unpinMessage());
-                        } else {
-                            binding.llPinnedBanner.setVisibility(View.GONE);
-                            binding.llPinnedBanner.setOnClickListener(null);
+                            pb.getRoot().setOnClickListener(v -> delegate.navigateToOriginal(msgId));
+                        } else if (pinnedBannerBinding != null) {
+                            // Don't force-inflate just to hide it — if it
+                            // was never shown yet, it's already gone.
+                            pinnedBannerBinding.getRoot().setVisibility(View.GONE);
+                            pinnedBannerBinding.getRoot().setOnClickListener(null);
                         }
                     }
                     @Override public void onCancelled(@NonNull DatabaseError e) {}
                 });
+    }
+
+    /** Lazily inflates the pinned-banner ViewStub on first use, wiring the
+     *  static unpin click just once. Safe to call repeatedly — only
+     *  actually inflates once per activity lifetime. */
+    private LayoutPinnedBannerBinding pinnedBanner(ActivityChatBinding binding) {
+        if (pinnedBannerBinding == null) {
+            View inflated = binding.stubPinnedBanner.inflate();
+            pinnedBannerBinding = LayoutPinnedBannerBinding.bind(inflated);
+            pinnedBannerBinding.btnUnpin.setOnClickListener(v -> unpinMessage());
+        }
+        return pinnedBannerBinding;
     }
 
     // ── Unpin ─────────────────────────────────────────────────────────────

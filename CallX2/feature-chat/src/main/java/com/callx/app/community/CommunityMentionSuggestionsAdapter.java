@@ -10,7 +10,6 @@ import androidx.recyclerview.widget.AsyncListDiffer;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
 import com.callx.app.db.entity.CommunityMemberEntity;
 
@@ -63,9 +62,8 @@ public class CommunityMentionSuggestionsAdapter
         CommunityMemberEntity m = differ.getCurrentList().get(pos);
         h.tvName.setText("@" + (m.name != null ? m.name : "Member"));
         if (m.photoUrl != null && !m.photoUrl.isEmpty()) {
-            Glide.with(h.ivAvatar.getContext()).load(m.photoUrl)
-                    .override(96, 96)
-                    .circleCrop().placeholder(R.drawable.ic_person).into(h.ivAvatar);
+            com.callx.app.cache.CommunityAvatarBinder.bindIcon(h.ivAvatar.getContext(), h.ivAvatar,
+                    m.photoUrl, com.callx.app.cache.CommunityAvatarBinder.TIER_POST_AUTHOR, R.drawable.ic_person);
         } else {
             h.ivAvatar.setImageResource(R.drawable.ic_person);
         }
@@ -74,7 +72,7 @@ public class CommunityMentionSuggestionsAdapter
 
     @Override public void onViewRecycled(@NonNull VH h) {
         super.onViewRecycled(h);
-        try { Glide.with(h.ivAvatar.getContext()).clear(h.ivAvatar); } catch (Exception ignored) {}
+        com.callx.app.cache.CommunityAvatarBinder.cancelIcon(h.ivAvatar.getContext(), h.ivAvatar);
     }
 
     @Override public int getItemCount() { return differ.getCurrentList().size(); }

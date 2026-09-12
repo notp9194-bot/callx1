@@ -13,6 +13,7 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 
 import com.callx.app.chat.databinding.ActivityChatBinding;
+import com.callx.app.chat.databinding.LayoutScheduledBannerBinding;
 import com.callx.app.conversation.workers.ChatScheduledMessageWorker;
 import com.callx.app.db.entity.ScheduledMessageEntity;
 import com.callx.app.models.ScheduledMessage;
@@ -100,13 +101,35 @@ public class ChatScheduledSendController {
         FirebaseUtils.getScheduledMessagesRef(chatId).addValueEventListener(scheduledListener);
     }
 
+    // PERF: ll_scheduled_banner is behind a ViewStub in activity_chat.xml
+    // (see layout_scheduled_banner.xml) — only inflated the first time a
+    // message is actually scheduled in this chat, instead of on every
+    // chat screen open (most chats never use scheduled send). Cached here
+    // once inflated; use scheduledBanner(binding) to get it, never
+    // reference the field directly.
+    private LayoutScheduledBannerBinding scheduledBannerBinding;
+
+    /** Lazily inflates the scheduled-banner ViewStub on first use. Safe to
+     *  call repeatedly — only actually inflates once per activity lifetime. */
+    private LayoutScheduledBannerBinding scheduledBanner(ActivityChatBinding binding) {
+        if (scheduledBannerBinding == null) {
+            View inflated = binding.stubScheduledBanner.inflate();
+            scheduledBannerBinding = LayoutScheduledBannerBinding.bind(inflated);
+        }
+        return scheduledBannerBinding;
+    }
+
     private void updateBanner() {
         ActivityChatBinding binding = delegate.getBinding();
-        if (binding.llScheduledBanner == null) return;
+        if (binding == null) return;
 
         if (pending.isEmpty()) {
-            binding.llScheduledBanner.setVisibility(View.GONE);
-            binding.llScheduledBanner.setOnClickListener(null);
+            // Don't force-inflate just to hide it — if it was never shown
+            // yet, it's already gone.
+            if (scheduledBannerBinding != null) {
+                scheduledBannerBinding.getRoot().setVisibility(View.GONE);
+                scheduledBannerBinding.getRoot().setOnClickListener(null);
+            }
             return;
         }
 
@@ -117,9 +140,12 @@ public class ChatScheduledSendController {
                 ? when + "  ·  " + truncate(soonest.text)
                 : pending.size() + " messages queued  ·  next " + when;
 
-        if (binding.tvScheduledPreview != null) binding.tvScheduledPreview.setText(preview);
-        binding.llScheduledBanner.setVisibility(View.VISIBLE);
-        binding.llScheduledBanner.setOnClickListener(v -> showManageDialog());
+        // PERF: only inflates the banner the first time this chat actually
+        // has a scheduled message pending.
+        LayoutScheduledBannerBinding sb = scheduledBanner(binding);
+        sb.tvScheduledPreview.setText(preview);
+        sb.getRoot().setVisibility(View.VISIBLE);
+        sb.getRoot().setOnClickListener(v -> showManageDialog());
     }
 
     private String truncate(String text) {

@@ -12,9 +12,14 @@ import android.view.View;
 import androidx.annotation.Nullable;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.request.RequestOptions;
 import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
+import com.callx.app.cache.AvatarCacheAnalytics;
 import com.callx.app.cache.ChatAvatarL2Cache;
+import com.callx.app.cache.CommunityAvatarBinder;
+import com.callx.app.utils.AvatarUrlBuilder;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -70,9 +75,22 @@ public class CommunityMemberAvatarStackView extends View {
     }
 
     /**
-     * Loads up to MAX_VISIBLE avatars via Glide (as bitmaps, since Canvas
-     * drawing needs raw Bitmaps, not Drawables/ImageViews) and redraws once
-     * each has loaded. totalCount drives the "+N" overflow badge.
+     * Loads up to MAX_VISIBLE avatars (as bitmaps, since Canvas drawing
+     * needs raw Bitmaps, not Drawables/ImageViews) and redraws once each
+     * has loaded. totalCount drives the "+N" overflow badge.
+     *
+     * FIX (avatar-pipeline parity): this used to key L2/L3 by the raw,
+     * un-tiered photo URL and decode at a hardcoded override(96, 96) that
+     * ignored this view's actual ~26dp draw size — so a member's photo
+     * shown here NEVER shared a cache entry with the same photo shown as
+     * a CommunityAvatarBinder-bound post author or member row (different
+     * cache key, different pixel size, decoded/cached a 3rd time), and
+     * every avatar in the stack over-decoded to 96px regardless of
+     * density. Now goes through CommunityAvatarBinder.url()'s same
+     * tier-bucketed/responsive CDN URL (TIER_STACK, 26dp) so this shares
+     * L2/L3 entries with anything else that resolves to that tier, plus
+     * the same AvatarCacheAnalytics recording every other avatar surface
+     * feeds into.
      */
     public void bind(List<String> photoUrls, int totalCount) {
         mTotalCount = totalCount;
@@ -81,11 +99,13 @@ public class CommunityMemberAvatarStackView extends View {
         final int generation = ++mBindGeneration;
 
         int visible = Math.min(photoUrls.size(), MAX_VISIBLE);
-        int size = (int) (AVATAR_SIZE_DP * mDensity);
+        int size = AvatarUrlBuilder.tierPx(getContext(), CommunityAvatarBinder.TIER_STACK);
         for (int i = 0; i < visible; i++) {
-            String url = photoUrls.get(i);
-            if (url == null || url.isEmpty()) { mBitmaps.add(null); continue; }
+            String rawUrl = photoUrls.get(i);
+            if (rawUrl == null || rawUrl.isEmpty()) { mBitmaps.add(null); continue; }
             final int index = i;
+            final String url = CommunityAvatarBinder.url(getContext(), rawUrl, CommunityAvatarBinder.TIER_STACK);
+            if (url == null) { mBitmaps.add(null); continue; }
 
             // FIX #5 (onTrimMemory / L2 cache): per-module cache that
             // survives TRIM_MEMORY_MODERATE (see ChatAvatarL2Cache) — a
@@ -95,6 +115,7 @@ public class CommunityMemberAvatarStackView extends View {
             Bitmap l2Hit = ChatAvatarL2Cache.get(getContext()).get(url);
             if (l2Hit != null) {
                 mBitmaps.add(l2Hit);
+                AvatarCacheAnalytics.getInstance(getContext()).record(AvatarCacheAnalytics.Tier.L2_MEMORY);
                 continue;
             }
 
@@ -114,8 +135,27 @@ public class CommunityMemberAvatarStackView extends View {
                 invalidate();
             });
 
-            Glide.with(getContext()).asBitmap().load(url).circleCrop()
-                    .override(96, 96)
+            Glide.with(getContext()).asBitmap().load(url)
+                    .apply(new RequestOptions()
+                            .format(CommunityAvatarBinder.AVATAR_FORMAT)
+                            .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+                            .override(size, size))
+                    .circleCrop()
+                    .listener(new com.bumptech.glide.request.RequestListener<Bitmap>() {
+                        @Override
+                        public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model,
+                                                     com.bumptech.glide.request.target.Target<Bitmap> target, boolean isFirstResource) {
+                            return false;
+                        }
+                        @Override
+                        public boolean onResourceReady(Bitmap resource, Object model,
+                                                        com.bumptech.glide.request.target.Target<Bitmap> target,
+                                                        com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
+                            AvatarCacheAnalytics.getInstance(getContext())
+                                    .record(AvatarCacheAnalytics.fromGlideDataSource(dataSource));
+                            return false;
+                        }
+                    })
                     .into(new CustomTarget<Bitmap>(size, size) {
                         @Override
                         public void onResourceReady(@androidx.annotation.NonNull Bitmap resource,

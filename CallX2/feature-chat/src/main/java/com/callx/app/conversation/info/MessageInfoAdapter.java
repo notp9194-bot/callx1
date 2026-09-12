@@ -10,7 +10,6 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
 
 import java.util.ArrayList;
@@ -124,12 +123,9 @@ public class MessageInfoAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         // Cancel any in-flight avatar load so a recycled row can't get a
         // stale image swapped in a frame after it's already been rebound.
         if (holder instanceof MemberVH) {
-            Glide.with(((MemberVH) holder).ivAvatar.getContext()).clear(((MemberVH) holder).ivAvatar);
+            com.callx.app.cache.ChatAvatarBinder.cancel(
+                    ((MemberVH) holder).ivAvatar.getContext(), ((MemberVH) holder).ivAvatar);
         }
-    }
-
-    private static int dpToPx(View v, int dp) {
-        return (int) (dp * v.getResources().getDisplayMetrics().density);
     }
 
     // ── ViewHolders ───────────────────────────────────────────────────────
@@ -198,12 +194,16 @@ public class MessageInfoAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             if (showTick) ivTick.setImageResource(row.iconRes);
 
             if (row.photoUrl != null && !row.photoUrl.isEmpty()) {
-                int px = dpToPx(ivAvatar, AVATAR_SIZE_DP);
-                Glide.with(ivAvatar.getContext())
-                        .load(row.photoUrl)
-                        .override(px, px)   // exact decode size — no full-res bitmap for a 38dp circle
-                        .placeholder(R.drawable.ic_person)
-                        .into(ivAvatar);
+                // FIX (avatar optimization — reuse core pipeline): was a
+                // flat Glide load with no L2/L3 tier reuse — a large
+                // group's "Read by" list could mean dozens of independent
+                // decodes of avatars the chat list/group-info screens
+                // already have warm. Custom AVATAR_SIZE_DP(38) tier keeps
+                // this on its own cache bucket rather than guessing at the
+                // default 50dp row tier.
+                com.callx.app.cache.ChatAvatarBinder.bind(ivAvatar.getContext(), ivAvatar,
+                        row.photoUrl, 0L, R.drawable.ic_person,
+                        com.callx.app.utils.AvatarSizeTier.forViewSizeDp(AVATAR_SIZE_DP));
             } else {
                 ivAvatar.setImageResource(R.drawable.ic_person);
             }

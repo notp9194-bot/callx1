@@ -4,7 +4,6 @@ import android.view.View;
 
 import androidx.annotation.NonNull;
 
-import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
 import com.callx.app.chat.databinding.ActivityChatBinding;
 import com.callx.app.models.Message;
@@ -38,6 +37,38 @@ public class ChatPresenceController {
     // the same chatPresence/{id}/{uid}=true node.
 
     private final ChatActivityDelegate delegate;
+
+    // ULTRA-OPT: voice-recording-strip view refs cached on first lookup
+    // instead of calling findViewById() on every showVoiceRecordingStrip()/
+    // hideVoiceRecordingStrip() call — same pattern documented in
+    // RecordingPreviewController ("cached on attach instead of findViewById
+    // walk"). binding is stable for the Activity's lifetime, so a
+    // one-time lookup is always safe to reuse.
+    private View cachedRecordingStrip;
+    private com.callx.app.conversation.canvas.RecordingStripCanvasView cachedRecordingCanvas;
+
+    /**
+     * PERF: ll_voice_recording_strip is now a lazily-inflated ViewStub
+     * (stub_voice_recording_strip) rather than always-inflated inline XML.
+     * RecordingPreviewController independently resolves the same waveform
+     * view (R.id.waveform_recording_preview, a child of this strip) off a
+     * separate Firebase listener, so the two controllers can race on who
+     * inflates first — this checks the stub's own inflated state
+     * (getParent() == null once inflate() has run) before ever calling
+     * inflate(), so whichever controller gets here first inflates it and
+     * the other one just finds the already-inflated view. Calling
+     * ViewStub#inflate() a second time throws, so this guard is required,
+     * not just a micro-optimization.
+     */
+    private View ensureVoiceRecordingStrip(ActivityChatBinding binding) {
+        View strip = binding.getRoot().findViewById(
+                com.callx.app.chat.R.id.ll_voice_recording_strip);
+        if (strip == null && binding.stubVoiceRecordingStrip != null
+                && binding.stubVoiceRecordingStrip.getParent() != null) {
+            strip = binding.stubVoiceRecordingStrip.inflate();
+        }
+        return strip;
+    }
 
     // ── PERF FIX: batch Firebase "status=read"/"status=delivered" writes ────
     // markRead(m) used to fire ONE setValue("read") network call PER message
@@ -398,19 +429,7 @@ public class ChatPresenceController {
 
             binding.tvStatus.setText(statusText);
             binding.tvStatus.setVisibility(statusText.length() > 0 ? View.VISIBLE : View.GONE);
-            // iOS-style header's small green dot on the avatar — mirrors the
-            // exact same "online" condition as the text line above (never
-            // shown for ghost/incognito, same as "online" text being blank).
-            setHeaderOnlineDotVisible(binding, showAsOnline);
         });
-    }
-
-    /** Toggles the small green dot on the iOS-style header avatar
-     *  (view_header_online_dot) — GONE by default in the layout so chats
-     *  never show a stray dot before the first presence snapshot arrives. */
-    private void setHeaderOnlineDotVisible(ActivityChatBinding binding, boolean visible) {
-        View dot = binding.getRoot().findViewById(R.id.view_header_online_dot);
-        if (dot != null) dot.setVisibility(visible ? View.VISIBLE : View.GONE);
     }
 
     // ── PERF (WhatsApp-level formatter caching) ─────────────────────────────
@@ -648,13 +667,15 @@ public class ChatPresenceController {
         String name = delegate.getPartnerName();
         binding.tvWatchingName.setText((name != null ? name : "") + " aapko dekh rha hai");
 
+        // FIX (avatar optimization — reuse core pipeline): was a flat,
+        // hardcoded-720px Glide load with no tier/L2/L3 reuse — same
+        // partner as the chat list row / header / recording strip, now
+        // routed through ChatAvatarBinder.bind() so this shares those
+        // cache entries instead of decoding its own 720px copy.
         String photo = delegate.getPartnerPhoto();
         if (photo != null && !photo.isEmpty() && delegate.getActivity() != null) {
-            Glide.with(delegate.getActivity())
-                    .load(photo)
-                    .placeholder(R.drawable.ic_person)
-                    .override(720, 720)
-                    .into(binding.ivWatchingAvatar);
+            com.callx.app.cache.ChatAvatarBinder.bind(delegate.getActivity(),
+                    binding.ivWatchingAvatar, photo, 0L, R.drawable.ic_person);
         }
 
         boolean alreadyShowing = binding.llWatchingBanner.getVisibility() == View.VISIBLE;
@@ -793,27 +814,25 @@ public class ChatPresenceController {
     private void showVoiceRecordingStrip() {
         ActivityChatBinding binding = delegate.getBinding();
         if (binding == null) return;
-        android.view.View strip = binding.getRoot().findViewById(
-                com.callx.app.chat.R.id.ll_voice_recording_strip);
+        if (cachedRecordingStrip == null) {
+            cachedRecordingStrip = ensureVoiceRecordingStrip(binding);
+        }
+        android.view.View strip = cachedRecordingStrip;
         if (strip == null) return;
 
-        // Populate avatar + name
-        android.widget.TextView tvName = binding.getRoot().findViewById(
-                com.callx.app.chat.R.id.tv_recording_name);
-        if (tvName != null) {
-            String name = delegate.getPartnerName();
-            tvName.setText((name != null ? name : "") + " recording… \uD83C\uDF99\uFE0F");
+        // Populate avatar + name — RecordingStripCanvasView (avatar+mic+name
+        // combined into one Canvas draw, see that class) replaces the old
+        // separate TextView/CircleImageView lookups.
+        if (cachedRecordingCanvas == null) {
+            cachedRecordingCanvas = binding.getRoot().findViewById(
+                    com.callx.app.chat.R.id.recording_strip_canvas);
         }
-        de.hdodenhof.circleimageview.CircleImageView ivAvatar = binding.getRoot().findViewById(
-                com.callx.app.chat.R.id.iv_recording_avatar);
-        if (ivAvatar != null && delegate.getActivity() != null) {
+        if (cachedRecordingCanvas != null) {
+            String name = delegate.getPartnerName();
+            cachedRecordingCanvas.setName((name != null ? name : "") + " recording… \uD83C\uDF99\uFE0F");
             String photo = delegate.getPartnerPhoto();
             if (photo != null && !photo.isEmpty()) {
-                Glide.with(delegate.getActivity())
-                        .load(photo)
-                        .placeholder(com.callx.app.chat.R.drawable.ic_person)
-                        .override(720, 720)
-                        .into(ivAvatar);
+                cachedRecordingCanvas.setAvatarUrl(photo);
             }
         }
 
@@ -830,8 +849,10 @@ public class ChatPresenceController {
     private void hideVoiceRecordingStrip() {
         ActivityChatBinding binding = delegate.getBinding();
         if (binding == null) return;
-        android.view.View strip = binding.getRoot().findViewById(
-                com.callx.app.chat.R.id.ll_voice_recording_strip);
+        if (cachedRecordingStrip == null) {
+            cachedRecordingStrip = ensureVoiceRecordingStrip(binding);
+        }
+        android.view.View strip = cachedRecordingStrip;
         if (strip == null || strip.getVisibility() != android.view.View.VISIBLE) return;
 
         stopWaveformAnimation();

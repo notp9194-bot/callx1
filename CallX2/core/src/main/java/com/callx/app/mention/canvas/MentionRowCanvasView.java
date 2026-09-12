@@ -14,12 +14,7 @@ import android.view.View;
 
 import androidx.annotation.Nullable;
 
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.engine.DiskCacheStrategy;
-import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
-import com.bumptech.glide.load.resource.bitmap.CircleCrop;
-import com.bumptech.glide.request.target.CustomTarget;
-import com.bumptech.glide.request.transition.Transition;
+import com.callx.app.cache.MiscAvatarBinder;
 
 /**
  * MentionRowCanvasView — Canvas replacement for item_mention_suggest.xml
@@ -61,7 +56,6 @@ public class MentionRowCanvasView extends View {
     private final float avatarSizePx, paddingHPx, nameMarginStartPx, badgeMarginStartPx;
 
     private Bitmap avatarBitmap;
-    private CustomTarget<Bitmap> pendingAvatarTarget;
     private String pendingAvatarUrl;
 
     private String nameText = "";
@@ -109,38 +103,31 @@ public class MentionRowCanvasView extends View {
         invalidate();
     }
 
-    /** Loads (or clears) the circular avatar. Cheap no-op if URL unchanged. */
+    /**
+     * Loads (or clears) the circular avatar. Cheap no-op if URL unchanged.
+     * FIX (avatar-optimization — reuse core pipeline): routed through
+     * {@link MiscAvatarBinder#bindBitmap} instead of a flat, un-tiered
+     * {@code .override(720, 720)} decode (720x720 pixels for a 32dp row!)
+     * — now requests exactly MENTION_TIER's pixels and shares
+     * MiscAvatarL2Cache/L3 + CDN analytics with every other "misc" avatar
+     * surface, so a mention already seen elsewhere paints instantly.
+     */
     public void setAvatarUrl(@Nullable String url) {
         if (url != null && url.equals(pendingAvatarUrl) && avatarBitmap != null) return;
         pendingAvatarUrl = url;
-
-        if (pendingAvatarTarget != null) {
-            Glide.with(getContext()).clear(pendingAvatarTarget);
-            pendingAvatarTarget = null;
-        }
         avatarBitmap = null;
         invalidate();
 
         if (url == null || url.isEmpty()) return;
 
-        pendingAvatarTarget = new CustomTarget<Bitmap>() {
-            @Override public void onResourceReady(@androidx.annotation.NonNull Bitmap resource,
-                                                    @Nullable Transition<? super Bitmap> transition) {
-                avatarBitmap = resource;
-                invalidate();
-            }
-
-            @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
-                avatarBitmap = null;
-                invalidate();
-            }
-        };
-        Glide.with(getContext())
-                .asBitmap()
-                .transform(new CircleCrop())
-                .load(url)
-                    .override(720, 720)
-                .into(pendingAvatarTarget);
+        final String requestedUrl = url;
+        MiscAvatarBinder.bindBitmap(getContext(), url, 0L, resource -> {
+            // Stale — row has been rebound (recycled dropdown) to a
+            // different photo since this request went out; drop the result.
+            if (!requestedUrl.equals(pendingAvatarUrl)) return;
+            avatarBitmap = resource;
+            invalidate();
+        });
     }
 
     @Override
@@ -187,8 +174,10 @@ public class MentionRowCanvasView extends View {
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
-        if (pendingAvatarTarget != null) {
-            Glide.with(getContext()).clear(pendingAvatarTarget);
-        }
+        // bindBitmap() has no external target to Glide.clear() — its
+        // in-flight request is left to finish, and the staleness check in
+        // setAvatarUrl()'s callback (pendingAvatarUrl) discards the result
+        // if this row has since been rebound to a different photo.
+        pendingAvatarUrl = null;
     }
 }

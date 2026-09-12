@@ -68,6 +68,8 @@ public final class MiscAvatarBinder {
     public static final AvatarSizeTier ROW_TIER = AvatarSizeTier.forViewSizeDp(48);
     /** AccountMenuActivity's own-profile + header hero avatars (~120dp FrameLayouts). */
     public static final AvatarSizeTier HERO_TIER = AvatarSizeTier.forViewSizeDp(120);
+    /** MentionRowCanvasView's ~32dp inline avatar (see {@link #bindBitmap}). */
+    public static final AvatarSizeTier MENTION_TIER = AvatarSizeTier.forViewSizeDp(32);
 
     // Same thresholds/depths as ChatAvatarBinder/AvatarPrefetcher/
     // FollowAvatarBinder — kept in sync deliberately so "fast fling" and
@@ -158,6 +160,73 @@ public final class MiscAvatarBinder {
                 }
             })
             .into(iv);
+    }
+
+    /** Callback for {@link #bindBitmap} — used by canvas-drawn targets (not a real ImageView Glide can .into()). */
+    public interface BitmapCallback {
+        void onBitmap(Bitmap bitmap);
+    }
+
+    /**
+     * FIX (avatar-optimization — mention dropdown): MentionRowCanvasView's
+     * ~32dp inline avatar (core module — can't depend on feature-chat's
+     * ChatAvatarBinder, so this is that same canvas-target shape, kept
+     * here) used to go through a flat, un-tiered
+     * {@code Glide.asBitmap().load(rawUrl).override(720, 720)} — a fixed
+     * 720x720 decode for a 32dp row, with no L2/L3 reuse and no CDN/
+     * cache-tier analytics. Routed through MENTION_TIER + MiscAvatarL2Cache
+     * instead, so a mention-dropdown avatar shares cache entries with the
+     * SAME user's avatar bound anywhere else in the "misc" bucket, and a
+     * keystroke that re-shows an already-seen row paints instantly from L2
+     * instead of re-decoding a fresh 720x720 bitmap on every filter pass.
+     */
+    public static void bindBitmap(Context ctx, String photo, long avatarVersion, BitmapCallback callback) {
+        if (photo == null || photo.isEmpty()) return;
+        String url = url(ctx, photo, avatarVersion, MENTION_TIER);
+        if (url == null) return;
+
+        Bitmap l2Hit = MiscAvatarL2Cache.get(ctx).get(url);
+        if (l2Hit != null && !l2Hit.isRecycled()) {
+            AvatarCacheAnalytics.getInstance(ctx).record(AvatarCacheAnalytics.Tier.L2_MEMORY);
+            callback.onBitmap(l2Hit);
+            return;
+        }
+
+        int px = AvatarUrlBuilder.tierPx(ctx, MENTION_TIER);
+        Glide.with(ctx)
+            .asBitmap()
+            .load(url)
+            .apply(new RequestOptions()
+                    .override(px, px)
+                    .format(DecodeFormat.PREFER_RGB_565)
+                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
+            .circleCrop()
+            .listener(new RequestListener<Bitmap>() {
+                @Override
+                public boolean onLoadFailed(GlideException e, Object model,
+                                             Target<Bitmap> target, boolean isFirstResource) {
+                    return false;
+                }
+                @Override
+                public boolean onResourceReady(Bitmap resource, Object model,
+                                                Target<Bitmap> target,
+                                                DataSource dataSource, boolean isFirstResource) {
+                    AvatarCacheAnalytics.getInstance(ctx)
+                        .record(AvatarCacheAnalytics.fromGlideDataSource(dataSource));
+                    MiscAvatarL2Cache.get(ctx).put(url, resource);
+                    MiscAvatarL2Cache.l3(ctx).put(url, resource);
+                    return false; // let Glide still deliver the bitmap into the target below
+                }
+            })
+            .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
+                @Override
+                public void onResourceReady(@androidx.annotation.NonNull Bitmap resource,
+                        @androidx.annotation.Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
+                    callback.onBitmap(resource);
+                }
+                @Override
+                public void onLoadCleared(@androidx.annotation.Nullable android.graphics.drawable.Drawable placeholder) {}
+            });
     }
 
     /**

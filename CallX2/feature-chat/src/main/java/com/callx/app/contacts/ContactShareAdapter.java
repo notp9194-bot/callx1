@@ -8,10 +8,10 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.request.RequestOptions;
+import com.callx.app.cache.ChatAvatarBinder;
 import com.callx.app.chat.R;
 import com.callx.app.models.User;
+import com.callx.app.utils.AvatarSizeTier;
 
 import java.util.List;
 
@@ -19,6 +19,12 @@ import de.hdodenhof.circleimageview.CircleImageView;
 
 public class ContactShareAdapter
         extends RecyclerView.Adapter<ContactShareAdapter.ContactVH> {
+
+    // FIX (avatar-optimization — Forward-to-contact picker): row avatar
+    // (48dp, item_contact_share.xml) now shares ChatAvatarBinder's
+    // ChatAvatarL2Cache/L3 + CDN analytics with the SAME partner's chat
+    // list row instead of a separate flat, un-tiered decode per open.
+    private static final AvatarSizeTier AVATAR_TIER = AvatarSizeTier.forViewSizeDp(48);
 
     public interface OnContactShareListener {
         void onShareToContact(User contact);
@@ -46,21 +52,18 @@ public class ContactShareAdapter
         h.tvName.setText(contact.name != null ? contact.name : "User");
         String avatarUrl = (contact.thumbUrl != null && !contact.thumbUrl.isEmpty())
             ? contact.thumbUrl : contact.photoUrl;
-        if (avatarUrl != null && !avatarUrl.isEmpty()) {
-            Glide.with(h.itemView.getContext())
-                .load(avatarUrl)
-                .apply(RequestOptions.circleCropTransform())
-                .placeholder(R.drawable.ic_person)
-                .override(96, 96)
-                .into(h.ivAvatar);
-        } else {
-            h.ivAvatar.setImageResource(R.drawable.ic_person);
-        }
+        ChatAvatarBinder.bind(h.itemView.getContext(), h.ivAvatar, avatarUrl,
+                contact.avatarVersion, R.drawable.ic_person, AVATAR_TIER);
 
         h.itemView.setOnClickListener(v -> listener.onShareToContact(contact));
     }
 
     @Override public int getItemCount() { return contacts.size(); }
+
+    @Override public void onViewRecycled(@NonNull ContactVH h) {
+        super.onViewRecycled(h);
+        ChatAvatarBinder.cancel(h.ivAvatar.getContext(), h.ivAvatar);
+    }
 
     static class ContactVH extends RecyclerView.ViewHolder {
         CircleImageView ivAvatar;

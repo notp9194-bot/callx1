@@ -400,10 +400,27 @@ public class RecordingPreviewController {
         }
     }
 
+    /**
+     * PERF: ll_voice_recording_strip (this view's parent) is now a lazily-
+     * inflated ViewStub — see the matching guard + comment in
+     * ChatPresenceController#ensureVoiceRecordingStrip. This listener and
+     * ChatPresenceController's watchPartnerRecording() both react to
+     * Firebase state around the same "partner started recording" moment,
+     * so either can be the one to actually trigger the inflate; the
+     * getParent() check keeps that race safe (never calls
+     * ViewStub#inflate() twice).
+     */
     private RecordingWaveformView resolvePreviewView() {
         ActivityChatBinding binding = delegate.getBinding();
         if (binding == null) return null;
-        return binding.getRoot().findViewById(
+        RecordingWaveformView view = binding.getRoot().findViewById(
                 com.callx.app.chat.R.id.waveform_recording_preview);
+        if (view == null && binding.stubVoiceRecordingStrip != null
+                && binding.stubVoiceRecordingStrip.getParent() != null) {
+            binding.stubVoiceRecordingStrip.inflate();
+            view = binding.getRoot().findViewById(
+                    com.callx.app.chat.R.id.waveform_recording_preview);
+        }
+        return view;
     }
 }

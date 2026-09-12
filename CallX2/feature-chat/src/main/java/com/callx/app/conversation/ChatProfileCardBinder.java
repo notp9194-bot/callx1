@@ -10,7 +10,6 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.FragmentActivity;
 
-import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
 import com.callx.app.chat.databinding.LayoutChatProfileCardBinding;
 import com.callx.app.repository.CommunityRepository;
@@ -73,12 +72,16 @@ public class ChatProfileCardBinder {
 
         String avatar = (partnerThumb != null && !partnerThumb.isEmpty()) ? partnerThumb : partnerPhoto;
         if (avatar != null && !avatar.isEmpty()) {
-            Glide.with(activity).load(avatar).placeholder(R.drawable.ic_person)
-                    .override(240, 240)
-                    .circleCrop()
-                    .listener(com.callx.app.cache.CacheDashboardStats.glideListener(
-                            activity, "profile_card_avatar:" + avatar))
-                    .into(binding.ivProfileCardAvatar);
+            // FIX (avatar optimization — reuse core pipeline): was a flat,
+            // hardcoded-240px Glide load with its own CacheDashboardStats
+            // listener; ChatAvatarBinder.bind() records the same stats
+            // internally, and — at this view's real 76dp size (custom
+            // tier, since the default chat-row TIER is 50dp and would
+            // under-resolve this "big avatar") — still shares L2/L3 with
+            // any other 76dp-tier bind of the same partner photo.
+            com.callx.app.cache.ChatAvatarBinder.bind(activity, binding.ivProfileCardAvatar,
+                    avatar, 0L, R.drawable.ic_person,
+                    com.callx.app.utils.AvatarSizeTier.forViewSizeDp(76));
         }
 
         if (partnerUid == null || partnerUid.isEmpty()) return;

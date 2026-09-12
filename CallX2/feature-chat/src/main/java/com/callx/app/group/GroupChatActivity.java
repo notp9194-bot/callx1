@@ -473,7 +473,6 @@ public class GroupChatActivity extends AppCompatActivity
         setupPagingRecyclerView();   // RecyclerView + adapter ready (Room query baad mein)
         setupInputBar();
         restoreGroupDraft();
-        setupPinnedBanner();
         setupReplyCancel();
         setupNetworkMonitor();
         // PERF FIX: typing-only header wiring stays immediate (cheap, and
@@ -981,11 +980,21 @@ public class GroupChatActivity extends AppCompatActivity
         return caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
     }
 
+    // PERF: tv_offline_banner is behind a ViewStub in activity_chat.xml
+    // (see layout_offline_banner.xml) — only inflated the first time the
+    // device actually goes offline, instead of on every chat screen open.
     private void updateOfflineBanner(boolean offline) {
         if (binding == null) return;
-        android.widget.TextView banner =
-                binding.getRoot().findViewById(R.id.tv_offline_banner);
-        if (banner != null) banner.setVisibility(offline ? View.VISIBLE : View.GONE);
+        if (!offline) {
+            android.widget.TextView banner = binding.getRoot().findViewById(R.id.tv_offline_banner);
+            if (banner != null) banner.setVisibility(View.GONE);
+            return;
+        }
+        android.view.View stub = binding.getRoot().findViewById(R.id.stub_offline_banner);
+        android.widget.TextView banner = (stub instanceof android.view.ViewStub)
+                ? (android.widget.TextView) ((android.view.ViewStub) stub).inflate()
+                : binding.getRoot().findViewById(R.id.tv_offline_banner);
+        if (banner != null) banner.setVisibility(View.VISIBLE);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -3009,9 +3018,15 @@ public class GroupChatActivity extends AppCompatActivity
 
     private boolean selectionToolbarSetup = false;
 
+    // PERF: ll_selection_toolbar is behind a ViewStub in activity_chat.xml
+    // (see layout_selection_toolbar.xml) — only inflated the first time the
+    // user actually enters multi-select, instead of on every chat open.
     private void setupSelectionToolbar() {
         if (selectionToolbarSetup) return;
         selectionToolbarSetup = true;
+
+        android.view.View stub = binding.getRoot().findViewById(com.callx.app.chat.R.id.stub_selection_toolbar);
+        if (stub instanceof android.view.ViewStub) ((android.view.ViewStub) stub).inflate();
 
         android.view.View btnClose = binding.getRoot().findViewById(
                 com.callx.app.chat.R.id.btn_selection_close);
@@ -3135,19 +3150,26 @@ public class GroupChatActivity extends AppCompatActivity
         data.totalOthers = otherUids.size();
         fillGroupReceiptBuckets(data, otherUids, m.readBy, m.deliveredBy);
 
-        // Prefetch avatars into Glide's cache now, while the sheet is still
-        // being shown/inflated, instead of letting each row's Glide.load()
-        // kick off its own network fetch the moment it scrolls on screen.
-        // By the time MessageInfoAdapter binds a row, the image is already
-        // in cache — bind is a cache hit, not a network round-trip. Size
-        // matches MessageInfoAdapter.AVATAR_SIZE_DP converted to px, so the
-        // prefetch and the real bind resolve to the same Glide cache key.
-        int avatarPx = (int) (com.callx.app.conversation.info.MessageInfoAdapter.AVATAR_SIZE_DP
-                * getResources().getDisplayMetrics().density);
+        // Prefetch avatars now, while the sheet is still being shown/
+        // inflated, instead of letting each row's bind() kick off its own
+        // network fetch the moment it scrolls on screen. FIX (avatar
+        // optimization — reuse core pipeline): MessageInfoAdapter's rows
+        // now bind via ChatAvatarBinder.bind() (responsive/tiered CDN URL,
+        // 38dp custom tier — see that class), so a raw
+        // Glide.load(rawPhotoUrl).preload() here was warming a completely
+        // different cache key than what bind() actually requests — this
+        // now builds the SAME tiered URL bind() will look up, so the
+        // prefetch and the real bind land on the same disk-cache entry.
+        com.callx.app.utils.AvatarSizeTier infoTier = com.callx.app.utils.AvatarSizeTier
+                .forViewSizeDp(com.callx.app.conversation.info.MessageInfoAdapter.AVATAR_SIZE_DP);
         for (String uid : otherUids) {
             String photo = memberPhotos != null ? memberPhotos.get(uid) : null;
             if (photo != null && !photo.isEmpty()) {
-                com.bumptech.glide.Glide.with(this).load(photo).override(avatarPx, avatarPx).preload();
+                String prefetchUrl = com.callx.app.cache.AvatarBinderCore.url(this, photo, 0L, infoTier);
+                com.bumptech.glide.Glide.with(this).load(prefetchUrl)
+                        .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.DATA)
+                        .priority(com.bumptech.glide.Priority.LOW)
+                        .preload();
             }
         }
 
@@ -3323,12 +3345,25 @@ public class GroupChatActivity extends AppCompatActivity
     // PINNED MESSAGE (Feature 8)
     // ─────────────────────────────────────────────────────────────────────
 
-    private void setupPinnedBanner() {
-        if (binding.llPinnedBanner == null) return;
-        if (binding.btnUnpin != null)
-            binding.btnUnpin.setOnClickListener(v -> {
+    // PERF: ll_pinned_banner is behind a ViewStub in activity_chat.xml
+    // (see layout_pinned_banner.xml) — only inflated the first time a
+    // message is actually pinned in this group, instead of on every chat
+    // screen open (most groups never pin anything). Cached here once
+    // inflated; use pinnedBanner() to get it, never reference the field
+    // directly.
+    private com.callx.app.chat.databinding.LayoutPinnedBannerBinding pinnedBannerBinding;
+
+    /** Lazily inflates the pinned-banner ViewStub on first use, wiring the
+     *  static unpin click just once. Safe to call repeatedly. */
+    private com.callx.app.chat.databinding.LayoutPinnedBannerBinding pinnedBanner() {
+        if (pinnedBannerBinding == null) {
+            View inflated = binding.stubPinnedBanner.inflate();
+            pinnedBannerBinding = com.callx.app.chat.databinding.LayoutPinnedBannerBinding.bind(inflated);
+            pinnedBannerBinding.btnUnpin.setOnClickListener(v -> {
                 if (pinnedMsgId != null) unpinMessage(pinnedMsgId);
             });
+        }
+        return pinnedBannerBinding;
     }
 
     private void watchPinnedMessage() {
@@ -3353,19 +3388,20 @@ public class GroupChatActivity extends AppCompatActivity
                 if (m == null) { hidePinnedBanner(); return; }
                 String txt = m.text != null ? m.text
                         : "[" + (m.type != null ? m.type : "media") + "]";
-                if (binding.llPinnedBanner != null) {
-                    if (binding.tvPinnedPreview != null)
-                        binding.tvPinnedPreview.setText("📌  " + txt);
-                    binding.llPinnedBanner.setVisibility(View.VISIBLE);
-                }
+                // PERF: only inflates the banner the first time this group
+                // actually has a pinned message.
+                com.callx.app.chat.databinding.LayoutPinnedBannerBinding pb = pinnedBanner();
+                pb.tvPinnedPreview.setText("📌  " + txt);
+                pb.getRoot().setVisibility(View.VISIBLE);
             }
             @Override public void onCancelled(@NonNull DatabaseError e) {}
         });
     }
 
     private void hidePinnedBanner() {
-        if (binding.llPinnedBanner != null)
-            binding.llPinnedBanner.setVisibility(View.GONE);
+        // Don't force-inflate just to hide it — if it was never shown yet,
+        // it's already gone.
+        if (pinnedBannerBinding != null) pinnedBannerBinding.getRoot().setVisibility(View.GONE);
         pinnedMsgId = null;
     }
 

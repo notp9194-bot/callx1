@@ -253,10 +253,15 @@ public class ChatBlockController {
 
         String photo = delegate.getPartnerPhoto();
         String thumb = delegate.getPartnerThumb();
+        // FIX (avatar optimization — reuse core pipeline): was 2 flat,
+        // hardcoded-720px Glide loads with no tier/L2/L3 reuse — same
+        // partner as the chat list row/header, now shares those cache
+        // entries via ChatAvatarBinder.bind() instead of decoding its own
+        // 720px copy on every unblock celebration.
         if (photo != null && !photo.isEmpty()) {
-            com.bumptech.glide.Glide.with(activity).load(photo).override(720, 720).into(ivAvatar);
+            com.callx.app.cache.ChatAvatarBinder.bind(activity, ivAvatar, photo, 0L, R.drawable.ic_person);
         } else if (thumb != null && !thumb.isEmpty()) {
-            com.bumptech.glide.Glide.with(activity).load(thumb).override(720, 720).into(ivAvatar);
+            com.callx.app.cache.ChatAvatarBinder.bind(activity, ivAvatar, thumb, 0L, R.drawable.ic_person);
         }
 
         rain.setHappyMode(true);
@@ -357,7 +362,9 @@ public class ChatBlockController {
                 .addOnSuccessListener(photoSnap -> {
                     String url = photoSnap.exists() ? photoSnap.getValue(String.class) : null;
                     if (url != null && !url.isEmpty()) {
-                        com.bumptech.glide.Glide.with(activity).load(url).override(720, 720).into(ivBlocker);
+                        // FIX (avatar optimization — reuse core pipeline):
+                        // was a flat, hardcoded-720px Glide load.
+                        com.callx.app.cache.ChatAvatarBinder.bind(activity, ivBlocker, url, 0L, R.drawable.ic_person);
                     }
                 });
 

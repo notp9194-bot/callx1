@@ -7,7 +7,6 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.ListAdapter;
 import androidx.recyclerview.widget.RecyclerView;
-import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
 import de.hdodenhof.circleimageview.CircleImageView;
 import java.text.SimpleDateFormat;
@@ -51,6 +50,11 @@ public class GroupReadByAdapter extends ListAdapter<GroupReadByAdapter.MemberIte
 
     @Override public void onBindViewHolder(@NonNull VH h, int pos) { h.bind(getItem(pos)); }
 
+    @Override public void onViewRecycled(@NonNull VH h) {
+        super.onViewRecycled(h);
+        com.callx.app.cache.ChatAvatarBinder.cancel(h.ivAvatar.getContext(), h.ivAvatar);
+    }
+
     static class VH extends RecyclerView.ViewHolder {
         final CircleImageView ivAvatar;
         final TextView tvName, tvTime;
@@ -72,9 +76,11 @@ public class GroupReadByAdapter extends ListAdapter<GroupReadByAdapter.MemberIte
                 ivTick.setVisibility(item.timestamp != null ? View.VISIBLE : View.GONE);
 
             if (item.photoUrl != null && !item.photoUrl.isEmpty()) {
-                Glide.with(ivAvatar).load(item.photoUrl)
-                        .placeholder(R.drawable.ic_person)
-                        .into(ivAvatar);
+                // FIX (avatar optimization — reuse core pipeline): was a
+                // flat, un-tiered Glide load — shares L2/L3 with
+                // GroupMemberAdapter's row for this exact member now.
+                com.callx.app.cache.ChatAvatarBinder.bind(ivAvatar.getContext(), ivAvatar,
+                        item.photoUrl, 0L, R.drawable.ic_person);
             } else {
                 ivAvatar.setImageResource(R.drawable.ic_person);
             }

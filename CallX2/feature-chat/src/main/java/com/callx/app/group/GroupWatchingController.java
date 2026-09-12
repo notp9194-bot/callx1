@@ -6,7 +6,6 @@ import android.view.View;
 
 import androidx.annotation.NonNull;
 
-import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
 import com.callx.app.chat.databinding.ActivityChatBinding;
 import com.callx.app.utils.FirebaseUtils;
@@ -523,7 +522,12 @@ public class GroupWatchingController {
         Activity activity = delegate.getActivity();
         if (activity == null) return;
         if (photoUrl != null && !photoUrl.isEmpty()) {
-            Glide.with(activity).load(photoUrl).placeholder(R.drawable.ic_person).override(720, 720).into(iv);
+            // FIX (avatar optimization — reuse core pipeline): was a flat
+            // hardcoded-720px Glide load — shares L2/L3 with the group
+            // member list/chat list row for this exact member now,
+            // instead of a fresh 720px decode every time someone opens
+            // the group chat.
+            com.callx.app.cache.ChatAvatarBinder.bind(activity, iv, photoUrl, 0L, R.drawable.ic_person);
         } else {
             iv.setImageResource(R.drawable.ic_person);
         }

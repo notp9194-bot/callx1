@@ -1835,12 +1835,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         String avatarUrl = (user.thumbUrl != null && !user.thumbUrl.isEmpty())
             ? user.thumbUrl : user.photoUrl;
         if (avatarUrl != null && !avatarUrl.isEmpty() && ivAvatar != null) {
-            Glide.with(getContext()).load(avatarUrl)
-                .apply(RequestOptions.circleCropTransform())
-                .diskCacheStrategy(DiskCacheStrategy.ALL)
-                .placeholder(R.drawable.ic_person)
-                .override(96, 96)
-                .into(ivAvatar);
+            ChatAvatarBinder.bind(getContext(), ivAvatar, avatarUrl, user.avatarVersion,
+                    R.drawable.ic_person, CONTACT_SHEET_AVATAR_TIER);
         }
 
         // Presence-only read: the avatar we just bound from `user` (list data,
@@ -1869,13 +1865,12 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                         String photo = snap.child("photoUrl").getValue(String.class);
                         String thumb = snap.child("thumbUrl").getValue(String.class);
                         String url   = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
+                        Long freshVersion = snap.child("avatarVersion").getValue(Long.class);
                         boolean changed = url != null && !url.isEmpty() && !url.equals(avatarUrl);
                         if (changed && getContext() != null && ivAvatar != null)
-                            Glide.with(getContext()).load(url)
-                                .apply(RequestOptions.circleCropTransform())
-                                .diskCacheStrategy(DiskCacheStrategy.ALL)
-                                .override(96, 96)
-                                .placeholder(R.drawable.ic_person).into(ivAvatar);
+                            ChatAvatarBinder.bind(getContext(), ivAvatar, url,
+                                    freshVersion != null ? freshVersion : user.avatarVersion,
+                                    R.drawable.ic_person, CONTACT_SHEET_AVATAR_TIER);
                     }
                     @Override public void onCancelled(DatabaseError e) {}
                 });
@@ -2015,6 +2010,32 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
     private static final long SOCIAL_CACHE_TTL_MS = 3 * 60 * 1000L; // 3 min — long enough for repeat taps in one session, short enough to stay fresh
     private static String socialCacheKey(String uid) { return "contact_sheet_social:" + uid; }
 
+    // FIX (avatar optimization — reuse core pipeline): the X/Reels/YouTube
+    // "avatar peek" badges (iv_anim_x_sheet/iv_anim_reel_sheet/
+    // iv_anim_youtube_sheet, all 48dp in bottom_sheet_contact_call.xml)
+    // were 6 flat, un-tiered Glide loads (3 on the cache-hit path, 3 on the
+    // fresh-fetch path below) — these photos are CallX's own hosted
+    // per-platform avatars (x/users, reels/users, youtube/channels — see
+    // ChatProfileCardBinder's cross-module doc), so they're eligible for
+    // the same AvatarUrlBuilder-responsive/L2/L3 pipeline as every other
+    // in-app avatar, just bucketed at their own 48dp tier.
+    private static final com.callx.app.utils.AvatarSizeTier SOCIAL_BADGE_TIER =
+            com.callx.app.utils.AvatarSizeTier.forViewSizeDp(48);
+
+    // FIX (avatar-optimization, remaining ChatsFragment gaps): the contact
+    // sheet's MAIN avatar (iv_avatar_sheet, 88dp in bottom_sheet_contact_call.xml)
+    // and the call-history sheet's own avatar (iv_history_avatar, 42dp in
+    // bottom_sheet_call_history.xml) were still flat Glide.load().override(96,96)
+    // loads — un-tiered, un-versioned, and decoding a SECOND separate copy of
+    // the exact same partner photo the chat list row (ChatAvatarBinder's own
+    // 50dp/MEDIUM tier) already decoded and cached. Routed through
+    // ChatAvatarBinder.bind() at their own tiers below so both share
+    // ChatAvatarL2Cache/L3 + CDN analytics with every other avatar surface.
+    private static final com.callx.app.utils.AvatarSizeTier CONTACT_SHEET_AVATAR_TIER =
+            com.callx.app.utils.AvatarSizeTier.forViewSizeDp(88);
+    private static final com.callx.app.utils.AvatarSizeTier CALL_HISTORY_SHEET_AVATAR_TIER =
+            com.callx.app.utils.AvatarSizeTier.forViewSizeDp(42);
+
     private void loadChatSocialButtons(
             String partnerUid, View sv,
             View btnXSheet, View btnReelsSheet, View btnYoutubeSheet,
@@ -2034,25 +2055,22 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
             SocialSnapshot c = (SocialSnapshot) cachedObj;
             if (System.currentTimeMillis() - c.timestamp < SOCIAL_CACHE_TTL_MS) {
                 if (c.hasX && c.xPhoto != null && ivAnimX != null)
-                    Glide.with(getContext()).load(c.xPhoto).circleCrop()
-                        .diskCacheStrategy(DiskCacheStrategy.ALL).override(96, 96)
-                        .placeholder(R.drawable.ic_person).into(ivAnimX);
+                    com.callx.app.cache.ChatAvatarBinder.bind(getContext(), ivAnimX, c.xPhoto, 0L,
+                            R.drawable.ic_person, SOCIAL_BADGE_TIER);
                 if (c.hasX && tvXCount != null) tvXCount.setText(formatCount(c.xCount) + " Followers");
                 if (c.hasX && layoutXRow != null) layoutXRow.setVisibility(View.VISIBLE);
                 if (c.hasX && btnXFollow != null) updateXBtn(btnXFollow, c.xFollowing);
 
                 if (c.hasReels && c.reelsPhoto != null && ivAnimReel != null)
-                    Glide.with(getContext()).load(c.reelsPhoto).circleCrop()
-                        .diskCacheStrategy(DiskCacheStrategy.ALL).override(96, 96)
-                        .placeholder(R.drawable.ic_person).into(ivAnimReel);
+                    com.callx.app.cache.ChatAvatarBinder.bind(getContext(), ivAnimReel, c.reelsPhoto, 0L,
+                            R.drawable.ic_person, SOCIAL_BADGE_TIER);
                 if (c.hasReels && tvReelsCount != null) tvReelsCount.setText(formatCount(c.reelsCount) + " Followers");
                 if (c.hasReels && layoutReelsRow != null) layoutReelsRow.setVisibility(View.VISIBLE);
                 if (c.hasReels && btnReelsFollow != null) updateReelsBtn(btnReelsFollow, c.reelsFollowing);
 
                 if (c.hasYt && c.ytPhoto != null && ivAnimYt != null)
-                    Glide.with(getContext()).load(c.ytPhoto).circleCrop()
-                        .diskCacheStrategy(DiskCacheStrategy.ALL).override(96, 96)
-                        .placeholder(R.drawable.ic_person).into(ivAnimYt);
+                    com.callx.app.cache.ChatAvatarBinder.bind(getContext(), ivAnimYt, c.ytPhoto, 0L,
+                            R.drawable.ic_person, SOCIAL_BADGE_TIER);
                 if (c.hasYt && tvYtCount != null) tvYtCount.setText(formatCount(c.ytCount) + " Subscribers");
                 if (c.hasYt && layoutYtRow != null) layoutYtRow.setVisibility(View.VISIBLE);
                 if (c.hasYt && btnYtSub != null) updateYtBtn(btnYtSub, c.ytSubscribed);
@@ -2082,10 +2100,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     if (getContext() == null || !snap.exists()) return;
                     String xPhoto = snap.child("photoUrl").getValue(String.class);
                     if (xPhoto != null && !xPhoto.isEmpty() && ivAnimX != null)
-                        Glide.with(getContext()).load(xPhoto).circleCrop()
-                            .diskCacheStrategy(DiskCacheStrategy.ALL)
-                            .override(96, 96)
-                            .placeholder(R.drawable.ic_person).into(ivAnimX);
+                        com.callx.app.cache.ChatAvatarBinder.bind(getContext(), ivAnimX, xPhoto, 0L,
+                                R.drawable.ic_person, SOCIAL_BADGE_TIER);
                     startChatAvatarPeekLoop(peekViews, animHandler, animRunning, animRunnable);
 
                     Long xF = snap.child("followerCount").getValue(Long.class);
@@ -2150,10 +2166,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     String photo = snap.child("photoUrl").getValue(String.class);
                     String rp    = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
                     if (rp != null && !rp.isEmpty() && ivAnimReel != null)
-                        Glide.with(getContext()).load(rp).circleCrop()
-                            .diskCacheStrategy(DiskCacheStrategy.ALL)
-                            .override(96, 96)
-                            .placeholder(R.drawable.ic_person).into(ivAnimReel);
+                        com.callx.app.cache.ChatAvatarBinder.bind(getContext(), ivAnimReel, rp, 0L,
+                                R.drawable.ic_person, SOCIAL_BADGE_TIER);
                     snap0.hasReels = true; snap0.reelsPhoto = rp;
 
                     db.getReference("reels/followers").child(partnerUid)
@@ -2216,10 +2230,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                     String yp = snap.child("photoUrl").getValue(String.class);
                     String ya = (yt != null && !yt.isEmpty()) ? yt : yp;
                     if (ya != null && !ya.isEmpty() && ivAnimYt != null)
-                        Glide.with(getContext()).load(ya).circleCrop()
-                            .diskCacheStrategy(DiskCacheStrategy.ALL)
-                            .override(96, 96)
-                            .placeholder(R.drawable.ic_person).into(ivAnimYt);
+                        com.callx.app.cache.ChatAvatarBinder.bind(getContext(), ivAnimYt, ya, 0L,
+                                R.drawable.ic_person, SOCIAL_BADGE_TIER);
 
                     Long subC = snap.child("subscriberCount").getValue(Long.class);
                     long subs = subC != null ? subC : 0;
@@ -2480,9 +2492,8 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         String avatarUrl = (user.thumbUrl != null && !user.thumbUrl.isEmpty())
             ? user.thumbUrl : user.photoUrl;
         if (avatarUrl != null && !avatarUrl.isEmpty() && ivAvatar != null) {
-            Glide.with(getContext()).load(avatarUrl)
-                .apply(RequestOptions.circleCropTransform())
-                .placeholder(R.drawable.ic_person).into(ivAvatar);
+            ChatAvatarBinder.bind(getContext(), ivAvatar, avatarUrl, user.avatarVersion,
+                    R.drawable.ic_person, CALL_HISTORY_SHEET_AVATAR_TIER);
         }
 
         if (ivAvatar != null) {

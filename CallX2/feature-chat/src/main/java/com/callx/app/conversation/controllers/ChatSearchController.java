@@ -14,6 +14,7 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 
 import com.callx.app.chat.databinding.ActivityChatBinding;
+import com.callx.app.chat.databinding.LayoutSearchBarBinding;
 import com.callx.app.conversation.MessagePagingAdapter;
 import com.callx.app.db.AppDatabase;
 import com.callx.app.db.entity.MessageEntity;
@@ -118,12 +119,69 @@ public class ChatSearchController {
     private String        lastQuery       = "";
     private boolean       searchOpen      = false;
 
+    /** Set once the search bar ViewStub has actually inflated (first
+     *  openSearch() call ever, for this activity instance). Null until then —
+     *  every reader below must be null-safe. */
+    private LayoutSearchBarBinding searchBarBinding;
+
     public ChatSearchController(ChatActivityDelegate delegate) {
         this.delegate = delegate;
+        wireInflateListener();
     }
 
     public ChatSearchController(SearchDelegate delegate) {
         this.delegate = delegate;
+        wireInflateListener();
+    }
+
+    /**
+     * PERF: registers the stub's inflate callback once, at controller
+     * construction (the controller itself is created lazily and cached by
+     * the activity, so this runs exactly once per activity lifetime).
+     * setOnInflateListener() only *registers* the callback — it does not
+     * inflate — so nothing is actually built until the first real
+     * openSearch() call triggers stub.inflate(). That inflate fires this
+     * listener synchronously, which is where all the one-time view wiring
+     * (TextWatcher, editor action, button clicks) happens, so a second and
+     * third openSearch() call never re-registers any listener.
+     */
+    private void wireInflateListener() {
+        ActivityChatBinding b = delegate.getBinding();
+        if (b == null || b.stubSearchBar == null) return;
+        b.stubSearchBar.setOnInflateListener((stub, inflated) -> {
+            LayoutSearchBarBinding sb = LayoutSearchBarBinding.bind(inflated);
+            searchBarBinding = sb;
+
+            sb.etSearch.addTextChangedListener(new TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
+                @Override public void afterTextChanged(Editable s) {}
+                @Override public void onTextChanged(CharSequence s, int st, int bef, int c) {
+                    scheduleSearch(s.toString().trim());
+                }
+            });
+            sb.etSearch.setOnEditorActionListener((v, actionId, e) -> {
+                if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                    cancelPending();
+                    String q = sb.etSearch.getText() != null
+                            ? sb.etSearch.getText().toString().trim() : "";
+                    if (q.length() >= 2) runQuery(q);
+                    return true;
+                }
+                return false;
+            });
+            sb.btnSearchPrev.setOnClickListener(v -> step(false));
+            sb.btnSearchNext.setOnClickListener(v -> step(true));
+            sb.btnCloseSearch.setOnClickListener(v -> closeSearch());
+        });
+    }
+
+    /** Lazily inflates the search-bar ViewStub on first use. Safe to call
+     *  repeatedly — only actually inflates once per activity lifetime. */
+    private LayoutSearchBarBinding searchBar(ActivityChatBinding binding) {
+        if (searchBarBinding == null) {
+            binding.stubSearchBar.inflate(); // triggers the OnInflateListener set in wireInflateListener()
+        }
+        return searchBarBinding;
     }
 
     // ── State ─────────────────────────────────────────────────────────────
@@ -135,46 +193,26 @@ public class ChatSearchController {
 
     public void openSearch() {
         ActivityChatBinding b = delegate.getBinding();
-        if (b == null || b.llSearchBar == null) return;
+        if (b == null || b.stubSearchBar == null) return;
         searchOpen = true;
         resetState();
 
+        LayoutSearchBarBinding sb = searchBar(b);
+        if (sb == null) return;
+
         // Slide-in animation
-        b.llSearchBar.setVisibility(View.VISIBLE);
-        b.llSearchBar.setTranslationY(-b.llSearchBar.getHeight() - 8f);
-        b.llSearchBar.animate()
+        sb.getRoot().setVisibility(View.VISIBLE);
+        sb.getRoot().setTranslationY(-sb.getRoot().getHeight() - 8f);
+        sb.getRoot().animate()
                 .translationY(0f)
                 .setDuration(ANIM_DURATION_MS)
                 .setInterpolator(new DecelerateInterpolator())
                 .start();
 
-        if (b.etSearch != null) {
-            b.etSearch.requestFocus();
-            InputMethodManager imm = (InputMethodManager)
-                    delegate.getActivity().getSystemService(INPUT_METHOD_SERVICE);
-            if (imm != null) imm.showSoftInput(b.etSearch, 0);
-
-            b.etSearch.addTextChangedListener(new TextWatcher() {
-                @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
-                @Override public void afterTextChanged(Editable s) {}
-                @Override public void onTextChanged(CharSequence s, int st, int bef, int c) {
-                    scheduleSearch(s.toString().trim());
-                }
-            });
-            b.etSearch.setOnEditorActionListener((v, actionId, e) -> {
-                if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                    cancelPending();
-                    String q = b.etSearch.getText() != null
-                            ? b.etSearch.getText().toString().trim() : "";
-                    if (q.length() >= 2) runQuery(q);
-                    return true;
-                }
-                return false;
-            });
-        }
-        if (b.btnSearchPrev   != null) b.btnSearchPrev.setOnClickListener(v -> step(false));
-        if (b.btnSearchNext   != null) b.btnSearchNext.setOnClickListener(v -> step(true));
-        if (b.btnCloseSearch  != null) b.btnCloseSearch.setOnClickListener(v -> closeSearch());
+        sb.etSearch.requestFocus();
+        InputMethodManager imm = (InputMethodManager)
+                delegate.getActivity().getSystemService(INPUT_METHOD_SERVICE);
+        if (imm != null) imm.showSoftInput(sb.etSearch, 0);
     }
 
     // ── Debounce ──────────────────────────────────────────────────────────
@@ -202,12 +240,12 @@ public class ChatSearchController {
 
         // Show "Searching…" while debounce fires
         delegate.runOnMain(() -> {
-            ActivityChatBinding b = delegate.getBinding();
-            if (b != null && b.tvSearchCount != null) {
-                b.tvSearchCount.setText("Searching…");
-                b.tvSearchCount.setVisibility(View.VISIBLE);
-                if (b.btnSearchPrev != null) b.btnSearchPrev.setVisibility(View.GONE);
-                if (b.btnSearchNext != null) b.btnSearchNext.setVisibility(View.GONE);
+            LayoutSearchBarBinding sb = searchBarBinding;
+            if (sb != null) {
+                sb.tvSearchCount.setText("Searching…");
+                sb.tvSearchCount.setVisibility(View.VISIBLE);
+                sb.btnSearchPrev.setVisibility(View.GONE);
+                sb.btnSearchNext.setVisibility(View.GONE);
             }
         });
 
@@ -317,19 +355,19 @@ public class ChatSearchController {
     // ── UI ────────────────────────────────────────────────────────────────
 
     private void refreshCountUI() {
-        ActivityChatBinding b = delegate.getBinding();
-        if (b == null || b.tvSearchCount == null) return;
+        LayoutSearchBarBinding sb = searchBarBinding; // null if search never opened this session
+        if (sb == null) return;
         boolean hasResults = !matchIds.isEmpty();
         if (hasResults) {
-            b.tvSearchCount.setText((currentIndex + 1) + " of " + matchIds.size());
-            b.tvSearchCount.setVisibility(View.VISIBLE);
-            if (b.btnSearchPrev != null) b.btnSearchPrev.setVisibility(View.VISIBLE);
-            if (b.btnSearchNext != null) b.btnSearchNext.setVisibility(View.VISIBLE);
+            sb.tvSearchCount.setText((currentIndex + 1) + " of " + matchIds.size());
+            sb.tvSearchCount.setVisibility(View.VISIBLE);
+            sb.btnSearchPrev.setVisibility(View.VISIBLE);
+            sb.btnSearchNext.setVisibility(View.VISIBLE);
         } else {
-            b.tvSearchCount.setVisibility(lastQuery.length() >= 2 ? View.VISIBLE : View.GONE);
-            if (lastQuery.length() >= 2) b.tvSearchCount.setText("No results");
-            if (b.btnSearchPrev != null) b.btnSearchPrev.setVisibility(View.GONE);
-            if (b.btnSearchNext != null) b.btnSearchNext.setVisibility(View.GONE);
+            sb.tvSearchCount.setVisibility(lastQuery.length() >= 2 ? View.VISIBLE : View.GONE);
+            if (lastQuery.length() >= 2) sb.tvSearchCount.setText("No results");
+            sb.btnSearchPrev.setVisibility(View.GONE);
+            sb.btnSearchNext.setVisibility(View.GONE);
         }
     }
 
@@ -355,36 +393,37 @@ public class ChatSearchController {
     public void closeSearch() {
         searchOpen = false;
         cancelPending();
-        ActivityChatBinding b = delegate.getBinding();
-        if (b == null) return;
+        // Never opened this session → nothing was ever inflated, nothing to close.
+        LayoutSearchBarBinding sb = searchBarBinding;
+        if (sb == null) return;
 
         // Clear UI text + highlights
-        if (b.etSearch != null) b.etSearch.setText("");
+        sb.etSearch.setText("");
         clearResults();
 
-        // Slide-out animation, then hide
-        if (b.llSearchBar != null && b.llSearchBar.getVisibility() == View.VISIBLE) {
-            b.llSearchBar.animate()
-                    .translationY(-b.llSearchBar.getHeight() - 8f)
+        // Slide-out animation, then hide. `sb` (not the searchBarBinding
+        // field) is what the AnimatorListenerAdapter callback below
+        // captures — it's a local final reference to the one-and-only
+        // inflated binding, so there's no risk of it reading a stale/rebound
+        // field by the time the animation actually ends.
+        if (sb.getRoot().getVisibility() == View.VISIBLE) {
+            sb.getRoot().animate()
+                    .translationY(-sb.getRoot().getHeight() - 8f)
                     .setDuration(ANIM_DURATION_MS)
                     .setInterpolator(new DecelerateInterpolator())
                     .setListener(new AnimatorListenerAdapter() {
                         @Override public void onAnimationEnd(Animator animation) {
-                            if (b.llSearchBar != null) {
-                                b.llSearchBar.setVisibility(View.GONE);
-                                b.llSearchBar.setTranslationY(0);
-                            }
+                            sb.getRoot().setVisibility(View.GONE);
+                            sb.getRoot().setTranslationY(0);
                         }
                     })
                     .start();
         }
 
         // Dismiss keyboard
-        if (b.etSearch != null) {
-            InputMethodManager imm = (InputMethodManager)
-                    delegate.getActivity().getSystemService(INPUT_METHOD_SERVICE);
-            if (imm != null) imm.hideSoftInputFromWindow(b.etSearch.getWindowToken(), 0);
-        }
+        InputMethodManager imm = (InputMethodManager)
+                delegate.getActivity().getSystemService(INPUT_METHOD_SERVICE);
+        if (imm != null) imm.hideSoftInputFromWindow(sb.etSearch.getWindowToken(), 0);
     }
 
     /** Call from Activity.onDestroy() to prevent leaks. */

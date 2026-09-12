@@ -217,8 +217,8 @@ public class CommunityBookmarksActivity extends AppCompatActivity {
             CommunityPostEntity p = items.get(pos);
 
             if (p.authorPhoto != null && !p.authorPhoto.isEmpty())
-                Glide.with(h.ivAvatar.getContext()).load(p.authorPhoto)
-                        .circleCrop().placeholder(R.drawable.ic_person).into(h.ivAvatar);
+                com.callx.app.cache.CommunityAvatarBinder.bindIcon(h.ivAvatar.getContext(), h.ivAvatar,
+                        p.authorPhoto, com.callx.app.cache.CommunityAvatarBinder.TIER_POST_AUTHOR, R.drawable.ic_person);
             else h.ivAvatar.setImageResource(R.drawable.ic_person);
 
             h.tvAuthor.setText(p.authorName != null ? p.authorName : "Unknown");

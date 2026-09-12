@@ -118,8 +118,15 @@ public final class ChatAvatarBinder {
     }
 
     public static void bindBitmap(Context ctx, String photo, long avatarVersion, BitmapCallback callback) {
+        bindBitmap(ctx, photo, avatarVersion, TIER_INLINE, callback);
+    }
+
+    /** Same as {@link #bindBitmap(Context, String, long, BitmapCallback)} but
+     *  for a caller-specified tier -- e.g. the ~36dp "seen this reel/status"
+     *  bubble avatar, which under-resolves at the default 24dp TIER_INLINE. */
+    public static void bindBitmap(Context ctx, String photo, long avatarVersion, AvatarSizeTier tier, BitmapCallback callback) {
         if (photo == null || photo.isEmpty()) return;
-        String url = AvatarUrlBuilder.buildResponsive(ctx, photo, TIER_INLINE, avatarVersion);
+        String url = AvatarUrlBuilder.buildResponsive(ctx, photo, tier, avatarVersion);
         if (url == null) return;
 
         Bitmap l2Hit = ChatAvatarL2Cache.get(ctx).get(url);
@@ -129,7 +136,7 @@ public final class ChatAvatarBinder {
             return;
         }
 
-        int px = AvatarUrlBuilder.tierPx(ctx, TIER_INLINE);
+        int px = AvatarUrlBuilder.tierPx(ctx, tier);
         Glide.with(ctx)
             .asBitmap()
             .load(url)

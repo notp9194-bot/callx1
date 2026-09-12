@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ══════════════════════════════════════════════════════════════
+     VOICE RECORDING INDICATOR — "Rahul is recording a voice
+     message 🎙️" — the audio-version of the typing strip. Shows
+     when the partner is actively holding the mic button and
+     recording a voice note. Uses the same pill style as
+     ll_typing_strip but with a pulsing mic icon + waveform bar
+     instead of the three bouncing dots.
+     Driven by ChatPresenceController#watchPartnerRecording.
+     PERF: extracted out of activity_chat.xml and lazily inflated via
+     ViewStub (stub_voice_recording_strip) — most chat sessions never
+     see the partner recording, so this never inflates on a normal
+     chat open.
+     ══════════════════════════════════════════════════════════════ -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/ll_voice_recording_strip"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_gravity="bottom|start"
+    android:layout_margin="10dp"
+    android:layout_marginBottom="76dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="@drawable/bg_watching_strip"
+    android:paddingStart="6dp"
+    android:paddingEnd="14dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp">
+
+    <!-- Avatar + mic icon + name, combined into one Canvas-rendered view —
+         see RecordingStripCanvasView (same rationale as ll_typing_strip's
+         TypingStripCanvasView: one measure/layout/draw pass instead of 3
+         separate Views, avatar decoded once into a circular Bitmap). -->
+    <com.callx.app.conversation.canvas.RecordingStripCanvasView
+        android:id="@+id/recording_strip_canvas"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="6dp"/>
+
+    <!-- Live waveform driven by the partner's REAL mic amplitude —
+         see RecordingPreviewController. Replaces the old static
+         5-bar fake waveform (whose animator was already disabled
+         for perf); this View is allocation-free per frame
+         (RecordingWaveformView: fixed-capacity ring buffer, single
+         onDraw pass), same class already used for our OWN
+         recording bar in ll_recording_bar below. -->
+    <com.callx.app.chat.ui.RecordingWaveformView
+        android:id="@+id/waveform_recording_preview"
+        android:layout_width="46dp"
+        android:layout_height="18dp"/>
+
+</LinearLayout>

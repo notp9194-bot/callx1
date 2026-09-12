@@ -228,6 +228,14 @@ public class GroupReadByActivity extends AppCompatActivity {
             }
         }
 
+        @Override public void onViewRecycled(@NonNull RecyclerView.ViewHolder h) {
+            super.onViewRecycled(h);
+            if (h instanceof MemberVH && ((MemberVH) h).ivAvatar != null) {
+                com.callx.app.cache.ChatAvatarBinder.cancel(
+                        ((MemberVH) h).ivAvatar.getContext(), ((MemberVH) h).ivAvatar);
+            }
+        }
+
         static class HeaderVH extends RecyclerView.ViewHolder {
             TextView tvHeader;
             HeaderVH(View v) { super(v); tvHeader = v.findViewById(R.id.tv_info_header); }
@@ -262,8 +270,13 @@ public class GroupReadByActivity extends AppCompatActivity {
                 }
                 if (ivAvatar != null) {
                     if (row.photoUrl != null && !row.photoUrl.isEmpty()) {
-                        com.bumptech.glide.Glide.with(ivAvatar).load(row.photoUrl)
-                                .placeholder(R.drawable.ic_person).into(ivAvatar);
+                        // FIX (avatar optimization — reuse core pipeline):
+                        // was a flat, un-tiered Glide load — same shape as
+                        // MessageInfoAdapter's member rows, now shares
+                        // L2/L3 cache with GroupMemberAdapter's own row for
+                        // this exact member.
+                        com.callx.app.cache.ChatAvatarBinder.bind(ivAvatar.getContext(), ivAvatar,
+                                row.photoUrl, 0L, R.drawable.ic_person);
                     } else {
                         ivAvatar.setImageResource(R.drawable.ic_person);
                     }

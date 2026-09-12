@@ -467,6 +467,21 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ── Selection toolbar ──────────────────────────────────────────────────
     private boolean selectionToolbarSetup = false;
 
+    // PERF: ll_empty_chat is behind a ViewStub in activity_chat.xml
+    // (see layout_empty_chat_state.xml) — only inflated the first time
+    // the chat is confirmed to have zero messages, instead of on every
+    // chat screen open. Cached here once inflated; null until then.
+    private View emptyChatView;
+
+    /** Lazily inflates the empty-chat-state ViewStub on first use. Safe to
+     *  call repeatedly — only actually inflates once per activity lifetime. */
+    private View getOrInflateEmptyChatView() {
+        if (emptyChatView == null) {
+            emptyChatView = binding.stubEmptyChat.inflate();
+        }
+        return emptyChatView;
+    }
+
     // ── Glide preload state ────────────────────────────────────────────────
     // Strong references to in-flight WarmCacheTargets so Glide cannot GC/cancel
     // them before the decoded Bitmap is stored in the LRU memory cache.
@@ -653,12 +668,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 if (url != null && !url.isEmpty()) {
                     if (photo != null) partnerPhoto = photo;
                     if (thumb != null) partnerThumb = thumb;
-                    Glide.with(ChatActivity.this).load(url).placeholder(R.drawable.ic_person)
-                            .override(96, 96)
-                            .circleCrop()
-                            .listener(com.callx.app.cache.CacheDashboardStats.glideListener(
-                                    ChatActivity.this, "chat_header_avatar:" + url))
-                            .into(binding.ivPartnerAvatar);
+                    // FIX (avatar optimization — reuse core pipeline): was a
+                    // flat, hardcoded-96px Glide load with its own
+                    // CacheDashboardStats listener; ChatAvatarBinder.bind()
+                    // already records the same dashboard stats internally
+                    // AND shares L2/L3 cache entries with the chat list row
+                    // for this exact partner (same TIER), so this header
+                    // avatar is typically an instant memory hit.
+                    com.callx.app.cache.ChatAvatarBinder.bind(ChatActivity.this,
+                            binding.ivPartnerAvatar, url, 0L, R.drawable.ic_person);
                 }
             }
 
@@ -1489,6 +1507,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     protected void onDestroy() {
         super.onDestroy();
         saveDraft();
+        // PERF ADV: this chat's Canvas ViewHolders may still be parked in
+        // the now-shared/static RecycledViewPool with their click listener
+        // pointing back at THIS adapter (see getSharedCanvasPool() doc).
+        // Trim them out now instead of leaving this Activity reachable
+        // until some future chat happens to reuse those exact pool slots.
+        com.callx.app.conversation.MessagePagingAdapter.trimSharedCanvasPool();
         // Pair with the keepSynced(true) set when messagesRef was created
         // above — stop actively syncing this chat's path once it's closed,
         // so we don't accumulate a permanently-synced path per chat ever
@@ -1974,10 +1998,24 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         } catch (Exception ignored) {}
     }
 
+    // PERF: tv_offline_banner is behind a ViewStub in activity_chat.xml
+    // (see layout_offline_banner.xml) — only inflated the first time the
+    // device actually goes offline, instead of on every chat screen open
+    // (most sessions never go offline).
     private void updateOfflineBanner(boolean offline) {
         if (binding == null) return;
-        android.widget.TextView banner = binding.getRoot().findViewById(R.id.tv_offline_banner);
-        if (banner != null) banner.setVisibility(offline ? View.VISIBLE : View.GONE);
+        if (!offline) {
+            // Don't force-inflate just to hide it — if it was never shown
+            // yet, it's already gone.
+            android.widget.TextView banner = binding.getRoot().findViewById(R.id.tv_offline_banner);
+            if (banner != null) banner.setVisibility(View.GONE);
+            return;
+        }
+        android.view.View stub = binding.getRoot().findViewById(R.id.stub_offline_banner);
+        android.widget.TextView banner = (stub instanceof android.view.ViewStub)
+                ? (android.widget.TextView) ((android.view.ViewStub) stub).inflate()
+                : binding.getRoot().findViewById(R.id.tv_offline_banner);
+        if (banner != null) banner.setVisibility(View.VISIBLE);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -2331,11 +2369,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
         String headerAvatar = (partnerThumb != null && !partnerThumb.isEmpty()) ? partnerThumb : partnerPhoto;
         if (headerAvatar != null && !headerAvatar.isEmpty()) {
-            Glide.with(this).load(headerAvatar).placeholder(R.drawable.ic_person).circleCrop()
-                    .override(96, 96)
-                    .listener(com.callx.app.cache.CacheDashboardStats.glideListener(
-                            this, "chat_header_avatar:" + headerAvatar))
-                    .into(binding.ivPartnerAvatar);
+            // FIX (avatar optimization — reuse core pipeline): same switch
+            // as fetchPartnerProfileOnce()'s header-avatar fallback above —
+            // ChatAvatarBinder.bind() instead of a flat hardcoded-96px load.
+            com.callx.app.cache.ChatAvatarBinder.bind(this,
+                    binding.ivPartnerAvatar, headerAvatar, 0L, R.drawable.ic_person);
         } else {
             // PERF: was its own independent getUserRef(partnerUid)
             // .addListenerForSingleValueEvent() read here just for the
@@ -2611,7 +2649,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // FIX #2d: Tune RecycledViewPool per view type (5 types × 5 each).
         // Default pool size is 5 already but explicit sizing prevents the pool
         // from being exhausted on fast flings that scroll past many bubbles.
-        RecyclerView.RecycledViewPool pool = new RecyclerView.RecycledViewPool();
+        // PERF ADV: shared/static pool (MessagePagingAdapter.getSharedCanvasPool())
+        // instead of `new RecyclerView.RecycledViewPool()` — a second+ chat
+        // opened in the same process reuses already-warm Canvas ViewHolders
+        // instead of paying their ~30-Paint-field allocation again. See
+        // trimSharedCanvasPool() call in onDestroy() for the matching
+        // leak-safety half of this change.
+        RecyclerView.RecycledViewPool pool = MessagePagingAdapter.getSharedCanvasPool();
         // PERF: increased TYPE_SENT/RECEIVED pool to 18 — on a fast fling
         // (Telegram-speed flick, not just a slow drag) the visible window
         // can blow past 12-16 bubbles before the list settles; the old
@@ -2918,7 +2962,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             if (refresh instanceof androidx.paging.LoadState.Loading) {
                 // Still loading — let the already-scheduled delayed shimmer
                 // fire on its own (don't show it earlier than planned).
-                binding.llEmptyChat.setVisibility(View.GONE);
+                // PERF: don't force-inflate the empty-state ViewStub just to
+                // hide it — if it was never shown yet it's already GONE.
+                if (emptyChatView != null) emptyChatView.setVisibility(View.GONE);
             } else {
                 // Data resolved (cached or fresh) — cancel the pending
                 // shimmer-show before it ever gets a chance to appear.
@@ -2931,7 +2977,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 }
                 boolean isEmpty = pagingAdapter.getItemCount() == 0;
                 binding.rvMessages.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
-                binding.llEmptyChat.setVisibility(isEmpty ? View.VISIBLE : View.GONE);
+                if (isEmpty) {
+                    // PERF: only ever inflated for a genuinely empty chat —
+                    // most chat opens have messages and never touch this.
+                    getOrInflateEmptyChatView().setVisibility(View.VISIBLE);
+                } else if (emptyChatView != null) {
+                    emptyChatView.setVisibility(View.GONE);
+                }
                 // Confirmed-empty chat (genuinely zero messages, ever) —
                 // onItemRangeInserted() will never fire since nothing is
                 // being inserted, so this is the only signal we'll get.
@@ -4357,6 +4409,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         });
         binding.chatIconBar.setOnAttachClickListener(() -> mediaController.showAttachSheet());
         binding.btnViewOnce.setOnClickListener(v -> showViewOnceExpiryPicker());
+        // ULTRA-OPT: icon bitmap now comes from IconTintCache (process-wide,
+        // shared with ChatIconBarView) instead of XML android:src+tint —
+        // 1st chat open of the app draws+caches it once, every chat open
+        // after that (this screen and any other) reuses the same Bitmap,
+        // zero Drawable mutate/tint/draw cost. setColorFilter below still
+        // overrides to the idle/active state color exactly as before.
+        binding.btnViewOnce.setImageBitmap(
+                com.callx.app.chat.ui.IconTintCache.get(this,
+                        com.callx.app.chat.R.drawable.ic_view_once,
+                        com.callx.app.chat.R.color.chat_input_text,
+                        dp(22)));
+        setViewOnceMode(false);
         binding.chatIconBar.setOnCameraClickListener(() -> mediaController.launchCamera());
 
         if (binding.btnCancelReply != null)
@@ -5300,9 +5364,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // SELECTION TOOLBAR
     // ─────────────────────────────────────────────────────────────────────
 
+    // PERF: ll_selection_toolbar is behind a ViewStub in activity_chat.xml
+    // (see layout_selection_toolbar.xml) — only inflated the first time the
+    // user actually enters multi-select, instead of on every chat screen
+    // open (most sessions never multi-select).
     private void setupSelectionToolbar() {
         if (selectionToolbarSetup) return;
         selectionToolbarSetup = true;
+
+        View stub = binding.getRoot().findViewById(com.callx.app.chat.R.id.stub_selection_toolbar);
+        if (stub instanceof android.view.ViewStub) ((android.view.ViewStub) stub).inflate();
 
         View btnClose = binding.getRoot().findViewById(com.callx.app.chat.R.id.btn_selection_close);
         if (btnClose != null) btnClose.setOnClickListener(v -> { pagingAdapter.exitMultiSelectMode(); hideMultiSelectBar(); });

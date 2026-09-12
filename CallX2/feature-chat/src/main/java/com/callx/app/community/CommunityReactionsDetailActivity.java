@@ -12,7 +12,6 @@ import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
 import com.callx.app.repository.CommunityRepository;
 import com.callx.app.utils.FirebaseUtils;
@@ -182,7 +181,8 @@ public class CommunityReactionsDetailActivity extends AppCompatActivity {
             h.tvName.setText(r.name != null ? r.name : r.uid);
             h.tvEmoji.setText(CommunityReaction.getEmoji(r.type));
             if (r.photoUrl != null && !r.photoUrl.isEmpty()) {
-                Glide.with(h.itemView.getContext()).load(r.photoUrl).circleCrop().into(h.ivAvatar);
+                com.callx.app.cache.CommunityAvatarBinder.bindIcon(h.itemView.getContext(), h.ivAvatar,
+                        r.photoUrl, com.callx.app.cache.CommunityAvatarBinder.TIER_POST_AUTHOR, 0);
             }
         }
 

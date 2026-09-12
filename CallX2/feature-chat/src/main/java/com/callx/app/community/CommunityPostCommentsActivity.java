@@ -574,8 +574,8 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
 
             // Avatar
             if (c.authorPhoto != null && !c.authorPhoto.isEmpty())
-                Glide.with(h.ivAvatar.getContext()).load(c.authorPhoto)
-                        .circleCrop().placeholder(R.drawable.ic_person).into(h.ivAvatar);
+                com.callx.app.cache.CommunityAvatarBinder.bindIcon(h.ivAvatar.getContext(), h.ivAvatar,
+                        c.authorPhoto, com.callx.app.cache.CommunityAvatarBinder.TIER_POST_AUTHOR, R.drawable.ic_person);
             else h.ivAvatar.setImageResource(R.drawable.ic_person);
 
             h.tvAuthor.setText(c.authorName != null ? c.authorName : "");
@@ -696,8 +696,8 @@ public class CommunityPostCommentsActivity extends AppCompatActivity {
             ReplyItem r = items.get(pos);
 
             if (r.authorPhoto != null && !r.authorPhoto.isEmpty())
-                Glide.with(h.ivAvatar.getContext()).load(r.authorPhoto)
-                        .circleCrop().placeholder(R.drawable.ic_person).into(h.ivAvatar);
+                com.callx.app.cache.CommunityAvatarBinder.bindIcon(h.ivAvatar.getContext(), h.ivAvatar,
+                        r.authorPhoto, com.callx.app.cache.CommunityAvatarBinder.TIER_POST_AUTHOR, R.drawable.ic_person);
             else h.ivAvatar.setImageResource(R.drawable.ic_person);
 
             h.tvAuthor.setText(r.authorName != null ? r.authorName : "");
