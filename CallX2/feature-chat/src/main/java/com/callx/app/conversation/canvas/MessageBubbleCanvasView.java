@@ -901,11 +901,20 @@ public class MessageBubbleCanvasView extends View {
             synchronized (sPollOptionLayoutCacheLock) { sPollOptionLayoutCache.clear(); }
             synchronized (sReplyLayoutCacheLock) { sReplyLayoutCache.clear(); }
             synchronized (sAudioLevelsCacheLock) { sAudioLevelsCache.clear(); }
+            synchronized (sAudioWaveformMaskCacheLock) { sAudioWaveformMaskCache.clear(); }
         } else if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
             trimToQuarter(sTextLayoutCacheLock, sTextLayoutCache, TEXT_LAYOUT_CACHE_CAPACITY);
             trimToQuarter(sPollOptionLayoutCacheLock, sPollOptionLayoutCache, POLL_OPTION_LAYOUT_CACHE_CAPACITY);
             trimToQuarter(sReplyLayoutCacheLock, sReplyLayoutCache, REPLY_LAYOUT_CACHE_CAPACITY);
             trimToQuarter(sAudioLevelsCacheLock, sAudioLevelsCache, AUDIO_LEVELS_CACHE_CAPACITY);
+            // Even after the grayscale-mask revision (1 byte/pixel, no
+            // RGB), these are still the largest individual entries of any
+            // of these five caches, so on real memory pressure (not just
+            // COMPLETE) trim them down to an eighth rather than a quarter
+            // — same trimToQuarter() helper, just called with a
+            // pre-halved target capacity.
+            trimToQuarter(sAudioWaveformMaskCacheLock, sAudioWaveformMaskCache,
+                    Math.max(4, AUDIO_WAVEFORM_MASK_CACHE_CAPACITY / 2));
         }
     }
 
@@ -926,6 +935,18 @@ public class MessageBubbleCanvasView extends View {
     // -1 (precompute disabled) until at least one real bubble has been
     // measured this process.
     private static volatile int sLastKnownMaxTextWidth = -1;
+
+    // ── Self-calibrated inputs for precomputeAudioWaveformBitmapsIfPossible()
+    // below — same "-1 until a real bubble has actually been measured
+    // this process" convention as sLastKnownMaxTextWidth just above.
+    // Width/height are seeded from the real audioWaveformRect the very
+    // first time an audio bubble lays out (see the isAudio branch further
+    // down onMeasure/layout). No color calibration is needed here at all
+    // — the shared mask cache stores a colorless coverage mask and tints
+    // it at DRAW time (see sAudioWaveformMaskCache below), so a single
+    // (width, height) pair covers every bubble regardless of side/theme.
+    private static volatile int sLastKnownAudioWaveformWidthPx = -1;
+    private static volatile int sLastKnownAudioWaveformHeightPx = -1;
 
     static {
         // v376 PERF: seed an estimate immediately at class-load time instead
@@ -1490,6 +1511,12 @@ public class MessageBubbleCanvasView extends View {
     // isMedia/isMediaGroup/isReelShare (see AUDIO_* constants doc above). ──
     boolean isAudio = false;
     float[] audioLevels = new float[0];
+    // Raw seed string bindAudio() was called with — kept alongside
+    // audioLevels purely so AudioRenderer can build the shared waveform-
+    // mask cache key (seed+width+height) described at
+    // sAudioWaveformMaskCache below without threading a new parameter
+    // through draw(). Never "" vs null ambiguity: normalized to "" here.
+    String audioSeed = "";
     float audioProgress = 0f;   // 0..1 played fraction, drives waveform fill + seek
     boolean audioPlaying = false;
     String audioElapsedText = ""; // "m:ss" while playing; empty when idle (mirrors legacy tv_audio_dur, which never shows a total duration upfront)
@@ -2802,6 +2829,7 @@ public class MessageBubbleCanvasView extends View {
         this.read = isRead;
         this.delivered = isDelivered;
         this.audioLevels = generateAudioLevels(seed, AUDIO_BAR_COUNT);
+        this.audioSeed = seed != null ? seed : "";
         this.audioProgress = 0f;
         this.audioPlaying = false;
         this.audioElapsedText = "";
@@ -2998,6 +3026,152 @@ public class MessageBubbleCanvasView extends View {
             sAudioLevelsCache.put(key, out);
         }
         return out;
+    }
+
+    // ── PERF: shared audio-waveform MASK cache ──────────────────────────
+    // AudioRenderer used to keep its idle/played waveform bitmaps as
+    // per-instance fields — one AudioRenderer per MessageBubbleCanvasView,
+    // one MessageBubbleCanvasView per RecyclerView holder. That meant every
+    // recycled row rebuilt its own bitmaps from scratch even when another
+    // currently-recycled holder (or the SAME voice note scrolled back into
+    // view under a different holder) had already baked the identical shape
+    // moments earlier — same waste class sTextLayoutCache/sAudioLevelsCache
+    // above already fixed for text and bar-height generation, just one
+    // layer further down the pipeline (the actual pixels). A later pass
+    // then made this a SHARED static cache instead of per-instance — this
+    // is that cache's second revision.
+    //
+    // PERF (grayscale-mask revision): the bar *shape* is identical for the
+    // idle and played bitmaps — only the tint color differs. The previous
+    // revision still baked that shape twice, into two full ARGB_8888
+    // bitmaps (4 bytes/pixel each = 8 bytes/pixel total per cache entry).
+    // Bar color also isn't actually needed at bake time at all: Android
+    // can tint a colorless coverage mask at DRAW time via a
+    // PorterDuffColorFilter(color, SRC_IN), the same technique used
+    // everywhere icons get recolored. So this cache now stores ONE
+    // ALPHA_8 bitmap per entry — 1 byte/pixel, no RGB channels at all,
+    // just per-pixel coverage (full alpha inside a bar, partial at its
+    // antialiased edge, zero outside) — an 8x memory drop per entry versus
+    // the two-ARGB_8888 revision, and the SAME mask now serves both the
+    // idle-color and played-color draw calls (see AudioRenderer.draw()),
+    // just tinted differently each time via colorFilter. The color no
+    // longer needs to be part of the cache key at all — a mask built for
+    // one bubble is equally valid for any color, sent or received, light
+    // or dark theme — which also means precomputeAudioWaveformBitmapsIfPossible()
+    // below no longer needs to know a message's sent/received side either.
+    //
+    // Same LinkedHashMap-LRU pattern as sTextLayoutCache/sAudioLevelsCache.
+    // Key is exactly (seed, bar count, waveform width/height in px) — i.e.
+    // every input the bar shape actually depends on now that color is
+    // applied at draw time. Capacity is bumped up from the two-bitmap
+    // revision since each entry is ~8x cheaper in memory, so this cache
+    // can now afford to hold far more distinct shapes for the same
+    // footprint. Evicted entries are simply dropped (no explicit
+    // Bitmap.recycle()): a mask that's still on-screen under another
+    // holder must stay valid, and letting the GC reclaim it once nothing
+    // references it anymore is the same safe default used everywhere else
+    // non-hardware bitmaps are cached in this app.
+    private static final int AUDIO_WAVEFORM_MASK_CACHE_CAPACITY = 160;
+    private static final Object sAudioWaveformMaskCacheLock = new Object();
+    private static final java.util.LinkedHashMap<String, android.graphics.Bitmap> sAudioWaveformMaskCache =
+            new java.util.LinkedHashMap<String, android.graphics.Bitmap>(64, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        java.util.Map.Entry<String, android.graphics.Bitmap> eldest) {
+                    return size() > AUDIO_WAVEFORM_MASK_CACHE_CAPACITY;
+                }
+            };
+
+    /**
+     * Returns the cached coverage-mask bitmap for this exact (seed,
+     * levels.length, w, h) combination, building and caching it on a
+     * miss. Called from AudioRenderer.draw() for BOTH the idle and played
+     * draw passes — same mask, different colorFilter tint at the call
+     * site. Cheap on a hit (one synchronized map lookup), same cost as
+     * before on a miss, just one Bitmap.createBitmap + one drawBars pass
+     * instead of two. Returns null only on OutOfMemoryError — callers
+     * fall back to direct drawRoundRect() for that one frame.
+     */
+    static android.graphics.Bitmap getOrBuildAudioWaveformMask(
+            String seed, float[] levels, int w, int h) {
+        String key = (seed == null ? "" : seed) + "_" + levels.length + "_" + w + "_" + h;
+        synchronized (sAudioWaveformMaskCacheLock) {
+            android.graphics.Bitmap hit = sAudioWaveformMaskCache.get(key);
+            if (hit != null) return hit;
+        }
+        android.graphics.Bitmap mask;
+        try {
+            mask = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ALPHA_8);
+            drawAudioWaveformMaskBars(new android.graphics.Canvas(mask), levels, w, h);
+        } catch (OutOfMemoryError oom) {
+            return null;
+        }
+        synchronized (sAudioWaveformMaskCacheLock) {
+            sAudioWaveformMaskCache.put(key, mask);
+        }
+        return mask;
+    }
+
+    /**
+     * The only place waveform bar geometry is actually computed — once
+     * per cache miss, baked into the given ALPHA_8 bitmap canvas at
+     * (0,0). Same bar math AudioRenderer/AudioWaveformView have always
+     * used; paint color is irrelevant on an ALPHA_8 target (only the
+     * alpha channel is ever recorded), so a plain opaque paint is used
+     * purely so antialiased bar edges bake in as partial coverage.
+     */
+    private static void drawAudioWaveformMaskBars(android.graphics.Canvas canvas, float[] levels, int w, int h) {
+        int n = levels.length;
+        if (n == 0) return;
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(0xFFFFFFFF); // RGB ignored on ALPHA_8 — only alpha (255 here, less at AA edges) is recorded
+        float slot = (float) w / n;
+        float barWidth = slot * (1f - AUDIO_BAR_GAP_RATIO);
+        float radius = barWidth / 2f;
+        float centerY = h / 2f;
+        float x = 0;
+        for (float lvl : levels) {
+            float barHeight = Math.max(barWidth, lvl * h);
+            canvas.drawRoundRect(x, centerY - barHeight / 2f, x + barWidth, centerY + barHeight / 2f,
+                    radius, radius, paint);
+            x += slot;
+        }
+    }
+
+    /**
+     * Off-thread precompute for a voice-message bubble's waveform mask —
+     * same idea and the same safety contract as
+     * precomputeTextLayoutIfPossible() above, just one layer further down
+     * the pipeline (actual pixels, not a StaticLayout). Call from
+     * entityToModel() (already running on ioExecutor — see that method's
+     * own javadoc) for every audio message, off the UI thread, before the
+     * message ever reaches the adapter/paging list.
+     *
+     * No-ops until at least one real audio bubble has been measured this
+     * process — same -1 "not seeded yet" convention sLastKnownMaxTextWidth
+     * uses for text. Unlike the earlier two-bitmap revision, this no
+     * longer needs a sent/received side at all: the mask carries no
+     * color, so one precompute per (seed, width, height) covers every
+     * bubble that could ever need it, on either side, in either theme.
+     *
+     * Builds straight into the SAME shared sAudioWaveformMaskCache that
+     * getOrBuildAudioWaveformMask() reads from at bind/draw time — a hit
+     * there is a single synchronized map lookup, so a message precomputed
+     * here costs the UI thread nothing at all when it actually binds.
+     *
+     * SAFETY: the cache key includes the exact width/height, so a
+     * mismatch (window resized/rotated between precompute and bind) is
+     * simply a cache miss — draw() falls back to building fresh via
+     * getOrBuildAudioWaveformMask() exactly as it always could. Worst
+     * case is "no speedup for that one bubble," never wrong pixels —
+     * identical guarantee to the text-layout cache.
+     */
+    public static void precomputeAudioWaveformBitmapsIfPossible(@Nullable String seed) {
+        int w = sLastKnownAudioWaveformWidthPx;
+        int h = sLastKnownAudioWaveformHeightPx;
+        if (w <= 0 || h <= 0) return; // no real audio bubble measured yet this session
+        float[] levels = generateAudioLevels(seed, AUDIO_BAR_COUNT);
+        getOrBuildAudioWaveformMask(seed != null ? seed : "", levels, w, h);
     }
 
     /**
@@ -5155,6 +5329,11 @@ public class MessageBubbleCanvasView extends View {
                     waveformTop,
                     bubbleLeft + bubbleWidth - hPad - rowGap - durWidth,
                     waveformTop + AUDIO_WAVEFORM_HEIGHT_DP * density);
+            // PERF: seed precomputeAudioWaveformBitmapsIfPossible()'s
+            // self-calibrated size, same convention as
+            // sLastKnownMaxTextWidth for text (see its javadoc above).
+            sLastKnownAudioWaveformWidthPx = Math.round(audioWaveformRect.width());
+            sLastKnownAudioWaveformHeightPx = Math.round(audioWaveformRect.height());
         }
 
         if (isMedia) {

@@ -4305,6 +4305,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                             m.replyToText,
                             m.replyToMediaUrl != null && !m.replyToMediaUrl.isEmpty());
         }
+        // PERF: off-thread waveform-mask precompute — mirrors the text
+        // precompute above one layer further down (actual pixels, not a
+        // StaticLayout). The mask is colorless (see
+        // precomputeAudioWaveformBitmapsIfPossible()'s javadoc), so no
+        // sent/received side needs to be worked out here at all.
+        if (m != null && "audio".equals(m.type)) {
+            String seed = m.mediaUrl != null ? m.mediaUrl : m.text;
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                    .precomputeAudioWaveformBitmapsIfPossible(seed);
+        }
         return m;
     }
 

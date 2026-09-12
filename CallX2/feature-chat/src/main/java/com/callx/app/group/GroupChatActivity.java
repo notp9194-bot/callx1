@@ -1988,6 +1988,17 @@ public class GroupChatActivity extends AppCompatActivity
                             m.replyToText,
                             m.replyToMediaUrl != null && !m.replyToMediaUrl.isEmpty());
         }
+        // PERF: off-thread waveform-mask precompute — same idea/safety
+        // contract as 1:1 ChatActivity's entityToModel(). Group chat uses
+        // the same MessagePagingAdapter + "audio" type + bindAudio() path,
+        // so this feeds the exact same shared sAudioWaveformMaskCache. The
+        // mask is colorless, so no sent/received side needs to be worked
+        // out here.
+        if ("audio".equals(m.type)) {
+            String seed = m.mediaUrl != null ? m.mediaUrl : m.text;
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                    .precomputeAudioWaveformBitmapsIfPossible(seed);
+        }
         return m;
     }
 
