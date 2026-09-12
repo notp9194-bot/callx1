@@ -41,30 +41,6 @@ public class CallxApp extends Application {
     private static int    sActivityRefs = 0;
     private static String sMyPhotoUrl   = "";
 
-    // Storage pressure is independent from RAM pressure. Android sends the
-    // broadcast when it crosses the system threshold, while the periodic
-    // StatFs check also catches devices/OEMs that do not deliver it reliably.
-    private final android.os.Handler storageMonitorHandler =
-            new android.os.Handler(android.os.Looper.getMainLooper());
-    private final Runnable storageMonitorRunnable = new Runnable() {
-        @Override public void run() {
-            if (com.callx.app.cache.DynamicCachePolicy.isStorageLow(CallxApp.this)) {
-                trimCachesForLowStorage();
-            }
-            storageMonitorHandler.postDelayed(this, 15 * 60 * 1000L);
-        }
-    };
-    private final android.content.BroadcastReceiver storagePressureReceiver =
-            new android.content.BroadcastReceiver() {
-                @Override public void onReceive(android.content.Context context,
-                                                android.content.Intent intent) {
-                    if (android.content.Intent.ACTION_DEVICE_STORAGE_LOW
-                            .equals(intent.getAction())) {
-                        trimCachesForLowStorage();
-                    }
-                }
-            };
-
     public static boolean isAppInForeground()  { return sActivityRefs > 0; }
     public static String  getMyPhotoUrlCached() { return sMyPhotoUrl; }
 
@@ -92,8 +68,6 @@ public class CallxApp extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
-
-        registerStoragePressureMonitor();
 
         // "Just watched" reels-grid overlay is scoped to the CURRENT app
         // session (see AppSessionTracker + UserReelsActivity#loadWatchedReelIds
@@ -458,27 +432,6 @@ public class CallxApp extends Application {
 
             Log.d(TAG, "Background init complete");
         }, "app-init-bg").start();
-    }
-
-    private void registerStoragePressureMonitor() {
-        android.content.IntentFilter filter = new android.content.IntentFilter(
-                android.content.Intent.ACTION_DEVICE_STORAGE_LOW);
-        filter.addAction(android.content.Intent.ACTION_DEVICE_STORAGE_OK);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(storagePressureReceiver, filter,
-                    android.content.Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(storagePressureReceiver, filter);
-        }
-        storageMonitorHandler.removeCallbacks(storageMonitorRunnable);
-        storageMonitorHandler.postDelayed(storageMonitorRunnable, 15 * 60 * 1000L);
-    }
-
-    private void trimCachesForLowStorage() {
-        // BroadcastReceiver callbacks run on the main thread. All cache
-        // eviction, directory scans and Glide disk operations stay off it.
-        new Thread(() -> com.callx.app.cache.DynamicCachePolicy
-                .trimForLowStorage(getApplicationContext()), "cache-low-storage").start();
     }
 
     // ──────────────────────────────────────────────────────────────

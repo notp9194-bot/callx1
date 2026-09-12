@@ -374,6 +374,7 @@ public class ChatPresenceController {
             Boolean partnerGhost = s.child("privacy").child("ghost").getValue(Boolean.class);
             if (Boolean.TRUE.equals(partnerGhost)) {
                 binding.tvStatus.setVisibility(View.GONE);
+                setHeaderOnlineDotVisible(binding, false);
                 return;
             }
 
@@ -383,9 +384,11 @@ public class ChatPresenceController {
             Boolean online   = s.child("online").getValue(Boolean.class);
             Long lastSeen    = s.child("lastSeen").getValue(Long.class);
 
+            Boolean partnerIncognito = s.child("privacy").child("incognito").getValue(Boolean.class);
+            boolean showAsOnline = Boolean.TRUE.equals(online) && !Boolean.TRUE.equals(partnerIncognito);
+
             String statusText;
             if (Boolean.TRUE.equals(online)) {
-                Boolean partnerIncognito = s.child("privacy").child("incognito").getValue(Boolean.class);
                 statusText = Boolean.TRUE.equals(partnerIncognito) ? "" : "online";
             } else if (!hideLastSeen && lastSeen != null && lastSeen > 0) {
                 statusText = formatLastSeenRelative(lastSeen);
@@ -395,7 +398,19 @@ public class ChatPresenceController {
 
             binding.tvStatus.setText(statusText);
             binding.tvStatus.setVisibility(statusText.length() > 0 ? View.VISIBLE : View.GONE);
+            // iOS-style header's small green dot on the avatar — mirrors the
+            // exact same "online" condition as the text line above (never
+            // shown for ghost/incognito, same as "online" text being blank).
+            setHeaderOnlineDotVisible(binding, showAsOnline);
         });
+    }
+
+    /** Toggles the small green dot on the iOS-style header avatar
+     *  (view_header_online_dot) — GONE by default in the layout so chats
+     *  never show a stray dot before the first presence snapshot arrives. */
+    private void setHeaderOnlineDotVisible(ActivityChatBinding binding, boolean visible) {
+        View dot = binding.getRoot().findViewById(R.id.view_header_online_dot);
+        if (dot != null) dot.setVisibility(visible ? View.VISIBLE : View.GONE);
     }
 
     // ── PERF (WhatsApp-level formatter caching) ─────────────────────────────

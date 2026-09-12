@@ -93,14 +93,10 @@ public class ChatThemeManager {
     public void applyBubbleOwned(View bubbleView, GradientDrawable owned, boolean sent, boolean hasReply) {
         if (bubbleView == null || owned == null) return;
         ensureRadii(bubbleView.getContext());
-        int start = resolveColor(bubbleView.getContext(), sent
-                ? com.callx.app.core.R.color.chat_bubble_sent_start
-                : com.callx.app.core.R.color.chat_bubble_received_start);
-        int end = resolveColor(bubbleView.getContext(), sent
-                ? com.callx.app.core.R.color.chat_bubble_sent_end
-                : com.callx.app.core.R.color.chat_bubble_received_end);
-        owned.setColors(new int[]{start, end});
-        owned.setOrientation(GradientDrawable.Orientation.TL_BR);
+        int color = resolveColor(bubbleView.getContext(), sent
+                ? com.callx.app.core.R.color.bubble_sent
+                : com.callx.app.core.R.color.bubble_received);
+        owned.setColor(color);
         owned.setCornerRadii(sent ? sentRadii : receivedRadii);
         if (bubbleView.getBackground() != owned) {
             bubbleView.setBackground(owned);
@@ -123,23 +119,27 @@ public class ChatThemeManager {
      * dark mode → white, via values-night).
      */
     public int getTextColor(Context ctx, boolean sent) {
-        return resolveColor(ctx, com.callx.app.core.R.color.chat_bubble_text);
+        return resolveColor(ctx, sent
+                ? com.callx.app.core.R.color.bubble_sent_text
+                : com.callx.app.core.R.color.bubble_received_text);
     }
 
     public int getPrimaryColor() {
-        return 0xFF7786FF;
+        // COLOR: premium deep-emerald (was WhatsApp green 0xFF008069)
+        return 0xFF0F4C3A;
     }
 
     public int getSecondaryColor() {
-        return 0xFFB7C4EE;
+        // COLOR: champagne-gold accent (was WhatsApp light-green 0xFF25D366)
+        return 0xFFD4AF37;
     }
 
     public int getChatBgColor(Context ctx) {
-        return resolveColor(ctx, com.callx.app.core.R.color.chat_bg_start);
+        return resolveColor(ctx, com.callx.app.core.R.color.surface_chat_bg);
     }
 
     public int getInputBarColor(Context ctx) {
-        return resolveColor(ctx, com.callx.app.core.R.color.chat_header_start);
+        return resolveColor(ctx, com.callx.app.core.R.color.bar_background);
     }
 
     /**
@@ -156,24 +156,17 @@ public class ChatThemeManager {
         if (toolbar == null) return;
         Context ctx = toolbar.getContext();
 
-        int barColor    = resolveColor(ctx, com.callx.app.core.R.color.chat_header_start);
-        int barColorEnd = resolveColor(ctx, com.callx.app.core.R.color.chat_header_end);
-        int chatBgStart = resolveColor(ctx, com.callx.app.core.R.color.chat_bg_start);
-        int chatBgEnd   = resolveColor(ctx, com.callx.app.core.R.color.chat_bg_end);
-        int brandColor  = resolveColor(ctx, com.callx.app.core.R.color.chat_accent);
+        int barColor    = resolveColor(ctx, com.callx.app.core.R.color.bar_background);
+        int chatBgColor = resolveColor(ctx, com.callx.app.core.R.color.surface_chat_bg);
+        int brandColor  = resolveColor(ctx, com.callx.app.core.R.color.brand_primary);
 
+        // Solid toolbar — matches @color/bar_background in XML (no gradient override)
         GradientDrawable toolbarBg = new GradientDrawable();
-        toolbarBg.setColors(new int[]{barColor, barColorEnd});
-        toolbarBg.setOrientation(GradientDrawable.Orientation.TL_BR);
+        toolbarBg.setColor(barColor);
         toolbar.setBackground(toolbarBg);
 
-        if (chatRoot != null) {
-            GradientDrawable chatBg = new GradientDrawable(
-                    GradientDrawable.Orientation.TL_BR,
-                    new int[]{chatBgStart, chatBgEnd});
-            chatRoot.setBackground(chatBg);
-        }
-        if (inputBarRoot != null) inputBarRoot.setBackgroundColor(0x00000000);
+        if (chatRoot != null)    chatRoot.setBackgroundColor(chatBgColor);
+        if (inputBarRoot != null) inputBarRoot.setBackgroundColor(barColor);
 
         // NOTE: the mic/send accent used to be applied here via a
         // GradientDrawable background swap on btnSend/btnMic. Since the
@@ -203,7 +196,7 @@ public class ChatThemeManager {
         // "tell" of this app, echoed by the same gold in the waveform
         // played-progress and the poll's leading-option accent so it reads
         // as one consistent signature rather than a random recolor.
-        return isRead ? 0xFF68B6FF : 0xFF9AA9D4;
+        return isRead ? 0xFFD4AF37 : 0xFF8FAF9F;
     }
 
     public static boolean isDarkMode(Context ctx) {

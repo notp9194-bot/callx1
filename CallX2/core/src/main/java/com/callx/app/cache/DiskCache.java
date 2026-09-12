@@ -13,8 +13,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Tier-2: Disk cache for media files (images, videos, voice notes).
- * Its max size is a device-aware share of DynamicCachePolicy's central
- * image/API cache budget. Files older than 7 days are auto-cleaned.
+ * Max size: 200 MB. Files older than 7 days are auto-cleaned.
  *
  * FIX #4 (MEDIUM): mCachedTotalBytes changed from plain long → AtomicLong.
  *
@@ -39,19 +38,18 @@ import java.util.concurrent.atomic.AtomicLong;
 public class DiskCache {
 
     private static final String TAG          = "DiskCache";
+    private static final long   MAX_SIZE     = 200L * 1024 * 1024; // 200 MB
     private static final long   MAX_AGE_MS   = 7L * 24 * 60 * 60 * 1000;
     private static final String CACHE_SUBDIR = "callx_media";
 
     private static DiskCache sInstance;
     private final File mCacheDir;
-    private final Context mContext;
 
     // FIX #4: AtomicLong — thread-safe on all architectures including 32-bit ARM
     private final AtomicLong mCachedTotalBytes = new AtomicLong(-1L);
 
     private DiskCache(Context ctx) {
-        mContext = ctx.getApplicationContext();
-        mCacheDir = new File(mContext.getCacheDir(), CACHE_SUBDIR);
+        mCacheDir = new File(ctx.getCacheDir(), CACHE_SUBDIR);
         if (!mCacheDir.exists()) mCacheDir.mkdirs();
     }
 
@@ -161,20 +159,11 @@ public class DiskCache {
 
     private void enforceMaxSizeLazy() {
         // FIX #4: atomic get — no torn read on 32-bit
-        if (mCachedTotalBytes.get() < getMaxSizeBytes()) return;
+        if (mCachedTotalBytes.get() < MAX_SIZE) return;
         enforceMaxSize();
     }
 
-    private synchronized void enforceMaxSize() {
-        trimToSizeBytes(getMaxSizeBytes());
-    }
-
-    /**
-     * Trims oldest entries until the requested size is reached. Used by the
-     * low-storage monitor as well as normal lazy enforcement.
-     */
-    public synchronized void trimToSizeBytes(long targetBytes) {
-        long maxSize = Math.max(0L, targetBytes);
+    private void enforceMaxSize() {
         File[] files = mCacheDir.listFiles(f -> !f.getName().endsWith(".tmp"));
         if (files == null) return;
 
@@ -182,11 +171,11 @@ public class DiskCache {
         for (File f : files) total += f.length();
         mCachedTotalBytes.set(total); // FIX #4: atomic set
 
-        if (total <= maxSize) return;
+        if (total <= MAX_SIZE) return;
 
         Arrays.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
         for (File f : files) {
-            if (total <= maxSize) break;
+            if (total <= MAX_SIZE) break;
             total -= f.length();
             f.delete();
         }
@@ -210,9 +199,7 @@ public class DiskCache {
     }
 
     public File getDiskCacheDir()  { return mCacheDir; }
-    public long getMaxSizeBytes()  {
-        return DynamicCachePolicy.getCoreDiskCacheBytes(mContext);
-    }
+    public long getMaxSizeBytes()  { return MAX_SIZE; }
 
     // ─────────────────────────────────────────────────────────────
     // SHA-256 FILENAME HASH (from v10 — no URL collision)

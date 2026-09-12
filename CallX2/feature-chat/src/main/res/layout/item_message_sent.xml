@@ -193,7 +193,7 @@
                 android:paddingEnd="6dp"
                 android:paddingTop="4dp"
                 android:paddingBottom="2dp"
-         android:textColor="@color/chat_bubble_text"
+                android:textColor="@color/bubble_sent_text"
                 android:textSize="15sp"
                 android:includeFontPadding="false"
                 android:lineSpacingExtra="0dp"
@@ -384,7 +384,7 @@
                     android:id="@+id/tv_time"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                     android:textColor="@color/chat_bubble_time"
+                    android:textColor="@color/bubble_time_sent"
                     android:textSize="9sp"/>
 
                 <TextView

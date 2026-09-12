@@ -13,8 +13,7 @@ import okhttp3.logging.HttpLoggingInterceptor;
 
 /**
  * OkHttp Network Cache — Tier-3 cache layer for HTTP responses.
- * Its size is a small dynamic share of the central cache budget. Used for
- * REST API calls and CDN media headers.
+ * Cache size: 10 MB. Used for REST API calls and CDN media headers.
  *
  * Previously fixed (v8):
  *   - HttpLoggingInterceptor wired in DEBUG only.
@@ -35,14 +34,14 @@ import okhttp3.logging.HttpLoggingInterceptor;
  */
 public class NetworkCacheHelper {
 
+    private static final long   CACHE_SIZE = 10L * 1024 * 1024; // 10 MB
     private static final String CACHE_DIR  = "http_cache";
     private static OkHttpClient sClient;
 
     public static synchronized OkHttpClient getClient(Context ctx) {
         if (sClient == null) {
             File  cacheDir  = new File(ctx.getApplicationContext().getCacheDir(), CACHE_DIR);
-            Cache httpCache = new Cache(cacheDir,
-                    DynamicCachePolicy.getNetworkHttpCacheBytes(ctx));
+            Cache httpCache = new Cache(cacheDir, CACHE_SIZE);
 
             OkHttpClient.Builder builder = new OkHttpClient.Builder()
                     .cache(httpCache)

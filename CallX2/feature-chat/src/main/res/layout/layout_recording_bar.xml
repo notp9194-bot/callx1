@@ -53,7 +53,7 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:text="00:00"
-            android:textColor="@color/chat_bubble_text"
+            android:textColor="@color/chat_input_text"
             android:textSize="13sp"
             android:fontFamily="monospace"/>
 

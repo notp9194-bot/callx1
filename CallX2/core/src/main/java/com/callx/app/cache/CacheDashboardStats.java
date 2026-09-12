@@ -31,6 +31,9 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class CacheDashboardStats {
 
     private static final String GLIDE_DISK_DIR = "image_manager_disk_cache";
+    private static final long GLIDE_DISK_MAX_BYTES = 200L * 1024 * 1024;
+    private static final String CHAT_AVATAR_L3_DIR = "avatar_l3/chat";
+    private static final long CHAT_AVATAR_L3_MAX_BYTES = 1L * 1024 * 1024;
     private static final String PREFS_NAME = "cache_dashboard_stats";
     private static final String KEY_MEMORY_HITS = "memory_hits";
     private static final String KEY_MEMORY_MISSES = "memory_misses";
@@ -261,8 +264,8 @@ public final class CacheDashboardStats {
         return directorySize(dir);
     }
 
-    public static long getGlideDiskMaxSizeBytes(Context context) {
-        return DynamicCachePolicy.getGlideDiskCacheBytes(context);
+    public static long getGlideDiskMaxSizeBytes() {
+        return GLIDE_DISK_MAX_BYTES;
     }
 
     /**
@@ -294,20 +297,12 @@ public final class CacheDashboardStats {
     }
 
     public static long getChatAvatarDiskCacheSizeBytes(Context context) {
-        File dir = new File(context.getApplicationContext().getCacheDir(), "avatar_l3/chat");
+        File dir = new File(context.getApplicationContext().getCacheDir(), CHAT_AVATAR_L3_DIR);
         return directorySize(dir);
     }
 
-    public static long getChatAvatarDiskCacheMaxSizeBytes(Context context) {
-        return DynamicCachePolicy.getAvatarModuleBudgetBytes(context, "chat", 0L);
-    }
-
-    public static long getManagedDiskCacheSizeBytes(Context context) {
-        return DynamicCachePolicy.getManagedDiskUsageBytes(context);
-    }
-
-    public static long getManagedDiskCacheMaxSizeBytes(Context context) {
-        return DynamicCachePolicy.getTotalDiskBudgetBytes(context);
+    public static long getChatAvatarDiskCacheMaxSizeBytes() {
+        return CHAT_AVATAR_L3_MAX_BYTES;
     }
 
     private static long directorySize(File dir) {
