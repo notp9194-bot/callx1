@@ -156,6 +156,20 @@ public class MediaCache {
 
     private interface ProgressTick { void onTick(int percent); }
 
+    // PERF: ~30fps ceiling on progress ticks. The percent-changed dedupe
+    // below already caps this at ~100 calls per download total, but on a
+    // fast LAN/wifi connection all 100 of those percent jumps can land
+    // within a couple hundred ms — a burst of onProgress() calls (each one
+    // a sMain.post() + a canvas invalidate()) far above the display's real
+    // refresh rate, which the UI can never actually show anyway. Gating
+    // ticks to one every ~33ms throttles that burst to something the
+    // screen can actually render, with zero visible difference (the eye
+    // can't tell 30 progress updates/sec from 300). percent == 100 (or the
+    // dedupe's implicit "final tick") is never throttled — completion must
+    // always land immediately so onReady()'s swap-in isn't preceded by a
+    // stale percentage frozen mid-throttle-window.
+    private static final long PROGRESS_TICK_MIN_INTERVAL_MS = 33L;
+
     /**
      * Sabse pehle local cache check karta hai.
      * Agar file exist karti hai — turant callback (zero network).
@@ -466,6 +480,7 @@ public class MediaCache {
                     // closely enough for the UI's percentage pill).
                     long[] downloadedHolder = {0};
                     int[] lastPercentHolder = {-1};
+                    long[] lastTickAtHolder = {0L};
                     InputStream counting = new java.io.FilterInputStream(hashSource) {
                         @Override public int read(byte[] b, int off, int len) throws IOException {
                             int n = super.read(b, off, len);
@@ -474,8 +489,15 @@ public class MediaCache {
                                 if (total > 0 && tick != null) {
                                     int percent = (int) Math.min(99, (downloadedHolder[0] * 100) / total);
                                     if (percent != lastPercentHolder[0]) {
-                                        lastPercentHolder[0] = percent;
-                                        tick.onTick(percent);
+                                        long now = android.os.SystemClock.elapsedRealtime();
+                                        // 99 is the last tick this loop ever reports (100 comes
+                                        // from the caller after the stream closes) — never throttle it.
+                                        boolean isFinal = percent >= 99;
+                                        if (isFinal || now - lastTickAtHolder[0] >= PROGRESS_TICK_MIN_INTERVAL_MS) {
+                                            lastPercentHolder[0] = percent;
+                                            lastTickAtHolder[0] = now;
+                                            tick.onTick(percent);
+                                        }
                                     }
                                 }
                             }
@@ -486,6 +508,7 @@ public class MediaCache {
                 } else {
                     long downloaded = 0;
                     int lastPercent = -1;
+                    long lastTickAt = 0L;
                     byte[] buf = new byte[8192];
                     int n;
                     while ((n = rawIn.read(buf)) != -1) {
@@ -494,8 +517,13 @@ public class MediaCache {
                         if (total > 0 && tick != null) {
                             int percent = (int) Math.min(100, (downloaded * 100) / total);
                             if (percent != lastPercent) {
-                                lastPercent = percent;
-                                tick.onTick(percent);
+                                long now = android.os.SystemClock.elapsedRealtime();
+                                boolean isFinal = percent >= 100;
+                                if (isFinal || now - lastTickAt >= PROGRESS_TICK_MIN_INTERVAL_MS) {
+                                    lastPercent = percent;
+                                    lastTickAt = now;
+                                    tick.onTick(percent);
+                                }
                             }
                         }
                     }

@@ -83,14 +83,30 @@ public class MediaStreamCache {
                 byte[] buffer   = new byte[BUFFER_SIZE];
                 int    read;
                 long   downloaded = 0;
+                int    lastPercent = -1;
+                long   lastTickAt  = 0L;
 
                 java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
                 try (InputStream is = conn.getInputStream()) {
                     while ((read = is.read(buffer)) != -1) {
                         baos.write(buffer, 0, read);
                         downloaded += read;
+                        // PERF: same percent-dedupe + ~30fps throttle as
+                        // MediaCache's progress path — avoids a Log.v()/
+                        // callback firing on every 8KB chunk (up to 64x for
+                        // a 512KB preload) when only ~100 distinct percent
+                        // values, at most 30/sec, are ever meaningful.
                         if (callback != null && total > 0) {
-                            callback.onProgress((int) (downloaded * 100 / total));
+                            int percent = (int) Math.min(99, (downloaded * 100 / total));
+                            if (percent != lastPercent) {
+                                long now = android.os.SystemClock.elapsedRealtime();
+                                boolean isFinal = percent >= 99;
+                                if (isFinal || now - lastTickAt >= 33L) {
+                                    lastPercent = percent;
+                                    lastTickAt = now;
+                                    callback.onProgress(percent);
+                                }
+                            }
                         }
                     }
                 }
@@ -132,6 +148,8 @@ public class MediaStreamCache {
                 byte[] buf  = new byte[BUFFER_SIZE];
                 int    read;
                 long   downloaded = 0;
+                int    lastPercent = -1;
+                long   lastTickAt  = 0L;
 
                 java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
                 try (InputStream is = conn.getInputStream()) {
@@ -139,7 +157,16 @@ public class MediaStreamCache {
                         baos.write(buf, 0, read);
                         downloaded += read;
                         if (callback != null && total > 0) {
-                            callback.onProgress((int) (downloaded * 100 / total));
+                            int percent = (int) Math.min(99, (downloaded * 100 / total));
+                            if (percent != lastPercent) {
+                                long now = android.os.SystemClock.elapsedRealtime();
+                                boolean isFinal = percent >= 99;
+                                if (isFinal || now - lastTickAt >= 33L) {
+                                    lastPercent = percent;
+                                    lastTickAt = now;
+                                    callback.onProgress(percent);
+                                }
+                            }
                         }
                     }
                 }

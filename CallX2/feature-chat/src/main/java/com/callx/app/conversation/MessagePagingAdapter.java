@@ -1011,7 +1011,18 @@ public class MessagePagingAdapter
     public void onMediaUploadProgress(String messageId, int percent) {
         if (messageId == null) return;
         uploadProgressTracker.setProgress(messageId, percent);
-        for (int i = 0; i < getItemCount(); i++) {
+        // PERF: scan from the TAIL, not the head. A message with an
+        // in-flight upload is, by definition, one *this device* just sent —
+        // with stackFromEnd layout that's always at or extremely near the
+        // last position. Walking from getItemCount()-1 backwards turns the
+        // common case into an O(1)-ish lookup (found in 1-2 steps) instead
+        // of an O(n) scan of the whole history from the front, every single
+        // throttled progress tick, on a long chat.
+        // (A messageId->position map isn't used here on purpose: positions
+        // shift under a PagingDataAdapter on every page load/invalidate, so
+        // keeping one in sync would add real complexity for a case this
+        // tail-scan already makes cheap.)
+        for (int i = getItemCount() - 1; i >= 0; i--) {
             Message m = getItem(i);
             if (m == null) continue;
             String id = m.messageId != null ? m.messageId : m.id;

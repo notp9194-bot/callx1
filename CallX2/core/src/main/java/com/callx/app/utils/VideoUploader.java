@@ -546,13 +546,31 @@ public class VideoUploader {
         @Override public long contentLength() throws IOException { return delegate.contentLength(); }
         @Override public void writeTo(okio.BufferedSink sink) throws IOException {
             long total = contentLength();
+            // PERF: same percent-dedupe + ~30fps time-throttle as MediaCache's
+            // download-progress path (see MediaCache.PROGRESS_TICK_MIN_INTERVAL_MS).
+            // Previously this fired on EVERY okio buffer segment written —
+            // no dedupe at all — each one a MAIN.post() + canvas invalidate().
+            // On a fast link that's far more posts/redraws per second than
+            // the display can show or the eye can tell apart from 30/sec.
             okio.ForwardingSink fw = new okio.ForwardingSink(sink) {
                 long written = 0;
+                int lastPercent = -1;
+                long lastTickAt = 0L;
                 @Override public void write(okio.Buffer src, long n) throws IOException {
                     super.write(src, n);
                     written += n;
-                    if (total > 0 && listener != null)
-                        listener.onProgress((int)(written * 100 / total));
+                    if (total > 0 && listener != null) {
+                        int percent = (int) Math.min(99, (written * 100) / total);
+                        if (percent != lastPercent) {
+                            long now = android.os.SystemClock.elapsedRealtime();
+                            boolean isFinal = percent >= 99;
+                            if (isFinal || now - lastTickAt >= 33L) {
+                                lastPercent = percent;
+                                lastTickAt = now;
+                                listener.onProgress(percent);
+                            }
+                        }
+                    }
                 }
             };
             okio.BufferedSink buffered = okio.Okio.buffer(fw);
