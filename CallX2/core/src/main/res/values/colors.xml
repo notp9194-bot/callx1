@@ -19,15 +19,21 @@
     <color name="surface_bg">#F5F6FA</color>
     <color name="surface_card">#FFFFFF</color>
     <color name="surface_chat_bg">#ECE5DD</color>
-    <!-- Light-mode value for the header/chat-background/input-bar/status-bar/
-         nav-bar "everything matches" unification (see ChatThemeManager /
-         ImmersiveModeUtils) — same as the original light-theme
-         surface_chat_bg. bar_background stays a fixed dark navy in BOTH
-         themes (see below), so it can't be reused here without forcing
-         dark mode's look onto light theme too — this gives each theme its
-         own self-consistent matching color instead. -->
-    <color name="chat_unified_bg">#ECE5DD</color>
+    <!-- Light-mode value for the header/chat-background/status-bar/nav-bar
+         "everything matches" unification (see ChatThemeManager /
+         ImmersiveModeUtils) — plain white, the standard Android light-theme
+         surface color (matches surface_card / values-night's surface_bg
+         pairing: white in light mode, true black in dark mode). The input
+         bar has its own dedicated chat_input_bar_bg instead (see below) —
+         it's intentionally a different shade from the screen background. -->
+    <color name="chat_unified_bg">#FFFFFF</color>
     <color name="surface_input">#F1F3F8</color>
+    <!-- Dedicated input-bar pill color for the chat screen — light-mode
+         value matches the reference screenshot (a light grey pill,
+         distinct from surface_input which many other screens' text fields
+         already use). Kept separate from surface_input so changing this
+         never affects those other screens. -->
+    <color name="chat_input_bar_bg">#E9E9EB</color>
     <!-- Skeleton/shimmer loading placeholders (e.g. reel comments list before
          first page loads). Distinct from surface_input so the placeholder is
          visible against a white/near-white surface. -->

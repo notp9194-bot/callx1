@@ -17,11 +17,20 @@
     <color name="surface_bg">#000000</color>
     <color name="surface_card">#000000</color>
     <color name="surface_chat_bg">#0B141A</color>
-    <!-- Dark-mode value for the header/chat-background/input-bar/status-bar/
-         nav-bar "everything matches" unification — see values/colors.xml
-         for why this can't just reuse bar_background. -->
-    <color name="chat_unified_bg">#1E2530</color>
+    <!-- Dark-mode value for the header/chat-background/status-bar/nav-bar
+         "everything matches" unification — plain true black, the standard
+         Android dark-theme surface color (same as surface_bg/surface_card
+         above). The input bar has its own dedicated chat_input_bar_bg
+         instead (see below) — intentionally a lighter shade than the
+         screen background, matching the reference screenshot. -->
+    <color name="chat_unified_bg">@color/surface_bg</color>
     <color name="surface_input">#1A1A1A</color>
+    <!-- Dedicated input-bar pill color for the chat screen — dark-mode
+         value matches the reference screenshot (a dark charcoal pill,
+         lighter than the pure-black screen background so it still reads
+         as a distinct pill). Kept separate from surface_input so changing
+         this never affects other screens' text fields. -->
+    <color name="chat_input_bar_bg">#1C1C1E</color>
     <!-- Skeleton/shimmer loading placeholders — dark counterpart of
          values/colors.xml's skeleton_base/skeleton_highlight, visible
          against the true-black dark surfaces. -->

@@ -136,21 +136,27 @@ public class ChatThemeManager {
 
     public int getChatBgColor(Context ctx) {
         // Kept in sync with applyScreenTheme()'s unified chatBgColor —
-        // header, chat background, and input bar are all chat_unified_bg,
-        // which is theme-aware (light value in values/, dark value in
-        // values-night/) unlike bar_background which never changed with
-        // the theme.
+        // header, chat background, status bar, and nav bar are all
+        // chat_unified_bg, which is theme-aware (light value in values/,
+        // dark value in values-night/). The input bar pill is intentionally
+        // NOT part of this — see chat_input_bar_bg / getInputBarColor().
         return resolveColor(ctx, com.callx.app.core.R.color.chat_unified_bg);
     }
 
     public int getInputBarColor(Context ctx) {
-        return resolveColor(ctx, com.callx.app.core.R.color.chat_unified_bg);
+        // Dedicated color, distinct from the screen background — matches
+        // the reference screenshot's pill (light grey in light mode, dark
+        // charcoal in dark mode), not the pure white/black chat background.
+        return resolveColor(ctx, com.callx.app.core.R.color.chat_input_bar_bg);
     }
 
     /**
      * Apply screen theme — uses color resources instead of hardcoded gradients.
-     * Toolbar and input bar get @color/chat_unified_bg (theme-aware: light
-     * mode keeps its own light look, dark mode keeps the dark navy).
+     * Toolbar/chat background get @color/chat_unified_bg (theme-aware:
+     * plain white in light mode, true black in dark mode — Android's own
+     * default surface color). The input bar pill keeps its own XML-set
+     * @color/chat_input_bar_bg and is deliberately left untouched here —
+     * see the inputBarRoot note below.
      */
     public void applyScreenTheme(
             View toolbar,
@@ -162,16 +168,12 @@ public class ChatThemeManager {
         if (toolbar == null) return;
         Context ctx = toolbar.getContext();
 
-        // UNIFIED BACKGROUND: header, chat background, and the input bar all
-        // use the exact same @color/chat_unified_bg. This resource is
-        // theme-aware (values/colors.xml has the light value, values-night/
-        // has the dark one) — bar_background can't be used here since it's
-        // a fixed dark navy in BOTH themes, which was forcing the whole chat
-        // screen dark even under the light theme. Same color also shows
-        // through the transparent status bar / nav bar (see
-        // ImmersiveModeUtils), so status bar, header, chat background, and
-        // bottom nav bar all read as one continuous color, correctly per
-        // light/dark theme.
+        // UNIFIED BACKGROUND: header, chat background, status bar, and nav
+        // bar all use the exact same @color/chat_unified_bg — Android's own
+        // white/true-black surface color, theme-aware (values/colors.xml
+        // has the light value, values-night/ has the dark one). Same color
+        // also shows through the transparent status bar / nav bar (see
+        // ImmersiveModeUtils), so all four read as one continuous surface.
         int barColor    = resolveColor(ctx, com.callx.app.core.R.color.chat_unified_bg);
         int brandColor  = resolveColor(ctx, com.callx.app.core.R.color.brand_primary);
         int chatBgColor = barColor;
@@ -181,8 +183,14 @@ public class ChatThemeManager {
         toolbarBg.setColor(barColor);
         toolbar.setBackground(toolbarBg);
 
-        if (chatRoot != null)    chatRoot.setBackgroundColor(chatBgColor);
-        if (inputBarRoot != null) inputBarRoot.setBackgroundColor(barColor);
+        if (chatRoot != null) chatRoot.setBackgroundColor(chatBgColor);
+        // inputBarRoot (ll_input_row) is intentionally NOT recolored here
+        // anymore — it's the transparent ConstraintLayout INSIDE the
+        // cv_input_capsule pill, and painting it barColor (white/black) used
+        // to completely hide the pill's own @color/chat_input_bar_bg behind
+        // an opaque rectangle. The pill's color is set once, statically, in
+        // activity_chat.xml and already picks up the right light/dark value
+        // automatically via values/ vs values-night/.
 
         // NOTE: the mic/send accent used to be applied here via a
         // GradientDrawable background swap on btnSend/btnMic. Since the

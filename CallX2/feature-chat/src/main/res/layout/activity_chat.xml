@@ -712,7 +712,7 @@
                     android:layout_marginEnd="10dp"
                     app:cardCornerRadius="28dp"
                     app:cardElevation="0dp"
-                    app:cardBackgroundColor="@color/surface_input"
+                    app:cardBackgroundColor="@color/chat_input_bar_bg"
                     app:strokeColor="@color/divider"
                     app:strokeWidth="0.5dp"
                     app:cardPreventCornerOverlap="false"
@@ -908,7 +908,7 @@
                     android:layout_width="30dp"
                     android:layout_height="30dp"
                     android:src="@drawable/ic_chevron_back_ios"
-                    android:tint="@color/white"
+                    android:tint="@color/text_primary"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="Back"/>
 
@@ -967,7 +967,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Contact Name"
-                            android:textColor="@color/white"
+                            android:textColor="@color/text_primary"
                             android:textSize="18sp"
                             android:textStyle="bold"
                             android:maxLines="1"
@@ -989,7 +989,7 @@
                         android:id="@+id/tv_status"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textColor="#8FA3D9"
+                        android:textColor="@color/text_secondary"
                         android:textSize="11sp"
                         android:layout_marginTop="1dp"
                         android:visibility="gone"/>
@@ -1063,39 +1063,39 @@
                     android:visibility="gone"
                     android:contentDescription="View YouTube Channel"/>
 
-                <!-- Video call button — frosted circle, matches reference screenshot -->
+                <!-- Video call button -->
                 <ImageButton
                     android:id="@+id/btn_toolbar_video_call"
                     android:layout_width="40dp"
                     android:layout_height="40dp"
                     android:layout_marginStart="4dp"
                     android:src="@drawable/ic_video_call"
-                    android:tint="@color/white"
-                    android:background="@drawable/bg_header_icon_circle"
+                    android:tint="@color/text_primary"
+                    android:background="?attr/selectableItemBackgroundBorderless"
                     android:padding="9dp"
                     android:contentDescription="Video call"/>
 
-                <!-- Voice call button — frosted circle, matches reference screenshot -->
+                <!-- Voice call button -->
                 <ImageButton
                     android:id="@+id/btn_toolbar_voice_call"
                     android:layout_width="40dp"
                     android:layout_height="40dp"
                     android:layout_marginStart="6dp"
                     android:src="@drawable/ic_phone"
-                    android:tint="@color/white"
-                    android:background="@drawable/bg_header_icon_circle"
+                    android:tint="@color/text_primary"
+                    android:background="?attr/selectableItemBackgroundBorderless"
                     android:padding="10dp"
                     android:contentDescription="Voice call"/>
 
-                <!-- More options (3-dot menu) — frosted circle, matches reference screenshot -->
+                <!-- More options (3-dot menu) -->
                 <ImageButton
                     android:id="@+id/btn_more_options"
                     android:layout_width="40dp"
                     android:layout_height="40dp"
                     android:layout_marginStart="6dp"
                     android:src="@drawable/ic_more_vert"
-                    android:tint="@color/white"
-                    android:background="@drawable/bg_header_icon_circle"
+                    android:tint="@color/text_primary"
+                    android:background="?attr/selectableItemBackgroundBorderless"
                     android:padding="9dp"
                     android:contentDescription="More options"/>
 
