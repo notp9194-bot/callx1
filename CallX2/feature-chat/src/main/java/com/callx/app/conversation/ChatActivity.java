@@ -4664,9 +4664,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // the IconTintCache bitmap with no extra filter. Clearing the
         // filter for the idle state lets the same themed base bitmap show
         // through — matches the other icons in both light and dark mode.
-        binding.btnViewOnce.setColorFilter(on
-                ? android.graphics.Color.parseColor("#FF6200EE")   // active tint
-                : null);                                            // idle: themed base color
+        // FIX (crash): the old ternary here — setColorFilter(on ? Color.parseColor(...) : null) —
+        // mixes an int branch with a null branch. Per JLS 15.25 that ternary's static type
+        // becomes boxed Integer (not int), so javac resolves the int-overload of
+        // setColorFilter() via unboxing; when `on` is false the ternary evaluates to null,
+        // and unboxing null (Integer.intValue()) threw NPE on every ChatActivity open
+        // (setupInputBar -> setViewOnceMode(false) at onCreate). Split into explicit
+        // if/else so no autoboxing/unboxing is involved.
+        if (on) {
+            binding.btnViewOnce.setColorFilter(android.graphics.Color.parseColor("#FF6200EE")); // active tint
+        } else {
+            binding.btnViewOnce.clearColorFilter(); // idle: themed base color
+        }
         binding.etMessage.setHint(on ? "View once message…" : getString(R.string.hint_message));
     }
 
