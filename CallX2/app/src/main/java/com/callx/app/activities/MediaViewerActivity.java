@@ -534,6 +534,54 @@ public class MediaViewerActivity extends AppCompatActivity {
         return fallback;
     }
 
+    /**
+     * PERF (aggressive preload window): fires MediaCache.get() for the
+     * immediate previous/next gallery items while the current page is
+     * still displaying. MediaCache already de-dupes/no-ops on an
+     * already-cached or already-in-flight URL, so this is a cheap,
+     * fire-and-forget background-thread warm-up — by the time the user
+     * actually swipes, the neighbor's file is very likely already on disk,
+     * so bindVideo()/Glide.load() resolve instantly instead of kicking off
+     * a fresh network fetch at swipe time.
+     */
+    private void prefetchAdjacentMedia(int position) {
+        if (galleryItems == null) return;
+        for (int neighbor : new int[]{position - 1, position + 1}) {
+            if (neighbor < 0 || neighbor >= galleryItems.size()) continue;
+            String url = safeStr(galleryItems.get(neighbor).get("url"));
+            if (url.isEmpty() || MediaCache.getCached(this, url) != null) continue;
+            MediaCache.get(this, url, new MediaCache.Callback() {
+                @Override public void onReady(File file) {}
+                @Override public void onError(String reason) {}
+            });
+        }
+        // PERF (video prefetch — conservative half of the ask): reach one
+        // page further, position±2, for VIDEO items only, with a plain
+        // file-level MediaCache.get() — same de-duped/no-op-if-cached
+        // warm-up as above, nothing ExoPlayer-related.
+        //
+        // Deliberately NOT pre-building an extra ExoPlayer at position±2:
+        // with offscreenPageLimit=1, the immediate neighbor (±1) already
+        // gets its ExoPlayer built+prepare()'d as soon as its page is bound
+        // (see GalleryPagerAdapter.bindVideo) — so it's already silently
+        // buffering before the user swipes there, which is the main win.
+        // Extending real player pre-buffering to ±2 would mean holding a
+        // 3rd ExoPlayer beyond ExoPlayerPool's MAX_POOL_SIZE=2, plus needing
+        // teardown handling for "user swiped back before reaching it" — real
+        // risk for a page that's still two swipes away, so left out.
+        for (int neighbor : new int[]{position - 2, position + 2}) {
+            if (neighbor < 0 || neighbor >= galleryItems.size()) continue;
+            Map<String, Object> item = galleryItems.get(neighbor);
+            if (!"video".equals(item.get("mediaType"))) continue;
+            String url = safeStr(item.get("url"));
+            if (url.isEmpty() || MediaCache.getCached(this, url) != null) continue;
+            MediaCache.get(this, url, new MediaCache.Callback() {
+                @Override public void onReady(File file) {}
+                @Override public void onError(String reason) {}
+            });
+        }
+    }
+
     // ── Gallery mode — swipeable multi-image/video viewer ────────────────
     private void setupGalleryMode(String json, int startIndex) {
         galleryItems = parseMediaItems(json);
@@ -548,19 +596,30 @@ public class MediaViewerActivity extends AppCompatActivity {
         galleryAdapter = new GalleryPagerAdapter(galleryItems, this::toggleUI);
         galleryAdapter.setLongPressListener(pos -> enterSelectMode(pos));
         galleryAdapter.setSelectionToggleListener(pos -> updateSelectToolbar());
+        // PERF (priority tuning): set before setAdapter() so the very first
+        // bind already knows which page is active.
+        galleryAdapter.setActivePosition(start);
         binding.mediaPager.setAdapter(galleryAdapter);
         binding.mediaPager.setCurrentItem(start, false);
+        // PERF (aggressive preload window): keep exactly one page ahead/behind
+        // alive in ViewPager2's own view cache — the sweet spot for a swipe
+        // gallery. Higher wastes memory on pages the user may never reach;
+        // 0 makes ViewPager2 tear down/rebuild every neighbor on each swipe.
+        binding.mediaPager.setOffscreenPageLimit(1);
         updatePageCounter(start);
         sharedUrl = safeStr(galleryItems.get(start).get("url"));
         binding.btnEdit.setVisibility(View.VISIBLE);
+        prefetchAdjacentMedia(start);
 
         binding.mediaPager.registerOnPageChangeCallback(new androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
             @Override public void onPageSelected(int position) {
                 pauseAllExcept(position);
                 galleryActivePos = position;
+                galleryAdapter.setActivePosition(position);
                 sharedUrl = safeStr(galleryItems.get(position).get("url"));
                 updatePageCounter(position);
                 binding.btnEdit.setVisibility(View.VISIBLE);
+                prefetchAdjacentMedia(position);
             }
         });
         galleryActivePos = start;
@@ -977,6 +1036,8 @@ public class MediaViewerActivity extends AppCompatActivity {
                 && com.callx.app.utils.LocalMediaAvailability.isAvailable(this, localPath)) {
             Glide.with(this)
                 .load(Uri.parse(localPath))
+                .apply(com.bumptech.glide.request.RequestOptions.formatOf(
+                        com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565))
                 .diskCacheStrategy(DiskCacheStrategy.NONE)
                 .into(pv);
             return;
@@ -985,12 +1046,16 @@ public class MediaViewerActivity extends AppCompatActivity {
         if (thumbUrl != null && !thumbUrl.isEmpty()) {
             Glide.with(this)
                 .load(thumbUrl)
+                .apply(com.bumptech.glide.request.RequestOptions.formatOf(
+                        com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565))
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .override(400, 400)
                 .into(pv);
 
             Glide.with(this)
                 .load(fullUrl)
+                .apply(com.bumptech.glide.request.RequestOptions.formatOf(
+                        com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565))
                 .thumbnail(Glide.with(this)
                     .load(thumbUrl)
                     .diskCacheStrategy(DiskCacheStrategy.ALL))
@@ -1002,6 +1067,8 @@ public class MediaViewerActivity extends AppCompatActivity {
             File cachedImg = MediaCache.getCached(this, fullUrl);
             if (cachedImg != null) {
                 Glide.with(this).load(cachedImg)
+                    .apply(com.bumptech.glide.request.RequestOptions.formatOf(
+                            com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565))
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
                     .into(pv);
             } else if (mediaDecryptKey != null) {
@@ -1012,6 +1079,8 @@ public class MediaViewerActivity extends AppCompatActivity {
                 MediaCache.get(this, fullUrl, mediaDecryptKey, new MediaCache.Callback() {
                     @Override public void onReady(File f) {
                         Glide.with(MediaViewerActivity.this).load(f)
+                            .apply(com.bumptech.glide.request.RequestOptions.formatOf(
+                                    com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565))
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
                             .into(pv);
                     }
@@ -1022,6 +1091,8 @@ public class MediaViewerActivity extends AppCompatActivity {
                 });
             } else {
                 Glide.with(this).load(fullUrl)
+                    .apply(com.bumptech.glide.request.RequestOptions.formatOf(
+                            com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565))
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
                     .into(pv);
                 MediaCache.get(this, fullUrl, new MediaCache.Callback() {

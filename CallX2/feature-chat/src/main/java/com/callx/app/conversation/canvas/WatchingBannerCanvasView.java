@@ -57,7 +57,7 @@ import com.callx.app.utils.AvatarSizeTier;
  */
 public class WatchingBannerCanvasView extends View {
 
-    private static final float AVATAR_SIZE_DP = 48f;
+    private static final float AVATAR_SIZE_DP = 32f;
     private static final float AVATAR_BORDER_DP = 2f;
     private static final float AVATAR_OVERLAP_DP = 14f;
     private static final float AVATARS_PILL_GAP_DP = 6f;

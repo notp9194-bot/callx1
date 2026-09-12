@@ -172,6 +172,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private String chatId;
     private String partnerUid;
 
+    // ── Header story ring dedupe (mirrors HomeFragment's post-row ring
+    //    guard) — StatusCacheManager.hasStatus()/hasUnseen() are cheap but
+    //    this skips even that + the ImageView calls entirely when nothing
+    //    changed since the last bind (e.g. repeated onResume/listener ticks
+    //    while the chat stays open). ─────────────────────────────────────
+    private String lastHeaderRingUid;
+    private int lastHeaderRingState = -1;
+
     // WHATSAPP-LEVEL SELF-HEAL: fires when E2EEncryptionManager completes a
     // fresh handshake with partnerUid, so any of THEIR messages already
     // stuck on DECRYPT_FAILED_MARKER in Room get re-fetched and retried
@@ -680,6 +688,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                             binding.ivPartnerAvatar, url, 0L, R.drawable.ic_person);
                 }
             }
+            updateHeaderStoryRing();
 
             // Reel/X/YouTube toolbar badges — same snapshot, no extra read.
             Boolean hasReel = s.child("hasReelProfile").getValue(Boolean.class);
@@ -2389,6 +2398,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             // instead of two (this one + the 600ms badge one below).
             fetchPartnerProfileOnce();
         }
+        updateHeaderStoryRing();
 
         binding.btnToolbarVoiceCall.setOnClickListener(v -> startCall(false));
         binding.btnToolbarVideoCall.setOnClickListener(v -> startCall(true));
@@ -4637,9 +4647,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     private void setViewOnceMode(boolean on) {
         isViewOnceModeOn = on;
         if (binding == null || binding.btnViewOnce == null) return;
+        // FIX (light mode contrast): idle state used to force a hardcoded
+        // mid-grey (#FF8A8A8A) via setColorFilter, which sat at noticeably
+        // lower contrast than the right-side icon-bar icons (attach/camera/
+        // mic), which use the theme-aware chat_input_text tint baked into
+        // the IconTintCache bitmap with no extra filter. Clearing the
+        // filter for the idle state lets the same themed base bitmap show
+        // through — matches the other icons in both light and dark mode.
         binding.btnViewOnce.setColorFilter(on
                 ? android.graphics.Color.parseColor("#FF6200EE")   // active tint
-                : android.graphics.Color.parseColor("#FF8A8A8A")); // idle/grey tint
+                : null);                                            // idle: themed base color
         binding.etMessage.setHint(on ? "View once message…" : getString(R.string.hint_message));
     }
 
@@ -5515,6 +5532,50 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // ─────────────────────────────────────────────────────────────────────
     // NAVIGATION
     // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Header story ring — reuses the same StoryRingGradientDrawable +
+     * StatusCacheManager pattern as ReelCommentsAdapter/HomeFragment's post
+     * rows (see StoryRingGradientDrawable class doc: shared, pre-rasterized
+     * bitmap per stroke width, so this is a single cached bitmap blit, not
+     * a live gradient/shader — adds no measurable per-frame cost).
+     *
+     * PERF: guarded by lastHeaderRingUid/lastHeaderRingState so repeated
+     * calls (partner-node listener ticks, onResume, etc.) with no actual
+     * change are a single String/int comparison and nothing else — no
+     * redundant setBackground/setImageDrawable/setVisibility churn on a
+     * screen that's already busy (RecyclerView, WebRTC, typing listeners).
+     */
+    private void updateHeaderStoryRing() {
+        if (partnerUid == null || partnerUid.isEmpty()) return;
+        android.widget.ImageView ring = binding.ivPartnerAvatarRing;
+        if (ring == null) return;
+
+        com.callx.app.cache.StatusCacheManager scm =
+                com.callx.app.cache.StatusCacheManager.getInstance(this);
+        boolean hasUnseen = scm.hasUnseen(partnerUid);
+        boolean hasAny = scm.hasStatus(partnerUid);
+        int state = hasUnseen ? 2 : (hasAny ? 1 : 0);
+
+        boolean unchanged = partnerUid.equals(lastHeaderRingUid) && state == lastHeaderRingState;
+        if (unchanged) return;
+        lastHeaderRingUid = partnerUid;
+        lastHeaderRingState = state;
+
+        if (state == 2) {
+            ring.setBackground(com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(
+                    2f, getResources().getDisplayMetrics().density));
+            ring.setVisibility(View.VISIBLE);
+        } else if (state == 1) {
+            ring.setBackground(null);
+            ring.setImageResource(com.callx.app.core.R.drawable.circle_status_seen);
+            ring.setVisibility(View.VISIBLE);
+        } else {
+            ring.setBackground(null);
+            ring.setImageDrawable(null);
+            ring.setVisibility(View.GONE);
+        }
+    }
 
     private void openAvatarZoom() {
         if (partnerUid == null || partnerUid.isEmpty()) return;

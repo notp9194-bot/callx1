@@ -573,6 +573,54 @@ public class ContactsActivity extends AppCompatActivity {
             MiscAvatarBinder.bind(h.ivAvatar.getContext(), h.ivAvatar,
                 avatarUrl, avatarVersion, MiscAvatarBinder.ROW_TIER, R.drawable.ic_person);
 
+            // Story ring — groups have no personal status; only Users are checked.
+            // Same StoryRingGradientDrawable + StatusCacheManager pattern as
+            // HomeFragment's post rows / ChatActivity's header ring, with a
+            // per-row dedupe guard on the ViewHolder (see VH doc above) so a
+            // fast fling doesn't re-trigger lookups/draws for unchanged rows.
+            if (!isGroup && h.ivAvatarRing != null) {
+                String uid = ((User) t).uid;
+                if (uid != null && !uid.isEmpty()) {
+                    com.callx.app.cache.StatusCacheManager scm =
+                            com.callx.app.cache.StatusCacheManager.getInstance(h.ivAvatarRing.getContext());
+                    boolean hasUnseen = scm.hasUnseen(uid);
+                    boolean hasAny = scm.hasStatus(uid);
+                    int state = hasUnseen ? 2 : (hasAny ? 1 : 0);
+                    boolean unchanged = uid.equals(h.lastRingKey) && state == h.lastRingState;
+                    if (!unchanged) {
+                        h.lastRingKey = uid;
+                        h.lastRingState = state;
+                        if (state == 2) {
+                            h.ivAvatarRing.setImageDrawable(null);
+                            h.ivAvatarRing.setBackground(
+                                    com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(
+                                            2f, h.ivAvatarRing.getResources().getDisplayMetrics().density));
+                            h.ivAvatarRing.setVisibility(View.VISIBLE);
+                        } else if (state == 1) {
+                            h.ivAvatarRing.setBackground(null);
+                            h.ivAvatarRing.setImageResource(com.callx.app.core.R.drawable.circle_status_seen);
+                            h.ivAvatarRing.setVisibility(View.VISIBLE);
+                        } else {
+                            h.ivAvatarRing.setBackground(null);
+                            h.ivAvatarRing.setImageDrawable(null);
+                            h.ivAvatarRing.setVisibility(View.GONE);
+                        }
+                    }
+                } else if (h.ivAvatarRing.getVisibility() != View.GONE) {
+                    h.lastRingKey = null;
+                    h.lastRingState = -1;
+                    h.ivAvatarRing.setBackground(null);
+                    h.ivAvatarRing.setImageDrawable(null);
+                    h.ivAvatarRing.setVisibility(View.GONE);
+                }
+            } else if (h.ivAvatarRing != null && h.ivAvatarRing.getVisibility() != View.GONE) {
+                h.lastRingKey = null;
+                h.lastRingState = -1;
+                h.ivAvatarRing.setBackground(null);
+                h.ivAvatarRing.setImageDrawable(null);
+                h.ivAvatarRing.setVisibility(View.GONE);
+            }
+
             h.itemView.setOnClickListener(v -> cb.on(t));
             h.cbSelect.setOnClickListener(v -> cb.on(t));
         }
@@ -588,13 +636,22 @@ public class ContactsActivity extends AppCompatActivity {
 
         static class VH extends RecyclerView.ViewHolder {
             ImageView ivAvatar;
+            ImageView ivAvatarRing;
             TextView  tvName;
             CheckBox  cbSelect;
+            // Ring dedupe guard (mirrors HomeFragment post-row / ChatActivity
+            // header pattern) — RecyclerView rows get rebound on every
+            // scroll/notify, so without this every bind would re-run
+            // StatusCacheManager lookups + setBackground/setVisibility even
+            // when nothing changed for that row.
+            String lastRingKey;
+            int lastRingState = -1;
             VH(@NonNull View v) {
                 super(v);
-                ivAvatar = v.findViewById(R.id.iv_avatar);
-                tvName   = v.findViewById(R.id.tv_name);
-                cbSelect = v.findViewById(R.id.cb_select);
+                ivAvatar     = v.findViewById(R.id.iv_avatar);
+                ivAvatarRing = v.findViewById(R.id.iv_avatar_ring);
+                tvName       = v.findViewById(R.id.tv_name);
+                cbSelect     = v.findViewById(R.id.cb_select);
             }
         }
     }

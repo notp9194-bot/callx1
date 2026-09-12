@@ -115,7 +115,11 @@ public class ChatIconBarView extends View {
 
     private void initPaints() {
         circlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        circlePaint.setColor(ContextCompat.getColor(getContext(), R.color.brand_primary));
+        // Reused from the Follow button's brand color (see
+        // FollowButtonStyler.primaryColor / ReelSearchHistoryActivity#
+        // styleFollowBtn) instead of the generic brand_primary, so the send
+        // button matches the app's actual "primary action" color.
+        circlePaint.setColor(com.callx.app.utils.FollowButtonStyler.primaryColor(getContext()));
         pressPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         pressPaint.setColor(Color.WHITE);
         pressPaint.setAlpha(40);
@@ -188,12 +192,17 @@ public class ChatIconBarView extends View {
             drawIcon(canvas, cameraIcon, cameraRect, Math.min(1f, f), 0.6f + 0.4f * f);
         }
 
-        // Mic/send shared slot: green circle background always drawn
-        // (matches original circle_primary background on both buttons).
+        // Mic/send shared slot: colored circle background now only shows
+        // behind the SEND icon (WhatsApp-style), not the mic — mic icon is
+        // drawn plain with no background, per request. Circle fades in
+        // proportionally with sendFraction so it doesn't pop in abruptly.
         if (!micSendVisible) return;
         int cx = micSendRect.centerX();
         int cy = micSendRect.centerY();
-        canvas.drawCircle(cx, cy, slotSizePx / 2f, circlePaint);
+        if (sendFraction > 0.005f) {
+            circlePaint.setAlpha(Math.round(Math.min(1f, sendFraction) * 255));
+            canvas.drawCircle(cx, cy, slotSizePx / 2f, circlePaint);
+        }
 
         if (sendFraction < 0.995f) {
             int alpha = Math.round((1f - sendFraction) * 255);

@@ -15,6 +15,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.bitmap.Downsampler;
 import com.bumptech.glide.request.RequestOptions;
 import com.callx.app.chat.R;
 
@@ -441,8 +442,21 @@ public class MessagePagingAdapter
     // Thumbnails (avatars, video covers, reply previews, status/reel chips) have
     // no alpha channel, so the extra byte per pixel in ARGB_8888 is pure waste.
     // Full-size image loads (720×720) keep ARGB_8888 for quality.
+    //
+    // PERF (hardware bitmaps, one step past RGB_565 — matches MediaViewer's
+    // GalleryPagerAdapter fix): ALLOW_HARDWARE_CONFIG lets Glide hand back a
+    // GPU-backed HARDWARE Bitmap (API 26+) for these thumbnails instead of a
+    // Java-heap one — during a fast chat scroll this is many small bubble
+    // thumbnails binding per second, so skipping the heap allocation +
+    // CPU-to-GPU upload per bubble adds up. Safe here: these bubble
+    // thumbnails are only ever drawn (ImageView/Canvas draw), never read
+    // back pixel-by-pixel, so Glide can use hardware config wherever the
+    // device/API supports it and falls back to RGB_565 automatically
+    // elsewhere (pre-O, or the rare transformation that needs software
+    // pixels).
     private static final RequestOptions THUMB_RGB565 = new RequestOptions()
             .format(DecodeFormat.PREFER_RGB_565)
+            .set(Downsampler.ALLOW_HARDWARE_CONFIG, true)
             .diskCacheStrategy(DiskCacheStrategy.ALL);
 
     // Corner radius for the swipe-reply media thumbnail (iv_reply_thumb).

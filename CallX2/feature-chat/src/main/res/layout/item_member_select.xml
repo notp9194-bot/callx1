@@ -6,12 +6,29 @@
     android:padding="12dp"
     android:gravity="center_vertical"
     android:background="?attr/selectableItemBackground">
-    <de.hdodenhof.circleimageview.CircleImageView
-        android:id="@+id/iv_avatar"
-        android:layout_width="46dp"
-        android:layout_height="46dp"
-        android:src="@drawable/ic_person"
-        android:background="@color/surface_input"/>
+    <!-- Avatar + story ring — same reused pattern as chat header
+         (StoryRingGradientDrawable: shared pre-rasterized bitmap, no
+         per-frame cost) and dedupe-guarded per-row in ContactsAdapter. -->
+    <FrameLayout
+        android:layout_width="36dp"
+        android:layout_height="36dp">
+
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:id="@+id/iv_avatar"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_person"/>
+
+        <!-- GONE by default — see ContactsAdapter#onBindViewHolder ring logic. -->
+        <ImageView
+            android:id="@+id/iv_avatar_ring"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_gravity="center"
+            android:visibility="gone"
+            android:contentDescription="@null"/>
+    </FrameLayout>
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"

@@ -1,7 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- WhatsApp-style received bubble: simple solid shape, zero GPU rasterization -->
+<!-- WhatsApp-style received bubble: simple solid shape, zero GPU rasterization.
+     FIX (light mode invisibility): bubble_received previously matched
+     chat_unified_bg exactly (#FFFFFF == #FFFFFF), so the bubble had no
+     visible edge in light mode. bubble_received is now a distinguishable
+     light grey (#F0F0F0) and a hairline stroke was added as a second line
+     of defense so the bubble stays visible even if a theme ever sets the
+     fill close to the background color again. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
     <solid android:color="@color/bubble_received"/>
+    <stroke android:width="0.5dp" android:color="@color/divider"/>
     <corners android:topLeftRadius="4dp" android:topRightRadius="18dp"
         android:bottomLeftRadius="18dp" android:bottomRightRadius="18dp"/>
 </shape>

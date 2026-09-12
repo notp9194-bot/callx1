@@ -238,6 +238,44 @@ public class CallxApp extends Application {
             }
         }, "db-warmup").start();
 
+        // ── PERF FIX: E2EEncryptionManager / ChatLockManager warm-up thread ──
+        // Same class of bug as the AppDatabase one above, different singletons:
+        // both E2EEncryptionManager.getInstance() and ChatLockManager.getInstance()
+        // build a MasterKey + EncryptedSharedPreferences on first call — an
+        // Android Keystore hardware round-trip plus (for E2EE) EC identity
+        // keypair generation if this is a fresh install. ChatActivity.onCreate()
+        // calls BOTH of these directly on the main thread (ensureSession() for
+        // E2EE, ChatLockGate.attachIfLocked() for the lock check) — so on a
+        // genuine cold start (e.g. tapping a message notification straight into
+        // ChatActivity, no chat list in between) that Keystore cost sits right
+        // in front of the first frame.
+        //
+        // Fix, same shape as AppDatabase's warm-up: build both singletons here,
+        // on their own thread, as early as possible, so by the time
+        // ChatActivity's onCreate() reaches its own getInstance() calls the
+        // MasterKey/EncryptedSharedPreferences are already built and those
+        // calls just return the existing instance (cheap synchronized
+        // null-check, same as AppDatabase.isWarm()'s fast path).
+        new Thread(() -> {
+            try {
+                com.callx.app.utils.E2EEncryptionManager.getInstance(CallxApp.this);
+                Log.d(TAG, "E2EEncryptionManager warm-up complete");
+            } catch (Exception e) {
+                Log.w(TAG, "E2EEncryptionManager warm-up failed (will retry on first use): " + e.getMessage());
+            }
+            try {
+                // getInstance() alone is cheap (just object construction) —
+                // prefs()/MasterKey build is lazy, only triggered by an
+                // actual isLocked()/setLocked() call. isLocked() with a
+                // throwaway id forces that build here instead of on
+                // ChatActivity's first real check.
+                com.callx.app.lock.ChatLockManager.getInstance(CallxApp.this).isLocked("__warmup__");
+                Log.d(TAG, "ChatLockManager warm-up complete");
+            } catch (Exception e) {
+                Log.w(TAG, "ChatLockManager warm-up failed (will retry on first use): " + e.getMessage());
+            }
+        }, "e2ee-lock-warmup").start();
+
         // ── MAIN THREAD: sirf lightweight kaam ────────────────────────
 
         // Notification channels moved to background thread below (see
