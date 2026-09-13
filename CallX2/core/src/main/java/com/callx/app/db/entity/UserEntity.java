@@ -23,6 +23,11 @@ public class UserEntity {
     public String name;
     public String emoji;
     public String callxId;
+    // Instagram-style public handle — chosen by the user (ProfileSetupActivity/
+    // settings), independent of the phone number. This is what gets displayed
+    // and searched everywhere now; callxId (the phone number) stays cached
+    // only for internal auth/contact-discovery use, never shown in the UI.
+    public String username;
     public String about;
     public String photoUrl;
     public String thumbUrl;   // 100×100 WebP thumbnail — chat list / avatars

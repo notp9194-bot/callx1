@@ -2083,7 +2083,28 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             vm.creatorAvatarVersion = avatarVersion;
         }
         if (layoutCreator == null || isGone()) return;
-        if (tvCreatorName != null) tvCreatorName.setText("@" + name);
+        // FIX (real username, not display name): "name" here is
+        // creatorName/uploadedByName — a display name, sourced via
+        // SoundDetailCache.getCreatorProfile()'s reelUsers→users cascade,
+        // which prioritizes "displayName"/"handle" over the real handle.
+        // Show it instantly as a placeholder (same convention as
+        // UserReelsActivity/ReelUserProfileSheet), then resolve the actual
+        // users/{uid}/username and upgrade the row the moment it arrives.
+        if (tvCreatorName != null) {
+            tvCreatorName.setText("@" + name);
+            final String placeholderUid = uid;
+            com.callx.app.utils.FirebaseUtils.getUserRef(uid).child("username")
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot snap) {
+                        if (isGone() || tvCreatorName == null || !placeholderUid.equals(creatorUid)) return;
+                        String realUsername = snap.getValue(String.class);
+                        if (realUsername != null && !realUsername.isEmpty()) {
+                            tvCreatorName.setText("@" + realUsername);
+                        }
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) {}
+                });
+        }
         if (ivCreatorAvatar != null) {
             // FIX: routed through FollowAvatarBinder — the SAME shared
             // pipeline FollowConnectionsActivity's row avatars use (density-

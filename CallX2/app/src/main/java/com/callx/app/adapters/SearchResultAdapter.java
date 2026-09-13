@@ -14,7 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * v18: Search results adapter — shows user avatar, name, callxId list.
+ * v18: Search results adapter — shows user avatar, name, username list.
  *
  * v19 — Deep avatar pipeline parity (was the one remaining scrollable list
  * still on a flat tier-URL-only Glide load — see SearchAvatarBinder's class
@@ -34,23 +34,23 @@ import java.util.List;
 public class SearchResultAdapter extends RecyclerView.Adapter<SearchResultAdapter.VH> {
 
     public interface OnUserClickListener {
-        void onUserClick(String uid, String name, String photo, String thumb, String callxId);
+        void onUserClick(String uid, String name, String photo, String thumb, String username);
     }
 
     public static class UserResult {
-        public String uid, name, callxId, photoUrl, thumbUrl;
+        public String uid, name, username, photoUrl, thumbUrl;
         // Bumped by 1 every time this user uploads a new avatar (mirrors
         // users/{uid}/avatarVersion — see AvatarUrlBuilder/SearchAvatarBinder).
         // 0 when unknown (e.g. an older Room cache row) — SearchAvatarBinder's
         // URL builder simply omits the cache-busting param in that case.
         public long avatarVersion;
 
-        public UserResult(String uid, String name, String callxId, String photoUrl, String thumbUrl) {
-            this(uid, name, callxId, photoUrl, thumbUrl, 0L);
+        public UserResult(String uid, String name, String username, String photoUrl, String thumbUrl) {
+            this(uid, name, username, photoUrl, thumbUrl, 0L);
         }
 
-        public UserResult(String uid, String name, String callxId, String photoUrl, String thumbUrl, long avatarVersion) {
-            this.uid = uid; this.name = name; this.callxId = callxId;
+        public UserResult(String uid, String name, String username, String photoUrl, String thumbUrl, long avatarVersion) {
+            this.uid = uid; this.name = name; this.username = username;
             this.photoUrl = photoUrl; this.thumbUrl = thumbUrl;
             this.avatarVersion = avatarVersion;
         }
@@ -86,7 +86,7 @@ public class SearchResultAdapter extends RecyclerView.Adapter<SearchResultAdapte
         UserResult u = list.get(pos);
         h.tvName.setText(u.name != null ? u.name : "User");
         com.callx.app.utils.VerifiedBadgeUtils.bindForUid(h.ivVerified, u.uid);
-        h.tvCallxId.setText(u.callxId != null ? u.callxId : "");
+        h.tvUsername.setText(u.username != null && !u.username.isEmpty() ? "@" + u.username : "");
         // v19: routed through SearchAvatarBinder — same tiered/versioned
         // responsive URL + L2/L3 memory-and-disk reuse (survives
         // TRIM_MEMORY_MODERATE and process death) every other avatar list
@@ -98,7 +98,7 @@ public class SearchResultAdapter extends RecyclerView.Adapter<SearchResultAdapte
         SearchAvatarBinder.bind(h.ivAvatar.getContext(), h.ivAvatar, baseUrl, u.avatarVersion, R.drawable.ic_person);
         h.itemView.setOnClickListener(v -> {
             if (listener != null)
-                listener.onUserClick(u.uid, u.name, u.photoUrl, u.thumbUrl, u.callxId);
+                listener.onUserClick(u.uid, u.name, u.photoUrl, u.thumbUrl, u.username);
         });
     }
 
@@ -145,7 +145,7 @@ public class SearchResultAdapter extends RecyclerView.Adapter<SearchResultAdapte
 
     static class VH extends RecyclerView.ViewHolder {
         CircleImageView ivAvatar;
-        TextView tvName, tvCallxId;
+        TextView tvName, tvUsername;
         ImageView ivVerified;
         ImageView ivArrow;
         VH(View v) {
@@ -153,7 +153,7 @@ public class SearchResultAdapter extends RecyclerView.Adapter<SearchResultAdapte
             ivAvatar   = v.findViewById(R.id.iv_avatar);
             tvName     = v.findViewById(R.id.tv_name);
             ivVerified = v.findViewById(R.id.iv_verified);
-            tvCallxId  = v.findViewById(R.id.tv_callx_id);
+            tvUsername = v.findViewById(R.id.tv_username);
             ivArrow    = v.findViewById(R.id.iv_arrow);
         }
     }

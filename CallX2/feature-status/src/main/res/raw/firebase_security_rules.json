@@ -1890,7 +1890,8 @@
     "usernames": {
       "$username": {
         ".read": "auth != null",
-        ".write": "auth != null && (!data.exists() || data.val() === auth.uid) && newData.val() === auth.uid"
+        ".write": "auth != null && ((!data.exists() && newData.exists() && newData.val() === auth.uid) || (data.exists() && data.val() === auth.uid && (!newData.exists() || newData.val() === auth.uid)))",
+        ".validate": "!newData.exists() || (newData.isString() && newData.val().length >= 3 && newData.val().length <= 30 && newData.val().matches(/^[a-z0-9_]+$/))"
       }
     },
     "challenges": {

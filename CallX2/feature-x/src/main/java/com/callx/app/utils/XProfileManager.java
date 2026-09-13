@@ -84,7 +84,15 @@ public class XProfileManager {
 
     /**
      * Saves editable fields of an XProfile.
-     * If the handle changed, atomically updates the handle index.
+     * If the handle changed, the new handle is reserved via a collision-safe
+     * transaction FIRST (same pattern as AccountMenuActivity's username
+     * change) — only once that commits does the profile get updated and the
+     * old handle released. Previously this saved the profile first and
+     * reserved the handle as an afterthought, which both left a race window
+     * (two people could tap Save on the same handle at once) and meant the
+     * users/{uid}/handle field could never be validated against x_handles
+     * ownership server-side, since the reservation didn't exist yet at the
+     * moment the profile write happened.
      */
     public static void save(String uid, XProfile profile,
                              String oldHandle, SaveCallback cb) {
@@ -93,16 +101,46 @@ public class XProfileManager {
             return;
         }
 
+        String newHandle = profile.handle != null ? profile.handle : "";
+        String prevHandle = oldHandle != null ? oldHandle : "";
+
+        if (!newHandle.equals(prevHandle) && !newHandle.isEmpty()) {
+            XFirebaseUtils.xHandleRef(newHandle).runTransaction(new Transaction.Handler() {
+                @NonNull
+                @Override
+                public Transaction.Result doTransaction(@NonNull MutableData data) {
+                    Object current = data.getValue();
+                    if (current != null && !current.equals(uid)) {
+                        return Transaction.abort();
+                    }
+                    data.setValue(uid);
+                    return Transaction.success(data);
+                }
+                @Override
+                public void onComplete(DatabaseError error, boolean committed, DataSnapshot snap) {
+                    if (error != null) {
+                        if (cb != null) cb.onError(error.getMessage());
+                        return;
+                    }
+                    if (!committed) {
+                        if (cb != null) cb.onError("Handle already taken");
+                        return;
+                    }
+                    writeProfileThenReleaseOldHandle(uid, profile, prevHandle, newHandle, cb);
+                }
+            });
+        } else {
+            writeProfileThenReleaseOldHandle(uid, profile, prevHandle, newHandle, cb);
+        }
+    }
+
+    private static void writeProfileThenReleaseOldHandle(String uid, XProfile profile,
+            String prevHandle, String newHandle, SaveCallback cb) {
         Map<String, Object> updates = profile.toProfileMap();
         XFirebaseUtils.xUserRef(uid).updateChildren(updates)
             .addOnSuccessListener(v -> {
-                // Update handle index if handle changed
-                String newHandle = profile.handle != null ? profile.handle : "";
-                if (!newHandle.equals(oldHandle != null ? oldHandle : "")) {
-                    if (oldHandle != null && !oldHandle.isEmpty())
-                        XFirebaseUtils.xHandlesRef().child(oldHandle).removeValue();
-                    if (!newHandle.isEmpty())
-                        XFirebaseUtils.xHandlesRef().child(newHandle).setValue(uid);
+                if (!newHandle.equals(prevHandle) && !prevHandle.isEmpty()) {
+                    XFirebaseUtils.xHandlesRef().child(prevHandle).removeValue();
                 }
                 if (cb != null) cb.onSuccess();
             })

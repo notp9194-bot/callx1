@@ -113,7 +113,7 @@
                             android:textSize="13sp"
                             android:layout_marginTop="2dp"/>
 
-                        <!-- CallX ID row -->
+                        <!-- Username row -->
                         <LinearLayout
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
@@ -122,13 +122,13 @@
                             android:layout_marginTop="6dp">
 
                             <TextView
-                                android:id="@+id/tv_callx_id"
+                                android:id="@+id/tv_username"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:textColor="@color/brand_primary"
                                 android:textSize="12sp"
                                 android:textStyle="bold"
-                                android:text="ID: —"/>
+                                android:text="\@—"/>
 
                             <ImageButton
                                 android:id="@+id/btn_copy_id"
@@ -196,7 +196,7 @@
                         android:layout_marginStart="56dp"/>
 
                     <include layout="@layout/item_menu_row"
-                        android:id="@+id/row_callx_id"
+                        android:id="@+id/row_username"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"/>
                 </LinearLayout>

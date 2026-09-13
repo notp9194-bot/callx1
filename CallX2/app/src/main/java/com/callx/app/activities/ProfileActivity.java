@@ -96,7 +96,10 @@ public class ProfileActivity extends AppCompatActivity {
                     runOnUiThread(() -> {
                         binding.etName.setText(orEmpty(cached.name));
                         binding.etAbout.setText(orEmpty(cached.about));
-                        binding.tvCallxId.setText(orEmpty(cached.callxId));
+                        // Step 3 (display swap): show the Instagram-style
+                        // @username handle here, not the phone-derived callxId.
+                        String cachedUsername = orEmpty(cached.username);
+                        binding.tvUsername.setText(cachedUsername.isEmpty() ? "" : "@" + cachedUsername);
                         binding.tvEmail.setText(orEmpty(cached.email));
                         currentPhoto = orEmpty(cached.photoUrl);
                         currentAvatarVersion = cached.avatarVersion;
@@ -128,7 +131,7 @@ public class ProfileActivity extends AppCompatActivity {
                     String instagram = orEmpty(s.child("instagram").getValue(String.class));
                     String youtube   = orEmpty(s.child("youtube").getValue(String.class));
                     String otherLink = orEmpty(s.child("otherLink").getValue(String.class));
-                    String callxId   = orEmpty(s.child("callxId").getValue(String.class));
+                    String username  = orEmpty(s.child("username").getValue(String.class));
                     String email     = isOwnProfile ? orEmpty(s.child("email").getValue(String.class)) : "";
                     String photo     = orEmpty(s.child("photoUrl").getValue(String.class));
                     String thumb     = orEmpty(s.child("thumbUrl").getValue(String.class));
@@ -142,7 +145,9 @@ public class ProfileActivity extends AppCompatActivity {
                     if (binding.etInstagram!= null) binding.etInstagram.setText(instagram);
                     if (binding.etYoutube  != null) binding.etYoutube.setText(youtube);
                     if (binding.etOtherLink!= null) binding.etOtherLink.setText(otherLink);
-                    binding.tvCallxId.setText(callxId);
+                    // Step 3 (display swap): @username replaces the phone-derived
+                    // @callxId here — phone itself never reaches this screen's UI.
+                    binding.tvUsername.setText(username.isEmpty() ? "" : "@" + username);
                     if (isOwnProfile) binding.tvEmail.setText(email);
                     currentPhoto = photo;
                     currentThumbUrl = thumb;
@@ -165,7 +170,7 @@ public class ProfileActivity extends AppCompatActivity {
                             u.uid     = viewUid;
                             u.name    = name;
                             u.about   = about;
-                            u.callxId = callxId;
+                            u.username = username;
                             u.email   = email;
                             u.photoUrl = photo;
                             u.avatarVersion = avatarVerToCache;
@@ -327,19 +332,12 @@ public class ProfileActivity extends AppCompatActivity {
         updates.put("instagram", instagram);
         updates.put("youtube",   youtube);
         updates.put("otherLink", otherLink);
-        // ★ FIX: "username" is queried across the app (search, mentions,
-        // watermark lookups) but was never actually written by either this
-        // screen or ProfileSetupActivity — see that file's saveToFirebase()
-        // for the matching fix. callxId (the mobile-number handle already
-        // shown here as tv_callx_id / "@callxId") is the closest thing this
-        // app has to a real username today, so re-save its lowercase form
-        // any time the profile is edited too, in case an older account was
-        // created before ProfileSetupActivity started writing it.
-        String callxIdNow = binding.tvCallxId.getText() != null
-            ? binding.tvCallxId.getText().toString().trim() : "";
-        if (!callxIdNow.isEmpty()) {
-            updates.put("username", callxIdNow.toLowerCase(java.util.Locale.getDefault()));
-        }
+        // Step 3 (display swap): username is now a real, independently-chosen
+        // handle (set in ProfileSetupActivity, reserved in usernames/{username})
+        // — this screen must NOT touch it. The old hack here used to re-derive
+        // "username" from the phone-number handle (tv_callx_id) on every save,
+        // silently overwriting a real chosen username back to the phone number.
+        // Editable-username support belongs to step 5 (Settings), not here.
         FirebaseUtils.getUserRef(currentUid).updateChildren(updates);
         FirebaseAuth.getInstance().getCurrentUser()
             .updateProfile(new UserProfileChangeRequest.Builder()

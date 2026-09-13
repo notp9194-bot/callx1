@@ -276,6 +276,12 @@ public class MainActivity extends AppCompatActivity
         // queued to draw — never in front of it.
         requestNotificationPermission();
         binding.getRoot().post(this::requestOptionalSettingsPermissionsOnce);
+        // Step 4 (Instagram-style rollout): one-time forced "choose your
+        // username" prompt for accounts created before real usernames
+        // existed (their `username` is still just the phone number).
+        // Deferred with post() same as the line above — a Firebase read
+        // here, not blocking the cold-start render.
+        binding.getRoot().post(this::checkUsernameMigrationOnce);
 
         // ── Handle tap from system reel notification (Doze / killed state) ─────
         handleReelNotifIntent(getIntent());
@@ -901,6 +907,48 @@ public class MainActivity extends AppCompatActivity
                 } catch (Exception ignored) {}
             }
         }
+    }
+
+    // Step 4 (Instagram-style rollout): SharedPreferences flag so, once an
+    // account's username is confirmed to be a real chosen handle, this
+    // never fires another Firebase read for that uid on later cold starts —
+    // same "persist a known-good state so we can skip the check next time"
+    // idiom as ChatActivity's chat_prune_check_state.
+    private static final String PREFS_USERNAME_MIGRATION = "username_migration_state";
+
+    /**
+     * One-time forced "choose your username" gate for accounts created
+     * before ProfileSetupActivity started asking for a real, independently-
+     * chosen @username (see ProfileSetupActivity's class history) — those
+     * accounts still have username == callxId (the phone number) or no
+     * username at all. Fires at most once per uid: a confirmed-good result
+     * is cached in SharedPreferences so this never re-reads Firebase for
+     * that uid again.
+     */
+    private void checkUsernameMigrationOnce() {
+        String uid = currentUid();
+        if (uid == null) return;
+        android.content.SharedPreferences prefs =
+            getSharedPreferences(PREFS_USERNAME_MIGRATION, MODE_PRIVATE);
+        if (prefs.getBoolean(uid, false)) return; // already confirmed good previously
+
+        FirebaseUtils.getUserRef(uid).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override public void onDataChange(DataSnapshot s) {
+                String username = s.child("username").getValue(String.class);
+                String callxId  = s.child("callxId").getValue(String.class);
+                boolean usernameMissing = username == null || username.trim().isEmpty();
+                boolean usernameIsPhone = !usernameMissing && callxId != null
+                        && !callxId.isEmpty() && username.equalsIgnoreCase(callxId);
+                if (usernameMissing || usernameIsPhone) {
+                    Intent i = new Intent(MainActivity.this, ProfileSetupActivity.class);
+                    i.putExtra(ProfileSetupActivity.EXTRA_FORCE_USERNAME_MIGRATION, true);
+                    startActivity(i);
+                } else {
+                    prefs.edit().putBoolean(uid, true).apply();
+                }
+            }
+            @Override public void onCancelled(DatabaseError e) {}
+        });
     }
 
     private void updateFab(int position) {

@@ -383,11 +383,15 @@ public class ReelSearchHistoryActivity extends AppCompatActivity {
         String bio     = c.child("bio").getValue(String.class);
         String thumb   = c.child("thumbUrl").getValue(String.class);
         String photo   = c.child("photoUrl").getValue(String.class);
-        String callxId = c.child("callxId").getValue(String.class);
-        Long   ver     = c.child("avatarVersion").getValue(Long.class);
+        // Step 3 fix (display swap): this used to read "callxId" (the
+        // phone-derived handle) even though the query above already
+        // matches on the real "username" field — missed in the original
+        // sweep. Reads/shows "username" now, same as every other screen.
+        String username = c.child("username").getValue(String.class);
+        Long   ver      = c.child("avatarVersion").getValue(Long.class);
         String p = (thumb != null && !thumb.isEmpty()) ? thumb : photo;
         return Row.user(uid, name != null ? name : uid, bio, p != null ? p : "",
-            ver != null ? ver : 0L, callxId);
+            ver != null ? ver : 0L, username);
     }
 
     private void finishSearch(String query, List<Row> merged) {
@@ -590,7 +594,7 @@ public class ReelSearchHistoryActivity extends AppCompatActivity {
                 if (type == Row.TYPE_USER) {
                     historyRows.add(Row.user(o.optString("uid"), o.optString("name"),
                         o.optString("bio", null), o.optString("photo"), o.optLong("avatarVersion"),
-                        o.optString("callxId", null)));
+                        o.optString("username", null)));
                 } else {
                     historyRows.add(Row.text(o.optString("query")));
                 }
@@ -610,7 +614,7 @@ public class ReelSearchHistoryActivity extends AppCompatActivity {
                     if (r.bio != null) o.put("bio", r.bio);
                     o.put("photo", r.photo);
                     o.put("avatarVersion", r.avatarVersion);
-                    if (r.callxId != null) o.put("callxId", r.callxId);
+                    if (r.username != null) o.put("username", r.username);
                 } else {
                     o.put("query", r.query);
                 }
@@ -752,19 +756,18 @@ public class ReelSearchHistoryActivity extends AppCompatActivity {
 
         int type;
         String uid, name, bio, photo, query;
-        /** Mobile-number handle shown as "@callxId" — same field
-         *  SearchActivity/DuetInviteActivity already treat as the app's
-         *  username (see SearchResultAdapter's "callxId as username"). */
-        String callxId;
+        /** The Instagram-style @handle (real "username" field — never the
+         *  phone-derived callxId; see the Step 3 fix note in rowFromSnapshot). */
+        String username;
         long avatarVersion;
         /** TYPE_TAG only — how many reels currently carry this hashtag. */
         int tagCount;
 
-        static Row user(String uid, String name, String bio, String photo, long avatarVersion, String callxId) {
+        static Row user(String uid, String name, String bio, String photo, long avatarVersion, String username) {
             Row r = new Row();
             r.type = TYPE_USER;
             r.uid = uid; r.name = name; r.bio = bio; r.photo = photo; r.avatarVersion = avatarVersion;
-            r.callxId = callxId;
+            r.username = username;
             return r;
         }
 
@@ -859,16 +862,16 @@ public class ReelSearchHistoryActivity extends AppCompatActivity {
                 // Same gradient/seen/hidden story ring HomeFragment's feed post
                 // avatar and Stories tray already use — see StoryRingApplier.
                 com.callx.app.utils.StoryRingApplier.applyWithClick(ReelSearchHistoryActivity.this, h.ivStoryRing, r.uid);
-                h.tvName.setText(highlighted((r.callxId != null && !r.callxId.isEmpty()) ? r.callxId
+                h.tvName.setText(highlighted((r.username != null && !r.username.isEmpty()) ? r.username
                         : (r.name != null ? r.name : r.uid)));
                 // Instagram-level: username is the primary bold line; name
                 // becomes the secondary line below it, and only shows when
                 // it differs from what's already shown as the username —
                 // same convention as FollowConnectionsActivity's row bind.
                 if (h.tvUsername != null) {
-                    boolean hasCallxId = r.callxId != null && !r.callxId.isEmpty();
+                    boolean hasUsername = r.username != null && !r.username.isEmpty();
                     boolean nameDiffers = r.name != null && !r.name.isEmpty()
-                        && (!hasCallxId || !r.name.equalsIgnoreCase(r.callxId));
+                        && (!hasUsername || !r.name.equalsIgnoreCase(r.username));
                     if (nameDiffers) {
                         h.tvUsername.setText(highlighted(r.name));
                         h.tvUsername.setVisibility(View.VISIBLE);
@@ -876,12 +879,11 @@ public class ReelSearchHistoryActivity extends AppCompatActivity {
                         h.tvUsername.setVisibility(View.GONE);
                     }
                 }
-                if (r.bio != null && !r.bio.isEmpty()) {
-                    h.tvSubtitle.setText(r.bio);
-                    h.tvSubtitle.setVisibility(View.VISIBLE);
-                } else {
-                    h.tvSubtitle.setVisibility(View.GONE);
-                }
+                // Instagram-level: search rows show only @username (bold,
+                // top) + name (regular, second line) — no bio here (bio is
+                // profile-page-only on Instagram). tvSubtitle stays reserved
+                // for TYPE_TAG's reel count below.
+                h.tvSubtitle.setVisibility(View.GONE);
 
                 // Follow/Following pill — hidden for the signed-in user's
                 // own row, shown for every other TYPE_USER row.

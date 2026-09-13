@@ -5053,7 +5053,20 @@ public class UserReelsActivity extends AppCompatActivity
             .addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override public void onDataChange(@NonNull DataSnapshot snap) {
                     String username = snap.getValue(String.class);
-                    targetUsername = (username != null && !username.isEmpty()) ? username : targetUid;
+                    // FIX (giant unbroken header line on refresh): falling
+                    // back to the raw Firebase uid here used to render as one
+                    // huge unwrappable line (no spaces to break on) whenever
+                    // username was momentarily null/empty on a refresh.
+                    // Fall back to the already-known display name instead,
+                    // and only as a last resort to a plain placeholder —
+                    // never the uid.
+                    if (username != null && !username.isEmpty()) {
+                        targetUsername = username;
+                    } else if (targetName != null && !targetName.isEmpty()) {
+                        targetUsername = targetName;
+                    } else {
+                        targetUsername = "user";
+                    }
                     if (tvName != null) tvName.setText(targetUsername);
                 }
                 @Override public void onCancelled(@NonNull com.google.firebase.database.DatabaseError error) {}

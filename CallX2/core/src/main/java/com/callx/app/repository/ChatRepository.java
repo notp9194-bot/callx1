@@ -650,6 +650,7 @@ public class ChatRepository {
         e.name          = u.name;
         e.emoji         = u.emoji;
         e.callxId       = u.callxId;
+        e.username      = u.username;
         e.about         = u.about;
         e.photoUrl      = u.photoUrl;
         e.fcmToken      = u.fcmToken;

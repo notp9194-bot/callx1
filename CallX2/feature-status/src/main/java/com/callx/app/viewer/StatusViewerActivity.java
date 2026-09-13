@@ -1362,12 +1362,13 @@ import com.callx.app.utils.AlertDialogStyler;
           if (username == null || username.isEmpty()) { settleStickerReaction(sticker); return; }
           pauseProgress();
           com.google.firebase.database.FirebaseDatabase.getInstance()
-                  .getReference("users").orderByChild("username").equalTo(username).limitToFirst(1)
-                  .addListenerForSingleValueEvent(new ValueEventListener() {
-              @Override public void onDataChange(DataSnapshot snap) {
-                  if (!snap.exists()) { settleStickerReaction(sticker); return; }
-                  DataSnapshot userSnap = snap.getChildren().iterator().next();
-                  String uid = userSnap.getKey();
+                  .getReference("usernames").child(username).get()
+                  .addOnSuccessListener(idxSnap -> {
+              String uid = idxSnap.getValue(String.class);
+              if (uid == null || uid.isEmpty()) { settleStickerReaction(sticker); return; }
+              com.google.firebase.database.FirebaseDatabase.getInstance()
+                      .getReference("users").child(uid).get()
+                      .addOnSuccessListener(userSnap -> {
                   String name = userSnap.child("name").getValue(String.class);
                   if (name == null || name.isEmpty()) name = username;
                   String photo = userSnap.child("profileImage").getValue(String.class);
@@ -1384,10 +1385,10 @@ import com.callx.app.utils.AlertDialogStyler;
                   } catch (Exception ignored2) {
                       // Profile activity unavailable at runtime — the sticker just stays inert.
                   }
-                  if (!opened) settleStickerReaction(sticker);
-              }
-              @Override public void onCancelled(DatabaseError e) { settleStickerReaction(sticker); }
-          });
+                  boolean finalOpened = opened;
+                  if (!finalOpened) settleStickerReaction(sticker);
+              }).addOnFailureListener(e -> settleStickerReaction(sticker));
+          }).addOnFailureListener(e -> settleStickerReaction(sticker));
       }
 
       /**

@@ -225,5 +225,10 @@ public class Constants {
     public static final String REEL_TYPE_RECOMMENDED      = "reel_recommended";
     public static final String FILTER_GROUPS              = "group";
 
+    // ── Username (Step 5 — editable handle, Settings) ────────────────────
+    // Instagram-style cooldown so a handle can't be churned every few
+    // minutes (search/mention caches, shared links, etc. all key off it).
+    public static final long USERNAME_CHANGE_COOLDOWN_MS = 14L * 24 * 60 * 60 * 1000; // 14 days
+
     private Constants() {}
 }

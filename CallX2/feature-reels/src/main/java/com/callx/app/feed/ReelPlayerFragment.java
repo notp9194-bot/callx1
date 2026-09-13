@@ -1449,12 +1449,13 @@ public class ReelPlayerFragment extends Fragment
     private void openVideoMentionProfile(Context ctx, String username) {
         if (username == null || username.isEmpty()) return;
         com.google.firebase.database.FirebaseDatabase.getInstance()
-                .getReference("users").orderByChild("username").equalTo(username).limitToFirst(1)
-                .addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(DataSnapshot snap) {
-                if (!snap.exists()) return;
-                DataSnapshot userSnap = snap.getChildren().iterator().next();
-                String uid = userSnap.getKey();
+                .getReference("usernames").child(username).get()
+                .addOnSuccessListener(idxSnap -> {
+            String uid = idxSnap.getValue(String.class);
+            if (uid == null || uid.isEmpty()) return;
+            com.google.firebase.database.FirebaseDatabase.getInstance()
+                    .getReference("users").child(uid).get()
+                    .addOnSuccessListener(userSnap -> {
                 String name = userSnap.child("name").getValue(String.class);
                 if (name == null || name.isEmpty()) name = username;
                 String photo = userSnap.child("profileImage").getValue(String.class);
@@ -1467,8 +1468,7 @@ public class ReelPlayerFragment extends Fragment
                     if (photo != null) intent.putExtra("photo", photo);
                     ctx.startActivity(intent);
                 } catch (Exception ignored) {}
-            }
-            @Override public void onCancelled(DatabaseError e) {}
+            });
         });
     }
 

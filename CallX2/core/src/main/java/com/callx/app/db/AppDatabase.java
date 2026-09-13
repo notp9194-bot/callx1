@@ -80,7 +80,7 @@ import com.callx.app.db.entity.*;
         // ReelCommentCacheEntity's class doc.
         ReelCommentCacheEntity.class
     },
-    version = 65,
+    version = 66,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -998,6 +998,17 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    static final Migration MIGRATION_65_66 = new Migration(65, 66) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            // Instagram-style display swap (step 3): cache the user-chosen
+            // `username` field locally too, so ProfileActivity/UserProfileActivity/
+            // SearchActivity's offline-first Room path can show "@username"
+            // instead of the phone-derived callxId even without network.
+            db.execSQL("ALTER TABLE users ADD COLUMN username TEXT");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -1063,7 +1074,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_58_59, MIGRATION_59_60,
                                     MIGRATION_60_61, MIGRATION_61_62,
                                     MIGRATION_62_63, MIGRATION_63_64,
-                                    MIGRATION_64_65)
+                                    MIGRATION_64_65, MIGRATION_65_66)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

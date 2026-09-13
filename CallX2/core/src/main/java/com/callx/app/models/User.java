@@ -6,6 +6,11 @@ public class User {
     public String name;
     public String emoji;
     public String callxId;
+    // Step 3/5: the real Instagram-style @handle (never the phone-derived
+    // callxId) — matches Firebase's users/{uid}/username child by field
+    // name, so getValue(User.class) auto-populates it like every other
+    // plain field here.
+    public String username;
     public String about;
     public String bio;           // Reel profile bio (short tagline)
     public String phone;         // Phone / WhatsApp number

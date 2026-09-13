@@ -27,8 +27,12 @@ import java.util.*;
  *
  * Mode 2 (Multi-duet participant picker — EXTRA_MULTI_DUET_MODE = true):
  *   - Preloads ALL users once from Firebase
- *   - Client-side filter: searches by "name", "nameLower", "callxId"
- *   - Same fields as SearchActivity (name / nameLower / callxId / photoUrl / thumbUrl)
+ *   - Client-side filter: searches by "name", "nameLower", "username"
+ *   - Same fields as SearchActivity (name / nameLower / username / photoUrl / thumbUrl)
+ *
+ * Step 3 fix (display swap): this screen used to read/show the phone-derived
+ * "callxId" as the "@handle" — missed in the original sweep. Now reads/shows
+ * the real "username" field, same as ProfileActivity/SearchActivity/etc.
  */
 public class DuetInviteActivity extends AppCompatActivity {
 
@@ -87,7 +91,7 @@ public class DuetInviteActivity extends AppCompatActivity {
         tvTitle.setText(isMultiDuetMode ? "Add Participant" : "Invite to Duet");
         if (tvSearchHint != null) {
             tvSearchHint.setVisibility(isMultiDuetMode ? View.VISIBLE : View.GONE);
-            tvSearchHint.setText("Type a name or CallX ID to search");
+            tvSearchHint.setText("Type a name or username to search");
         }
 
         rvUsers.setLayoutManager(new LinearLayoutManager(this));
@@ -110,7 +114,7 @@ public class DuetInviteActivity extends AppCompatActivity {
 
         if (isMultiDuetMode) {
             showEmpty(true);
-            tvEmpty.setText("Type a name or CallX ID to search");
+            tvEmpty.setText("Type a name or username to search");
             preloadAllUsers();
         } else {
             loadFollowers();
@@ -133,15 +137,15 @@ public class DuetInviteActivity extends AppCompatActivity {
                         String name    = ds.child("name").getValue(String.class);
                         String photo   = ds.child("photoUrl").getValue(String.class);
                         String thumb   = ds.child("thumbUrl").getValue(String.class);
-                        String callxId = ds.child("callxId").getValue(String.class);
+                        String username = ds.child("username").getValue(String.class);
 
                         if (name != null && !name.isEmpty()) {
                             allUsersCache.add(new UserItem(
                                 uid,
                                 name,
-                                callxId != null ? callxId : "",
-                                photo   != null ? photo   : "",
-                                thumb   != null ? thumb   : ""
+                                username != null ? username : "",
+                                photo    != null ? photo    : "",
+                                thumb    != null ? thumb    : ""
                             ));
                         }
                     }
@@ -169,7 +173,7 @@ public class DuetInviteActivity extends AppCompatActivity {
         if (query.isEmpty()) {
             filteredList.clear();
             adapter.notifyDataSetChanged();
-            tvEmpty.setText("Type a name or CallX ID to search");
+            tvEmpty.setText("Type a name or username to search");
             showEmpty(true);
             return;
         }
@@ -179,7 +183,7 @@ public class DuetInviteActivity extends AppCompatActivity {
 
         for (UserItem u : allUsersCache) {
             boolean nameMatch   = u.name.toLowerCase(Locale.getDefault()).contains(q);
-            boolean callxMatch  = u.callxId.toLowerCase(Locale.getDefault()).contains(q);
+            boolean callxMatch  = u.username.toLowerCase(Locale.getDefault()).contains(q);
             if (nameMatch || callxMatch) {
                 filteredList.add(u);
             }
@@ -188,9 +192,9 @@ public class DuetInviteActivity extends AppCompatActivity {
         // Sort: starts-with first, then contains
         filteredList.sort((a, b) -> {
             boolean aStart = a.name.toLowerCase(Locale.getDefault()).startsWith(q)
-                    || a.callxId.toLowerCase(Locale.getDefault()).startsWith(q);
+                    || a.username.toLowerCase(Locale.getDefault()).startsWith(q);
             boolean bStart = b.name.toLowerCase(Locale.getDefault()).startsWith(q)
-                    || b.callxId.toLowerCase(Locale.getDefault()).startsWith(q);
+                    || b.username.toLowerCase(Locale.getDefault()).startsWith(q);
             if (aStart && !bStart) return -1;
             if (!aStart && bStart) return 1;
             return a.name.compareToIgnoreCase(b.name);
@@ -234,14 +238,14 @@ public class DuetInviteActivity extends AppCompatActivity {
                         String name    = ds.child("name").getValue(String.class);
                         String photo   = ds.child("photoUrl").getValue(String.class);
                         String thumb   = ds.child("thumbUrl").getValue(String.class);
-                        String callxId = ds.child("callxId").getValue(String.class);
+                        String username = ds.child("username").getValue(String.class);
                         if (name != null) {
                             allUsers.add(new UserItem(
                                 uid,
                                 name,
-                                callxId != null ? callxId : "",
-                                photo   != null ? photo   : "",
-                                thumb   != null ? thumb   : ""
+                                username != null ? username : "",
+                                photo    != null ? photo    : "",
+                                thumb    != null ? thumb    : ""
                             ));
                         }
                         loaded[0]++;
@@ -267,7 +271,7 @@ public class DuetInviteActivity extends AppCompatActivity {
         for (UserItem u : allUsers) {
             if (q.isEmpty()
                     || u.name.toLowerCase(Locale.getDefault()).contains(q)
-                    || u.callxId.toLowerCase(Locale.getDefault()).contains(q)) {
+                    || u.username.toLowerCase(Locale.getDefault()).contains(q)) {
                 filteredList.add(u);
             }
         }
@@ -283,7 +287,7 @@ public class DuetInviteActivity extends AppCompatActivity {
             result.putExtra(RESULT_USER_UID,      user.uid);
             result.putExtra(RESULT_USER_NAME,     user.name);
             result.putExtra(RESULT_USER_PHOTO,    user.photoUrl);
-            result.putExtra(RESULT_USER_USERNAME, user.callxId); // callxId as username
+            result.putExtra(RESULT_USER_USERNAME, user.username);
             setResult(RESULT_OK, result);
             finish();
         } else {
@@ -338,9 +342,9 @@ public class DuetInviteActivity extends AppCompatActivity {
 
     // ── Data model ────────────────────────────────────────────────────────────
     static class UserItem {
-        String uid, name, callxId, photoUrl, thumbUrl;
-        UserItem(String uid, String name, String callxId, String photoUrl, String thumbUrl) {
-            this.uid = uid; this.name = name; this.callxId = callxId;
+        String uid, name, username, photoUrl, thumbUrl;
+        UserItem(String uid, String name, String username, String photoUrl, String thumbUrl) {
+            this.uid = uid; this.name = name; this.username = username;
             this.photoUrl = photoUrl; this.thumbUrl = thumbUrl;
         }
     }
@@ -362,7 +366,7 @@ public class DuetInviteActivity extends AppCompatActivity {
         @Override public void onBindViewHolder(@NonNull VH h, int pos) {
             UserItem u = items.get(pos);
             h.tvName.setText(u.name);
-            h.tvUsername.setText(u.callxId.isEmpty() ? "" : "@" + u.callxId);
+            h.tvUsername.setText(u.username.isEmpty() ? "" : "@" + u.username);
             String avatar = (!u.thumbUrl.isEmpty()) ? u.thumbUrl : u.photoUrl;
             if (!avatar.isEmpty()) {
                 Glide.with(h.ivAvatar).load(avatar).circleCrop().override(96, 96).into(h.ivAvatar);

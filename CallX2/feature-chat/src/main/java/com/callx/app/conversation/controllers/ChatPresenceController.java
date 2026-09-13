@@ -435,11 +435,12 @@ public class ChatPresenceController {
         });
     }
 
-    /** Toggles the small green dot on the chat header's partner avatar
-     *  (view_header_online_dot in activity_chat.xml). */
+    /** The header's online dot (view_header_online_dot in activity_chat.xml)
+     *  has been retired — tvStatus already shows "online" text right below
+     *  the name, so the dot was a redundant second signal for the same
+     *  state. View is removed from the layout; this is now a no-op kept so
+     *  call sites above don't need to change. */
     private void setHeaderOnlineDotVisible(ActivityChatBinding binding, boolean visible) {
-        if (binding.viewHeaderOnlineDot == null) return;
-        binding.viewHeaderOnlineDot.setVisibility(visible ? View.VISIBLE : View.GONE);
     }
 
     // ── PERF (WhatsApp-level formatter caching) ─────────────────────────────

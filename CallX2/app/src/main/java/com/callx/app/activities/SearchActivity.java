@@ -52,13 +52,13 @@ public class SearchActivity extends AppCompatActivity {
         binding.rvResults.setLayoutManager(new LinearLayoutManager(this));
         binding.rvResults.setAdapter(adapter);
         attachVelocityPrefetch(); // v19: deep avatar pipeline — velocity-based prefetch ahead of the last visible row
-        adapter.setListener((uid, name, photo, thumb, callxId) -> {
+        adapter.setListener((uid, name, photo, thumb, username) -> {
             // Save selection and show detail card
             foundUid   = uid;
             foundName  = name;
             foundPhoto = photo;
             foundThumb = thumb;
-            showDetail(name, callxId, photo);
+            showDetail(name, username, photo);
         });
 
         // Search button
@@ -152,14 +152,17 @@ public class SearchActivity extends AppCompatActivity {
 
         binding.tvStatus.setText("Dhundh raha hoon...");
 
-        // 1. Search by callxId (exact)
-        // 2. Search by nameLower (if index exists)
-        // 3. Fallback: search by name field directly (for users registered without nameLower)
+        // Step 3 (display swap): search by @username first via the O(1)
+        // usernames/{username} index (same pattern as step 2's @mention
+        // resolution), instead of an orderByChild("callxId") scan on the
+        // phone number — phone is no longer a search key from the UI.
+        // Then: nameLower prefix, then name prefix (both fallbacks unchanged).
         List<SearchResultAdapter.UserResult> merged = new ArrayList<>();
         String myUid = FirebaseAuth.getInstance().getCurrentUser() != null
             ? FirebaseUtils.getCurrentUid() : "";
 
         DatabaseReference usersRef = FirebaseUtils.db().getReference("users");
+        DatabaseReference usernamesRef = FirebaseUtils.db().getReference("usernames");
 
         // Range end for prefix search
         String queryEnd = query.length() > 0
@@ -167,62 +170,70 @@ public class SearchActivity extends AppCompatActivity {
               + (char)(query.charAt(query.length() - 1) + 1)
             : query;
 
-        // Query 1: by callxId exact match
-        usersRef.orderByChild("callxId").equalTo(query)
+        // Query 1: by username, exact O(1) index lookup
+        usernamesRef.child(query).get()
+            .addOnSuccessListener(unameSnap -> {
+                String matchedUid = unameSnap.exists() ? unameSnap.getValue(String.class) : null;
+                if (matchedUid != null && !matchedUid.isEmpty() && !matchedUid.equals(myUid)) {
+                    usersRef.child(matchedUid).get()
+                        .addOnSuccessListener(userSnap -> {
+                            SearchResultAdapter.UserResult r = snapToResult(userSnap);
+                            if (r != null && !containsUid(merged, r.uid)) merged.add(r);
+                            continueSearchByName(query, queryEnd, usersRef, myUid, merged);
+                        })
+                        .addOnFailureListener(e -> continueSearchByName(query, queryEnd, usersRef, myUid, merged));
+                } else {
+                    continueSearchByName(query, queryEnd, usersRef, myUid, merged);
+                }
+            })
+            .addOnFailureListener(e -> searchInRoom(query));
+    }
+
+    /** Query 2: by nameLower prefix, then Query 3: by name field (both
+     *  fallbacks for users search — unchanged since step 3 only replaced
+     *  the phone-number exact-match query above with username). */
+    private void continueSearchByName(String query, String queryEnd, DatabaseReference usersRef,
+                                       String myUid, List<SearchResultAdapter.UserResult> merged) {
+        usersRef.orderByChild("nameLower").startAt(query).endAt(queryEnd + "\uf8ff")
+            .limitToFirst(20)
             .addListenerForSingleValueEvent(new ValueEventListener() {
-                @Override public void onDataChange(DataSnapshot snap) {
-                    for (DataSnapshot c : snap.getChildren()) {
+                @Override public void onDataChange(DataSnapshot snap2) {
+                    for (DataSnapshot c : snap2.getChildren()) {
                         SearchResultAdapter.UserResult r = snapToResult(c);
                         if (r != null && !r.uid.equals(myUid) && !containsUid(merged, r.uid))
                             merged.add(r);
                     }
 
-                    // Query 2: by nameLower prefix (for users who have this field)
-                    usersRef.orderByChild("nameLower").startAt(query).endAt(queryEnd + "\uf8ff")
+                    // Query 3: by name field directly (fallback for users without nameLower)
+                    // Use capitalized version too since names are often stored as "Rahul" not "rahul"
+                    String queryCapitalized = query.length() > 0
+                        ? Character.toUpperCase(query.charAt(0)) + query.substring(1)
+                        : query;
+                    String queryCapEnd = queryCapitalized.length() > 0
+                        ? queryCapitalized.substring(0, queryCapitalized.length() - 1)
+                          + (char)(queryCapitalized.charAt(queryCapitalized.length() - 1) + 1)
+                        : queryCapitalized;
+
+                    usersRef.orderByChild("name").startAt(queryCapitalized).endAt(queryCapEnd + "\uf8ff")
                         .limitToFirst(20)
                         .addListenerForSingleValueEvent(new ValueEventListener() {
-                            @Override public void onDataChange(DataSnapshot snap2) {
-                                for (DataSnapshot c : snap2.getChildren()) {
+                            @Override public void onDataChange(DataSnapshot snap3) {
+                                for (DataSnapshot c : snap3.getChildren()) {
                                     SearchResultAdapter.UserResult r = snapToResult(c);
                                     if (r != null && !r.uid.equals(myUid) && !containsUid(merged, r.uid))
                                         merged.add(r);
                                 }
-
-                                // Query 3: by name field directly (fallback for users without nameLower)
-                                // Use capitalized version too since names are often stored as "Rahul" not "rahul"
-                                String queryCapitalized = query.length() > 0
-                                    ? Character.toUpperCase(query.charAt(0)) + query.substring(1)
-                                    : query;
-                                String queryCapEnd = queryCapitalized.length() > 0
-                                    ? queryCapitalized.substring(0, queryCapitalized.length() - 1)
-                                      + (char)(queryCapitalized.charAt(queryCapitalized.length() - 1) + 1)
-                                    : queryCapitalized;
-
-                                usersRef.orderByChild("name").startAt(queryCapitalized).endAt(queryCapEnd + "\uf8ff")
+                                // Also try lowercase name prefix search
+                                usersRef.orderByChild("name").startAt(query).endAt(queryEnd + "\uf8ff")
                                     .limitToFirst(20)
                                     .addListenerForSingleValueEvent(new ValueEventListener() {
-                                        @Override public void onDataChange(DataSnapshot snap3) {
-                                            for (DataSnapshot c : snap3.getChildren()) {
+                                        @Override public void onDataChange(DataSnapshot snap4) {
+                                            for (DataSnapshot c : snap4.getChildren()) {
                                                 SearchResultAdapter.UserResult r = snapToResult(c);
                                                 if (r != null && !r.uid.equals(myUid) && !containsUid(merged, r.uid))
                                                     merged.add(r);
                                             }
-                                            // Also try lowercase name prefix search
-                                            usersRef.orderByChild("name").startAt(query).endAt(queryEnd + "\uf8ff")
-                                                .limitToFirst(20)
-                                                .addListenerForSingleValueEvent(new ValueEventListener() {
-                                                    @Override public void onDataChange(DataSnapshot snap4) {
-                                                        for (DataSnapshot c : snap4.getChildren()) {
-                                                            SearchResultAdapter.UserResult r = snapToResult(c);
-                                                            if (r != null && !r.uid.equals(myUid) && !containsUid(merged, r.uid))
-                                                                merged.add(r);
-                                                        }
-                                                        showResults(merged);
-                                                    }
-                                                    @Override public void onCancelled(DatabaseError e) {
-                                                        showResults(merged);
-                                                    }
-                                                });
+                                            showResults(merged);
                                         }
                                         @Override public void onCancelled(DatabaseError e) {
                                             showResults(merged);
@@ -230,27 +241,27 @@ public class SearchActivity extends AppCompatActivity {
                                     });
                             }
                             @Override public void onCancelled(DatabaseError e) {
-                                // nameLower index missing — still run name search
-                                usersRef.orderByChild("name").startAt(query).endAt(queryEnd + "\uf8ff")
-                                    .limitToFirst(20)
-                                    .addListenerForSingleValueEvent(new ValueEventListener() {
-                                        @Override public void onDataChange(DataSnapshot snap3) {
-                                            for (DataSnapshot c : snap3.getChildren()) {
-                                                SearchResultAdapter.UserResult r = snapToResult(c);
-                                                if (r != null && !r.uid.equals(myUid) && !containsUid(merged, r.uid))
-                                                    merged.add(r);
-                                            }
-                                            showResults(merged);
-                                        }
-                                        @Override public void onCancelled(DatabaseError e2) {
-                                            showResults(merged);
-                                        }
-                                    });
+                                showResults(merged);
                             }
                         });
                 }
                 @Override public void onCancelled(DatabaseError e) {
-                    searchInRoom(query);
+                    // nameLower index missing — still run name search
+                    usersRef.orderByChild("name").startAt(query).endAt(queryEnd + "\uf8ff")
+                        .limitToFirst(20)
+                        .addListenerForSingleValueEvent(new ValueEventListener() {
+                            @Override public void onDataChange(DataSnapshot snap3) {
+                                for (DataSnapshot c : snap3.getChildren()) {
+                                    SearchResultAdapter.UserResult r = snapToResult(c);
+                                    if (r != null && !r.uid.equals(myUid) && !containsUid(merged, r.uid))
+                                        merged.add(r);
+                                }
+                                showResults(merged);
+                            }
+                            @Override public void onCancelled(DatabaseError e2) {
+                                showResults(merged);
+                            }
+                        });
                 }
             });
     }
@@ -258,7 +269,7 @@ public class SearchActivity extends AppCompatActivity {
     private SearchResultAdapter.UserResult snapToResult(DataSnapshot c) {
         String uid   = c.child("uid").getValue(String.class);
         String name  = c.child("name").getValue(String.class);
-        String cxId  = c.child("callxId").getValue(String.class);
+        String username = c.child("username").getValue(String.class);
         String photo = c.child("photoUrl").getValue(String.class);
         String thumb = c.child("thumbUrl").getValue(String.class);
         // v19: needed for SearchAvatarBinder's ?v= cache-bust param — same
@@ -266,7 +277,7 @@ public class SearchActivity extends AppCompatActivity {
         // GroupInfoActivity already read off this same users/{uid} snapshot.
         Long avatarVer = c.child("avatarVersion").getValue(Long.class);
         if (uid == null) return null;
-        return new SearchResultAdapter.UserResult(uid, name, cxId, photo, thumb, avatarVer != null ? avatarVer : 0L);
+        return new SearchResultAdapter.UserResult(uid, name, username, photo, thumb, avatarVer != null ? avatarVer : 0L);
     }
 
     private boolean containsUid(List<SearchResultAdapter.UserResult> list, String uid) {
@@ -298,16 +309,16 @@ public class SearchActivity extends AppCompatActivity {
                 for (UserEntity u : entities) {
                     if (!u.uid.equals(myUid))
                         results.add(new SearchResultAdapter.UserResult(
-                            u.uid, u.name, u.callxId, u.photoUrl, u.thumbUrl, u.avatarVersion));
+                            u.uid, u.name, u.username, u.photoUrl, u.thumbUrl, u.avatarVersion));
                 }
             }
             runOnUiThread(() -> showResults(results));
         });
     }
 
-    private void showDetail(String name, String id, String photo) {
+    private void showDetail(String name, String username, String photo) {
         binding.tvResultName.setText(name != null ? name : "User");
-        binding.tvResultId.setText(id != null ? id : "");
+        binding.tvResultId.setText(username != null && !username.isEmpty() ? "@" + username : "");
         String displayAvatar = (foundThumb != null && !foundThumb.isEmpty()) ? foundThumb : photo;
         if (displayAvatar != null && !displayAvatar.isEmpty()) {
             Glide.with(this).load(displayAvatar).circleCrop()

@@ -197,13 +197,13 @@ public class UserProfileActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
 
-                // FIX (Instagram-level header): tv_name (top, bold) is the
-                // primary line — show the @callxId handle there, same as
+                // Step 3 (display swap): tv_name (top, bold) is the
+                // primary line — show the @username handle there, same as
                 // FollowConnectionsActivity/UserReelsActivity's headers.
-                // tv_callx_id (bottom, secondary) now shows the display
+                // tv_username (bottom, secondary) now shows the display
                 // name instead, only when it differs from the handle.
-                boolean cachedHasCallxId = cached.callxId != null && !cached.callxId.isEmpty();
-                String cachedPrimary = cachedHasCallxId ? cached.callxId
+                boolean cachedHasUsername = cached.username != null && !cached.username.isEmpty();
+                String cachedPrimary = cachedHasUsername ? "@" + cached.username
                         : (cached.name != null ? cached.name : partnerUid);
                 binding.tvName.setText(cachedPrimary);
                 binding.collapsingToolbar.setTitle(cachedPrimary);
@@ -211,12 +211,12 @@ public class UserProfileActivity extends AppCompatActivity {
                     partnerName = cached.name;
                 }
                 boolean cachedNameDiffers = cached.name != null && !cached.name.isEmpty()
-                        && (!cachedHasCallxId || !cached.name.equalsIgnoreCase(cached.callxId));
+                        && (!cachedHasUsername || !cached.name.equalsIgnoreCase(cached.username));
                 if (cachedNameDiffers) {
-                    binding.tvCallxId.setText(cached.name);
-                    binding.tvCallxId.setVisibility(View.VISIBLE);
-                } else if (cachedHasCallxId) {
-                    binding.tvCallxId.setVisibility(View.GONE);
+                    binding.tvUsername.setText(cached.name);
+                    binding.tvUsername.setVisibility(View.VISIBLE);
+                } else if (cachedHasUsername) {
+                    binding.tvUsername.setVisibility(View.GONE);
                 }
 
                 // About
@@ -247,7 +247,7 @@ public class UserProfileActivity extends AppCompatActivity {
     // FIREBASE se aaya data → Room mein save karo (next time offline kaam aaye)
     // ──────────────────────────────────────────────────────────────────────
 
-    private void saveToRoom(String name, String about, String callxId,
+    private void saveToRoom(String name, String about, String username,
                             String photoUrl, String thumbUrl) {
         dbExecutor.execute(() -> {
             AppDatabase db = AppDatabase.getInstance(getApplicationContext());
@@ -256,7 +256,7 @@ public class UserProfileActivity extends AppCompatActivity {
             entity.uid      = partnerUid;
             if (name    != null && !name.isEmpty())    entity.name    = name;
             if (about   != null && !about.isEmpty())   entity.about   = about;
-            if (callxId != null && !callxId.isEmpty()) entity.callxId = callxId;
+            if (username != null && !username.isEmpty()) entity.username = username;
             if (photoUrl != null && !photoUrl.isEmpty()) entity.photoUrl = photoUrl;
             if (thumbUrl != null && !thumbUrl.isEmpty()) entity.thumbUrl = thumbUrl;
             entity.cachedAt = System.currentTimeMillis();
@@ -311,7 +311,7 @@ public class UserProfileActivity extends AppCompatActivity {
                     String whatsapp  = orEmpty(s.child("whatsapp").getValue(String.class));
                     String instagram = orEmpty(s.child("instagram").getValue(String.class));
                     String otherLink = orEmpty(s.child("otherLink").getValue(String.class));
-                    String callxId   = orEmpty(s.child("callxId").getValue(String.class));
+                    String username  = orEmpty(s.child("username").getValue(String.class));
                     String photo     = orEmpty(s.child("photoUrl").getValue(String.class));
                     String thumb     = orEmpty(s.child("thumbUrl").getValue(String.class));
                     Long   avatarVer = s.child("avatarVersion").getValue(Long.class);
@@ -321,25 +321,25 @@ public class UserProfileActivity extends AppCompatActivity {
                     if (!name.isEmpty())  partnerName  = name;
                     if (avatarVer != null) partnerAvatarVersion = avatarVer;
 
-                    // Name + collapsing title — Instagram-level: tv_name
-                    // (top, bold) is the primary @callxId handle; tv_callx_id
-                    // (secondary) now shows the display name, only when it
-                    // differs from the handle. Same convention as
+                    // Step 3 (display swap): tv_name (top, bold) is the
+                    // primary @username handle; tv_username (secondary)
+                    // now shows the display name, only when it differs
+                    // from the handle. Same convention as
                     // FollowConnectionsActivity/UserReelsActivity headers.
-                    boolean hasCallxId = !callxId.isEmpty();
+                    boolean hasUsername = !username.isEmpty();
                     String resolvedName = name.isEmpty() ? orEmpty(partnerName) : name;
-                    String primary = hasCallxId ? callxId : (!resolvedName.isEmpty() ? resolvedName : partnerUid);
+                    String primary = hasUsername ? "@" + username : (!resolvedName.isEmpty() ? resolvedName : partnerUid);
                     binding.tvName.setText(primary);
                     binding.collapsingToolbar.setTitle(primary);
 
-                    // CallX ID / secondary name line
+                    // Username / secondary name line
                     boolean nameDiffers = !resolvedName.isEmpty()
-                            && (!hasCallxId || !resolvedName.equalsIgnoreCase(callxId));
+                            && (!hasUsername || !resolvedName.equalsIgnoreCase(username));
                     if (nameDiffers) {
-                        binding.tvCallxId.setText(resolvedName);
-                        binding.tvCallxId.setVisibility(View.VISIBLE);
+                        binding.tvUsername.setText(resolvedName);
+                        binding.tvUsername.setVisibility(View.VISIBLE);
                     } else {
-                        binding.tvCallxId.setVisibility(View.GONE);
+                        binding.tvUsername.setVisibility(View.GONE);
                     }
 
                     // Bio
@@ -394,7 +394,7 @@ public class UserProfileActivity extends AppCompatActivity {
                     // We load it separately after profile load
 
                     // Room mein save karo — agli baar offline mein kaam aayega
-                    saveToRoom(name, about, callxId, photo, thumb);
+                    saveToRoom(name, about, username, photo, thumb);
                 }
 
                 @Override

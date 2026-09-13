@@ -4487,29 +4487,27 @@ public class MessagePagingAdapter
                 final String fUKey = rUsername;
                 final android.content.Context fCtxA = ctx.getApplicationContext();
                 com.google.firebase.database.FirebaseDatabase.getInstance()
-                        .getReference("users").orderByChild("username").equalTo(rUsername).limitToFirst(1)
-                        .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
-                            @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
+                        .getReference("usernames").child(rUsername).get()
+                        .addOnSuccessListener(idxSnap -> {
+                            String fUid = idxSnap.getValue(String.class);
+                            if (fUid == null || fUid.isEmpty()) { reelAvatarFetchInFlight.remove(fUKey); return; }
+                            com.google.firebase.database.FirebaseDatabase.getInstance()
+                                    .getReference("users").child(fUid).get()
+                                    .addOnSuccessListener(child -> {
                                 reelAvatarFetchInFlight.remove(fUKey);
-                                if (!snap.exists() || h.canvasBindToken != myToken) return;
-                                String photo = null;
-                                for (com.google.firebase.database.DataSnapshot child : snap.getChildren()) {
-                                    photo = child.child("profileImage").getValue(String.class);
-                                    if (photo == null || photo.isEmpty()) photo = child.child("photoUrl").getValue(String.class);
-                                    if (photo == null || photo.isEmpty()) photo = child.child("profilePhoto").getValue(String.class);
-                                    break;
-                                }
+                                if (!child.exists() || h.canvasBindToken != myToken) return;
+                                String photo = child.child("profileImage").getValue(String.class);
+                                if (photo == null || photo.isEmpty()) photo = child.child("photoUrl").getValue(String.class);
+                                if (photo == null || photo.isEmpty()) photo = child.child("profilePhoto").getValue(String.class);
                                 if (photo == null || photo.isEmpty()) return;
                                 reelOwnerAvatarCache.put(fUKey, photo);
                                 com.callx.app.cache.ChatAvatarBinder.bindBitmap(fCtxA, photo, 0L, resource -> {
                                     if (h.canvasBindToken != myToken) return;
                                     cv.setReelShareAvatarBitmap(resource);
                                 });
-                            }
-                            @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
-                                reelAvatarFetchInFlight.remove(fUKey);
-                            }
-                        });
+                            }).addOnFailureListener(e -> reelAvatarFetchInFlight.remove(fUKey));
+                        })
+                        .addOnFailureListener(e -> reelAvatarFetchInFlight.remove(fUKey));
             }
 
             // Thumbnail
@@ -6129,41 +6127,38 @@ public class MessagePagingAdapter
                             final VH fhA = h;
                             final android.content.Context fCtxA = ctx.getApplicationContext();
                             com.google.firebase.database.FirebaseDatabase.getInstance()
-                                .getReference("users").orderByChild("username")
-                                .equalTo(uKey)
-                                .limitToFirst(1)
-                                .addListenerForSingleValueEvent(new com.google.firebase.database.ValueEventListener() {
-                                    @Override public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snap) {
-                                        reelAvatarFetchInFlight.remove(fUKey);
-                                        if (!snap.exists()) return;
-                                        String photo = null;
-                                        for (com.google.firebase.database.DataSnapshot child : snap.getChildren()) {
-                                            photo = child.child("profileImage").getValue(String.class);
+                                .getReference("usernames").child(uKey).get()
+                                .addOnSuccessListener(idxSnap -> {
+                                    String fUid = idxSnap.getValue(String.class);
+                                    if (fUid == null || fUid.isEmpty()) { reelAvatarFetchInFlight.remove(fUKey); return; }
+                                    com.google.firebase.database.FirebaseDatabase.getInstance()
+                                        .getReference("users").child(fUid).get()
+                                        .addOnSuccessListener(child -> {
+                                            reelAvatarFetchInFlight.remove(fUKey);
+                                            if (!child.exists()) return;
+                                            String photo = child.child("profileImage").getValue(String.class);
                                             if (photo == null || photo.isEmpty())
                                                 photo = child.child("photoUrl").getValue(String.class);
                                             if (photo == null || photo.isEmpty())
                                                 photo = child.child("profilePhoto").getValue(String.class);
-                                            break;
-                                        }
-                                        if (photo == null || photo.isEmpty()) return;
-                                        reelOwnerAvatarCache.put(fUKey, photo);
-                                        // Guard: only push into the ImageView if this row is
-                                        // still showing the same username (it may have been
-                                        // recycled to a different message by the time this
-                                        // async Firebase callback returns).
-                                        CharSequence curName = fhA.tvReelShareUsername != null
-                                                ? fhA.tvReelShareUsername.getText() : null;
-                                        if (fhA.ivReelShareAvatar != null && curName != null
-                                                && curName.toString().equals("@" + fUKey)) {
-                                            com.callx.app.cache.ChatAvatarBinder.bind(fCtxA, fhA.ivReelShareAvatar,
-                                                    photo, 0L, android.R.drawable.ic_menu_camera,
-                                                    com.callx.app.utils.AvatarSizeTier.forViewSizeDp(24));
-                                        }
-                                    }
-                                    @Override public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError e) {
-                                        reelAvatarFetchInFlight.remove(fUKey);
-                                    }
-                                });
+                                            if (photo == null || photo.isEmpty()) return;
+                                            reelOwnerAvatarCache.put(fUKey, photo);
+                                            // Guard: only push into the ImageView if this row is
+                                            // still showing the same username (it may have been
+                                            // recycled to a different message by the time this
+                                            // async Firebase callback returns).
+                                            CharSequence curName = fhA.tvReelShareUsername != null
+                                                    ? fhA.tvReelShareUsername.getText() : null;
+                                            if (fhA.ivReelShareAvatar != null && curName != null
+                                                    && curName.toString().equals("@" + fUKey)) {
+                                                com.callx.app.cache.ChatAvatarBinder.bind(fCtxA, fhA.ivReelShareAvatar,
+                                                        photo, 0L, android.R.drawable.ic_menu_camera,
+                                                        com.callx.app.utils.AvatarSizeTier.forViewSizeDp(24));
+                                            }
+                                        })
+                                        .addOnFailureListener(e -> reelAvatarFetchInFlight.remove(fUKey));
+                                })
+                                .addOnFailureListener(e -> reelAvatarFetchInFlight.remove(fUKey));
                         }
                     }
                 }

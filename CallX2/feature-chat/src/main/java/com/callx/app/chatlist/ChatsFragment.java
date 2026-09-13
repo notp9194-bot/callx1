@@ -639,6 +639,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
                 : "anonymous:" + System.identityHashCode(user);
         String typeLabel = ChatListPreviewUtil.labelForType(user.lastMessageType);
         String signature = safeSearchValue(user.name) + '\u0001'
+                + safeSearchValue(user.username) + '\u0001'
                 + safeSearchValue(user.callxId) + '\u0001'
                 + safeSearchValue(user.lastMessage) + '\u0001'
                 + safeSearchValue(typeLabel);
@@ -648,6 +649,7 @@ public class ChatsFragment extends Fragment implements ChatListAdapter.Selection
         }
 
         String normalized = (safeSearchValue(user.name) + " "
+                + safeSearchValue(user.username) + " "
                 + safeSearchValue(user.callxId) + " "
                 + safeSearchValue(user.lastMessage) + " "
                 + safeSearchValue(typeLabel)).toLowerCase(Locale.ROOT);

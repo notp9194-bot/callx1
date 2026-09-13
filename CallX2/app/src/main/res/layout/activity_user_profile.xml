@@ -112,7 +112,7 @@
 
                     <!-- CallX ID -->
                     <TextView
-                        android:id="@+id/tv_callx_id"
+                        android:id="@+id/tv_username"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textSize="12sp"

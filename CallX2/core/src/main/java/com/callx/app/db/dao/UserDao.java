@@ -58,7 +58,16 @@ public interface UserDao {
     @Query("SELECT * FROM users WHERE LOWER(callxId) = LOWER(:callxId) LIMIT 5")
     List<UserEntity> searchByCallxId(String callxId);
 
-    /** v18: Search by callxId OR name (partial match) — offline multi-result */
-    @Query("SELECT * FROM users WHERE LOWER(callxId) LIKE '%' || LOWER(:query) || '%' OR LOWER(name) LIKE '%' || LOWER(:query) || '%' ORDER BY name ASC LIMIT 20")
+    /** Step 3 (display swap): offline search — username se user dhundho, O(1)-ish exact match */
+    @Query("SELECT * FROM users WHERE LOWER(username) = LOWER(:username) LIMIT 5")
+    List<UserEntity> searchByUsername(String username);
+
+    @Query("UPDATE users SET username = :username WHERE uid = :uid")
+    void updateUsername(String uid, String username);
+
+    /** v18: Search by username OR name (partial match) — offline multi-result.
+     *  Step 3: switched off callxId (phone) and onto username as the handle
+     *  users actually search/share by, matching the online Firebase query. */
+    @Query("SELECT * FROM users WHERE LOWER(username) LIKE '%' || LOWER(:query) || '%' OR LOWER(name) LIKE '%' || LOWER(:query) || '%' ORDER BY name ASC LIMIT 20")
     List<UserEntity> searchByIdOrName(String query);
 }

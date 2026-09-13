@@ -66,8 +66,10 @@ public class AdminUsersActivity extends AppCompatActivity {
         inside.setPadding(AdminUi.dp(this, 10), AdminUi.dp(this, 6),
             AdminUi.dp(this, 10), AdminUi.dp(this, 6));
         String name = AdminApi.text(user.get("name"), AdminApi.text(user.get("displayName"), "Unnamed"));
-        inside.addView(AdminUi.title(this, name));
+        String username = AdminApi.text(user.get("username"), "");
+        inside.addView(AdminUi.title(this, username.isEmpty() ? name : name + "  @" + username));
         inside.addView(AdminUi.body(this, "UID: " + uid
+            + "\nUsername: " + (username.isEmpty() ? "— (not set)" : "@" + username)
             + "\nEmail: " + AdminApi.text(user.get("email"), "—")
             + "\nCallX ID: " + AdminApi.text(user.get("callxId"), "—")
             + "\nStatus: " + AdminApi.text(user.get("accountStatus"), "active")
@@ -77,6 +79,8 @@ public class AdminUsersActivity extends AppCompatActivity {
         addAction(actions, "Activate user", "active", uid);
         addAction(actions, "Suspend user", "suspended", uid);
         addAction(actions, "Ban user", "banned", uid);
+        actions.addView(AdminUi.button(this, "View username history",
+            v -> loadUsernameHistory(uid)));
         actions.addView(AdminUi.button(this, "Force logout / kill sessions",
             v -> confirmAction("Revoke every refresh token for this account?", "forceLogout", uid)));
         actions.addView(AdminUi.dangerButton(this, "Delete user account",
@@ -85,6 +89,28 @@ public class AdminUsersActivity extends AppCompatActivity {
         inside.addView(actions);
         card.addView(inside);
         list.addView(card);
+    }
+
+    private void loadUsernameHistory(String uid) {
+        Map<String, Object> p = new HashMap<>();
+        p.put("uid", uid);
+        AdminApi.call("getUsernameHistory", p, new AdminApi.Callback() {
+            @Override public void onSuccess(Object value) {
+                Map<String, Object> result = AdminApi.map(value);
+                Object raw = result.get("items");
+                StringBuilder sb = new StringBuilder("Username history:\n");
+                if (!(raw instanceof List) || ((List<?>) raw).isEmpty()) {
+                    sb.append("No former usernames on record.");
+                } else {
+                    for (Object item : (List<?>) raw) {
+                        Map<String, Object> row = AdminApi.map(item);
+                        sb.append("@").append(AdminApi.text(row.get("username"), "?")).append("\n");
+                    }
+                }
+                AdminUi.confirm(AdminUsersActivity.this, "Username history", sb.toString(), "OK", () -> {});
+            }
+            @Override public void onError(String error) { AdminUi.toast(AdminUsersActivity.this, error); }
+        });
     }
 
     private void addAction(LinearLayout parent, String label, String state, String uid) {

@@ -35,7 +35,20 @@ import com.callx.app.creator.StarTalentActivity;
 public class AccountMenuActivity extends AppCompatActivity {
 
     private ActivityAccountMenuBinding binding;
-    private String myCallxId = "", myUid = "", myName = "", myPhoto = "";
+    private String myUsername = "", myUid = "", myName = "", myPhoto = "";
+    // Step 5: last time this account's username was changed (ServerValue
+    // .TIMESTAMP, ms) — 0 means never explicitly changed (still the one
+    // chosen at signup/migration). Drives the cooldown in
+    // showChangeUsernameDialog().
+    private long myUsernameChangedAt = 0L;
+
+    // ── Step 5 dialog state (debounced availability check, mirrors the
+    // pattern in ProfileSetupActivity) ─────────────────────────────────────
+    private final android.os.Handler usernameCheckHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable pendingUsernameCheck;
+    private String lastCheckedUsername = null;
+    private boolean usernameAvailable = false;
+    private long usernameCheckToken = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,6 +69,7 @@ public class AccountMenuActivity extends AppCompatActivity {
         // request now that this screen is going away for good.
         MiscAvatarBinder.cancel(this, binding.ivProfileAvatar);
         MiscAvatarBinder.cancel(this, binding.ivHeaderAvatar);
+        if (pendingUsernameCheck != null) usernameCheckHandler.removeCallbacks(pendingUsernameCheck);
         super.onDestroy();
     }
 
@@ -72,7 +86,15 @@ public class AccountMenuActivity extends AppCompatActivity {
                 String thumb = orEmpty(snap.child("thumbUrl").getValue(String.class));
                 Long   avatarVerVal = snap.child("avatarVersion").getValue(Long.class);
                 long   avatarVer = avatarVerVal == null ? 0L : avatarVerVal;
-                myCallxId = orEmpty(snap.child("callxId").getValue(String.class));
+                // Step 3 (display swap): username is the public handle shown
+                // on this screen now. callxId (the phone number) is read
+                // separately below purely for AccountSessionStore — the
+                // Account Center's account-switcher list is the one place
+                // per the plan that's allowed to keep using it internally.
+                myUsername = orEmpty(snap.child("username").getValue(String.class));
+                Long changedAtVal = snap.child("usernameChangedAt").getValue(Long.class);
+                myUsernameChangedAt = changedAtVal == null ? 0L : changedAtVal;
+                String callxIdForAccountCenter = orEmpty(snap.child("callxId").getValue(String.class));
                 myName = name; myPhoto = photo;
                 AccountSessionStore.remember(
                     AccountMenuActivity.this,
@@ -83,10 +105,15 @@ public class AccountMenuActivity extends AppCompatActivity {
                     snap.child("phone").getValue(String.class),
                     thumb.isEmpty() ? photo : thumb,
                     snap.child("loginType").getValue(String.class),
-                    myCallxId);
+                    callxIdForAccountCenter);
                 binding.tvProfileName.setText(name.isEmpty() ? "User" : name);
                 binding.tvProfileAbout.setText(about.isEmpty() ? "Hey there! I am using CallX" : about);
-                binding.tvCallxId.setText("ID: " + (myCallxId.isEmpty() ? "—" : myCallxId));
+                binding.tvUsername.setText(myUsername.isEmpty() ? "@—" : "@" + myUsername);
+                // Row text is set once in setupMenuRows() before this async
+                // load completes — refresh it here too so it doesn't stay
+                // stuck on stale text for the rest of the screen's life.
+                configureRow(binding.rowUsername.getRoot(), R.drawable.ic_person_add, "Username",
+                    myUsername.isEmpty() ? "Tap to set" : "@" + myUsername + " · Tap to change");
                 // FIX (deep avatar pipeline): was a flat Glide.load().override(240,240)
                 // with no shared tier bucket, no L2/L3 reuse, no lifecycle-aware
                 // cancel — see MiscAvatarBinder for the full rationale.
@@ -104,7 +131,12 @@ public class AccountMenuActivity extends AppCompatActivity {
     private void setupMenuRows() {
         binding.btnEditProfile.setOnClickListener(v -> startActivity(new Intent(this, ProfileActivity.class)));
         binding.ivProfileAvatar.setOnClickListener(v -> startActivity(new Intent(this, ProfileActivity.class)));
-        binding.btnCopyId.setOnClickListener(v -> copyCallxId());
+        // Step 5: the header's pencil icon now opens the change-username
+        // dialog (it was always drawn as an edit icon — ic_menu_edit — even
+        // though it only copied to clipboard before). Long-press still copies.
+        binding.btnCopyId.setOnClickListener(v -> showChangeUsernameDialog());
+        binding.btnCopyId.setOnLongClickListener(v -> { copyUsername(); return true; });
+        binding.tvUsername.setOnLongClickListener(v -> { copyUsername(); return true; });
 
         configureRow(binding.rowProfile.getRoot(), R.drawable.ic_person, "Edit Profile", "Name, photo, about");
         binding.rowProfile.getRoot().setOnClickListener(v -> startActivity(new Intent(this, ProfileActivity.class)));
@@ -114,8 +146,12 @@ public class AccountMenuActivity extends AppCompatActivity {
         binding.rowAccountCenter.getRoot().setOnClickListener(v ->
             startActivity(new Intent(this, AccountCenterActivity.class)));
 
-        configureRow(binding.rowCallxId.getRoot(), R.drawable.ic_person_add, "My CallX ID", myCallxId.isEmpty() ? "Tap to copy" : myCallxId);
-        binding.rowCallxId.getRoot().setOnClickListener(v -> copyCallxId());
+        configureRow(binding.rowUsername.getRoot(), R.drawable.ic_person_add, "Username",
+            myUsername.isEmpty() ? "Tap to set" : "@" + myUsername + " · Tap to change");
+        // Step 5: tap now opens the editable-username dialog (cooldown +
+        // availability check) instead of just copying. Long-press to copy.
+        binding.rowUsername.getRoot().setOnClickListener(v -> showChangeUsernameDialog());
+        binding.rowUsername.getRoot().setOnLongClickListener(v -> { copyUsername(); return true; });
 
         configureRow(binding.rowCreatorDashboard.getRoot(), R.drawable.ic_group,
             "Creator Dashboard", "Analytics, earnings, and insights");
@@ -186,11 +222,218 @@ public class AccountMenuActivity extends AppCompatActivity {
         } catch (Exception ignored) {}
     }
 
-    private void copyCallxId() {
-        if (myCallxId.isEmpty()) return;
+    private void copyUsername() {
+        if (myUsername.isEmpty()) return;
         ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-        cm.setPrimaryClip(ClipData.newPlainText("CallX ID", myCallxId));
-        Toast.makeText(this, "CallX ID copied!", Toast.LENGTH_SHORT).show();
+        cm.setPrimaryClip(ClipData.newPlainText("Username", "@" + myUsername));
+        Toast.makeText(this, "Username copied!", Toast.LENGTH_SHORT).show();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // STEP 5 — editable username (Settings), with a cooldown between changes
+    // and the same O(1) usernames/{username} availability check + reserve
+    // transaction pattern as the signup/migration flow in ProfileSetupActivity.
+    // ─────────────────────────────────────────────────────────────────────
+
+    private long usernameCooldownRemainingMs() {
+        if (myUsernameChangedAt <= 0) return 0;
+        long elapsed = System.currentTimeMillis() - myUsernameChangedAt;
+        long remaining = Constants.USERNAME_CHANGE_COOLDOWN_MS - elapsed;
+        return Math.max(0, remaining);
+    }
+
+    private void showChangeUsernameDialog() {
+        if (myUid.isEmpty()) return;
+
+        long cooldownLeft = usernameCooldownRemainingMs();
+        if (cooldownLeft > 0) {
+            long daysLeft = (long) Math.ceil(cooldownLeft / (24.0 * 60 * 60 * 1000));
+            new MaterialAlertDialogBuilder(this)
+                .setTitle("Username abhi nahi badal sakte")
+                .setMessage("Aapne recently username change kiya tha. " + daysLeft +
+                    (daysLeft == 1 ? " din" : " din") + " baad phir try karo.")
+                .setPositiveButton("OK", null)
+                .show();
+            return;
+        }
+
+        android.widget.LinearLayout layout = new android.widget.LinearLayout(this);
+        layout.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        layout.setPadding(pad, pad / 2, pad, 0);
+
+        final android.widget.EditText etUsername = new android.widget.EditText(this);
+        etUsername.setHint("username");
+        etUsername.setText(myUsername);
+        if (!myUsername.isEmpty()) etUsername.setSelection(myUsername.length());
+        layout.addView(etUsername);
+
+        final TextView tvStatus = new TextView(this);
+        tvStatus.setTextSize(12);
+        tvStatus.setPadding(0, pad / 2, 0, 0);
+        tvStatus.setText("Naya @handle chuno — dusre isse aapko dhoondh sakenge");
+        tvStatus.setTextColor(getColor(R.color.text_secondary));
+        layout.addView(tvStatus);
+
+        // Reset per-dialog check state — this dialog's typing drives its own
+        // availability check, independent of any earlier signup-flow state.
+        lastCheckedUsername = null;
+        usernameAvailable = false;
+
+        etUsername.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void afterTextChanged(android.text.Editable s) {
+                String raw = s.toString();
+                String normalized = raw.toLowerCase(java.util.Locale.getDefault())
+                        .replaceAll("[^a-z0-9_]", "");
+                if (!normalized.equals(raw)) {
+                    s.replace(0, s.length(), normalized);
+                    return; // afterTextChanged re-fires from this replace
+                }
+                scheduleUsernameCheck(normalized, tvStatus);
+            }
+        });
+
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+            .setTitle("Change username")
+            .setView(layout)
+            .setPositiveButton("Save", null) // wired below so it doesn't auto-dismiss
+            .setNegativeButton("Cancel", null)
+            .create();
+
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String newUsername = etUsername.getText().toString().trim();
+                if (newUsername.equals(myUsername)) { dialog.dismiss(); return; }
+                if (newUsername.length() < 3) {
+                    tvStatus.setTextColor(getColor(R.color.action_danger));
+                    tvStatus.setText("Kam se kam 3 characters (a-z, 0-9, _)");
+                    return;
+                }
+                if (!newUsername.equals(lastCheckedUsername) || !usernameAvailable) {
+                    tvStatus.setTextColor(getColor(R.color.action_danger));
+                    tvStatus.setText("Pehle availability check hone do");
+                    return;
+                }
+                reserveAndSaveNewUsername(newUsername, dialog);
+            });
+        });
+
+        dialog.show();
+    }
+
+    /** Same O(1) usernames/{username} lookup as ProfileSetupActivity. */
+    private void scheduleUsernameCheck(String username, TextView tvStatus) {
+        usernameAvailable = false;
+        if (pendingUsernameCheck != null) usernameCheckHandler.removeCallbacks(pendingUsernameCheck);
+
+        if (username.equals(myUsername)) {
+            lastCheckedUsername = username;
+            usernameAvailable = true;
+            tvStatus.setTextColor(getColor(R.color.text_secondary));
+            tvStatus.setText("Yeh aapka current username hai");
+            return;
+        }
+        if (username.length() < 3) {
+            tvStatus.setTextColor(getColor(R.color.text_secondary));
+            tvStatus.setText("Kam se kam 3 characters (a-z, 0-9, _)");
+            return;
+        }
+
+        tvStatus.setTextColor(getColor(R.color.text_secondary));
+        tvStatus.setText("Check kar rahe hain...");
+
+        final long myToken = ++usernameCheckToken;
+        pendingUsernameCheck = () -> checkUsernameAvailability(username, myToken, tvStatus);
+        usernameCheckHandler.postDelayed(pendingUsernameCheck, 400);
+    }
+
+    private void checkUsernameAvailability(String username, long token, TextView tvStatus) {
+        FirebaseDatabase.getInstance(Constants.DB_URL)
+            .getReference("usernames").child(username)
+            .get()
+            .addOnSuccessListener(snap -> {
+                if (token != usernameCheckToken) return; // stale — user kept typing
+                lastCheckedUsername = username;
+                boolean takenByOther = snap.exists() && !myUid.equals(snap.getValue(String.class));
+                usernameAvailable = !takenByOther;
+                if (takenByOther) {
+                    tvStatus.setTextColor(getColor(R.color.action_danger));
+                    tvStatus.setText("Yeh username already liya hua hai");
+                } else {
+                    tvStatus.setTextColor(getColor(R.color.status_online));
+                    tvStatus.setText("Available ✓");
+                }
+            })
+            .addOnFailureListener(e -> {
+                if (token != usernameCheckToken) return;
+                tvStatus.setTextColor(getColor(R.color.action_danger));
+                tvStatus.setText("Check nahi ho paya, phir try karo");
+            });
+    }
+
+    /** Reserves the new handle via the same collision-safe transaction used
+     *  at signup, then releases the old one and updates users/{uid} +
+     *  usernameChangedAt (starts the next cooldown window) + the Room cache. */
+    private void reserveAndSaveNewUsername(String newUsername, AlertDialog dialog) {
+        String oldUsername = myUsername;
+        FirebaseDatabase.getInstance(Constants.DB_URL)
+            .getReference("usernames").child(newUsername)
+            .runTransaction(new com.google.firebase.database.Transaction.Handler() {
+                @Override
+                public com.google.firebase.database.Transaction.Result doTransaction(
+                        com.google.firebase.database.MutableData data) {
+                    Object current = data.getValue();
+                    if (current != null && !current.equals(myUid)) {
+                        return com.google.firebase.database.Transaction.abort();
+                    }
+                    data.setValue(myUid);
+                    return com.google.firebase.database.Transaction.success(data);
+                }
+                @Override
+                public void onComplete(com.google.firebase.database.DatabaseError error,
+                        boolean committed, com.google.firebase.database.DataSnapshot snap) {
+                    if (!committed) {
+                        Toast.makeText(AccountMenuActivity.this,
+                            "Yeh username abhi kisi aur ne le liya, dusra try karo",
+                            Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    // Old handle freed only after the new one is safely
+                    // reserved — never leaves a window with zero reserved
+                    // usernames for this account.
+                    if (!oldUsername.isEmpty() && !oldUsername.equals(newUsername)) {
+                        FirebaseDatabase.getInstance(Constants.DB_URL)
+                            .getReference("usernames").child(oldUsername).removeValue();
+                        // Record the change so FormerUsernamesActivity's count
+                        // (currently always 0 — this node was never written to)
+                        // reflects reality. Child key = old handle, mirroring
+                        // the usernames/{username} reservation pattern.
+                        FirebaseDatabase.getInstance(Constants.DB_URL)
+                            .getReference("reelUsernameHistory").child(myUid).child(oldUsername)
+                            .setValue(ServerValue.TIMESTAMP);
+                    }
+                    Map<String, Object> updates = new java.util.HashMap<>();
+                    updates.put("username", newUsername);
+                    updates.put("usernameChangedAt", ServerValue.TIMESTAMP);
+                    FirebaseUtils.getUserRef(myUid).updateChildren(updates);
+
+                    java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
+                        com.callx.app.db.AppDatabase db =
+                            com.callx.app.db.AppDatabase.getInstance(getApplicationContext());
+                        db.userDao().updateUsername(myUid, newUsername);
+                    });
+
+                    myUsername = newUsername;
+                    myUsernameChangedAt = System.currentTimeMillis();
+                    binding.tvUsername.setText("@" + newUsername);
+                    configureRow(binding.rowUsername.getRoot(), R.drawable.ic_person_add, "Username",
+                        "@" + newUsername + " · Tap to change");
+                    Toast.makeText(AccountMenuActivity.this, "Username update ho gaya", Toast.LENGTH_SHORT).show();
+                    if (dialog.isShowing()) dialog.dismiss();
+                }
+            });
     }
 
     private void configureRow(View row, int iconRes, String title, String subtitle) {
@@ -274,6 +517,16 @@ public class AccountMenuActivity extends AppCompatActivity {
         // Firebase Database se user data hata do
         FirebaseDatabase.getInstance(Constants.DB_URL)
             .getReference("users").child(uid).removeValue();
+
+        // Step 5 fix: release the reserved handle too — otherwise it stays
+        // permanently squatted (usernames/{username} → uid) even after the
+        // account itself is gone, and nobody can ever claim it again.
+        // Security rule only allows this because data.val() === auth.uid
+        // still holds at this point (auth isn't cleared until below).
+        if (!myUsername.isEmpty()) {
+            FirebaseDatabase.getInstance(Constants.DB_URL)
+                .getReference("usernames").child(myUsername).removeValue();
+        }
 
         // Firebase Auth account delete karo
         user.delete()

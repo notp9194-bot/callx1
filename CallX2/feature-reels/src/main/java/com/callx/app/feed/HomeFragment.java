@@ -9186,39 +9186,29 @@ public class HomeFragment extends Fragment
 
     private void resolveMentionAndOpenProfile(String handle) {
         if (!isAdded() || handle == null || handle.isEmpty()) return;
-        Query q = FirebaseUtils.db().getReference("users")
-            .orderByChild("username").equalTo(handle).limitToFirst(1);
-        q.addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override public void onDataChange(@NonNull DataSnapshot s) {
-                String uid = null;
-                String name = handle;
-                for (DataSnapshot child : s.getChildren()) {
-                    uid = child.getKey();
-                    name = child.child("name").getValue(String.class);
-                    break;
-                }
-                if (uid == null) {
-                    FirebaseUtils.db().getReference("users")
-                        .orderByChild("handle").equalTo(handle).limitToFirst(1)
-                        .addListenerForSingleValueEvent(new ValueEventListener() {
-                            @Override public void onDataChange(@NonNull DataSnapshot fallback) {
-                                for (DataSnapshot child : fallback.getChildren()) {
-                                    openUserProfile(child.getKey());
-                                    return;
-                                }
-                                Toast.makeText(requireContext(), "Profile not found",
-                                    Toast.LENGTH_SHORT).show();
-                            }
-                            @Override public void onCancelled(@NonNull DatabaseError e) {}
-                        });
-                } else {
+        FirebaseUtils.db().getReference("usernames").child(handle).get()
+            .addOnSuccessListener(idxSnap -> {
+                String uid = idxSnap.getValue(String.class);
+                if (uid != null && !uid.isEmpty()) {
                     openUserProfile(uid);
+                    return;
                 }
-            }
-            @Override public void onCancelled(@NonNull DatabaseError e) {
-                Toast.makeText(requireContext(), "Profile not found", Toast.LENGTH_SHORT).show();
-            }
-        });
+                FirebaseUtils.db().getReference("users")
+                    .orderByChild("handle").equalTo(handle).limitToFirst(1)
+                    .addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override public void onDataChange(@NonNull DataSnapshot fallback) {
+                            for (DataSnapshot child : fallback.getChildren()) {
+                                openUserProfile(child.getKey());
+                                return;
+                            }
+                            Toast.makeText(requireContext(), "Profile not found",
+                                Toast.LENGTH_SHORT).show();
+                        }
+                        @Override public void onCancelled(@NonNull DatabaseError e) {}
+                    });
+            })
+            .addOnFailureListener(e ->
+                Toast.makeText(requireContext(), "Profile not found", Toast.LENGTH_SHORT).show());
     }
 
     /**

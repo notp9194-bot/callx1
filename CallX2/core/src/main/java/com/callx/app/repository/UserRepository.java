@@ -151,6 +151,7 @@ public class UserRepository {
         e.about       = u.about;
         e.emoji       = u.emoji;
         e.callxId     = u.callxId;
+        e.username    = u.username;
         e.lastSeen    = u.lastSeen;
         e.avatarVersion = u.avatarVersion;
         e.cachedAt    = System.currentTimeMillis();
@@ -166,6 +167,7 @@ public class UserRepository {
         u.about       = e.about;
         u.emoji       = e.emoji;
         u.callxId     = e.callxId;
+        u.username    = e.username;
         u.lastSeen    = e.lastSeen;
         u.avatarVersion = e.avatarVersion;
         return u;

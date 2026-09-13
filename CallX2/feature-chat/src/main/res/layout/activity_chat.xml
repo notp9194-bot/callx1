@@ -575,8 +575,8 @@
                         android:layout_height="wrap_content"
                         android:paddingStart="4dp"
                         android:paddingEnd="4dp"
-                        android:paddingTop="4dp"
-                        android:paddingBottom="4dp"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp"
                         android:background="@android:color/transparent">
 
                         <ImageButton
@@ -607,8 +607,8 @@
                             android:textColorHint="@color/text_muted"
                             android:textColor="@color/chat_input_text"
                             android:background="@color/transparent"
-                            android:paddingTop="6dp"
-                            android:paddingBottom="6dp"
+                            android:paddingTop="8dp"
+                            android:paddingBottom="8dp"
                             android:paddingStart="10dp"
                             android:paddingEnd="10dp"
                             android:textSize="17sp"
@@ -730,7 +730,7 @@
             android:gravity="center_vertical"
             android:paddingTop="8dp"
             android:paddingBottom="8dp"
-            android:paddingStart="8dp"
+            android:paddingStart="10dp"
             android:paddingEnd="12dp">
 
                 <!-- Back button — iOS chevron, no circular ripple/tail bar -->
@@ -754,7 +754,7 @@
                 <FrameLayout
                     android:layout_width="36dp"
                     android:layout_height="36dp"
-                    android:layout_marginStart="12dp">
+                    android:layout_marginStart="14dp">
 
                     <de.hdodenhof.circleimageview.CircleImageView
                         android:id="@+id/iv_partner_avatar"
@@ -779,17 +779,9 @@
                         android:visibility="gone"
                         android:contentDescription="@null"/>
 
-                    <!-- FIX: view was missing even though ChatPresenceController
-                         already had online/ghost logic referencing a header
-                         online dot — added so that logic has something to
-                         actually toggle. -->
-                    <View
-                        android:id="@+id/view_header_online_dot"
-                        android:layout_width="10dp"
-                        android:layout_height="10dp"
-                        android:layout_gravity="bottom|end"
-                        android:background="@drawable/bg_header_online_dot"
-                        android:visibility="gone"/>
+                    <!-- view_header_online_dot removed — redundant with
+                         tvStatus's "online" text below the name; see
+                         ChatPresenceController#setHeaderOnlineDotVisible -->
                 </FrameLayout>
 
                 <!-- Name + status/typing (fills remaining space) -->
