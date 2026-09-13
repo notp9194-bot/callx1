@@ -1130,45 +1130,6 @@ public class ChatMediaController {
         return buf;
     }
 
-    /** WhatsApp-approach fix for NON-E2E image sends: embeds the small
-     *  compressed thumbnail directly into {@code pending.thumbInlineData}
-     *  (base64, plaintext) instead of letting it go out as its own
-     *  Cloudinary upload. Mirrors the E2E path's
-     *  MediaE2ECrypto#shouldInlineThumb / thumbInlined handling above, just
-     *  unencrypted — a non-E2E chat has no per-message key to wrap the
-     *  thumb bytes in, so they travel as plain base64 in the message field
-     *  itself (same idea as WhatsApp's own inline JPEG thumbnail).
-     *
-     *  Why this exists: the old non-E2E path fired the thumb upload and the
-     *  full-res upload in PARALLEL on the same uplink (see the "else"
-     *  branch below). On a slow/weak connection the two compete for
-     *  bandwidth, and the much smaller thumb can time out/fail while the
-     *  bigger full-res upload still succeeds — so the message sends with
-     *  mediaUrl set but thumbnailUrl null, and the receiver's bubble shows
-     *  no preview until/unless the full image itself finishes downloading.
-     *  Inlining removes the second upload (and therefore the race)
-     *  entirely: there's only ever ONE network upload (the full-res image),
-     *  exactly like WhatsApp.
-     *
-     *  @return true if the thumbnail was small enough to inline and
-     *  {@code pending.thumbInlineData} was set (caller should then skip the
-     *  separate thumb upload and go straight to uploadFullImage with
-     *  thumbUrl=null); false if it was too large and the caller should fall
-     *  back to the old separate-upload path. */
-    private static boolean tryInlinePlaintextThumb(Message pending, java.io.File thumbFile) {
-        if (!com.callx.app.utils.MediaE2ECrypto.shouldInlineThumb(thumbFile)) return false;
-        try {
-            pending.thumbInlineData = android.util.Base64.encodeToString(
-                    readAllBytesCompat(thumbFile), android.util.Base64.NO_WRAP);
-            return true;
-        } catch (Exception e) {
-            android.util.Log.w("ChatMediaController",
-                    "Inline-thumb read failed, falling back to separate thumb upload: " + e.getMessage());
-            pending.thumbInlineData = null;
-            return false;
-        }
-    }
-
     private static boolean isBakedOverlayVideo(Uri uri) {
         String s = uri.toString();
         return s.contains("media_edit_video_out");
@@ -1636,19 +1597,10 @@ public class ChatMediaController {
                         uploadFullUri  = fullUri;
                         pending.mediaKeyEnc = null;
                         pending.blurHash = blurHash;
-                        // WhatsApp approach (see tryInlinePlaintextThumb): avoid
-                        // re-introducing the parallel thumb+full upload race for
-                        // this plaintext fallback too.
-                        thumbInlined = tryInlinePlaintextThumb(pending, result.thumbFile);
                     }
                 } else {
-                    // No E2E session yet for this partner — old plaintext behavior,
-                    // but WhatsApp-style: inline the (small) thumb into the message
-                    // itself instead of uploading it separately, so it never has to
-                    // compete with the full-res upload for bandwidth (see
-                    // tryInlinePlaintextThumb's doc for the race this avoids).
+                    // No E2E session yet for this partner — old plaintext behavior.
                     pending.blurHash = blurHash;
-                    thumbInlined = tryInlinePlaintextThumb(pending, result.thumbFile);
                 }
 
                 final byte[] finalMediaKey        = mediaKey;
@@ -1669,17 +1621,13 @@ public class ChatMediaController {
                     // preview from the envelope instead (see MessagePagingAdapter).
                     reportUploadProgress(pending, 20); // thumb "phase" is instant
                     uploadFullImage(finalUploadFullUri, null, result, pending, finalMediaKey, finalEncFull);
-                } else {
-                    // PERF (WhatsApp-parity): fire thumb + full uploads in
-                    // PARALLEL instead of chaining full-after-thumb. Chaining
-                    // made every send pay the thumb's full network round-trip
-                    // before the (much bigger) full-res upload even started;
-                    // WhatsApp starts both immediately since they're
-                    // independent blobs. A tiny join below fires the existing
-                    // finalize/failure path once both are settled, so
-                    // everything downstream (thumbnailUrl assignment,
-                    // cleanup, finishImageUploadSuccess) is untouched.
-                    String thumbHint = isEncrypted && result != null && result.thumbFile != null
+                } else if (isEncrypted) {
+                    // E2E fallback case only: the encrypted thumb was too big to
+                    // inline (see MediaE2ECrypto#shouldInlineThumb) — still ciphertext
+                    // either way, so the parallel-race trade-off here is acceptable
+                    // (rare path, and a lost race just drops the low-res preview,
+                    // same as before).
+                    String thumbHint = result != null && result.thumbFile != null
                             ? result.thumbFile.getName() : null;
 
                     final java.util.concurrent.atomic.AtomicInteger remaining =
@@ -1691,10 +1639,8 @@ public class ChatMediaController {
 
                     // Full-res upload — starts NOW, doesn't wait on the thumb.
                     CloudinaryUploader.upload(activity, finalUploadFullUri,
-                            isEncrypted ? "callx/e2e_image" : "callx/image",
-                            isEncrypted ? "raw" : "image",
-                            isEncrypted && result != null && result.fullFile != null
-                                    ? result.fullFile.getName() : null,
+                            "callx/e2e_image", "raw",
+                            result != null && result.fullFile != null ? result.fullFile.getName() : null,
                             new CloudinaryUploader.UploadCallback() {
                                 @Override public void onProgress(int percent) {
                                     reportUploadProgress(pending, 20 + percent * 4 / 5); // full = remaining 80%
@@ -1728,7 +1674,7 @@ public class ChatMediaController {
                             });
 
                     // Thumbnail upload — runs concurrently with the full-res one above.
-                    CloudinaryUploader.upload(activity, uploadThumbUri, thumbFolder, thumbResourceType, thumbHint,
+                    CloudinaryUploader.upload(activity, uploadThumbUri, "callx/e2e_thumb", "raw", thumbHint,
                             new CloudinaryUploader.UploadCallback() {
                                 @Override public void onProgress(int percent) {
                                     reportUploadProgress(pending, percent / 5); // thumb = first 20%
@@ -1752,6 +1698,36 @@ public class ChatMediaController {
                                         if (result != null) { result.thumbFile.delete(); result.fullFile.delete(); }
                                         finishImageUploadSuccess(pending);
                                     }
+                                }
+                            });
+                } else {
+                    // PLAINTEXT (non-E2E) path — SEQUENTIAL, not parallel:
+                    // upload the small thumb to Cloudinary FIRST, and only start
+                    // the (much bigger) full-res upload once it's done. This is
+                    // the fix for the parallel-upload bandwidth-race bug: a slow
+                    // network could previously time out the tiny thumb while it
+                    // competed with the full-res upload, sending the message with
+                    // no thumbnailUrl even though the photo itself arrived fine.
+                    // Sequential removes the race entirely — the thumb is tiny,
+                    // so this costs one small extra round-trip, not a real delay
+                    // — while keeping storage exactly as before: thumb + full
+                    // both stay plaintext Cloudinary uploads, Firebase only ever
+                    // stores the resulting URLs (thumbnailUrl / mediaUrl), same
+                    // as the old architecture. No inline base64, no encryption.
+                    CloudinaryUploader.upload(activity, uploadThumbUri, thumbFolder, thumbResourceType, null,
+                            new CloudinaryUploader.UploadCallback() {
+                                @Override public void onProgress(int percent) {
+                                    reportUploadProgress(pending, percent / 5); // thumb = first 20%
+                                }
+                                @Override public void onSuccess(CloudinaryUploader.Result thumbResult) {
+                                    uploadFullImage(finalUploadFullUri, thumbResult.secureUrl, result, pending,
+                                            finalMediaKey, finalEncFull);
+                                }
+                                @Override public void onError(String err) {
+                                    // Thumb upload failed — send the message anyway with just
+                                    // the full-res image, same graceful fallback as before.
+                                    uploadFullImage(finalUploadFullUri, null, result, pending,
+                                            finalMediaKey, finalEncFull);
                                 }
                             });
                 }
