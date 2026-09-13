@@ -44,18 +44,30 @@ public class MessageEntity {
     public String type;           // text | image | video | audio | file | status_seen
     public String mediaUrl;
 
-    // BUG FIX (v44): Firebase stores the thumbnail as "thumbUrl" but this
-    // field was named "thumbnailUrl" — the Firebase RTDB deserializer maps
-    // keys to Java field names verbatim, so the value was silently dropped
-    // on every Firebase → Room round-trip. Receivers never saw a thumbnail
-    // for images; video bubbles fell back to loading the raw video URL via
-    // Glide (which triggered a full video download as a side-effect).
-    // @PropertyName("thumbUrl") tells the Firebase SDK to map the "thumbUrl"
-    // key from Firebase into this Java field; Room still uses the column
-    // name "thumbnailUrl" (via @ColumnInfo), so no DB migration is needed
-    // for the thumbnailUrl column itself.
-    @com.google.firebase.database.PropertyName("thumbUrl")
-    @androidx.room.ColumnInfo(name = "thumbnailUrl")
+    // BUG FIX: this field used to have @PropertyName("thumbUrl") — meant to
+    // paper over a claimed writer/reader key mismatch — but the actual
+    // sender (ChatMessageSender#firebasePushMessage / GroupChatActivity)
+    // writes the Message POJO directly via setValue(m), and Message#thumbnailUrl
+    // has no annotation, so the REAL JSON key on the wire is "thumbnailUrl".
+    // The @PropertyName("thumbUrl") annotation below was telling the
+    // Firebase SDK to look for a "thumbUrl" key instead — which never
+    // exists on a chat message — so every direct
+    // snapshot.getValue(MessageEntity.class) deserialization (see
+    // MessageRepository#deltaSync, used by ChatListViewModel to background-
+    // sync recent chats) silently dropped the real thumbnailUrl and wrote
+    // Room's cached copy back out as null. That null then persisted (Room
+    // insertMessage is a REPLACE upsert) even for chats whose ChatActivity/
+    // GroupChatActivity listener HAD parsed the correct value moments
+    // earlier via snapshot.getValue(Message.class) (no annotation there,
+    // so it read the real "thumbnailUrl" key fine) — the next background
+    // deltaSync pass could clobber it back to null. Net effect: photo
+    // itself (mediaUrl, unaffected by this mismatch) always loaded fine,
+    // but the low-res preview intermittently/eventually went missing and
+    // the bubble fell back to the plain download-gate placeholder. Removed
+    // the incorrect annotation so this field reads/writes the SAME key
+    // ("thumbnailUrl") on both ends, matching every other unannotated
+    // field on this entity. No DB migration needed — the Room column name
+    // ("thumbnailUrl") is unchanged.
     public String thumbnailUrl;
 
     // BUG FIX (v44): blurHash field was present on Message model and
