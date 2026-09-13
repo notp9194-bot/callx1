@@ -665,10 +665,17 @@ public class MessagePagingAdapter
     static int thumbPx(android.content.Context ctx) {
         if (sThumbPx > 0) return sThumbPx;
         android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+        // PERF (low-end tier): a RAM-constrained device (see DeviceTier)
+        // decodes+holds the same bubble thumbnails at a smaller target —
+        // fewer pixels to decode, less native-heap/GC pressure while
+        // scrolling, at a still-perfectly-readable chat-bubble size.
+        boolean lowRam = com.callx.app.utils.DeviceTier.isLowRamDevice(ctx);
+        float marginMultiplier = lowRam ? 0.75f : 1.10f; // 260dp + margin (or shrink, on low-RAM)
+        int floorPx = lowRam ? 240 : 320;
         int computed = (int) Math.min(
-                260f * dm.density * 1.10f,          // 260dp + 10% margin
+                260f * dm.density * marginMultiplier,
                 dm.widthPixels * 0.80f);             // cap at 80% screen width
-        sThumbPx = Math.max(computed, 320);          // never go below 320px
+        sThumbPx = Math.max(computed, floorPx);
         return sThumbPx;
     }
 
@@ -2256,7 +2263,10 @@ public class MessagePagingAdapter
         // llAudio / llFile / flVideo / llLinkPreview / llPoll are now ViewStubs —
         // their LayoutParams are set via android:layout_width in the stub tag
         // (= @dimen/msg_bubble_max_width), so no runtime width override is needed.
-        if (vh.ivImage != null) { android.view.ViewGroup.LayoutParams lp = vh.ivImage.getLayoutParams(); if (lp != null) { lp.width = maxW; vh.ivImage.setLayoutParams(lp); } }
+        // NOTE: ivImage is intentionally NOT forced to maxW here anymore —
+        // it now uses wrap_content + adjustViewBounds (see item_message_sent/
+        // received.xml) so it sizes itself to the photo's own aspect ratio
+        // instead of always rendering as a fixed-width square crop.
         return vh;
     }
 
@@ -3966,7 +3976,12 @@ public class MessagePagingAdapter
                     // No thumbUrl on a received image — same fallback
                     // MediaGroupLayoutHelper uses: a derived low-res
                     // Cloudinary transform instead of the raw full url.
-                    loadUrl = com.callx.app.utils.CloudinaryUploader.deriveThumbUrl(cellUrl, 200);
+                    // PERF: explicit "webp" instead of "auto" — f_auto is a
+                    // per-request content-negotiation guess (usually WebP/
+                    // AVIF but not guaranteed), whereas forcing webp here
+                    // gives a predictable, always-smaller (~30% vs JPEG)
+                    // thumbnail payload for every chat bubble.
+                    loadUrl = com.callx.app.utils.CloudinaryUploader.deriveThumbUrl(cellUrl, 200, "webp");
                     cellPending[i] = true;
                 } else {
                     loadUrl = cellUrl;
@@ -5713,8 +5728,10 @@ public class MessagePagingAdapter
                         // use that for the bubble instead. Full resolution
                         // still only loads on tap, via showImageActionSheet
                         // below, which is already passed the real fullUrl.
+                        // PERF: force webp (see comment above) instead of
+                        // f_auto's per-request negotiation guess.
                         String derivedThumb = com.callx.app.utils.CloudinaryUploader
-                                .deriveThumbUrl(fullUrl, 200);
+                                .deriveThumbUrl(fullUrl, 200, "webp");
                         // FIX: same cache-first pattern as the thumbUrl branch
                         // above — otherwise this fallback path reintroduces
                         // the identical rebind-flicker for any image whose

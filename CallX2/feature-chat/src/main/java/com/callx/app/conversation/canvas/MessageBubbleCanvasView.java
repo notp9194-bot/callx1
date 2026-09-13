@@ -6308,6 +6308,22 @@ public class MessageBubbleCanvasView extends View {
      */
     private long lastIndeterminateInvalidateUptimeMs = 0L;
     private static final long INDETERMINATE_INVALIDATE_MIN_INTERVAL_MS = 32L; // ~30fps
+    // PERF (low-end tier): a RAM-constrained device (see DeviceTier) throttles
+    // the indeterminate spinner further, to ~15fps — still reads as a smooth
+    // spinning arc, but halves how often this bubble's isolated spinner-draw
+    // (and the postInvalidateOnAnimation() that drives it) runs on a device
+    // that can least afford the extra CPU/GPU work.
+    private static final long INDETERMINATE_INVALIDATE_MIN_INTERVAL_MS_LOW_RAM = 64L; // ~15fps
+    private static volatile Boolean sLowRamTierCached = null;
+
+    private long indeterminateIntervalMs() {
+        Boolean cached = sLowRamTierCached;
+        if (cached == null) {
+            cached = com.callx.app.utils.DeviceTier.isLowRamDevice(getContext());
+            sLowRamTierCached = cached;
+        }
+        return cached ? INDETERMINATE_INVALIDATE_MIN_INTERVAL_MS_LOW_RAM : INDETERMINATE_INVALIDATE_MIN_INTERVAL_MS;
+    }
 
     void drawProgressRing(Canvas canvas, float cx, float cy, float size, Paint paint, int percent) {
         float r = size / 2f;
@@ -6319,14 +6335,15 @@ public class MessageBubbleCanvasView extends View {
             float rotation = (now % INDETERMINATE_PERIOD_MS) / (float) INDETERMINATE_PERIOD_MS * 360f;
             canvas.drawArc(gateIconArcRect, rotation - 90, INDETERMINATE_SWEEP_DEG, false, paint);
             long elapsed = now - lastIndeterminateInvalidateUptimeMs;
-            if (elapsed >= INDETERMINATE_INVALIDATE_MIN_INTERVAL_MS) {
+            long minInterval = indeterminateIntervalMs();
+            if (elapsed >= minInterval) {
                 lastIndeterminateInvalidateUptimeMs = now;
                 postInvalidateOnAnimation();
             } else {
                 // Not enough time has passed since the last full-bubble
                 // redraw — schedule the next one for exactly when the
                 // throttle window ends, instead of every vsync (~16ms).
-                postInvalidateDelayed(INDETERMINATE_INVALIDATE_MIN_INTERVAL_MS - elapsed);
+                postInvalidateDelayed(minInterval - elapsed);
             }
         }
     }

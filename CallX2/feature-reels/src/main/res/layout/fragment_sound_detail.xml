@@ -288,13 +288,13 @@
 
                             <FrameLayout android:id="@+id/frame_sound_user_avatars"
                                 android:layout_width="60dp" android:layout_height="26dp"
-                                android:layout_marginEnd="8dp">
+                                android:layout_marginEnd="4dp">
 
                                 <de.hdodenhof.circleimageview.CircleImageView
                                     android:id="@+id/iv_sound_user_3"
                                     android:layout_width="24dp" android:layout_height="24dp"
                                     android:layout_gravity="center_vertical"
-                                    android:layout_marginStart="18dp"
+                                    android:layout_marginStart="28dp"
                                     android:src="@drawable/ic_person"
                                     android:visibility="gone"/>
 
@@ -302,7 +302,7 @@
                                     android:id="@+id/iv_sound_user_2"
                                     android:layout_width="24dp" android:layout_height="24dp"
                                     android:layout_gravity="center_vertical"
-                                    android:layout_marginStart="9dp"
+                                    android:layout_marginStart="14dp"
                                     android:src="@drawable/ic_person"
                                     android:visibility="gone"/>
 
@@ -466,7 +466,7 @@
                             android:layout_width="48dp" android:layout_height="48dp"
                             android:visibility="gone"
                             tools:ignore="ContentDescription"/>
-                        <ImageView android:id="@+id/iv_creator_avatar"
+                        <de.hdodenhof.circleimageview.CircleImageView android:id="@+id/iv_creator_avatar"
                             android:layout_width="44dp" android:layout_height="44dp"
                             android:layout_gravity="center"
                             android:scaleType="centerCrop" android:src="@drawable/ic_person"/>

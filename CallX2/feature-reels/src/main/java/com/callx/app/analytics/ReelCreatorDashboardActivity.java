@@ -14,7 +14,7 @@ import java.util.*;
 
 public class ReelCreatorDashboardActivity extends AppCompatActivity {
     private TextView tvTotalViews, tvTotalReach, tvNewFollowers, tvTotalRevenue, tvBestTimeRec;
-    private ReelTimeSeriesChartView reachChart;
+    private ReelTimeSeriesChartView reachChart, followerGrowthChart;
     private BestTimeToPostView bestTimeGrid;
     private RecyclerView rvTopReels;
     private LinearLayout layoutTopGifters;
@@ -45,6 +45,7 @@ public class ReelCreatorDashboardActivity extends AppCompatActivity {
         tvTotalRevenue = findViewById(R.id.tv_total_revenue);
         tvBestTimeRec = findViewById(R.id.tv_best_time_rec);
         reachChart = findViewById(R.id.reach_chart);
+        followerGrowthChart = findViewById(R.id.follower_growth_chart);
         bestTimeGrid = findViewById(R.id.best_time_grid);
         rvTopReels = findViewById(R.id.rv_top_reels);
         layoutTopGifters = findViewById(R.id.layout_top_gifters);
@@ -67,6 +68,12 @@ public class ReelCreatorDashboardActivity extends AppCompatActivity {
                     reachData.add(d.getValue(Float.class));
                 }
                 if (!reachData.isEmpty()) reachChart.setData(reachData, null);
+
+                List<Float> followerData = new ArrayList<>();
+                for (DataSnapshot d : snap.child("follower_series").getChildren()) {
+                    followerData.add(d.getValue(Float.class));
+                }
+                if (!followerData.isEmpty()) followerGrowthChart.setData(followerData, null);
 
                 float[][] grid = new float[7][24];
                 DataSnapshot heat = snap.child("engagement_heatmap");

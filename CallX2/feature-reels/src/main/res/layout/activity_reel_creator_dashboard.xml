@@ -79,7 +79,7 @@
 
         <!-- Reach Chart -->
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Reach (Last 7 Days)" android:textStyle="bold" android:layout_marginBottom="8dp"/>
-        <com.callx.reels.analytics.ReelTimeSeriesChartView
+        <com.callx.app.analytics.ReelTimeSeriesChartView
             android:id="@+id/reach_chart"
             android:layout_width="match_parent"
             android:layout_height="180dp"
@@ -87,7 +87,7 @@
 
         <!-- Best Time -->
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Best Time to Post" android:textStyle="bold" android:layout_marginBottom="8dp"/>
-        <com.callx.reels.analytics.BestTimeToPostView
+        <com.callx.app.analytics.BestTimeToPostView
             android:id="@+id/best_time_grid"
             android:layout_width="match_parent"
             android:layout_height="160dp"/>
@@ -105,7 +105,7 @@
 
         <!-- Follower Growth -->
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Follower Growth" android:textStyle="bold" android:layout_marginBottom="8dp"/>
-        <com.callx.reels.analytics.ReelTimeSeriesChartView
+        <com.callx.app.analytics.ReelTimeSeriesChartView
             android:id="@+id/follower_growth_chart"
             android:layout_width="match_parent"
             android:layout_height="180dp"

@@ -203,13 +203,25 @@
                 android:visibility="gone"/>
 
             <!--
-                IMAGE — Compact 180×180dp card.
+                IMAGE — aspect-ratio preserving, no crop (WhatsApp-style):
+                wrap_content + adjustViewBounds lets the ImageView size
+                itself to the decoded bitmap's own aspect ratio, capped by
+                maxWidth/maxHeight so a very wide/tall photo still fits the
+                bubble. scaleType is fitCenter (no crop) instead of
+                centerCrop. Glide's .override() decode target below is
+                unchanged, so this is layout-only — same decode cost as
+                before, just no forced square crop.
             -->
             <ImageView
                 android:id="@+id/iv_image"
-                android:layout_width="180dp"
-                android:layout_height="180dp"
-                android:scaleType="centerCrop"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxWidth="240dp"
+                android:maxHeight="320dp"
+                android:minWidth="120dp"
+                android:minHeight="120dp"
+                android:adjustViewBounds="true"
+                android:scaleType="fitCenter"
                 android:background="@drawable/bg_media_card"
                 android:clipToOutline="true"
                 android:visibility="gone"/>

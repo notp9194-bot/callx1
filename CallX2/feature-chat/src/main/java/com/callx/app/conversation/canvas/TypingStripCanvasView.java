@@ -136,11 +136,26 @@ public class TypingStripCanvasView extends View {
     private final float[] dotOffsets = new float[3];
     private boolean dotsRunning = false;
     private long dotsStartNanos = 0L;
+    // PERF (low-end tier): on a RAM-constrained device (see DeviceTier) this
+    // loop skips down to ~30fps instead of running on every vsync (60-120/sec
+    // on modern panels) for as long as the partner keeps typing — the bounce
+    // reads just as smooth at 30fps for a 3-dot wave, and it's one less
+    // per-frame invalidate()/onDraw() competing with the message list for
+    // main-thread budget on the devices that can least spare it.
+    private static final long LOW_RAM_MIN_FRAME_INTERVAL_NANOS = 33_000_000L; // ~30fps
+    private boolean isLowRamTier;
+    private long lastDotFrameNanos = 0L;
 
     private final Choreographer.FrameCallback frameCallback = new Choreographer.FrameCallback() {
         @Override public void doFrame(long frameTimeNanos) {
             if (!dotsRunning) return;
             if (dotsStartNanos == 0L) dotsStartNanos = frameTimeNanos;
+            if (isLowRamTier && lastDotFrameNanos != 0L
+                    && (frameTimeNanos - lastDotFrameNanos) < LOW_RAM_MIN_FRAME_INTERVAL_NANOS) {
+                Choreographer.getInstance().postFrameCallback(this);
+                return; // skip this vsync's work, still stay scheduled for the next one
+            }
+            lastDotFrameNanos = frameTimeNanos;
             long elapsed = frameTimeNanos - dotsStartNanos;
             float phase = (elapsed % DOT_CYCLE_NANOS) / (float) DOT_CYCLE_NANOS;
             computeDotOffsets(phase);
@@ -182,6 +197,8 @@ public class TypingStripCanvasView extends View {
         setWillNotDraw(false);
         setClickable(false);
         setFocusable(false);
+
+        isLowRamTier = com.callx.app.utils.DeviceTier.isLowRamDevice(getContext());
     }
 
     private float spToPx(float sp) {

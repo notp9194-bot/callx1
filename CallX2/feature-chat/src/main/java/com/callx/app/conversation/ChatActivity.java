@@ -1349,8 +1349,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         ? m.thumbnailUrl
                         // No real thumbnailUrl — derive a lightweight Cloudinary
                         // transform URL instead of preloading the raw full-res
-                        // asset (see CloudinaryUploader.deriveThumbUrl).
-                        : com.callx.app.utils.CloudinaryUploader.deriveThumbUrl(rawFallback, 200);
+                        // asset (see CloudinaryUploader.deriveThumbUrl). Force
+                        // webp explicitly so the preloaded bytes land in the
+                        // same, guaranteed-smaller format the real bind will
+                        // request (f_auto could otherwise negotiate a
+                        // different format and miss this warm cache entry).
+                        : com.callx.app.utils.CloudinaryUploader.deriveThumbUrl(rawFallback, 200, "webp");
                 widthPx = 200; htPx = 200;
             } else if ("video".equals(m.type)) {
                 // For video we only preload the thumbnail — full assets are

@@ -432,7 +432,9 @@ public class MediaGroupLayoutHelper {
             // from disk instead of showing the gate again.
             String loadThumb = !thumbUrl.isEmpty()
                     ? thumbUrl
-                    : (!url.isEmpty() ? com.callx.app.utils.CloudinaryUploader.deriveThumbUrl(url, 200) : "");
+                    // PERF: force webp — predictable, always-smaller payload
+                    // vs f_auto's per-request negotiation guess.
+                    : (!url.isEmpty() ? com.callx.app.utils.CloudinaryUploader.deriveThumbUrl(url, 200, "webp") : "");
 
             ImageView iv = new ImageView(ctx);
             iv.setLayoutParams(new FrameLayout.LayoutParams(

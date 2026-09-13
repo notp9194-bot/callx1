@@ -1595,15 +1595,11 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
             if (ivs[i] == null) continue;
             if (i < photos.size() && !photos.get(i).isEmpty()) {
                 ivs[i].setVisibility(View.VISIBLE);
-                Glide.with(this).load(photos.get(i))
-                    .placeholder(R.drawable.ic_person)
-                    .error(R.drawable.ic_person)
-                    .circleCrop()
-                    // PERF: avatars render at only 24dp — 240x240 was decoding
-                    // ~10x more pixels than ever get drawn. 60x60 covers up to
-                    // ~2.5x hdpi density for a 24dp view, same visual result.
-                    .override(60, 60)
-                    .into(ivs[i]);
+                // Routed through the same core avatar pipeline as the
+                // creator row / FollowConnectionsActivity (L2/L3 reuse,
+                // tiered decode size, dedupe-by-tag) instead of this row's
+                // own untiered Glide().load().circleCrop().override() call.
+                com.callx.app.followers.FollowAvatarBinder.bind(requireContext(), ivs[i], photos.get(i), 0L, R.drawable.ic_person);
             } else if (i < names.size()) {
                 ivs[i].setVisibility(View.VISIBLE);
                 ivs[i].setImageResource(R.drawable.ic_person);

@@ -119,8 +119,8 @@
                 android:layout_marginStart="4dp">
 
                 <TextView android:id="@+id/tv_name"
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:maxWidth="180dp"
                     android:text="username"
                     android:textSize="24sp"
                     android:fontFamily="sans-serif-bold"
@@ -133,6 +133,9 @@
                     android:src="@drawable/ic_verified_pink"
                     android:contentDescription="Verified"
                     android:visibility="gone"/>
+
+                <View android:layout_width="0dp" android:layout_height="0dp"
+                    android:layout_weight="1"/>
             </LinearLayout>
 
             <!-- Top-right icons -->
@@ -607,7 +610,8 @@
                     android:layout_marginBottom="8dp"
                     android:visibility="gone">
 
-                    <!-- Following ▾ / Follow pill (Instagram-style: bold, prominent) -->
+                    <!-- Following ▾ / Follow pill — reusing the reel-play
+                         screen's Follow button style (bg_follow_btn_premium_dark). -->
                     <Button android:id="@+id/btn_follow"
                         android:layout_width="0dp"
                         android:layout_height="32dp"
@@ -625,13 +629,13 @@
                         android:includeFontPadding="false"
                         android:fontFamily="sans-serif-medium"
                         app:textAllCaps="false"
-                        android:background="@drawable/bg_btn_follow_capsule"
-                        android:textColor="#FFFFFF"
+                        android:background="@drawable/bg_follow_btn_adaptive"
+                        android:textColor="?attr/colorOnSurface"
                         android:layout_marginEnd="6dp"
                         android:letterSpacing="0.01"
                         android:elevation="2dp"/>
 
-                    <!-- Message pill (Instagram-style: outlined with medium weight) -->
+                    <!-- Message pill — same reel-play Follow drawable reused (adaptive) -->
                     <Button android:id="@+id/btn_message_cta"
                         android:layout_width="0dp"
                         android:layout_height="32dp"
@@ -643,17 +647,17 @@
                         android:paddingBottom="0dp"
                         android:fontFamily="sans-serif-medium"
                         app:textAllCaps="false"
-                        android:background="@drawable/bg_btn_outline_capsule"
+                        android:background="@drawable/bg_follow_btn_adaptive"
                         android:textColor="?attr/colorOnSurface"
                         android:layout_marginEnd="6dp"
                         android:letterSpacing="0.01"/>
 
-                    <!-- Add Person / Suggestions circle button -->
+                    <!-- Add Person / Suggestions button — same reel-play Follow drawable reused (adaptive) -->
                     <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btn_cta_call"
                         android:layout_width="30dp"
                         android:layout_height="30dp"
                         android:src="@drawable/ic_person_add"
-                        android:background="@drawable/bg_btn_outline_circle"
+                        android:background="@drawable/bg_follow_btn_adaptive"
                         android:tint="?attr/colorOnSurface"
                         android:padding="6dp"
                         android:contentDescription="Suggestions"/>

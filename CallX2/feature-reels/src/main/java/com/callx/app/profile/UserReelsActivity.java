@@ -15,6 +15,7 @@ import android.os.Bundle;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.style.StyleSpan;
+import android.text.style.ForegroundColorSpan;
 import android.graphics.Typeface;
 import android.view.*;
 import android.widget.*;
@@ -2750,7 +2751,12 @@ public class UserReelsActivity extends AppCompatActivity
         }
 
         // ── Build text: "Followed by name1, name2 and X others" ──
-        // Instagram-style: names are bold, connecting words stay regular weight.
+        // Instagram-style: names are bold AND full-contrast (colorOnSurface),
+        // connecting words ("Followed by", "and X others") stay the muted
+        // colorOnSurfaceVariant set on the TextView itself. Previously the
+        // names were only bold with no color change, so in light mode they
+        // rendered in the same low-contrast gray as everything else.
+        int nameColor = resolveAttrColor(com.google.android.material.R.attr.colorOnSurface, 0xFF111111);
         SpannableStringBuilder ssb = new SpannableStringBuilder();
         ssb.append("Followed by ");
         int start;
@@ -2758,17 +2764,20 @@ public class UserReelsActivity extends AppCompatActivity
         start = ssb.length();
         ssb.append(names.get(0));
         ssb.setSpan(new StyleSpan(Typeface.BOLD), start, ssb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        ssb.setSpan(new ForegroundColorSpan(nameColor), start, ssb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
 
         if (count == 2) {
             ssb.append(" and ");
             start = ssb.length();
             ssb.append(names.get(1));
             ssb.setSpan(new StyleSpan(Typeface.BOLD), start, ssb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            ssb.setSpan(new ForegroundColorSpan(nameColor), start, ssb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         } else if (count > 2) {
             ssb.append(", ");
             start = ssb.length();
             ssb.append(names.get(1));
             ssb.setSpan(new StyleSpan(Typeface.BOLD), start, ssb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            ssb.setSpan(new ForegroundColorSpan(nameColor), start, ssb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             int others = count - 2;
             ssb.append(" and ").append(String.valueOf(others)).append(others == 1 ? " other" : " others");
         }
@@ -5113,22 +5122,27 @@ public class UserReelsActivity extends AppCompatActivity
                 java.util.List<String[]> links = new java.util.ArrayList<>();
                 if (!isEmpty(website)) {
                     String websiteUrl = website.startsWith("http") ? website : "https://" + website;
-                    links.add(new String[]{"📞", website, websiteUrl, "website"});
+                    // FIX: chip used to show whatever the user typed in this
+                    // field (e.g. "fhb") as its label — now always shows a
+                    // fixed "Call" label + 📞 icon regardless of the raw value.
+                    links.add(new String[]{"📞", "Call", websiteUrl, "website"});
                 }
                 if (!isEmpty(instagram)) {
-                    String igLabel = instagram.startsWith("@") ? instagram : "@" + instagram;
                     String igUrl = instagram.startsWith("http") ? instagram
                         : "https://instagram.com/" + instagram.replace("@", "");
-                    links.add(new String[]{"📷", igLabel, igUrl, "instagram"});
+                    // Icon-only chip — whatever the user typed, only the
+                    // Instagram icon shows (no handle text on the chip).
+                    links.add(new String[]{"📷", "", igUrl, "instagram"});
                 }
                 if (!isEmpty(youtube)) {
-                    links.add(new String[]{"▶", youtube, youtube, "youtube"});
+                    // Icon-only chip — no raw URL/text shown.
+                    links.add(new String[]{"▶", "", youtube, "youtube"});
                 }
                 if (!isEmpty(twitter)) {
-                    String twLabel = twitter.startsWith("@") ? twitter : "@" + twitter;
                     String twUrl = twitter.startsWith("http") ? twitter
                         : "https://x.com/" + twitter.replace("@", "");
-                    links.add(new String[]{"✗", twLabel, twUrl, "twitter"});
+                    // Icon-only chip — no handle text shown.
+                    links.add(new String[]{"✗", "", twUrl, "twitter"});
                 }
 
                 // Legacy single-color value (pre-fix app versions) — used ONLY
@@ -5344,7 +5358,7 @@ public class UserReelsActivity extends AppCompatActivity
             lp.setMarginEnd(mEnd);
             chip.setLayoutParams(lp);
             chip.setPadding(hPad, vPad, hPad, vPad);
-            chip.setText(emoji + "  " + label);
+            chip.setText(label.isEmpty() ? emoji : emoji + "  " + label);
             chip.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
             chip.setTextColor(textColor);
             chip.setSingleLine(true);

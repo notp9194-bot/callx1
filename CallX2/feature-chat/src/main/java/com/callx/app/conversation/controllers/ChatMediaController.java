@@ -1622,13 +1622,64 @@ public class ChatMediaController {
                     reportUploadProgress(pending, 20); // thumb "phase" is instant
                     uploadFullImage(finalUploadFullUri, null, result, pending, finalMediaKey, finalEncFull);
                 } else {
-                    // Same "bin" extension fix as audio: thumbEnc/fullEnc are
-                    // named "<original>.webp.enc" — pass the ORIGINAL name
-                    // (still holding its real extension) as a hint so this
-                    // doesn't fall back to the Cloudinary-blocked "bin" ext
-                    // when resourceType is "raw" (E2E ciphertext).
+                    // PERF (WhatsApp-parity): fire thumb + full uploads in
+                    // PARALLEL instead of chaining full-after-thumb. Chaining
+                    // made every send pay the thumb's full network round-trip
+                    // before the (much bigger) full-res upload even started;
+                    // WhatsApp starts both immediately since they're
+                    // independent blobs. A tiny join below fires the existing
+                    // finalize/failure path once both are settled, so
+                    // everything downstream (thumbnailUrl assignment,
+                    // cleanup, finishImageUploadSuccess) is untouched.
                     String thumbHint = isEncrypted && result != null && result.thumbFile != null
                             ? result.thumbFile.getName() : null;
+
+                    final java.util.concurrent.atomic.AtomicInteger remaining =
+                            new java.util.concurrent.atomic.AtomicInteger(2); // thumb + full
+                    final java.util.concurrent.atomic.AtomicReference<String> joinedThumbUrl =
+                            new java.util.concurrent.atomic.AtomicReference<>(null);
+                    final java.util.concurrent.atomic.AtomicBoolean settled =
+                            new java.util.concurrent.atomic.AtomicBoolean(false); // guards against double-finalize
+
+                    // Full-res upload — starts NOW, doesn't wait on the thumb.
+                    CloudinaryUploader.upload(activity, finalUploadFullUri,
+                            isEncrypted ? "callx/e2e_image" : "callx/image",
+                            isEncrypted ? "raw" : "image",
+                            isEncrypted && result != null && result.fullFile != null
+                                    ? result.fullFile.getName() : null,
+                            new CloudinaryUploader.UploadCallback() {
+                                @Override public void onProgress(int percent) {
+                                    reportUploadProgress(pending, 20 + percent * 4 / 5); // full = remaining 80%
+                                }
+                                @Override public void onSuccess(CloudinaryUploader.Result fullResult) {
+                                    if (finalEncFull != null) finalEncFull.delete();
+                                    if (remaining.decrementAndGet() == 0 && settled.compareAndSet(false, true)) {
+                                        if (result != null) { result.thumbFile.delete(); result.fullFile.delete(); }
+                                        pending.mediaUrl     = fullResult.secureUrl;
+                                        pending.imageUrl     = fullResult.secureUrl;
+                                        pending.thumbnailUrl = joinedThumbUrl.get();
+                                        pending.fileSize     = fullResult.bytes;
+                                        finishImageUploadSuccess(pending);
+                                    } else {
+                                        // Full succeeded but thumb is still in flight — stash the
+                                        // result on the message now; the thumb callback (arriving
+                                        // right after) will find remaining==0 and finalize.
+                                        pending.mediaUrl = fullResult.secureUrl;
+                                        pending.imageUrl = fullResult.secureUrl;
+                                        pending.fileSize = fullResult.bytes;
+                                    }
+                                }
+                                @Override public void onError(String err) {
+                                    // Full-res failing is fatal regardless of the thumb's state.
+                                    if (finalEncFull != null) finalEncFull.delete();
+                                    if (settled.compareAndSet(false, true)) {
+                                        if (result != null) { result.thumbFile.delete(); result.fullFile.delete(); }
+                                        finishImageUploadFailure(pending, err);
+                                    }
+                                }
+                            });
+
+                    // Thumbnail upload — runs concurrently with the full-res one above.
                     CloudinaryUploader.upload(activity, uploadThumbUri, thumbFolder, thumbResourceType, thumbHint,
                             new CloudinaryUploader.UploadCallback() {
                                 @Override public void onProgress(int percent) {
@@ -1636,14 +1687,23 @@ public class ChatMediaController {
                                 }
                                 @Override public void onSuccess(CloudinaryUploader.Result thumbResult) {
                                     if (finalEncThumb != null) finalEncThumb.delete();
-                                    uploadFullImage(finalUploadFullUri, thumbResult.secureUrl, result, pending,
-                                            finalMediaKey, finalEncFull);
+                                    joinedThumbUrl.set(thumbResult.secureUrl);
+                                    if (remaining.decrementAndGet() == 0 && settled.compareAndSet(false, true)) {
+                                        pending.thumbnailUrl = joinedThumbUrl.get();
+                                        if (result != null) { result.thumbFile.delete(); result.fullFile.delete(); }
+                                        finishImageUploadSuccess(pending);
+                                    }
                                 }
                                 @Override public void onError(String err) {
-                                    // Thumb upload failed — upload full image without a thumb
+                                    // Thumb upload failed — the message still sends with the
+                                    // full-res image, just no low-res preview (matches the old
+                                    // sequential fallback's behavior).
                                     if (finalEncThumb != null) finalEncThumb.delete();
-                                    uploadFullImage(finalUploadFullUri, null, result, pending,
-                                            finalMediaKey, finalEncFull);
+                                    if (remaining.decrementAndGet() == 0 && settled.compareAndSet(false, true)) {
+                                        pending.thumbnailUrl = null;
+                                        if (result != null) { result.thumbFile.delete(); result.fullFile.delete(); }
+                                        finishImageUploadSuccess(pending);
+                                    }
                                 }
                             });
                 }

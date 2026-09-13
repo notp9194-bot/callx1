@@ -205,13 +205,19 @@
                 android:visibility="gone"/>
 
             <!--
-                IMAGE — Compact 180×180dp card.
+                IMAGE — aspect-ratio preserving, no crop (WhatsApp-style):
+                see item_message_sent.xml's iv_image for the full rationale.
             -->
             <ImageView
                 android:id="@+id/iv_image"
-                android:layout_width="180dp"
-                android:layout_height="180dp"
-                android:scaleType="centerCrop"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxWidth="240dp"
+                android:maxHeight="320dp"
+                android:minWidth="120dp"
+                android:minHeight="120dp"
+                android:adjustViewBounds="true"
+                android:scaleType="fitCenter"
                 android:background="@drawable/bg_media_card"
                 android:clipToOutline="true"
                 android:visibility="gone"/>
@@ -227,8 +233,8 @@
             -->
             <FrameLayout
                 android:id="@+id/fl_download_overlay"
-                android:layout_width="180dp"
-                android:layout_height="180dp"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
                 android:background="#26000000"
                 android:clipToOutline="true"
                 android:visibility="gone">

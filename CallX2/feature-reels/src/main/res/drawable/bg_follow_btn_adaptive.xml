@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Theme-aware version of bg_follow_btn_premium_dark, scoped to
+     UserReelsActivity's Follow/Message/Suggestions row. The shared
+     drawable's translucent-WHITE border is tuned for the dark video
+     overlay it was designed for (Reels tab, Home/Post feed headers) and
+     is nearly invisible on this screen's light surface. Day variant:
+     translucent-BLACK border instead, same 8dp radius / 1.2dp width, so
+     the outline reads clearly against a white/light background. Night
+     variant (drawable-night) restores the original white-on-dark look. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent"/>
+            <stroke android:width="1.2dp" android:color="#66000000"/>
+            <corners android:radius="8dp"/>
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent"/>
+            <stroke android:width="1.2dp" android:color="#4D000000"/>
+            <corners android:radius="8dp"/>
+        </shape>
+    </item>
+</selector>
