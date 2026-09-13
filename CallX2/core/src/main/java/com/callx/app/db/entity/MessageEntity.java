@@ -75,6 +75,11 @@ public class MessageEntity {
     // download). See AppDatabase.MIGRATION_45_46.
     public String mediaKeyEnc;
 
+    // v67: unused column, kept only so Room's schema validation matches
+    // devices that already upgraded to v67 (see AppDatabase.MIGRATION_66_67).
+    // Not populated or read by any current feature.
+    public String thumbInlineData;
+
     public String fileName;
     public Long   fileSize;
     public Long   duration;

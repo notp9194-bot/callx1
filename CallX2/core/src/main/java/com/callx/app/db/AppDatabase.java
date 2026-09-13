@@ -80,7 +80,7 @@ import com.callx.app.db.entity.*;
         // ReelCommentCacheEntity's class doc.
         ReelCommentCacheEntity.class
     },
-    version = 66,
+    version = 67,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -1009,6 +1009,18 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** v67: previously added a thumbInlineData column for an inline-thumbnail
+     *  approach that was later reverted in favor of sequential thumb→full
+     *  upload (see ChatMediaController). Kept here only so devices that
+     *  already upgraded to v67 don't hit a downgrade crash — the column is
+     *  harmless and unused; MessageEntity does NOT need to declare it. */
+    static final Migration MIGRATION_66_67 = new Migration(66, 67) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN thumbInlineData TEXT");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -1074,7 +1086,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_58_59, MIGRATION_59_60,
                                     MIGRATION_60_61, MIGRATION_61_62,
                                     MIGRATION_62_63, MIGRATION_63_64,
-                                    MIGRATION_64_65, MIGRATION_65_66)
+                                    MIGRATION_64_65, MIGRATION_65_66,
+                                    MIGRATION_66_67)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)
