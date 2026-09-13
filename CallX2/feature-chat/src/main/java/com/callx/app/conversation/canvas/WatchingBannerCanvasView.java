@@ -206,7 +206,13 @@ public class WatchingBannerCanvasView extends View {
         ChatAvatarBinder.bindBitmap(getContext(), url, 0L, AVATAR_TIER, resource -> {
             if (!requested.equals(pendingAvatar1Url)) return; // stale — rebound since
             avatar1Bitmap = resource;
-            invalidate(avatar1Bounds.isEmpty() ? null : avatar1Bounds);
+            // FIX (crash): View#invalidate(Rect) reads dirty.left internally with
+            // no null check — passing null (bounds not laid out yet, e.g. the
+            // banner's very first bind before onLayout has run) crashed with an
+            // NPE. Fall back to a full invalidate() instead, same as every
+            // other "not laid out yet" guard in this codebase (see
+            // TypingStripCanvasView#setAvatarUrl for the identical pattern).
+            if (avatar1Bounds.isEmpty()) invalidate(); else invalidate(avatar1Bounds);
         });
     }
 
@@ -222,7 +228,9 @@ public class WatchingBannerCanvasView extends View {
                 ChatAvatarBinder.bindBitmap(getContext(), url, 0L, AVATAR_TIER, resource -> {
                     if (!requested.equals(pendingAvatar2Url)) return;
                     avatar2Bitmap = resource;
-                    invalidate(avatar2Bounds.isEmpty() ? null : avatar2Bounds);
+                    // FIX (crash): see setAvatarUrl() above — invalidate(Rect)
+                    // can't take null.
+                    if (avatar2Bounds.isEmpty()) invalidate(); else invalidate(avatar2Bounds);
                 });
             }
         } else {
@@ -246,7 +254,8 @@ public class WatchingBannerCanvasView extends View {
             requestLayout();
             invalidate();
         } else if (badgeVisible && textChanged) {
-            invalidate(badgeBounds.isEmpty() ? null : badgeBounds);
+            // FIX (crash): see setAvatarUrl() above — invalidate(Rect) can't take null.
+            if (badgeBounds.isEmpty()) invalidate(); else invalidate(badgeBounds);
         }
     }
 

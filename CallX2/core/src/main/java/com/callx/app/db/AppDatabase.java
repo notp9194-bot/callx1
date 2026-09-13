@@ -80,7 +80,7 @@ import com.callx.app.db.entity.*;
         // ReelCommentCacheEntity's class doc.
         ReelCommentCacheEntity.class
     },
-    version = 66,
+    version = 67,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -1009,6 +1009,26 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** v67: WhatsApp-style inline thumbnail for NON-E2E image messages —
+     *  messages table gets a thumbInlineData column (see
+     *  MessageEntity#thumbInlineData / Message#thumbInlineData /
+     *  ChatMediaController#doStartImageUpload). Fixes the parallel
+     *  thumb+full upload race on slow networks: the small thumb upload
+     *  competing with the bigger full-res upload could time out
+     *  (onError → thumbnailUrl stays null) while the full-res upload
+     *  still succeeded, so the message sent with no preview. Mirrors the
+     *  E2E path's existing inline-thumb embed (MediaE2ECrypto#shouldInlineThumb)
+     *  but unencrypted, since non-E2E chats have no per-message key — the
+     *  small (≤48KB) thumb JPEG is base64-embedded directly in this field
+     *  instead of being uploaded to Cloudinary as a second, separately
+     *  racing blob. */
+    static final Migration MIGRATION_66_67 = new Migration(66, 67) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN thumbInlineData TEXT");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -1074,7 +1094,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_58_59, MIGRATION_59_60,
                                     MIGRATION_60_61, MIGRATION_61_62,
                                     MIGRATION_62_63, MIGRATION_63_64,
-                                    MIGRATION_64_65, MIGRATION_65_66)
+                                    MIGRATION_64_65, MIGRATION_65_66,
+                                    MIGRATION_66_67)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

@@ -75,6 +75,10 @@ public class MessageEntity {
     // download). See AppDatabase.MIGRATION_45_46.
     public String mediaKeyEnc;
 
+    // v67: WhatsApp-style inline thumbnail for NON-E2E image messages —
+    // passthrough copy of Message#thumbInlineData. See AppDatabase.MIGRATION_66_67.
+    public String thumbInlineData;
+
     public String fileName;
     public Long   fileSize;
     public Long   duration;

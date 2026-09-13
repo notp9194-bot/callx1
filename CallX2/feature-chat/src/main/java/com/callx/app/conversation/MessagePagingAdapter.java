@@ -4219,7 +4219,7 @@ public class MessagePagingAdapter
                 // key envelope, so decrypt it here rather than reading m.blurHash.
                 String blurHash = m.blurHash;
                 byte[] iMediaKey = null;
-                byte[] iInlineThumbPlain = null; // decrypted inline-thumb bytes, if this envelope embeds one
+                byte[] iInlineThumbPlain = null; // decrypted/decoded inline-thumb bytes, if this message embeds one
                 if (!sent && m.mediaKeyEnc != null) {
                     com.callx.app.utils.MediaE2ECrypto.KeyEnvelope env =
                             com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, m.mediaKeyEnc,
@@ -4239,6 +4239,20 @@ public class MessagePagingAdapter
                     if (env != null && env.inlineThumbCipher != null) {
                         iInlineThumbPlain = env.decryptInlineThumb();
                     }
+                } else if (!sent && m.thumbInlineData != null && !m.thumbInlineData.isEmpty()) {
+                    // WhatsApp-style inline thumbnail for NON-E2E chats (see
+                    // ChatMediaController#tryInlinePlaintextThumb): the small
+                    // compressed thumb JPEG travels as plain base64 directly on
+                    // the message instead of being uploaded to Cloudinary as its
+                    // own blob — avoids the old parallel thumb+full upload race
+                    // where a slow/weak connection could time out the tiny thumb
+                    // upload while the full-res upload still succeeded, leaving
+                    // thumbnailUrl null and the bubble with no preview. Decode
+                    // straight from the field, same as the E2E case above, just
+                    // without a decrypt step.
+                    try {
+                        iInlineThumbPlain = android.util.Base64.decode(m.thumbInlineData, android.util.Base64.NO_WRAP);
+                    } catch (Exception ignored) { /* corrupt/legacy data — falls through to thumbnailUrl below */ }
                 }
                 if (blurHash != null && !blurHash.isEmpty()) {
                     android.graphics.Bitmap placeholder = BlurHashPlaceholder.get(blurHash, 32, 32);

@@ -1130,6 +1130,45 @@ public class ChatMediaController {
         return buf;
     }
 
+    /** WhatsApp-approach fix for NON-E2E image sends: embeds the small
+     *  compressed thumbnail directly into {@code pending.thumbInlineData}
+     *  (base64, plaintext) instead of letting it go out as its own
+     *  Cloudinary upload. Mirrors the E2E path's
+     *  MediaE2ECrypto#shouldInlineThumb / thumbInlined handling above, just
+     *  unencrypted — a non-E2E chat has no per-message key to wrap the
+     *  thumb bytes in, so they travel as plain base64 in the message field
+     *  itself (same idea as WhatsApp's own inline JPEG thumbnail).
+     *
+     *  Why this exists: the old non-E2E path fired the thumb upload and the
+     *  full-res upload in PARALLEL on the same uplink (see the "else"
+     *  branch below). On a slow/weak connection the two compete for
+     *  bandwidth, and the much smaller thumb can time out/fail while the
+     *  bigger full-res upload still succeeds — so the message sends with
+     *  mediaUrl set but thumbnailUrl null, and the receiver's bubble shows
+     *  no preview until/unless the full image itself finishes downloading.
+     *  Inlining removes the second upload (and therefore the race)
+     *  entirely: there's only ever ONE network upload (the full-res image),
+     *  exactly like WhatsApp.
+     *
+     *  @return true if the thumbnail was small enough to inline and
+     *  {@code pending.thumbInlineData} was set (caller should then skip the
+     *  separate thumb upload and go straight to uploadFullImage with
+     *  thumbUrl=null); false if it was too large and the caller should fall
+     *  back to the old separate-upload path. */
+    private static boolean tryInlinePlaintextThumb(Message pending, java.io.File thumbFile) {
+        if (!com.callx.app.utils.MediaE2ECrypto.shouldInlineThumb(thumbFile)) return false;
+        try {
+            pending.thumbInlineData = android.util.Base64.encodeToString(
+                    readAllBytesCompat(thumbFile), android.util.Base64.NO_WRAP);
+            return true;
+        } catch (Exception e) {
+            android.util.Log.w("ChatMediaController",
+                    "Inline-thumb read failed, falling back to separate thumb upload: " + e.getMessage());
+            pending.thumbInlineData = null;
+            return false;
+        }
+    }
+
     private static boolean isBakedOverlayVideo(Uri uri) {
         String s = uri.toString();
         return s.contains("media_edit_video_out");
@@ -1597,10 +1636,19 @@ public class ChatMediaController {
                         uploadFullUri  = fullUri;
                         pending.mediaKeyEnc = null;
                         pending.blurHash = blurHash;
+                        // WhatsApp approach (see tryInlinePlaintextThumb): avoid
+                        // re-introducing the parallel thumb+full upload race for
+                        // this plaintext fallback too.
+                        thumbInlined = tryInlinePlaintextThumb(pending, result.thumbFile);
                     }
                 } else {
-                    // No E2E session yet for this partner — old plaintext behavior.
+                    // No E2E session yet for this partner — old plaintext behavior,
+                    // but WhatsApp-style: inline the (small) thumb into the message
+                    // itself instead of uploading it separately, so it never has to
+                    // compete with the full-res upload for bandwidth (see
+                    // tryInlinePlaintextThumb's doc for the race this avoids).
                     pending.blurHash = blurHash;
+                    thumbInlined = tryInlinePlaintextThumb(pending, result.thumbFile);
                 }
 
                 final byte[] finalMediaKey        = mediaKey;

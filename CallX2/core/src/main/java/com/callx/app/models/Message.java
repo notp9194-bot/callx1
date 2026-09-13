@@ -104,6 +104,31 @@ public class Message {
      */
     public String blurHash;
 
+    // ── WhatsApp-style inline thumbnail (non-E2E) ──────────────────────────
+    /**
+     * Base64-encoded bytes of the small (≤{@code MediaE2ECrypto.INLINE_THUMB_MAX_BYTES})
+     * compressed JPEG thumbnail, embedded directly in this plaintext message
+     * field instead of being uploaded to Cloudinary as its own blob. Set by
+     * ChatMediaController#doStartImageUpload when the parallel thumb+full
+     * upload would otherwise race the (much bigger) full-res upload for
+     * bandwidth on a slow connection — a race that could time out the tiny
+     * thumb, arrive as thumbnailUrl == null, and leave the receiver's bubble
+     * with a missing preview even though the full-res photo loaded fine.
+     * WhatsApp never has this race because it never uploads a thumbnail
+     * separately — it inlines it in the message payload — and this field is
+     * the non-E2E counterpart of that: mirrors the E2E path's
+     * shouldInlineThumb/thumbInlined handling (see Message#mediaKeyEnc),
+     * just unencrypted, since a non-E2E chat has no per-message key to wrap
+     * it in. When non-null/non-empty, the receiver (MessagePagingAdapter)
+     * decodes it in memory with zero network round-trips instead of loading
+     * thumbnailUrl; thumbnailUrl stays null on these messages. Null on
+     * messages sent before this field existed, on messages whose compressed
+     * thumbnail was too large to inline (falls back to the old separate
+     * Cloudinary thumb upload), and on all E2E media messages (which use
+     * mediaKeyEnc's own inline-thumb slot instead).
+     */
+    public String thumbInlineData;
+
     // ── Media E2E (image) ───────────────────────────────────────────────────
     /**
      * Present only on 1:1 IMAGE messages sent through the media-E2E path

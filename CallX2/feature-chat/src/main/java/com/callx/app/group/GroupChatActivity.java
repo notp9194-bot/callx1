@@ -1957,6 +1957,10 @@ public class GroupChatActivity extends AppCompatActivity
         m.mediaWidth = e.mediaWidth;
         m.mediaHeight = e.mediaHeight;
         m.blurHash = e.blurHash;
+        // v67: WhatsApp-style inline thumbnail (non-E2E) — see AppDatabase.MIGRATION_66_67.
+        // Group media E2E is out of scope (see Message#mediaKeyEnc), so every
+        // group image goes through this plaintext inline-thumb path.
+        m.thumbInlineData = e.thumbInlineData;
         m.topicId = e.topicId;
         m.topicName = e.topicName;
         // PERF: same background StaticLayout precompute as 1:1 ChatActivity
@@ -2056,6 +2060,8 @@ public class GroupChatActivity extends AppCompatActivity
         e.mediaHeight            = m.mediaHeight;
         // BUG FIX (v44): blurHash — see AppDatabase.MIGRATION_43_44.
         e.blurHash              = m.blurHash;
+        // v67: WhatsApp-style inline thumbnail (non-E2E) — see AppDatabase.MIGRATION_66_67.
+        e.thumbInlineData       = m.thumbInlineData;
         e.pollQuestion          = m.pollQuestion;
         e.pollOptionsJson       = com.callx.app.utils.PollJsonUtil.optionsToJson(m.pollOptions);
         e.pollVotesJson         = com.callx.app.utils.PollJsonUtil.votesToJson(m.pollVotes);

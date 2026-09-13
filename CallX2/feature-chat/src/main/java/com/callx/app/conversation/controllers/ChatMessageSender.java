@@ -389,6 +389,8 @@ public class ChatMessageSender {
         e.blurHash            = m.blurHash;
         // v46: Media E2E (image) — see AppDatabase.MIGRATION_45_46.
         e.mediaKeyEnc         = m.mediaKeyEnc;
+        // v67: WhatsApp-style inline thumbnail (non-E2E) — see AppDatabase.MIGRATION_66_67.
+        e.thumbInlineData     = m.thumbInlineData;
         e.contactName         = m.contactName;
         e.contactPhone        = m.contactPhone;
         e.contactPhone2       = m.contactPhone2;
