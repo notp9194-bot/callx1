@@ -86,6 +86,7 @@ dependencies {
     // androidx.asynclayoutinflater — the plain one skips AppCompat's view
     // factory, so Buttons/ImageViews etc would come back un-tinted/
     // non-Material instead of matching what setContentView() normally builds.
+    implementation 'androidx.asynclayoutinflater:asynclayoutinflater:1.1.0'
     implementation 'androidx.asynclayoutinflater:asynclayoutinflater-appcompat:1.1.0'
 
     // ── WhatsApp-level architecture: ViewModel + LiveData ──────────────────

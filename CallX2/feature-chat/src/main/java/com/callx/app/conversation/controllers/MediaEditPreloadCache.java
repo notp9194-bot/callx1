@@ -6,7 +6,8 @@ import android.util.Log;
 import android.view.ContextThemeWrapper;
 import android.view.View;
 
-import androidx.asynclayoutinflater.appcompat.AsyncLayoutInflater;
+import androidx.asynclayoutinflater.appcompat.AsyncAppCompatFactory;
+import androidx.asynclayoutinflater.view.AsyncLayoutInflater;
 
 import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
@@ -25,13 +26,15 @@ import com.callx.app.chat.R;
  * bound in afterwards from Intent extras in onCreate() — so it's safe to
  * build ahead of time and just hand the finished View to the real Activity.
  *
- * Uses androidx.asynclayoutinflater's AppCompat-aware inflater (NOT plain
- * android.view.AsyncLayoutInflater / androidx.asynclayoutinflater.view). The
- * plain inflater skips AppCompat's view-inflation factory, so widgets like
- * <Button>/<ImageView> would come back as their raw framework versions
- * instead of the tinted AppCompat/Material equivalents setContentView()
- * normally swaps them for — this variant installs that factory itself, so
- * the pre-built tree looks identical to a normal inflate.
+ * Uses androidx.asynclayoutinflater's AppCompat-aware factory (NOT plain
+ * android.view.AsyncLayoutInflater with no factory). AsyncLayoutInflater
+ * itself lives in androidx.asynclayoutinflater.view (the base artifact);
+ * androidx.asynclayoutinflater.appcompat only ships the AsyncAppCompatFactory
+ * that gets handed to it — passing that factory in is what installs
+ * AppCompat's own view-inflation factory on the background inflate. Without
+ * it, widgets like <Button>/<ImageView> would come back as their raw
+ * framework versions instead of the tinted AppCompat/Material equivalents
+ * setContentView() normally swaps them for.
  *
  * ChatCameraActivity and MediaEditActivity already share the exact same
  * manifest theme (Theme.AppCompat.NoActionBar), so pre-inflating against
@@ -61,7 +64,7 @@ public final class MediaEditPreloadCache {
             try {
                 Context themed = new ContextThemeWrapper(
                         context.getApplicationContext(), R.style.Theme_AppCompat_NoActionBar);
-                new AsyncLayoutInflater(themed).inflate(
+                new AsyncLayoutInflater(themed, new AsyncAppCompatFactory()).inflate(
                         R.layout.activity_media_edit, null,
                         (view, resid, parent) -> {
                             cachedRoot = view;
