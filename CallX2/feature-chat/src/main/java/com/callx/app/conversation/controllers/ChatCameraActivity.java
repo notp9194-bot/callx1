@@ -139,13 +139,27 @@ public class ChatCameraActivity extends AppCompatActivity {
         setContentView(R.layout.activity_chat_camera);
 
         previewView   = findViewById(R.id.camera_preview);
-        // PERF: PERFORMANCE mode backs the preview with a SurfaceView instead
-        // of TextureView — skips an extra GPU compositing pass per frame,
-        // smoother preview with lower overhead. (COMPATIBLE/TextureView is
-        // only needed for things like rotating the preview mid-transform or
-        // overlaying view animations directly on the camera feed, neither of
-        // which this screen does.)
-        previewView.setImplementationMode(PreviewView.ImplementationMode.PERFORMANCE);
+        // BUG FIX: PERFORMANCE mode backs the preview with a SurfaceView.
+        // A SurfaceView punches its own hole in the window and composites
+        // as a separate hardware layer OUTSIDE the normal View drawing
+        // pass — it does NOT reliably co-exist with sibling views on top of
+        // it that keep invalidating (this screen overlays the shutter
+        // button/ring, flash/flip buttons, hint text, and a record timer
+        // that ticks every 500ms — all in the same FrameLayout, directly
+        // above camera_preview in activity_chat_camera.xml). On plenty of
+        // GPU/OEM skins that repeated overlay invalidation desyncs the
+        // SurfaceView's own buffer swap from the rest of the window: the
+        // feed shows correctly for the first second or two, then visibly
+        // freezes on whatever frame was last composited, exactly the
+        // "dikhta hai, phir ruk jata hai" symptom, even though CameraX is
+        // still happily producing frames underneath.
+        // FIX: COMPATIBLE mode renders through a TextureView instead, which
+        // is a normal View — it draws in-order with its siblings on every
+        // invalidation instead of as an independent hardware layer, so the
+        // overlaid buttons/timer can update freely without ever knocking
+        // the preview out of sync. This is also what CameraX's own docs
+        // recommend once anything is drawn on top of/around the preview.
+        previewView.setImplementationMode(PreviewView.ImplementationMode.COMPATIBLE);
         btnClose      = findViewById(R.id.btn_camera_close);
         btnFlash      = findViewById(R.id.btn_camera_flash);
         btnFlip       = findViewById(R.id.btn_camera_flip);

@@ -1224,6 +1224,49 @@ public class MessageBubbleCanvasView extends View {
     private final Paint.FontMetrics callEntryTimeFmScratch = new Paint.FontMetrics();
     private final Paint.FontMetrics cornerExpiryFmScratch = new Paint.FontMetrics();
     private final Paint.FontMetrics bigReactionFmScratch = new Paint.FontMetrics();
+    // PERF: was readMorePaint.getFontMetrics() (no-arg) in drawReadMoreStrip()
+    // — fresh FontMetrics alloc every single onDraw() for every visible
+    // "Read more ▼" strip (fires per-frame during a fling). Same zero-alloc
+    // scratch pattern as footer/call-entry/corner-expiry/big-reaction above.
+    private final Paint.FontMetrics readMoreFmScratch = new Paint.FontMetrics();
+    // PERF: same zero-alloc pattern, applied to the remaining no-arg
+    // getFontMetrics() call sites — all inside onMeasure() rather than
+    // onDraw(), so they only fire once per bind/relayout instead of once
+    // per frame. Lower priority than the onDraw sites above, but still
+    // real churn on fast scroll / bulk rebind (message-list paging,
+    // rotation, new-data arrival), where many rows get remeasured in a
+    // burst. getFontMetrics(FontMetrics) fills these in place instead.
+    private final Paint.FontMetrics pinnedLabelFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics groupSenderFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics forwardedFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics viewOnceIconFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics viewOnceLabelFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics viewOnceSublabelFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics viewOnceTimeFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics seenIconFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics seenLabelFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics seenNameFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics seenTimeFmScratch = new Paint.FontMetrics();
+    // Package-private (not `private`): PollRenderer.draw() reuses these same
+    // scratch objects for its own getFontMetrics() calls — see PERF note
+    // there. Was `private` while only onMeasure() used them; onMeasure()
+    // and draw() computing FontMetrics for the same Paints never overlap
+    // (measure then draw, never concurrently on the same thread), so one
+    // scratch instance per Paint is safe to share across both.
+    final Paint.FontMetrics pollHeaderFmScratch = new Paint.FontMetrics();
+    final Paint.FontMetrics pollSubtitleFmScratch = new Paint.FontMetrics();
+    final Paint.FontMetrics pollFooterFmScratch = new Paint.FontMetrics();
+    // PERF: added for PollRenderer.draw() — pollChipPaint's FontMetrics used
+    // to be fetched twice per frame (once for chipH, once for chipBaseline)
+    // via two separate getFontMetrics() calls, each allocating fresh; now
+    // one scratch instance, populated once, read twice.
+    final Paint.FontMetrics pollChipFmScratch = new Paint.FontMetrics();
+    // PERF: added for PollRenderer.draw() — pollOptionPctPaint's
+    // getFontMetrics() used to allocate fresh once per option per frame
+    // (n allocations per draw() call for an n-option poll, every scroll
+    // frame it's on screen).
+    final Paint.FontMetrics pollOptionPctFmScratch = new Paint.FontMetrics();
+    private final Paint.FontMetrics linkDomainFmScratch = new Paint.FontMetrics();
     boolean sent = false;
     boolean read = false;
     boolean delivered = false;
@@ -1291,7 +1334,8 @@ public class MessageBubbleCanvasView extends View {
         readMorePaint.setColor(sent ? 0xFFFFD54F : 0xFF64B5F6);
         readMorePaint.setFakeBoldText(false);
         String rmLabel = isTextExpanded ? "Read less ▲" : "Read more ▼";
-        Paint.FontMetrics rfm = readMorePaint.getFontMetrics();
+        readMorePaint.getFontMetrics(readMoreFmScratch);
+        Paint.FontMetrics rfm = readMoreFmScratch;
         // Centre the text vertically within the READ_MORE_ROW_HEIGHT_DP strip
         float rowH = READ_MORE_ROW_HEIGHT_DP * density;
         float rmBaseline = rowTop + (rowH - (rfm.descent - rfm.ascent)) * 0.5f - rfm.ascent;
@@ -1609,9 +1653,10 @@ public class MessageBubbleCanvasView extends View {
     final RectF forwardBtnRect = new RectF();
     static final float FORWARD_BTN_SIZE_DP   = 30f;
     static final float FORWARD_BTN_MARGIN_DP = 2f;
-    final Paint forwardBtnBgPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
-    final Paint forwardBtnIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    final android.graphics.Path forwardIconPath = new android.graphics.Path();
+    // forwardBtnBgPaint/forwardBtnIconPaint retired — the circle+chevron
+    // glyph they drew is now pre-rendered once per size into
+    // FORWARD_BTN_BITMAP_CACHE (see getForwardButtonBitmap()) and blitted,
+    // so no per-instance Paint is needed for it any more.
 
 
     // ── Deleted-message placeholder style — only affects the plain-text
@@ -2253,12 +2298,8 @@ public class MessageBubbleCanvasView extends View {
         // COLOR: emerald accent (secondary brand color) — kept distinct from
         // the gold signature (ticks/waveform/poll-leader) so gold reads as
         // one deliberate premium "tell" rather than every accent in the app.
-        forwardBtnBgPaint.setColor(0x1F0F4C3A);
-        forwardBtnIconPaint.setStyle(Paint.Style.STROKE);
-        forwardBtnIconPaint.setStrokeWidth(1.6f * density);
-        forwardBtnIconPaint.setStrokeCap(Paint.Cap.ROUND);
-        forwardBtnIconPaint.setStrokeJoin(Paint.Join.ROUND);
-        forwardBtnIconPaint.setColor(0xFF0F4C3A);
+        // (Colors/stroke now only live in getForwardButtonBitmap()'s local
+        // Paints — see FORWARD_BTN_BITMAP_CACHE doc below.)
 
 
         reactionsTextPaint.setTextSize(spToPx(REACTIONS_TEXT_SP));
@@ -4567,7 +4608,8 @@ public class MessageBubbleCanvasView extends View {
         int labelGap = Math.round(PINNED_LABEL_GAP_DP * density);
         int row1Height = 0;
         if (isPinned) {
-            Paint.FontMetrics pfm = pinnedLabelPaint.getFontMetrics();
+            pinnedLabelPaint.getFontMetrics(pinnedLabelFmScratch);
+            Paint.FontMetrics pfm = pinnedLabelFmScratch;
             pinnedLabelHeight = Math.round(pfm.descent - pfm.ascent);
             pinnedLabelWidth = pinnedLabelPaint.measureText(PINNED_LABEL_TEXT);
             row1Height = Math.max(row1Height, pinnedLabelHeight);
@@ -4576,7 +4618,8 @@ public class MessageBubbleCanvasView extends View {
             pinnedLabelWidth = 0;
         }
         if (hasGroupSender) {
-            Paint.FontMetrics gfm = groupSenderPaint.getFontMetrics();
+            groupSenderPaint.getFontMetrics(groupSenderFmScratch);
+            Paint.FontMetrics gfm = groupSenderFmScratch;
             groupSenderTextHeight = Math.round(gfm.descent - gfm.ascent);
             groupSenderWidth = groupSenderPaint.measureText(groupSenderName);
             row1Height = Math.max(row1Height, groupSenderTextHeight);
@@ -4587,13 +4630,16 @@ public class MessageBubbleCanvasView extends View {
 
         int aboveExtra = 0;
         if (row1Height > 0) {
-            pinnedBaselineY = row1Height - pinnedLabelPaint.getFontMetrics().descent;
-            groupSenderBaselineY = row1Height - groupSenderPaint.getFontMetrics().descent;
+            pinnedLabelPaint.getFontMetrics(pinnedLabelFmScratch);
+            groupSenderPaint.getFontMetrics(groupSenderFmScratch);
+            pinnedBaselineY = row1Height - pinnedLabelFmScratch.descent;
+            groupSenderBaselineY = row1Height - groupSenderFmScratch.descent;
             aboveExtra = row1Height + labelGap;
         }
 
         if (hasForwarded) {
-            Paint.FontMetrics ffm = forwardedPaint.getFontMetrics();
+            forwardedPaint.getFontMetrics(forwardedFmScratch);
+            Paint.FontMetrics ffm = forwardedFmScratch;
             forwardedTextHeight = Math.round(ffm.descent - ffm.ascent);
             forwardedTextWidth = forwardedPaint.measureText(forwardedText);
             forwardedBaselineY = aboveExtra + forwardedTextHeight - ffm.descent;
@@ -4882,13 +4928,16 @@ public class MessageBubbleCanvasView extends View {
                     break;
             }
 
-            Paint.FontMetrics iconFm = viewOnceIconPaint.getFontMetrics();
+            viewOnceIconPaint.getFontMetrics(viewOnceIconFmScratch);
+            Paint.FontMetrics iconFm = viewOnceIconFmScratch;
             float iconH = iconFm.descent - iconFm.ascent;
-            Paint.FontMetrics lfm = viewOnceLabelPaint.getFontMetrics();
+            viewOnceLabelPaint.getFontMetrics(viewOnceLabelFmScratch);
+            Paint.FontMetrics lfm = viewOnceLabelFmScratch;
             float labelH = lfm.descent - lfm.ascent;
             float rowH;
             if (viewOnceVariant == VIEW_ONCE_RECEIVED) {
-                Paint.FontMetrics sfm = viewOnceSublabelPaint.getFontMetrics();
+                viewOnceSublabelPaint.getFontMetrics(viewOnceSublabelFmScratch);
+                Paint.FontMetrics sfm = viewOnceSublabelFmScratch;
                 float textColH = labelH + VO_LABEL_SUBLABEL_GAP_DP * density + (sfm.descent - sfm.ascent);
                 rowH = Math.max(iconH, textColH);
             } else {
@@ -4900,7 +4949,8 @@ public class MessageBubbleCanvasView extends View {
                 openedAtH = VO_OPENED_AT_GAP_DP * density + VO_OPENED_AT_SP * density * 1.3f;
             }
 
-            Paint.FontMetrics tfm = viewOnceTimePaint.getFontMetrics();
+            viewOnceTimePaint.getFontMetrics(viewOnceTimeFmScratch);
+            Paint.FontMetrics tfm = viewOnceTimeFmScratch;
             float timeH = tfm.descent - tfm.ascent;
             float cardH = pad * 2 + rowH + openedAtH + VO_ROW_GAP_TOP_DP * density + timeH;
 
@@ -4925,16 +4975,20 @@ public class MessageBubbleCanvasView extends View {
 
             float cardW = seenHasThumb ? Math.max(minCardW, thumbW + padH + padEnd) : minCardW;
 
-            Paint.FontMetrics ifm = seenIconPaint.getFontMetrics();
-            Paint.FontMetrics slfm = seenLabelPaint.getFontMetrics();
+            seenIconPaint.getFontMetrics(seenIconFmScratch);
+            seenLabelPaint.getFontMetrics(seenLabelFmScratch);
+            Paint.FontMetrics ifm = seenIconFmScratch;
+            Paint.FontMetrics slfm = seenLabelFmScratch;
             float iconLabelRowH = Math.max(ifm.descent - ifm.ascent, slfm.descent - slfm.ascent);
 
             float nameH = 0f;
             if (seenHasName) {
-                Paint.FontMetrics nfm2 = seenNamePaint.getFontMetrics();
+                seenNamePaint.getFontMetrics(seenNameFmScratch);
+                Paint.FontMetrics nfm2 = seenNameFmScratch;
                 nameH = SEEN_NAME_GAP_TOP_DP * density + (nfm2.descent - nfm2.ascent);
             }
-            Paint.FontMetrics stfm = seenTimePaint.getFontMetrics();
+            seenTimePaint.getFontMetrics(seenTimeFmScratch);
+            Paint.FontMetrics stfm = seenTimeFmScratch;
             float timeRowH = SEEN_TIME_GAP_TOP_DP * density + (stfm.descent - stfm.ascent);
 
             float thumbBlockH = seenHasThumb ? thumbH + SEEN_THUMB_MARGIN_BOTTOM_DP * density : 0f;
@@ -4960,10 +5014,18 @@ public class MessageBubbleCanvasView extends View {
             float timeW  = callEntryTimePaint.measureText(callEntryTime);
             float rowContentW = iconW + gap + labelW + dotW + timeW;
 
-            Paint.FontMetrics cifm = callEntryIconPaint.getFontMetrics();
-            Paint.FontMetrics clfm = callEntryLabelPaint.getFontMetrics();
-            Paint.FontMetrics cdfm = callEntryDotPaint.getFontMetrics();
-            Paint.FontMetrics ctfm = callEntryTimePaint.getFontMetrics();
+            // Reuses the same scratch instances drawCallEntry() fills at
+            // draw time — onMeasure/onDraw never run concurrently on this
+            // view, so sharing them here costs nothing and avoids adding
+            // yet another set of fields for the identical paints.
+            callEntryIconPaint.getFontMetrics(callEntryIconFmScratch);
+            callEntryLabelPaint.getFontMetrics(callEntryLabelFmScratch);
+            callEntryDotPaint.getFontMetrics(callEntryDotFmScratch);
+            callEntryTimePaint.getFontMetrics(callEntryTimeFmScratch);
+            Paint.FontMetrics cifm = callEntryIconFmScratch;
+            Paint.FontMetrics clfm = callEntryLabelFmScratch;
+            Paint.FontMetrics cdfm = callEntryDotFmScratch;
+            Paint.FontMetrics ctfm = callEntryTimeFmScratch;
             float rowH = Math.max(Math.max(cifm.descent - cifm.ascent, clfm.descent - clfm.ascent),
                     Math.max(cdfm.descent - cdfm.ascent, ctfm.descent - ctfm.ascent));
 
@@ -4984,7 +5046,8 @@ public class MessageBubbleCanvasView extends View {
             int innerW   = Math.max(1, cardW - Math.round(padH * 2));
 
             // Header row height (icon + label text, single line)
-            Paint.FontMetrics hfm = pollHeaderLabelPaint.getFontMetrics();
+            pollHeaderLabelPaint.getFontMetrics(pollHeaderFmScratch);
+            Paint.FontMetrics hfm = pollHeaderFmScratch;
             float headerTxtH = hfm.descent - hfm.ascent;
             pollHeaderRowH = Math.max(POLL_HEADER_ICON_SIZE_DP * density, headerTxtH);
 
@@ -4999,7 +5062,8 @@ public class MessageBubbleCanvasView extends View {
                     .build();
 
             // Subtitle line height
-            Paint.FontMetrics sfm = pollSubtitlePaint.getFontMetrics();
+            pollSubtitlePaint.getFontMetrics(pollSubtitleFmScratch);
+            Paint.FontMetrics sfm = pollSubtitleFmScratch;
             pollSubtitleH = sfm.descent - sfm.ascent;
 
             // Option text layouts
@@ -5043,7 +5107,8 @@ public class MessageBubbleCanvasView extends View {
             }
 
             // Footer text height
-            Paint.FontMetrics ffm = pollFooterPaint.getFontMetrics();
+            pollFooterPaint.getFontMetrics(pollFooterFmScratch);
+            Paint.FontMetrics ffm = pollFooterFmScratch;
             float footerTxtH = ffm.descent - ffm.ascent;
 
             // Footer (timestamp) reserved width/height
@@ -5286,7 +5351,8 @@ public class MessageBubbleCanvasView extends View {
                 int domainHeight = 0;
                 int domainGap = 0;
                 if (!linkDomain.isEmpty()) {
-                    Paint.FontMetrics dfm = linkDomainPaint.getFontMetrics();
+                    linkDomainPaint.getFontMetrics(linkDomainFmScratch);
+                    Paint.FontMetrics dfm = linkDomainFmScratch;
                     domainHeight = Math.round(dfm.descent - dfm.ascent);
                     domainGap = Math.round(LINK_PREVIEW_TITLE_GAP_DP * density);
                 }
@@ -5552,7 +5618,12 @@ public class MessageBubbleCanvasView extends View {
         if (hasReactions) {
             float marginEnd = REACTIONS_MARGIN_END_DP * density;
             float overlap = REACTIONS_OVERLAP_DP * density;
-            Paint.FontMetrics fm = reactionsTextPaint.getFontMetrics();
+            // Reuses the same cached reactionsTextFM the onDraw path
+            // populates (see its field javadoc) — text size never changes
+            // after init, so onMeasure can read it lazily here too instead
+            // of allocating its own copy.
+            if (reactionsTextFM == null) reactionsTextFM = reactionsTextPaint.getFontMetrics();
+            Paint.FontMetrics fm = reactionsTextFM;
             float badgeW = reactionsTextPaint.measureText(reactionsText);
             float badgeH = fm.descent - fm.ascent;
             float right = bubbleRect.right - marginEnd;
@@ -5926,23 +5997,67 @@ public class MessageBubbleCanvasView extends View {
             forwardBtnRect.set(left, cy - btnSize / 2f, left + btnSize, cy + btnSize / 2f);
         }
 
-        float cx = forwardBtnRect.centerX();
-        float r = forwardBtnRect.width() / 2f;
-        canvas.drawCircle(cx, cy, r, forwardBtnBgPaint);
+        // PERF: circle bg + double-chevron glyph are a fixed shape/color
+        // (forwardBtnBgPaint/forwardBtnIconPaint never change) — only
+        // forwardBtnRect's POSITION varies per bind (sent vs received
+        // side). Blit the pre-rendered bitmap instead of re-issuing
+        // drawCircle()+drawPath() every frame — see FORWARD_BTN_BITMAP_CACHE.
+        Bitmap fwdBmp = getForwardButtonBitmap(btnSize);
+        canvas.drawBitmap(fwdBmp, forwardBtnRect.left, forwardBtnRect.top, null);
+    }
+
+    // ── PERF: pre-rendered forward-button bitmap (same pattern as
+    // TICK_BITMAP_CACHE above) — circle background + double-chevron
+    // "forward" glyph never change shape or color, only WHERE they're
+    // drawn (forwardBtnRect tracks sent/received side + bubble layout).
+    // Built once per size, then just drawBitmap() every frame. ─────────
+    private static final android.util.SparseArray<Bitmap> FORWARD_BTN_BITMAP_CACHE =
+            new android.util.SparseArray<>(2);
+
+    private static synchronized Bitmap getForwardButtonBitmap(float size) {
+        int key = Math.round(size * 10f); // 0.1px precision
+        Bitmap cached = FORWARD_BTN_BITMAP_CACHE.get(key);
+        if (cached != null && !cached.isRecycled()) return cached;
+
+        int w = Math.max(1, Math.round(size));
+        Bitmap bmp = Bitmap.createBitmap(w, w, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(bmp);
+        float cx = w / 2f, cy = w / 2f, r = w / 2f;
+
+        // Mirrors forwardBtnBgPaint's init() setup exactly — kept as a
+        // local Paint here (rather than reading the instance field) so
+        // this builder stays static/thread-safe like getTickBitmap().
+        Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG);
+        bg.setColor(0x1F0F4C3A);
+        c.drawCircle(cx, cy, r, bg);
+
+        // Mirrors forwardBtnIconPaint's init() setup exactly. size ==
+        // FORWARD_BTN_SIZE_DP * density, so density is recovered here to
+        // keep the stroke width identical to the original per-frame draw.
+        float density = size / FORWARD_BTN_SIZE_DP;
+        Paint icon = new Paint(Paint.ANTI_ALIAS_FLAG);
+        icon.setStyle(Paint.Style.STROKE);
+        icon.setStrokeWidth(1.6f * density);
+        icon.setStrokeCap(Paint.Cap.ROUND);
+        icon.setStrokeJoin(Paint.Join.ROUND);
+        icon.setColor(0xFF0F4C3A);
 
         // Double-chevron "forward" glyph (»), same visual family as the
         // legacy ic_forward_msg drawable — always points the same
         // direction regardless of which side the button sits on, since
         // forwarding isn't spatially tied to sent/received.
-        float w = r * 0.9f, h = r * 0.95f;
-        forwardIconPath.reset();
-        forwardIconPath.moveTo(cx - w * 0.6f, cy - h * 0.5f);
-        forwardIconPath.lineTo(cx - w * 0.1f, cy);
-        forwardIconPath.lineTo(cx - w * 0.6f, cy + h * 0.5f);
-        forwardIconPath.moveTo(cx, cy - h * 0.5f);
-        forwardIconPath.lineTo(cx + w * 0.5f, cy);
-        forwardIconPath.lineTo(cx, cy + h * 0.5f);
-        canvas.drawPath(forwardIconPath, forwardBtnIconPaint);
+        float w2 = r * 0.9f, h = r * 0.95f;
+        android.graphics.Path path = new android.graphics.Path();
+        path.moveTo(cx - w2 * 0.6f, cy - h * 0.5f);
+        path.lineTo(cx - w2 * 0.1f, cy);
+        path.lineTo(cx - w2 * 0.6f, cy + h * 0.5f);
+        path.moveTo(cx, cy - h * 0.5f);
+        path.lineTo(cx + w2 * 0.5f, cy);
+        path.lineTo(cx, cy + h * 0.5f);
+        c.drawPath(path, icon);
+
+        FORWARD_BTN_BITMAP_CACHE.put(key, bmp);
+        return bmp;
     }
 
     // Width to reserve in the footer row for the "⏳ mm:ss" expiry countdown
@@ -6261,13 +6376,53 @@ public class MessageBubbleCanvasView extends View {
      * spinner/percentage) — see setMediaDownloadGate()/setGroupCellProgress().
      */
     void drawGateIcon(Canvas canvas, float cx, float cy, float size, Paint paint) {
-        float r = size / 2f;
-        float shaftTop = cy - r;
-        float shaftBottom = cy + r * 0.25f;
-        canvas.drawLine(cx, shaftTop, cx, shaftBottom, paint);
-        canvas.drawLine(cx - r * 0.5f, shaftBottom - r * 0.5f, cx, shaftBottom, paint);
-        canvas.drawLine(cx + r * 0.5f, shaftBottom - r * 0.5f, cx, shaftBottom, paint);
-        canvas.drawLine(cx - r, cy + r, cx + r, cy + r, paint);
+        // PERF: same pre-rendered-bitmap pattern as TICK_BITMAP_CACHE /
+        // FORWARD_BTN_BITMAP_CACHE above — the shaft+arrowhead+tray glyph
+        // is a fixed shape; only its (size, strokeWidth, color) — which
+        // differ per caller (mediaGatePillIconPaint / groupGatePillIconPaint
+        // / groupCellGateIconPaint) but never change frame-to-frame for a
+        // given caller — vary. Redrawing 4 drawLine() calls with fresh
+        // stroke geometry every frame is wasted once the download is idle
+        // and this glyph just sits there. Built once per (size, stroke,
+        // color) combo, then blitted.
+        Bitmap bmp = getGateIconBitmap(size, paint);
+        float pad = paint.getStrokeWidth(); // must match getGateIconBitmap()'s own pad
+        canvas.drawBitmap(bmp, cx - size / 2f - pad, cy - size / 2f - pad, null);
+    }
+
+    private static final android.util.LongSparseArray<Bitmap> GATE_ICON_BITMAP_CACHE =
+            new android.util.LongSparseArray<>(4);
+
+    private static synchronized Bitmap getGateIconBitmap(float size, Paint paint) {
+        float strokeWidth = paint.getStrokeWidth();
+        int color = paint.getColor();
+        long sizeKey = Math.round(size * 10f);   // 0.1px precision
+        long strokeKey = Math.round(strokeWidth * 10f);
+        long key = (sizeKey << 40) | (strokeKey << 24) | (color & 0xFFFFFFL);
+        Bitmap cached = GATE_ICON_BITMAP_CACHE.get(key);
+        if (cached != null && !cached.isRecycled()) return cached;
+
+        float pad = strokeWidth; // headroom for the round stroke caps
+        int w = Math.max(1, (int) Math.ceil(size + pad * 2));
+        Bitmap bmp = Bitmap.createBitmap(w, w, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(bmp);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(strokeWidth);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeJoin(Paint.Join.ROUND);
+        p.setColor(color);
+
+        float bcx = pad + size / 2f, bcy = pad + size / 2f, r = size / 2f;
+        float shaftTop = bcy - r;
+        float shaftBottom = bcy + r * 0.25f;
+        c.drawLine(bcx, shaftTop, bcx, shaftBottom, p);
+        c.drawLine(bcx - r * 0.5f, shaftBottom - r * 0.5f, bcx, shaftBottom, p);
+        c.drawLine(bcx + r * 0.5f, shaftBottom - r * 0.5f, bcx, shaftBottom, p);
+        c.drawLine(bcx - r, bcy + r, bcx + r, bcy + r, p);
+
+        GATE_ICON_BITMAP_CACHE.put(key, bmp);
+        return bmp;
     }
 
     /**
@@ -6348,24 +6503,72 @@ public class MessageBubbleCanvasView extends View {
         }
     }
 
-    void drawTick(Canvas canvas, float x, float baselineY) {
-        // Simple two-stroke check mark; double check mark for delivered/read.
-        // PERF ADV: style/strokeWidth/strokeCap are set ONCE in the
-        // constructor now (see tickPaint field) instead of being reset here
-        // on every single draw — only the color varies per-bind and that's
-        // already handled by setDeliveryStatus()/bind().
-        float size = TICK_SIZE_DP * density;
-        float y = baselineY - size * 0.4f;
+    // ── PERF: pre-rendered tick bitmaps (WhatsApp/Telegram-style) ─────────
+    // drawTick()/drawSingleTick() used to redraw the check-mark stroke(s)
+    // from scratch every single frame (2 or 4 canvas.drawLine() calls) even
+    // though the glyph itself never changes shape — only WHICH of exactly 3
+    // fixed variants applies (single-gray / double-gray / double-gold),
+    // and that only changes on a real status update (already payload-gated
+    // — see MessagePagingAdapter's bit-flag PAYLOAD_* system — not on every
+    // frame/scroll). Each variant is now built ONCE into a tiny Bitmap,
+    // process-wide, keyed by (variant, size-in-px), and every future draw
+    // just blits it via drawBitmap() — a single GPU-friendly bitmap upload
+    // instead of stroke geometry + AA rasterization on every draw call.
+    private static final android.util.SparseArray<Bitmap> TICK_BITMAP_CACHE =
+            new android.util.SparseArray<>(6);
 
-        drawSingleTick(canvas, x, y, size);
-        if (delivered || read) {
-            drawSingleTick(canvas, x + size * 0.35f, y, size);
-        }
+    private static final int TICK_VARIANT_SINGLE      = 0; // sent, not delivered
+    private static final int TICK_VARIANT_DOUBLE_GRAY = 1; // delivered, not read
+    private static final int TICK_VARIANT_DOUBLE_GOLD = 2; // read
+
+    private static synchronized Bitmap getTickBitmap(float size, int variant) {
+        int sizeKey = Math.round(size * 10f); // 0.1px precision — plenty for a 12dp glyph
+        int key = variant * 1_000_000 + sizeKey;
+        Bitmap cached = TICK_BITMAP_CACHE.get(key);
+        if (cached != null && !cached.isRecycled()) return cached;
+
+        boolean isDouble = variant != TICK_VARIANT_SINGLE;
+        int color = variant == TICK_VARIANT_DOUBLE_GOLD ? 0xFFD4AF37 : 0xFF8FAF9F;
+        // Matches tickPaint's own density*1.2f stroke width, expressed
+        // relative to `size` (= TICK_SIZE_DP * density) so the cache key
+        // only needs one axis (size) instead of tracking density separately.
+        float strokeWidth = size * 0.12f;
+        float pad = strokeWidth; // headroom for the round stroke caps
+        float glyphWidth = isDouble ? size * 1.35f : size;
+        int w = Math.max(1, (int) Math.ceil(glyphWidth + pad * 2));
+        int h = Math.max(1, (int) Math.ceil(size + pad * 2));
+
+        Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(bmp);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(strokeWidth);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setColor(color);
+
+        drawSingleTickGlyph(c, pad, pad, size, p);
+        if (isDouble) drawSingleTickGlyph(c, pad + size * 0.35f, pad, size, p);
+
+        TICK_BITMAP_CACHE.put(key, bmp);
+        return bmp;
     }
 
-    private void drawSingleTick(Canvas canvas, float x, float y, float size) {
-        canvas.drawLine(x, y + size * 0.5f, x + size * 0.35f, y + size * 0.8f, tickPaint);
-        canvas.drawLine(x + size * 0.35f, y + size * 0.8f, x + size, y + size * 0.1f, tickPaint);
+    private static void drawSingleTickGlyph(Canvas canvas, float x, float y, float size, Paint paint) {
+        canvas.drawLine(x, y + size * 0.5f, x + size * 0.35f, y + size * 0.8f, paint);
+        canvas.drawLine(x + size * 0.35f, y + size * 0.8f, x + size, y + size * 0.1f, paint);
+    }
+
+    void drawTick(Canvas canvas, float x, float baselineY) {
+        // Blit the pre-rendered glyph for the current status instead of
+        // redrawing stroke geometry — see TICK_BITMAP_CACHE doc above.
+        float size = TICK_SIZE_DP * density;
+        float y = baselineY - size * 0.4f;
+        boolean isDouble = delivered || read;
+        int variant = !isDouble ? TICK_VARIANT_SINGLE
+                : (read ? TICK_VARIANT_DOUBLE_GOLD : TICK_VARIANT_DOUBLE_GRAY);
+        Bitmap bmp = getTickBitmap(size, variant);
+        float pad = size * 0.12f; // must match getTickBitmap()'s own pad
+        canvas.drawBitmap(bmp, x - pad, y - pad, null);
     }
 
     /**

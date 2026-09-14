@@ -50,7 +50,12 @@ final class PollRenderer {
         canvas.drawCircle(left + iconSz / 2f, top + host.pollHeaderRowH / 2f, iconSz / 2f * 0.7f, host.pollOptionBgPaint);
 
         // "POLL" label
-        Paint.FontMetrics hfm = host.pollHeaderLabelPaint.getFontMetrics();
+        // PERF: was host.pollHeaderLabelPaint.getFontMetrics() (no-arg) —
+        // allocates a fresh FontMetrics every draw() call, i.e. every scroll
+        // frame a poll bubble is on screen. Reuse the same scratch instance
+        // onMeasure() already populates for this Paint.
+        host.pollHeaderLabelPaint.getFontMetrics(host.pollHeaderFmScratch);
+        Paint.FontMetrics hfm = host.pollHeaderFmScratch;
         float labelBaseline = top + host.pollHeaderRowH / 2f - (hfm.ascent + hfm.descent) / 2f;
         canvas.drawText("POLL", left + iconSz + iconMar, labelBaseline, host.pollHeaderLabelPaint);
 
@@ -60,7 +65,13 @@ final class PollRenderer {
         float chipPadH  = MessageBubbleCanvasView.POLL_CHIP_PAD_H_DP * host.density;
         float chipPadV  = MessageBubbleCanvasView.POLL_CHIP_PAD_V_DP * host.density;
         float chipW     = chipTxtW + chipPadH * 2;
-        float chipH     = host.pollChipPaint.getFontMetrics().descent - host.pollChipPaint.getFontMetrics().ascent + chipPadV * 2;
+        // PERF: was two separate host.pollChipPaint.getFontMetrics() calls
+        // (one for chipH, one below for chipBaseline) — 2 fresh allocations
+        // per frame for a single unchanging Paint. Fetched once into a
+        // scratch instance and read twice.
+        host.pollChipPaint.getFontMetrics(host.pollChipFmScratch);
+        Paint.FontMetrics cfm = host.pollChipFmScratch;
+        float chipH     = cfm.descent - cfm.ascent + chipPadV * 2;
         float chipLeft  = right - chipW;
         float chipTop   = top + (host.pollHeaderRowH - chipH) / 2f;
         host.pollOptionBgPaint.setColor(host.pollClosed ? MessageBubbleCanvasView.POLL_CHIP_CLOSED_BG : MessageBubbleCanvasView.POLL_CHIP_NEUTRAL_BG);
@@ -68,7 +79,6 @@ final class PollRenderer {
         chipRect.set(chipLeft, chipTop, right, chipTop + chipH);
         float chipR = MessageBubbleCanvasView.POLL_CHIP_CORNER_DP * host.density;
         canvas.drawRoundRect(chipRect, chipR, chipR, host.pollOptionBgPaint);
-        Paint.FontMetrics cfm = host.pollChipPaint.getFontMetrics();
         float chipBaseline = chipTop + chipH / 2f - (cfm.ascent + cfm.descent) / 2f;
         canvas.drawText(chipText, chipLeft + chipPadH, chipBaseline, host.pollChipPaint);
 
@@ -85,7 +95,10 @@ final class PollRenderer {
         float qHeight = host.pollQuestionLayout != null ? host.pollQuestionLayout.getHeight() : 0f;
         float subTop  = qTop + qHeight + MessageBubbleCanvasView.POLL_SUBTITLE_GAP_DP * host.density;
         String subtitle = host.pollClosed ? "Poll closed" : (host.pollMultiChoice ? "Select one or more answers" : "Select one answer");
-        Paint.FontMetrics sfm = host.pollSubtitlePaint.getFontMetrics();
+        // PERF: was host.pollSubtitlePaint.getFontMetrics() (no-arg) —
+        // reuse the same scratch instance onMeasure() populates.
+        host.pollSubtitlePaint.getFontMetrics(host.pollSubtitleFmScratch);
+        Paint.FontMetrics sfm = host.pollSubtitleFmScratch;
         float subBaseline = subTop - sfm.ascent;
         canvas.drawText(subtitle, left, subBaseline, host.pollSubtitlePaint);
 
@@ -113,6 +126,12 @@ final class PollRenderer {
         // requestLayoutIfSizeChanged() check.
         while (host.pollOptionRects.size() < n) host.pollOptionRects.add(new RectF());
         while (host.pollOptionRects.size() > n) host.pollOptionRects.remove(host.pollOptionRects.size() - 1);
+
+        // PERF: pollOptionPctPaint's metrics are the same for every option
+        // row (same text size/typeface) — fetch once here instead of once
+        // per option inside the loop below (was n redundant calls, now 1).
+        host.pollOptionPctPaint.getFontMetrics(host.pollOptionPctFmScratch);
+        Paint.FontMetrics pfm = host.pollOptionPctFmScratch;
 
         // Compute fill widths
         for (int i = 0; i < n; i++) {
@@ -194,7 +213,10 @@ final class PollRenderer {
             // Percentage label
             int pct = host.pollTotal > 0 ? Math.round(host.pollCounts[i] * 100f / host.pollTotal) : 0;
             String pctStr = pct + "%";
-            Paint.FontMetrics pfm = host.pollOptionPctPaint.getFontMetrics();
+            // PERF: was host.pollOptionPctPaint.getFontMetrics() (no-arg)
+            // called fresh *inside* this loop — n allocations per draw()
+            // call for an n-option poll, every scroll frame. Now reuses
+            // `pfm`, fetched once above the loop.
             float pctBaseline = rowTop + rowH / 2f - (pfm.ascent + pfm.descent) / 2f;
             canvas.drawText(pctStr, right - optPadH, pctBaseline, host.pollOptionPctPaint);
 
@@ -205,7 +227,10 @@ final class PollRenderer {
         rowTop -= optGap; // remove last gap
         float footerGap = MessageBubbleCanvasView.POLL_FOOTER_GAP_DP * host.density;
         String footerStr = host.pollTotal == 1 ? "1 vote" : host.pollTotal + " votes";
-        Paint.FontMetrics ffm = host.pollFooterPaint.getFontMetrics();
+        // PERF: was host.pollFooterPaint.getFontMetrics() (no-arg) — reuse
+        // the same scratch instance onMeasure() populates.
+        host.pollFooterPaint.getFontMetrics(host.pollFooterFmScratch);
+        Paint.FontMetrics ffm = host.pollFooterFmScratch;
         float footerBaseline = rowTop + footerGap + (-ffm.ascent);
         canvas.drawText(footerStr, left, footerBaseline, host.pollFooterPaint);
 
