@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Premium dropdown-indicator badge for the Reels grid tab (see
+  ic_reels_tab_filterable.xml). Replaces the old ic_arrow_drop_down reuse,
+  which was a plain Material chevron drawn on a 24x24 viewport with the
+  actual triangle occupying only its centre ~40% — at the 10dp badge size
+  that layer-list renders it at, the visible glyph shrank to a couple of
+  pixels and read as a fuzzy speck instead of a chevron.
+  Fix: a soft circular chip (fillAlpha 0.30) filling almost the whole
+  viewport, with a bold, fully-opaque chevron sized to it — so the badge
+  reads as a clear, deliberate "tap for options" indicator at small size.
+  Both fill colors are tinted together by TabLayout's app:tabIconTint,
+  same as before; the two alpha levels keep the chip/chevron contrast
+  without needing a second color.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Soft chip background -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.30"
+        android:pathData="M12,2 C17.52,2 22,6.48 22,12 C22,17.52 17.52,22 12,22 C6.48,22 2,17.52 2,12 C2,6.48 6.48,2 12,2 Z"/>
+
+    <!-- Bold chevron, sized to read clearly at ~10-11dp -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="1"
+        android:pathData="M6.5,9 L12,15 L17.5,9 L15.6,9 L12,12.9 L8.4,9 Z"/>
+
+</vector>

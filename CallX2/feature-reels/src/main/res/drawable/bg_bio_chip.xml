@@ -2,13 +2,13 @@
 <!--
     bg_bio_chip.xml — LIGHT MODE
     Bio-links chip row (hsv_bio_links / ll_bio_chips), under the username.
-    Same premium thin-pill treatment as bg_song_pill: faint fill + thin
-    hairline border, so chips read as subtle pills instead of the old
-    hardcoded grey box.
+    ✅ CHANGED: fill is now transparent so each chip's background matches
+    the screen's own background exactly, same as bg_song_pill — previously
+    had a faint #0A000000 tint. Hairline border kept for shape/tap-target.
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#0A000000"/>
+    <solid android:color="@android:color/transparent"/>
     <stroke android:width="0.75dp" android:color="#1F000000"/>
     <corners android:radius="16dp"/>
 </shape>

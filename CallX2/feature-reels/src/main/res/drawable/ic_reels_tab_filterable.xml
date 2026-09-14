@@ -4,6 +4,12 @@
   so the user knows this tab has a tappable filter/sort menu.
   Both layers are tinted together by TabLayout's app:tabIconTint, so the
   badge automatically matches selected/unselected tab color states.
+
+  Badge drawable was ic_arrow_drop_down (a plain Material chevron whose
+  visible glyph only fills the centre of its 24x24 viewport) — at 10dp
+  that shrank to a fuzzy speck. Now uses ic_reels_tab_dropdown_badge, a
+  chip-shaped glyph designed to read clearly at this size, and the item
+  box is bumped 10dp -> 12dp to match.
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -14,11 +20,11 @@
         android:drawable="@drawable/ic_reels"/>
 
     <item
-        android:width="10dp"
-        android:height="10dp"
+        android:width="12dp"
+        android:height="12dp"
         android:gravity="bottom|end"
-        android:bottom="1dp"
-        android:end="-2dp"
-        android:drawable="@drawable/ic_arrow_drop_down"/>
+        android:bottom="0dp"
+        android:end="-3dp"
+        android:drawable="@drawable/ic_reels_tab_dropdown_badge"/>
 
 </layer-list>

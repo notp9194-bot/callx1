@@ -4439,6 +4439,12 @@ public class UserReelsActivity extends AppCompatActivity
 
     private void updateFollowButton() {
         if (btnFollow == null) return;
+        // Colors sourced from FollowButtonStyler — the same shared helper
+        // FollowConnectionsActivity's styleBtn() uses — instead of this
+        // screen's own hardcoded fallback (0xFF6C5CE7 etc.), so the Follow
+        // button here is guaranteed to match the Follow Connections screen
+        // exactly, including its light/dark tone swap.
+        float radius = 14f * getResources().getDisplayMetrics().density; // capsule, matches this row's 32dp height
         if (isFollowing) {
             btnFollow.setText("Following ▾");
             // Theme-aware, not a hardcoded dark grey: 0xFF222222 was nearly
@@ -4447,23 +4453,23 @@ public class UserReelsActivity extends AppCompatActivity
             // flips automatically with the theme, same as the Message
             // button beside it already does via ?attr/colorOnSurface in XML.
             btnFollow.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurface, 0xFF222222));
-            try {
-                android.graphics.drawable.Drawable d =
-                    androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_btn_outline_capsule);
-                btnFollow.setBackground(d != null ? d.mutate() : null);
-            } catch (Exception e) {
-                btnFollow.setBackgroundColor(resolveAttrColor(com.google.android.material.R.attr.colorSurfaceVariant, 0xFFEEEEEE));
-            }
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+            bg.setCornerRadius(radius);
+            bg.setColor(resolveAttrColor(com.google.android.material.R.attr.colorSurfaceVariant, 0xFFEEEEEE));
+            bg.setStroke((int) (1 * getResources().getDisplayMetrics().density),
+                    androidx.core.content.ContextCompat.getColor(this, com.callx.app.core.R.color.divider));
+            btnFollow.setBackgroundTintList(null);
+            btnFollow.setBackground(bg);
         } else {
             btnFollow.setText("Follow");
-            btnFollow.setTextColor(0xFFFFFFFF);
-            try {
-                android.graphics.drawable.Drawable d =
-                    androidx.core.content.ContextCompat.getDrawable(this, R.drawable.bg_btn_follow_capsule);
-                btnFollow.setBackground(d != null ? d.mutate() : null);
-            } catch (Exception e) {
-                btnFollow.setBackgroundColor(0xFF6C5CE7);
-            }
+            btnFollow.setTextColor(com.callx.app.utils.FollowButtonStyler.textColor(this));
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+            bg.setCornerRadius(radius);
+            bg.setColor(com.callx.app.utils.FollowButtonStyler.primaryColor(this));
+            btnFollow.setBackground(bg);
+            btnFollow.setBackgroundTintList(com.callx.app.utils.FollowButtonStyler.primaryStateList(this));
         }
     }
 

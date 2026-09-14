@@ -2,13 +2,15 @@
 <!--
     bg_song_pill.xml — LIGHT MODE
     "Username ke niche" strip (profile-song pill / "Add a song" stub).
-    Premium look: thin hairline border + a faint fill so the pill reads as a
-    subtle card rather than a plain outline. Kept low-contrast on purpose —
-    "thodi visible" — so it doesn't compete with the avatar/stats above it.
+    ✅ CHANGED: fill is now transparent so the pill's background is exactly
+    the screen's own background (?attr/colorSurface) showing through —
+    previously had a faint #0A000000 tint that made it a slightly
+    different shade than the rest of the screen. Hairline border kept so
+    the pill shape/tap-target is still visible.
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#0A000000"/>
+    <solid android:color="@android:color/transparent"/>
     <stroke android:width="0.75dp" android:color="#1F000000"/>
     <corners android:radius="20dp"/>
 </shape>
