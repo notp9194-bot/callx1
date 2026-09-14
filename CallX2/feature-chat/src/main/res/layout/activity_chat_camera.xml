@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <androidx.camera.view.PreviewView
+        android:id="@+id/camera_preview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"/>
+
+    <!-- Top bar: close (left), flash toggle (right) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="12dp"
+        android:paddingTop="28dp"
+        android:paddingBottom="12dp"
+        android:background="#66000000">
+
+        <ImageButton
+            android:id="@+id/btn_camera_close"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_media_edit_close"
+            android:contentDescription="Close"
+            android:padding="10dp"/>
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1"/>
+
+        <!-- Recording timer chip, hidden until recording starts -->
+        <TextView
+            android:id="@+id/tv_record_timer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/bg_camera_shutter_recording"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="4dp"
+            android:text="0:00"
+            android:textColor="#FFFFFFFF"
+            android:textSize="13sp"
+            android:visibility="gone"/>
+
+        <ImageButton
+            android:id="@+id/btn_camera_flash"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_camera_flash_off"
+            android:contentDescription="Flash"
+            android:padding="10dp"/>
+    </LinearLayout>
+
+    <!-- Bottom bar: flip (left) / shutter (center) / spacer (right) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:paddingBottom="28dp"
+        android:paddingTop="16dp"
+        android:background="#66000000">
+
+        <TextView
+            android:id="@+id/tv_camera_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="18dp"
+            android:text="Tap for photo, hold for video"
+            android:textColor="#FFFFFFFF"
+            android:textSize="13sp"/>
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <ImageButton
+                android:id="@+id/btn_camera_flip"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_gravity="center_vertical|start"
+                android:layout_marginStart="36dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_flip_camera"
+                android:contentDescription="Flip camera"
+                android:padding="10dp"/>
+
+            <FrameLayout
+                android:id="@+id/btn_camera_shutter"
+                android:layout_width="76dp"
+                android:layout_height="76dp"
+                android:layout_gravity="center">
+
+                <View
+                    android:id="@+id/shutter_ring"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/bg_camera_shutter_ring"/>
+
+                <View
+                    android:id="@+id/shutter_inner"
+                    android:layout_width="30dp"
+                    android:layout_height="30dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/shape_filled_circle"/>
+            </FrameLayout>
+        </FrameLayout>
+    </LinearLayout>
+
+</FrameLayout>

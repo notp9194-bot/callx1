@@ -2,13 +2,11 @@ package com.callx.app.conversation.controllers;
 
 import android.Manifest;
 import android.animation.ObjectAnimator;
-import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.MediaStore;
 import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
@@ -78,7 +76,7 @@ public class ChatMediaController {
     private ActivityResultLauncher<String>  audioPicker;
     private ActivityResultLauncher<String>  filePicker;
     private ActivityResultLauncher<Intent>  moreAppsChooser;
-    private ActivityResultLauncher<Uri>     cameraCapturer;
+    private ActivityResultLauncher<Intent>  chatCameraLauncher;
     private ActivityResultLauncher<String>  wallpaperPicker;
     private ActivityResultLauncher<PickVisualMediaRequest> multiMediaPicker;
     private ActivityResultLauncher<Intent>  mediaEditLauncher;
@@ -87,24 +85,12 @@ public class ChatMediaController {
     // has no max on API 34+ photo picker; OEM galleries below that vary).
     private static final int MAX_MULTI_PICK = 30;
 
-    private Uri cameraOutputUri;
-
-    // BUGFIX (camera photo not sending / appears to "do nothing" after
-    // capture): cameraOutputUri used to be a plain in-memory field. While the
-    // system Camera app is in the foreground, Android can (and often does,
-    // on mid/low-RAM devices) kill CallX's process in the background to
-    // reclaim memory. When the user returns after taking the photo,
-    // ActivityResultRegistry correctly replays the TakePicture() callback
-    // with success=true — but ChatActivity/ChatMediaController were freshly
-    // re-created, so this field was back to null. The old check
-    // `if (success && cameraOutputUri != null)` then silently swallowed the
-    // result: photo was taken, saved to MediaStore, but never uploaded/sent,
-    // with no error shown. Instagram/WhatsApp avoid this by persisting the
-    // pending capture URI to disk instead of memory. We do the same via
-    // SharedPreferences, written the instant the URI is created and read
-    // back in the constructor so it survives process death.
-    private static final String CAMERA_PREFS = "callx_pending_camera_capture";
-    private static final String KEY_PENDING_CAMERA_URI = "pending_uri";
+    // NOTE: camera capture no longer keeps a cameraOutputUri field here at
+    // all — ChatCameraActivity (the in-app camera, see chatCameraLauncher
+    // above) owns its own MediaStore write and hands back a plain Uri string
+    // in the activity result, so there's nothing for this controller to lose
+    // across a process death. See chatCameraLauncher's comment for the full
+    // history of the bug this replaced.
 
     // Recent-media strip/grid: one MediaStore query per sheet-open, shared by
     // both RecyclerViews (grid just gets a longer slice of the same list).
@@ -227,14 +213,6 @@ public class ChatMediaController {
         // ConnectivityService). Both only actually matter once media is
         // enqueued for upload; the large majority of chat opens are just
         // reading/scrolling messages and never touch either.
-
-        // BUGFIX: restore any pending camera capture that survived a process
-        // death while the system Camera app had focus (see cameraOutputUri
-        // comment above). If one is found, cameraCapturer's replayed
-        // TakePicture() callback below will pick it up and finish the send.
-        String pending = activity.getSharedPreferences(CAMERA_PREFS, android.content.Context.MODE_PRIVATE)
-                .getString(KEY_PENDING_CAMERA_URI, null);
-        if (pending != null) cameraOutputUri = Uri.parse(pending);
     }
 
     /**
@@ -402,29 +380,28 @@ public class ChatMediaController {
                     delegate.onWallpaperImagePicked(uri);
                 });
 
-        cameraCapturer = activity.registerForActivityResult(
-                new ActivityResultContracts.TakePicture(),
-                success -> {
-                    // Always clear the persisted pending-capture marker first —
-                    // this launch cycle is over either way, success or not.
-                    activity.getSharedPreferences(CAMERA_PREFS, android.content.Context.MODE_PRIVATE)
-                            .edit().remove(KEY_PENDING_CAMERA_URI).apply();
-                    if (success && cameraOutputUri != null) {
-                        uploadAndSend(cameraOutputUri, "image", "image", null);
-                    } else if (!success && cameraOutputUri != null) {
-                        // User backed out of the camera, or capture failed —
-                        // clean up the empty MediaStore row we pre-created so
-                        // it doesn't linger as a 0-byte "photo" in the gallery.
-                        try {
-                            activity.getContentResolver().delete(cameraOutputUri, null, null);
-                        } catch (Exception ignored) {}
-                        cameraOutputUri = null;
-                    } else if (success) {
-                        // success=true but we lost the URI (e.g. SharedPreferences
-                        // itself got cleared) — tell the user instead of failing silently.
-                        Toast.makeText(activity, "Photo capture nahi ho paya, dubara try karein",
-                                Toast.LENGTH_SHORT).show();
-                    }
+        // In-app chat camera (ChatCameraActivity) — Telegram/Instagram-style
+        // tap-for-photo/hold-for-video screen. Replaces the old
+        // ActivityResultContracts.TakePicture() system-Camera-app round trip:
+        // that hop was the root cause of the earlier "photo taken but never
+        // sent" bug (process death while the system Camera had focus — see
+        // git history / SCHEDULED_SEND_UPGRADE notes). Staying in-app for the
+        // whole capture means CallX's own process is never backgrounded
+        // during capture, so that failure mode no longer applies. The result
+        // is still always a MediaStore content:// Uri (ChatCameraActivity
+        // writes straight to MediaStore), so it's stable regardless of what
+        // happens to this Activity afterwards.
+        chatCameraLauncher = activity.registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() != android.app.Activity.RESULT_OK || result.getData() == null) return;
+                    String uriStr = result.getData().getStringExtra(ChatCameraActivity.RESULT_URI);
+                    if (uriStr == null) return;
+                    boolean isVideo = result.getData().getBooleanExtra(ChatCameraActivity.RESULT_IS_VIDEO, false);
+                    // Feed straight into the same caption/crop/send editor
+                    // screen the gallery-attach flow already uses (see
+                    // screenshot-driven flow: capture -> edit/caption -> send).
+                    launchMediaEditorForUri(Uri.parse(uriStr), isVideo);
                 });
 
         // Result of the full-screen editor opened from the attach sheet's
@@ -1221,6 +1198,13 @@ public class ChatMediaController {
 
     // ── Camera ────────────────────────────────────────────────────────────
 
+    /**
+     * Opens the in-app chat camera (ChatCameraActivity) — Telegram/
+     * Instagram-style tap-for-photo/hold-for-video screen — instead of the
+     * old system-Camera-app intent. See chatCameraLauncher's registration
+     * comment above for why: staying in-app avoids the process-death window
+     * that used to silently drop the photo.
+     */
     public void launchCamera() {
         if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -1228,20 +1212,23 @@ public class ChatMediaController {
                     new String[]{Manifest.permission.CAMERA}, REQ_CAMERA);
             return;
         }
-        ContentValues cv = new ContentValues();
-        cv.put(MediaStore.Images.Media.DISPLAY_NAME,
-                "callx_" + System.currentTimeMillis() + ".jpg");
-        cv.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
-        cameraOutputUri = activity.getContentResolver()
-                .insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
-        if (cameraOutputUri != null) {
-            // BUGFIX: persist to disk BEFORE launching the camera intent, not
-            // just holding it in the field — see cameraOutputUri comment above.
-            // This is the write that actually fixes "photo taken but never sent".
-            activity.getSharedPreferences(CAMERA_PREFS, android.content.Context.MODE_PRIVATE)
-                    .edit().putString(KEY_PENDING_CAMERA_URI, cameraOutputUri.toString()).apply();
-            cameraCapturer.launch(cameraOutputUri);
-        }
+        chatCameraLauncher.launch(new Intent(activity, ChatCameraActivity.class));
+    }
+
+    /** Builds a single-item MediaEditActivity intent straight from a fresh
+     *  camera capture Uri (photo or video) and launches it — same editor
+     *  screen (caption/crop/send) the gallery-attach "Edit" flow already
+     *  uses, so mediaEditLauncher's existing result handler picks it up and
+     *  sends it exactly like any other edited media. */
+    private void launchMediaEditorForUri(Uri uri, boolean isVideo) {
+        java.util.ArrayList<String> uriStrings = new java.util.ArrayList<>();
+        uriStrings.add(uri.toString());
+        java.util.ArrayList<Integer> videoFlags = new java.util.ArrayList<>();
+        videoFlags.add(isVideo ? 1 : 0);
+        Intent intent = new Intent(activity, MediaEditActivity.class);
+        intent.putStringArrayListExtra(MediaEditActivity.EXTRA_URIS, uriStrings);
+        intent.putIntegerArrayListExtra(MediaEditActivity.EXTRA_IS_VIDEO, videoFlags);
+        mediaEditLauncher.launch(intent);
     }
 
     // ── GIF ───────────────────────────────────────────────────────────────

@@ -68,6 +68,14 @@
              MEDIA EDITING SYSTEM — comprehensive production-level editors
              ────────────────────────────────────────────────────────────── -->
 
+        <!-- In-app chat camera: Telegram/Instagram-style tap-for-photo /
+             hold-for-video capture screen, feeding straight into MediaEditActivity
+             below. Replaces the old system-Camera-app round trip. -->
+        <activity android:name="com.callx.app.conversation.controllers.ChatCameraActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:screenOrientation="portrait"/>
+
         <!-- Main photo/video editor: rotate, crop, stickers, text, draw, filters, video trim -->
         <activity android:name="com.callx.app.conversation.controllers.MediaEditActivity"
             android:exported="false"
