@@ -653,6 +653,43 @@ public class PushNotify {
         }
     }
 
+    // ── Reel Notification: Sound Used ───────────────────────────────────────
+    /**
+     * ✅ NEW (plan item #2): notify a sound's owner when someone else's reel
+     * gets linked to their sound — either an explicit "Use this sound" pick
+     * or an automatic fingerprint match that reused their original audio.
+     * Same routing as duet/stitch — server maps type: "sound_used" →
+     * reel_notif_type: "sound_used" → ReelFCMNotificationHandler TYPE_SOUND_USED.
+     *
+     * @param toUid      UID of the sound's owner/creator (receives notification)
+     * @param fromUid    UID of the user who used the sound in a new reel
+     * @param fromName   Display name of the user who used the sound
+     * @param fromPhoto  Avatar URL of the user who used the sound
+     * @param reelId     ID of the NEW reel that used the sound
+     * @param reelThumb  Thumbnail URL of the new reel
+     * @param soundTitle Title of the sound that was used (for the notification body)
+     * @param soundId    ID of the sound that was used (for deep-linking)
+     */
+    public static void notifyReelSoundUsed(String toUid, String fromUid, String fromName,
+                                           String fromPhoto, String reelId, String reelThumb,
+                                           String soundTitle, String soundId) {
+        try {
+            JSONObject body = new JSONObject()
+                .put("toUid",      toUid      == null ? "" : toUid)
+                .put("fromUid",    fromUid    == null ? "" : fromUid)
+                .put("fromName",   fromName   == null ? "" : fromName)
+                .put("fromPhoto",  fromPhoto  == null ? "" : fromPhoto)
+                .put("reelId",     reelId     == null ? "" : reelId)
+                .put("reelThumb",  reelThumb  == null ? "" : reelThumb)
+                .put("soundTitle", soundTitle == null ? "" : soundTitle)
+                .put("soundId",    soundId    == null ? "" : soundId)
+                .put("type",       "sound_used");
+            postAsync(Constants.SERVER_URL + "/notify/reel", body);
+        } catch (Exception e) {
+            Log.w("PushNotify", "notifyReelSoundUsed err: " + e.getMessage());
+        }
+    }
+
     // ── Reel Notification: Repost ─────────────────────────────────────────
 
     /**

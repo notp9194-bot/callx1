@@ -3503,6 +3503,25 @@ public class ReelUploadActivity extends AppCompatActivity {
                     String artist   = s.child("artist").getValue(String.class);
                     String coverUrl = s.child("coverUrl").getValue(String.class);
                     String soundCreatorUid = s.child("creatorUid").getValue(String.class);
+                    // Fall back to the sound's original owner if creatorUid was
+                    // never denormalised (older sounds) — see registerOrLinkSound's
+                    // own soundData.put("ownerUid", ...) a bit further down.
+                    if (soundCreatorUid == null || soundCreatorUid.isEmpty()) {
+                        soundCreatorUid = s.child("ownerUid").getValue(String.class);
+                    }
+
+                    // ✅ NEW (plan item #2 — per-use notification): someone else's
+                    // reel just got linked to THIS sound — explicit "Use this
+                    // sound" pick or an automatic fingerprint match, both land
+                    // here since both set usingExistingSound=true. Notify the
+                    // sound's owner, same pattern as duet/stitch notifications.
+                    if (soundCreatorUid != null && !soundCreatorUid.isEmpty()
+                            && !soundCreatorUid.equals(ownerUid)) {
+                        com.callx.app.workers.SoundUsedNotificationWorker.enqueue(
+                            activity, reelId, ownerUid, ownerName, null,
+                            soundCreatorUid, thumbUrl, soundId,
+                            (title != null && !title.isEmpty()) ? title : null);
+                    }
 
                     java.util.Map<String, Object> reelUpdate = new java.util.HashMap<>();
                     reelUpdate.put("musicName",

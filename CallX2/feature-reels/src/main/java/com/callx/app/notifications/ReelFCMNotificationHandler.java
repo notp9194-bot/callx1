@@ -57,6 +57,10 @@ public class ReelFCMNotificationHandler {
     public static final String TYPE_FOLLOWING_POSTED   = "following_posted";
     public static final String TYPE_DUET               = "duet";
     public static final String TYPE_STITCH             = "stitch";
+    // ✅ NEW (plan item #2 — per-use sound notification): fires whenever
+    // someone else's reel gets linked to YOUR sound. Server key names
+    // match TYPE_SOUND_TRENDING's existing sound_title/sound_id fields.
+    public static final String TYPE_SOUND_USED         = "sound_used";
     public static final String TYPE_VIDEO_REPLY        = "video_reply";
     public static final String TYPE_COLLAB_REQUEST     = "collab_request";
     public static final String TYPE_COLLAB_ACCEPTED    = "collab_accepted";
@@ -167,6 +171,7 @@ public class ReelFCMNotificationHandler {
             case TYPE_FOLLOWING_POSTED:
             case TYPE_DUET:
             case TYPE_STITCH:
+            case TYPE_SOUND_USED:
                 Executors.newSingleThreadExecutor().execute(() -> {
                     int net = ReelNotificationHelper.getNetworkLevel(ctx);
                     Bitmap avatar = (net >= 2)
@@ -175,9 +180,13 @@ public class ReelFCMNotificationHandler {
                     if (!reelThumb.isEmpty() && net == 3) { // thumb only on WiFi/4G/5G
                         thumb = ReelNotificationHelper.downloadBitmapPublic(reelThumb, 400, 300);
                     }
+                    // TYPE_SOUND_USED carries its body text via sound_title
+                    // (no comment_text field on that push) — everything else
+                    // in this group still uses commentText as before.
+                    String bodyText = TYPE_SOUND_USED.equals(type) ? soundTitle : commentText;
                     showNotifDirect(ctx, type, senderName, senderUid,
                             avatar, thumb, reelId, reelThumb,
-                            commentText, commentId, likeCount);
+                            bodyText, commentId, likeCount);
                 });
                 break;
 
@@ -640,6 +649,7 @@ public class ReelFCMNotificationHandler {
             case TYPE_FOLLOWING_POSTED: return name + " posted a new reel";
             case TYPE_DUET:             return name + " made a duet with your reel";
             case TYPE_STITCH:           return name + " stitched your reel";
+            case TYPE_SOUND_USED:       return name + " used your sound";
             default:                    return name + " interacted with your reel";
         }
     }
@@ -656,6 +666,11 @@ public class ReelFCMNotificationHandler {
                         ? "\"" + commentText + "\"" : "Tap to view";
             case TYPE_FOLLOWING_POSTED:
                 return (commentText != null && !commentText.isEmpty()) ? commentText : "Watch now";
+            case TYPE_SOUND_USED:
+                // commentText param carries sound_title for this type (see
+                // the bodyText substitution at the TYPE_SOUND_USED call site).
+                return (commentText != null && !commentText.isEmpty())
+                        ? "in a new reel using \"" + commentText + "\"" : "in their new reel 🎵";
             default:
                 return "Tap to view";
         }
@@ -673,6 +688,7 @@ public class ReelFCMNotificationHandler {
             case TYPE_FOLLOWING_POSTED: return ReelNotificationChannelManager.CHANNEL_REEL_FOLLOWING_POSTED;
             case TYPE_DUET:             return ReelNotificationChannelManager.CHANNEL_REEL_DUET;
             case TYPE_STITCH:           return ReelNotificationChannelManager.CHANNEL_REEL_STITCH;
+            case TYPE_SOUND_USED:       return ReelNotificationChannelManager.CHANNEL_REEL_SOUND_USED;
             default:                    return ReelNotificationChannelManager.CHANNEL_REEL_LIKES;
         }
     }
@@ -695,7 +711,8 @@ public class ReelFCMNotificationHandler {
             case TYPE_COMMENT_LIKE:     return 0xFFFF6B6B;
             case TYPE_NEW_FOLLOWER:     return 0xFF34C759;
             case TYPE_DUET:
-            case TYPE_STITCH:           return 0xFFFF9500;
+            case TYPE_STITCH:
+            case TYPE_SOUND_USED:       return 0xFFFF9500;
             default:                    return 0xFFFF3B5C;
         }
     }

@@ -31,6 +31,10 @@ public class ReelNotificationChannelManager {
     public static final String CHANNEL_REEL_FOLLOWING_POSTED   = "reel_following_posted";
     public static final String CHANNEL_REEL_DUET               = "reel_duet";
     public static final String CHANNEL_REEL_STITCH             = "reel_stitch";
+    // ✅ NEW (plan item #2 — per-use sound notification): fires whenever someone
+    // else's reel gets linked to YOUR sound (explicit "Use this sound" pick OR
+    // an automatic fingerprint match reusing your original audio).
+    public static final String CHANNEL_REEL_SOUND_USED         = "reel_sound_used";
     public static final String CHANNEL_REEL_VIDEO_REPLY        = "reel_video_reply";
     public static final String CHANNEL_REEL_COLLAB_REQUEST     = "reel_collab_request";
     public static final String CHANNEL_REEL_COLLAB_ACCEPTED    = "reel_collab_accepted";
@@ -82,6 +86,7 @@ public class ReelNotificationChannelManager {
         registerChannel(nm, CHANNEL_REEL_FOLLOWING_POSTED, "Following Posted",      "When someone you follow posts a reel",      NotificationManager.IMPORTANCE_DEFAULT, 0xFF5AC8FA);
         registerChannel(nm, CHANNEL_REEL_DUET,             "Duets",                 "When someone creates a duet with your reel",NotificationManager.IMPORTANCE_HIGH,  0xFFFF9500);
         registerChannel(nm, CHANNEL_REEL_STITCH,           "Stitches",              "When someone stitches your reel",           NotificationManager.IMPORTANCE_HIGH,  0xFFFF9500);
+        registerChannel(nm, CHANNEL_REEL_SOUND_USED,       "Sound Used",            "When someone uses your sound in their reel",NotificationManager.IMPORTANCE_HIGH,  0xFFFF9500);
         registerChannel(nm, CHANNEL_REEL_VIDEO_REPLY,      "Video Replies",         "When someone replies to your reel with video",NotificationManager.IMPORTANCE_HIGH, 0xFFFF9500);
         registerChannel(nm, CHANNEL_REEL_COLLAB_REQUEST,   "Collab Requests",       "Collaboration invitations",                 NotificationManager.IMPORTANCE_HIGH,  0xFF5856D6);
         registerChannel(nm, CHANNEL_REEL_COLLAB_ACCEPTED,  "Collab Accepted",       "When your collab request is accepted",      NotificationManager.IMPORTANCE_HIGH,  0xFF34C759);
