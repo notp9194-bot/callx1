@@ -249,6 +249,31 @@ public class ReelUiController {
                 && !musicDisplay.contains(reel.musicArtist)) {
             musicDisplay = musicDisplay + " · " + reel.musicArtist;
         }
+        // ✅ FIX (dead-data gap): audioMatchSpeedFactor was written to Firebase
+        // on upload but no UI ever read it back — surface it the way
+        // Instagram/TikTok do ("Song · Artist · 1.5x").
+        if (reel.audioMatchSpeedFactor > 0 && Math.abs(reel.audioMatchSpeedFactor - 1.0) > 0.01) {
+            musicDisplay = musicDisplay + " · "
+                + new java.text.DecimalFormat("0.##").format(reel.audioMatchSpeedFactor) + "x";
+        }
+        // ✅ FIX (dead-detection gap): copyrightMatch used to only be saved to
+        // Firebase for a moderation layer that never read it — now the
+        // "allow_credit" policy actually shows the licensed-track credit
+        // Instagram-style ("mute"/"block" are handled at upload time instead,
+        // in ReelUploadActivity, since those change whether the reel/audio
+        // exists at all rather than just how it's displayed).
+        if (reel.copyrightMatch != null && !reel.copyrightMatch.isEmpty()) {
+            try {
+                org.json.JSONObject cm = new org.json.JSONObject(reel.copyrightMatch);
+                if ("allow_credit".equals(cm.optString("policy", ""))) {
+                    String title  = cm.optString("title", "");
+                    String artist = cm.optString("artist", "");
+                    if (!title.isEmpty()) {
+                        musicDisplay = "🎵 " + title + (artist.isEmpty() ? "" : " · " + artist);
+                    }
+                }
+            } catch (Exception ignored) { /* malformed/legacy data — keep the plain display */ }
+        }
         return musicDisplay;
     }
 

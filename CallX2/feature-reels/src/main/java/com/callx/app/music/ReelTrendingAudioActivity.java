@@ -575,9 +575,17 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
     }
 
     /**
-     * ✅ Feature 1: Load user-created original audio from sounds/ node,
-     * ordered by reel_count desc (limitToLast + reverse = highest first).
+     * ✅ Feature 1: Load user-created original audio from sounds/ node.
      * Applies dateFilter: "today" / "week" / "all".
+     *
+     * ✅ FIX (plan item #1 — real trending): previously this ALWAYS sorted
+     * by all-time reel_count, which isn't real trending — a sound with
+     * 50,000 uses over 2 years ranks #1 forever, even against a sound that
+     * got 500 uses in the last hour. Now tries the server's real
+     * usage-velocity ranking (GET /audio/trending, trailing 7 days) first,
+     * and only falls back to the old all-time-total Firebase query if the
+     * server call fails or returns nothing — same "degrade gracefully,
+     * never show a blank screen" contract as the rest of this feature.
      */
     private void loadSoundsTab() {
         // ⚡ big centered spinner only for a true first load — not for
@@ -586,6 +594,75 @@ public class ReelTrendingAudioActivity extends AppCompatActivity {
         boolean isRefresh = swipeRefresh != null && swipeRefresh.isRefreshing();
         if (progress != null && !isPagination && !isRefresh) progress.setVisibility(View.VISIBLE);
         hideError();
+
+        // Pagination pages deeper into the same (already-ranked) list, which
+        // the trending endpoint doesn't paginate — only the first page tries
+        // it; subsequent pages use the existing all-time query so "load
+        // more" keeps working exactly as before.
+        if (!isPagination) {
+            com.callx.app.utils.VideoUploader.fetchTrendingSoundIds(7, soundsLimit, entries -> {
+                if (!isAlive()) return;
+                if (entries.isEmpty()) {
+                    loadSoundsTabAllTime(isPagination, isRefresh); // fallback
+                    return;
+                }
+                loadSoundsTabByTrendingEntries(entries);
+            });
+        } else {
+            loadSoundsTabAllTime(true, isRefresh);
+        }
+    }
+
+    /**
+     * ✅ FIX (plan item #1): resolves each ranked sound_id's display fields
+     * (title/artist/cover/audioUrl) from Firebase sounds/{id}, preserving
+     * the SERVER's velocity-ranked order — the server only returns IDs +
+     * counts, not display metadata, since that lives in Firebase, not the
+     * fingerprint index.
+     */
+    private void loadSoundsTabByTrendingEntries(
+            java.util.List<com.callx.app.utils.VideoUploader.TrendingSoundEntry> entries) {
+        Audio[] slots = new Audio[entries.size()];
+        final int[] remaining = { entries.size() };
+        for (int i = 0; i < entries.size(); i++) {
+            final int idx = i;
+            com.callx.app.utils.VideoUploader.TrendingSoundEntry entry = entries.get(i);
+            FirebaseUtils.db().getReference("sounds").child(entry.soundId)
+                .addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override public void onDataChange(@NonNull DataSnapshot s) {
+                        if (s.exists()) {
+                            Audio a = buildAudioFromSoundsSnapshot(s);
+                            a.usageCount = entry.windowCount; // show trailing-window count, not lifetime total
+                            a.trendingRank = idx + 1L;         // real rank, from the server's ranking, not a threshold flag
+                            slots[idx] = a;
+                        }
+                        finishOne();
+                    }
+                    @Override public void onCancelled(@NonNull DatabaseError e) { finishOne(); }
+                    private void finishOne() {
+                        if (--remaining[0] > 0) return;
+                        if (!isAlive()) return;
+                        if (progress != null) progress.setVisibility(View.GONE);
+                        if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
+                        allSoundsTracks.clear();
+                        for (Audio a : slots) if (a != null) allSoundsTracks.add(a);
+                        // The trending endpoint isn't paginated — once this
+                        // page is shown, "load more" falls back to the
+                        // all-time query (see loadSoundsTab's isPagination
+                        // branch), so treat this first page as complete.
+                        hasMoreSounds = false;
+                        filterDisplayed(etSearch != null && etSearch.getText() != null
+                            ? etSearch.getText().toString().trim() : "");
+                        TrendingAudioCacheManager.savePage(getApplicationContext(),
+                            TrendingAudioCacheManager.SOURCE_SOUNDS, allSoundsTracks);
+                    }
+                });
+        }
+    }
+
+    /** Original all-time reel_count sort — now only the fallback path (server
+     *  trending unavailable) and the pagination path (see loadSoundsTab). */
+    private void loadSoundsTabAllTime(boolean isPagination, boolean isRefresh) {
         FirebaseUtils.db().getReference("sounds")
             .orderByChild("reel_count").limitToLast(soundsLimit)
             .addListenerForSingleValueEvent(new ValueEventListener() {

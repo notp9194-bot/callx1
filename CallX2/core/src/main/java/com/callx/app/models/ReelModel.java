@@ -123,6 +123,37 @@ public class ReelModel {
      */
     public int     musicEndMs   = 0;
     public String  originalAudioUrl;
+    /**
+     * ✅ FIX (dead-data gap): where inside the matched ORIGINAL track this
+     * reel's audio actually starts (seconds). Was being written to
+     * reels/{id}/audioMatchOffsetSec by ReelUploadActivity but never
+     * declared on this model, so @IgnoreExtraProperties silently dropped it
+     * on every read — no UI could ever see it. 0 = starts at the original's
+     * beginning / not a fingerprint match.
+     */
+    public double  audioMatchOffsetSec = 0;
+    /**
+     * ✅ FIX (dead-data gap): how much faster (&gt;1.0) or slower (&lt;1.0)
+     * this reel's audio plays vs. the matched original (e.g. 1.5 = posted
+     * at 1.5x speed). Same "written but never declared" issue as
+     * audioMatchOffsetSec above. 1.0 = unmatched or no speed change.
+     */
+    public double  audioMatchSpeedFactor = 1.0;
+    /**
+     * ✅ FIX (dead-data gap): raw JSON string of the server's licensed-
+     * catalog verdict (see /audio/match "v6" on the server) — shape
+     * {track_id, title, artist, rights_holder, policy}. Was being written
+     * to reels/{id}/copyrightMatch but never declared here, so it never
+     * deserialized. Empty/absent when nothing in the licensed catalog
+     * matched this reel's audio.
+     */
+    public String  copyrightMatch = "";
+    /**
+     * ✅ NEW: set true when the server's licensed-catalog match came back
+     * with policy=="mute" — ReelPlayerFragment mutes this reel's own audio
+     * track on playback instead of silently doing nothing with the verdict.
+     */
+    public boolean audioMuted = false;
     public String  thumbnailUrl;
     public long    timestamp;
     public int     duration;

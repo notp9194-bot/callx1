@@ -6,6 +6,7 @@ import android.os.Looper;
 import android.util.Log;
 
 import okhttp3.*;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
@@ -675,6 +676,24 @@ public class VideoUploader {
                                 JSONObject copyrightMatch) {
             onSuccess(audioUrl, previewAudioUrl, soundId, matched, ownerUid, offsetSec, speedFactor);
         }
+        /**
+         * ✅ FIX (silent-timeout gap): same as the 8-arg onSuccess, plus
+         * timedOut — true when the fingerprint match job never actually
+         * answered (server queue backlog, cold dyno, dropped RTDB
+         * connection) and this method gave up after its bounded wait,
+         * as opposed to the server genuinely answering "no match found".
+         * Previously both cases were indistinguishable — matched just came
+         * back false either way, so a busy server silently produced a
+         * fresh "new original" with no signal to the caller that the check
+         * itself never completed. Default forwards to the 8-arg callback,
+         * so existing overrides keep compiling/working unchanged.
+         */
+        default void onSuccess(String audioUrl, String previewAudioUrl,
+                                String soundId, boolean matched, String ownerUid,
+                                double offsetSec, double speedFactor,
+                                JSONObject copyrightMatch, boolean timedOut) {
+            onSuccess(audioUrl, previewAudioUrl, soundId, matched, ownerUid, offsetSec, speedFactor, copyrightMatch);
+        }
         void onError(Exception e);
     }
 
@@ -751,6 +770,7 @@ public class VideoUploader {
                 double  matchedOffsetSec = 0;
                 double  matchedSpeedFactor = 1.0;
                 JSONObject matchedCopyrightMatch = null;
+                boolean matchTimedOut    = false;
                 try {
                     JSONObject matchResult =
                         matchAudioFingerprint(finalAudio, ownerUid, reelId, fallbackSoundId);
@@ -765,6 +785,14 @@ public class VideoUploader {
                             matchedSoundId = fallbackSoundId;
                         }
                     }
+                } catch (AudioMatchTimeoutException timeoutEx) {
+                    // ✅ FIX (silent-timeout gap): the job genuinely never answered
+                    // (queue backlog / cold dyno / dropped RTDB listener) — this is
+                    // NOT the same thing as the server answering "no match". Falls
+                    // back to "new original" exactly as before, but the caller now
+                    // gets told the check itself didn't complete.
+                    Log.w(TAG, "Audio fingerprint match timed out (non-fatal): " + timeoutEx.getMessage());
+                    matchTimedOut = true;
                 } catch (Exception matchEx) {
                     Log.w(TAG, "Audio fingerprint match skipped (non-fatal): " + matchEx.getMessage());
                     // matched stays false, matchedSoundId stays fallbackSoundId — same
@@ -777,7 +805,8 @@ public class VideoUploader {
                 final double     fOffsetSec       = matchedOffsetSec;
                 final double     fSpeedFactor     = matchedSpeedFactor;
                 final JSONObject fCopyrightMatch  = matchedCopyrightMatch;
-                MAIN.post(() -> callback.onSuccess(fUrl, fPreviewUrl, fSoundId, fMatched, fOwnerUid, fOffsetSec, fSpeedFactor, fCopyrightMatch));
+                final boolean    fTimedOut        = matchTimedOut;
+                MAIN.post(() -> callback.onSuccess(fUrl, fPreviewUrl, fSoundId, fMatched, fOwnerUid, fOffsetSec, fSpeedFactor, fCopyrightMatch, fTimedOut));
 
             } catch (Exception e) {
                 Log.e(TAG, "uploadOriginalAudio error", e);
@@ -986,12 +1015,33 @@ public class VideoUploader {
     }
 
     /**
+     * ✅ FIX (silent-timeout gap): thrown by {@link #waitForAudioMatchJob}
+     * when the job never reached "done"/"error" within the bounded wait —
+     * distinct from a hard request failure or a genuine "no match" answer,
+     * so {@link #uploadOriginalAudio} can tell its caller the check itself
+     * never completed instead of silently treating it identically to a
+     * real negative result.
+     */
+    private static class AudioMatchTimeoutException extends Exception {
+        AudioMatchTimeoutException(String message) { super(message); }
+    }
+
+    /**
      * Blocks (with a timeout) until audio_match_jobs/{jobId} in Firebase RTDB
      * reaches status "done" or "error", then returns a {matched, sound_id,
-     * owner_uid} JSON — or null on timeout/error, same "no match, fall back"
-     * contract as before this became async.
+     * owner_uid} JSON.
+     *
+     * ✅ FIX (silent-timeout gap): if the RTDB listener hasn't fired by the
+     * bounded wait, this no longer gives up immediately — it makes ONE
+     * fallback HTTP GET to /audio/match/status/{jobId} first (the server's
+     * own documented polling fallback — see that endpoint's comment), in
+     * case the job actually finished but the realtime update was missed
+     * (dropped socket, backgrounded process, etc.). Only if THAT also shows
+     * the job still isn't done does this throw {@link AudioMatchTimeoutException}
+     * — callers must not treat a timeout as equivalent to a confirmed
+     * "no match" response.
      */
-    private static JSONObject waitForAudioMatchJob(String jobId) throws InterruptedException {
+    private static JSONObject waitForAudioMatchJob(String jobId) throws InterruptedException, AudioMatchTimeoutException {
         final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
         final JSONObject[] resultHolder = new JSONObject[1];
 
@@ -1009,31 +1059,7 @@ public class VideoUploader {
                     }
                     if ("done".equals(status)) {
                         try {
-                            JSONObject j = new JSONObject();
-                            j.put("matched",   Boolean.TRUE.equals(snap.child("matched").getValue(Boolean.class)));
-                            j.put("sound_id",  snap.child("sound_id").getValue(String.class));
-                            j.put("owner_uid", snap.child("owner_uid").getValue(String.class));
-                            Double offsetSec = snap.child("offset_sec").getValue(Double.class);
-                            j.put("offset_sec", offsetSec != null ? offsetSec : 0);
-                            Double speedFactor = snap.child("speed_factor").getValue(Double.class);
-                            j.put("speed_factor", speedFactor != null ? speedFactor : 1.0);
-
-                            // ✅ NEW (v6): licensed-catalog verdict, if any —
-                            // stored server-side as a nested object under
-                            // copyright_match/ (see matchLicensedCatalog on
-                            // the server); absent/null when nothing matched.
-                            com.google.firebase.database.DataSnapshot cmSnap = snap.child("copyright_match");
-                            if (cmSnap.exists()) {
-                                JSONObject cm = new JSONObject();
-                                cm.put("matched", true);
-                                cm.put("track_id", cmSnap.child("track_id").getValue(String.class));
-                                cm.put("title", cmSnap.child("title").getValue(String.class));
-                                cm.put("artist", cmSnap.child("artist").getValue(String.class));
-                                cm.put("rights_holder", cmSnap.child("rights_holder").getValue(String.class));
-                                cm.put("policy", cmSnap.child("policy").getValue(String.class));
-                                j.put("copyright_match", cm);
-                            }
-                            resultHolder[0] = j;
+                            resultHolder[0] = jobSnapshotToJson(snap);
                         } catch (Exception ignored) { /* resultHolder stays null → treated as no-match */ }
                     } else {
                         Log.w(TAG, "audio_match_jobs/" + jobId + " status=" + status);
@@ -1052,14 +1078,206 @@ public class VideoUploader {
         jobRef.addValueEventListener(listener);
 
         // Bounded wait — a queue backlog or a cold Render dyno shouldn't hang
-        // the reel post pipeline forever. On timeout we just fall back to
-        // "new original audio", exactly like any other match failure.
+        // the reel post pipeline forever.
         boolean completed = latch.await(25, TimeUnit.SECONDS);
         jobRef.removeEventListener(listener);
-        if (!completed) {
-            Log.w(TAG, "audio_match_jobs/" + jobId + " timed out waiting for result");
+
+        if (completed) return resultHolder[0];
+
+        // ✅ FIX: one last HTTP poll before giving up — the RTDB update may
+        // simply not have reached this client (background throttling,
+        // flaky connection) even though the job itself finished server-side.
+        Log.w(TAG, "audio_match_jobs/" + jobId + " RTDB wait timed out — trying HTTP status fallback");
+        try {
+            JSONObject polled = pollAudioMatchStatusOnce(jobId);
+            if (polled != null) return polled;
+        } catch (Exception pollEx) {
+            Log.w(TAG, "audio_match_jobs/" + jobId + " HTTP status fallback also failed: " + pollEx.getMessage());
         }
-        return resultHolder[0];
+
+        throw new AudioMatchTimeoutException("audio_match_jobs/" + jobId + " did not complete in time");
+    }
+
+    /** Builds the {matched, sound_id, owner_uid, offset_sec, speed_factor,
+     *  copyright_match} JSON from a "done" audio_match_jobs/{jobId} snapshot. */
+    private static JSONObject jobSnapshotToJson(com.google.firebase.database.DataSnapshot snap) throws Exception {
+        JSONObject j = new JSONObject();
+        j.put("matched",   Boolean.TRUE.equals(snap.child("matched").getValue(Boolean.class)));
+        j.put("sound_id",  snap.child("sound_id").getValue(String.class));
+        j.put("owner_uid", snap.child("owner_uid").getValue(String.class));
+        Double offsetSec = snap.child("offset_sec").getValue(Double.class);
+        j.put("offset_sec", offsetSec != null ? offsetSec : 0);
+        Double speedFactor = snap.child("speed_factor").getValue(Double.class);
+        j.put("speed_factor", speedFactor != null ? speedFactor : 1.0);
+
+        com.google.firebase.database.DataSnapshot cmSnap = snap.child("copyright_match");
+        if (cmSnap.exists()) {
+            JSONObject cm = new JSONObject();
+            cm.put("matched", true);
+            cm.put("track_id", cmSnap.child("track_id").getValue(String.class));
+            cm.put("title", cmSnap.child("title").getValue(String.class));
+            cm.put("artist", cmSnap.child("artist").getValue(String.class));
+            cm.put("rights_holder", cmSnap.child("rights_holder").getValue(String.class));
+            cm.put("policy", cmSnap.child("policy").getValue(String.class));
+            j.put("copyright_match", cm);
+        }
+        return j;
+    }
+
+    /**
+     * ✅ FIX (silent-timeout gap): one-shot HTTP fallback poll of the
+     * server's GET /audio/match/status/{jobId} endpoint — returns the same
+     * shape {matched, sound_id, owner_uid, offset_sec, speed_factor,
+     * copyright_match} JSON if (and only if) the job's status is "done",
+     * or null if it's still queued/processing/not found/errored.
+     */
+    private static JSONObject pollAudioMatchStatusOnce(String jobId) throws IOException {
+        OkHttpClient shortClient = HTTP.newBuilder()
+            .connectTimeout(6, TimeUnit.SECONDS)
+            .readTimeout(6,    TimeUnit.SECONDS)
+            .build();
+        Request req = new Request.Builder()
+            .url(Constants.SERVER_URL + "/audio/match/status/" + jobId)
+            .get()
+            .build();
+        try (Response res = shortClient.newCall(req).execute()) {
+            if (!res.isSuccessful() || res.body() == null) return null;
+            JSONObject job = new JSONObject(res.body().string());
+            if (!"done".equals(job.optString("status", ""))) return null;
+            JSONObject j = new JSONObject();
+            j.put("matched",   job.optBoolean("matched", false));
+            j.put("sound_id",  job.optString("sound_id", ""));
+            j.put("owner_uid", job.optString("owner_uid", ""));
+            j.put("offset_sec", job.optDouble("offset_sec", 0));
+            j.put("speed_factor", job.optDouble("speed_factor", 1.0));
+            if (job.has("copyright_match") && !job.isNull("copyright_match")) {
+                j.put("copyright_match", job.optJSONObject("copyright_match"));
+            }
+            return j;
+        } catch (org.json.JSONException je) {
+            return null;
+        }
+    }
+
+    /**
+     * ✅ FIX (gap #1 — existing/trending sound never fingerprinted): when a
+     * reel is posted using an ALREADY-EXISTING sound (picked from a sound
+     * page, or a trending track), its audio is never re-extracted/re-
+     * uploaded (bandwidth optimization — see registerOrLinkSound), which
+     * meant it also never got fingerprinted into the server's match index.
+     * A third user later raw-uploading that exact same audio could never
+     * be matched against it and would mint a duplicate "original" sound.
+     *
+     * This fires a fire-and-forget request to the server's
+     * POST /audio/index-existing, which is idempotent (skips work
+     * immediately if this soundId is already indexed) and downloads+
+     * fingerprints the sound's own audioUrl server-side exactly once.
+     * Non-fatal / best-effort — never affects the reel post itself, and
+     * failures are just logged (same "feature degrades gracefully"
+     * contract as the rest of this fingerprinting system).
+     */
+    /**
+     * ✅ FIX (plan item #1 — real trending, not just all-time reel_count):
+     * a single {sound_id, window_count} pair from the server's day-windowed
+     * /audio/trending ranking (velocity over the trailing N days), as
+     * opposed to the app's old all-time-total sort.
+     */
+    public static class TrendingSoundEntry {
+        public final String soundId;
+        public final long   windowCount;
+        public TrendingSoundEntry(String soundId, long windowCount) {
+            this.soundId = soundId;
+            this.windowCount = windowCount;
+        }
+    }
+
+    public interface TrendingSoundsCallback {
+        /** Called on the main thread. Empty list on any failure — caller
+         *  should fall back to its existing all-time reel_count sort rather
+         *  than showing a blank screen (same "degrade gracefully" contract
+         *  as the rest of this fingerprinting system). */
+        void onResult(java.util.List<TrendingSoundEntry> entries);
+    }
+
+    /**
+     * ✅ FIX (plan item #1): fetches the server's real trending ranking —
+     * GET /audio/trending?days=&limit= — which ranks sound_ids by USAGE
+     * VELOCITY over the trailing window (see recordAudioMatchStat /
+     * computeTrendingSounds on the server), not just an all-time total.
+     * This endpoint already existed server-side but no screen ever called
+     * it; ReelTrendingAudioActivity's "Sounds" tab was sorting by raw
+     * lifetime reel_count instead. Only returns sound_ids + window_count —
+     * caller still needs to look up each sound's title/artist/cover from
+     * Firebase's sounds/{id} node for display.
+     */
+    public static void fetchTrendingSoundIds(int days, int limit, TrendingSoundsCallback callback) {
+        new Thread(() -> {
+            java.util.List<TrendingSoundEntry> out = new java.util.ArrayList<>();
+            try {
+                OkHttpClient shortClient = HTTP.newBuilder()
+                    .connectTimeout(8, TimeUnit.SECONDS)
+                    .readTimeout(8, TimeUnit.SECONDS)
+                    .build();
+                Request req = new Request.Builder()
+                    .url(Constants.SERVER_URL + "/audio/trending?days=" + days + "&limit=" + limit)
+                    .get()
+                    .build();
+                try (Response res = shortClient.newCall(req).execute()) {
+                    if (res.isSuccessful() && res.body() != null) {
+                        JSONObject json = new JSONObject(res.body().string());
+                        JSONArray arr = json.optJSONArray("sounds");
+                        if (arr != null) {
+                            for (int i = 0; i < arr.length(); i++) {
+                                JSONObject s = arr.getJSONObject(i);
+                                String id = s.optString("sound_id", "");
+                                if (!id.isEmpty()) {
+                                    out.add(new TrendingSoundEntry(id, s.optLong("window_count", 0)));
+                                }
+                            }
+                        }
+                    } else {
+                        Log.w(TAG, "/audio/trending returned " + res.code());
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "fetchTrendingSoundIds failed (non-fatal, caller falls back): " + e.getMessage());
+            }
+            final java.util.List<TrendingSoundEntry> result = out;
+            MAIN.post(() -> callback.onResult(result));
+        }).start();
+    }
+
+    public static void indexExistingSoundIfNeeded(String soundId, String audioUrl,
+                                                    String ownerUid, String reelId) {
+        if (soundId == null || soundId.isEmpty() || audioUrl == null || audioUrl.isEmpty()) return;
+        new Thread(() -> {
+            try {
+                JSONObject body = new JSONObject();
+                body.put("sound_id", soundId);
+                body.put("audio_url", audioUrl);
+                body.put("uid", ownerUid != null ? ownerUid : "");
+                body.put("reel_id", reelId != null ? reelId : "");
+
+                RequestBody reqBody = RequestBody.create(
+                    body.toString(), MediaType.parse("application/json; charset=utf-8"));
+                Request req = new Request.Builder()
+                    .url(Constants.SERVER_URL + "/audio/index-existing")
+                    .post(reqBody)
+                    .build();
+
+                OkHttpClient shortClient = HTTP.newBuilder()
+                    .connectTimeout(10, TimeUnit.SECONDS)
+                    .readTimeout(10,    TimeUnit.SECONDS)
+                    .build();
+                try (Response res = shortClient.newCall(req).execute()) {
+                    if (!res.isSuccessful()) {
+                        Log.w(TAG, "/audio/index-existing failed (" + res.code() + ") for sound=" + soundId);
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "indexExistingSoundIfNeeded skipped (non-fatal): " + e.getMessage());
+            }
+        }).start();
     }
 
     private VideoUploader() {}

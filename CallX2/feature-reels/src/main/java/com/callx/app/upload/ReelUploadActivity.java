@@ -2885,6 +2885,19 @@ public class ReelUploadActivity extends AppCompatActivity {
                             FirebaseUtils.getReelsByUserRef(myUid).child(reelId).setValue(true);
                             generateAndAttachBlurHash(b, reelId, reel.thumbUrl);
                             b.sendPendingCollabInvitesIfAny(reelId, reel.thumbUrl, myUid, finalMyName);
+                            // ✅ FIX (SoundDetail gap): photo-slideshow reels only ever set
+                            // reel.musicId locally — they never called registerOrLinkSound(),
+                            // so a slideshow using a real existing sound never got added to
+                            // sounds/{soundId}/reels/{reelId} and never bumped reel_count.
+                            // Result: it was invisible in SoundDetailActivity's "Reels with
+                            // this sound" grid even though the sound was correctly attached
+                            // to the reel itself. Mirrors exactly what the plain video-post
+                            // path already does in saveReelToFirebase().
+                            if (!a.preSelectedSoundId.isEmpty()) {
+                                registerOrLinkSound(b, reelId, myUid, finalMyName,
+                                    reel.thumbUrl, "", a.preSelectedSoundUrl, "",
+                                    a.preSelectedSoundId);
+                            }
                             Toast.makeText(b, "Photo reel posted! 🎉", Toast.LENGTH_SHORT).show();
                             b.setResult(RESULT_OK);
                             b.deleteResumedDraftIfAny();
@@ -3179,7 +3192,8 @@ public class ReelUploadActivity extends AppCompatActivity {
                                         public void onSuccess(String audioUrl, String previewAudioUrl,
                                                                String matchedSoundId, boolean matched,
                                                                String matchedOwnerUid, double offsetSec,
-                                                               double speedFactor, org.json.JSONObject copyrightMatch) {
+                                                               double speedFactor, org.json.JSONObject copyrightMatch,
+                                                               boolean timedOut) {
                                             // Save originalAudioUrl to Firebase
                                             FirebaseUtils.getReelsRef()
                                                 .child(finalReelId)
@@ -3190,7 +3204,21 @@ public class ReelUploadActivity extends AppCompatActivity {
                                                 + " previewAudioUrl: " + previewAudioUrl
                                                 + " matched: " + matched + " soundId: " + matchedSoundId
                                                 + " offsetSec: " + offsetSec + " speedFactor: " + speedFactor
-                                                + " copyrightMatch: " + copyrightMatch);
+                                                + " copyrightMatch: " + copyrightMatch
+                                                + " timedOut: " + timedOut);
+
+                                            // ✅ FIX (silent-timeout gap): the fingerprint check never
+                                            // actually got an answer (busy queue / cold server), so
+                                            // this reel is going up as a "new original" purely by
+                                            // default — not because the server confirmed it's really
+                                            // new. Previously this was indistinguishable from a real
+                                            // no-match and nobody was told. Non-blocking, one-line
+                                            // heads-up only — doesn't stop the post.
+                                            if (timedOut && !b.isFinishing() && !b.isDestroyed()) {
+                                                Toast.makeText(b,
+                                                    "Audio check timed out — posted as a new sound",
+                                                    Toast.LENGTH_SHORT).show();
+                                            }
 
                                             // ✅ Instagram-style: same audio was already posted by
                                             // someone (or by us) as a raw upload, even though we
@@ -3231,21 +3259,44 @@ public class ReelUploadActivity extends AppCompatActivity {
                                                     .setValue(speedFactor);
                                             }
 
-                                            // ✅ NEW (v6): licensed-catalog match — this is a
-                                            // DETECTION hook, not enforcement: it just records what
-                                            // the server found so a moderation/UI layer can act on it
-                                            // later (mute the track, block the post, show a "licensed
-                                            // audio" credit banner — whatever "policy" says). Wiring
-                                            // an actual block/mute UX is a deliberate follow-up, not
-                                            // done here — this only ships once a real licensed catalog
-                                            // is loaded via /admin/licensed-catalog/add anyway.
+                                            // ✅ FIX (dead-detection gap): this used to only be saved
+                                            // for a future moderation layer to maybe read someday —
+                                            // nothing ever did. Now the "policy" the server returned
+                                            // actually does something:
+                                            //   "block" → the post is taken back down immediately and
+                                            //             the uploader is told why.
+                                            //   "mute"  → the reel stays up but its own audio track is
+                                            //             muted on playback (see ReelPlayerFragment).
+                                            //   anything else (e.g. "allow_credit") → stays up with
+                                            //             audio on; ReelPlayerFragment shows a
+                                            //             "licensed audio" credit banner from this data.
                                             if (copyrightMatch != null) {
                                                 FirebaseUtils.getReelsRef()
                                                     .child(finalReelId)
                                                     .child("copyrightMatch")
                                                     .setValue(copyrightMatch.toString());
-                                                Log.w("ReelUpload", "Licensed-catalog match: "
-                                                    + copyrightMatch);
+                                                String policy = copyrightMatch.optString("policy", "");
+                                                Log.w("ReelUpload", "Licensed-catalog match ("
+                                                    + policy + "): " + copyrightMatch);
+
+                                                if ("block".equals(policy)) {
+                                                    FirebaseUtils.getReelsRef().child(finalReelId).removeValue();
+                                                    FirebaseUtils.getReelsByUserRef(myUid).child(finalReelId).removeValue();
+                                                    if (!b.isFinishing() && !b.isDestroyed()) {
+                                                        Toast.makeText(b,
+                                                            "This reel used licensed audio ("
+                                                            + copyrightMatch.optString("title", "a track")
+                                                            + ") and was removed.", Toast.LENGTH_LONG).show();
+                                                    }
+                                                } else if ("mute".equals(policy)) {
+                                                    FirebaseUtils.getReelsRef()
+                                                        .child(finalReelId).child("audioMuted").setValue(true);
+                                                    if (!b.isFinishing() && !b.isDestroyed()) {
+                                                        Toast.makeText(b,
+                                                            "Licensed audio detected — this reel's sound was muted.",
+                                                            Toast.LENGTH_LONG).show();
+                                                    }
+                                                }
                                             }
                                         }
                                         @Override
@@ -3396,6 +3447,20 @@ public class ReelUploadActivity extends AppCompatActivity {
         });
 
         if (usingExistingSound) {
+            // ✅ FIX (gap #1 — existing/trending sound never fingerprinted):
+            // whenever a reel links to an ALREADY-EXISTING sound (picked from
+            // a sound page, trending track, or a fingerprint match to another
+            // creator's original), its own audio bytes are never re-uploaded
+            // here — reusing the sound's existing audioUrl instead, purely to
+            // save bandwidth. That optimization had a side effect: this exact
+            // audio never entered the server's match index, so a THIRD user
+            // later raw-uploading that same audio could never be matched
+            // against it and would mint a duplicate "original" sound. This
+            // hook is best-effort/idempotent (server skips instantly once a
+            // soundId is indexed) and covers every caller of this method —
+            // plain video posts, duets/stitches, and photo-slideshow reels.
+            VideoUploader.indexExistingSoundIfNeeded(soundId, audioUrl, ownerUid, reelId);
+
             // Existing sound already has its own title/artist/cover — don't
             // clobber them, just fill in audioUrl if it was somehow missing.
             soundRef.child("audioUrl").runTransaction(new Transaction.Handler() {

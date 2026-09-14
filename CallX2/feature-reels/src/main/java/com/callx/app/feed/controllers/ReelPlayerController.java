@@ -103,6 +103,15 @@ public class ReelPlayerController {
     // ── Player state ─────────────────────────────────────────────────────────
     private ExoPlayer  player;
     private boolean    isMuted    = false;
+    /**
+     * ✅ FIX (dead-detection gap): true when the server's licensed-catalog
+     * fingerprint match came back with policy=="mute" (see
+     * ReelUploadActivity's copyrightMatch handling) — the reel stays up,
+     * but its own audio track is force-muted regardless of the user's own
+     * mute toggle. Set once via {@link #setForceMuted(boolean)} when the
+     * fragment binds reel.audioMuted; never flipped by user interaction.
+     */
+    private boolean    forceMuted = false;
     /** True only while paused because the user explicitly tapped to pause
      *  (togglePlayPause()) — NOT during a transient stall, buffering blip,
      *  or the brief isPlaying=false moment ExoPlayer can report mid
@@ -312,6 +321,17 @@ public class ReelPlayerController {
     // ── Accessors ─────────────────────────────────────────────────────────────
 
     public boolean   isMuted()       { return isMuted; }
+    /**
+     * ✅ FIX (dead-detection gap): called once per reel bind when
+     * reel.audioMuted is true (licensed-catalog policy=="mute"). Applies
+     * immediately if the player is already prepared; otherwise takes effect
+     * the next time volume is set (every setVolume() call site now checks
+     * isMuted || forceMuted).
+     */
+    public void setForceMuted(boolean muted) {
+        forceMuted = muted;
+        if (player != null) player.setVolume((isMuted || forceMuted) ? 0f : 1f);
+    }
     public int       getDockStatusBarHeightPx() { return dockStatusBarHeightPx; }
     public int       getSpeedIndex() { return speedIndex; }
     public float[]   getSpeedSteps()  { return SPEED_STEPS; }
@@ -926,7 +946,7 @@ public class ReelPlayerController {
             return;
         }
 
-        player.setVolume(isMuted ? 0f : 1f);
+        player.setVolume((isMuted || forceMuted) ? 0f : 1f);
 
         if (player.getPlaybackState() == Player.STATE_READY) {
             progressBuffering.setVisibility(View.GONE);
@@ -1049,10 +1069,10 @@ public class ReelPlayerController {
 
     public void toggleMute() {
         isMuted = !isMuted;
-        if (player != null) player.setVolume(isMuted ? 0f : 1f);
+        if (player != null) player.setVolume((isMuted || forceMuted) ? 0f : 1f);
         // ✅ FIX: also mute/unmute the photo slideshow background audio player
         if (photoAudioPlayer != null) {
-            try { photoAudioPlayer.setVolume(isMuted ? 0f : 1f, isMuted ? 0f : 1f); }
+            try { photoAudioPlayer.setVolume((isMuted || forceMuted) ? 0f : 1f, (isMuted || forceMuted) ? 0f : 1f); }
             catch (Exception ignored) {}
         }
         if (btnMute != null) btnMute.setImageResource(
@@ -1154,7 +1174,7 @@ public class ReelPlayerController {
         // starting a fresh prepareAsync() from zero.
         if (photoAudioPlayer != null && photoAudioPrewarmed) {
             try {
-                photoAudioPlayer.setVolume(isMuted ? 0f : 1f, isMuted ? 0f : 1f);
+                photoAudioPlayer.setVolume((isMuted || forceMuted) ? 0f : 1f, (isMuted || forceMuted) ? 0f : 1f);
                 if (startMs > 0) photoAudioPlayer.seekTo(startMs);
                 photoAudioPlayer.setLooping(!hasTrim);
                 photoAudioPlayer.start();
@@ -1174,7 +1194,7 @@ public class ReelPlayerController {
             photoAudioPlayer.setOnPreparedListener(mp -> {
                 if (photoAudioPlayer == null) return;
                 try {
-                    mp.setVolume(isMuted ? 0f : 1f, isMuted ? 0f : 1f);
+                    mp.setVolume((isMuted || forceMuted) ? 0f : 1f, (isMuted || forceMuted) ? 0f : 1f);
                     if (startMs > 0) mp.seekTo(startMs);
                     mp.setLooping(!hasTrim);   // loop whole track when no trim
                     mp.start();
@@ -1531,7 +1551,7 @@ public class ReelPlayerController {
             }
             preparePlayerSilently();
             if (player != null && wasPlaying) {
-                player.setVolume(isMuted ? 0f : 1f);
+                player.setVolume((isMuted || forceMuted) ? 0f : 1f);
                 player.play();
             }
         });
@@ -1777,7 +1797,7 @@ public class ReelPlayerController {
         player = AdaptiveStreamingManager.get(ctx).buildPlayer(url, cap, null);
         playerView.setPlayer(player);
         player.setRepeatMode(Player.REPEAT_MODE_ONE);
-        player.setVolume(isMuted ? 0f : 1f);
+        player.setVolume((isMuted || forceMuted) ? 0f : 1f);
         player.setPlaybackParameters(new PlaybackParameters(SPEED_STEPS[speedIndex]));
         player.seekTo(resumePos);
         player.setPlayWhenReady(wasPlay);

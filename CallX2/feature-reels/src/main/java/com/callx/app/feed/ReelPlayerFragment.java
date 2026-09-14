@@ -111,6 +111,13 @@ public class ReelPlayerFragment extends Fragment
         args.putInt("views",         reel.viewsCount);
         args.putInt("reposts",       reel.repostCount);
         args.putString("original_audio_url", reel.originalAudioUrl != null ? reel.originalAudioUrl : "");
+        // ✅ FIX (dead-data/dead-detection gaps): these were written to
+        // Firebase but never declared on ReelModel (so never deserialized)
+        // and never carried through this bundle — no UI could ever see them.
+        args.putDouble("audio_match_offset_sec",  reel.audioMatchOffsetSec);
+        args.putDouble("audio_match_speed_factor", reel.audioMatchSpeedFactor);
+        args.putString("copyright_match", reel.copyrightMatch != null ? reel.copyrightMatch : "");
+        args.putBoolean("audio_muted", reel.audioMuted);
         args.putString("duet_of",            reel.duetOf            != null ? reel.duetOf            : "");
         args.putInt   ("duet_count",         reel.duetCount);
         args.putString("allow_duet_level",   reel.allowDuetLevel    != null ? reel.allowDuetLevel    : "everyone");
@@ -192,6 +199,10 @@ public class ReelPlayerFragment extends Fragment
             reel.viewsCount    = getArguments().getInt("views");
             reel.repostCount      = getArguments().getInt("reposts");
             reel.originalAudioUrl = getArguments().getString("original_audio_url", "");
+            reel.audioMatchOffsetSec   = getArguments().getDouble("audio_match_offset_sec", 0);
+            reel.audioMatchSpeedFactor = getArguments().getDouble("audio_match_speed_factor", 1.0);
+            reel.copyrightMatch        = getArguments().getString("copyright_match", "");
+            reel.audioMuted            = getArguments().getBoolean("audio_muted", false);
             reel.duetOf           = getArguments().getString("duet_of",            "");
             reel.duetCount        = getArguments().getInt   ("duet_count",         0);
             reel.allowDuetLevel   = getArguments().getString("allow_duet_level",   "everyone");
@@ -253,6 +264,13 @@ public class ReelPlayerFragment extends Fragment
         socialController.bindViews(v);
         photoController.bindViews(v);
         uiController.bindViews(v);
+
+        // ✅ FIX (dead-detection gap): reel.audioMuted (licensed-catalog
+        // policy=="mute") previously had nothing reading it — force-mute
+        // this reel's own audio track regardless of the user's mute toggle.
+        if (reel != null && reel.audioMuted) {
+            playerController.setForceMuted(true);
+        }
 
         // Detect photo mode and setup accordingly
         if (reel != null && reel.isPhotoSlideshow()) {
