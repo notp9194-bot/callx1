@@ -3603,9 +3603,11 @@ public class HomeFragment extends Fragment
         // FIX v39: story_ring_insta_gradient.xml had a visible seam (XML sweep
         // gradient only supports 3 stops, doesn't loop back cleanly) — swapped
         // for the seamless StoryRingGradientDrawable used across the app.
-        // v42 PERF: withStrokeDp() returns a SHARED cached Drawable instance
-        // for this stroke width (see StoryRingGradientDrawable), so this is
-        // a plain map lookup on every bind, not a per-row allocation.
+        // v42/v43: withStrokeDp() now returns a fresh, cheap wrapper each
+        // call — the actual expensive work (gradient rasterization) is
+        // still cached by size in StoryRingBitmapCache, so this stays fast
+        // without the cross-screen bounds bug a shared wrapper instance had
+        // (see StoryRingGradientDrawable's v43 FIX note).
         if (ivGradientRing != null) {
             ivGradientRing.setImageDrawable(
                     com.callx.app.utils.StoryRingGradientDrawable.withStrokeDp(3f,

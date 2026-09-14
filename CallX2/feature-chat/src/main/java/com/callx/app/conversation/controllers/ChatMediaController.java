@@ -89,6 +89,23 @@ public class ChatMediaController {
 
     private Uri cameraOutputUri;
 
+    // BUGFIX (camera photo not sending / appears to "do nothing" after
+    // capture): cameraOutputUri used to be a plain in-memory field. While the
+    // system Camera app is in the foreground, Android can (and often does,
+    // on mid/low-RAM devices) kill CallX's process in the background to
+    // reclaim memory. When the user returns after taking the photo,
+    // ActivityResultRegistry correctly replays the TakePicture() callback
+    // with success=true — but ChatActivity/ChatMediaController were freshly
+    // re-created, so this field was back to null. The old check
+    // `if (success && cameraOutputUri != null)` then silently swallowed the
+    // result: photo was taken, saved to MediaStore, but never uploaded/sent,
+    // with no error shown. Instagram/WhatsApp avoid this by persisting the
+    // pending capture URI to disk instead of memory. We do the same via
+    // SharedPreferences, written the instant the URI is created and read
+    // back in the constructor so it survives process death.
+    private static final String CAMERA_PREFS = "callx_pending_camera_capture";
+    private static final String KEY_PENDING_CAMERA_URI = "pending_uri";
+
     // Recent-media strip/grid: one MediaStore query per sheet-open, shared by
     // both RecyclerViews (grid just gets a longer slice of the same list).
     private static final int RECENT_MEDIA_LIMIT = 60;
@@ -210,6 +227,14 @@ public class ChatMediaController {
         // ConnectivityService). Both only actually matter once media is
         // enqueued for upload; the large majority of chat opens are just
         // reading/scrolling messages and never touch either.
+
+        // BUGFIX: restore any pending camera capture that survived a process
+        // death while the system Camera app had focus (see cameraOutputUri
+        // comment above). If one is found, cameraCapturer's replayed
+        // TakePicture() callback below will pick it up and finish the send.
+        String pending = activity.getSharedPreferences(CAMERA_PREFS, android.content.Context.MODE_PRIVATE)
+                .getString(KEY_PENDING_CAMERA_URI, null);
+        if (pending != null) cameraOutputUri = Uri.parse(pending);
     }
 
     /**
@@ -380,8 +405,26 @@ public class ChatMediaController {
         cameraCapturer = activity.registerForActivityResult(
                 new ActivityResultContracts.TakePicture(),
                 success -> {
-                    if (success && cameraOutputUri != null)
+                    // Always clear the persisted pending-capture marker first —
+                    // this launch cycle is over either way, success or not.
+                    activity.getSharedPreferences(CAMERA_PREFS, android.content.Context.MODE_PRIVATE)
+                            .edit().remove(KEY_PENDING_CAMERA_URI).apply();
+                    if (success && cameraOutputUri != null) {
                         uploadAndSend(cameraOutputUri, "image", "image", null);
+                    } else if (!success && cameraOutputUri != null) {
+                        // User backed out of the camera, or capture failed —
+                        // clean up the empty MediaStore row we pre-created so
+                        // it doesn't linger as a 0-byte "photo" in the gallery.
+                        try {
+                            activity.getContentResolver().delete(cameraOutputUri, null, null);
+                        } catch (Exception ignored) {}
+                        cameraOutputUri = null;
+                    } else if (success) {
+                        // success=true but we lost the URI (e.g. SharedPreferences
+                        // itself got cleared) — tell the user instead of failing silently.
+                        Toast.makeText(activity, "Photo capture nahi ho paya, dubara try karein",
+                                Toast.LENGTH_SHORT).show();
+                    }
                 });
 
         // Result of the full-screen editor opened from the attach sheet's
@@ -1191,7 +1234,14 @@ public class ChatMediaController {
         cv.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
         cameraOutputUri = activity.getContentResolver()
                 .insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
-        if (cameraOutputUri != null) cameraCapturer.launch(cameraOutputUri);
+        if (cameraOutputUri != null) {
+            // BUGFIX: persist to disk BEFORE launching the camera intent, not
+            // just holding it in the field — see cameraOutputUri comment above.
+            // This is the write that actually fixes "photo taken but never sent".
+            activity.getSharedPreferences(CAMERA_PREFS, android.content.Context.MODE_PRIVATE)
+                    .edit().putString(KEY_PENDING_CAMERA_URI, cameraOutputUri.toString()).apply();
+            cameraCapturer.launch(cameraOutputUri);
+        }
     }
 
     // ── GIF ───────────────────────────────────────────────────────────────

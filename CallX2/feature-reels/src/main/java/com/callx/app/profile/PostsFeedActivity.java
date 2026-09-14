@@ -272,6 +272,20 @@ public class PostsFeedActivity extends AppCompatActivity {
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         setContentView(root);
 
+        // Nav bar background = this screen's own background_light (same
+        // resource root uses above), not the theme's default transparent —
+        // this screen doesn't do edge-to-edge inset handling like
+        // UserReelsActivity does, so a transparent bar here doesn't blend
+        // with the white light-theme background, it shows a mismatched
+        // strip instead. Icons flip dark/light to stay readable on it.
+        getWindow().setNavigationBarColor(getResources().getColor(R.color.background_light));
+        boolean isNightMode = (getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        androidx.core.view.WindowInsetsControllerCompat insetsController =
+                androidx.core.view.WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        insetsController.setAppearanceLightNavigationBars(!isNightMode);
+
         adapter = new PostsAdapter();
         recyclerView.setAdapter(adapter);
         setupGlidePreloader();

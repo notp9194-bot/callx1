@@ -13,24 +13,28 @@ import androidx.annotation.Nullable;
 /**
  * PlayRingGlowDrawable — draws the {@link PlayRingGlowCache} bitmap via a
  * plain texture blit, replacing bg_play_ring_glow.xml's procedural
- * GradientDrawable. Same shared-instance-per-size pattern as
- * {@link StoryRingGradientDrawable#withStrokeDp}, since this glow is always
- * bound at the exact same fixed dp size (76dp) wherever it's used.
+ * GradientDrawable.
  */
 public final class PlayRingGlowDrawable extends Drawable {
 
-    private static final java.util.concurrent.ConcurrentHashMap<Float, PlayRingGlowDrawable>
-            SHARED = new java.util.concurrent.ConcurrentHashMap<>();
+    // NOTE: previously cached a SHARED instance per size (same pattern
+    // StoryRingGradientDrawable#withStrokeDp used to). Removed for the same
+    // reason: a Drawable's bounds/callback are single mutable instance
+    // state, so if two on-screen views ever bind the same fixed 76dp size
+    // at once, the second one silently steals the first's callback and
+    // overwrites its bounds — the first view is left showing (or animating)
+    // stale state. Always returning a fresh wrapper here costs one small
+    // object; the real expensive work (rasterizing the glow) is still
+    // cached by size in PlayRingGlowCache, so this stays cheap.
 
     private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private Bitmap glowBitmap;
 
     private PlayRingGlowDrawable() {}
 
-    /** Convenience factory: pass the view's fixed size in dp + display density. Returns a SHARED instance for this exact size — no allocation on repeat calls. */
+    /** Convenience factory: pass the view's fixed size in dp + display density. */
     public static PlayRingGlowDrawable withSizeDp(float sizeDp, float density) {
-        float sizePx = sizeDp * density;
-        return SHARED.computeIfAbsent(sizePx, s -> new PlayRingGlowDrawable());
+        return new PlayRingGlowDrawable();
     }
 
     @Override

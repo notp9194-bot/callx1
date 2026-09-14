@@ -1067,6 +1067,8 @@ import com.callx.app.profile.UserReelsActivity;
           @Override public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
               if (viewType == TYPE_HEADER) {
                   LinearLayout headerRow = new LinearLayout(ReelNotificationsActivity.this);
+                  headerRow.setLayoutParams(new RecyclerView.LayoutParams(
+                      ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
                   headerRow.setOrientation(LinearLayout.HORIZONTAL);
                   headerRow.setBackgroundColor(0xFF111111);
                   headerRow.setPadding(dp(16), dp(14), dp(16), dp(6));
@@ -1084,6 +1086,20 @@ import com.callx.app.profile.UserReelsActivity;
 
           private LinearLayout buildItemRow() {
               LinearLayout row = new LinearLayout(ReelNotificationsActivity.this);
+              // FIX: without an explicit width, RecyclerView's default
+              // LayoutParams for a plain programmatic itemView is
+              // WRAP_CONTENT — not MATCH_PARENT. That silently starved
+              // `col` below (width=0dp, weight=1, meant to fill all
+              // remaining space after the avatar) of any space to expand
+              // into, since a weighted child only gets a share of a
+              // parent's DEFINITE width — a WRAP_CONTENT parent has no
+              // excess to distribute. Net effect: the whole row rendered
+              // as just the avatar + a squeezed sliver of text, confined
+              // to the left instead of spanning the full screen width like
+              // every other list row in the app (and like Instagram's own
+              // notification rows).
+              row.setLayoutParams(new RecyclerView.LayoutParams(
+                  ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
               row.setOrientation(LinearLayout.HORIZONTAL);
               row.setGravity(android.view.Gravity.CENTER_VERTICAL);
               row.setPadding(dp(12), dp(12), dp(16), dp(12));
