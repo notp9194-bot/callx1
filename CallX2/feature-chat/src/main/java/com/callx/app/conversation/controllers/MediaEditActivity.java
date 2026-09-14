@@ -1,6 +1,7 @@
 package com.callx.app.conversation.controllers;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -14,6 +15,8 @@ import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.DisplayMetrics;
 import android.view.GestureDetector;
 import android.view.Gravity;
@@ -32,8 +35,11 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.OnBackPressedCallback;
+import androidx.activity.BackEventCompat;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.app.AlertDialog;
@@ -42,6 +48,10 @@ import androidx.core.content.FileProvider;
 import com.callx.app.media.crop.MediaCropActivity;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.DataSource;
+import com.bumptech.glide.load.engine.GlideException;
+import com.bumptech.glide.request.RequestListener;
+import com.bumptech.glide.request.target.Target;
 import com.callx.app.chat.R;
 import com.callx.app.media.VideoOverlayBaker;
 
@@ -98,6 +108,35 @@ public class MediaEditActivity extends AppCompatActivity {
     public static final String EXTRA_IS_VIDEO = "media_edit_is_video";
     public static final String EXTRA_CAPTION  = "media_edit_caption";
     public static final String EXTRA_HD       = "media_edit_hd";
+
+    /** ADV-OPT (predictive back / shared-element): set only by
+     *  ChatMediaController#launchMediaEditorForUri for the camera-capture
+     *  path. Gates the shared-element enter transition + postponement below
+     *  — the gallery-attach "Edit" flow and the resend flow launch this
+     *  activity with a plain intent (no hero view exists to morph from on
+     *  those paths), so they get the normal instant show, same as before. */
+    public static final String EXTRA_FROM_CAMERA_CAPTURE = "media_edit_from_camera_capture";
+    /** Shared-element transitionName — must match the transient hero
+     *  ImageView ChatMediaController adds to ChatActivity's content root
+     *  right before launching this activity (see launchMediaEditorForUri). */
+    public static final String TRANSITION_NAME_HERO_PREVIEW = "callx_media_edit_hero_preview";
+
+    // item_media_edit_filter.xml's ivFilterThumb is a fixed 60dp square.
+    // Public + used as a plain pixel size (via .override()) both here in
+    // refreshFilterThumbs() and by MediaEditPreloadCache's speculative
+    // Glide preload — the Uri+transformation+size combo has to match
+    // exactly for Glide's memory cache to actually hit later, and an
+    // explicit override() on both sides guarantees that regardless of any
+    // rounding Glide's own view-size resolution might otherwise do.
+    private static final int FILTER_THUMB_DP = 60;
+    public static int filterThumbSizePx(Context context) {
+        return Math.round(FILTER_THUMB_DP * context.getResources().getDisplayMetrics().density);
+    }
+
+    // item_media_edit_thumb.xml's bottom thumb-strip — see rebuildThumbStrip()
+    // — already loads at a fixed 720x720 override(); exposed here too so
+    // MediaEditPreloadCache's preload uses the exact same size.
+    public static final int THUMB_STRIP_SIZE_PX = 720;
 
     /** Aliases used by CommunityPostComposerActivity */
     public static final String RESULT_URIS    = "media_edit_result_uris";
@@ -178,6 +217,20 @@ public class MediaEditActivity extends AppCompatActivity {
     private boolean               drawModeActive = false;
     private boolean               swipeHintBounced = false;
 
+    // ── ADV-OPT: predictive back / shared-element (capture→edit) ───────────
+    /** True only when launched straight from ChatCameraActivity's capture —
+     *  see EXTRA_FROM_CAMERA_CAPTURE. */
+    private boolean fromCameraCapture = false;
+    /** Fires once the very first preview frame is actually on screen in
+     *  ivPreview, so startPostponedEnterTransition() morphs into the real
+     *  captured photo/frame rather than a blank ImageView. Null once
+     *  consumed (or when not applicable). See setupPredictiveBackAndShared-
+     *  ElementTransition() and its call sites in loadImageWithFilter()/
+     *  showCurrentItem()'s video branch. */
+    private Runnable onFirstPreviewReady;
+    private View     rootMediaEdit;
+    private OnBackPressedCallback predictiveBackCallback;
+
     // ── Views ─────────────────────────────────────────────────────────────
     private ImageView    ivPreview;
     private ImageView    ivVideoPlayBadge;
@@ -235,7 +288,44 @@ public class MediaEditActivity extends AppCompatActivity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_media_edit);
+
+        // ADV-OPT (predictive back / shared-element): must postpone BEFORE
+        // setContentView()/the first frame is drawn — that's the documented
+        // contract for postponeEnterTransition(), otherwise the platform has
+        // already decided there's nothing to wait for and the shared element
+        // just snaps in instead of morphing. Only the camera-capture path
+        // (see EXTRA_FROM_CAMERA_CAPTURE) has a real hero view on the other
+        // end of the transition to morph from, so every other entry point
+        // (gallery-attach "Edit", resend flow) is left completely alone —
+        // same instant show as before this change.
+        fromCameraCapture = getIntent().getBooleanExtra(EXTRA_FROM_CAMERA_CAPTURE, false);
+        if (fromCameraCapture) {
+            postponeEnterTransition();
+            onFirstPreviewReady = this::startPostponedEnterTransition;
+            // Safety net per Android's own postponeEnterTransition() guidance:
+            // never let a slow/failed decode hold the transition forever.
+            // Normally unnecessary here — MediaEditPreloadCache.preloadThumbnails()
+            // already warmed Glide's memory cache for this exact Uri back in
+            // ChatCameraActivity#finishWithResult(), so notifyFirstPreviewReady()
+            // (called from loadImageWithFilter()/showCurrentItem()'s video
+            // branch) fires within a frame or two, well before this fallback.
+            new Handler(Looper.getMainLooper()).postDelayed(this::startPostponedEnterTransition, 350);
+        }
+
+        // PERF (advanced optimization #7): use the pre-inflated tree from
+        // MediaEditPreloadCache when one's ready — ChatCameraActivity kicks
+        // off that inflate off-thread the instant a capture finishes (see
+        // finishWithResult()), so the capture→edit transition often has
+        // nothing left to inflate synchronously here. Falls straight back
+        // to a normal inflate for any other entry point (gallery-attach
+        // "Edit", resend flow, etc.) or if the warm-up just hadn't finished
+        // in time.
+        View preloadedRoot = MediaEditPreloadCache.take();
+        if (preloadedRoot != null) {
+            setContentView(preloadedRoot);
+        } else {
+            setContentView(R.layout.activity_media_edit);
+        }
 
         ArrayList<String>  uriStrings = getIntent().getStringArrayListExtra(EXTRA_URIS);
         ArrayList<Integer> videoFlags = getIntent().getIntegerArrayListExtra(EXTRA_IS_VIDEO);
@@ -263,6 +353,76 @@ public class MediaEditActivity extends AppCompatActivity {
         etCaption.setText(getIntent().getStringExtra(EXTRA_CAPTION));
         rebuildThumbStrip();
         showCurrentItem();
+        setupPredictiveBackAndSharedElement();
+    }
+
+    // ── ADV-OPT: predictive back / shared-element ───────────────────────────
+
+    /** Registers a gesture-driven OnBackPressedCallback so an Android 13+
+     *  predictive-back swipe visually previews the close (root view shrinks
+     *  + fades toward the swipe edge as the finger drags, same "peeking at
+     *  what's behind" language the system uses for its own back-to-app
+     *  preview) instead of a hard cut on release — makes the eventual close
+     *  feel instant because the user already saw it start. Requires
+     *  android:enableOnBackInvokedCallback="true" (app manifest) to actually
+     *  get the animated callbacks on API 33+; harmlessly degrades to a
+     *  regular non-animated back on older devices (handleOnBackProgressed
+     *  just never fires there — handleOnBackInvoked still does).
+     *  Registered unconditionally (not just fromCameraCapture) — closing
+     *  back to the chat screen benefits from the snappier feel regardless of
+     *  how this screen was opened; exitToChat()'s finishAfterTransition()
+     *  degrades to a plain finish() when there's no shared element to
+     *  reverse (gallery-attach / resend entry points). */
+    private void setupPredictiveBackAndSharedElement() {
+        predictiveBackCallback = new OnBackPressedCallback(true) {
+            @Override public void handleOnBackProgressed(@NonNull BackEventCompat backEvent) {
+                if (rootMediaEdit == null) return;
+                float progress = backEvent.getProgress();
+                float scale = 1f - (0.08f * progress);
+                boolean fromLeftEdge = backEvent.getSwipeEdge() == BackEventCompat.EDGE_LEFT;
+                float edgeSign = fromLeftEdge ? 1f : -1f;
+                rootMediaEdit.setPivotX(fromLeftEdge ? 0f : rootMediaEdit.getWidth());
+                rootMediaEdit.setPivotY(rootMediaEdit.getHeight() / 2f);
+                rootMediaEdit.setScaleX(scale);
+                rootMediaEdit.setScaleY(scale);
+                rootMediaEdit.setTranslationX(edgeSign * 24f * progress);
+                rootMediaEdit.setAlpha(1f - (0.25f * progress));
+            }
+
+            @Override public void handleOnBackCancelled() {
+                if (rootMediaEdit == null) return;
+                rootMediaEdit.animate()
+                        .scaleX(1f).scaleY(1f).translationX(0f).alpha(1f)
+                        .setDuration(150).start();
+            }
+
+            @Override public void handleOnBackPressed() {
+                // Pre-API-33 fallback path (no BackEventCompat progress ever
+                // delivered here) — same destination, no manual preview.
+                exitToChat();
+            }
+        };
+        getOnBackPressedDispatcher().addCallback(this, predictiveBackCallback);
+    }
+
+    /** Single exit path for both the top-bar X button and the predictive-back
+     *  gesture, so both get the shared-element reverse morph on the
+     *  camera-capture path. finishAfterTransition() reverses this
+     *  Activity's enter transition when one was actually set up (see
+     *  ChatMediaController#launchMediaEditorForUri); otherwise it's
+     *  equivalent to a plain finish(), so this is always safe to call. */
+    private void exitToChat() {
+        if (rootMediaEdit != null) {
+            // Reset any in-flight predictive-back preview transform before
+            // handing off to the reverse shared-element transition, so the
+            // two don't compound into a double-shrink.
+            rootMediaEdit.setScaleX(1f);
+            rootMediaEdit.setScaleY(1f);
+            rootMediaEdit.setTranslationX(0f);
+            rootMediaEdit.setAlpha(1f);
+        }
+        setResult(Activity.RESULT_CANCELED);
+        finishAfterTransition();
     }
 
     // ── Launcher registration ─────────────────────────────────────────────
@@ -364,7 +524,13 @@ public class MediaEditActivity extends AppCompatActivity {
     // ── View binding ─────────────────────────────────────────────────────
 
     private void bindViews() {
+        rootMediaEdit    = findViewById(R.id.rootMediaEdit);
         ivPreview        = findViewById(R.id.ivPreview);
+        if (fromCameraCapture) {
+            // Must match the transientImageView transitionName ChatMediaController
+            // sets on the hero view before starting this activity.
+            ivPreview.setTransitionName(TRANSITION_NAME_HERO_PREVIEW);
+        }
         ivVideoPlayBadge = findViewById(R.id.ivVideoPlayBadge);
         stickerLayer     = findViewById(R.id.stickerLayer);
         drawOverlay      = findViewById(R.id.drawOverlay);
@@ -416,13 +582,23 @@ public class MediaEditActivity extends AppCompatActivity {
         tvSwipeHint      = findViewById(R.id.tvSwipeHint);
     }
 
+    /** ADV-OPT (predictive back / shared-element): called the instant the
+     *  first real preview frame lands in ivPreview (image decode or video
+     *  thumbnail, whichever path this item takes) — releases the postponed
+     *  shared-element enter transition set up in onCreate(). No-op for every
+     *  frame after the first, and no-op entirely on the non-camera entry
+     *  points where onFirstPreviewReady was never set. */
+    private void notifyFirstPreviewReady() {
+        if (onFirstPreviewReady == null) return;
+        Runnable r = onFirstPreviewReady;
+        onFirstPreviewReady = null;
+        r.run();
+    }
+
     // ── Top toolbar ───────────────────────────────────────────────────────
 
     private void setupTopToolbar() {
-        findViewById(R.id.btnEditClose).setOnClickListener(v -> {
-            setResult(Activity.RESULT_CANCELED);
-            finish();
-        });
+        findViewById(R.id.btnEditClose).setOnClickListener(v -> exitToChat());
 
         if (btnEditDownload != null) btnEditDownload.setOnClickListener(v -> downloadCurrent());
 
@@ -955,6 +1131,7 @@ public class MediaEditActivity extends AppCompatActivity {
      */
     private void refreshFilterThumbs() {
         Uri uri = current().effectiveUri();
+        int sizePx = filterThumbSizePx(this);
         for (int i = 0; i < filterCheckViews.size(); i++) {
             final int fi = i;
             View row = filterStripContent.getChildAt(i);
@@ -962,8 +1139,13 @@ public class MediaEditActivity extends AppCompatActivity {
             ImageView thumb = row.findViewById(R.id.ivFilterThumb);
             ImageView check = filterCheckViews.get(i);
             if (thumb != null) {
-                // Load photo, then apply filter ColorMatrix as overlay
-                Glide.with(this).load(uri).centerCrop()
+                // Load photo, then apply filter ColorMatrix as overlay.
+                // PERF: explicit override(sizePx, sizePx) here matches
+                // MediaEditPreloadCache's speculative preload exactly — see
+                // ChatCameraActivity#finishWithResult() — so on the common
+                // fresh-capture path this is a memory-cache hit, not a
+                // fresh decode, the first time the filter panel opens.
+                Glide.with(this).load(uri).centerCrop().override(sizePx, sizePx)
                         .listener(new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
                             @Override public boolean onLoadFailed(@androidx.annotation.Nullable com.bumptech.glide.load.engine.GlideException e,
                                     Object model, com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target, boolean isFirstResource) { return false; }
@@ -1370,7 +1552,8 @@ public class MediaEditActivity extends AppCompatActivity {
                     thumbStripContent, false);
             ImageView iv = thumb.findViewById(R.id.ivThumb);
             if (iv != null) {
-                Glide.with(this).load(st.effectiveUri()).centerCrop().override(720, 720).into(iv);
+                Glide.with(this).load(st.effectiveUri()).centerCrop()
+                        .override(THUMB_STRIP_SIZE_PX, THUMB_STRIP_SIZE_PX).into(iv);
             }
             // Video badge
             View badge = thumb.findViewById(R.id.ivVideoBadge);
@@ -1484,7 +1667,21 @@ public class MediaEditActivity extends AppCompatActivity {
         // Load preview
         if (isVideo) {
             // Glide thumbnail from video
-            Glide.with(this).load(st.effectiveUri()).override(720, 720).into(ivPreview);
+            Glide.with(this).load(st.effectiveUri()).override(720, 720)
+                    .listener(new RequestListener<android.graphics.drawable.Drawable>() {
+                        @Override public boolean onLoadFailed(@Nullable GlideException e, Object model,
+                                Target<android.graphics.drawable.Drawable> target, boolean isFirstResource) {
+                            notifyFirstPreviewReady();
+                            return false;
+                        }
+                        @Override public boolean onResourceReady(@NonNull android.graphics.drawable.Drawable resource,
+                                @NonNull Object model, Target<android.graphics.drawable.Drawable> target,
+                                @NonNull DataSource dataSource, boolean isFirstResource) {
+                            notifyFirstPreviewReady();
+                            return false;
+                        }
+                    })
+                    .into(ivPreview);
             drawOverlay.setBlurSource(null, null); // no static frame to sample for the Blur brush
         } else {
             // Image — apply filter via ColorMatrix
@@ -1578,6 +1775,7 @@ public class MediaEditActivity extends AppCompatActivity {
                     // while the async decode was in flight.
                     applyMediaViewportTransform();
                     refreshBlurSource();
+                    notifyFirstPreviewReady();
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {

@@ -38,6 +38,16 @@ dependencies {
     // FirebaseUtils imports unchanged.
     api project(':core-lite')
 
+    // CameraProviderCache (see cache/CameraProviderCache.java) warms up
+    // ProcessCameraProvider.getInstance() at app-start so any camera screen
+    // (chat's ChatCameraActivity, reels' ReelCameraActivity, etc.) gets an
+    // already-resolved future instead of paying the ~100-300ms first-call
+    // cost. 'api' (not 'implementation') so ProcessCameraProvider's type is
+    // visible to every module that calls into the cache without each one
+    // having to redeclare this dependency itself.
+    api 'androidx.camera:camera-core:1.3.1'
+    api 'androidx.camera:camera-camera2:1.3.1'
+    api 'androidx.camera:camera-lifecycle:1.3.1'
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.core:core:1.13.1'

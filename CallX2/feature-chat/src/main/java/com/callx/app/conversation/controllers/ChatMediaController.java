@@ -11,7 +11,10 @@ import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.animation.OvershootInterpolator;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.Toast;
 
 import java.util.ArrayList;
@@ -32,9 +35,11 @@ import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVis
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.core.app.ActivityOptionsCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 
+import com.bumptech.glide.Glide;
 import com.callx.app.chat.R;
 import com.callx.app.chat.databinding.ActivityChatBinding;
 import com.callx.app.chat.databinding.LayoutRecordingBarBinding;
@@ -401,7 +406,7 @@ public class ChatMediaController {
                     // Feed straight into the same caption/crop/send editor
                     // screen the gallery-attach flow already uses (see
                     // screenshot-driven flow: capture -> edit/caption -> send).
-                    launchMediaEditorForUri(Uri.parse(uriStr), isVideo);
+                    launchMediaEditorForUri(Uri.parse(uriStr), isVideo, true);
                 });
 
         // Result of the full-screen editor opened from the attach sheet's
@@ -1219,8 +1224,16 @@ public class ChatMediaController {
      *  camera capture Uri (photo or video) and launches it — same editor
      *  screen (caption/crop/send) the gallery-attach "Edit" flow already
      *  uses, so mediaEditLauncher's existing result handler picks it up and
-     *  sends it exactly like any other edited media. */
-    private void launchMediaEditorForUri(Uri uri, boolean isVideo) {
+     *  sends it exactly like any other edited media.
+     *
+     *  @param fromCameraCapture ADV-OPT (predictive back / shared-element):
+     *  true only for the ChatCameraActivity round trip (chatCameraLauncher
+     *  above) — triggers launchMediaEditorWithSharedElement() below instead
+     *  of a plain launch, so the capture visually morphs straight into the
+     *  editor instead of a hard cut. Gallery-attach/resend callers of the
+     *  overload below don't set this — there's no captured frame to morph
+     *  from on those paths, so they keep the plain instant-launch behavior. */
+    private void launchMediaEditorForUri(Uri uri, boolean isVideo, boolean fromCameraCapture) {
         java.util.ArrayList<String> uriStrings = new java.util.ArrayList<>();
         uriStrings.add(uri.toString());
         java.util.ArrayList<Integer> videoFlags = new java.util.ArrayList<>();
@@ -1228,7 +1241,59 @@ public class ChatMediaController {
         Intent intent = new Intent(activity, MediaEditActivity.class);
         intent.putStringArrayListExtra(MediaEditActivity.EXTRA_URIS, uriStrings);
         intent.putIntegerArrayListExtra(MediaEditActivity.EXTRA_IS_VIDEO, videoFlags);
-        mediaEditLauncher.launch(intent);
+        if (fromCameraCapture) {
+            intent.putExtra(MediaEditActivity.EXTRA_FROM_CAMERA_CAPTURE, true);
+            launchMediaEditorWithSharedElement(intent, uri);
+        } else {
+            mediaEditLauncher.launch(intent);
+        }
+    }
+
+    /** ADV-OPT (predictive back / shared-element): MediaEditActivity is
+     *  launched from here (ChatActivity), not from ChatCameraActivity
+     *  itself — ChatCameraActivity already finished by the time this runs
+     *  (see chatCameraLauncher's result callback) — so there's no real
+     *  "shared" view to morph from in the platform sense. Standard fix for
+     *  exactly this situation: drop a transient full-bleed ImageView showing
+     *  the just-captured frame into this Activity's own content root,
+     *  give it the same transitionName MediaEditActivity's ivPreview uses
+     *  (see MediaEditActivity#bindViews), and run the scene transition off
+     *  THAT. The captured Uri was already warmed into Glide's memory cache
+     *  by ChatCameraActivity#finishWithResult() (MediaEditPreloadCache),
+     *  so this load is a cache hit — same frame, no flash of empty view.
+     *  view.post(...) (not an immediate startActivity call) so the hero
+     *  view has actually been measured/laid out — its on-screen bounds are
+     *  what the shared-element transition interpolates from, and a view
+     *  added this frame has none yet. Removed again once MediaEditActivity
+     *  is safely up front (or if the launch never lands, on the next
+     *  lifecycle callback) so it doesn't linger under ChatActivity's UI. */
+    private void launchMediaEditorWithSharedElement(Intent intent, Uri capturedUri) {
+        ViewGroup contentRoot = activity.findViewById(android.R.id.content);
+        ImageView heroView = new ImageView(activity);
+        heroView.setId(View.generateViewId());
+        heroView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        heroView.setBackgroundColor(android.graphics.Color.BLACK);
+        heroView.setTransitionName(MediaEditActivity.TRANSITION_NAME_HERO_PREVIEW);
+        contentRoot.addView(heroView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        Glide.with(activity).load(capturedUri).into(heroView);
+
+        heroView.post(() -> {
+            if (heroView.getParent() == null) return; // already torn down
+            ActivityOptionsCompat options = ActivityOptionsCompat.makeSceneTransitionAnimation(
+                    activity, heroView, MediaEditActivity.TRANSITION_NAME_HERO_PREVIEW);
+            mediaEditLauncher.launch(intent, options);
+            // MediaEditActivity's own ivPreview takes over the shared element
+            // the instant its enter transition starts; this stand-in has
+            // done its job by then. A short delay (covers the activity
+            // start + transition-begin window) rather than an activity
+            // lifecycle hook, since mediaEditLauncher's result only fires
+            // when the editor actually finishes/sends, not when it merely
+            // comes to front.
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                if (heroView.getParent() != null) contentRoot.removeView(heroView);
+            }, 600);
+        });
     }
 
     // ── GIF ───────────────────────────────────────────────────────────────

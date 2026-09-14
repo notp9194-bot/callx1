@@ -85,6 +85,14 @@ public class CallxApp extends Application {
         // own safety-ceiling timeout — see AvatarColdStartQueue.
         com.callx.app.cache.AvatarColdStartQueue.onProcessStart();
 
+        // PERF: warm up ProcessCameraProvider now instead of paying its
+        // ~100-300ms cold-resolve cost the first time a camera screen opens
+        // (chat's in-app camera, reels' camera, status camera, etc.) — see
+        // CameraProviderCache for details. Fire-and-forget: kicks off
+        // CameraX's internal binder setup on a background thread inside
+        // CameraX itself, doesn't block this onCreate().
+        com.callx.app.cache.CameraProviderCache.warmUp(this);
+
         // ── CRASH CAPTURE: on-device crash trace (no adb/logcat needed) ────
         // Registered first so it wraps every subsequent line in onCreate too.
         // On any uncaught exception anywhere in the app: saves the full

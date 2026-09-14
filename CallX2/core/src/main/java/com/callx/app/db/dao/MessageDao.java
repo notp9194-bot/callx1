@@ -319,6 +319,26 @@ public interface MessageDao {
     List<String> getPendingOutgoingMessageIds(String chatId, String myUid);
 
     /**
+     * Telegram-style chat-wide media gallery (MediaViewerActivity swipe
+     * left/right through every photo/video in the chat): lean projection
+     * — only the columns {@link com.callx.app.db.ChatMediaRow} actually
+     * needs, not the full MessageEntity/decrypt/mapper pipeline — ordered
+     * chronologically. Rides the existing (chatId, timestamp) index (same
+     * one getMessagesPagingSource() uses), so this stays a fast indexed
+     * range scan even on a chat with thousands of messages; no new index
+     * needed. Called from a background thread right when the viewer is
+     * about to open — see ChatMediaGalleryBuilder — never on the chat
+     * screen's own scroll/bind path, so normal chat scrolling performance
+     * is completely unaffected by this feature.
+     */
+    @WorkerThread
+    @Query("SELECT id, timestamp, type, mediaUrl, text, thumbnailUrl, mediaLocalPath, mediaItemsJson " +
+           "FROM messages WHERE chatId = :chatId " +
+           "AND (type = 'image' OR type = 'video' OR type = 'multi_media') " +
+           "ORDER BY timestamp ASC")
+    List<com.callx.app.db.ChatMediaRow> getChatMediaRows(String chatId);
+
+    /**
      * WorkManager background status sync (ChatStatusSyncWorker): ticks-only
      * partial update — never touches text/media/caption columns, so it's
      * safe to call without going through the E2EE decrypt/plaintext-restore

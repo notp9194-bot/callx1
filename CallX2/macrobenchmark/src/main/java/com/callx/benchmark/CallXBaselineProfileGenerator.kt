@@ -46,7 +46,15 @@ import org.junit.runner.RunWith
  *  touched before first-frame, used to physically place those
  *  classes/methods at the front of the dex for faster cold-start page-in.
  *
- *  10 real user journeys cover:
+ *  v402: +1 journey — the in-app chat camera (ChatCameraActivity) and its
+ *  capture→MediaEditActivity hop had zero baseline-profile coverage, so
+ *  neither screen's methods (CameraX bind pipeline, MediaEditActivity's
+ *  toolbar/filter/draw/thumb-strip setup) got any AOT benefit — including
+ *  from the on-device perf work already landed there (CameraProviderCache,
+ *  1080p ResolutionSelector cap, MediaEditPreloadCache, VideoCapture
+ *  warm-bind). See generateCameraCaptureFlow() below.
+ *
+ *  11 real user journeys cover:
  *    1. Cold start → chat list
  *    2. Open chat → scroll messages
  *    3. Send a message (input pipeline)
@@ -57,6 +65,7 @@ import org.junit.runner.RunWith
  *    8. Calls tab open + scroll
  *    9. Emoji reaction (long press)
  *   10. Reels tab → open Sound Detail → scroll reel grid
+ *   11. Open chat → in-app camera → capture photo → MediaEditActivity
  * ══════════════════════════════════════════════════════════════════════
  */
 @OptIn(ExperimentalBaselineProfilesApi::class)
@@ -168,6 +177,23 @@ class CallXBaselineProfileGenerator {
         journeyOpenReelsTab()
         journeyOpenSoundDetailFromReel()
         journeyScrollSoundDetailGrid()
+    }
+    // v402: gap #1 — the in-app chat camera (ChatCameraActivity) + its
+    // capture→edit hop into MediaEditActivity had NO baseline-profile
+    // coverage. Both are new-ish, method-heavy screens (CameraX bind
+    // pipeline; MediaEditActivity's toolbar/filter/draw/sticker/thumb-strip
+    // setup) that were running fully JIT-only on first use — exactly the
+    // classes the on-device perf work (CameraProviderCache, resolution
+    // capping, MediaEditPreloadCache, VideoCaptureWarmPool) targets, but
+    // none of that on-device work gets AOT help without an entry here.
+    @Test
+    fun generateCameraCaptureFlow() = baselineProfileRule.collect(
+        packageName = TARGET_PACKAGE, stableIterations = 3, maxIterations = 8,
+    ) {
+        journeyChatListStartup()
+        journeyOpenFirstChat()
+        journeyOpenChatCamera()
+        journeyCapturePhotoIntoEditor()
     }
 }
 
@@ -300,4 +326,37 @@ private fun MacrobenchmarkScope.journeyOpenSoundDetailFromReel() {
 private fun MacrobenchmarkScope.journeyScrollSoundDetailGrid() {
     val scroller = device.findObject(By.res(TARGET_PACKAGE, "scroll_sound_detail")) ?: return
     repeat(2) { scroller.fling(Direction.DOWN); Thread.sleep(300); scroller.fling(Direction.UP); Thread.sleep(300) }
+}
+
+// v402 (gap #1): chat_icon_bar (ChatIconBarView) is a single Canvas-drawn
+// compound view, not four separate ImageButtons — see its class doc — so
+// there's no per-icon resource-id to target. Its slots lay out left→right
+// as attach / camera / mic-or-send, roughly equal width, when the message
+// field is empty (the state ChatActivity opens in). Tapping ~50% across the
+// view's own bounds lands on the camera slot; falls back to doing nothing
+// if the view isn't found, same null-safety pattern as every other journey
+// here.
+private fun MacrobenchmarkScope.journeyOpenChatCamera() {
+    val bar = device.findObject(By.res(TARGET_PACKAGE, "chat_icon_bar")) ?: return
+    val b = bar.visibleBounds
+    device.click(b.left + (b.width() * 0.5f).toInt(), b.centerY())
+    device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "btn_camera_shutter")), TIMEOUT)
+    Thread.sleep(SETTLE)
+}
+
+// v402 (gap #1): a plain click() on btn_camera_shutter is a short tap (well
+// under ChatCameraActivity's 350ms hold-for-video threshold), so this
+// exercises the photo-capture path — capturePhoto() → MediaStore write →
+// finishWithResult() → MediaEditPreloadCache.warmUp() → hands off into
+// MediaEditActivity. Waits on rootMediaEdit (activity_media_edit.xml's
+// root id) as the signal the editor screen actually came up.
+private fun MacrobenchmarkScope.journeyCapturePhotoIntoEditor() {
+    val shutter = device.findObject(By.res(TARGET_PACKAGE, "btn_camera_shutter")) ?: return
+    shutter.click()
+    device.wait(Until.hasObject(By.res(TARGET_PACKAGE, "rootMediaEdit")), TIMEOUT)
+    Thread.sleep(SETTLE)
+    device.pressBack()
+    Thread.sleep(300)
+    device.pressBack()
+    Thread.sleep(300)
 }

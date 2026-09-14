@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.CallX" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- See values/themes.xml — needed for the capture→edit shared-element transition. -->
+        <item name="android:windowActivityTransitions">true</item>
         <item name="colorPrimary">@color/brand_primary</item>
         <item name="colorPrimaryVariant">@color/brand_primary_dark</item>
         <item name="colorSecondary">@color/brand_accent</item>

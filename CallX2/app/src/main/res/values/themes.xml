@@ -9,7 +9,31 @@
         <item name="android:activityCloseExitAnimation">@anim/slide_out_right</item>
     </style>
 
+    <!-- ADV-OPT (predictive back / shared-element): MediaEditActivity's
+         destination-side theme for the capture→edit transition. Plain
+         Theme.AppCompat.NoActionBar (what this activity used before) never
+         turns on android:windowActivityTransitions, so
+         ActivityOptionsCompat.makeSceneTransitionAnimation from
+         ChatMediaController would silently fall back to a plain cut with no
+         shared-element morph. No custom enter/exit transitions declared here
+         — leaving windowSharedElementEnterTransition/ExitTransition unset
+         gets the platform's own default (ChangeBounds+ChangeTransform+
+         ChangeClipBounds+ChangeImageTransform), which is exactly the
+         "photo grows into the edit screen" effect this is for. -->
+    <style name="Theme.MediaEdit" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowActivityTransitions">true</item>
+        <item name="android:windowContentTransitions">true</item>
+    </style>
+
     <style name="Theme.CallX" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- ADV-OPT (predictive back / shared-element, capture→edit flow):
+             cross-Activity scene transitions (the ChatCameraActivity capture
+             hero-image morphing into MediaEditActivity's ivPreview — see
+             ChatMediaController#launchMediaEditorForUri) need the *launching*
+             Activity's window to have transitions enabled too, not just the
+             destination's — ChatActivity itself never overrides its theme,
+             so it inherits this. -->
+        <item name="android:windowActivityTransitions">true</item>
         <item name="colorPrimary">@color/brand_primary</item>
         <item name="colorPrimaryVariant">@color/brand_primary_dark</item>
         <item name="colorSecondary">@color/brand_accent</item>

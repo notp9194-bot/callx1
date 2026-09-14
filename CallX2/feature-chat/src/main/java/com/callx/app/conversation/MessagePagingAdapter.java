@@ -832,6 +832,19 @@ public class MessagePagingAdapter
             new java.util.concurrent.ConcurrentHashMap<>();
     private static final java.util.concurrent.ExecutorService LOCAL_AVAIL_EXECUTOR =
             java.util.concurrent.Executors.newSingleThreadExecutor();
+
+    // Telegram-style chat-wide media gallery (see showMediaActionSheet's
+    // VIEW case) — builds the swipeable all-media list off the UI thread
+    // right as the viewer is about to open. Separate single-thread pool
+    // from LOCAL_AVAIL_EXECUTOR above so a slow local-file-availability
+    // check never blocks a gallery open (or vice versa).
+    private static final java.util.concurrent.ExecutorService GALLERY_BUILD_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+
+    /** Tiny local stand-in for java.util.function.Consumer&lt;Intent&gt; (API 24+) — this module's minSdk is 23. */
+    private interface MediaViewerExtrasAttacher {
+        void accept(android.content.Intent intent);
+    }
     private static final android.os.Handler LOCAL_AVAIL_MAIN_HANDLER =
             new android.os.Handler(android.os.Looper.getMainLooper());
 
@@ -3135,17 +3148,13 @@ public class MessagePagingAdapter
                                     if (h.canvasBindToken != myToken) return;
                                     cv.clearMediaDownloadGate();
                                     ((android.app.Activity) ctx).runOnUiThread(() -> {
-                                        android.content.Intent i2 = new android.content.Intent()
-                                                .setClassName(ctx.getPackageName(),
-                                                        "com.callx.app.activities.MediaViewerActivity");
-                                        i2.putExtra("url", vUrl2);
-                                        i2.putExtra("type", "video");
-                                        i2.putExtra("localPath", file.getAbsolutePath());
-                                        i2.putExtra("chatId", chatId);
-                                        i2.putExtra("messageId",
-                                                m.messageId != null ? m.messageId : m.id);
-                                        com.callx.app.utils.MediaViewerSourceRect.attach(i2, cv.getMediaRectOnScreen());
-                                        ctx.startActivity(i2);
+                                        // Telegram-style chat-wide gallery —
+                                        // see openChatMediaViewer's doc.
+                                        openChatMediaViewer(ctx, chatId,
+                                                m.messageId != null ? m.messageId : m.id, -1,
+                                                vUrl2, vUrl2, "video", null,
+                                                file.getAbsolutePath(), null,
+                                                cv.getMediaRectOnScreen());
                                     });
                                 }
                                 @Override public void onError(String reason) {
@@ -3254,16 +3263,13 @@ public class MessagePagingAdapter
                                 if (h.canvasBindToken != myToken) return;
                                 cv.clearMediaDownloadGate();
                                 ((android.app.Activity) ctx).runOnUiThread(() -> {
-                                    android.content.Intent i3 = new android.content.Intent()
-                                            .setClassName(ctx.getPackageName(),
-                                                    "com.callx.app.activities.MediaViewerActivity");
-                                    i3.putExtra("url", vDlUrl);
-                                    i3.putExtra("type", "video");
-                                    i3.putExtra("localPath", file.getAbsolutePath());
-                                    i3.putExtra("chatId", chatId);
-                                    i3.putExtra("messageId",
-                                            m.messageId != null ? m.messageId : m.id);
-                                    ctx.startActivity(i3);
+                                    // Telegram-style chat-wide gallery —
+                                    // see openChatMediaViewer's doc.
+                                    openChatMediaViewer(ctx, chatId,
+                                            m.messageId != null ? m.messageId : m.id, -1,
+                                            vDlUrl, vDlUrl, "video", null,
+                                            file.getAbsolutePath(), null,
+                                            cv.getMediaRectOnScreen());
                                 });
                             }
                             @Override public void onError(String reason) {
@@ -5912,23 +5918,17 @@ public class MessagePagingAdapter
                             h.itemView.callOnClick();
                             return;
                         }
-                        Intent i = new Intent().setClassName(ctx.getPackageName(),
-                                "com.callx.app.activities.MediaViewerActivity");
-                        i.putExtra("url", vUrl);
-                        i.putExtra("type", "video");
-                        // WhatsApp-style local-first: render from the original
-                        // local file (full quality) as long as it's still on
-                        // the device, falling back to `url` otherwise.
-                        if (m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()) {
-                            i.putExtra("localPath", m.mediaLocalPath);
-                        }
-                        // Lets MediaViewerActivity publish playback presence
-                        // (chatPlayback/{chatId}/{uid}=messageId) while the
-                        // video is actually playing — null-safe extras.
-                        i.putExtra("chatId", chatId);
-                        i.putExtra("messageId", vMid);
-                        com.callx.app.utils.MediaViewerSourceRect.attach(i, h.flVideo);
-                        ctx.startActivity(i);
+                        // Telegram-style chat-wide gallery — see
+                        // openChatMediaViewer's doc. WhatsApp-style
+                        // local-first still applies (renders from
+                        // m.mediaLocalPath full-quality when present).
+                        // Also still lets MediaViewerActivity publish
+                        // playback presence (chatPlayback/{chatId}/{uid})
+                        // via the chatId/messageId extras it sets internally.
+                        openChatMediaViewer(ctx, chatId, vMid, -1,
+                                vUrl, vUrl, "video", null,
+                                m.mediaLocalPath, null,
+                                com.callx.app.utils.MediaViewerSourceRect.ofView(h.flVideo));
                     });
                     h.flVideo.setOnLongClickListener(v -> {
                         v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
@@ -5955,17 +5955,12 @@ public class MessagePagingAdapter
                             h.itemView.callOnClick();
                             return;
                         }
-                        Intent i = new Intent().setClassName(ctx.getPackageName(),
-                                "com.callx.app.activities.MediaViewerActivity");
-                        i.putExtra("url", vUrl);
-                        i.putExtra("type", "video");
-                        if (m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()) {
-                            i.putExtra("localPath", m.mediaLocalPath);
-                        }
-                        i.putExtra("chatId", chatId);
-                        i.putExtra("messageId", vMid);
-                        com.callx.app.utils.MediaViewerSourceRect.attach(i, h.ivImage);
-                        ctx.startActivity(i);
+                        // Telegram-style chat-wide gallery — see
+                        // openChatMediaViewer's doc.
+                        openChatMediaViewer(ctx, chatId, vMid, -1,
+                                vUrl, vUrl, "video", null,
+                                m.mediaLocalPath, null,
+                                com.callx.app.utils.MediaViewerSourceRect.ofView(h.ivImage));
                     });
                     // GAP FIX: same missing long-press wiring as the flVideo
                     // branch above — this fallback thumbnail had no way to
@@ -7385,6 +7380,115 @@ public class MessagePagingAdapter
     // ──────────────────────────────────────────────────────────────
     // Long-press bottom sheet actions
     // ──────────────────────────────────────────────────────────────
+    /**
+     * Telegram-style chat-wide media gallery — shared by every entry point
+     * that opens MediaViewerActivity for a real chat message (the action
+     * sheet's View/Play, and the video-download-gate "download → play"
+     * direct-open paths): builds the full ordered photo/video list for
+     * {@code chatId} off the UI thread (see ChatMediaGalleryBuilder +
+     * MessageDao#getChatMediaRows), so swipe left/right in the viewer walks
+     * through every media item in the chat, not just the tapped message.
+     * Falls back to the old single-item / single-group Intent (using
+     * fallbackMediaItemsJson/tappedSubIndex if present) when there's no
+     * chatId/messageId to key the lookup off, the query fails, this item
+     * hasn't synced into Room yet, or the chat simply has only this one
+     * media item.
+     *
+     * @param fallbackMediaItemsJson pre-built single-message-group JSON
+     *                               (grouped-media grid tap), or null for a
+     *                               single image/video tap — only used by
+     *                               the fallback path.
+     * @param tappedSubIndex         index within fallbackMediaItemsJson
+     *                               (or -1 when it's null) — also doubles
+     *                               as the tapped cell index used to locate
+     *                               the right position once the chat-wide
+     *                               list resolves.
+     */
+    private void openChatMediaViewer(Context ctx, @Nullable String chatId, @Nullable String tappedMessageId,
+                                      int tappedSubIndex, String fallbackUrl, String fallbackThumb,
+                                      String mediaType, @Nullable String fallbackMediaItemsJson,
+                                      @Nullable String localPath, @Nullable String mediaKeyB64,
+                                      @Nullable android.graphics.Rect srcRect) {
+        // (Plain local interface, not java.util.function.Consumer — minSdk
+        // 23 here has no core-library desugaring set up.)
+        final MediaViewerExtrasAttacher attachCommonExtras = i2 -> {
+            if (localPath != null && !localPath.isEmpty()) {
+                i2.putExtra("localPath", localPath);
+            }
+            // FIX: chatId/messageId weren't passed before, so
+            // MediaViewerActivity's own Edit pencil couldn't work once
+            // inside the viewer either.
+            if (chatId != null && tappedMessageId != null) {
+                i2.putExtra("chatId",    chatId);
+                i2.putExtra("messageId", tappedMessageId);
+            }
+            if (mediaKeyB64 != null) {
+                i2.putExtra("mediaKeyB64", mediaKeyB64);
+            }
+            // Telegram-style open/close animation — see
+            // MediaViewerSourceRect class doc. No-op if srcRect is null.
+            com.callx.app.utils.MediaViewerSourceRect.attach(i2, srcRect);
+        };
+
+        Runnable openSingleOrGroup = () -> {
+            android.content.Intent i2 = new android.content.Intent()
+                    .setClassName(ctx.getPackageName(),
+                            "com.callx.app.activities.MediaViewerActivity");
+            i2.putExtra("url",      fallbackUrl);
+            i2.putExtra("thumbUrl", fallbackThumb);
+            i2.putExtra("type",     mediaType);
+            if (fallbackMediaItemsJson != null) {
+                i2.putExtra("mediaItemsJson", fallbackMediaItemsJson);
+                i2.putExtra("startIndex", tappedSubIndex);
+            }
+            attachCommonExtras.accept(i2);
+            ctx.startActivity(i2);
+        };
+
+        // Telegram-style: swipe left/right walks through EVERY photo/video
+        // in this chat, not just this one message's group — built fresh
+        // from Room (cheap, (chatId,timestamp)-indexed query) on a
+        // background thread so the tap itself never blocks the UI, and
+        // completely decoupled from the chat screen's own scroll/bind
+        // path, so normal chat performance is unaffected either way.
+        if (chatId == null || tappedMessageId == null) {
+            openSingleOrGroup.run();
+            return;
+        }
+        GALLERY_BUILD_EXECUTOR.execute(() -> {
+            com.callx.app.utils.ChatMediaGalleryBuilder.Result res;
+            try {
+                java.util.List<com.callx.app.db.ChatMediaRow> rows =
+                        com.callx.app.db.AppDatabase.getInstance(ctx)
+                                .messageDao().getChatMediaRows(chatId);
+                res = com.callx.app.utils.ChatMediaGalleryBuilder.build(rows, tappedMessageId, tappedSubIndex);
+                // Safety cap for very long chat histories — see
+                // ChatMediaGalleryBuilder.cap() doc.
+                res = com.callx.app.utils.ChatMediaGalleryBuilder.cap(res, 300);
+            } catch (Exception e) {
+                res = null;
+            }
+            final com.callx.app.utils.ChatMediaGalleryBuilder.Result finalRes = res;
+            ((android.app.Activity) ctx).runOnUiThread(() -> {
+                if (finalRes == null || finalRes.startIndex < 0 || finalRes.items.size() <= 1) {
+                    // Query failed, this media hasn't synced into Room yet,
+                    // or it's the only media item in the chat — single-item
+                    // viewer is correct either way.
+                    openSingleOrGroup.run();
+                    return;
+                }
+                android.content.Intent i2 = new android.content.Intent()
+                        .setClassName(ctx.getPackageName(),
+                                "com.callx.app.activities.MediaViewerActivity");
+                i2.putExtra("mediaItemsJson",
+                        com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(finalRes.items));
+                i2.putExtra("startIndex", finalRes.startIndex);
+                attachCommonExtras.accept(i2);
+                ctx.startActivity(i2);
+            });
+        });
+    }
+
     // ── WhatsApp-style image action bottom sheet ──────────────────
     private void showImageActionSheet(Context ctx, Message m, String fullUrl, String thumbForViewer) {
         showImageActionSheet(ctx, m, fullUrl, thumbForViewer, null);
@@ -7552,20 +7656,6 @@ public class MessagePagingAdapter
                 bsd.dismiss();
                 switch (action) {
                     case "VIEW": {
-                        android.content.Intent i = new android.content.Intent()
-                                .setClassName(ctx.getPackageName(),
-                                        "com.callx.app.activities.MediaViewerActivity");
-                        i.putExtra("url",      fullUrl);
-                        i.putExtra("thumbUrl", thumbForViewer);
-                        i.putExtra("type",     mediaType);
-                        // Grouped-media tap: reopen as the full swipeable
-                        // gallery at this cell's index, same as the old
-                        // direct-tap behavior — Edit/Save/Share below still
-                        // scope to just this one cell's fullUrl though.
-                        if (mediaItemsJson != null) {
-                            i.putExtra("mediaItemsJson", mediaItemsJson);
-                            i.putExtra("startIndex", startIndex);
-                        }
                         // WhatsApp-style local-first: hand the original local
                         // file/content Uri to the viewer too — it'll render
                         // from this (full quality) as long as it still exists
@@ -7573,27 +7663,10 @@ public class MessagePagingAdapter
                         // Prefer the caller-supplied hint (e.g. a receiver's
                         // already-downloaded video cache path) over the raw
                         // message field, but fall back to it either way.
-                        String localPath = localPathHint != null ? localPathHint : m.mediaLocalPath;
-                        if (localPath != null && !localPath.isEmpty()) {
-                            i.putExtra("localPath", localPath);
-                        }
-                        // FIX: chatId/messageId weren't passed before, so
-                        // MediaViewerActivity's own Edit pencil couldn't work
-                        // once inside the viewer either.
-                        if (chatId != null && sheetMessageId != null) {
-                            i.putExtra("chatId",    chatId);
-                            i.putExtra("messageId", sheetMessageId);
-                        }
-                        // Media E2E — see sheetMediaKeyB64 derivation above.
-                        if (sheetMediaKeyB64 != null) {
-                            i.putExtra("mediaKeyB64", sheetMediaKeyB64);
-                        }
-                        // Telegram-style open/close animation — see
-                        // MediaViewerSourceRect class doc. No-op if srcRect
-                        // is null (grouped-canvas-cell taps don't have a
-                        // precise per-cell rect yet).
-                        com.callx.app.utils.MediaViewerSourceRect.attach(i, srcRect);
-                        ctx.startActivity(i);
+                        final String localPath = localPathHint != null ? localPathHint : m.mediaLocalPath;
+                        openChatMediaViewer(ctx, chatId, sheetMessageId, startIndex,
+                                fullUrl, thumbForViewer, mediaType, mediaItemsJson,
+                                localPath, sheetMediaKeyB64, srcRect);
                         break;
                     }
                     case "EDIT": {

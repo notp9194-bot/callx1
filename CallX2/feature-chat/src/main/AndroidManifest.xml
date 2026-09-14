@@ -76,10 +76,14 @@
             android:theme="@style/Theme.AppCompat.NoActionBar"
             android:screenOrientation="portrait"/>
 
-        <!-- Main photo/video editor: rotate, crop, stickers, text, draw, filters, video trim -->
+        <!-- Main photo/video editor: rotate, crop, stickers, text, draw, filters, video trim.
+             Theme.MediaEdit (not plain Theme.AppCompat.NoActionBar) so this
+             activity's window actually has android:windowActivityTransitions
+             on — needed for the capture→edit shared-element morph, see
+             ChatMediaController#launchMediaEditorForUri. -->
         <activity android:name="com.callx.app.conversation.controllers.MediaEditActivity"
             android:exported="false"
-            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:theme="@style/Theme.MediaEdit"
             android:windowSoftInputMode="adjustResize"
             android:screenOrientation="portrait"/>
 
