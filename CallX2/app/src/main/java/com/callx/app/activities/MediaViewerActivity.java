@@ -82,6 +82,21 @@ public class MediaViewerActivity extends AppCompatActivity {
     private List<Map<String, Object>> galleryItems;
     private int galleryActivePos = -1;
 
+    // #2 Windowed loading — chatId this gallery belongs to (null when
+    // opened via the single-item/single-group fallback path, in which
+    // case none of the edge-expansion below ever fires), the global index
+    // of galleryItems.get(0) within the chat's full media list, the
+    // chat's total media count, and in-flight guards so a fast swipe
+    // can't fire two overlapping loads off the same edge.
+    private String galleryChatId;
+    private int galleryWindowStart;
+    private int galleryTotalCount;
+    private boolean galleryLoadingBefore;
+    private boolean galleryLoadingAfter;
+    private static final int GALLERY_EDGE_THRESHOLD = 10;
+    private static final java.util.concurrent.ExecutorService GALLERY_WINDOW_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+
     // ── Swipe-down-to-close / swipe-up-to-reply (single + gallery mode) ──
     // Common core helper — works for single-media mode now too, not just
     // the grouped-media gallery.
@@ -215,7 +230,30 @@ public class MediaViewerActivity extends AppCompatActivity {
         // video (trim/stickers/text/draw, baked into the actual video on send).
         boolean autoEdit = getIntent().getBooleanExtra("autoEdit", false);
 
+        // #2 Windowed loading — see ChatMediaGalleryBuilder: MessagePagingAdapter
+        // only hands us a ±WINDOW_RADIUS slice, plus where that slice sits
+        // within the chat's full media list so we can grow it on demand.
+        galleryChatId = getIntent().getStringExtra("galleryChatId");
+        galleryWindowStart = getIntent().getIntExtra("galleryWindowStart", 0);
+        galleryTotalCount = getIntent().getIntExtra("galleryTotalCount", 0);
+
         String mediaItemsJson = getIntent().getStringExtra("mediaItemsJson");
+        // #5 Serialization skip: the chat-wide gallery path now hands its
+        // list across via GalleryIntentHolder (no JSON string on the
+        // Intent at all) — check that first. mediaItemsJson stays as the
+        // path for the smaller grouped-media-tap fallback, which already
+        // had a plain JSON string sitting in Room and never needed a
+        // separate serialize step.
+        int galleryToken = getIntent().getIntExtra("galleryItemsToken", -1);
+        List<Map<String, Object>> tokenItems = galleryToken >= 0
+                ? com.callx.app.utils.GalleryIntentHolder.take(galleryToken) : null;
+        if (tokenItems != null && !tokenItems.isEmpty()) {
+            setupGalleryMode(tokenItems, getIntent().getIntExtra("startIndex", 0));
+            if (autoEdit) {
+                binding.getRoot().post(this::onEditClicked);
+            }
+            return;
+        }
         if (mediaItemsJson != null && !mediaItemsJson.isEmpty()) {
             setupGalleryMode(mediaItemsJson, getIntent().getIntExtra("startIndex", 0));
             if (autoEdit) {
@@ -584,7 +622,11 @@ public class MediaViewerActivity extends AppCompatActivity {
 
     // ── Gallery mode — swipeable multi-image/video viewer ────────────────
     private void setupGalleryMode(String json, int startIndex) {
-        galleryItems = parseMediaItems(json);
+        setupGalleryMode(parseMediaItems(json), startIndex);
+    }
+
+    private void setupGalleryMode(List<Map<String, Object>> items, int startIndex) {
+        galleryItems = items;
         if (galleryItems.isEmpty()) { finish(); return; }
         int start = Math.max(0, Math.min(startIndex, galleryItems.size() - 1));
 
@@ -620,9 +662,11 @@ public class MediaViewerActivity extends AppCompatActivity {
                 updatePageCounter(position);
                 binding.btnEdit.setVisibility(View.VISIBLE);
                 prefetchAdjacentMedia(position);
+                maybeGrowGalleryWindow(position);
             }
         });
         galleryActivePos = start;
+        maybeGrowGalleryWindow(start);
         // Slight delay so RecyclerView has a bound ViewHolder to play on first open
         binding.mediaPager.post(() -> pauseAllExcept(start));
 
@@ -639,6 +683,60 @@ public class MediaViewerActivity extends AppCompatActivity {
         // actually showing at `start`. Fine either way: it's a no-op when
         // sourceRect is null.
         animateOpenFromSource(binding.mediaPager, sourceRect);
+    }
+
+    /**
+     * #2 Windowed loading: called on every page settle. When the user has
+     * paged within {@link #GALLERY_EDGE_THRESHOLD} pages of either end of
+     * the current window — and the chat's full media list (still sitting
+     * in ChatMediaGalleryBuilder's cache) has more on that side — pulls
+     * the next chunk and appends/prepends it to {@link #galleryItems},
+     * completely off the DB (it's an in-memory slice of what's already
+     * cached from this chat's first-open query).
+     */
+    private void maybeGrowGalleryWindow(int position) {
+        if (galleryChatId == null || galleryAdapter == null) return;
+
+        if (!galleryLoadingBefore && position <= GALLERY_EDGE_THRESHOLD && galleryWindowStart > 0) {
+            galleryLoadingBefore = true;
+            int newFrom = Math.max(0, galleryWindowStart - com.callx.app.utils.ChatMediaGalleryBuilder.WINDOW_RADIUS);
+            int oldWindowStart = galleryWindowStart;
+            GALLERY_WINDOW_EXECUTOR.execute(() -> {
+                List<Map<String, Object>> chunk =
+                        com.callx.app.utils.ChatMediaGalleryBuilder.slice(galleryChatId, newFrom, oldWindowStart);
+                runOnUiThread(() -> {
+                    galleryLoadingBefore = false;
+                    if (chunk == null || chunk.isEmpty() || galleryAdapter == null) return;
+                    galleryItems.addAll(0, chunk);
+                    galleryWindowStart = newFrom;
+                    galleryAdapter.notifyItemRangeInserted(0, chunk.size());
+                    // Items shifted right by chunk.size() — keep the pager
+                    // pointed at the same logical page (no visible jump).
+                    galleryActivePos += chunk.size();
+                    binding.mediaPager.setCurrentItem(galleryActivePos, false);
+                });
+            });
+        }
+
+        if (!galleryLoadingAfter
+                && position >= galleryItems.size() - 1 - GALLERY_EDGE_THRESHOLD
+                && galleryWindowStart + galleryItems.size() < galleryTotalCount) {
+            galleryLoadingAfter = true;
+            int oldWindowEnd = galleryWindowStart + galleryItems.size();
+            int newTo = Math.min(galleryTotalCount,
+                    oldWindowEnd + com.callx.app.utils.ChatMediaGalleryBuilder.WINDOW_RADIUS);
+            GALLERY_WINDOW_EXECUTOR.execute(() -> {
+                List<Map<String, Object>> chunk =
+                        com.callx.app.utils.ChatMediaGalleryBuilder.slice(galleryChatId, oldWindowEnd, newTo);
+                runOnUiThread(() -> {
+                    galleryLoadingAfter = false;
+                    if (chunk == null || chunk.isEmpty() || galleryAdapter == null) return;
+                    int insertAt = galleryItems.size();
+                    galleryItems.addAll(chunk);
+                    galleryAdapter.notifyItemRangeInserted(insertAt, chunk.size());
+                });
+            });
+        }
     }
 
     /** Currently-active page's PhotoView, or null (video page / not bound yet). */

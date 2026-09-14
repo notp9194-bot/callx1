@@ -841,6 +841,38 @@ public class MessagePagingAdapter
     private static final java.util.concurrent.ExecutorService GALLERY_BUILD_EXECUTOR =
             java.util.concurrent.Executors.newSingleThreadExecutor();
 
+    /**
+     * #3 Precompute on chat open (silent warm-up): called by ChatActivity
+     * right after chatId is known, so the chat-wide gallery list is
+     * already sitting in ChatMediaGalleryBuilder's cache by the time the
+     * user actually taps a photo/video — tap-to-open then hits the same
+     * peek() fast path openChatMediaViewer() uses, with zero extra
+     * latency. Runs on the same single-thread GALLERY_BUILD_EXECUTOR as
+     * the real tap path (so a warm-up in flight and a genuine tap never
+     * race each other onto two DB reads at once — the tap's own peek()
+     * afterwards will simply see the now-populated cache), and skips
+     * itself entirely if the chat is already cached and fresh.
+     */
+    public static void warmUpChatMediaGallery(Context ctx, @Nullable String chatId) {
+        if (chatId == null || ctx == null) return;
+        GALLERY_BUILD_EXECUTOR.execute(() -> {
+            try {
+                com.callx.app.db.dao.MessageDao dao =
+                        com.callx.app.db.AppDatabase.getInstance(ctx).messageDao();
+                com.callx.app.db.ChatMediaFreshness freshness = dao.getChatMediaFreshness(chatId);
+                // Already cached & fresh — nothing to warm up.
+                if (com.callx.app.utils.ChatMediaGalleryBuilder.peek(chatId, freshness, null, -1) != null) {
+                    return;
+                }
+                java.util.List<com.callx.app.db.ChatMediaRow> rows = dao.getChatMediaRows(chatId);
+                com.callx.app.utils.ChatMediaGalleryBuilder.resolve(chatId, rows, freshness, null, -1);
+            } catch (Exception ignored) {
+                // Silent by design — a failed warm-up just means the next
+                // real tap falls back to its own normal cache-miss path.
+            }
+        });
+    }
+
     /** Tiny local stand-in for java.util.function.Consumer&lt;Intent&gt; (API 24+) — this module's minSdk is 23. */
     private interface MediaViewerExtrasAttacher {
         void accept(android.content.Intent intent);
@@ -7456,21 +7488,33 @@ public class MessagePagingAdapter
             return;
         }
         GALLERY_BUILD_EXECUTOR.execute(() -> {
-            com.callx.app.utils.ChatMediaGalleryBuilder.Result res;
+            com.callx.app.utils.ChatMediaGalleryBuilder.Window win;
             try {
-                java.util.List<com.callx.app.db.ChatMediaRow> rows =
-                        com.callx.app.db.AppDatabase.getInstance(ctx)
-                                .messageDao().getChatMediaRows(chatId);
-                res = com.callx.app.utils.ChatMediaGalleryBuilder.build(rows, tappedMessageId, tappedSubIndex);
-                // Safety cap for very long chat histories — see
-                // ChatMediaGalleryBuilder.cap() doc.
-                res = com.callx.app.utils.ChatMediaGalleryBuilder.cap(res, 300);
+                com.callx.app.db.dao.MessageDao dao =
+                        com.callx.app.db.AppDatabase.getInstance(ctx).messageDao();
+                com.callx.app.db.ChatMediaFreshness freshness = dao.getChatMediaFreshness(chatId);
+                // #1 In-memory gallery cache: peek() answers instantly (no
+                // row query) if this chat is cached and still fresh; only
+                // on a miss do we pay for the real row fetch + flatten.
+                com.callx.app.utils.ChatMediaGalleryBuilder.Result res =
+                        com.callx.app.utils.ChatMediaGalleryBuilder.peek(
+                                chatId, freshness, tappedMessageId, tappedSubIndex);
+                if (res == null) {
+                    java.util.List<com.callx.app.db.ChatMediaRow> rows = dao.getChatMediaRows(chatId);
+                    res = com.callx.app.utils.ChatMediaGalleryBuilder.resolve(
+                            chatId, rows, freshness, tappedMessageId, tappedSubIndex);
+                }
+                // #2 Windowed loading: only ±WINDOW_RADIUS items go through
+                // the Intent, not the whole (possibly huge) chat gallery —
+                // MediaViewerActivity pulls further windows from the same
+                // cache as the user swipes toward either edge.
+                win = com.callx.app.utils.ChatMediaGalleryBuilder.window(res);
             } catch (Exception e) {
-                res = null;
+                win = null;
             }
-            final com.callx.app.utils.ChatMediaGalleryBuilder.Result finalRes = res;
+            final com.callx.app.utils.ChatMediaGalleryBuilder.Window finalWin = win;
             ((android.app.Activity) ctx).runOnUiThread(() -> {
-                if (finalRes == null || finalRes.startIndex < 0 || finalRes.items.size() <= 1) {
+                if (finalWin == null || finalWin.localStartIndex < 0 || finalWin.items.size() <= 1) {
                     // Query failed, this media hasn't synced into Room yet,
                     // or it's the only media item in the chat — single-item
                     // viewer is correct either way.
@@ -7480,9 +7524,28 @@ public class MessagePagingAdapter
                 android.content.Intent i2 = new android.content.Intent()
                         .setClassName(ctx.getPackageName(),
                                 "com.callx.app.activities.MediaViewerActivity");
-                i2.putExtra("mediaItemsJson",
-                        com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(finalRes.items));
-                i2.putExtra("startIndex", finalRes.startIndex);
+                // #5 Serialization skip: hand the actual in-memory list
+                // across via GalleryIntentHolder instead of JSON-encoding
+                // it into a Binder-limited Intent extra — same process,
+                // so no serialize/deserialize round-trip and zero
+                // TransactionTooLargeException risk regardless of window
+                // size. Plain-string fallback extras (url/thumbUrl/type)
+                // still ride the Intent as normal so a stale/missed
+                // token (e.g. process death between put() and onCreate())
+                // degrades to the single-image view instead of a blank
+                // screen — see GalleryIntentHolder's class doc.
+                int galleryToken = com.callx.app.utils.GalleryIntentHolder.put(finalWin.items);
+                i2.putExtra("galleryItemsToken", galleryToken);
+                i2.putExtra("startIndex", finalWin.localStartIndex);
+                i2.putExtra("url",      fallbackUrl);
+                i2.putExtra("thumbUrl", fallbackThumb);
+                i2.putExtra("type",     mediaType);
+                // Lets MediaViewerActivity grow the window (from the same
+                // in-memory cache, no extra DB hit) as the user nears
+                // either edge — see ChatMediaGalleryBuilder#slice.
+                i2.putExtra("galleryChatId", chatId);
+                i2.putExtra("galleryWindowStart", finalWin.windowStartGlobal);
+                i2.putExtra("galleryTotalCount", finalWin.totalCount);
                 attachCommonExtras.accept(i2);
                 ctx.startActivity(i2);
             });

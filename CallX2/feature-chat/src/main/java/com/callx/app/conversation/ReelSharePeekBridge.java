@@ -34,7 +34,7 @@ import java.util.WeakHashMap;
  * tiny runtime bridge. This keeps chat and the Reels grid on the exact same
  * popup/player/ABR implementation instead of creating a second mini-player.
  */
-final class ReelSharePeekBridge {
+public final class ReelSharePeekBridge {
 
     private static final String CONTROLLER_CLASS =
             "com.callx.app.profile.ReelPeekPreviewController";
@@ -148,6 +148,44 @@ final class ReelSharePeekBridge {
         } catch (Throwable ignored) {
             // The normal card tap is still functional if an older APK has no
             // peek controller on its classpath.
+        }
+    }
+
+    /**
+     * BUG FIX: dismisses this activity's reel-peek popup (if any) and, most
+     * importantly, releases its ExoPlayer — call from the hosting chat
+     * screen's onPause()/onStop()/onDestroy().
+     *
+     * ROOT CAUSE of "player disappears but audio keeps playing": show()
+     * above stashes the controller in the static CONTROLLERS map, but
+     * nothing ever told that controller to tear down when the host screen
+     * stopped being visible — unlike UserReelsActivity (the original owner
+     * of this popup), which calls peekController.dismiss() from its own
+     * onPause(). A PopupWindow is NOT auto-dismissed by the Android
+     * lifecycle: turning the screen off, hitting Home, or navigating to
+     * another chat/reel just hides the window's surface — the ExoPlayer
+     * inside keeps decoding/playing audio in the background regardless,
+     * and since the popup is still "showing" as far as the controller is
+     * concerned, leaving the chat or opening a different reel never
+     * replaced or stopped it either.
+     *
+     * Fix: chat screens now call this from onPause() (covers screen-off,
+     * Home, app-switch, and navigating to another chat — onPause always
+     * fires first in every one of those cases) so the controller's own
+     * dismiss() runs and releases the player back to the pool immediately,
+     * instead of leaving it playing invisibly until the process happens to
+     * die.
+     */
+    public static void dismiss(@Nullable Activity activity) {
+        if (activity == null) return;
+        Object controller = CONTROLLERS.remove(activity);
+        if (controller == null) return;
+        try {
+            Method dismissMethod = controller.getClass().getMethod("dismiss");
+            dismissMethod.invoke(controller);
+        } catch (Throwable ignored) {
+            // Best-effort — an older/mismatched feature-reels build on the
+            // classpath should never crash the chat screen's onPause().
         }
     }
 

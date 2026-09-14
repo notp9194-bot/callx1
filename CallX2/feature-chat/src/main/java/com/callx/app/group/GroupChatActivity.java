@@ -129,6 +129,10 @@ public class GroupChatActivity extends AppCompatActivity
 
     // ── Paging 3 (FIX #7) ─────────────────────────────────────────────────
     private MessagePagingAdapter pagingAdapter;
+    // BUG FIX (WhatsApp-level theme switch) — see ChatActivity's
+    // lastUiNightMode/handlePossibleNightModeChange javadoc for full
+    // rationale; same fix mirrored here for group chats.
+    private int lastUiNightMode;
     private AppDatabase          db;
     // PERF FIX (thread leak): was declared as the bare `Executor` interface,
     // which has no shutdown() method — so even though this Activity has an
@@ -410,6 +414,8 @@ public class GroupChatActivity extends AppCompatActivity
         }
 
         applyScreenTheme();
+        lastUiNightMode = getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
 
         groupId     = getIntent().getStringExtra("groupId");
         groupName   = getIntent().getStringExtra("groupName");
@@ -837,6 +843,32 @@ public class GroupChatActivity extends AppCompatActivity
         super.onDestroy();
     }
 
+    /**
+     * WhatsApp-level dark/light switch for group chats — mirrors
+     * ChatActivity#handlePossibleNightModeChange. Manifest now declares
+     * "uiMode" in configChanges for this Activity too, so a system theme
+     * toggle lands here instead of destroying/recreating the screen.
+     */
+    @Override
+    public void onConfigurationChanged(@NonNull android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        int newNightMode = newConfig.uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        if (newNightMode == lastUiNightMode) return;
+        lastUiNightMode = newNightMode;
+        boolean isNight = newNightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+
+        applyScreenTheme();
+
+        androidx.core.view.WindowInsetsControllerCompat insetsController =
+                androidx.core.view.WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        if (insetsController != null) {
+            insetsController.setAppearanceLightStatusBars(!isNight);
+            insetsController.setAppearanceLightNavigationBars(!isNight);
+        }
+
+        if (pagingAdapter != null) pagingAdapter.notifyDataSetChanged();
+    }
+
     @Override
     protected void onStop() {
         super.onStop();
@@ -849,6 +881,12 @@ public class GroupChatActivity extends AppCompatActivity
     @Override
     protected void onPause() {
         persistLastMessagesSnapshotFromRoom();
+        // BUG FIX: same reel-share mini-preview leak as 1:1 ChatActivity —
+        // the long-press peek popup's ExoPlayer is never told to stop when
+        // this screen pauses (screen off / Home / app-switch / opening
+        // another chat), so it kept playing audio invisibly. See
+        // ReelSharePeekBridge.dismiss()'s javadoc for the full root cause.
+        com.callx.app.conversation.ReelSharePeekBridge.dismiss(this);
         saveScrollState();
         typingHandler.removeCallbacks(stopTyping);
         setMyTyping(false);

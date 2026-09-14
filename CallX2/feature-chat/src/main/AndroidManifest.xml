@@ -4,10 +4,11 @@
         <activity android:name="com.callx.app.conversation.ChatActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"/>
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"/>
         <activity android:name="com.callx.app.group.GroupChatActivity"
             android:exported="false"
-            android:windowSoftInputMode="adjustResize"/>
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="uiMode"/>
         <activity android:name="com.callx.app.group.GroupInfoActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>

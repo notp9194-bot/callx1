@@ -339,6 +339,18 @@ public interface MessageDao {
     List<com.callx.app.db.ChatMediaRow> getChatMediaRows(String chatId);
 
     /**
+     * Cheap freshness probe for the gallery LruCache (see
+     * ChatMediaGalleryBuilder) — same indexed WHERE as getChatMediaRows()
+     * above but a COUNT+MAX aggregate instead of reading every row, so a
+     * cache-hit open only costs this tiny query instead of the full
+     * row fetch + flatten.
+     */
+    @WorkerThread
+    @Query("SELECT COUNT(*) as cnt, MAX(timestamp) as maxTs FROM messages WHERE chatId = :chatId " +
+           "AND (type = 'image' OR type = 'video' OR type = 'multi_media')")
+    com.callx.app.db.ChatMediaFreshness getChatMediaFreshness(String chatId);
+
+    /**
      * WorkManager background status sync (ChatStatusSyncWorker): ticks-only
      * partial update — never touches text/media/caption columns, so it's
      * safe to call without going through the E2EE decrypt/plaintext-restore

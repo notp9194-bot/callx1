@@ -206,6 +206,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
 
     // ── Paging 3 ──────────────────────────────────────────────────────────
     private MessagePagingAdapter pagingAdapter;
+    // BUG FIX (WhatsApp-level theme switch): system light↔dark toggle used
+    // to destroy+recreate this entire Activity (fresh Firebase listeners,
+    // adapter rebuild, scroll-jump/flicker) because "uiMode" wasn't in the
+    // manifest's configChanges — only orientation/screenSize/keyboardHidden
+    // were handled that way. Tracked here so onConfigurationChanged (now
+    // also called for uiMode) can tell a REAL night-mode flip apart from
+    // some other config change and only then run the in-place re-theme
+    // below, instead of doing it on every callback.
+    private int lastUiNightMode;
     private boolean isViewOnceModeOn = false;
     /** Feature 2: expiry duration chosen by sender (0 = no expiry). */
     private long selectedViewOnceExpiryMs = 0L;
@@ -908,6 +917,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // every time the chat screen was opened.
 
         themeController    = new ChatThemeController(this);
+        lastUiNightMode = getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
         // mentionController is initialized later in setupMentionController() once
         // partnerUid / partnerName / partnerPhoto are known (after profile load).
         messageSender      = new ChatMessageSender(this);
@@ -1164,6 +1175,50 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     public void onConfigurationChanged(@NonNull android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         applyChatDisplayMode();
+        handlePossibleNightModeChange(newConfig);
+    }
+
+    /**
+     * WhatsApp-level dark/light switch: previously "uiMode" wasn't in the
+     * manifest's configChanges, so toggling system theme while this chat was
+     * open destroyed and recreated the whole Activity — fresh Firebase
+     * listeners, adapter/RecyclerView rebuilt from scratch, a visible
+     * flicker and a scroll-position jump. Now the system calls
+     * onConfigurationChanged() instead of recreating, and this method does
+     * exactly what WhatsApp does: re-skins the already-live screen in place.
+     *
+     * Colors resolved via ContextCompat.getColor()/theme attrs automatically
+     * return the new day/night value the moment the Activity's Configuration
+     * updates (which has already happened by the time this runs) — no
+     * special-casing needed there. What DOES need an explicit nudge:
+     *   1. Toolbar / root / input-row / wallpaper — re-applied via the
+     *      existing refreshScreenTheme() hook (same one Chat Customization
+     *      already uses to live-update these views).
+     *   2. Status bar icon contrast (dark icons on light theme / light icons
+     *      on dark theme) — the theme attribute that normally sets this only
+     *      applies at window creation, which no longer happens here.
+     *   3. Every already-bound message bubble — MessageBubbleCanvasView
+     *      resolves bubble/text/tick colors from resources inside its own
+     *      bind path, so a plain notifyDataSetChanged() is enough to redraw
+     *      the whole visible chat with the new theme; no per-view API needed.
+     */
+    private void handlePossibleNightModeChange(android.content.res.Configuration newConfig) {
+        int newNightMode = newConfig.uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        if (newNightMode == lastUiNightMode) return; // some other config change — nothing to re-theme
+        lastUiNightMode = newNightMode;
+
+        boolean isNight = newNightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+
+        if (themeController != null) themeController.applyScreenTheme();
+
+        androidx.core.view.WindowInsetsControllerCompat insetsController =
+                androidx.core.view.WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        if (insetsController != null) {
+            insetsController.setAppearanceLightStatusBars(!isNight);
+            insetsController.setAppearanceLightNavigationBars(!isNight);
+        }
+
+        if (pagingAdapter != null) pagingAdapter.notifyDataSetChanged();
     }
 
     @Override
@@ -1412,6 +1467,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // window goes away — playback continues invisibly; whichever
         // screen the user lands on next re-attaches it in its own onResume.
         com.callx.app.docked.DockedOverlayRegistry.detachIfShowing();
+
+        // BUG FIX: reel-share long-press mini preview (ReelPeekPreviewController,
+        // reached via ReelSharePeekBridge) is a raw PopupWindow — Android does
+        // NOT auto-dismiss it when this Activity pauses (screen off, Home,
+        // app-switch, opening another chat). Without this call its ExoPlayer
+        // kept playing audio in the background indefinitely, invisibly, even
+        // after leaving this chat or opening a different reel.
+        ReelSharePeekBridge.dismiss(this);
 
         // Cancel any in-flight Glide preloads so we don't decode images for a
         // chat the user just left.  Clearing the strong references also lets
@@ -2077,6 +2140,13 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         com.google.firebase.auth.FirebaseUser fu = FirebaseAuth.getInstance().getCurrentUser();
         currentUid = fu != null ? fu.getUid() : "";
         chatId     = buildChatId(currentUid, partnerUid);
+        // #3 Precompute on chat open (silent warm-up) — builds the
+        // chat-wide media gallery cache in the background the moment the
+        // chat is known, well before the user ever taps a photo/video, so
+        // that tap opens the swipeable gallery with zero extra latency.
+        // Fire-and-forget: runs on its own background executor, entirely
+        // decoupled from this method's own critical-path work below.
+        MessagePagingAdapter.warmUpChatMediaGallery(this, chatId);
         messagesRef= FirebaseUtils.getMessagesRef(chatId);
         // PERF FIX: keepSynced(true) tells the Firebase SDK to actively
         // maintain this path's local disk cache in the background (not
