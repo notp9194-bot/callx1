@@ -329,22 +329,32 @@ public class ChatCameraActivity extends AppCompatActivity {
                     .setResolutionSelector(resolutionSelector)
                     .build();
 
-            // PERF (advanced optimization: zero-shutter-lag): ZSL keeps a
-            // short rolling buffer of frames from the sensor so takePicture()
-            // can hand back a frame that was already captured close to the
-            // moment the shutter was tapped, instead of triggering a brand
-            // new capture at tap-time — noticeably faster tap-to-saved
-            // latency than even MINIMIZE_LATENCY on devices that support it.
-            // Deliberately NOT gated behind our own capability check here:
-            // CameraX documents CAPTURE_MODE_ZERO_SHUTTER_LAG as
-            // automatically/silently falling back to
-            // CAPTURE_MODE_MINIMIZE_LATENCY on any camera/combination that
-            // doesn't support it (including when bound alongside VideoCapture,
-            // as this screen always does) — so requesting it is always safe,
-            // and this screen already gets MINIMIZE_LATENCY as its floor
-            // either way.
+            // BUG FIX (real root cause of the "preview freezes, camera keeps
+            // running in background" symptom on THIS screen specifically):
+            // this used to request CAPTURE_MODE_ZERO_SHUTTER_LAG here. That
+            // is NOT a safe "auto-fallback if unsupported" flag — Android's
+            // own CameraX docs state plainly that Zero-Shutter Lag is not
+            // supported together with VideoCapture, full stop, regardless of
+            // device capability. This screen always binds VideoCapture
+            // alongside Preview + ImageCapture (photo/video toggle in one
+            // screen), so requesting ZSL here was asking CameraX to
+            // negotiate an unsupported Preview+ZSL-ImageCapture+VideoCapture
+            // capture-session configuration on every device. The camera2
+            // session comes up in a half-broken state from that: the
+            // preview stream stops receiving new frames (freezes on the
+            // last composited frame) while the session itself stays alive
+            // underneath — so capture/record still work, matching exactly
+            // the "dikhta hai, phir ruk jata hai, background me camera
+            // chalta rehta hai" symptom. (This is a separate issue from the
+            // PreviewView SurfaceView/TextureView compositing bug fixed
+            // above — that fix was necessary but not sufficient on this
+            // screen because of this second, independent problem.)
+            // FIX: MINIMIZE_LATENCY — same capture mode ReelCameraActivity/
+            // MultiClipCameraActivity already use — is fully supported
+            // alongside VideoCapture and doesn't provoke the bad session
+            // negotiation.
             ImageCapture localImageCapture = new ImageCapture.Builder()
-                    .setCaptureMode(ImageCapture.CAPTURE_MODE_ZERO_SHUTTER_LAG)
+                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                     .setFlashMode(flashOn ? ImageCapture.FLASH_MODE_ON : ImageCapture.FLASH_MODE_OFF)
                     .setResolutionSelector(resolutionSelector)
                     .build();

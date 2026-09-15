@@ -85,6 +85,14 @@ public class MultiClipCameraActivity extends AppCompatActivity {
 
     private void bindViews() {
         previewView     = findViewById(R.id.preview_multi);
+        // BUG FIX — same SurfaceView/PERFORMANCE-mode desync as
+        // ChatCameraActivity/ReelCameraActivity: this screen overlays
+        // record/flip/flash/delete/done buttons directly on the preview,
+        // and their invalidations desync a SurfaceView-backed preview on
+        // plenty of devices (feed shows fine briefly, then freezes while
+        // the camera keeps running underneath). COMPATIBLE mode (TextureView)
+        // fixes it.
+        previewView.setImplementationMode(PreviewView.ImplementationMode.COMPATIBLE);
         btnRecord       = findViewById(R.id.btn_multi_record);
         btnFlip         = findViewById(R.id.btn_multi_flip);
         btnFlash        = findViewById(R.id.btn_multi_flash);

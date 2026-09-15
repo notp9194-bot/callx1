@@ -337,6 +337,20 @@ public class ReelCameraActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────────────
     private void bindViews() {
         previewView        = findViewById(R.id.preview_view);
+        // BUG FIX: default PERFORMANCE mode backs the preview with a
+        // SurfaceView, which composites as its own hardware layer outside
+        // the normal View drawing pass. This screen overlays the shutter/
+        // record button, flip/flash icons, and a record-timer that ticks
+        // every 500ms directly on top of the preview — that repeated
+        // sibling invalidation desyncs a SurfaceView's buffer swap on
+        // plenty of GPU/OEM skins: the feed shows fine for a second or two,
+        // then visibly freezes on the last composited frame even though
+        // CameraX is still producing frames underneath (camera keeps
+        // running in the background). COMPATIBLE mode renders through a
+        // TextureView instead, which draws in-order with its siblings, so
+        // the overlaid buttons/timer never knock the preview out of sync.
+        // Same fix already applied to ChatCameraActivity for this exact bug.
+        previewView.setImplementationMode(PreviewView.ImplementationMode.COMPATIBLE);
         btnRecord          = findViewById(R.id.btn_record);
         btnFlipCamera      = findViewById(R.id.btn_flip_camera);
         btnFlash           = findViewById(R.id.btn_flash);

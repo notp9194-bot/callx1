@@ -2065,17 +2065,13 @@ public class MessagePagingAdapter
             // now modeled (MessageBubbleCanvasView.setMediaDownloadGate) —
             // received images are eligible too, same as sent.
             //
-            // Feature: Voice Caption on Photo — an image that also carries
-            // a short attached voice note (m.voiceUrl != null) is routed to
-            // the LEGACY View-based bubble instead, so it lands in
-            // content_frame (a real FrameLayout) where a play-badge overlay
-            // can sit on top of iv_image — see bindMessage()'s "image" case
-            // and fl_voice_on_image in item_message_sent/received.xml.
-            // Teaching Canvas itself to draw + hit-test that badge is a
-            // bigger change left for later; every plain image (the
-            // overwhelming majority) keeps rendering on Canvas exactly as
-            // before, unaffected.
-            if (m.voiceUrl != null && !m.voiceUrl.isEmpty()) return false;
+            // Feature: Voice Caption on Photo — Canvas now draws + hit-tests
+            // its own play-badge overlay (MessageBubbleCanvasView#setVoiceCaption
+            // / MediaRenderer#drawVoiceBadge), so an image that also carries
+            // a short attached voice note (m.voiceUrl != null) no longer
+            // needs to fall back to the legacy View-based bubble
+            // (content_frame/fl_voice_on_image) — it's fully Canvas-eligible
+            // like every other image now.
             return true;
         }
         if ("multi_media".equals(type)) {
@@ -2312,6 +2308,23 @@ public class MessagePagingAdapter
         // it now uses wrap_content + adjustViewBounds (see item_message_sent/
         // received.xml) so it sizes itself to the photo's own aspect ratio
         // instead of always rendering as a fixed-width square crop.
+        // ── PERF: build the voice-on-image play-badge listener ONCE per VH ──
+        // Same pattern as createBubbleClickListener() above (see its comment)
+        // — this used to be a fresh lambda captured with (h, m.voiceUrl,
+        // position) allocated on EVERY bindVoiceOnImage() call, i.e. every
+        // scroll rebind of a combo photo+voice bubble. Reads h.boundMessage
+        // + the live adapter position at CLICK time instead (taps are rare,
+        // binds are per-frame) — same allocation-avoidance win, and a
+        // correctness bonus: the position is never stale after a list
+        // reorder, unlike the old captured-at-bind-time int.
+        if (vh.flVoiceOnImage != null) {
+            vh.flVoiceOnImage.setOnClickListener(v -> {
+                Message cm = vh.boundMessage;
+                if (cm == null || cm.voiceUrl == null || cm.voiceUrl.isEmpty()) return;
+                int pos = vh.getBindingAdapterPosition();
+                if (pos != RecyclerView.NO_POSITION) toggleAudio(vh, cm.voiceUrl, pos);
+            });
+        }
         return vh;
     }
 
@@ -3442,6 +3455,19 @@ public class MessagePagingAdapter
             }
 
             @Override
+            public void onVoiceCaptionPlayPauseClick() {
+                // Feature: Voice Caption on Photo (Canvas) — mirrors
+                // onAudioPlayPauseClick() above, just for the play-badge
+                // overlaid on an image bubble instead of a standalone
+                // audio bubble. toggleAudio()/setPlayPauseIcon() are both
+                // already type-agnostic (see setPlayPauseIcon's javadoc),
+                // so no other wiring is needed.
+                Message m = h.boundMessage;
+                if (m == null || m.voiceUrl == null || m.voiceUrl.isEmpty()) return;
+                toggleAudio(h, m.voiceUrl, h.getAdapterPosition());
+            }
+
+            @Override
             public void onAudioSeek(float fraction) {
                 Message m = h.boundMessage;
                 if (m == null) return;
@@ -4107,6 +4133,35 @@ public class MessagePagingAdapter
             cv.bindMedia(null, m.caption, timeStr, sent, isRead, isDelivered, fullUrl, knownRatio);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
             wireCaptionReadMore(h, cv, m.messageId); // caption read-more/read-less
+
+            // Feature: Voice Caption on Photo (Canvas) — attach/clear the
+            // play-badge overlay. Icon state (isThisPlaying) mirrors
+            // bindVoiceOnImage()'s own check: whether THIS message's voice
+            // note is the one currently playing through the adapter's
+            // shared MediaPlayer.
+            boolean hasVoiceCaption = m.voiceUrl != null && !m.voiceUrl.isEmpty();
+            if (hasVoiceCaption) {
+                long voiceMs = m.voiceDuration != null ? m.voiceDuration : 0L;
+                long voiceSecs = voiceMs / 1000;
+                String voiceDurText = String.format(java.util.Locale.US, "%d:%02d", voiceSecs / 60, voiceSecs % 60);
+                cv.setVoiceCaption(m.voiceUrl, voiceDurText);
+                boolean isThisVoicePlaying = playingPos == h.getAdapterPosition() && player != null && isPlayerPlaying;
+                cv.setAudioPlaying(isThisVoicePlaying);
+
+                // Receiver-only, once-per-message auto-play — same
+                // walkie-talkie-style precedent as the legacy
+                // bindVoiceOnImage(), reusing the same autoPlayedVoiceOnImage
+                // dedupe set so a message auto-played once on the legacy
+                // path (before this Canvas cutover) never double-plays here.
+                String voiceMsgKey = m.messageId != null ? m.messageId : m.id;
+                if (!sent && voiceMsgKey != null && playingPos == -1
+                        && !autoPlayedVoiceOnImage.contains(voiceMsgKey)) {
+                    autoPlayedVoiceOnImage.add(voiceMsgKey);
+                    toggleAudio(h, m.voiceUrl, h.getAdapterPosition());
+                }
+            } else {
+                cv.setVoiceCaption(null, null);
+            }
 
             // WhatsApp-style local-first media bubble: this SENT image was
             // just picked and is still uploading (or its upload failed) —
@@ -5694,6 +5749,57 @@ public class MessagePagingAdapter
                     String thumbUrl = m.thumbnailUrl;
                     boolean isGifMsg = "gif".equals(m.type) || "sticker".equals(m.type);
 
+                    // BUG FIX (Voice Caption on Photo — combined send renders
+                    // as blank grey placeholder): this legacy bubble is the
+                    // ONLY path a SENT image ever reaches once m.voiceUrl is
+                    // set (see isCanvasEligible), but unlike the Canvas path's
+                    // "useLocalSent" local-first render (see bindMedia's
+                    // localPendingMedia/useLocalSent handling), it never
+                    // checked m.mediaLocalPath at all — it always went
+                    // straight to a Glide load of the remote thumbUrl below.
+                    // The item flips from Canvas type → this legacy type at
+                    // the exact moment finalizeMediaMessage() runs (the
+                    // instant m.voiceUrl gets set), i.e. the same frame the
+                    // bubble is first shown as "sent" — so there was no time
+                    // for the just-uploaded Cloudinary thumbnail to warm up,
+                    // and the bubble sat on bg_skeleton_rect (grey) until
+                    // that network fetch finally resolved. Mirror the Canvas
+                    // path: a sent image whose original local file is still
+                    // on the phone renders straight from it, same as every
+                    // other sent-image bubble in this app.
+                    String mid0 = m.messageId != null ? m.messageId : m.id;
+                    boolean useLocalSent = sent && m.mediaLocalPath != null && !m.mediaLocalPath.isEmpty()
+                            && Boolean.TRUE.equals(checkLocalAvailabilityAsync(ctx, m.mediaLocalPath, mid0));
+                    if (useLocalSent) {
+                        final String localPoolKey = m.mediaLocalPath;
+                        Bitmap localPoolHit = DECODED_BITMAP_CACHE.get(localPoolKey);
+                        if (localPoolHit != null && !localPoolHit.isRecycled()) {
+                            h.ivImage.setImageBitmap(localPoolHit);
+                        } else {
+                            glide(ctx)
+                                    .asBitmap()
+                                    .load(android.net.Uri.parse(m.mediaLocalPath))
+                                    .apply(THUMB_RGB565)
+                                    .override(200, 200)
+                                    .placeholder(R.drawable.bg_skeleton_rect)
+                                    .listener(new com.bumptech.glide.request.RequestListener<Bitmap>() {
+                                        @Override
+                                        public boolean onLoadFailed(@Nullable com.bumptech.glide.load.engine.GlideException e,
+                                                Object model, com.bumptech.glide.request.target.Target<Bitmap> target,
+                                                boolean isFirstResource) {
+                                            return false; // fall through to Glide's own error drawable
+                                        }
+                                        @Override
+                                        public boolean onResourceReady(Bitmap resource, Object model,
+                                                com.bumptech.glide.request.target.Target<Bitmap> target,
+                                                com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
+                                            DECODED_BITMAP_CACHE.put(localPoolKey, resource);
+                                            return false;
+                                        }
+                                    })
+                                    .into(h.ivImage);
+                        }
+                    } else
                     // PERF FIX (WhatsApp-style lazy media): bubble shows ONLY
                     // the thumbnail — no eager full-res load/crossfade here.
                     // Scrolling through a chat with many image bubbles used
@@ -5870,6 +5976,16 @@ public class MessagePagingAdapter
                     // Only reached at all when isCanvasEligible() routed this
                     // message here for exactly this reason (m.voiceUrl set).
                     bindVoiceOnImage(h, m, position);
+
+                    // GAP FIX: this legacy bubble is the ONLY place a
+                    // combined image+voice+caption send ever renders (see
+                    // isCanvasEligible), but it had no caption view at all —
+                    // Canvas's cv.bindMedia(...) draws m.caption itself, the
+                    // legacy layout never did, so the caption text the user
+                    // typed silently never appeared. Same WhatsApp-style
+                    // bottom scrim + text as the multi-photo group caption
+                    // (see MediaGroupLayoutHelper) — now applied here too.
+                    bindImageCaptionOnLegacyBubble(h, m);
                 }
                 break;
             // ── MULTI MEDIA (WhatsApp-style grid, multi-image send) ──────
@@ -7258,7 +7374,9 @@ public class MessagePagingAdapter
             h.ivVoicePlayOnImage.setImageResource(isThisPlaying ? R.drawable.ic_pause : R.drawable.ic_play);
         }
 
-        h.flVoiceOnImage.setOnClickListener(v -> toggleAudio(h, m.voiceUrl, position));
+        // Click listener is now set ONCE in onCreateViewHolder (see the
+        // "PERF: build the voice-on-image play-badge listener ONCE per VH"
+        // comment there) — no per-bind allocation here anymore.
 
         // Receiver-only, once-per-message auto-play.
         String msgKey = m.messageId != null ? m.messageId : m.id;
@@ -7267,6 +7385,63 @@ public class MessagePagingAdapter
                 && !autoPlayedVoiceOnImage.contains(msgKey)) {
             autoPlayedVoiceOnImage.add(msgKey);
             toggleAudio(h, m.voiceUrl, position);
+        }
+    }
+
+    /**
+     * Feature: Voice Caption on Photo — WhatsApp-style caption strip for the
+     * legacy image bubble (see the call site's comment for why this exists).
+     * Mirrors MediaGroupLayoutHelper's group-caption: bottom-pinned gradient
+     * scrim + white text, overlapping the photo. When a voice note is ALSO
+     * attached (the only way this legacy bubble is ever reached), the
+     * play-badge pill is nudged up above the caption strip so the two never
+     * overlap — see the extra bottom margin added to fl_voice_on_image below.
+     *
+     * PERF: the scrim's gradient is @drawable/bg_image_caption_scrim, set
+     * directly in item_message_sent/received.xml — no setBackground() call
+     * here, so no per-bind Drawable work at all, just the two visibility
+     * flips below.
+     */
+    private void bindImageCaptionOnLegacyBubble(@NonNull VH h, @NonNull Message m) {
+        if (h.tvImageCaption == null || h.viewImageCaptionScrim == null) return;
+        boolean hasCaption = m.caption != null && !m.caption.isEmpty();
+        if (!hasCaption) {
+            h.tvImageCaption.setVisibility(View.GONE);
+            h.viewImageCaptionScrim.setVisibility(View.GONE);
+            resetVoiceOnImageBottomMargin(h);
+            return;
+        }
+        h.viewImageCaptionScrim.setVisibility(View.VISIBLE);
+        h.tvImageCaption.setText(m.caption);
+        h.tvImageCaption.setVisibility(View.VISIBLE);
+
+        // Nudge the play-badge pill up above the caption strip (its own
+        // bottom-gravity margin is 8dp normally — see fl_voice_on_image in
+        // item_message_sent/received.xml) so a captioned voice-photo shows
+        // both without the badge sitting on top of the caption text.
+        if (h.flVoiceOnImage != null
+                && h.flVoiceOnImage.getLayoutParams() instanceof android.widget.FrameLayout.LayoutParams) {
+            android.widget.FrameLayout.LayoutParams lp = (android.widget.FrameLayout.LayoutParams) h.flVoiceOnImage.getLayoutParams();
+            int marginPx = (int) (52 * h.itemView.getResources().getDisplayMetrics().density);
+            if (lp.bottomMargin < marginPx) {
+                lp.bottomMargin = marginPx;
+                h.flVoiceOnImage.setLayoutParams(lp);
+            }
+        }
+    }
+
+    /** Restores fl_voice_on_image's default 8dp bottom margin for a
+     *  recycled holder whose PREVIOUS bind had a caption (and so bumped the
+     *  margin up) but this one doesn't — otherwise the badge stays
+     *  incorrectly raised after scrolling past a captioned bubble. */
+    private void resetVoiceOnImageBottomMargin(@NonNull VH h) {
+        if (h.flVoiceOnImage == null
+                || !(h.flVoiceOnImage.getLayoutParams() instanceof android.widget.FrameLayout.LayoutParams)) return;
+        android.widget.FrameLayout.LayoutParams lp = (android.widget.FrameLayout.LayoutParams) h.flVoiceOnImage.getLayoutParams();
+        int defaultPx = (int) (8 * h.itemView.getResources().getDisplayMetrics().density);
+        if (lp.bottomMargin != defaultPx) {
+            lp.bottomMargin = defaultPx;
+            h.flVoiceOnImage.setLayoutParams(lp);
         }
     }
 
@@ -8487,6 +8662,10 @@ public class MessagePagingAdapter
         View      flVoiceOnImage;
         ImageView ivVoicePlayOnImage;
         TextView  tvVoiceDurationOnImage;
+        // Feature: Voice Caption on Photo — WhatsApp-style caption strip on
+        // the legacy image bubble. See bindImageCaptionOnLegacyBubble().
+        View      viewImageCaptionScrim;
+        TextView  tvImageCaption;
         TextView     tvStatus;   // tv_status in both item layouts
         // Manual media download overlay (WhatsApp-style) — received images only.
         // Null in item_message_sent.xml (sender already has the local file).
@@ -8650,6 +8829,8 @@ public class MessagePagingAdapter
             flVoiceOnImage        = v.findViewById(R.id.fl_voice_on_image);
             ivVoicePlayOnImage    = v.findViewById(R.id.iv_voice_play_on_image);
             tvVoiceDurationOnImage = v.findViewById(R.id.tv_voice_duration_on_image);
+            viewImageCaptionScrim = v.findViewById(R.id.view_image_caption_scrim);
+            tvImageCaption        = v.findViewById(R.id.tv_image_caption);
             fl_download_overlay = v.findViewById(R.id.fl_download_overlay);
             ll_download_pill    = v.findViewById(R.id.ll_download_pill);
             iv_download_icon    = v.findViewById(R.id.iv_download_icon);

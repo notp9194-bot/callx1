@@ -31,6 +31,11 @@ public interface OnBubbleClickListener {
     default void onReactionsClick() {}
     /** Tapped the play/pause button on an audio bubble (bindAudio only) — caller should toggle MediaPlayer playback for this message. */
     default void onAudioPlayPauseClick() {}
+    /** Feature: Voice Caption on Photo (Canvas). Tapped the play/pause badge overlaid on an image
+     *  bubble that also carries an attached voice note (setVoiceCaption only) — caller should
+     *  toggle MediaPlayer playback for this message's voiceUrl, same as onAudioPlayPauseClick does
+     *  for a standalone audio bubble. */
+    default void onVoiceCaptionPlayPauseClick() {}
     /** Dragged/tapped the waveform on an audio bubble (bindAudio only) — fraction is 0..1 of the track; caller should seek MediaPlayer to it. The view already updated its own progress bar optimistically. */
     default void onAudioSeek(float fraction) {}
     /** Tapped the "View Contact" row on a contact card (bindContact only) — caller should open the system Contacts app / dialer for this contact's phone number, same as the legacy btnViewContact click listener. */

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    PERF: WhatsApp-style caption scrim, precompiled as a resource instead of
+    built at runtime (see bindImageCaptionOnLegacyBubble in
+    MessagePagingAdapter — this used to be a single GradientDrawable
+    instance shared as the background of every bound holder, which is an
+    anti-pattern: setBackground() re-parents the Drawable's callback + bounds
+    to whichever View called it last, so two on-screen bubbles sharing the
+    same instance could fight over layout bounds mid-scroll. A drawable
+    resource sidesteps that entirely — the system handles per-View instancing
+    (via ConstantState) for free, and there is zero per-bind allocation.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient
+        android:angle="270"
+        android:startColor="#00000000"
+        android:endColor="#AA000000"/>
+</shape>

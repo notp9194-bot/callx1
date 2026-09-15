@@ -1666,6 +1666,20 @@ public class MessageBubbleCanvasView extends View {
     boolean isMedia = false;
     boolean mediaHasCaption = false;
     Bitmap mediaBitmap;
+    // Feature: Voice Caption on Photo (Canvas). An image bubble (isMedia)
+    // can also carry a short attached voice note — set via
+    // setVoiceCaption() right after bindMedia(). null/empty voiceUrl means
+    // this image has no attached voice note (the overwhelming majority).
+    // Drawn by MediaRenderer.drawVoiceBadge() as a play/pause + duration
+    // pill in the media rect's bottom-start corner; hit-tested against
+    // voiceBadgeRect in onTouchEvent. isVoicePlaying is driven by the same
+    // public setAudioPlaying() the standalone audio bubble uses (see that
+    // method's branch) so the caller's existing MediaPlayer wiring needs
+    // no new plumbing.
+    @Nullable String voiceUrl;
+    @Nullable String voiceDuration;
+    boolean isVoicePlaying = false;
+    final RectF voiceBadgeRect = new RectF();
     // Single "video" message reuses the whole isMedia/mediaRect/mediaBitmap
     // infrastructure (same fixed 180dp square, same footer pill) — this
     // flag just adds the play-glyph + duration-badge overlay on top,
@@ -2945,6 +2959,14 @@ public class MessageBubbleCanvasView extends View {
         this.isViewOnce = false;
         this.isSeenBubble = false;
         this.videoDuration = null;
+        // A recycled holder must never carry a stale voice-caption badge
+        // from whatever message it drew before this bind — the caller
+        // re-arms it with setVoiceCaption() right after this call if the
+        // new image actually has an attached voice note.
+        this.voiceUrl = null;
+        this.voiceDuration = null;
+        this.isVoicePlaying = false;
+        this.voiceBadgeRect.setEmpty();
         this.mediaBitmap = bitmap;
         this.mediaAspectKey = aspectKey;
         // A recycled view must never keep the previous message's aspect
@@ -3024,6 +3046,33 @@ public class MessageBubbleCanvasView extends View {
 
         if (requestLayoutIfSizeChanged()) {
             textLayout = null; // recomputed in onMeasure (only used if mediaHasCaption)
+        }
+        invalidate();
+    }
+
+    /**
+     * Feature: Voice Caption on Photo (Canvas). Attaches (or clears) the
+     * play/pause + duration play-badge overlaid on an image bubble's
+     * bottom-start corner — call right after bindMedia() for a message
+     * that also carries a short attached voice note (m.voiceUrl), or with
+     * a null/empty url to clear a recycled holder whose previous bind had
+     * one but this one doesn't. Doesn't affect bubble size (the badge
+     * floats over the existing mediaRect — no relayout needed), so this
+     * only invalidates, it never requests a layout pass.
+     *
+     * @param voiceUrl        the attached voice note's playable URL/path,
+     *                        or null/empty if this image has none.
+     * @param durationText    pre-formatted "m:ss" duration label (the
+     *                        caller formats it, same as the legacy
+     *                        bindVoiceOnImage() did for tvVoiceDurationOnImage).
+     */
+    public void setVoiceCaption(@Nullable String voiceUrl, @Nullable String durationText) {
+        boolean has = voiceUrl != null && !voiceUrl.isEmpty();
+        this.voiceUrl = has ? voiceUrl : null;
+        this.voiceDuration = has ? durationText : null;
+        if (!has) {
+            this.isVoicePlaying = false;
+            this.voiceBadgeRect.setEmpty();
         }
         invalidate();
     }
@@ -3151,11 +3200,53 @@ public class MessageBubbleCanvasView extends View {
         invalidate();
     }
 
-    /** Toggles the play/pause glyph drawn inside the circle button — call whenever MediaPlayer actually starts/pauses/stops for this bubble. */
+    /**
+     * Toggles the play/pause glyph drawn inside the circle button — call
+     * whenever MediaPlayer actually starts/pauses/stops for this bubble.
+     *
+     * Feature: Voice Caption on Photo (Canvas) — reused as-is for an image
+     * bubble that carries an attached voice note (setVoiceCaption): when
+     * this bind isn't a standalone audio bubble but does have a
+     * voiceUrl, this drives isVoicePlaying/the play-badge glyph instead of
+     * the full audio row, via the same single public entry point the
+     * caller's existing MediaPlayer wiring already calls (see
+     * MessagePagingAdapter#setPlayPauseIcon, which just calls
+     * canvasView.setAudioPlaying(playing) unconditionally whenever a
+     * canvas view is bound — no new call site needed there).
+     */
     public void setAudioPlaying(boolean playing) {
+        if (!isAudio && isMedia && voiceUrl != null && !voiceUrl.isEmpty()) {
+            if (this.isVoicePlaying == playing) return;
+            this.isVoicePlaying = playing;
+            invalidateVoiceBadgeRegion();
+            return;
+        }
         if (this.audioPlaying == playing) return;
         this.audioPlaying = playing;
         invalidateAudioRow();
+    }
+
+    /**
+     * Dirty-region invalidate for the voice-caption-on-photo play-badge —
+     * mirrors invalidateAudioRow()'s reasoning but for the much smaller
+     * badge pill instead of the full audio row. staticPictureDirty is
+     * also set: unlike the always-cached full audio row, drawMediaWithOptionalCache()
+     * only bypasses ITS OWN inner Picture/RenderNode cache while a manual
+     * download is actively in progress (mediaGated && mediaDownloading) —
+     * a play/pause tap on an already-downloaded image is outside that
+     * window, so without this the badge's stale icon could replay from a
+     * cached recording instead of picking up the new isVoicePlaying state.
+     */
+    private void invalidateVoiceBadgeRegion() {
+        fullBubbleDirty = true;
+        staticPictureDirty = true;
+        if (voiceBadgeRect.isEmpty()) {
+            invalidate();
+            return;
+        }
+        float pad = 4f * density;
+        invalidate((int) (voiceBadgeRect.left - pad), (int) (voiceBadgeRect.top - pad),
+                (int) Math.ceil(voiceBadgeRect.right + pad), (int) Math.ceil(voiceBadgeRect.bottom + pad));
     }
 
     /** Cheap path — called every playback tick (e.g. every 250ms). No layout/measure work, draw-only, same precedent as AudioWaveformView.setProgress(). */
@@ -7015,6 +7106,19 @@ public class MessageBubbleCanvasView extends View {
                 && mediaRect.contains(event.getX(), event.getY())) {
             cancelPendingLongPress(event);
             if (clickListener != null) clickListener.onGifClick();
+            return true;
+        }
+        // ── Voice-caption-on-photo play-badge tap ──────────────────────────
+        // Must be checked BEFORE the general mediaRect tap below (which
+        // opens the full-screen image viewer) since voiceBadgeRect sits
+        // fully inside mediaRect — a tap on the badge would otherwise also
+        // satisfy the wider mediaRect check and wrongly open the viewer
+        // instead of toggling playback.
+        if (isMedia && voiceUrl != null && !voiceUrl.isEmpty() && !mediaGated
+                && event.getActionMasked() == MotionEvent.ACTION_UP
+                && voiceBadgeRect.contains(event.getX(), event.getY())) {
+            cancelPendingLongPress(event);
+            if (clickListener != null) clickListener.onVoiceCaptionPlayPauseClick();
             return true;
         }
         if (isMedia && event.getActionMasked() == MotionEvent.ACTION_UP

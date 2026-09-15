@@ -7,6 +7,8 @@ import android.graphics.Color;
 import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.GestureDetector;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.LinearLayout;
@@ -64,6 +66,15 @@ public class MediaViewerActivity extends AppCompatActivity {
     private ExoPlayer player;
     private boolean uiVisible = true;
     private String sharedUrl;
+
+    // BUG FIX — top-bar tap-to-toggle reliability (see dispatchTouchEvent's
+    // comment for the full root cause). A single GestureDetector, fed every
+    // touch event at the dispatch level, is now the ONE place toggleUI()
+    // gets called from — replaces the old per-view wiring (PhotoView's
+    // setOnViewTapListener, player's setOnClickListener, the gallery
+    // adapter's tap callback), all of which routed through mechanisms that
+    // could silently eat a second, close-together tap instead of toggling.
+    private GestureDetector tapToggleDetector;
 
     // Local-first single-item mode (see onCreate doc + LocalMediaAvailability).
     private String singleItemLocalPath;
@@ -147,6 +158,19 @@ public class MediaViewerActivity extends AppCompatActivity {
         setContentView(binding.getRoot());
 
         hideSystemUI();
+
+        // See tapToggleDetector's field doc + dispatchTouchEvent for why
+        // this replaces the old per-view toggle wiring. onSingleTapUp fires
+        // the instant the finger lifts, with none of the double-tap
+        // disambiguation delay PhotoView's own tap listener imposes — and
+        // never consumes the event, so pinch/double-tap-zoom underneath is
+        // untouched.
+        tapToggleDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override public boolean onSingleTapUp(MotionEvent e) {
+                toggleUI();
+                return false;
+            }
+        });
 
         String url  = getIntent().getStringExtra("url");
         String type = getIntent().getStringExtra("type");
@@ -295,8 +319,9 @@ public class MediaViewerActivity extends AppCompatActivity {
                 // silently, same as WhatsApp. Tap still toggles the top bar.
                 binding.player.setUseController(false);
             }
-            // For video — tap player toggles top bar
-            binding.player.setOnClickListener(v -> toggleUI());
+            // Tap-to-toggle for video now goes through tapToggleDetector in
+            // dispatchTouchEvent (see its doc) instead of a click listener
+            // here — no separate wiring needed.
 
             // Video isn't zoomable, so no pinch-zoom guard needed here.
             setupSwipeHelper(binding.player, null, null);
@@ -313,8 +338,13 @@ public class MediaViewerActivity extends AppCompatActivity {
             String thumbUrl = getIntent().getStringExtra("thumbUrl");
             loadImageProgressive(url, thumbUrl, singleItemLocalPath);
 
-            // Tap image → toggle top bar
-            binding.ivFull.setOnViewTapListener((view, x, y) -> toggleUI());
+            // Tap-to-toggle for the image now goes through tapToggleDetector
+            // in dispatchTouchEvent (see its doc) instead of PhotoView's own
+            // setOnViewTapListener — that callback is gated behind Android's
+            // double-tap disambiguation delay (~300ms, to tell it apart from
+            // double-tap-to-zoom), so a second deliberate tap landing inside
+            // that window could get swallowed as a double-tap instead of
+            // toggling the bar back on.
 
             // #single-media fix — swipe-up-to-reply / swipe-down-to-close
             // now works here too (previously gallery-mode only), guarded
@@ -815,6 +845,26 @@ public class MediaViewerActivity extends AppCompatActivity {
         boolean gallerySelecting = galleryAdapter != null && galleryAdapter.isSelectMode();
         if (swipeHelper != null && !gallerySelecting && swipeHelper.onTouch(ev)) {
             return true;
+        }
+        // BUG FIX — top-bar tap-to-toggle reliability. Root cause: the old
+        // per-view wiring (PhotoView's setOnViewTapListener for images,
+        // which itself waits out Android's ~300ms double-tap disambiguation
+        // before firing; the gallery adapter's root.setOnClickListener,
+        // which PhotoView's own internal touch handling can simply never
+        // let bubble up to the parent for a tap ON the photo — only video
+        // items forwarded their click) meant a tap could easily fail to
+        // toggle the bar, most noticeably on the very next tap right after
+        // one that just hid it.
+        // FIX: feed every touch event here, at the very top of dispatch,
+        // into one GestureDetector for the whole Activity. onSingleTapUp
+        // fires immediately on lift-off — no disambiguation wait — and
+        // this never consumes the event (always returns false from
+        // onSingleTapUp), so it doesn't affect the underlying PhotoView's
+        // own pinch/double-tap-zoom or the gallery pager's paging at all.
+        // Skipped during gallery multi-select, where a tap should only
+        // toggle that item's selection checkbox, not the bar.
+        if (!gallerySelecting && tapToggleDetector != null) {
+            tapToggleDetector.onTouchEvent(ev);
         }
         return super.dispatchTouchEvent(ev);
     }

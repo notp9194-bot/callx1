@@ -25,6 +25,11 @@ final class MediaRenderer {
     MediaRenderer(MessageBubbleCanvasView host) {
         this.host = host;
         gifBadgeBgPaint.setColor(0xCC000000);
+        voiceBadgeBgPaint.setColor(0xCC000000);
+        voiceBadgeIconPaint.setColor(0xFFFFFFFF);
+        voiceBadgeIconPaint.setStyle(Paint.Style.FILL);
+        voiceBadgeDurPaint.setColor(0xFFFFFFFF);
+        voiceBadgeDurPaint.setTextSize(host.spToPx(11f));
     }
 
     // ── PERF: BitmapShader cache ─────────────────────────────────────────
@@ -66,6 +71,18 @@ final class MediaRenderer {
     // Reused via .set() instead — zero allocation on the hot path.
     private final RectF gifBadgeRectF = new RectF();
     private final RectF durationBadgeRectF = new RectF();
+
+    // ── Feature: Voice Caption on Photo (Canvas) ───────────────────────
+    // Play/pause + duration pill overlaid on the media rect's bottom-start
+    // corner for an image that also carries a short attached voice note
+    // (host.voiceUrl). Same dark-pill visual language as gifBadgeBgPaint/
+    // the group duration badge, just its own paints since the pill's
+    // white icon+text combo doesn't match either of those exactly.
+    private final Paint voiceBadgeBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint voiceBadgeIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final android.text.TextPaint voiceBadgeDurPaint = new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF voiceBadgePillRectF = new RectF();
+    private final android.graphics.Path voiceBadgeGlyphPath = new android.graphics.Path();
 
     void draw(Canvas canvas, int hPad, int vPad) {
         draw(canvas, hPad, vPad, false);
@@ -158,6 +175,31 @@ final class MediaRenderer {
 
         if (host.isVideoMedia) {
             drawVideoPlayOverlay(canvas);
+        }
+
+        // ── Feature: Voice Caption on Photo (Canvas) ────────────────────
+        // Skipped while mediaGated (nothing meaningful to overlay on an
+        // unfetched image yet — same precedent as the GIF/video overlays
+        // above, which the download gate below covers instead). Drawn
+        // regardless of mediaHasCaption: unlike the legacy View bubble's
+        // bottom-pinned gradient scrim (which the caption text itself sits
+        // inside of), Canvas's caption is a separate row BELOW mediaRect
+        // (see the mediaHasCaption branch further down), so the badge —
+        // which lives entirely inside mediaRect — never visually competes
+        // with it either way. The bottom inset still widens a little when
+        // a caption is present so the badge doesn't sit flush against the
+        // exact edge where the caption block begins right underneath.
+        if (host.voiceUrl != null && !host.voiceUrl.isEmpty()) {
+            if (!host.mediaGated) {
+                float badgeBottomInset = (host.mediaHasCaption ? 10f : 6f) * host.density;
+                float badgeX = host.mediaRect.left + 6f * host.density;
+                float badgeY = host.mediaRect.bottom - badgeBottomInset;
+                drawVoiceBadge(canvas, badgeX, badgeY);
+            } else {
+                host.voiceBadgeRect.setEmpty();
+            }
+        } else {
+            host.voiceBadgeRect.setEmpty();
         }
 
         if (host.mediaGated) {
@@ -276,6 +318,95 @@ final class MediaRenderer {
             float textBaseline = durationBadgeRectF.bottom - durPadV - host.groupDurationTextPaint.descent();
             canvas.drawText(host.videoDuration, durationBadgeRectF.left + durPadH, textBaseline, host.groupDurationTextPaint);
         }
+    }
+
+    /**
+     * PERF (ultra): Paint.measureText() walks every glyph in the string —
+     * cheap once, but this badge can redraw on every full-bubble
+     * cache rebuild (any unrelated field on the bubble changing) PLUS
+     * every isVoicePlaying toggle's own dirty-rect redraw (see
+     * MessageBubbleCanvasView#invalidateVoiceBadgeRegion). The duration
+     * string itself is static for the whole lifetime of a bind — only
+     * isVoicePlaying ticks, never voiceDuration (see setVoiceCaption's
+     * javadoc) — so both the measured text width AND the pill's derived
+     * width/height (same inputs → same output, every single time) are
+     * cached here and only ever recomputed when the string actually
+     * changes. Same precedent as measureDurationText()'s video-duration
+     * cache just above. After the first draw of a given duration string,
+     * every subsequent draw call pays zero measureText cost — pure field
+     * reads instead.
+     */
+    private String cachedVoiceDurText;
+    private float cachedVoiceDurTextWidth;
+    private float cachedVoicePillW, cachedVoicePillH;
+
+    private void ensureVoiceBadgeGeometry(String durText, float density) {
+        if (durText.equals(cachedVoiceDurText)) return; // cache hit — nothing changed since last draw
+        cachedVoiceDurText = durText;
+        cachedVoiceDurTextWidth = voiceBadgeDurPaint.measureText(durText);
+        float iconD = 22f * density;
+        float padH = 8f * density;
+        float padV = 5f * density;
+        float gap = 6f * density;
+        float textH = voiceBadgeDurPaint.descent() - voiceBadgeDurPaint.ascent();
+        cachedVoicePillH = Math.max(iconD, textH) + padV * 2;
+        cachedVoicePillW = padH + iconD + gap + cachedVoiceDurTextWidth + padH;
+    }
+
+    /**
+     * Feature: Voice Caption on Photo (Canvas). Draws a play/pause +
+     * duration pill (bg_voice_duration_pill's look, drawn manually here
+     * instead of a Drawable) whose bottom-start corner anchors at (x, y).
+     * Mirrors the legacy fl_voice_on_image treatment: dark translucent
+     * pill, white glyph, white "m:ss" duration label. Records the pill's
+     * final bounds into host.voiceBadgeRect so onTouchEvent can hit-test
+     * taps on it (see MessageBubbleCanvasView#onTouchEvent's voiceBadgeRect
+     * block, checked BEFORE the general mediaRect tap).
+     */
+    private void drawVoiceBadge(Canvas canvas, float x, float y) {
+        float density = host.density;
+        float iconD = 22f * density;
+        float padH = 8f * density;
+        float gap = 6f * density;
+        String durText = host.voiceDuration != null ? host.voiceDuration : "0:00";
+        ensureVoiceBadgeGeometry(durText, density); // PERF: no-op (field reads only) unless durText changed
+        float pillH = cachedVoicePillH;
+        float pillW = cachedVoicePillW;
+
+        // (x, y) is the bottom-start anchor point of the pill.
+        voiceBadgePillRectF.set(x, y - pillH, x + pillW, y);
+        float r = pillH / 2f;
+        canvas.drawRoundRect(voiceBadgePillRectF, r, r, voiceBadgeBgPaint);
+
+        float iconCx = voiceBadgePillRectF.left + padH + iconD / 2f;
+        float iconCy = voiceBadgePillRectF.centerY();
+        if (host.isVoicePlaying) {
+            // Pause glyph — two rounded vertical bars.
+            float barW = iconD * 0.16f;
+            float barH = iconD * 0.55f;
+            float barGap = iconD * 0.18f;
+            float barR = 1.5f * density;
+            canvas.drawRoundRect(iconCx - barGap / 2f - barW, iconCy - barH / 2f,
+                    iconCx - barGap / 2f, iconCy + barH / 2f, barR, barR, voiceBadgeIconPaint);
+            canvas.drawRoundRect(iconCx + barGap / 2f, iconCy - barH / 2f,
+                    iconCx + barGap / 2f + barW, iconCy + barH / 2f, barR, barR, voiceBadgeIconPaint);
+        } else {
+            // Play glyph — filled triangle, same construction as
+            // drawVideoPlayOverlay's triangle just below/left of center.
+            float triR = iconD * 0.32f;
+            voiceBadgeGlyphPath.reset();
+            voiceBadgeGlyphPath.moveTo(iconCx - triR * 0.55f, iconCy - triR * 0.85f);
+            voiceBadgeGlyphPath.lineTo(iconCx - triR * 0.55f, iconCy + triR * 0.85f);
+            voiceBadgeGlyphPath.lineTo(iconCx + triR * 0.95f, iconCy);
+            voiceBadgeGlyphPath.close();
+            canvas.drawPath(voiceBadgeGlyphPath, voiceBadgeIconPaint);
+        }
+
+        float textBaseline = voiceBadgePillRectF.centerY()
+                - (voiceBadgeDurPaint.ascent() + voiceBadgeDurPaint.descent()) / 2f;
+        canvas.drawText(durText, iconCx + iconD / 2f + gap, textBaseline, voiceBadgeDurPaint);
+
+        host.voiceBadgeRect.set(voiceBadgePillRectF);
     }
 
     /**

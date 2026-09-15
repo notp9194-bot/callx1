@@ -206,11 +206,19 @@ public class GalleryPagerAdapter extends RecyclerView.Adapter<GalleryPagerAdapte
         h.checkbox.setChecked(selectedPositions.contains(position));
 
         h.root.setOnClickListener(v -> {
+            // BUG FIX: this used to also call tapListener.onTap() (→
+            // toggleUI()) here when not in select mode. MediaViewerActivity
+            // now toggles the top bar itself via a dispatchTouchEvent-level
+            // GestureDetector (see its class doc) that sees every tap
+            // regardless of whether it lands on an image or a video page —
+            // calling it a second time from here would double-toggle a
+            // video-page tap (immediate here, then again from that
+            // detector), which nets out to no visible change at all. Select
+            // mode still toggles the item's checkbox from right here, same
+            // as before.
             if (selectMode) {
                 toggleSelected(position);
                 if (selectionToggleListener != null) selectionToggleListener.onToggle(position);
-            } else if (tapListener != null) {
-                tapListener.onTap();
             }
         });
         h.root.setOnLongClickListener(v -> {

@@ -277,6 +277,39 @@
                 </LinearLayout>
             </FrameLayout>
 
+            <!--
+                Feature: Voice Caption on Photo — WhatsApp-style caption strip
+                for the legacy image bubble (used whenever m.voiceUrl is set,
+                see MessagePagingAdapter's "image" bind case / isCanvasEligible).
+                Mirrors MediaGroupLayoutHelper's group-caption pattern: a
+                bottom-pinned gradient scrim + white text, OVERLAPPING the
+                photo rather than a separate row below it. Both gone by
+                default; bindImageCaptionOnLegacyBubble() shows them only
+                when m.caption is non-empty, and nudges fl_voice_on_image up
+                so the two never overlap.
+            -->
+            <View
+                android:id="@+id/view_image_caption_scrim"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_gravity="bottom"
+                android:background="@drawable/bg_image_caption_scrim"
+                android:visibility="gone"/>
+
+            <TextView
+                android:id="@+id/tv_image_caption"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:layout_marginBottom="6dp"
+                android:textColor="#FFFFFFFF"
+                android:textSize="14sp"
+                android:maxLines="3"
+                android:ellipsize="end"
+                android:visibility="gone"/>
+
             <!-- Multi Media Group -->
             <LinearLayout
                 android:id="@+id/ll_media_group"
