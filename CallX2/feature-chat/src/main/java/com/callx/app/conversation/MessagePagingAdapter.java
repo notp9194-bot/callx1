@@ -2318,7 +2318,7 @@ public class MessagePagingAdapter
         // correctness bonus: the position is never stale after a list
         // reorder, unlike the old captured-at-bind-time int.
         if (vh.flVoiceOnImage != null) {
-            vh.flVoiceOnImage.setOnClickListener(v -> {
+            vh.flVoiceOnImage.setOnClickListener(badgeView -> {
                 Message cm = vh.boundMessage;
                 if (cm == null || cm.voiceUrl == null || cm.voiceUrl.isEmpty()) return;
                 int pos = vh.getBindingAdapterPosition();
