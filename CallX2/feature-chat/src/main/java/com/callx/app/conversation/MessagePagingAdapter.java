@@ -5846,7 +5846,15 @@ public class MessagePagingAdapter
                                 // reads as a soft preview instead of hard
                                 // blocky pixels (WhatsApp-style pre-download
                                 // placeholder look).
-                                .transform(new com.callx.app.utils.TinyThumbBlurTransformation(16))
+                                // PERF (ultra): blur itself now runs at a
+                                // 32px working size internally (downscale ->
+                                // blur -> upscale, see
+                                // TinyThumbBlurTransformation), so radius=3
+                                // here is the correctly-rescaled equivalent
+                                // of the old radius=16 full-res blur — do
+                                // NOT bump this back up to 16, it'll over-
+                                // blur at the smaller working resolution.
+                                .transform(new com.callx.app.utils.TinyThumbBlurTransformation(3))
                                 .placeholder(R.drawable.bg_skeleton_rect)
                                 .error(R.drawable.bg_skeleton_rect)
                                 .listener(new com.bumptech.glide.request.RequestListener<Bitmap>() {
@@ -5901,7 +5909,11 @@ public class MessagePagingAdapter
                                 .load(derivedThumb)
                                 .apply(THUMB_RGB565)
                                 .override(200, 200)
-                                .transform(new com.callx.app.utils.TinyThumbBlurTransformation(16))
+                                // NOTE: no TinyThumbBlurTransformation here —
+                                // derivedThumb is a real 200px Cloudinary
+                                // webp transform (not the 24×24 ImageCompressor
+                                // thumb), so it's already sharp; blurring it
+                                // would just throw away quality for nothing.
                                 .placeholder(R.drawable.bg_skeleton_rect)
                                 .error(R.drawable.bg_skeleton_rect)
                                 .listener(new com.bumptech.glide.request.RequestListener<Bitmap>() {
@@ -6057,10 +6069,16 @@ public class MessagePagingAdapter
                         // versa) overwrites the prior one in Glide — they
                         // must go in via a single MultiTransformation to
                         // both apply. Blur radius here matches the tiny
-                        // 24×24 thumbUrl source (see ImageCompressor).
+                        // 24×24-longest-side thumbUrl source (see
+                        // ImageCompressor). ORDER FIX: blur now runs BEFORE
+                        // centerCrop (was after) — blurring the still-tiny,
+                        // aspect-preserved source is cheaper and correct;
+                        // blurring AFTER centerCrop meant blurring an
+                        // already-upscaled/cropped bubble bitmap, which is
+                        // more work and can smear the crop's edges.
                         .transform(new com.bumptech.glide.load.MultiTransformation<>(
-                                new com.bumptech.glide.load.resource.bitmap.CenterCrop(),
-                                new com.callx.app.utils.TinyThumbBlurTransformation(16)))
+                                new com.callx.app.utils.TinyThumbBlurTransformation(3),
+                                new com.bumptech.glide.load.resource.bitmap.CenterCrop()))
                         .placeholder(R.drawable.bg_skeleton_rect)
                         .into(h.ivVideoThumb);
                     } // else: BlurHash / skeleton stays until thumb URL arrives
@@ -6114,14 +6132,24 @@ public class MessagePagingAdapter
                     // Fallback: layout without fl_video — show thumbnail in ivImage
                     h.ivImage.setVisibility(View.VISIBLE);
                     String vUrl     = m.mediaUrl != null ? m.mediaUrl : m.text;
+                    // BUG FIX: was falling back to vUrl (the raw video file)
+                    // when thumbnailUrl was missing — same mistake called out
+                    // above at the flVideo branch (BUG FIX v44): Glide tries
+                    // to decode an mp4 as an image and ends up downloading
+                    // the whole file. Now: only load when a real thumbnailUrl
+                    // exists, else leave the skeleton placeholder up.
                     String thumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
-                            ? m.thumbnailUrl : vUrl;
-                    glide(ctx).load(thumbUrl)
-                        .apply(THUMB_RGB565)
-                        .override(thumbPx(ctx), thumbPx(ctx)) // PERF #4: density-aware size
-                        .transform(new com.callx.app.utils.TinyThumbBlurTransformation(16))
-                        .placeholder(R.drawable.bg_skeleton_rect)
-                        .into(h.ivImage);
+                            ? m.thumbnailUrl : null;
+                    if (thumbUrl != null) {
+                        glide(ctx).load(thumbUrl)
+                            .apply(THUMB_RGB565)
+                            .override(thumbPx(ctx), thumbPx(ctx)) // PERF #4: density-aware size
+                            .transform(new com.callx.app.utils.TinyThumbBlurTransformation(3))
+                            .placeholder(R.drawable.bg_skeleton_rect)
+                            .into(h.ivImage);
+                    } else {
+                        h.ivImage.setImageResource(R.drawable.bg_skeleton_rect);
+                    }
                     h.ivImage.setOnClickListener(v -> {
                         if (multiSelectMode) {
                             h.itemView.callOnClick();

@@ -54,7 +54,7 @@ public class ImageCompressor {
     // so shrunk further to cut thumbUrl size ~99% — 200px producing ~30-50KB
     // was already the mobile-data cost of a whole small image just for the
     // pre-download placeholder.
-    private static final int  THUMB_SIZE       = 24;      // square thumbnail px
+    private static final int  THUMB_SIZE       = 24;      // longest-side thumbnail px (aspect preserved, not square)
     private static final int  FULL_QUALITY     = 80;      // WebP quality
     private static final int  THUMB_QUALITY    = 25;
     private static final long FULL_TARGET_BYTES  = 800_000L; // 800 KB max
@@ -178,8 +178,8 @@ public class ImageCompressor {
         int    fullH    = fullBmp.getHeight();
         File   fullFile = writeWebP(ctx, fullBmp, "full_", quality, target);
 
-        // 4. Thumbnail: center-crop square + compress
-        Bitmap thumbBmp  = centerCropSquare(bmp, THUMB_SIZE);
+        // 4. Thumbnail: aspect-preserving downscale (no crop) + compress
+        Bitmap thumbBmp  = resizeKeepAspect(bmp, THUMB_SIZE);
         File   thumbFile = writeWebP(ctx, thumbBmp, "thumb_", THUMB_QUALITY, THUMB_TARGET_BYTES);
 
         // 5. Cleanup
@@ -295,16 +295,20 @@ public class ImageCompressor {
         return out;
     }
 
-    // ── Step 4: Center-crop square thumbnail ──────────────────────────────
-
-    private static Bitmap centerCropSquare(Bitmap src, int size) {
+    // ── Step 4: Aspect-preserving thumbnail resize ────────────────────────
+    // FIX: was centerCropSquare() — forced a square thumb regardless of the
+    // media's real aspect ratio, but the bubble (MessageBubbleCanvasView)
+    // renders in the ORIGINAL aspect ratio. A square source stretched/cropped
+    // into a non-square bubble by Glide's centerCrop() distorted or
+    // wrong-cropped the preview. Now: scale the longest side down to `size`,
+    // keep both dimensions proportional (no crop) — matches WhatsApp, whose
+    // pre-download preview is also ratio-preserved, not square.
+    private static Bitmap resizeKeepAspect(Bitmap src, int longSide) {
         int w = src.getWidth(), h = src.getHeight();
-        int min = Math.min(w, h);
-        int x = (w - min) / 2, y = (h - min) / 2;
-        Bitmap cropped = Bitmap.createBitmap(src, x, y, min, min);
-        Bitmap scaled  = Bitmap.createScaledBitmap(cropped, size, size, true);
-        if (cropped != scaled) cropped.recycle();
-        return scaled;
+        float scale = longSide / (float) Math.max(w, h);
+        int nw = Math.max(1, Math.round(w * scale));
+        int nh = Math.max(1, Math.round(h * scale));
+        return Bitmap.createScaledBitmap(src, nw, nh, true);
     }
 
     // ── Step 5: WebP write with adaptive quality ──────────────────────────
