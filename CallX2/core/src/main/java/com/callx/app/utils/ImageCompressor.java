@@ -24,7 +24,9 @@ import java.util.concurrent.Executors;
  * ImageCompressor — WhatsApp-level image compression
  *
  * FLOW: Original → EXIF fix → Resize → WebP compress
- *   ├── Thumbnail  (~30KB,  200×200px)    ← chat list / quick preview
+ *   ├── Thumbnail  (~300-500B, 24×24px)   ← chat bubble pre-download preview
+ *   │                                        (rendered blurred — see
+ *   │                                        TinyThumbBlurTransformation)
  *   └── Full image (~400KB, max 1280px)   ← full view (default/"Standard")
  *
  * Two quality tiers, same as WhatsApp's attach-sheet HD toggle — neither
@@ -47,11 +49,16 @@ public class ImageCompressor {
     // ── Config: Standard tier (HD off — default) ─────────────────────────────
     private static final int  FULL_MAX_WIDTH   = 1280;
     private static final int  FULL_MAX_HEIGHT  = 1920;
-    private static final int  THUMB_SIZE       = 200;     // square thumbnail px
+    // 24-Sep-2026: was 200px/q65/50KB cap. Bubble only ever needs a blurred
+    // color/mood preview before download (see TinyThumbBlurTransformation),
+    // so shrunk further to cut thumbUrl size ~99% — 200px producing ~30-50KB
+    // was already the mobile-data cost of a whole small image just for the
+    // pre-download placeholder.
+    private static final int  THUMB_SIZE       = 24;      // square thumbnail px
     private static final int  FULL_QUALITY     = 80;      // WebP quality
-    private static final int  THUMB_QUALITY    = 65;
+    private static final int  THUMB_QUALITY    = 25;
     private static final long FULL_TARGET_BYTES  = 800_000L; // 800 KB max
-    private static final long THUMB_TARGET_BYTES =  50_000L; //  50 KB max
+    private static final long THUMB_TARGET_BYTES =     500L; // 500 bytes max
 
     // ── Config: HD tier (HD toggle ON) ───────────────────────────────────────
     // Still resized + re-encoded (never the raw original) — just capped much

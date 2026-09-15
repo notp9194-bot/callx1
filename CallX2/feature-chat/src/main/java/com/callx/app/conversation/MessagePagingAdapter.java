@@ -5839,6 +5839,14 @@ public class MessagePagingAdapter
                                 .load(thumbUrl)
                                 .apply(THUMB_RGB565)
                                 .override(200, 200)
+                                // FIX: source thumbUrl is now a 24×24px
+                                // compressed thumb (~99% smaller, see
+                                // ImageCompressor THUMB_SIZE) upscaled ~8x to
+                                // this 200x200 bubble slot — blur it so it
+                                // reads as a soft preview instead of hard
+                                // blocky pixels (WhatsApp-style pre-download
+                                // placeholder look).
+                                .transform(new com.callx.app.utils.TinyThumbBlurTransformation(16))
                                 .placeholder(R.drawable.bg_skeleton_rect)
                                 .error(R.drawable.bg_skeleton_rect)
                                 .listener(new com.bumptech.glide.request.RequestListener<Bitmap>() {
@@ -5893,6 +5901,7 @@ public class MessagePagingAdapter
                                 .load(derivedThumb)
                                 .apply(THUMB_RGB565)
                                 .override(200, 200)
+                                .transform(new com.callx.app.utils.TinyThumbBlurTransformation(16))
                                 .placeholder(R.drawable.bg_skeleton_rect)
                                 .error(R.drawable.bg_skeleton_rect)
                                 .listener(new com.bumptech.glide.request.RequestListener<Bitmap>() {
@@ -6044,8 +6053,15 @@ public class MessagePagingAdapter
                         .apply(THUMB_RGB565)
                         .thumbnail(0.1f) // PERF: render 10% low-res frame instantly, then upgrade
                         .override(thumbPx(ctx), thumbPx(ctx)) // PERF #4: density-aware size
+                        // FIX: .transform() after .centerCrop() (or vice
+                        // versa) overwrites the prior one in Glide — they
+                        // must go in via a single MultiTransformation to
+                        // both apply. Blur radius here matches the tiny
+                        // 24×24 thumbUrl source (see ImageCompressor).
+                        .transform(new com.bumptech.glide.load.MultiTransformation<>(
+                                new com.bumptech.glide.load.resource.bitmap.CenterCrop(),
+                                new com.callx.app.utils.TinyThumbBlurTransformation(16)))
                         .placeholder(R.drawable.bg_skeleton_rect)
-                        .centerCrop()
                         .into(h.ivVideoThumb);
                     } // else: BlurHash / skeleton stays until thumb URL arrives
                     // Duration overlay
@@ -6103,6 +6119,7 @@ public class MessagePagingAdapter
                     glide(ctx).load(thumbUrl)
                         .apply(THUMB_RGB565)
                         .override(thumbPx(ctx), thumbPx(ctx)) // PERF #4: density-aware size
+                        .transform(new com.callx.app.utils.TinyThumbBlurTransformation(16))
                         .placeholder(R.drawable.bg_skeleton_rect)
                         .into(h.ivImage);
                     h.ivImage.setOnClickListener(v -> {
