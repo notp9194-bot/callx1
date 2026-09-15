@@ -2018,6 +2018,20 @@ public class GroupChatActivity extends AppCompatActivity
                         .precomputePollOptionLayoutIfPossible(opt);
             }
         }
+        // PERF: same poll-question/reel-caption/location-address precompute
+        // as 1:1 ChatActivity.
+        if ("poll".equals(m.type) && m.pollQuestion != null) {
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                    .precomputePollQuestionLayoutIfPossible(m.pollQuestion);
+        }
+        if ("reel_share".equals(m.type) && m.reelShareCaption != null) {
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                    .precomputeReelCaptionLayoutIfPossible(m.reelShareCaption);
+        }
+        if ("location".equals(m.type) && m.locationAddress != null) {
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                    .precomputeLocationAddressLayoutIfPossible(m.locationAddress);
+        }
         // PERF ADV: same reply-preview precompute as 1:1 ChatActivity.
         if (m.replyToText != null && !m.replyToText.isEmpty()) {
             com.callx.app.conversation.canvas.MessageBubbleCanvasView

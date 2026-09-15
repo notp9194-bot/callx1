@@ -3035,8 +3035,9 @@ public class MessagePagingAdapter
                 cv.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
                 if (!multiSelectMode) {
                     enterMultiSelectMode(m);
-                } else if (actionListener != null) {
-                    showActionBottomSheet(ctx, m);
+                    if (actionListener != null) showActionBottomSheet(ctx, m);
+                } else {
+                    h.itemView.performClick();
                 }
             }
 
@@ -3186,7 +3187,8 @@ public class MessagePagingAdapter
                                                 m.messageId != null ? m.messageId : m.id, -1,
                                                 vUrl2, vUrl2, "video", null,
                                                 file.getAbsolutePath(), null,
-                                                cv.getMediaRectOnScreen());
+                                                cv.getMediaRectOnScreen(),
+                                                currentUid != null && currentUid.equals(m.senderId));
                                     });
                                 }
                                 @Override public void onError(String reason) {
@@ -3301,7 +3303,8 @@ public class MessagePagingAdapter
                                             m.messageId != null ? m.messageId : m.id, -1,
                                             vDlUrl, vDlUrl, "video", null,
                                             file.getAbsolutePath(), null,
-                                            cv.getMediaRectOnScreen());
+                                            cv.getMediaRectOnScreen(),
+                                            currentUid != null && currentUid.equals(m.senderId));
                                 });
                             }
                             @Override public void onError(String reason) {
@@ -5845,8 +5848,9 @@ public class MessagePagingAdapter
                         v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
                         if (!multiSelectMode) {
                             enterMultiSelectMode(m);
-                        } else if (actionListener != null) {
-                            showActionBottomSheet(ctx, m);
+                            if (actionListener != null) showActionBottomSheet(ctx, m);
+                        } else {
+                            h.itemView.callOnClick();
                         }
                         return true;
                     });
@@ -5887,8 +5891,9 @@ public class MessagePagingAdapter
                         v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
                         if (!multiSelectMode) {
                             enterMultiSelectMode(m);
-                        } else if (actionListener != null) {
-                            showActionBottomSheet(ctx, m);
+                            if (actionListener != null) showActionBottomSheet(ctx, m);
+                        } else {
+                            h.itemView.callOnClick();
                         }
                         return true;
                     });
@@ -5960,14 +5965,16 @@ public class MessagePagingAdapter
                         openChatMediaViewer(ctx, chatId, vMid, -1,
                                 vUrl, vUrl, "video", null,
                                 m.mediaLocalPath, null,
-                                com.callx.app.utils.MediaViewerSourceRect.ofView(h.flVideo));
+                                com.callx.app.utils.MediaViewerSourceRect.ofView(h.flVideo),
+                                currentUid != null && currentUid.equals(m.senderId));
                     });
                     h.flVideo.setOnLongClickListener(v -> {
                         v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
                         if (!multiSelectMode) {
                             enterMultiSelectMode(m);
-                        } else if (actionListener != null) {
-                            showActionBottomSheet(ctx, m);
+                            if (actionListener != null) showActionBottomSheet(ctx, m);
+                        } else {
+                            h.itemView.callOnClick();
                         }
                         return true;
                     });
@@ -5992,7 +5999,8 @@ public class MessagePagingAdapter
                         openChatMediaViewer(ctx, chatId, vMid, -1,
                                 vUrl, vUrl, "video", null,
                                 m.mediaLocalPath, null,
-                                com.callx.app.utils.MediaViewerSourceRect.ofView(h.ivImage));
+                                com.callx.app.utils.MediaViewerSourceRect.ofView(h.ivImage),
+                                currentUid != null && currentUid.equals(m.senderId));
                     });
                     // GAP FIX: same missing long-press wiring as the flVideo
                     // branch above — this fallback thumbnail had no way to
@@ -6001,8 +6009,9 @@ public class MessagePagingAdapter
                         v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
                         if (!multiSelectMode) {
                             enterMultiSelectMode(m);
-                        } else if (actionListener != null) {
-                            showActionBottomSheet(ctx, m);
+                            if (actionListener != null) showActionBottomSheet(ctx, m);
+                        } else {
+                            h.itemView.callOnClick();
                         }
                         return true;
                     });
@@ -6758,9 +6767,14 @@ public class MessagePagingAdapter
             // FIX: Haptic feedback on long press — production apps always do this
             v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
             if (!multiSelectMode) {
+                // WhatsApp-style: select + show top toolbar + open the
+                // reaction/action menu all in ONE long-press, not two.
                 enterMultiSelectMode(m);
-            } else {
                 if (actionListener != null) showActionBottomSheet(ctx, m);
+            } else {
+                // Already selecting — a long-press on another row just
+                // toggles it, same as a normal tap would.
+                v.performClick();
             }
             return true;
         });
@@ -7441,6 +7455,19 @@ public class MessagePagingAdapter
                                       String mediaType, @Nullable String fallbackMediaItemsJson,
                                       @Nullable String localPath, @Nullable String mediaKeyB64,
                                       @Nullable android.graphics.Rect srcRect) {
+        openChatMediaViewer(ctx, chatId, tappedMessageId, tappedSubIndex, fallbackUrl, fallbackThumb,
+                mediaType, fallbackMediaItemsJson, localPath, mediaKeyB64, srcRect, false);
+    }
+
+    // isOwnMessage — threaded through as the "isOwnMessage" extra so
+    // MediaViewerActivity's more-options (ℹ) menu only shows "Delete" for
+    // a message the current user actually sent (mirrors the old bottom
+    // sheet's `!isOwnMsg` guard on its Delete row).
+    private void openChatMediaViewer(Context ctx, @Nullable String chatId, @Nullable String tappedMessageId,
+                                      int tappedSubIndex, String fallbackUrl, String fallbackThumb,
+                                      String mediaType, @Nullable String fallbackMediaItemsJson,
+                                      @Nullable String localPath, @Nullable String mediaKeyB64,
+                                      @Nullable android.graphics.Rect srcRect, boolean isOwnMessage) {
         // (Plain local interface, not java.util.function.Consumer — minSdk
         // 23 here has no core-library desugaring set up.)
         final MediaViewerExtrasAttacher attachCommonExtras = i2 -> {
@@ -7454,6 +7481,7 @@ public class MessagePagingAdapter
                 i2.putExtra("chatId",    chatId);
                 i2.putExtra("messageId", tappedMessageId);
             }
+            i2.putExtra("isOwnMessage", isOwnMessage);
             if (mediaKeyB64 != null) {
                 i2.putExtra("mediaKeyB64", mediaKeyB64);
             }
@@ -7632,61 +7660,20 @@ public class MessagePagingAdapter
                                        String mediaType, @Nullable String localPathHint,
                                        @Nullable String mediaItemsJson, int startIndex,
                                        @Nullable android.graphics.Rect srcRect) {
-        final boolean isVideoSheet = "video".equals(mediaType);
-        com.google.android.material.bottomsheet.BottomSheetDialog bsd =
-                new com.google.android.material.bottomsheet.BottomSheetDialog(ctx);
-
-        android.widget.LinearLayout root = new android.widget.LinearLayout(ctx);
-        root.setOrientation(android.widget.LinearLayout.VERTICAL);
-        root.setBackgroundColor(android.graphics.Color.parseColor("#1E1E1E"));
-
-        // Drag handle
-        android.widget.FrameLayout handleWrap = new android.widget.FrameLayout(ctx);
-        android.view.View handle = new android.view.View(ctx);
-        int dp4  = dp(ctx, 4);
-        int dp36 = dp(ctx, 36);
-        int dp5  = dp(ctx, 5);
-        android.widget.FrameLayout.LayoutParams handleLp =
-                new android.widget.FrameLayout.LayoutParams(dp36, dp4);
-        handleLp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
-        handle.setLayoutParams(handleLp);
-        handle.setBackgroundColor(android.graphics.Color.parseColor("#555555"));
-        android.view.ViewGroup.MarginLayoutParams hlm = (android.view.ViewGroup.MarginLayoutParams) handle.getLayoutParams();
-        hlm.topMargin = dp5;
-        hlm.bottomMargin = dp5;
-        handleWrap.setPadding(0, dp5, 0, dp5);
-        handleWrap.addView(handle);
-        root.addView(handleWrap);
-
-        // Options: View, Edit, Save to Gallery, Share, Forward, Star, Delete
-        // "Save to Gallery" appears for RECEIVED images that are already downloaded;
-        // if not yet cached, it downloads first then saves — WhatsApp style.
-        // BUG FIX: "Edit" was missing here entirely, and "View" never passed
-        // chatId/messageId — so even opening the viewer and tapping ITS edit
-        // pencil always hit MediaViewerActivity's "Can't edit — not opened
-        // from a chat" guard (replyChatId/replyMessageId were always null
-        // for single-image messages, since this bottom sheet is the only
-        // entry point into MediaViewerActivity for them). Grouped-media taps
-        // already passed chatId/messageId correctly — only this single-media
-        // sheet was missing it.
-        String viewLabel = isVideoSheet ? "▶  Play" : "🖼  View";
-        String[] labels  = {viewLabel, "✏️  Edit", "💾  Save", "↗  Share", "↪  Forward", "⭐  Star", "🗑  Delete"};
-        int[]    colors  = {0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFFFFFF,  0xFFFF5252 };
-
-        boolean isOwnMsg = currentUid != null && currentUid.equals(m.senderId);
+        // REMOVED (WhatsApp-style direct open): this used to build a
+        // BottomSheetDialog with View/Edit/Save/Share/Forward/Star/Delete
+        // and make the user pick "View"/"Play" before the viewer actually
+        // opened. Tapping media now opens MediaViewerActivity straight
+        // away — View/Edit/Save/Share are already top-bar icons there, and
+        // Forward/Star/Delete (the three actions that only existed in this
+        // sheet) now live inside MediaViewerActivity's own "more options"
+        // (ℹ) menu — see MediaViewerActivity#showMoreOptionsMenu().
         final String sheetMessageId = (m.messageId != null && !m.messageId.isEmpty()) ? m.messageId : m.id;
+        boolean isOwnMsg = currentUid != null && currentUid.equals(m.senderId);
 
-        // BUG FIX (Voice Caption on Photo — image can't be opened after
-        // send): a Media-E2E image/video's fullUrl is CIPHERTEXT
-        // (resource_type=raw). VIEW/EDIT/SAVE below used to hand that
-        // straight to MediaViewerActivity / MediaCache with no decrypt key
-        // at all — only the sender's own mediaLocalPath fallback ever made
-        // it viewable, so a RECEIVER tapping View/Save on an E2E image (the
-        // legacy voice-caption bubble is the only bubble that reaches this
-        // gap in practice, since the Canvas path decrypts inline before the
-        // sheet ever opens) got a broken/undecodable file. Derive the
-        // full-res subkey once here — same decryptKeyOnly() pattern already
-        // used for E2E audio/video elsewhere — and thread it through.
+        // Media E2E — a Media-E2E image/video's fullUrl is CIPHERTEXT
+        // (resource_type=raw); derive the full-res subkey the same way the
+        // old sheet's View/Save actions did so the viewer can decrypt it.
         final byte[] sheetMediaKey = (!isOwnMsg && m.mediaKeyEnc != null)
                 ? com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(ctx, m.mediaKeyEnc,
                         m.senderId, sheetMessageId)
@@ -7695,168 +7682,12 @@ public class MessagePagingAdapter
                 ? android.util.Base64.encodeToString(sheetMediaKey, android.util.Base64.NO_WRAP)
                 : null;
 
-        for (int idx = 0; idx < labels.length; idx++) {
-            // Skip Delete if not own message; skip Edit if not own message
-            if (labels[idx].contains("Delete") && !isOwnMsg) continue;
-            if (labels[idx].contains("Edit") && !isOwnMsg) continue;
-
-            android.widget.TextView tv = new android.widget.TextView(ctx);
-            tv.setText(labels[idx]);
-            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f);
-            tv.setTextColor(colors[idx]);
-            tv.setPadding(dp(ctx, 20), dp(ctx, 15), dp(ctx, 20), dp(ctx, 15));
-            tv.setBackground(getRippleDrawable(ctx));
-
-            final String label = labels[idx];
-            final String action = (idx == 0) ? "VIEW"
-                    : label.contains("Edit") ? "EDIT"
-                    : label.contains("Save") ? "SAVE"
-                    : label.contains("Share") ? "SHARE"
-                    : label.contains("Forward") ? "FORWARD"
-                    : label.contains("Star") ? "STAR"
-                    : "DELETE";
-            tv.setOnClickListener(v -> {
-                bsd.dismiss();
-                switch (action) {
-                    case "VIEW": {
-                        // WhatsApp-style local-first: hand the original local
-                        // file/content Uri to the viewer too — it'll render
-                        // from this (full quality) as long as it still exists
-                        // on the device, falling back to `url` otherwise.
-                        // Prefer the caller-supplied hint (e.g. a receiver's
-                        // already-downloaded video cache path) over the raw
-                        // message field, but fall back to it either way.
-                        final String localPath = localPathHint != null ? localPathHint : m.mediaLocalPath;
-                        openChatMediaViewer(ctx, chatId, sheetMessageId, startIndex,
-                                fullUrl, thumbForViewer, mediaType, mediaItemsJson,
-                                localPath, sheetMediaKeyB64, srcRect);
-                        break;
-                    }
-                    case "EDIT": {
-                        // WhatsApp-style: go straight into the full-screen
-                        // editor instead of making the user View first, then
-                        // tap Edit again inside the viewer. MediaEditActivity
-                        // fully supports video (MediaViewerActivity's own
-                        // Edit handler already relies on this), so this path
-                        // is identical for image and video — only the
-                        // "type" extra changes.
-                        android.content.Intent ei = new android.content.Intent()
-                                .setClassName(ctx.getPackageName(),
-                                        "com.callx.app.activities.MediaViewerActivity");
-                        ei.putExtra("url",      fullUrl);
-                        ei.putExtra("thumbUrl", thumbForViewer);
-                        ei.putExtra("type",     mediaType);
-                        ei.putExtra("autoEdit", true);
-                        String editLocalPath = localPathHint != null ? localPathHint : m.mediaLocalPath;
-                        if (editLocalPath != null && !editLocalPath.isEmpty()) {
-                            ei.putExtra("localPath", editLocalPath);
-                        }
-                        if (chatId != null && sheetMessageId != null) {
-                            ei.putExtra("chatId",    chatId);
-                            ei.putExtra("messageId", sheetMessageId);
-                        } else {
-                            android.widget.Toast.makeText(ctx, "Can't edit — not opened from a chat", android.widget.Toast.LENGTH_SHORT).show();
-                            break;
-                        }
-                        // Media E2E — see sheetMediaKeyB64 derivation above.
-                        if (sheetMediaKeyB64 != null) {
-                            ei.putExtra("mediaKeyB64", sheetMediaKeyB64);
-                        }
-                        ctx.startActivity(ei);
-                        break;
-                    }
-                    case "SAVE": {
-                        // WhatsApp-style: save to gallery.
-                        // If already cached → save immediately.
-                        // If not cached → download first, then save.
-                        final android.content.Context appCtx = ctx.getApplicationContext();
-                        java.io.File alreadyCached = com.callx.app.utils.MediaCache.getCached(appCtx, fullUrl);
-                        String savedMsg = isVideoSheet ? "Saved video to gallery" : "Saved to gallery";
-                        if (alreadyCached != null) {
-                            com.callx.app.utils.MediaSaveHelper.save(
-                                    appCtx, alreadyCached, mediaType, fullUrl,
-                                    new com.callx.app.utils.MediaSaveHelper.Callback() {
-                                @Override public void onSaved(android.net.Uri uri) {
-                                    android.widget.Toast.makeText(appCtx,
-                                            savedMsg, android.widget.Toast.LENGTH_SHORT).show();
-                                }
-                                @Override public void onError(String reason) {
-                                    android.widget.Toast.makeText(appCtx,
-                                            "Save failed: " + reason, android.widget.Toast.LENGTH_SHORT).show();
-                                }
-                            });
-                        } else {
-                            android.widget.Toast.makeText(appCtx,
-                                    "Downloading…", android.widget.Toast.LENGTH_SHORT).show();
-                            // Media E2E — see sheetMediaKey derivation above; without
-                            // this, a Media-E2E image/video saved to gallery via this
-                            // path saved raw ciphertext bytes instead of the photo.
-                            com.callx.app.utils.MediaCache.getWithProgress(appCtx, fullUrl, sheetMediaKey,
-                                    new com.callx.app.utils.MediaCache.ProgressCallback() {
-                                @Override public void onProgress(int percent) {}
-                                @Override public void onReady(java.io.File file) {
-                                    com.callx.app.utils.MediaSaveHelper.save(
-                                            appCtx, file, mediaType, fullUrl,
-                                            new com.callx.app.utils.MediaSaveHelper.Callback() {
-                                        @Override public void onSaved(android.net.Uri uri) {
-                                            android.widget.Toast.makeText(appCtx,
-                                                    savedMsg, android.widget.Toast.LENGTH_SHORT).show();
-                                        }
-                                        @Override public void onError(String reason) {
-                                            android.widget.Toast.makeText(appCtx,
-                                                    "Save failed: " + reason, android.widget.Toast.LENGTH_SHORT).show();
-                                        }
-                                    });
-                                }
-                                @Override public void onError(String reason) {
-                                    android.widget.Toast.makeText(appCtx,
-                                            "Download failed", android.widget.Toast.LENGTH_SHORT).show();
-                                }
-                            });
-                        }
-                        break;
-                    }
-                    case "SHARE":
-                        android.content.Intent share = new android.content.Intent(
-                                android.content.Intent.ACTION_SEND);
-                        share.setType("text/plain");
-                        share.putExtra(android.content.Intent.EXTRA_TEXT, fullUrl);
-                        ctx.startActivity(android.content.Intent.createChooser(share, "Share via"));
-                        break;
-                    case "FORWARD":
-                        if (actionListener != null) actionListener.onForward(m);
-                        break;
-                    case "STAR":
-                        if (actionListener != null) actionListener.onStar(m);
-                        break;
-                    case "DELETE":
-                        if (actionListener != null) actionListener.onDelete(m);
-                        break;
-                }
-            });
-            root.addView(tv);
-
-            // Divider (not after last)
-            if (idx < labels.length - 1 && !(idx == labels.length - 2 && !isOwnMsg)) {
-                android.view.View div = new android.view.View(ctx);
-                android.widget.LinearLayout.LayoutParams dlp =
-                        new android.widget.LinearLayout.LayoutParams(
-                                android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1);
-                dlp.setMarginStart(dp(ctx, 20));
-                div.setLayoutParams(dlp);
-                div.setBackgroundColor(android.graphics.Color.parseColor("#333333"));
-                root.addView(div);
-            }
-        }
-
-        root.setPadding(0, 0, 0, dp(ctx, 16));
-        bsd.setContentView(root);
-        // Dark bottom sheet
-        if (bsd.getWindow() != null) {
-            bsd.getWindow().setNavigationBarColor(android.graphics.Color.parseColor("#1E1E1E"));
-        }
-        bsd.show();
+        final String localPath = localPathHint != null ? localPathHint : m.mediaLocalPath;
+        openChatMediaViewer(ctx, chatId, sheetMessageId, startIndex,
+                fullUrl, thumbForViewer, mediaType, mediaItemsJson,
+                localPath, sheetMediaKeyB64, srcRect, isOwnMsg);
     }
+
 
     private int dp(Context ctx, int value) {
         return (int)(value * ctx.getResources().getDisplayMetrics().density);

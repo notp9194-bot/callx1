@@ -123,6 +123,12 @@ public class MediaViewerActivity extends AppCompatActivity {
     // ── "Edit" action (WhatsApp-style: view a photo → edit → resend) ────
     private ActivityResultLauncher<Intent> mediaEditLauncher;
 
+    // Whether the current user sent this message — set from the
+    // "isOwnMessage" intent extra (see MessagePagingAdapter#openChatMediaViewer).
+    // Gates the "Delete" row in showMoreOptionsMenu(), same as the old
+    // pre-viewer bottom sheet's own own-message guard on its Delete row.
+    private boolean isOwnMessage;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -178,6 +184,7 @@ public class MediaViewerActivity extends AppCompatActivity {
         // viewer, all-media grid, etc.) and simply disables presence.
         playbackChatId    = getIntent().getStringExtra("chatId");
         playbackMessageId = getIntent().getStringExtra("messageId");
+        isOwnMessage      = getIntent().getBooleanExtra("isOwnMessage", false);
 
         // Close button
         binding.btnClose.setOnClickListener(v -> closeViewer());
@@ -905,17 +912,25 @@ public class MediaViewerActivity extends AppCompatActivity {
         exitSelectMode();
     }
 
-    // ── #4/#2 — single-item more-options menu (delete / star / edit caption) ─
+    // ── #4/#2 — single-item more-options menu (forward / star / delete /
+    // edit caption). Forward/Star/Delete used to live ONLY in the chat's
+    // pre-viewer bottom sheet (showMediaActionSheet); that sheet is gone
+    // now — tapping media opens straight into this viewer, so those three
+    // actions moved here, into the existing "more options" (ℹ) menu. Save
+    // and Share were already top-bar icons and stay there unchanged.
     private void showMoreOptionsMenu() {
         boolean isGalleryMode = galleryItems != null && !galleryItems.isEmpty();
         java.util.List<String> labels = new ArrayList<>();
         labels.add("Save to gallery");
         labels.add("Share");
         if (isGalleryMode && replyChatId != null && replyMessageId != null) {
-            labels.add("Select multiple");
-            labels.add("Remove this item from group");
+            labels.add("Forward");
             labels.add("Star this item");
+            labels.add("Select multiple");
             labels.add("Edit caption for this item");
+            // Delete — only for a message the current user actually sent,
+            // same guard the old sheet's "🗑 Delete" row used.
+            if (isOwnMessage) labels.add("Delete");
         }
         new android.app.AlertDialog.Builder(this)
                 .setItems(labels.toArray(new String[0]), (d, which) -> {
@@ -923,14 +938,26 @@ public class MediaViewerActivity extends AppCompatActivity {
                     switch (chosen) {
                         case "Save to gallery": saveCurrentToGallery(); break;
                         case "Share": shareMedia(sharedUrl); break;
+                        case "Forward": forwardSingleActiveItem(); break;
                         case "Select multiple": enterSelectMode(galleryActivePos); break;
-                        case "Remove this item from group": deleteSingleActiveItem(); break;
+                        case "Delete": deleteSingleActiveItem(); break;
                         case "Star this item": starSingleActiveItem(); break;
                         case "Edit caption for this item": editCaptionForActiveItem(); break;
                         default: break;
                     }
                 })
                 .show();
+    }
+
+    // Forward just the currently-active item — same handoff GalleryForwardBridge
+    // already uses for a multi-select forward, just with a single-item index list.
+    private void forwardSingleActiveItem() {
+        if (galleryActivePos < 0 || replyChatId == null || replyMessageId == null) return;
+        java.util.List<Integer> selected = new ArrayList<>();
+        selected.add(galleryActivePos);
+        com.callx.app.conversation.GalleryForwardBridge.requestForward(replyChatId, replyMessageId, selected);
+        finish();
+        overridePendingTransition(0, 0);
     }
 
     private void deleteSingleActiveItem() {

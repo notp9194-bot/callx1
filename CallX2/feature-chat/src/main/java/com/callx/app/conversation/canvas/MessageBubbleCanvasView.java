@@ -902,11 +902,19 @@ public class MessageBubbleCanvasView extends View {
             synchronized (sReplyLayoutCacheLock) { sReplyLayoutCache.clear(); }
             synchronized (sAudioLevelsCacheLock) { sAudioLevelsCache.clear(); }
             synchronized (sAudioWaveformMaskCacheLock) { sAudioWaveformMaskCache.clear(); }
+            synchronized (sPollQuestionLayoutCacheLock) { sPollQuestionLayoutCache.clear(); }
+            synchronized (sReelCaptionLayoutCacheLock) { sReelCaptionLayoutCache.clear(); }
+            synchronized (sLocationAddressLayoutCacheLock) { sLocationAddressLayoutCache.clear(); }
+            synchronized (sLinkTitleLayoutCacheLock) { sLinkTitleLayoutCache.clear(); }
         } else if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
             trimToQuarter(sTextLayoutCacheLock, sTextLayoutCache, TEXT_LAYOUT_CACHE_CAPACITY);
             trimToQuarter(sPollOptionLayoutCacheLock, sPollOptionLayoutCache, POLL_OPTION_LAYOUT_CACHE_CAPACITY);
             trimToQuarter(sReplyLayoutCacheLock, sReplyLayoutCache, REPLY_LAYOUT_CACHE_CAPACITY);
             trimToQuarter(sAudioLevelsCacheLock, sAudioLevelsCache, AUDIO_LEVELS_CACHE_CAPACITY);
+            trimToQuarter(sPollQuestionLayoutCacheLock, sPollQuestionLayoutCache, POLL_QUESTION_LAYOUT_CACHE_CAPACITY);
+            trimToQuarter(sReelCaptionLayoutCacheLock, sReelCaptionLayoutCache, REEL_CAPTION_LAYOUT_CACHE_CAPACITY);
+            trimToQuarter(sLocationAddressLayoutCacheLock, sLocationAddressLayoutCache, LOCATION_ADDRESS_LAYOUT_CACHE_CAPACITY);
+            trimToQuarter(sLinkTitleLayoutCacheLock, sLinkTitleLayoutCache, LINK_TITLE_LAYOUT_CACHE_CAPACITY);
             // Even after the grayscale-mask revision (1 byte/pixel, no
             // RGB), these are still the largest individual entries of any
             // of these five caches, so on real memory pressure (not just
@@ -1020,6 +1028,15 @@ public class MessageBubbleCanvasView extends View {
 
     private static float sp2pxStatic(float sp) {
         return sp * android.content.res.Resources.getSystem().getDisplayMetrics().scaledDensity;
+    }
+
+    // Some paints in this view (reelCaptionPaint, locationAddressTextPaint,
+    // linkTitlePaint) are sized at bind time with `TEXT_SP * density`
+    // rather than true sp/scaledDensity scaling (pre-existing behavior,
+    // unrelated to this cache work) — this mirrors that exactly so a
+    // precomputed layout's line breaks match what onMeasure() would build.
+    private static float dp2pxStatic(float dp) {
+        return dp * android.content.res.Resources.getSystem().getDisplayMetrics().density;
     }
 
     // ── PERF: same idea as the plain-text cache above, for poll option
@@ -1181,6 +1198,237 @@ public class MessageBubbleCanvasView extends View {
             // Never let a precompute/cache-fill failure affect anything —
             // callers simply fall back to building fresh, exactly as before.
             return null;
+        }
+    }
+
+    // ── PERF ADV: background-precomputed caches for the four onMeasure()
+    // StaticLayout sites that still build synchronously on every bind —
+    // pollQuestionLayout, reelCaptionLayout, locationAddressLayout, and
+    // linkTitleLayout. Same LinkedHashMap-LRU + self-calibrated-width
+    // technique as sTextLayoutCache/sPollOptionLayoutCache/sReplyLayoutCache
+    // above. Card widths (poll/reel/location) are fixed dp constants, so in
+    // practice one calibrated width covers every instance of that card type
+    // for the life of the process; linkTitleLayout's width tracks the same
+    // maxTextWidth a plain text bubble uses, mirroring sLastKnownMaxTextWidth.
+    //
+    // NOTE — infra + precompute hooks only at this stage (see
+    // entityToModel() in ChatActivity/GroupChatActivity for
+    // poll/reel/location, and LinkPreviewFetcher's background executor for
+    // link title). onMeasure() itself still builds synchronously; wiring
+    // it to read from these caches is a follow-up pass, exactly like the
+    // three caches above were landed in two steps.
+    private static final int POLL_QUESTION_LAYOUT_CACHE_CAPACITY = 200;
+    private static final Object sPollQuestionLayoutCacheLock = new Object();
+    private static final java.util.LinkedHashMap<String, StaticLayout> sPollQuestionLayoutCache =
+            new java.util.LinkedHashMap<String, StaticLayout>(64, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        java.util.Map.Entry<String, StaticLayout> eldest) {
+                    return size() > POLL_QUESTION_LAYOUT_CACHE_CAPACITY;
+                }
+            };
+    private static volatile int sLastKnownPollQuestionWidth = -1;
+
+    private static final int REEL_CAPTION_LAYOUT_CACHE_CAPACITY = 150;
+    private static final Object sReelCaptionLayoutCacheLock = new Object();
+    private static final java.util.LinkedHashMap<String, StaticLayout> sReelCaptionLayoutCache =
+            new java.util.LinkedHashMap<String, StaticLayout>(64, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        java.util.Map.Entry<String, StaticLayout> eldest) {
+                    return size() > REEL_CAPTION_LAYOUT_CACHE_CAPACITY;
+                }
+            };
+    private static volatile int sLastKnownReelCaptionWidth = -1;
+
+    private static final int LOCATION_ADDRESS_LAYOUT_CACHE_CAPACITY = 150;
+    private static final Object sLocationAddressLayoutCacheLock = new Object();
+    private static final java.util.LinkedHashMap<String, StaticLayout> sLocationAddressLayoutCache =
+            new java.util.LinkedHashMap<String, StaticLayout>(64, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        java.util.Map.Entry<String, StaticLayout> eldest) {
+                    return size() > LOCATION_ADDRESS_LAYOUT_CACHE_CAPACITY;
+                }
+            };
+    private static volatile int sLastKnownLocationAddressWidth = -1;
+
+    private static final int LINK_TITLE_LAYOUT_CACHE_CAPACITY = 150;
+    private static final Object sLinkTitleLayoutCacheLock = new Object();
+    private static final java.util.LinkedHashMap<String, StaticLayout> sLinkTitleLayoutCache =
+            new java.util.LinkedHashMap<String, StaticLayout>(64, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        java.util.Map.Entry<String, StaticLayout> eldest) {
+                    return size() > LINK_TITLE_LAYOUT_CACHE_CAPACITY;
+                }
+            };
+    private static volatile int sLastKnownLinkTitleWidth = -1;
+
+    // ── Shared builders — used by BOTH the off-UI-thread precompute hooks
+    // below AND onMeasure()'s cache-miss fallback (see the four call sites
+    // further down). Each builds with a fresh, dedicated TextPaint — never
+    // an instance's shared pollQuestionPaint/reelCaptionPaint/
+    // locationAddressTextPaint/linkTitlePaint field — because the result
+    // gets stored in a STATIC cache shared across every view instance. If
+    // onMeasure()'s fallback built with the instance's own mutable paint
+    // field instead, a later per-instance mutation of that field (color
+    // theme change, recycled-view rebind, anything) would retroactively
+    // change the appearance of every other view's cached hit for the same
+    // text+width. Same reasoning already documented on buildReplyLayoutPair()
+    // above. Return null on any failure — every caller already treats that
+    // as "fall back exactly like before this cache existed."
+    private static StaticLayout buildPollQuestionLayout(String question, int width) {
+        try {
+            TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+            paint.setColor(POLL_QUESTION_COLOR);
+            paint.setTextSize(sp2pxStatic(POLL_QUESTION_TEXT_SP));
+            paint.setFakeBoldText(true);
+            return StaticLayout.Builder
+                    .obtain(question, 0, question.length(), paint, width)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setMaxLines(3)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .setIncludePad(false)
+                    .build();
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    // NOTE: reelCaptionPaint is sized with `* density` at bind time (not
+    // scaledDensity/true sp) and carries a drop shadow — both must match
+    // exactly via dp2pxStatic()/setShadowLayer(), not just size/bold,
+    // since ReelShareRenderer draws this layout directly via
+    // reelCaptionLayout.draw(canvas) using whatever paint it was built with.
+    private static StaticLayout buildReelCaptionLayout(String caption, int width) {
+        try {
+            TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+            paint.setColor(REEL_CAPTION_COLOR);
+            paint.setTextSize(dp2pxStatic(REEL_CAPTION_TEXT_SP));
+            paint.setShadowLayer(dp2pxStatic(3f), 0f, dp2pxStatic(1f), REEL_SHADOW_COLOR);
+            return StaticLayout.Builder
+                    .obtain(caption, 0, caption.length(), paint, width)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setMaxLines(2)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .setIncludePad(false)
+                    .build();
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    // NOTE: same `* density` (not sp) sizing as reelCaptionPaint above; no
+    // shadow layer on this one (confirmed against locationAddressTextPaint's
+    // resolve call site).
+    private static StaticLayout buildLocationAddressLayout(String address, int width) {
+        try {
+            TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+            paint.setColor(LOCATION_ADDRESS_TEXT_COLOR);
+            paint.setTextSize(dp2pxStatic(LOCATION_ADDRESS_TEXT_SP));
+            return StaticLayout.Builder
+                    .obtain(address, 0, address.length(), paint, width)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setMaxLines(2)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .setIncludePad(false)
+                    .build();
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    // NOTE: same `* density` (not sp) sizing as linkTitlePaint's real
+    // resolve call site — LINK_PREVIEW_TITLE_SP. setFakeBoldText matters
+    // here for line-breaking too (unlike a plain color change): it changes
+    // glyph widths.
+    private static StaticLayout buildLinkTitleLayout(String title, int width) {
+        try {
+            TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+            paint.setColor(LINK_PREVIEW_TITLE_COLOR);
+            paint.setTextSize(dp2pxStatic(LINK_PREVIEW_TITLE_SP));
+            paint.setFakeBoldText(true);
+            return StaticLayout.Builder
+                    .obtain(title, 0, title.length(), paint, width)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setMaxLines(2)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .setIncludePad(false)
+                    .build();
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    /** Call off the UI thread, same contract as precomputeTextLayoutIfPossible(). */
+    public static void precomputePollQuestionLayoutIfPossible(String question) {
+        if (question == null || question.isEmpty()) return;
+        int width = sLastKnownPollQuestionWidth;
+        if (width <= 0) return;
+        String key = question.length() + "_" + question.hashCode() + "_" + width;
+        synchronized (sPollQuestionLayoutCacheLock) {
+            if (sPollQuestionLayoutCache.containsKey(key)) return;
+        }
+        StaticLayout layout = buildPollQuestionLayout(question, width);
+        if (layout == null) return;
+        synchronized (sPollQuestionLayoutCacheLock) {
+            sPollQuestionLayoutCache.put(key, layout);
+        }
+    }
+
+    /** Call off the UI thread, same contract as precomputeTextLayoutIfPossible(). */
+    public static void precomputeReelCaptionLayoutIfPossible(String caption) {
+        if (caption == null || caption.isEmpty()) return;
+        int width = sLastKnownReelCaptionWidth;
+        if (width <= 0) return;
+        String key = caption.length() + "_" + caption.hashCode() + "_" + width;
+        synchronized (sReelCaptionLayoutCacheLock) {
+            if (sReelCaptionLayoutCache.containsKey(key)) return;
+        }
+        StaticLayout layout = buildReelCaptionLayout(caption, width);
+        if (layout == null) return;
+        synchronized (sReelCaptionLayoutCacheLock) {
+            sReelCaptionLayoutCache.put(key, layout);
+        }
+    }
+
+    /** Call off the UI thread, same contract as precomputeTextLayoutIfPossible(). */
+    public static void precomputeLocationAddressLayoutIfPossible(String address) {
+        if (address == null || address.isEmpty()) return;
+        int width = sLastKnownLocationAddressWidth;
+        if (width <= 0) return;
+        String key = address.length() + "_" + address.hashCode() + "_" + width;
+        synchronized (sLocationAddressLayoutCacheLock) {
+            if (sLocationAddressLayoutCache.containsKey(key)) return;
+        }
+        StaticLayout layout = buildLocationAddressLayout(address, width);
+        if (layout == null) return;
+        synchronized (sLocationAddressLayoutCacheLock) {
+            sLocationAddressLayoutCache.put(key, layout);
+        }
+    }
+
+    /**
+     * Call off the UI thread — safe to call from LinkPreviewFetcher's
+     * background executor once a Result resolves, ahead of the
+     * mainHandler.post() that delivers it to the callback (see
+     * LinkPreviewFetcher#fetch()'s javadoc). Unlike the other three hooks
+     * here, link title text isn't known until the network fetch resolves,
+     * so there's no entityToModel()-time call site for this one.
+     */
+    public static void precomputeLinkTitleLayoutIfPossible(String title) {
+        if (title == null || title.isEmpty()) return;
+        int width = sLastKnownLinkTitleWidth;
+        if (width <= 0) return;
+        String key = title.length() + "_" + title.hashCode() + "_" + width;
+        synchronized (sLinkTitleLayoutCacheLock) {
+            if (sLinkTitleLayoutCache.containsKey(key)) return;
+        }
+        StaticLayout layout = buildLinkTitleLayout(title, width);
+        if (layout == null) return;
+        synchronized (sLinkTitleLayoutCacheLock) {
+            sLinkTitleLayoutCache.put(key, layout);
         }
     }
 
@@ -4839,13 +5087,28 @@ public class MessageBubbleCanvasView extends View {
             if (reelHasCaption) {
                 int captionMaxW = Math.max(1, cardW
                         - Math.round((REEL_BOTTOM_PAD_H_DP + REEL_BOTTOM_PAD_END_DP) * density));
-                reelCaptionLayout = StaticLayout.Builder
-                        .obtain(reelCaptionText, 0, reelCaptionText.length(), reelCaptionPaint, captionMaxW)
-                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                        .setMaxLines(2)
-                        .setEllipsize(TextUtils.TruncateAt.END)
-                        .setIncludePad(false)
-                        .build();
+                // PERF: calibrate precomputeReelCaptionLayoutIfPossible()'s
+                // target width — see that cache's javadoc above.
+                sLastKnownReelCaptionWidth = captionMaxW;
+                String reelCapKey = reelCaptionText.length() + "_" + reelCaptionText.hashCode()
+                        + "_" + captionMaxW;
+                StaticLayout cachedReelCaption;
+                synchronized (sReelCaptionLayoutCacheLock) {
+                    cachedReelCaption = sReelCaptionLayoutCache.get(reelCapKey);
+                }
+                if (cachedReelCaption != null) {
+                    reelCaptionLayout = cachedReelCaption;
+                } else {
+                    // PERF: shared builder (see javadoc above) — not the
+                    // instance's own reelCaptionPaint field, since this
+                    // result gets stored in the static cache.
+                    reelCaptionLayout = buildReelCaptionLayout(reelCaptionText, captionMaxW);
+                    if (reelCaptionLayout != null) {
+                        synchronized (sReelCaptionLayoutCacheLock) {
+                            sReelCaptionLayoutCache.put(reelCapKey, reelCaptionLayout);
+                        }
+                    }
+                }
             } else {
                 reelCaptionLayout = null;
             }
@@ -4882,13 +5145,38 @@ public class MessageBubbleCanvasView extends View {
             float btnH = LOCATION_BUTTON_HEIGHT_DP * density;
             float addrPadH = LOCATION_ADDRESS_PAD_H_DP * density;
             int addrMaxW = Math.max(1, cardW - Math.round(addrPadH * 2));
-            locationAddressLayout = StaticLayout.Builder
-                    .obtain(locationAddress, 0, locationAddress.length(), locationAddressTextPaint, addrMaxW)
-                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                    .setMaxLines(2)
-                    .setEllipsize(TextUtils.TruncateAt.END)
-                    .setIncludePad(false)
-                    .build();
+            // PERF: calibrate precomputeLocationAddressLayoutIfPossible()'s
+            // target width — see that cache's javadoc above.
+            sLastKnownLocationAddressWidth = addrMaxW;
+            String addrCacheKey = locationAddress.length() + "_" + locationAddress.hashCode()
+                    + "_" + addrMaxW;
+            StaticLayout cachedAddr;
+            synchronized (sLocationAddressLayoutCacheLock) {
+                cachedAddr = sLocationAddressLayoutCache.get(addrCacheKey);
+            }
+            if (cachedAddr != null) {
+                locationAddressLayout = cachedAddr;
+            } else {
+                // PERF: shared builder (see javadoc above) — not the
+                // instance's own locationAddressTextPaint field, since this
+                // result gets stored in the static cache.
+                locationAddressLayout = buildLocationAddressLayout(locationAddress, addrMaxW);
+                if (locationAddressLayout == null) {
+                    // Never let a build failure affect anything — fall back
+                    // to a synchronous build exactly as before this cache.
+                    locationAddressLayout = StaticLayout.Builder
+                            .obtain(locationAddress, 0, locationAddress.length(), locationAddressTextPaint, addrMaxW)
+                            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                            .setMaxLines(2)
+                            .setEllipsize(TextUtils.TruncateAt.END)
+                            .setIncludePad(false)
+                            .build();
+                } else {
+                    synchronized (sLocationAddressLayoutCacheLock) {
+                        sLocationAddressLayoutCache.put(addrCacheKey, locationAddressLayout);
+                    }
+                }
+            }
             float addrBlockH = LOCATION_ADDRESS_PAD_TOP_DP * density + locationAddressLayout.getHeight()
                     + LOCATION_ADDRESS_PAD_BOTTOM_DP * density;
             int cardH = Math.round(mapH + dividerH + addrBlockH + dividerH + btnH);
@@ -5052,14 +5340,38 @@ public class MessageBubbleCanvasView extends View {
             pollHeaderRowH = Math.max(POLL_HEADER_ICON_SIZE_DP * density, headerTxtH);
 
             // Question layout
-            pollQuestionPaint.setTextSize(spToPx(POLL_QUESTION_TEXT_SP));
-            pollQuestionLayout = StaticLayout.Builder
-                    .obtain(pollQuestion, 0, pollQuestion.length(), pollQuestionPaint, innerW)
-                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                    .setMaxLines(3)
-                    .setEllipsize(TextUtils.TruncateAt.END)
-                    .setIncludePad(false)
-                    .build();
+            // PERF: calibrate precomputePollQuestionLayoutIfPossible()'s
+            // target width — see that cache's javadoc above.
+            sLastKnownPollQuestionWidth = innerW;
+            String pollQKey = pollQuestion.length() + "_" + pollQuestion.hashCode() + "_" + innerW;
+            StaticLayout cachedPollQuestion;
+            synchronized (sPollQuestionLayoutCacheLock) {
+                cachedPollQuestion = sPollQuestionLayoutCache.get(pollQKey);
+            }
+            if (cachedPollQuestion != null) {
+                pollQuestionLayout = cachedPollQuestion;
+            } else {
+                // PERF: shared builder (see javadoc above) — not the
+                // instance's own pollQuestionPaint field, since this result
+                // gets stored in the static cache.
+                pollQuestionLayout = buildPollQuestionLayout(pollQuestion, innerW);
+                if (pollQuestionLayout == null) {
+                    // Never let a build failure affect anything — fall back
+                    // to a synchronous build exactly as before this cache.
+                    pollQuestionPaint.setTextSize(spToPx(POLL_QUESTION_TEXT_SP));
+                    pollQuestionLayout = StaticLayout.Builder
+                            .obtain(pollQuestion, 0, pollQuestion.length(), pollQuestionPaint, innerW)
+                            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                            .setMaxLines(3)
+                            .setEllipsize(TextUtils.TruncateAt.END)
+                            .setIncludePad(false)
+                            .build();
+                } else {
+                    synchronized (sPollQuestionLayoutCacheLock) {
+                        sPollQuestionLayoutCache.put(pollQKey, pollQuestionLayout);
+                    }
+                }
+            }
 
             // Subtitle line height
             pollSubtitlePaint.getFontMetrics(pollSubtitleFmScratch);
@@ -5341,13 +5653,39 @@ public class MessageBubbleCanvasView extends View {
                 int cardPadBottom = Math.round(LINK_PREVIEW_PAD_BOTTOM_DP * density);
                 int titleMaxWidth = Math.max(1, maxTextWidth - cardPadH * 2);
                 String titleSrc = !linkTitle.isEmpty() ? linkTitle : linkPreviewUrl;
-                linkTitleLayout = StaticLayout.Builder
-                        .obtain(titleSrc, 0, titleSrc.length(), linkTitlePaint, titleMaxWidth)
-                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                        .setMaxLines(2)
-                        .setEllipsize(TextUtils.TruncateAt.END)
-                        .setIncludePad(false)
-                        .build();
+                // PERF: calibrate precomputeLinkTitleLayoutIfPossible()'s
+                // target width — see that cache's javadoc above.
+                sLastKnownLinkTitleWidth = titleMaxWidth;
+                String linkTitleKey = titleSrc.length() + "_" + titleSrc.hashCode()
+                        + "_" + titleMaxWidth;
+                StaticLayout cachedLinkTitle;
+                synchronized (sLinkTitleLayoutCacheLock) {
+                    cachedLinkTitle = sLinkTitleLayoutCache.get(linkTitleKey);
+                }
+                if (cachedLinkTitle != null) {
+                    linkTitleLayout = cachedLinkTitle;
+                } else {
+                    // PERF: shared builder (see javadoc above) — not the
+                    // instance's own linkTitlePaint field, since this
+                    // result gets stored in the static cache.
+                    linkTitleLayout = buildLinkTitleLayout(titleSrc, titleMaxWidth);
+                    if (linkTitleLayout == null) {
+                        // Never let a build failure affect anything — fall
+                        // back to a synchronous build exactly as before
+                        // this cache.
+                        linkTitleLayout = StaticLayout.Builder
+                                .obtain(titleSrc, 0, titleSrc.length(), linkTitlePaint, titleMaxWidth)
+                                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                                .setMaxLines(2)
+                                .setEllipsize(TextUtils.TruncateAt.END)
+                                .setIncludePad(false)
+                                .build();
+                    } else {
+                        synchronized (sLinkTitleLayoutCacheLock) {
+                            sLinkTitleLayoutCache.put(linkTitleKey, linkTitleLayout);
+                        }
+                    }
+                }
                 int domainHeight = 0;
                 int domainGap = 0;
                 if (!linkDomain.isEmpty()) {

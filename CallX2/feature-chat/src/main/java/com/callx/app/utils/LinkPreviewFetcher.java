@@ -199,6 +199,13 @@ public class LinkPreviewFetcher {
             // Cache hit — deliver immediately, regardless of scroll state (no network cost)
             Result cached = cache.get(url);
             if (cached != null) {
+                // NOTE: this branch runs synchronously on the caller's
+                // thread, which is the UI thread for a normal bind-time
+                // cache-hit peek (see MessagePagingAdapter#bindLinkPreviewResult's
+                // javadoc) — so precompute must NOT be called here, only
+                // from the genuine background path in executor.execute()
+                // below, or we'd just move the StaticLayout build back onto
+                // the UI thread we're trying to get it off of.
                 mainHandler.post(() -> callback.onResult(cached));
                 return;
             }
@@ -240,6 +247,15 @@ public class LinkPreviewFetcher {
                 java.util.List<Callback> waiters = inFlight.remove(url);
                 if (waiters == null) return;
                 final Result r = result;
+                // PERF: precompute the title StaticLayout here — this whole
+                // executor.execute() lambda runs on the background fetch
+                // pool, genuinely off the UI thread (unlike the cache-hit
+                // peek branch above), so this is the correct place for this
+                // hook. See MessageBubbleCanvasView#precomputeLinkTitleLayoutIfPossible().
+                if (r != null) {
+                    com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                            .precomputeLinkTitleLayoutIfPossible(r.title);
+                }
                 mainHandler.post(() -> {
                     for (Callback cb : waiters) {
                         if (r != null) cb.onResult(r);

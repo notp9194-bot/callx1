@@ -4369,6 +4369,23 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                         .precomputePollOptionLayoutIfPossible(opt);
             }
         }
+        // PERF: poll question, reel-share caption, and location address —
+        // same background-precompute idea as pollOptions above, for the
+        // three onMeasure() StaticLayout sites that still build
+        // synchronously on every bind. See MessageBubbleCanvasView's cache
+        // javadoc for the full reasoning.
+        if (m != null && "poll".equals(m.type) && m.pollQuestion != null) {
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                    .precomputePollQuestionLayoutIfPossible(m.pollQuestion);
+        }
+        if (m != null && "reel_share".equals(m.type) && m.reelShareCaption != null) {
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                    .precomputeReelCaptionLayoutIfPossible(m.reelShareCaption);
+        }
+        if (m != null && "location".equals(m.type) && m.locationAddress != null) {
+            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                    .precomputeLocationAddressLayoutIfPossible(m.locationAddress);
+        }
         // PERF ADV: same idea, for the reply-preview strip (sender name +
         // quoted text) — one of the most common message shapes in the app.
         // See precomputeReplyLayoutIfPossible() javadoc for full reasoning.
