@@ -2042,6 +2042,41 @@ public class ChatMediaController {
                 reportUploadProgress(pending, percent / 2);
             }
             @Override public void onSuccess(VideoCompressor.Result vr) {
+                // ── ULTRA-FAST THUMBNAIL OPTIMIZATION ───────────────────────
+                // BlurHash for videos (parity fix): images already generate a
+                // BlurHash from the compressed thumb bitmap (see the image
+                // upload path above / reels' BlurHashBackfillWorker), but
+                // video previously sent NO BlurHash at all — the receiver's
+                // MessagePagingAdapter#vBlurHash code path existed and was
+                // ready to render it, it just always got null. So every
+                // video bubble sat on a flat grey placeholder until the
+                // Cloudinary thumbnail frame finished downloading.
+                //
+                // Fix: decode the already-on-disk video thumb frame
+                // (vr.thumbFile — the same still-frame VideoCompressor pulls
+                // for the Cloudinary thumb upload, no extra decode/frame
+                // extraction cost) at a heavily downsampled size and encode
+                // it into the exact same BlurHash string format reels use.
+                // Cost: one inSampleSize=4 decode + ~1-2 ms of cosine-basis
+                // math, done once on a background thread already running
+                // here — zero network calls, zero extra bytes beyond the
+                // ~20-30 char string already piggy-backing on the message
+                // doc/envelope like it does for images.
+                String blurHash = null;
+                if (vr.thumbFile != null && vr.thumbFile.exists()) {
+                    try {
+                        android.graphics.BitmapFactory.Options opts =
+                                new android.graphics.BitmapFactory.Options();
+                        opts.inSampleSize = 4; // 1/4 res — plenty for a BlurHash
+                        android.graphics.Bitmap thumb = android.graphics.BitmapFactory
+                                .decodeFile(vr.thumbFile.getAbsolutePath(), opts);
+                        if (thumb != null) {
+                            blurHash = com.callx.app.utils.BlurHash.encode(thumb, 4, 3);
+                            thumb.recycle();
+                        }
+                    } catch (Exception ignored) {}
+                }
+
                 // ── Media E2E (video, thumbnail-only) ──────────────────────
                 // Only the thumbnail is end-to-end encrypted — the video
                 // file itself stays plaintext so Cloudinary can still
@@ -2052,8 +2087,9 @@ public class ChatMediaController {
                 // compromised/hacked server could see a still frame of
                 // every video sent, same as the BlurHash leak on images.
                 // Reuses the exact same key-envelope + ratchet wrapping as
-                // image E2E (see MediaE2ECrypto / Message#mediaKeyEnc) —
-                // just no BlurHash payload this time.
+                // image E2E (see MediaE2ECrypto / Message#mediaKeyEnc) — and,
+                // as of this fix, now carries the BlurHash payload too, same
+                // as the image envelope does.
                 byte[] thumbKey = null;
                 java.io.File encThumb = null;
                 if (vr.thumbFile != null && vr.thumbFile.exists()) {
@@ -2074,11 +2110,15 @@ public class ChatMediaController {
                             com.callx.app.utils.MediaE2ECrypto.encryptFile(vr.thumbFile, enc, subKey);
                             byte[] thumbDigest = com.callx.app.utils.MediaE2ECrypto.sha256File(enc);
                             String envelopeJson = com.callx.app.utils.MediaE2ECrypto
-                                    .buildKeyEnvelopeJson(masterKey, null, null, thumbDigest);
+                                    .buildKeyEnvelopeJson(masterKey, blurHash, null, thumbDigest);
                             pending.mediaKeyEnc = com.callx.app.utils.E2EEncryptionManager
                                     .getInstance(activity).encrypt(envelopeJson, partnerUid);
                             thumbKey = masterKey;
                             encThumb = enc;
+                            // BlurHash now travels ONLY inside the encrypted envelope —
+                            // mirrors the image path so it's never set in the clear
+                            // on a media-E2E message.
+                            pending.blurHash = null;
                         } catch (Exception e) {
                             android.util.Log.w("ChatMediaController",
                                     "Video thumb E2E encrypt failed, uploading plaintext: " + e.getMessage());
@@ -2086,8 +2126,15 @@ public class ChatMediaController {
                             thumbKey = null;
                             if (encThumb != null) encThumb.delete();
                             encThumb = null;
+                            pending.blurHash = blurHash;
                         }
+                    } else {
+                        // No E2E session yet for this partner — plaintext BlurHash,
+                        // same fallback the image path uses.
+                        pending.blurHash = blurHash;
                     }
+                } else {
+                    pending.blurHash = blurHash;
                 }
                 final byte[] finalThumbKey     = thumbKey;
                 final java.io.File finalEncThumb = encThumb;

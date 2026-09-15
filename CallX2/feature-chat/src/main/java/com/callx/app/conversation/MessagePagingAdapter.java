@@ -985,6 +985,32 @@ public class MessagePagingAdapter
         });
     }
 
+    /** ULTRA-FAST THUMBNAIL FIX (video BlurHash parity): video's BlurHash
+     *  string travels inside the same encrypted key envelope as the thumb
+     *  key (see ChatMediaController#doStartVideoUploadWork) rather than in
+     *  the clear on m.blurHash, exactly like the image path already does.
+     *  Reading it therefore needs the same off-main-thread ratchet decrypt
+     *  as {@link #resolveThumbMediaKeyAsync} — never decrypt envelopes
+     *  synchronously on the main thread (v375 rule, see that method's
+     *  javadoc). Plaintext (non-E2E) videos skip this entirely since their
+     *  BlurHash is already sitting in m.blurHash in the clear. */
+    private void resolveVideoBlurHashAsync(Context ctx, Message m, boolean sent, VH h, int token,
+            java.util.function.Consumer<String> cb) {
+        if (sent || m.mediaKeyEnc == null) { cb.accept(null); return; }
+        final String encKey = m.mediaKeyEnc;
+        final String senderId = m.senderId;
+        final String msgId = m.messageId != null ? m.messageId : m.id;
+        com.callx.app.utils.E2eeDecryptExecutor.execute(senderId, () -> {
+            com.callx.app.utils.MediaE2ECrypto.KeyEnvelope env =
+                    com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, encKey, senderId, msgId);
+            String hash = env != null ? env.blurHash : null;
+            MEDIA_KEY_MAIN_HANDLER.post(() -> {
+                if (h.canvasBindToken != token) return;
+                cb.accept(hash);
+            });
+        });
+    }
+
     /** Async counterpart of {@code MediaE2ECrypto.decryptKeyOnly()}. */
     private void resolveFullMediaKeyOnlyAsync(Context ctx, Message m, boolean sent, VH h, int token,
             java.util.function.Consumer<byte[]> cb) {
@@ -4755,10 +4781,22 @@ public class MessagePagingAdapter
 
             // BlurHash placeholder: show blurred color preview before the video thumb loads.
             // If thumbnailUrl is present we load from server (no full download needed for preview).
+            // ULTRA-FAST THUMBNAIL FIX: plaintext videos keep BlurHash in m.blurHash
+            // (apply instantly, synchronously — that's the whole point of BlurHash,
+            // ~1 ms local decode, zero network). E2E videos carry it inside the
+            // encrypted envelope instead (see ChatMediaController), so it needs the
+            // async ratchet-decrypt path — same pattern as the thumb key resolve
+            // right below, just for the hash string instead of the key bytes.
             final String vBlurHash = m.blurHash;
             if (vBlurHash != null && !vBlurHash.isEmpty()) {
                 android.graphics.Bitmap vBlurhashBmp = BlurHashPlaceholder.get(vBlurHash, 32, 32);
                 if (vBlurhashBmp != null) cv.setMediaBitmap(vBlurhashBmp);
+            } else if (!sent && m.mediaKeyEnc != null) {
+                resolveVideoBlurHashAsync(ctx, m, sent, h, myToken, decryptedHash -> {
+                    if (decryptedHash == null || decryptedHash.isEmpty()) return;
+                    android.graphics.Bitmap vBlurhashBmp = BlurHashPlaceholder.get(decryptedHash, 32, 32);
+                    if (vBlurhashBmp != null) cv.setMediaBitmap(vBlurhashBmp);
+                });
             }
 
             // Media E2E (video, thumbnail-only): m.thumbnailUrl is ciphertext
