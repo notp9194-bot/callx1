@@ -1577,11 +1577,24 @@ public class ChatMediaController {
                 // reads the still-plaintext-on-disk compressed thumb file.
                 // (Migrated from BlurHash — smaller string, sharper decode, and
                 // ThumbHash also encodes aspect ratio + alpha.)
+                //
+                // BUG FIX: inSampleSize=4 was a leftover from when
+                // ImageCompressor.THUMB_SIZE was ~200px (a decode-at-1/4-res
+                // was genuinely "plenty" for a hash back then). THUMB_SIZE
+                // is now 8px (see ImageCompressor — the WebP-micro-thumb
+                // removal step shrank it hard), so decoding THAT at another
+                // 1/4 res left only ~2px of real image data — nowhere near
+                // enough for ThumbHash to encode anything meaningful, so the
+                // placeholder came out blank/malformed for every image,
+                // regardless of aspect ratio. thumbFile is already tiny, so
+                // decode it at full res (inSampleSize=1) — ThumbHash.encode()
+                // itself still caps/downscales to its own 100x100 max, so
+                // this costs nothing extra.
                 String blurHash = null;
                 try {
                     android.graphics.BitmapFactory.Options opts =
                             new android.graphics.BitmapFactory.Options();
-                    opts.inSampleSize = 4; // decode at 1/4 res — enough for a thumbHash
+                    opts.inSampleSize = 1; // thumbFile is already ~8px — decode at full res
                     android.graphics.Bitmap thumb = android.graphics.BitmapFactory
                             .decodeFile(result.thumbFile.getAbsolutePath(), opts);
                     if (thumb != null) {

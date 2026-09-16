@@ -70,6 +70,29 @@ every video bubble; the real poster frame only starts fetching ~220ms
 later, and only for bubbles still bound to the same message at that
 point (i.e. not flicked straight past during a fast scroll).
 
+## Bonus bug fix: image ThumbHash was coming out blank for every ratio
+
+**Root cause:** `ChatMediaController`'s image-upload path decoded
+`result.thumbFile` at `inSampleSize=4` before calling `ThumbHash.encode()`.
+That `4` was tuned back when `ImageCompressor.THUMB_SIZE` was ~200px — a
+1/4-res decode of a 200px thumb is still plenty of data for a hash.
+
+Step 2 of this whole upgrade (removing the WebP micro-thumb stage)
+shrank `ImageCompressor.THUMB_SIZE` down to **8px**. Nobody re-tuned the
+`inSampleSize=4` decode sitting downstream of it — decoding an
+already-8px file at 1/4 res leaves roughly 2px of real image data,
+nowhere near enough for `ThumbHash.encode()` to produce a meaningful
+hash. Result: every image's placeholder came out blank/malformed,
+regardless of aspect ratio — it wasn't a ratio-specific bug, the two
+shrink steps had just quietly stacked into a "double downsample".
+
+**Fix:** `inSampleSize` changed `4 → 1` for the image path only —
+`thumbFile` is already tiny, so decode it at full res (`ThumbHash.encode()`
+still caps/downscales to its own internal 100×100 max, so this costs
+nothing extra). The **video** path (`vr.thumbFile`, a real 300–480px
+extracted frame) was never affected by the THUMB_SIZE shrink and still
+correctly uses `inSampleSize=4` — left untouched.
+
 ## Net result of steps 4 + 5
 
 - Small image/video bubbles: same as before (no extra blur, ThumbHash →
