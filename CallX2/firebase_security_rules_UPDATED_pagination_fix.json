@@ -425,6 +425,12 @@
         "about": {
           ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 500)"
         },
+        "username": {
+          ".validate": "!newData.exists() || (newData.isString() && newData.val().matches(/^[a-z0-9_]{3,30}$/) && root.child('usernames').child(newData.val()).val() === auth.uid && (!data.exists() || newData.val() === data.val() || !data.parent().child('usernameChangedAt').exists() || now - data.parent().child('usernameChangedAt').val() >= 1209600000))"
+        },
+        "usernameChangedAt": {
+          ".validate": "!newData.exists() || (newData.isNumber() && newData.val() <= now + 5000)"
+        },
         "isVerified": {
           ".write": "auth != null && root.child('admins').child(auth.uid).val() === true"
         },
@@ -781,7 +787,7 @@
         "$uid": {
           ".read": "auth != null",
           ".write": "auth != null && auth.uid === $uid",
-          ".validate": "!newData.hasChild('handle') || (newData.child('handle').val().length >= 1 && newData.child('handle').val().length <= 50)",
+          ".validate": "!newData.hasChild('handle') || (newData.child('handle').val().matches(/^[a-z0-9_]{3,50}$/) && root.child('x/x_handles').child(newData.child('handle').val()).val() === auth.uid)",
           "followerCount": {
             ".write": "auth != null",
             ".validate": "newData.isNumber() && newData.val() >= 0"
@@ -949,7 +955,7 @@
         ".read": "auth != null",
         "$handle": {
           ".write": "auth != null && (!data.exists() || data.val() === auth.uid)",
-          ".validate": "newData.val() === auth.uid && $handle.length >= 1 && $handle.length <= 50"
+          ".validate": "!newData.exists() || (newData.val() === auth.uid && $handle.matches(/^[a-z0-9_]{3,50}$/))"
         }
       }
     },
@@ -1078,8 +1084,32 @@
       }
     },
     "reels": {
+      ".read": "auth != null",
+      "users": {
+        "$uid": {
+          ".read": "auth != null",
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.hasChild('uid') && newData.child('uid').val() === $uid",
+          "handle": {
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().matches(/^[a-z0-9_]{3,30}$/) && root.child('reels').child('handles').child(newData.val()).val() === auth.uid)"
+          }
+        }
+      },
+      "handles": {
+        "$handle": {
+          ".read": "auth != null",
+          ".write": "auth != null && ((!data.exists() && newData.exists() && newData.val() === auth.uid) || (data.exists() && data.val() === auth.uid && (!newData.exists() || newData.val() === auth.uid)))",
+          ".validate": "!newData.exists() || (newData.isString() && $handle.matches(/^[a-z0-9_]{3,30}$/))"
+        }
+      },
       "$reelId": {
+        ".write": "auth != null && ((!data.exists() && newData.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && newData.exists() && data.child('uid').val() === auth.uid) || (data.exists() && !newData.exists() && data.child('uid').val() === auth.uid))",
+        ".validate": "!newData.exists() || (newData.hasChildren(['uid']) && newData.child('uid').val() === auth.uid)",
         "commentsCount": {
+          ".write": "auth != null",
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "repostCount": {
           ".write": "auth != null",
           ".validate": "newData.isNumber() && newData.val() >= 0"
         }
@@ -1089,7 +1119,8 @@
         "duetRootId",
         "stitchOf",
         "challengeId",
-        "uid"
+        "uid",
+        "timestamp"
       ]
     },
     "status": {
@@ -1579,7 +1610,7 @@
     },
     "userReels": {
       "$uid": {
-        ".read": "auth != null && auth.uid === $uid",
+        ".read": "auth != null",
         ".write": "auth != null && auth.uid === $uid"
       }
     },
@@ -1909,7 +1940,7 @@
       "$username": {
         ".read": "auth != null",
         ".write": "auth != null && ((!data.exists() && newData.exists() && newData.val() === auth.uid) || (data.exists() && data.val() === auth.uid && (!newData.exists() || newData.val() === auth.uid)))",
-        ".validate": "!newData.exists() || (newData.isString() && newData.val().length >= 3 && newData.val().length <= 30 && newData.val().matches(/^[a-z0-9_]+$/))"
+        ".validate": "!newData.exists() || (newData.isString() && $username.matches(/^[a-z0-9_]{3,30}$/))"
       }
     },
     "challenges": {

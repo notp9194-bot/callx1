@@ -2,6 +2,7 @@ package com.callx.app.db.paging;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.room.InvalidationTracker;
 import androidx.paging.PagingState;
 import androidx.paging.rxjava3.RxPagingSource;
 
@@ -11,6 +12,7 @@ import com.callx.app.db.entity.MessageEntity;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 import io.reactivex.rxjava3.core.Single;
 import io.reactivex.rxjava3.schedulers.Schedulers;
@@ -61,6 +63,15 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
     private final MessageDao dao;
     private final String chatId;
     private final int pageSize;
+    /*
+     * This is a hand-written PagingSource rather than Room's generated one.
+     * That means Room does not automatically invalidate it when a
+     * MessageRemoteMediator inserts an older Firebase page. Without this
+     * observer, the page is written successfully but the current chat screen
+     * keeps showing the old Paging window until the Activity is reopened.
+     */
+    private final InvalidationTracker invalidationTracker;
+    private final InvalidationTracker.Observer messagesInvalidationObserver;
 
     // A bottom-anchored write should refresh the latest window. A reader who
     // is in history should instead refresh around the viewport anchor.
@@ -176,10 +187,31 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
     // one case.
     private volatile MessageCursor lastKnownAnchor;
 
-    public MessageKeysetPagingSource(MessageDao dao, String chatId, int pageSize) {
+    public MessageKeysetPagingSource(InvalidationTracker invalidationTracker,
+                                     MessageDao dao,
+                                     String chatId,
+                                     int pageSize) {
         this.dao = dao;
         this.chatId = chatId;
         this.pageSize = pageSize;
+        this.invalidationTracker = invalidationTracker;
+        this.messagesInvalidationObserver = new InvalidationTracker.Observer("messages") {
+            @Override
+            public void onInvalidated(@NonNull Set<String> tables) {
+                // invalidate() is idempotent. Paging will create a new
+                // generation and re-read the keyset window from Room, which
+                // now includes the page the mediator just downloaded.
+                MessageKeysetPagingSource.this.invalidate();
+            }
+        };
+        this.invalidationTracker.addObserver(messagesInvalidationObserver);
+        registerInvalidatedCallback(() -> {
+            try {
+                this.invalidationTracker.removeObserver(messagesInvalidationObserver);
+            } catch (Exception ignored) {
+                // The database may already be closing during Activity teardown.
+            }
+        });
     }
 
     /**

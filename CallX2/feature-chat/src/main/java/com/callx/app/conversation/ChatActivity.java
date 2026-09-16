@@ -3301,7 +3301,8 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 new com.callx.app.db.paging.MessageRemoteMediator(chatRepository, chatId, PAGE_SIZE),
                 () -> {
                     com.callx.app.db.paging.MessageKeysetPagingSource src =
-                            new com.callx.app.db.paging.MessageKeysetPagingSource(db.messageDao(), chatId, PAGE_SIZE);
+                            new com.callx.app.db.paging.MessageKeysetPagingSource(
+                                    db.getInvalidationTracker(), db.messageDao(), chatId, PAGE_SIZE);
                     // FIX: carry the previous generation's last-known anchor
                     // forward — see MessageKeysetPagingSource#lastKnownAnchor's
                     // doc. Without this, back-to-back sends (e.g. an image
