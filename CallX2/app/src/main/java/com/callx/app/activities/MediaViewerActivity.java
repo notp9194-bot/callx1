@@ -140,6 +140,21 @@ public class MediaViewerActivity extends AppCompatActivity {
     // pre-viewer bottom sheet's own own-message guard on its Delete row.
     private boolean isOwnMessage;
 
+    // ── Feature: Voice Caption on Photo — fullscreen viewer ──────────────
+    // Reuses the exact same play-badge drawables the chat bubble uses
+    // (bg_voice_duration_pill / bg_voice_play_badge / ic_play / ic_pause —
+    // see fl_voice_on_image_viewer in activity_media_viewer.xml) and the
+    // same local-preview player class the voice-recorder's pause/preview
+    // screen uses (VoicePreviewPlayer) — no new playback engine needed,
+    // this is just a decrypt-then-play over a remote/E2E URL instead of a
+    // local temp file. Only ever non-null in single-image mode; the
+    // grouped gallery has its own per-page message and isn't wired up yet
+    // (see showMediaActionSheet's hasVoiceCaption gate).
+    private String voiceCaptionUrl;
+    private byte[] voiceCaptionKey;
+    private boolean voiceCaptionFetching = false;
+    private com.callx.app.conversation.controllers.VoicePreviewPlayer voiceCaptionPlayer;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -337,6 +352,7 @@ public class MediaViewerActivity extends AppCompatActivity {
 
             String thumbUrl = getIntent().getStringExtra("thumbUrl");
             loadImageProgressive(url, thumbUrl, singleItemLocalPath);
+            setupVoiceCaptionOverlay();
 
             // Tap-to-toggle for the image now goes through tapToggleDetector
             // in dispatchTouchEvent (see its doc) instead of PhotoView's own
@@ -352,6 +368,85 @@ public class MediaViewerActivity extends AppCompatActivity {
             setupSwipeHelper(binding.ivFull, null,
                     () -> PhotoViewZoomUtils.isZoomedIn(binding.ivFull));
             animateOpenFromSource(binding.ivFull, sourceRect);
+        }
+    }
+
+    // ── Feature: Voice Caption on Photo — fullscreen viewer ──────────────
+    /** Shows the play-badge overlay iff this image carries a "voiceUrl"
+     *  intent extra (see MessagePagingAdapter#showMediaActionSheet's
+     *  hasVoiceCaption gate) — a plain image with no voice note leaves
+     *  fl_voice_on_image_viewer gone, exactly as it starts in the XML. */
+    private void setupVoiceCaptionOverlay() {
+        voiceCaptionUrl = getIntent().getStringExtra("voiceUrl");
+        if (voiceCaptionUrl == null || voiceCaptionUrl.isEmpty()) return;
+        String durationText = getIntent().getStringExtra("voiceDurationText");
+        String voiceKeyB64 = getIntent().getStringExtra("voiceKeyB64");
+        if (voiceKeyB64 != null && !voiceKeyB64.isEmpty()) {
+            try {
+                voiceCaptionKey = android.util.Base64.decode(voiceKeyB64, android.util.Base64.NO_WRAP);
+            } catch (Exception ignored) {
+                voiceCaptionKey = null;
+            }
+        }
+        binding.flVoiceOnImageViewer.setVisibility(View.VISIBLE);
+        if (durationText != null) {
+            binding.tvVoiceDurationOnImageViewer.setText(durationText);
+        }
+        binding.flVoiceOnImageViewer.setOnClickListener(v -> toggleVoiceCaptionPlayback());
+    }
+
+    /** Tap handler for fl_voice_on_image_viewer — decrypts/downloads (via
+     *  the same MediaCache the chat bubble's voice caption and this
+     *  viewer's own image already use) on first tap, then just play()/
+     *  pause() the already-prepared clip on every tap after that. */
+    private void toggleVoiceCaptionPlayback() {
+        if (voiceCaptionUrl == null) return;
+        if (voiceCaptionPlayer != null && voiceCaptionPlayer.isPrepared()) {
+            if (voiceCaptionPlayer.isPlaying()) {
+                voiceCaptionPlayer.pause();
+                binding.ivVoicePlayOnImageViewer.setImageResource(com.callx.app.R.drawable.ic_play);
+            } else {
+                voiceCaptionPlayer.play();
+                binding.ivVoicePlayOnImageViewer.setImageResource(com.callx.app.R.drawable.ic_pause);
+            }
+            return;
+        }
+        if (voiceCaptionFetching) return; // already fetching — ignore repeat taps
+        voiceCaptionFetching = true;
+        MediaCache.Callback cb = new MediaCache.Callback() {
+            @Override public void onReady(File file) {
+                voiceCaptionFetching = false;
+                if (isFinishing() || isDestroyed()) return;
+                startVoiceCaptionPlayback(file.getAbsolutePath());
+            }
+            @Override public void onError(String reason) {
+                voiceCaptionFetching = false;
+                if (isFinishing() || isDestroyed()) return;
+                Toast.makeText(MediaViewerActivity.this,
+                        "Couldn't play voice note: " + reason, Toast.LENGTH_SHORT).show();
+            }
+        };
+        if (voiceCaptionKey != null) {
+            MediaCache.get(this, voiceCaptionUrl, voiceCaptionKey, cb);
+        } else {
+            MediaCache.get(this, voiceCaptionUrl, cb);
+        }
+    }
+
+    private void startVoiceCaptionPlayback(String path) {
+        if (voiceCaptionPlayer == null) {
+            voiceCaptionPlayer = new com.callx.app.conversation.controllers.VoicePreviewPlayer();
+            voiceCaptionPlayer.setListener(new com.callx.app.conversation.controllers.VoicePreviewPlayer.Listener() {
+                @Override public void onProgress(float progress0to1) {}
+                @Override public void onPlaybackFinished() {
+                    runOnUiThread(() -> binding.ivVoicePlayOnImageViewer
+                            .setImageResource(com.callx.app.R.drawable.ic_play));
+                }
+            });
+        }
+        if (voiceCaptionPlayer.prepare(path)) {
+            voiceCaptionPlayer.play();
+            binding.ivVoicePlayOnImageViewer.setImageResource(com.callx.app.R.drawable.ic_pause);
         }
     }
 
@@ -1399,6 +1494,7 @@ public class MediaViewerActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         if (player != null) { player.release(); player = null; }
+        if (voiceCaptionPlayer != null) { voiceCaptionPlayer.release(); voiceCaptionPlayer = null; }
         if (binding != null && binding.mediaPager.getChildCount() > 0
                 && binding.mediaPager.getChildAt(0) instanceof androidx.recyclerview.widget.RecyclerView) {
             androidx.recyclerview.widget.RecyclerView rv =

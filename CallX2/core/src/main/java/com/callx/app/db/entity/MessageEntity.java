@@ -293,6 +293,10 @@ public class MessageEntity {
     public String voiceLocalPath;
     /** Mirrors Message#voiceDuration (ms). */
     public Long voiceDuration;
+    /** Mirrors Message#voiceKeyEnc — E2E envelope for the voice clip
+     *  itself, separate from mediaKeyEnc (the photo's own envelope). See
+     *  AppDatabase.MIGRATION_67_68. */
+    public String voiceKeyEnc;
 
     // ── Media dimensions (v43) ──────────────────────────────────────────────
     /**

@@ -404,6 +404,8 @@ public class ChatMessageSender {
         e.voiceUrl            = m.voiceUrl;
         e.voiceLocalPath      = m.voiceLocalPath;
         e.voiceDuration       = m.voiceDuration;
+        // v68: Media E2E (voice caption) — see MessageEntity#voiceKeyEnc.
+        e.voiceKeyEnc         = m.voiceKeyEnc;
         return e;
     }
 

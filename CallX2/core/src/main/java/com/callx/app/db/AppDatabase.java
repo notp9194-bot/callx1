@@ -80,7 +80,7 @@ import com.callx.app.db.entity.*;
         // ReelCommentCacheEntity's class doc.
         ReelCommentCacheEntity.class
     },
-    version = 67,
+    version = 68,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -1021,6 +1021,18 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** v68: Voice Caption on Photo — the attached voice clip is now E2E
+     *  encrypted under its OWN envelope (Message#voiceKeyEnc), separate
+     *  from the photo's own mediaKeyEnc, so it survives Room persistence
+     *  the same way mediaKeyEnc already does. See
+     *  ChatMediaController#uploadVoiceCaptionThenFinalize. */
+    static final Migration MIGRATION_67_68 = new Migration(67, 68) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN voiceKeyEnc TEXT");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -1087,7 +1099,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_60_61, MIGRATION_61_62,
                                     MIGRATION_62_63, MIGRATION_63_64,
                                     MIGRATION_64_65, MIGRATION_65_66,
-                                    MIGRATION_66_67)
+                                    MIGRATION_66_67, MIGRATION_67_68)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

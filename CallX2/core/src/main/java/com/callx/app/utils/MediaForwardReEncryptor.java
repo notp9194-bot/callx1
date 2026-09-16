@@ -31,14 +31,27 @@ import java.io.InputStream;
  * NEW partner's own E2E session. The result is indistinguishable from a
  * brand-new send — no trace of the original key or ciphertext is reused.
  *
- * SCOPE (current): single-image forwards. Video/audio/multi_media-group
- * forwards of E2E media still use the old direct-link copy today — see
- * ChatActivity's forward-consumption block. Extending this class's approach
- * to those types is straightforward (same shape) but not yet wired in.
+ * SCOPE (current): single-image forwards, and — via {@link #forwardVoiceClip}
+ * — the voice clip attached to a Voice-Caption-on-Photo image forward.
+ * Video/audio/multi_media-group forwards of E2E media still use the old
+ * direct-link copy today — see ChatActivity's forward-consumption block.
+ * Extending this class's approach to those types is straightforward (same
+ * shape) but not yet wired in.
  */
 public final class MediaForwardReEncryptor {
 
     private MediaForwardReEncryptor() {}
+
+    // PERF: a fresh new Thread() per forward call means every forward pays
+    // OS thread-creation overhead, and a multi-select forward (several
+    // messages, each potentially spawning an image job + a voice job)
+    // could spin up a lot of short-lived threads back to back. A shared
+    // cached pool reuses idle threads across calls — cheap for the common
+    // one-photo forward, and scales automatically (grows on demand, no
+    // fixed cap) for bursty multi-forwards without ever queueing one job
+    // behind another the way a fixed-size pool would.
+    private static final java.util.concurrent.ExecutorService EXECUTOR =
+            java.util.concurrent.Executors.newCachedThreadPool();
 
     public interface Callback {
         /** @param newThumbnailUrl null when the thumb was small enough to
@@ -80,7 +93,7 @@ public final class MediaForwardReEncryptor {
                                      String originalMediaKeyEnc, boolean originalWasSentByMe,
                                      String originalLocalPath, String originalChatPartnerUid,
                                      String originalMessageId, String newPartnerUid, Callback cb) {
-        new Thread(() -> {
+        EXECUTOR.execute(() -> {
             try {
                 // ── Step 1: obtain PLAINTEXT thumb + full bytes ────────────
                 File plainFull;
@@ -188,7 +201,112 @@ public final class MediaForwardReEncryptor {
             } catch (Exception e) {
                 post(cb, null, null, null, "Forward failed: " + e.getMessage());
             }
-        }).start();
+        });
+    }
+
+    /**
+     * Feature: Voice Caption on Photo forward support. Same key-rotation
+     * reasoning as {@link #forwardImage} — a forwarded voice clip must NOT
+     * reuse the original {@code voiceKeyEnc} (wrapped for the original
+     * chat's Double Ratchet session, undecryptable by a different
+     * recipient) or the original ciphertext (key reuse). Mirrors
+     * ChatMediaController#uploadVoiceCaptionThenFinalize's envelope shape
+     * exactly: PURPOSE_FULL subkey only, no thumb (voice clips have none).
+     *
+     * @param originalVoiceUrl       the ORIGINAL message's voiceUrl (ciphertext
+     *                               URL, or plaintext URL if it was never E2E)
+     * @param originalVoiceKeyEnc    the ORIGINAL message's encrypted voice
+     *                               envelope, or null if the voice caption was
+     *                               never E2E (plaintext fallback upload)
+     * @param originalWasSentByMe    see {@link #forwardImage}
+     * @param originalVoiceLocalPath m.voiceLocalPath from the original message
+     * @param originalChatPartnerUid the OTHER person in the chat the original
+     *                               message lived in
+     * @param originalMessageId      the original message's id/messageId
+     * @param newPartnerUid          who we're forwarding TO
+     */
+    public interface VoiceCallback {
+        void onSuccess(String newVoiceUrl, String newVoiceKeyEnc);
+        void onError(String reason);
+    }
+
+    public static void forwardVoiceClip(Context ctx, String originalVoiceUrl,
+                                         String originalVoiceKeyEnc, boolean originalWasSentByMe,
+                                         String originalVoiceLocalPath, String originalChatPartnerUid,
+                                         String originalMessageId, String newPartnerUid, VoiceCallback cb) {
+        EXECUTOR.execute(() -> {
+            try {
+                File plainVoice;
+                if (originalWasSentByMe && originalVoiceLocalPath != null && !originalVoiceLocalPath.isEmpty()
+                        && LocalMediaAvailability.isAvailable(ctx, originalVoiceLocalPath)) {
+                    // We're the original sender and still have the clip on
+                    // this device — no decrypt needed at all.
+                    plainVoice = copyUriToTemp(ctx, Uri.parse(originalVoiceLocalPath), "fwd_voice_src");
+                } else if (originalVoiceKeyEnc != null && !originalVoiceKeyEnc.isEmpty()) {
+                    // We're the receiver (or the sender who no longer has the
+                    // local copy) — decrypt the envelope using the session
+                    // with whoever the ORIGINAL chat partner was.
+                    MediaE2ECrypto.KeyEnvelope env = MediaE2ECrypto.decryptEnvelopeForMessage(
+                            ctx, originalVoiceKeyEnc, originalChatPartnerUid, originalMessageId);
+                    if (env == null) {
+                        postVoice(cb, null, null, "Could not decrypt original voice key");
+                        return;
+                    }
+                    plainVoice = decryptToTemp(ctx, originalVoiceUrl, env.fullKey(), env.fullDigest, "fwd_voice_dl");
+                    if (plainVoice == null) {
+                        postVoice(cb, null, null, "Could not download/decrypt original voice clip");
+                        return;
+                    }
+                } else if (originalVoiceUrl != null && !originalVoiceUrl.isEmpty()) {
+                    // Not E2E at all originally — nothing to rotate, just
+                    // reuse the plaintext CDN link exactly like before.
+                    postVoice(cb, originalVoiceUrl, null, null);
+                    return;
+                } else {
+                    postVoice(cb, null, null, "Original voice clip not available");
+                    return;
+                }
+
+                // ── Re-encrypt with a FRESH master key for newPartnerUid ──
+                byte[] masterKey   = MediaE2ECrypto.generateKey();
+                byte[] fullSubKey  = MediaE2ECrypto.deriveKey(masterKey, MediaE2ECrypto.PURPOSE_FULL);
+
+                File fullEnc = new File(plainVoice.getParentFile(), plainVoice.getName() + ".enc");
+                MediaE2ECrypto.encryptFile(plainVoice, fullEnc, fullSubKey);
+                byte[] fullDigest = MediaE2ECrypto.sha256File(fullEnc);
+
+                String envelopeJson = MediaE2ECrypto.buildKeyEnvelopeJson(masterKey, null, fullDigest, (byte[]) null);
+                String newVoiceKeyEnc = E2EEncryptionManager.getInstance(ctx).encrypt(envelopeJson, newPartnerUid);
+                if (newVoiceKeyEnc == null) {
+                    cleanup(plainVoice, fullEnc);
+                    postVoice(cb, null, null, "No secure session with recipient yet");
+                    return;
+                }
+
+                // ── Re-upload the NEW ciphertext ───────────────────────────
+                final File finalPlainVoice = plainVoice, finalFullEnc = fullEnc;
+                uploadOne(ctx, fullEnc, "callx/voice_caption", "raw", finalPlainVoice.getName(),
+                        (url, err) -> {
+                    cleanup(finalPlainVoice, finalFullEnc);
+                    if (url == null) {
+                        postVoice(cb, null, null, err != null ? err : "Re-upload failed");
+                        return;
+                    }
+                    postVoice(cb, url, newVoiceKeyEnc, null);
+                });
+            } catch (Exception e) {
+                postVoice(cb, null, null, "Forward failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private static void postVoice(VoiceCallback cb, String voiceUrl, String voiceKeyEnc, String error) {
+        android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        main.post(() -> {
+            if (cb == null) return;
+            if (error != null) cb.onError(error);
+            else cb.onSuccess(voiceUrl, voiceKeyEnc);
+        });
     }
 
     // ── internal helpers ────────────────────────────────────────────────

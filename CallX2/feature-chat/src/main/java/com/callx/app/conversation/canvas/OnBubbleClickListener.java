@@ -36,6 +36,11 @@ public interface OnBubbleClickListener {
      *  toggle MediaPlayer playback for this message's voiceUrl, same as onAudioPlayPauseClick does
      *  for a standalone audio bubble. */
     default void onVoiceCaptionPlayPauseClick() {}
+
+    /** Tapped the speed chip on a voice-caption-on-photo badge (bindMedia
+     *  with voiceUrl set only) — caller should cycle playback speed the
+     *  same way the standalone audio bubble's btnAudioSpeed chip does. */
+    default void onVoiceCaptionSpeedClick() {}
     /** Dragged/tapped the waveform on an audio bubble (bindAudio only) — fraction is 0..1 of the track; caller should seek MediaPlayer to it. The view already updated its own progress bar optimistically. */
     default void onAudioSeek(float fraction) {}
     /** Tapped the "View Contact" row on a contact card (bindContact only) — caller should open the system Contacts app / dialer for this contact's phone number, same as the legacy btnViewContact click listener. */

@@ -85,6 +85,11 @@ public class ContactsActivity extends AppCompatActivity {
     private String  forwardMediaLocalPath;
     private String  forwardOriginalChatPartner;
     private String  forwardOriginalMessageId;
+    // ── Voice Caption on Photo — forward extras (single-message forward only) ──
+    private String forwardVoiceUrl;
+    private String forwardVoiceKeyEnc;
+    private long   forwardVoiceDuration;
+    private String forwardVoiceLocalPath;
 
     // ── Reel share forward extras ─────────────────────────────────────────
     private String forwardReelId;
@@ -131,6 +136,10 @@ public class ContactsActivity extends AppCompatActivity {
         forwardMediaLocalPath      = getIntent().getStringExtra("forwardMediaLocalPath");
         forwardOriginalChatPartner = getIntent().getStringExtra("forwardOriginalChatPartner");
         forwardOriginalMessageId   = getIntent().getStringExtra("forwardOriginalMessageId");
+        forwardVoiceUrl       = getIntent().getStringExtra("forwardVoiceUrl");
+        forwardVoiceKeyEnc    = getIntent().getStringExtra("forwardVoiceKeyEnc");
+        forwardVoiceDuration  = getIntent().getLongExtra("forwardVoiceDuration", 0L);
+        forwardVoiceLocalPath = getIntent().getStringExtra("forwardVoiceLocalPath");
 
         // ── multi_media group forward (whole group or gallery-selected subset) ──
         forwardMediaItemsJson = getIntent().getStringExtra("forwardMediaItemsJson");
@@ -312,6 +321,22 @@ public class ContactsActivity extends AppCompatActivity {
             i.putExtra("forwardOriginalChatPartner", forwardOriginalChatPartner);
             i.putExtra("forwardOriginalMessageId",   forwardOriginalMessageId);
         }
+        // ── Voice Caption on Photo — carry the voice clip + its own
+        // key-rotation extras along with the photo forward (see
+        // ChatActivity#forwardVoiceCaptionThen / MediaForwardReEncryptor#forwardVoiceClip).
+        if (forwardVoiceUrl != null && !forwardVoiceUrl.isEmpty()) {
+            i.putExtra("forwardVoiceUrl",       forwardVoiceUrl);
+            i.putExtra("forwardVoiceKeyEnc",    forwardVoiceKeyEnc);
+            i.putExtra("forwardVoiceDuration",  forwardVoiceDuration);
+            i.putExtra("forwardVoiceLocalPath", forwardVoiceLocalPath);
+            if (forwardMediaKeyEnc == null || forwardMediaKeyEnc.isEmpty()) {
+                // Photo wasn't E2E but the voice clip still might be —
+                // make sure the shared source-message extras are present.
+                i.putExtra("forwardWasSentByMe",         forwardWasSentByMe);
+                i.putExtra("forwardOriginalChatPartner", forwardOriginalChatPartner);
+                i.putExtra("forwardOriginalMessageId",   forwardOriginalMessageId);
+            }
+        }
         // ── multi_media group forward — whole group or gallery-selected subset ──
         if (forwardMediaItemsJson != null && !forwardMediaItemsJson.isEmpty()) {
             i.putExtra("forwardMediaItemsJson", forwardMediaItemsJson);
@@ -360,6 +385,12 @@ public class ContactsActivity extends AppCompatActivity {
         i.putExtra("forwardType",     forwardType);
         i.putExtra("forwardMedia",    forwardMedia);
         i.putExtra("forwardFileName", forwardFileName);
+        // ── Voice Caption on Photo — groups don't E2E their media, so just
+        // carry the plaintext voiceUrl/duration across, no key rotation ──
+        if (forwardVoiceUrl != null && !forwardVoiceUrl.isEmpty()) {
+            i.putExtra("forwardVoiceUrl",      forwardVoiceUrl);
+            i.putExtra("forwardVoiceDuration", forwardVoiceDuration);
+        }
         if (forwardMediaItemsJson != null && !forwardMediaItemsJson.isEmpty()) {
             i.putExtra("forwardMediaItemsJson", forwardMediaItemsJson);
             i.putExtra("forwardCaption",        forwardCaption);

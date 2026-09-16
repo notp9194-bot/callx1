@@ -577,6 +577,9 @@ public class GroupChatActivity extends AppCompatActivity
         String fwdType  = i.getStringExtra("forwardType");
         String fwdMedia = i.getStringExtra("forwardMedia");
         String fwdFileName = i.getStringExtra("forwardFileName");
+        // ── Voice Caption on Photo — forward extras (see forwardMessage() above) ──
+        String fwdVoiceUrl      = i.getStringExtra("forwardVoiceUrl");
+        long   fwdVoiceDuration = i.getLongExtra("forwardVoiceDuration", 0L);
         java.util.ArrayList<String> fwdTexts     = i.getStringArrayListExtra("forwardTexts");
         java.util.ArrayList<String> fwdTypes     = i.getStringArrayListExtra("forwardTypes");
         java.util.ArrayList<String> fwdMedias    = i.getStringArrayListExtra("forwardMedias");
@@ -686,7 +689,12 @@ public class GroupChatActivity extends AppCompatActivity
                 m.imageUrl = "image".equals(m.type) ? fwdMedia : null;
                 m.fileName = fwdFileName;
                 m.forwardedFrom = groupName;
-                String preview = "image".equals(m.type) ? "\uD83D\uDCF7 Photo (forwarded)"
+                if ("image".equals(m.type) && fwdVoiceUrl != null && !fwdVoiceUrl.isEmpty()) {
+                    m.voiceUrl = fwdVoiceUrl;
+                    m.voiceDuration = fwdVoiceDuration > 0 ? fwdVoiceDuration : null;
+                }
+                String preview = "image".equals(m.type)
+                               ? (m.voiceUrl != null ? "\uD83D\uDCF7\uD83C\uDFA4 Photo (forwarded)" : "\uD83D\uDCF7 Photo (forwarded)")
                                : "video".equals(m.type) ? "\uD83C\uDFAC Video (forwarded)"
                                : "audio".equals(m.type) ? "\uD83C\uDFA4 Voice (forwarded)"
                                : "\uD83D\uDCCE File (forwarded)";
@@ -2953,6 +2961,12 @@ public class GroupChatActivity extends AppCompatActivity
         i.putExtra("forwardType",     m.type);
         i.putExtra("forwardMedia",    m.mediaUrl);
         i.putExtra("forwardFileName", m.fileName);
+        // ── Voice Caption on Photo — group media is plaintext (no E2E), so
+        // just carry the clip's URL/duration across as-is ──
+        if (m.voiceUrl != null && !m.voiceUrl.isEmpty()) {
+            i.putExtra("forwardVoiceUrl",      m.voiceUrl);
+            i.putExtra("forwardVoiceDuration", m.voiceDuration != null ? m.voiceDuration : 0L);
+        }
         if ("multi_media".equals(m.type) && m.mediaItems != null && !m.mediaItems.isEmpty()) {
             i.putExtra("forwardMediaItemsJson",
                     com.callx.app.utils.MediaItemsJsonUtil.mediaItemsToJson(m.mediaItems));
@@ -4948,12 +4962,16 @@ public class GroupChatActivity extends AppCompatActivity
      * uploadVoiceCaptionThenFinalize (1:1 chat). Group chat has no
      * local-first pending-bubble pipeline for images (see doUpload above —
      * it already just shows the shared uploadProgress bar and pushes once
-     * on success), so this simply chains the two Cloudinary uploads
-     * (image, then voice clip) and pushes a single "image" message that
-     * already carries both mediaUrl and voiceUrl — same one-bubble result
-     * as the 1:1 path, just without the optimistic local render step.
+     * on success), so this pushes a single "image" message that already
+     * carries both mediaUrl and voiceUrl — same one-bubble result as the
+     * 1:1 path, just without the optimistic local render step.
      * If the voice upload fails, the photo still sends on its own rather
      * than losing the whole message.
+     *
+     * PERF: image and voice are two INDEPENDENT Cloudinary uploads — fired
+     * at the same time and joined with a counter instead of the old
+     * chain-the-voice-upload-after-the-image-succeeds approach. Total wait
+     * drops from image_time + voice_time to max(image_time, voice_time).
      */
     private void uploadGroupImageWithVoice(Uri imageUri, String caption, Uri voiceUri, long voiceDurationMs) {
         if (!isOnline()) {
@@ -4963,43 +4981,57 @@ public class GroupChatActivity extends AppCompatActivity
             return;
         }
         binding.uploadProgress.setVisibility(View.VISIBLE);
+        final Message m = buildOutgoing();
+        m.type = "image";
+        if (caption != null && !caption.isEmpty()) {
+            m.text    = caption;
+            m.caption = caption;
+        }
+        final java.util.concurrent.atomic.AtomicInteger remaining =
+                new java.util.concurrent.atomic.AtomicInteger(2); // image + voice
+        final java.util.concurrent.atomic.AtomicBoolean imageOk =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        Runnable maybeFinish = () -> {
+            if (remaining.decrementAndGet() != 0) return;
+            binding.uploadProgress.setVisibility(View.GONE);
+            if (!imageOk.get()) return; // error toast already shown by the image job
+            pushMessage(m, m.voiceUrl != null ? "\uD83D\uDCF7\uD83C\uDFA4 Photo" : "\uD83D\uDCF7 Photo");
+            clearReply();
+        };
+
         CloudinaryUploader.upload(this, imageUri, "callx/image", "image",
                 new CloudinaryUploader.UploadCallback() {
                     @Override public void onSuccess(CloudinaryUploader.Result imgResult) {
-                        Message m  = buildOutgoing();
-                        m.type     = "image";
                         m.mediaUrl = imgResult.secureUrl;
                         m.imageUrl = imgResult.secureUrl;
                         m.fileSize = imgResult.bytes;
-                        if (caption != null && !caption.isEmpty()) {
-                            m.text    = caption;
-                            m.caption = caption;
-                        }
-
-                        String voiceFileNameHint = FileUtils.fileName(GroupChatActivity.this, voiceUri);
-                        CloudinaryUploader.upload(GroupChatActivity.this, voiceUri,
-                                "callx/voice_caption", "raw", voiceFileNameHint,
-                                new CloudinaryUploader.UploadCallback() {
-                                    @Override public void onSuccess(CloudinaryUploader.Result voiceResult) {
-                                        m.voiceUrl      = voiceResult.secureUrl;
-                                        m.voiceDuration = voiceDurationMs > 0 ? voiceDurationMs : null;
-                                        binding.uploadProgress.setVisibility(View.GONE);
-                                        pushMessage(m, "\uD83D\uDCF7\uD83C\uDFA4 Photo");
-                                        clearReply();
-                                    }
-                                    @Override public void onError(String err) {
-                                        android.util.Log.w("GroupChat",
-                                                "Voice caption upload failed, sending photo without it: " + err);
-                                        binding.uploadProgress.setVisibility(View.GONE);
-                                        pushMessage(m, "\uD83D\uDCF7 Photo");
-                                        clearReply();
-                                    }
-                                });
+                        imageOk.set(true);
+                        maybeFinish.run();
                     }
                     @Override public void onError(String err) {
                         binding.uploadProgress.setVisibility(View.GONE);
                         Toast.makeText(GroupChatActivity.this,
                                 err != null ? err : "Upload failed", Toast.LENGTH_LONG).show();
+                        // Voice job may still be in flight — let it finish
+                        // quietly (its own onSuccess/onError just decrements
+                        // `remaining`; maybeFinish's imageOk check keeps it
+                        // from ever pushing a message once the photo failed).
+                        remaining.decrementAndGet();
+                    }
+                });
+
+        String voiceFileNameHint = FileUtils.fileName(this, voiceUri);
+        CloudinaryUploader.upload(this, voiceUri, "callx/voice_caption", "raw", voiceFileNameHint,
+                new CloudinaryUploader.UploadCallback() {
+                    @Override public void onSuccess(CloudinaryUploader.Result voiceResult) {
+                        m.voiceUrl      = voiceResult.secureUrl;
+                        m.voiceDuration = voiceDurationMs > 0 ? voiceDurationMs : null;
+                        maybeFinish.run();
+                    }
+                    @Override public void onError(String err) {
+                        android.util.Log.w("GroupChat",
+                                "Voice caption upload failed, sending photo without it: " + err);
+                        maybeFinish.run();
                     }
                 });
     }

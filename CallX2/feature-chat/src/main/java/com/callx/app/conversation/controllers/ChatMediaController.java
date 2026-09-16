@@ -1910,25 +1910,83 @@ public class ChatMediaController {
         delegate.finalizeMediaMessage(pending, "\uD83D\uDCF7 Photo");
     }
 
-    /** Uploads the recorded voice-caption clip (plaintext — E2E for this
-     *  clip is a follow-up, mirrors the graceful-fallback pattern used
-     *  elsewhere in this file) and attaches mediaUrl/duration to `pending`
-     *  before finalizing. If the voice upload fails, the photo is still
-     *  sent on its own rather than blocking/losing the whole message. */
+    /** Uploads the recorded voice-caption clip and attaches
+     *  mediaUrl/duration to `pending` before finalizing. If the voice
+     *  upload fails, the photo is still sent on its own rather than
+     *  blocking/losing the whole message.
+     *
+     *  ── Media E2E (voice caption) ──────────────────────────────────────
+     *  Mirrors doUpload()'s "Media E2E (audio)" block for standalone voice
+     *  notes: a fresh random master key is generated, the PURPOSE_FULL
+     *  HKDF subkey encrypts the whole clip, a SHA-256 digest of the
+     *  ciphertext travels in the envelope for the receiver's file-hash
+     *  check, and the envelope itself is wrapped through the same Double
+     *  Ratchet session as the photo (E2EEncryptionManager#encrypt) and
+     *  carried in the NEW Message#voiceKeyEnc field — deliberately
+     *  separate from Message#mediaKeyEnc, which belongs to the photo's own
+     *  envelope and is set/unset independently of whether a voice caption
+     *  is attached (see toggleAudio()'s decrypt-key guard). Falls back to
+     *  plaintext upload if there's no E2E session yet with this partner,
+     *  same graceful-fallback pattern used everywhere else in this file. */
     private void uploadVoiceCaptionThenFinalize(Message pending) {
         Uri voiceUri = Uri.parse(pending.voiceLocalPath);
         String fileNameHint = FileUtils.fileName(activity, voiceUri);
-        CloudinaryUploader.upload(activity, voiceUri, "callx/voice_caption", "raw", fileNameHint,
+
+        Uri uploadUri = voiceUri;
+        java.io.File encVoiceFile = null;
+        String voiceKeyEnc = null;
+        String partnerUid = delegate.getPartnerUid();
+        if (partnerUid != null && !partnerUid.isEmpty()) {
+            try {
+                byte[] masterKey = com.callx.app.utils.MediaE2ECrypto.generateKey();
+                byte[] subKey = com.callx.app.utils.MediaE2ECrypto
+                        .deriveKey(masterKey, com.callx.app.utils.MediaE2ECrypto.PURPOSE_FULL);
+                java.io.File tmp = new java.io.File(activity.getCacheDir(),
+                        "e2e_voicecap_" + System.currentTimeMillis() + ".enc");
+                try (java.io.InputStream in = activity.getContentResolver().openInputStream(voiceUri);
+                     java.io.OutputStream out = new java.io.FileOutputStream(tmp)) {
+                    if (in == null) throw new java.io.IOException("Can't open voice caption for encryption");
+                    com.callx.app.utils.MediaE2ECrypto.encryptStream(in, out, subKey);
+                }
+                byte[] fullDigest = com.callx.app.utils.MediaE2ECrypto.sha256File(tmp);
+                String envelopeJson = com.callx.app.utils.MediaE2ECrypto
+                        .buildKeyEnvelopeJson(masterKey, null, fullDigest, null);
+                voiceKeyEnc = com.callx.app.utils.E2EEncryptionManager
+                        .getInstance(activity).encrypt(envelopeJson, partnerUid);
+                encVoiceFile = tmp;
+                uploadUri = Uri.fromFile(tmp);
+            } catch (Exception e) {
+                android.util.Log.w("ChatMediaController",
+                        "Voice caption E2E encrypt failed, uploading plaintext: " + e.getMessage());
+                if (encVoiceFile != null) encVoiceFile.delete();
+                encVoiceFile = null;
+                uploadUri = voiceUri;
+                voiceKeyEnc = null;
+            }
+        }
+        final java.io.File finalEncVoiceFile = encVoiceFile;
+        final String finalVoiceKeyEnc = voiceKeyEnc;
+
+        CloudinaryUploader.upload(activity, uploadUri, "callx/voice_caption", "raw", fileNameHint,
                 new CloudinaryUploader.UploadCallback() {
                     @Override public void onProgress(int percent) { /* image progress already reported 100% */ }
                     @Override public void onSuccess(CloudinaryUploader.Result result) {
-                        pending.voiceUrl = result.secureUrl;
+                        if (finalEncVoiceFile != null) finalEncVoiceFile.delete();
+                        pending.voiceUrl    = result.secureUrl;
+                        pending.voiceKeyEnc = finalVoiceKeyEnc;
+                        // Seed the local media cache with our own plaintext
+                        // clip (the original `voiceUri`, never the encrypted
+                        // temp file) so we can self-play the bubble we just
+                        // sent immediately — same reasoning as the
+                        // standalone-audio path in doUpload().
+                        com.callx.app.utils.MediaCache.put(activity, result.secureUrl, voiceUri);
                         // pending.voiceDuration is already set by the caller
                         // (see uploadAndSend's image+voice branch below) from
                         // the recorder's own reported duration at capture time.
                         delegate.finalizeMediaMessage(pending, "\uD83D\uDCF7\uD83C\uDFA4 Photo");
                     }
                     @Override public void onError(String err) {
+                        if (finalEncVoiceFile != null) finalEncVoiceFile.delete();
                         android.util.Log.w("ChatMediaController",
                                 "Voice caption upload failed, sending photo without it: " + err);
                         delegate.finalizeMediaMessage(pending, "\uD83D\uDCF7 Photo");

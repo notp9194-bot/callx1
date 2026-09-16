@@ -1679,7 +1679,32 @@ public class MessageBubbleCanvasView extends View {
     @Nullable String voiceUrl;
     @Nullable String voiceDuration;
     boolean isVoicePlaying = false;
+    /** Live "m:ss" elapsed position while a voice caption is playing — null/
+     *  empty means "not currently playing" (badge shows just the total
+     *  duration, same as before this field existed). Ticks every ~250ms
+     *  via setVoiceElapsedText(), same cadence the standalone audio
+     *  bubble's setAudioElapsedText() already uses. Cleared back to null
+     *  on a genuine stop (resetAudioPlayback()) but deliberately left
+     *  alone on a mid-track pause, so a paused clip keeps showing where
+     *  it left off instead of snapping back to the total. */
+    @Nullable String voiceElapsedText;
     final RectF voiceBadgeRect = new RectF();
+    // Feature: Playback speed control on the voice caption badge — mirrors
+    // the standalone audio bubble's btnAudioSpeed chip (1x → 1.5x → 2x →
+    // 0.5x → 1x). Drawn as a small tappable segment appended to the pill,
+    // right of the duration text; hit-tested separately from
+    // voiceBadgeRect (which stays the play/pause icon+duration segment
+    // only) so a tap on either half does the right thing. See
+    // MediaRenderer#drawVoiceBadge / setVoiceSpeedLabel.
+    String voiceSpeedLabel = "1×";
+    final RectF voiceSpeedRect = new RectF();
+    // Feature: "downloading…" state on the voice caption badge — mirrors
+    // mediaDownloading/mediaDownloadProgress's role for the photo itself.
+    // True while the clip is being fetched/decrypted (MediaCache.get /
+    // MediaStreamCache.preloadPartial) but hasn't actually started
+    // playing yet, so the badge shows a neutral "fetching" state instead
+    // of a misleading pause glyph. See setVoiceDownloading().
+    boolean voiceDownloading = false;
     // Single "video" message reuses the whole isMedia/mediaRect/mediaBitmap
     // infrastructure (same fixed 180dp square, same footer pill) — this
     // flag just adds the play-glyph + duration-badge overlay on top,
@@ -2966,7 +2991,11 @@ public class MessageBubbleCanvasView extends View {
         this.voiceUrl = null;
         this.voiceDuration = null;
         this.isVoicePlaying = false;
+        this.voiceElapsedText = null;
         this.voiceBadgeRect.setEmpty();
+        this.voiceSpeedLabel = "1×";
+        this.voiceSpeedRect.setEmpty();
+        this.voiceDownloading = false;
         this.mediaBitmap = bitmap;
         this.mediaAspectKey = aspectKey;
         // A recycled view must never keep the previous message's aspect
@@ -3068,13 +3097,51 @@ public class MessageBubbleCanvasView extends View {
      */
     public void setVoiceCaption(@Nullable String voiceUrl, @Nullable String durationText) {
         boolean has = voiceUrl != null && !voiceUrl.isEmpty();
+        // PERF ULTRA: skip the whole-bubble invalidate() when this bind
+        // carries the exact same voice-caption state as the last one —
+        // e.g. a payload-only rebind (tick/read-receipt update on the SAME
+        // message) that never touches the voice caption at all, or a fast
+        // scroll-past that rebinds the same recycled holder to a message it
+        // already showed. Was invalidating unconditionally on every bind
+        // regardless of whether anything about the caption actually changed.
+        if (has) {
+            if (voiceUrl.equals(this.voiceUrl) && java.util.Objects.equals(durationText, this.voiceDuration)) {
+                return;
+            }
+        } else if (this.voiceUrl == null) {
+            return; // already cleared — nothing to do
+        }
         this.voiceUrl = has ? voiceUrl : null;
         this.voiceDuration = has ? durationText : null;
         if (!has) {
             this.isVoicePlaying = false;
+            this.voiceElapsedText = null;
             this.voiceBadgeRect.setEmpty();
+            this.voiceSpeedLabel = "1×";
+            this.voiceSpeedRect.setEmpty();
+            this.voiceDownloading = false;
         }
         invalidate();
+    }
+
+    /** Playback-speed chip on the voice caption badge — mirrors the
+     *  standalone audio bubble's btnAudioSpeed text (see
+     *  MessagePagingAdapter's speed-cycle click handler). Only invalidates
+     *  the badge region, same as setAudioPlaying(). */
+    public void setVoiceSpeedLabel(String label) {
+        if (label.equals(this.voiceSpeedLabel)) return;
+        this.voiceSpeedLabel = label;
+        invalidateVoiceBadgeRegion();
+    }
+
+    /** Toggles the badge's "fetching the clip" state — set true right when
+     *  a tap kicks off MediaCache.get()/MediaStreamCache.preloadPartial()
+     *  for this clip, and false once actual playback starts (or the fetch
+     *  fails). See MediaRenderer#drawVoiceBadge. */
+    public void setVoiceDownloading(boolean downloading) {
+        if (this.voiceDownloading == downloading) return;
+        this.voiceDownloading = downloading;
+        invalidateVoiceBadgeRegion();
     }
 
     /**
@@ -3240,13 +3307,23 @@ public class MessageBubbleCanvasView extends View {
     private void invalidateVoiceBadgeRegion() {
         fullBubbleDirty = true;
         staticPictureDirty = true;
-        if (voiceBadgeRect.isEmpty()) {
+        // Union of both hit-rects — the pill background/glyph/speed chip
+        // are all drawn together as one visual unit, so any of the three
+        // setters above needs the WHOLE pill (not just its own half)
+        // redrawn, not just the segment that changed.
+        if (voiceBadgeRect.isEmpty() && voiceSpeedRect.isEmpty()) {
             invalidate();
             return;
         }
         float pad = 4f * density;
-        invalidate((int) (voiceBadgeRect.left - pad), (int) (voiceBadgeRect.top - pad),
-                (int) Math.ceil(voiceBadgeRect.right + pad), (int) Math.ceil(voiceBadgeRect.bottom + pad));
+        float left = voiceBadgeRect.isEmpty() ? voiceSpeedRect.left : voiceBadgeRect.left;
+        float top = voiceBadgeRect.isEmpty() ? voiceSpeedRect.top
+                : (voiceSpeedRect.isEmpty() ? voiceBadgeRect.top : Math.min(voiceBadgeRect.top, voiceSpeedRect.top));
+        float right = voiceSpeedRect.isEmpty() ? voiceBadgeRect.right : voiceSpeedRect.right;
+        float bottom = voiceBadgeRect.isEmpty() ? voiceSpeedRect.bottom
+                : (voiceSpeedRect.isEmpty() ? voiceBadgeRect.bottom : Math.max(voiceBadgeRect.bottom, voiceSpeedRect.bottom));
+        invalidate((int) (left - pad), (int) (top - pad),
+                (int) Math.ceil(right + pad), (int) Math.ceil(bottom + pad));
     }
 
     /** Cheap path — called every playback tick (e.g. every 250ms). No layout/measure work, draw-only, same precedent as AudioWaveformView.setProgress(). */
@@ -3263,12 +3340,41 @@ public class MessageBubbleCanvasView extends View {
         invalidateAudioRow();
     }
 
+    /** Voice-caption-on-photo counterpart of setAudioElapsedText() — live
+     *  "m:ss" elapsed position, ticked every ~250ms while the attached
+     *  clip plays. The badge shows "elapsed / total" while isVoicePlaying,
+     *  falling back to just the total the moment this is cleared (see
+     *  MediaRenderer#drawVoiceBadge). */
+    public void setVoiceElapsedText(@Nullable String text) {
+        if (!isMedia || voiceUrl == null || voiceUrl.isEmpty()) return;
+        String next = (text != null && !text.isEmpty()) ? text : null;
+        if (java.util.Objects.equals(next, voiceElapsedText)) return;
+        this.voiceElapsedText = next;
+        invalidateVoiceBadgeRegion();
+    }
+
     /** Resets the bubble to its idle state (button back to ▶, progress to 0, elapsed label cleared) — call when playback stops/completes/errors, or right before rebinding a recycled holder to a different message. */
     public void resetAudioPlayback() {
         this.audioPlaying = false;
         this.audioProgress = 0f;
         this.audioElapsedText = "";
         invalidateAudioRow();
+        // BUG FIX: a voice-caption-on-photo bubble (isMedia + voiceUrl,
+        // not isAudio) never reached any reset here before — the two
+        // fields above are the standalone audio row's, and this method
+        // is what onCompletionListener/onErrorListener call, NOT
+        // setAudioPlaying(false). Without this, the badge stayed stuck
+        // showing the pause glyph + frozen elapsed time forever after a
+        // voice caption finished playing on its own (no bug when the
+        // USER taps pause — that goes through setAudioPlaying(false)
+        // instead, which is the "still mid-track" case this leaves
+        // alone by design — see voiceElapsedText's own javadoc).
+        if (isMedia && voiceUrl != null && !voiceUrl.isEmpty()
+                && (isVoicePlaying || voiceElapsedText != null)) {
+            this.isVoicePlaying = false;
+            this.voiceElapsedText = null;
+            invalidateVoiceBadgeRegion();
+        }
     }
 
     /**
@@ -7106,6 +7212,16 @@ public class MessageBubbleCanvasView extends View {
                 && mediaRect.contains(event.getX(), event.getY())) {
             cancelPendingLongPress(event);
             if (clickListener != null) clickListener.onGifClick();
+            return true;
+        }
+        // ── Voice-caption-on-photo speed-chip tap ───────────────────────────
+        // Checked before the play/pause badge below since the speed chip
+        // is a separate segment appended to the same pill.
+        if (isMedia && voiceUrl != null && !voiceUrl.isEmpty() && !mediaGated && !voiceDownloading
+                && event.getActionMasked() == MotionEvent.ACTION_UP
+                && voiceSpeedRect.contains(event.getX(), event.getY())) {
+            cancelPendingLongPress(event);
+            if (clickListener != null) clickListener.onVoiceCaptionSpeedClick();
             return true;
         }
         // ── Voice-caption-on-photo play-badge tap ──────────────────────────

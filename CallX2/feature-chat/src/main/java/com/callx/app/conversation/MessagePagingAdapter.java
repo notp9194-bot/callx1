@@ -1461,6 +1461,30 @@ public class MessagePagingAdapter
     private static final android.util.LongSparseArray<Boolean> sameDayCache =
             new android.util.LongSparseArray<>(32);
 
+    // ── PERF ULTRA: voice-caption duration text cache (LongSparseArray) ─────
+    // Feature: Voice Caption on Photo. Every bind of an image message that
+    // carries an attached voice note used to build its "m:ss" label with a
+    // fresh String.format(Locale.US, "%d:%02d", ...) call — Formatter
+    // construction + locale lookup + String allocation, on every single
+    // bind (including recycled-holder rebinds while scrolling past the
+    // same message repeatedly). Voice-note duration is fixed once recorded,
+    // so the same voiceMs always produces the same label — cache it.
+    // LongSparseArray (not LruCache<Long,String>) for the same reason as
+    // timeStringCache above: keys are primitive longs, so lookups on a
+    // scroll-heavy chat screen no longer box a Long per row.
+    private static final android.util.LongSparseArray<String> voiceDurationTextCache =
+            new android.util.LongSparseArray<>(128);
+
+    private static String formatVoiceDuration(long voiceMs) {
+        long voiceSecs = voiceMs / 1000;
+        String s = voiceDurationTextCache.get(voiceSecs);
+        if (s != null) return s;
+        s = String.format(java.util.Locale.US, "%d:%02d", voiceSecs / 60, voiceSecs % 60);
+        if (voiceDurationTextCache.size() >= 128) voiceDurationTextCache.clear();
+        voiceDurationTextCache.put(voiceSecs, s);
+        return s;
+    }
+
     // ── PERF FIX #3: reel-share avatar/thumb in-memory cache ─────────────────
     // Root cause: bindReelShareBubble fired a fresh Firebase "users" query
     // (by username) on EVERY bind where m.reelShareOwnerPhoto was empty —
@@ -1545,13 +1569,6 @@ public class MessagePagingAdapter
     };
     // Feature 4: Voice speed. Resets to 1.0f each time a new audio starts.
     private float currentPlaybackSpeed = 1.0f;
-
-    // Feature: Voice Caption on Photo — messageIds whose attached voice
-    // note has already auto-played once for the receiver in this adapter's
-    // lifetime (walkie-talkie style — see bindMessage's "image" case).
-    // Plain in-memory set is enough: it only needs to survive scroll/rebind
-    // within a single chat-screen session, not across app restarts.
-    private final java.util.Set<String> autoPlayedVoiceOnImage = new java.util.HashSet<>();
 
     // Feature 3: Spoiler — per-message map of revealed span-start indices.
     // Keyed by messageId so reveal state persists across recycler reuse.
@@ -3494,6 +3511,39 @@ public class MessagePagingAdapter
             }
 
             @Override
+            public void onVoiceCaptionSpeedClick() {
+                // Feature: Playback speed on the voice caption badge —
+                // mirrors the standalone audio bubble's btnAudioSpeed chip
+                // (1x → 1.5x → 2x → 0.5x → 1x). currentPlaybackSpeed is the
+                // SAME shared field that chip uses, so speed picked here
+                // also applies if the user later plays a standalone voice
+                // note in this same chat session — same one-speed-at-a-time
+                // precedent the legacy chip already has.
+                Message m = h.boundMessage;
+                if (m == null || m.voiceUrl == null || m.voiceUrl.isEmpty()) return;
+                if      (currentPlaybackSpeed == 1.0f)  currentPlaybackSpeed = 1.5f;
+                else if (currentPlaybackSpeed == 1.5f)  currentPlaybackSpeed = 2.0f;
+                else if (currentPlaybackSpeed == 2.0f)  currentPlaybackSpeed = 0.5f;
+                else                                     currentPlaybackSpeed = 1.0f;
+                String label = (currentPlaybackSpeed == 0.5f) ? "0.5×"
+                             : (currentPlaybackSpeed == 1.0f) ? "1×"
+                             : (currentPlaybackSpeed == 1.5f) ? "1.5×" : "2×";
+                if (h.canvasView != null) h.canvasView.setVoiceSpeedLabel(label);
+                // Apply immediately only if THIS message's clip is the one
+                // currently playing — otherwise the label change is purely
+                // cosmetic until playback actually starts (which resets it
+                // to 1x anyway — see playAudioFromPath's onPreparedListener).
+                boolean isThisPlaying = playingPos == h.getAdapterPosition() && player != null;
+                if (isThisPlaying && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                    try {
+                        android.media.PlaybackParams pp = new android.media.PlaybackParams();
+                        pp.setSpeed(currentPlaybackSpeed);
+                        player.setPlaybackParams(pp);
+                    } catch (Exception ignored) {}
+                }
+            }
+
+            @Override
             public void onAudioSeek(float fraction) {
                 Message m = h.boundMessage;
                 if (m == null) return;
@@ -4168,23 +4218,21 @@ public class MessagePagingAdapter
             boolean hasVoiceCaption = m.voiceUrl != null && !m.voiceUrl.isEmpty();
             if (hasVoiceCaption) {
                 long voiceMs = m.voiceDuration != null ? m.voiceDuration : 0L;
-                long voiceSecs = voiceMs / 1000;
-                String voiceDurText = String.format(java.util.Locale.US, "%d:%02d", voiceSecs / 60, voiceSecs % 60);
+                // PERF ULTRA: was String.format()'d fresh on every bind — see
+                // formatVoiceDuration()'s cache doc above.
+                String voiceDurText = formatVoiceDuration(voiceMs);
                 cv.setVoiceCaption(m.voiceUrl, voiceDurText);
                 boolean isThisVoicePlaying = playingPos == h.getAdapterPosition() && player != null && isPlayerPlaying;
                 cv.setAudioPlaying(isThisVoicePlaying);
 
-                // Receiver-only, once-per-message auto-play — same
-                // walkie-talkie-style precedent as the legacy
-                // bindVoiceOnImage(), reusing the same autoPlayedVoiceOnImage
-                // dedupe set so a message auto-played once on the legacy
-                // path (before this Canvas cutover) never double-plays here.
-                String voiceMsgKey = m.messageId != null ? m.messageId : m.id;
-                if (!sent && voiceMsgKey != null && playingPos == -1
-                        && !autoPlayedVoiceOnImage.contains(voiceMsgKey)) {
-                    autoPlayedVoiceOnImage.add(voiceMsgKey);
-                    toggleAudio(h, m.voiceUrl, h.getAdapterPosition());
-                }
+                // BUG FIX: this used to auto-play the receiver's voice
+                // caption once per message (walkie-talkie style). Removed —
+                // it was firing again on every fresh chat-screen open (the
+                // dedupe set lived on the adapter instance, which gets
+                // recreated each time ChatActivity is), so a caption the
+                // user had already heard kept re-downloading/decrypting/
+                // playing itself unprompted. Tap-to-play only now, same as
+                // a standalone voice message.
             } else {
                 cv.setVoiceCaption(null, null);
             }
@@ -4200,21 +4248,14 @@ public class MessagePagingAdapter
                     && (fullUrl == null || fullUrl.isEmpty());
             if (localPendingMedia) {
                 cv.clearMediaDownloadGate();
+                h.imageBindFireToken = myToken;
+                h.imageBindAspectCacheKey = null; // local pending preview — no aspect caching here
+                h.imageBindPoolKey = null;        // not pool-worthy — still uploading, url may change
                 glide(ctx).asBitmap()
                         .load(android.net.Uri.parse(m.mediaLocalPath))
                         .apply(THUMB_RGB565)
                         .override(thumbPx(ctx), thumbPx(ctx))
-                        .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                            @Override public void onResourceReady(@NonNull Bitmap resource,
-                                    @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                if (h.canvasBindToken != myToken) return;
-                                cv.setMediaBitmap(resource);
-                            }
-                            @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
-                                if (h.canvasBindToken != myToken) return;
-                                cv.setMediaBitmap(null);
-                            }
-                        });
+                        .into(h.getOrCreateImageBindTarget());
 
                 String mid = m.messageId != null ? m.messageId : m.id;
                 if ("failed".equals(m.status)) {
@@ -4294,42 +4335,14 @@ public class MessagePagingAdapter
                         resolveAspectRatioEarly(ctx, loadSrc, fullUrl, cv, h, myToken);
                     }
                     // PERF #4: use density-aware thumb size instead of hard-coded 480px
+                    h.imageBindFireToken = myToken;
+                    h.imageBindAspectCacheKey = fullUrl;
+                    h.imageBindPoolKey = poolKey;
                     glide(ctx).asBitmap()
                             .load(loadSrc)
                             .apply(THUMB_RGB565)
                             .override(thumbPx(ctx), thumbPx(ctx))
-                            .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
-                                @Override
-                                public void onResourceReady(@NonNull Bitmap resource,
-                                        @Nullable com.bumptech.glide.request.transition.Transition<? super Bitmap> transition) {
-                                    // Record the real aspect ratio regardless of
-                                    // whether this holder still shows this image —
-                                    // fast scrolling recycles/rebinds the view long
-                                    // before Glide's callback fires, and without this
-                                    // unconditional write the square-placeholder flash
-                                    // was repeating on every single scroll-past
-                                    // instead of only the image's very first view.
-                                    if (resource.getHeight() > 0) {
-                                        com.callx.app.conversation.canvas.MessageBubbleCanvasView
-                                                .cacheAspectRatio(fullUrl, (float) resource.getWidth() / resource.getHeight());
-                                    }
-                                    // PERF #1: store decoded bitmap in pool for scroll-back reuse —
-                                    // under the same source-aware key it was looked up with above,
-                                    // so a local-first decode never gets stored under (and later
-                                    // handed out for) the plain remote-URL key.
-                                    if (!poolKey.isEmpty()) {
-                                        DECODED_BITMAP_CACHE.put(poolKey, resource);
-                                        dashboardRecordDecoded(ctx, poolKey, resource);
-                                    }
-                                    if (h.canvasBindToken != myToken) return; // holder recycled/rebound since this load started
-                                    cv.setMediaBitmap(resource);
-                                }
-                                @Override
-                                public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
-                                    if (h.canvasBindToken != myToken) return;
-                                    cv.setMediaBitmap(null);
-                                }
-                            });
+                            .into(h.getOrCreateImageBindTarget());
                     }
                 }
             } else if (fullUrl != null && !fullUrl.isEmpty()) {
@@ -7217,26 +7230,37 @@ public class MessagePagingAdapter
         // wait vs. partial-stream-start is negligible) instead of
         // MediaStreamCache.preloadPartial below.
         //
-        // BUG FIX (Voice Caption on Photo — recorded audio never plays):
-        // audioMsg.mediaKeyEnc belongs to the PHOTO's own E2E envelope —
-        // it's set whenever the image is E2E, completely independent of
-        // whether a voice caption is attached. The caption clip itself is
-        // always uploaded plaintext (see
-        // ChatMediaController#uploadVoiceCaptionThenFinalize's javadoc:
-        // "E2E for this clip is a follow-up"). Without the type=="audio"
-        // guard below, this used to grab the photo's decrypt key for a
-        // combo image+voice-caption message and "decrypt" the already-
-        // plaintext voice clip with it — corrupting the bytes into
-        // unplayable garbage even though the download itself succeeded.
-        // Only a genuine standalone voice-message bubble (type=="audio")
-        // is ever actually E2E-encrypted at this URL.
+        // A standalone voice-message bubble (type=="audio") is E2E'd under
+        // its OWN Message#mediaKeyEnc. A Voice-Caption-on-Photo bubble
+        // (type=="image" with voiceUrl set) is a SEPARATE clip with its
+        // OWN envelope, Message#voiceKeyEnc — deliberately distinct from
+        // the photo's mediaKeyEnc (which is set/unset independently of
+        // whether a voice caption is attached; see
+        // ChatMediaController#uploadVoiceCaptionThenFinalize). Grabbing the
+        // wrong field here "decrypts" the clip with the wrong key and
+        // corrupts it into unplayable garbage even though the download
+        // itself succeeds — so each type reads its own matching field.
         Message audioMsg = getItem(position);
-        byte[] audioKey = (audioMsg != null && "audio".equals(audioMsg.type)
-                && !currentUid.equals(audioMsg.senderId) && audioMsg.mediaKeyEnc != null)
-                ? com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(h.itemView.getContext(), audioMsg.mediaKeyEnc,
-                        audioMsg.senderId, (audioMsg.messageId != null ? audioMsg.messageId : audioMsg.id))
-                : null;
+        boolean isVoiceCaptionClip = audioMsg != null && "image".equals(audioMsg.type)
+                && audioMsg.voiceUrl != null && audioMsg.voiceUrl.equals(url);
+        String audioMsgId = audioMsg != null
+                ? (audioMsg.messageId != null ? audioMsg.messageId : audioMsg.id) : null;
+        byte[] audioKey;
+        if (audioMsg != null && "audio".equals(audioMsg.type)
+                && !currentUid.equals(audioMsg.senderId) && audioMsg.mediaKeyEnc != null) {
+            audioKey = com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(h.itemView.getContext(),
+                    audioMsg.mediaKeyEnc, audioMsg.senderId, audioMsgId);
+        } else if (isVoiceCaptionClip && !currentUid.equals(audioMsg.senderId) && audioMsg.voiceKeyEnc != null) {
+            audioKey = com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(h.itemView.getContext(),
+                    audioMsg.voiceKeyEnc, audioMsg.senderId, audioMsgId);
+        } else {
+            audioKey = null;
+        }
         if (audioKey != null) {
+            // Feature: "downloading…" badge state — only the voice-caption
+            // canvas badge models this state right now; standalone audio
+            // bubbles keep their existing "pause glyph shown early" look.
+            if (isVoiceCaptionClip && h.canvasView != null) h.canvasView.setVoiceDownloading(true);
             com.callx.app.utils.MediaCache.get(h.itemView.getContext(), url, audioKey,
                     new com.callx.app.utils.MediaCache.Callback() {
                 @Override public void onReady(java.io.File file) {
@@ -7244,6 +7268,7 @@ public class MessagePagingAdapter
                 }
                 @Override public void onError(String reason) {
                     android.util.Log.w("AudioPlay", "E2E audio decrypt/download failed: " + reason);
+                    if (isVoiceCaptionClip && h.canvasView != null) h.canvasView.setVoiceDownloading(false);
                 }
             });
             return;
@@ -7251,6 +7276,7 @@ public class MessagePagingAdapter
 
         // FIX v14: MediaStreamCache use karo — pehle 512KB stream karo (fast start),
         // baaki background mein download hota rahe. User ko buffer nahi karega.
+        if (isVoiceCaptionClip && h.canvasView != null) h.canvasView.setVoiceDownloading(true);
         com.callx.app.cache.MediaStreamCache.getInstance(h.itemView.getContext())
             .preloadPartial(url, new com.callx.app.cache.MediaStreamCache.DownloadCallback() {
                 @Override public void onComplete(java.io.File file) {
@@ -7296,6 +7322,11 @@ public class MessagePagingAdapter
 
     private void playAudioFromPath(@NonNull VH h, String path, int position) {
         try {
+            // Feature: "downloading…" badge state — clear it here (single
+            // choke point for every call site: cache-hit, E2E decrypt
+            // success, and MediaStreamCache success/fallback) rather than
+            // duplicating the clear in each caller.
+            if (h.canvasView != null) h.canvasView.setVoiceDownloading(false);
             // FIX [P3-1]: Reset previous VH UI so two bubbles don't show "pause" at the same time
             if (playingVH != null && playingVH != h) {
                 seekHandler.removeCallbacks(seekUpdater);
@@ -7321,6 +7352,13 @@ public class MessagePagingAdapter
             // Always the OTHER party's uid (see partnerUid field javadoc) — NOT
             // __voiceMsg.senderId, which is our own uid for outgoing clips.
             final String __voicePartnerUid = this.partnerUid;
+            // Feature: elapsed/total on the voice-caption-on-photo badge —
+            // distinguishes that case from a standalone audio bubble so
+            // the seekUpdater below (shared by both) drives the right
+            // canvas fields for each (see MessageBubbleCanvasView#
+            // setVoiceElapsedText vs #setAudioElapsedText).
+            final boolean __isVoiceCaptionOnPhoto = __voiceMsg != null && "image".equals(__voiceMsg.type)
+                    && __voiceMsg.voiceUrl != null && !__voiceMsg.voiceUrl.isEmpty();
             
             // Agar local file hai to FileDescriptor se set karo (cache files ke liye)
             // Agar URL hai to directly
@@ -7343,6 +7381,7 @@ public class MessagePagingAdapter
                 // Feature 4: reset to 1x speed for each new audio playback
                 currentPlaybackSpeed = 1.0f;
                 if (h.btnAudioSpeed != null) h.btnAudioSpeed.setText("1×");
+                if (h.canvasView != null) h.canvasView.setVoiceSpeedLabel("1×");
                 mp.start();
                 isPlayerPlaying = true;
                 // Apply initial speed (API 23+) — usually 1x, but applied
@@ -7372,8 +7411,15 @@ public class MessagePagingAdapter
                                 String elapsed = String.format(java.util.Locale.getDefault(),
                                         "%d:%02d", (cur / 1000) / 60, (cur / 1000) % 60);
                                 if (h.canvasView != null) {
-                                    if (durationMs > 0) h.canvasView.setAudioProgress((float) cur / durationMs);
-                                    h.canvasView.setAudioElapsedText(elapsed);
+                                    if (__isVoiceCaptionOnPhoto) {
+                                        // No waveform/seek-progress modeled for
+                                        // this compact badge (see setVoiceCaption's
+                                        // javadoc) — just the live elapsed label.
+                                        h.canvasView.setVoiceElapsedText(elapsed);
+                                    } else {
+                                        if (durationMs > 0) h.canvasView.setAudioProgress((float) cur / durationMs);
+                                        h.canvasView.setAudioElapsedText(elapsed);
+                                    }
                                 } else {
                                     if (durationMs > 0) h.seekAudio.setProgress((float) cur / durationMs);
                                     if (h.tvAudioDur != null) h.tvAudioDur.setText(elapsed);
@@ -7426,11 +7472,12 @@ public class MessagePagingAdapter
      * toggleAudio()/playAudioFromPath() machinery (same one standalone
      * voice-message bubbles use) — tap toggles play/pause, and the glyph
      * is driven by setPlayPauseIcon()/resetAudioUi() (both already know
-     * about h.ivVoicePlayOnImage). For the RECEIVER only, the voice note
-     * auto-plays once (walkie-talkie style) the first time this message's
-     * bubble is bound — tracked in autoPlayedVoiceOnImage so it never
-     * replays on later scroll/rebind, and skipped if some other bubble is
-     * already mid-playback so we don't step on the user's own listening.
+     * about h.ivVoicePlayOnImage). BUG FIX: this used to auto-play once
+     * for the receiver (walkie-talkie style), tracked in a set on the
+     * adapter instance — which meant every fresh chat-screen open (a new
+     * adapter) forgot the set and replayed an already-heard caption the
+     * moment its bubble scrolled into view. Removed; tap-to-play only now,
+     * same as a standalone voice message.
      */
     private void bindVoiceOnImage(@NonNull VH h, @NonNull Message m, int position) {
         if (h.flVoiceOnImage == null) return;
@@ -7460,15 +7507,6 @@ public class MessagePagingAdapter
         // Click listener is now set ONCE in onCreateViewHolder (see the
         // "PERF: build the voice-on-image play-badge listener ONCE per VH"
         // comment there) — no per-bind allocation here anymore.
-
-        // Receiver-only, once-per-message auto-play.
-        String msgKey = m.messageId != null ? m.messageId : m.id;
-        boolean sentByMe = currentUid.equals(m.senderId);
-        if (!sentByMe && msgKey != null && playingPos == -1
-                && !autoPlayedVoiceOnImage.contains(msgKey)) {
-            autoPlayedVoiceOnImage.add(msgKey);
-            toggleAudio(h, m.voiceUrl, position);
-        }
     }
 
     /**
@@ -7712,20 +7750,28 @@ public class MessagePagingAdapter
                                       int tappedSubIndex, String fallbackUrl, String fallbackThumb,
                                       String mediaType, @Nullable String fallbackMediaItemsJson,
                                       @Nullable String localPath, @Nullable String mediaKeyB64,
-                                      @Nullable android.graphics.Rect srcRect) {
+                                      @Nullable android.graphics.Rect srcRect, boolean isOwnMessage) {
         openChatMediaViewer(ctx, chatId, tappedMessageId, tappedSubIndex, fallbackUrl, fallbackThumb,
-                mediaType, fallbackMediaItemsJson, localPath, mediaKeyB64, srcRect, false);
+                mediaType, fallbackMediaItemsJson, localPath, mediaKeyB64, srcRect, isOwnMessage,
+                null, null, null);
     }
 
-    // isOwnMessage — threaded through as the "isOwnMessage" extra so
-    // MediaViewerActivity's more-options (ℹ) menu only shows "Delete" for
-    // a message the current user actually sent (mirrors the old bottom
-    // sheet's `!isOwnMsg` guard on its Delete row).
+    // Feature: Voice Caption on Photo — carries the attached voice note
+    // through to MediaViewerActivity's fullscreen view too, not just the
+    // chat bubble (was chat-only before this overload; the fullscreen
+    // viewer had no way to know a voice note existed at all). voiceUrl/
+    // voiceDurationText/voiceKeyB64 are null for any image without one —
+    // showMediaActionSheet's hasVoiceCaption gate is the only place that
+    // ever passes non-null here; every other call site (video, grouped
+    // media) keeps going through the 12-arg overload above, which forwards
+    // nulls, so nothing else changes behavior.
     private void openChatMediaViewer(Context ctx, @Nullable String chatId, @Nullable String tappedMessageId,
                                       int tappedSubIndex, String fallbackUrl, String fallbackThumb,
                                       String mediaType, @Nullable String fallbackMediaItemsJson,
                                       @Nullable String localPath, @Nullable String mediaKeyB64,
-                                      @Nullable android.graphics.Rect srcRect, boolean isOwnMessage) {
+                                      @Nullable android.graphics.Rect srcRect, boolean isOwnMessage,
+                                      @Nullable String voiceUrl, @Nullable String voiceDurationText,
+                                      @Nullable String voiceKeyB64) {
         // (Plain local interface, not java.util.function.Consumer — minSdk
         // 23 here has no core-library desugaring set up.)
         final MediaViewerExtrasAttacher attachCommonExtras = i2 -> {
@@ -7742,6 +7788,17 @@ public class MessagePagingAdapter
             i2.putExtra("isOwnMessage", isOwnMessage);
             if (mediaKeyB64 != null) {
                 i2.putExtra("mediaKeyB64", mediaKeyB64);
+            }
+            // Feature: Voice Caption on Photo — same play-badge drawables
+            // (bg_voice_duration_pill / bg_voice_play_badge / ic_play /
+            // ic_pause) the chat bubble uses, reused as-is by
+            // MediaViewerActivity's own fl_voice_on_image overlay.
+            if (voiceUrl != null && !voiceUrl.isEmpty()) {
+                i2.putExtra("voiceUrl", voiceUrl);
+                i2.putExtra("voiceDurationText", voiceDurationText);
+                if (voiceKeyB64 != null) {
+                    i2.putExtra("voiceKeyB64", voiceKeyB64);
+                }
             }
             // Telegram-style open/close animation — see
             // MediaViewerSourceRect class doc. No-op if srcRect is null.
@@ -7941,9 +7998,30 @@ public class MessagePagingAdapter
                 : null;
 
         final String localPath = localPathHint != null ? localPathHint : m.mediaLocalPath;
+
+        // Feature: Voice Caption on Photo — thread the attached voice note
+        // through to MediaViewerActivity too (mediaItemsJson != null means
+        // this tap opens the grouped gallery instead, which has its own
+        // per-page message lookup — see GalleryPagerAdapter — so the voice
+        // badge there is out of scope for this single-item path).
+        final boolean hasVoiceCaption = mediaItemsJson == null && "image".equals(mediaType)
+                && m.voiceUrl != null && !m.voiceUrl.isEmpty();
+        String voiceUrlForViewer = null, voiceDurationTextForViewer = null, voiceKeyB64ForViewer = null;
+        if (hasVoiceCaption) {
+            voiceUrlForViewer = m.voiceUrl;
+            voiceDurationTextForViewer = formatVoiceDuration(m.voiceDuration != null ? m.voiceDuration : 0L);
+            byte[] sheetVoiceKey = (!isOwnMsg && m.voiceKeyEnc != null)
+                    ? com.callx.app.utils.MediaE2ECrypto.decryptKeyOnly(ctx, m.voiceKeyEnc,
+                            m.senderId, sheetMessageId)
+                    : null;
+            voiceKeyB64ForViewer = (sheetVoiceKey != null)
+                    ? android.util.Base64.encodeToString(sheetVoiceKey, android.util.Base64.NO_WRAP)
+                    : null;
+        }
         openChatMediaViewer(ctx, chatId, sheetMessageId, startIndex,
                 fullUrl, thumbForViewer, mediaType, mediaItemsJson,
-                localPath, sheetMediaKeyB64, srcRect, isOwnMsg);
+                localPath, sheetMediaKeyB64, srcRect, isOwnMsg,
+                voiceUrlForViewer, voiceDurationTextForViewer, voiceKeyB64ForViewer);
     }
 
 
@@ -8712,6 +8790,53 @@ public class MessagePagingAdapter
         // has no such lifecycle tie-in, so this token is the only thing
         // preventing that race.
         volatile int canvasBindToken = 0;
+        // PERF ULTRA: reusable Glide target for the single-image (isImage,
+        // non-group) bind path — previously a fresh anonymous
+        // CustomTarget<Bitmap> was allocated on EVERY bind that fired a
+        // Glide decode (cache miss), even though the vast majority of that
+        // object's logic (aspect-ratio caching, bitmap-pool storage, the
+        // canvasBindToken staleness guard) is identical bind to bind. This
+        // holder now owns exactly one target instance for its whole
+        // lifetime; each fire just restashes the small bits of per-load
+        // state below immediately before calling .into(), instead of
+        // capturing them in a new closure. See getOrCreateImageBindTarget().
+        com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap> imageBindTarget;
+        int imageBindFireToken;
+        String imageBindAspectCacheKey; // fullUrl to record decoded aspect ratio under, or null to skip
+        String imageBindPoolKey;        // DECODED_BITMAP_CACHE key to store the decoded bitmap under, or null/empty to skip
+
+        com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap> getOrCreateImageBindTarget() {
+            if (imageBindTarget == null) {
+                imageBindTarget = new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
+                    @Override
+                    public void onResourceReady(@NonNull android.graphics.Bitmap resource,
+                            @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
+                        // Record the real aspect ratio / pool entry regardless of
+                        // whether this holder still shows this image — fast
+                        // scrolling recycles/rebinds the view long before Glide's
+                        // callback fires, and gating these on the token below
+                        // would repeat the square-placeholder flash on every
+                        // scroll-past instead of only an image's very first view.
+                        if (resource.getHeight() > 0 && imageBindAspectCacheKey != null) {
+                            com.callx.app.conversation.canvas.MessageBubbleCanvasView
+                                    .cacheAspectRatio(imageBindAspectCacheKey, (float) resource.getWidth() / resource.getHeight());
+                        }
+                        if (imageBindPoolKey != null && !imageBindPoolKey.isEmpty()) {
+                            DECODED_BITMAP_CACHE.put(imageBindPoolKey, resource);
+                            dashboardRecordDecoded(canvasView.getContext(), imageBindPoolKey, resource);
+                        }
+                        if (canvasBindToken != imageBindFireToken) return; // holder recycled/rebound since this load started
+                        if (canvasView != null) canvasView.setMediaBitmap(resource);
+                    }
+                    @Override
+                    public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                        if (canvasBindToken != imageBindFireToken) return;
+                        if (canvasView != null) canvasView.setMediaBitmap(null);
+                    }
+                };
+            }
+            return imageBindTarget;
+        }
         // PERF: reused buffers for bindPollOnly()'s live vote-count fast
         // path (fires once per incoming vote on an active poll) — grown
         // only when the option count actually changes, instead of a fresh

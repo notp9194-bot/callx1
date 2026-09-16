@@ -65,6 +65,60 @@
         android:visibility="gone"
         android:contentDescription="Loading"/>
 
+    <!-- Feature: Voice Caption on Photo — fullscreen viewer. Same
+         drawables the chat bubble's fl_voice_on_image pill uses
+         (bg_voice_duration_pill / bg_voice_play_badge / ic_play /
+         ic_pause), reused as-is so a voice note attached to an image is
+         still playable once the user opens it fullscreen — previously this
+         viewer had no idea the voice note even existed and the badge just
+         disappeared on tap. Single-image mode only (see
+         MediaViewerActivity#setupVoiceCaptionOverlay() / "voiceUrl" intent
+         extra); the grouped gallery's own per-page badge is a separate,
+         not-yet-covered case — see GalleryPagerAdapter. Anchored to the
+         same bottom-start corner the bubble uses.-->
+    <FrameLayout
+        android:id="@+id/fl_voice_on_image_viewer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="16dp"
+        android:background="@drawable/bg_voice_duration_pill"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="4dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp">
+
+            <ImageView
+                android:id="@+id/iv_voice_play_on_image_viewer"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:padding="4dp"
+                android:background="@drawable/bg_voice_play_badge"
+                android:src="@drawable/ic_play"
+                android:tint="#FFFFFFFF"/>
+
+            <TextView
+                android:id="@+id/tv_voice_duration_on_image_viewer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="0:00"
+                android:textColor="#FFFFFFFF"
+                android:textSize="11sp"
+                android:textStyle="bold"/>
+
+        </LinearLayout>
+    </FrameLayout>
+
     <!-- Top bar — tap image to toggle visibility.
          No more full-width background strip here — see bg_media_viewer_toolbtn
          doc: each button below now carries its own small semi-transparent

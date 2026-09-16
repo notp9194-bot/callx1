@@ -78,6 +78,8 @@ public final class MessageEntityMapper {
         m.voiceUrl = e.voiceUrl;
         m.voiceLocalPath = e.voiceLocalPath;
         m.voiceDuration = e.voiceDuration;
+        // v68: Media E2E (voice caption) — see MessageEntity#voiceKeyEnc.
+        m.voiceKeyEnc = e.voiceKeyEnc;
         m.mediaResourceType = e.mediaResourceType;
         // Durable offline-send wire copy. It is transient on Message and is
         // only consumed by the outbox worker; the normal UI always renders

@@ -2169,6 +2169,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         String fwdMediaLocalPath      = i.getStringExtra("forwardMediaLocalPath");
         String fwdOriginalChatPartner = i.getStringExtra("forwardOriginalChatPartner");
         String fwdOriginalMessageId   = i.getStringExtra("forwardOriginalMessageId");
+        // ── Voice Caption on Photo — forward extras (see forwardMessage() above) ──
+        String fwdVoiceUrl       = i.getStringExtra("forwardVoiceUrl");
+        String fwdVoiceKeyEnc    = i.getStringExtra("forwardVoiceKeyEnc");
+        long   fwdVoiceDuration  = i.getLongExtra("forwardVoiceDuration", 0L);
+        String fwdVoiceLocalPath = i.getStringExtra("forwardVoiceLocalPath");
         ArrayList<String> fwdTexts     = i.getStringArrayListExtra("forwardTexts");
         ArrayList<String> fwdTypes     = i.getStringArrayListExtra("forwardTypes");
         ArrayList<String> fwdMedias    = i.getStringArrayListExtra("forwardMedias");
@@ -2309,27 +2314,84 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             // chat's own E2E session, instead of reusing the original
             // ciphertext/key (which the new recipient could never have
             // decrypted anyway — it was wrapped for a different session).
+            //
+            // PERF: photo re-encrypt/re-upload and voice re-encrypt/re-upload
+            // are two fully INDEPENDENT Cloudinary round-trips — the old code
+            // waited for the photo job to fully finish before even starting
+            // the voice job (sequential = photo_time + voice_time). Both are
+            // now fired at the same time and joined with a simple counter,
+            // so total latency drops to max(photo_time, voice_time) instead.
+            final Message m = buildOutgoing();
+            m.type = "image";
+            m.forwardedFrom = partnerName;
+            final boolean hasVoiceE2E = fwdVoiceUrl != null && !fwdVoiceUrl.isEmpty()
+                    && fwdVoiceKeyEnc != null && !fwdVoiceKeyEnc.isEmpty();
+            if (fwdVoiceUrl != null && !fwdVoiceUrl.isEmpty() && !hasVoiceE2E) {
+                // Voice clip was never E2E — nothing to rotate, carry as-is
+                // (no async job needed, doesn't affect the join count below).
+                m.voiceUrl = fwdVoiceUrl;
+                m.voiceDuration = fwdVoiceDuration > 0 ? fwdVoiceDuration : null;
+            }
+            final java.util.concurrent.atomic.AtomicInteger remaining =
+                    new java.util.concurrent.atomic.AtomicInteger(hasVoiceE2E ? 2 : 1);
+            final java.util.concurrent.atomic.AtomicBoolean imageOk =
+                    new java.util.concurrent.atomic.AtomicBoolean(false);
+            Runnable maybeFinish = () -> {
+                if (remaining.decrementAndGet() != 0) return;
+                if (!imageOk.get()) return; // error toast already shown by the image job
+                pushMessage(m, m.voiceUrl != null
+                        ? "\uD83D\uDCF7\uD83C\uDFA4 Photo (forwarded)" : "\uD83D\uDCF7 Photo (forwarded)");
+            };
+
             com.callx.app.utils.MediaForwardReEncryptor.forwardImage(this,
                     fwdMedia, fwdThumbnailUrl, fwdMediaKeyEnc, fwdWasSentByMe,
                     fwdMediaLocalPath, fwdOriginalChatPartner, fwdOriginalMessageId, partnerUid,
                     new com.callx.app.utils.MediaForwardReEncryptor.Callback() {
                         @Override public void onSuccess(String newMediaUrl, String newThumbnailUrl, String newMediaKeyEnc) {
                             binding.getRoot().post(() -> {
-                                Message m = buildOutgoing();
-                                m.type = "image";
                                 m.mediaUrl = newMediaUrl;
                                 m.imageUrl = newMediaUrl;
                                 m.thumbnailUrl = newThumbnailUrl;
                                 m.mediaKeyEnc = newMediaKeyEnc;
-                                m.forwardedFrom = partnerName;
-                                pushMessage(m, "\uD83D\uDCF7 Photo (forwarded)");
+                                imageOk.set(true);
+                                maybeFinish.run();
                             });
                         }
                         @Override public void onError(String reason) {
-                            binding.getRoot().post(() -> Toast.makeText(ChatActivity.this,
-                                    "Couldn't forward photo: " + reason, Toast.LENGTH_SHORT).show());
+                            binding.getRoot().post(() -> {
+                                Toast.makeText(ChatActivity.this,
+                                        "Couldn't forward photo: " + reason, Toast.LENGTH_SHORT).show();
+                                maybeFinish.run();
+                            });
                         }
                     });
+
+            if (hasVoiceE2E) {
+                // Fired immediately alongside the image job above — NOT
+                // chained after its onSuccess — so both re-encrypt/re-upload
+                // jobs are actually running at the same time.
+                com.callx.app.utils.MediaForwardReEncryptor.forwardVoiceClip(this,
+                        fwdVoiceUrl, fwdVoiceKeyEnc, fwdWasSentByMe, fwdVoiceLocalPath,
+                        fwdOriginalChatPartner, fwdOriginalMessageId, partnerUid,
+                        new com.callx.app.utils.MediaForwardReEncryptor.VoiceCallback() {
+                            @Override public void onSuccess(String newVoiceUrl, String newVoiceKeyEnc) {
+                                binding.getRoot().post(() -> {
+                                    m.voiceUrl = newVoiceUrl;
+                                    m.voiceKeyEnc = newVoiceKeyEnc;
+                                    m.voiceDuration = fwdVoiceDuration > 0 ? fwdVoiceDuration : null;
+                                    maybeFinish.run();
+                                });
+                            }
+                            @Override public void onError(String reason) {
+                                // Same graceful-fallback pattern as a fresh send's voice
+                                // caption upload failing — photo still sends, just
+                                // without the voice clip, instead of losing the forward.
+                                android.util.Log.w("ChatActivity",
+                                        "Voice caption forward failed, sending photo without it: " + reason);
+                                binding.getRoot().post(maybeFinish);
+                            }
+                        });
+            }
         } else if (fwdMedia != null && !fwdMedia.isEmpty()) {
             binding.getRoot().post(() -> {
                 Message m  = buildOutgoing();
@@ -2337,11 +2399,20 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 m.mediaUrl = fwdMedia;
                 m.imageUrl = "image".equals(m.type) ? fwdMedia : null;
                 m.forwardedFrom = partnerName;
-                String preview = "image".equals(m.type) ? "\uD83D\uDCF7 Photo (forwarded)"
-                               : "video".equals(m.type) ? "\uD83C\uDFAC Video (forwarded)"
-                               : "audio".equals(m.type) ? "\uD83C\uDFA4 Voice (forwarded)"
-                               : "\uD83D\uDCCE File (forwarded)";
-                pushMessage(m, preview);
+                Runnable send = () -> {
+                    String preview = "image".equals(m.type)
+                            ? (m.voiceUrl != null ? "\uD83D\uDCF7\uD83C\uDFA4 Photo (forwarded)" : "\uD83D\uDCF7 Photo (forwarded)")
+                            : "video".equals(m.type) ? "\uD83C\uDFAC Video (forwarded)"
+                            : "audio".equals(m.type) ? "\uD83C\uDFA4 Voice (forwarded)"
+                            : "\uD83D\uDCCE File (forwarded)";
+                    pushMessage(m, preview);
+                };
+                if ("image".equals(m.type)) {
+                    forwardVoiceCaptionThen(m, fwdVoiceUrl, fwdVoiceKeyEnc, fwdVoiceDuration,
+                            fwdVoiceLocalPath, fwdWasSentByMe, fwdOriginalChatPartner, fwdOriginalMessageId, send);
+                } else {
+                    send.run();
+                }
             });
         }
 
@@ -5335,6 +5406,50 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         }
     }
 
+    /**
+     * Feature: Voice Caption on Photo — forward support. Attaches the
+     * forwarded voice clip (if any) to {@code m} before calling
+     * {@code then}, re-encrypting it through THIS chat's E2E session first
+     * when the original clip was E2E (see MediaForwardReEncryptor#forwardVoiceClip).
+     * A plaintext-original clip is just carried over as-is, same as a
+     * non-E2E photo forward. Runs {@code then} immediately (no async hop)
+     * when there's no voice clip to carry, so callers can use this
+     * unconditionally on every image forward.
+     */
+    private void forwardVoiceCaptionThen(Message m, String fwdVoiceUrl, String fwdVoiceKeyEnc,
+                                          long fwdVoiceDuration, String fwdVoiceLocalPath,
+                                          boolean fwdWasSentByMe, String fwdOriginalChatPartner,
+                                          String fwdOriginalMessageId, Runnable then) {
+        if (fwdVoiceUrl == null || fwdVoiceUrl.isEmpty()) { then.run(); return; }
+        if (fwdVoiceKeyEnc == null || fwdVoiceKeyEnc.isEmpty()) {
+            // Wasn't E2E originally — nothing to rotate, just carry it over.
+            m.voiceUrl = fwdVoiceUrl;
+            m.voiceDuration = fwdVoiceDuration > 0 ? fwdVoiceDuration : null;
+            then.run();
+            return;
+        }
+        com.callx.app.utils.MediaForwardReEncryptor.forwardVoiceClip(this,
+                fwdVoiceUrl, fwdVoiceKeyEnc, fwdWasSentByMe, fwdVoiceLocalPath,
+                fwdOriginalChatPartner, fwdOriginalMessageId, partnerUid,
+                new com.callx.app.utils.MediaForwardReEncryptor.VoiceCallback() {
+                    @Override public void onSuccess(String newVoiceUrl, String newVoiceKeyEnc) {
+                        binding.getRoot().post(() -> {
+                            m.voiceUrl = newVoiceUrl;
+                            m.voiceKeyEnc = newVoiceKeyEnc;
+                            m.voiceDuration = fwdVoiceDuration > 0 ? fwdVoiceDuration : null;
+                            then.run();
+                        });
+                    }
+                    @Override public void onError(String reason) {
+                        // Same graceful-fallback pattern as a fresh send's voice
+                        // caption upload failing — photo still sends, just without
+                        // the voice clip, instead of losing the whole forward.
+                        android.util.Log.w("ChatActivity", "Voice caption forward failed, sending photo without it: " + reason);
+                        binding.getRoot().post(then);
+                    }
+                });
+    }
+
     private void forwardMessage(Message m) {
         Intent i = new Intent().setClassName(this, "com.callx.app.activities.ContactsActivity");
         i.putExtra("forwardText",  m.text);
@@ -5355,6 +5470,27 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             i.putExtra("forwardMediaLocalPath",      m.mediaLocalPath);
             i.putExtra("forwardOriginalChatPartner", partnerUid);
             i.putExtra("forwardOriginalMessageId",   m.messageId != null ? m.messageId : m.id);
+        }
+        // ── Voice Caption on Photo — carry the attached voice clip along
+        // with the photo forward. Re-encryption (if it was E2E) happens on
+        // the receiving side — see MediaForwardReEncryptor#forwardVoiceClip
+        // and this activity's handleIncomingForward-equivalent block below.
+        // originalChatPartner/originalMessageId/wasSentByMe are shared with
+        // the photo's own forward extras above since they describe the same
+        // source message, not the voice clip specifically.
+        if (m.voiceUrl != null && !m.voiceUrl.isEmpty()) {
+            i.putExtra("forwardVoiceUrl",      m.voiceUrl);
+            i.putExtra("forwardVoiceKeyEnc",   m.voiceKeyEnc);
+            i.putExtra("forwardVoiceDuration", m.voiceDuration != null ? m.voiceDuration : 0L);
+            i.putExtra("forwardVoiceLocalPath", m.voiceLocalPath);
+            if (m.mediaKeyEnc == null || m.mediaKeyEnc.isEmpty()) {
+                // Photo itself wasn't E2E but the voice clip still might be
+                // (independent envelopes) — make sure the shared source-message
+                // extras are present either way so forwardVoiceClip can resolve them.
+                i.putExtra("forwardWasSentByMe",         currentUid != null && currentUid.equals(m.senderId));
+                i.putExtra("forwardOriginalChatPartner", partnerUid);
+                i.putExtra("forwardOriginalMessageId",   m.messageId != null ? m.messageId : m.id);
+            }
         }
         // ── multi_media: pass the full mediaItems group so a tap on
         // "Forward" (whole group, no quick-forward subset) sends every

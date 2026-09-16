@@ -380,6 +380,16 @@ public class Message {
     public String voiceUrl;
     /** Duration of {@link #voiceUrl} in ms — shown on the play-badge pill. */
     public Long voiceDuration;
+    /**
+     * E2E key envelope for {@link #voiceUrl}, mirroring {@link #mediaKeyEnc}
+     * but for the ATTACHED VOICE CLIP specifically — deliberately a
+     * separate field, since {@link #mediaKeyEnc} belongs to the photo's
+     * own envelope and is set/unset independently of whether a voice
+     * caption is attached. Null means the voice clip at {@link #voiceUrl}
+     * is plaintext (no E2E session with the partner at record time — see
+     * ChatMediaController#uploadVoiceCaptionThenFinalize's fallback).
+     */
+    public String voiceKeyEnc;
     /** Local file path of a recorded-but-not-yet-uploaded voice caption, set
      *  by MediaEditActivity's mic button. Never sent to Firebase (@Exclude);
      *  ChatMediaController reads this once, after the image itself finishes
