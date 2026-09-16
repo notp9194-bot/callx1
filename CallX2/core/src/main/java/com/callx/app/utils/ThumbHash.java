@@ -90,7 +90,14 @@ public final class ThumbHash {
                 int a = img.rgba[j + 3] & 0xFF;
                 pixels[i] = (a << 24) | (r << 16) | (g << 8) | b;
             }
-            Bitmap raw = Bitmap.createBitmap(img.width, img.height, Bitmap.Config.ARGB_8888);
+            // PERF (advance #2): RGB_565 instead of ARGB_8888 — half the
+            // memory per placeholder and a faster blur pass downstream
+            // (2 bytes/pixel vs 4). Only safe for opaque hashes though:
+            // RGB_565 has no alpha channel, so a transparent-PNG/sticker
+            // hash (img.hasAlpha) still decodes as ARGB_8888 or its
+            // transparency would flatten to solid color.
+            Bitmap.Config cfg = img.hasAlpha ? Bitmap.Config.ARGB_8888 : Bitmap.Config.RGB_565;
+            Bitmap raw = Bitmap.createBitmap(img.width, img.height, cfg);
             raw.setPixels(pixels, 0, img.width, 0, 0, img.width, img.height);
             if (img.width == width && img.height == height) return raw;
             Bitmap scaled = Bitmap.createScaledBitmap(raw, width, height, true);
@@ -263,7 +270,7 @@ public final class ThumbHash {
             }
         }
 
-        return new Image(w, h, rgba);
+        return new Image(w, h, rgba, hasAlpha);
     }
 
     private static float thumbHashToApproximateAspectRatio(byte[] hash) {
@@ -278,10 +285,12 @@ public final class ThumbHash {
     private static final class Image {
         int width, height;
         byte[] rgba;
-        Image(int width, int height, byte[] rgba) {
+        boolean hasAlpha;
+        Image(int width, int height, byte[] rgba, boolean hasAlpha) {
             this.width = width;
             this.height = height;
             this.rgba = rgba;
+            this.hasAlpha = hasAlpha;
         }
     }
 

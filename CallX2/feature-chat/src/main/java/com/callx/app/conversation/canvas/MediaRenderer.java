@@ -128,7 +128,7 @@ final class MediaRenderer {
                 // changed), same as the shader build itself, so it costs
                 // nothing on the 30-60fps redraw path.
                 android.graphics.Bitmap shaderSourceBitmap = host.mediaBitmapIsPlaceholder
-                        ? blurPlaceholderForBubble(host.mediaBitmap, host.mediaRect.width(), host.mediaRect.height())
+                        ? blurPlaceholderForBubble(host.mediaBitmap, host.mediaRect.width(), host.mediaRect.height(), host.density)
                         : host.mediaBitmap;
 
                 float scale = Math.max(host.mediaRect.width() / shaderSourceBitmap.getWidth(),
@@ -614,6 +614,13 @@ final class MediaRenderer {
     private static final float PLACEHOLDER_MIN_UPSCALE = 6f;
     private static final float PLACEHOLDER_MAX_UPSCALE = 20f;
 
+    // PERF (advance #3): bubbles at/above this size use the GPU-accelerated
+    // RenderEffect blur (NativeBlur) instead of the Java box blur — the
+    // RenderNode/ImageReader setup has real fixed overhead per call, so
+    // it's only worth paying once the bubble is big enough that fast-scroll
+    // jank risk is real. Smaller/typical bubbles stay on the Java path.
+    private static final float NATIVE_BLUR_MIN_BUBBLE_DP = 300f;
+
     private static int adaptiveBlurRadiusFor(float bubbleWidthPx, float bubbleHeightPx, int sourceSize) {
         if (sourceSize <= 0) return PLACEHOLDER_MIN_BLUR_RADIUS;
         float upscale = Math.max(bubbleWidthPx, bubbleHeightPx) / (float) sourceSize;
@@ -630,13 +637,25 @@ final class MediaRenderer {
      * place would corrupt every other bubble currently showing it. Returns
      * `src` unchanged when the bubble is small enough that the computed
      * radius wouldn't do anything (the common case for a compact bubble).
+     *
+     * Big bubbles (≥300dp) try NativeBlur (RenderEffect) first and fall
+     * back to the Java box blur below on any failure (old API level,
+     * OEM GPU quirk, etc.) — same null-means-fall-back contract used
+     * throughout this pipeline (ThumbHash.decode(), BlurHash.decode()).
      */
     private static android.graphics.Bitmap blurPlaceholderForBubble(android.graphics.Bitmap src,
-            float bubbleWidthPx, float bubbleHeightPx) {
+            float bubbleWidthPx, float bubbleHeightPx, float density) {
         int w = src.getWidth(), h = src.getHeight();
         if (w <= 0 || h <= 0) return src;
         int radius = adaptiveBlurRadiusFor(bubbleWidthPx, bubbleHeightPx, Math.max(w, h));
         if (radius <= PLACEHOLDER_MIN_BLUR_RADIUS) return src;
+
+        boolean isBigBubble = Math.max(bubbleWidthPx, bubbleHeightPx) >= NATIVE_BLUR_MIN_BUBBLE_DP * density;
+        if (isBigBubble && com.callx.app.utils.NativeBlur.isSupported()) {
+            android.graphics.Bitmap natively = com.callx.app.utils.NativeBlur.blur(src, radius);
+            if (natively != null) return natively;
+            // fall through to the Java path below
+        }
 
         android.graphics.Bitmap copy = src.copy(
                 src.getConfig() != null ? src.getConfig() : android.graphics.Bitmap.Config.ARGB_8888, true);

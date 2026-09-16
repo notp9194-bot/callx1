@@ -313,11 +313,40 @@ public class ImageCompressor {
     // wrong-cropped the preview. Now: scale the longest side down to `size`,
     // keep both dimensions proportional (no crop) — matches WhatsApp, whose
     // pre-download preview is also ratio-preserved, not square.
+    //
+    // BUG FIX (extreme aspect ratio / screenshot images): scaling purely by
+    // the LONGEST side means an extreme-ratio source (a phone screenshot,
+    // ~0.46 ratio, or a long scroll-capture, ~0.15-0.2) collapses its SHORT
+    // side down to just 1-4px at longSide=8. ThumbHash.encode()'s DCT needs
+    // multiple samples across both axes to produce meaningful AC
+    // coefficients — at 1-4px there's essentially no real spatial data left,
+    // so the resulting hash comes out blank/degenerate (sometimes the WebP
+    // encode/decode round-trip on that few-px bitmap fails outright,
+    // returning null). Net effect: blurHash ends up null/malformed for
+    // exactly these extreme-ratio images, so the receiver has nothing to
+    // decode and the ThumbHash placeholder never shows — normal ~4:3/16:9
+    // photos never hit this because their short side still keeps 6-8px.
+    //
+    // Fix: enforce a floor on the SHORT side too. If scaling to longSide
+    // would push the short side below MIN_SHORT_SIDE, re-scale so the short
+    // side hits the floor instead (long side grows past `longSide` in that
+    // case — still a handful of KB at most, one-time cost at send). This is
+    // ratio-agnostic: it guarantees ThumbHash always gets a real pixel
+    // neighborhood to encode, whatever the source's width/height shape.
+    private static final int MIN_THUMB_SHORT_SIDE = 8;
+
     private static Bitmap resizeKeepAspect(Bitmap src, int longSide) {
         int w = src.getWidth(), h = src.getHeight();
         float scale = longSide / (float) Math.max(w, h);
         int nw = Math.max(1, Math.round(w * scale));
         int nh = Math.max(1, Math.round(h * scale));
+
+        int shortSide = Math.min(nw, nh);
+        if (shortSide < MIN_THUMB_SHORT_SIDE) {
+            float boost = MIN_THUMB_SHORT_SIDE / (float) Math.max(1, shortSide);
+            nw = Math.max(1, Math.round(nw * boost));
+            nh = Math.max(1, Math.round(nh * boost));
+        }
         return Bitmap.createScaledBitmap(src, nw, nh, true);
     }
 

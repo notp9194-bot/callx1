@@ -78,9 +78,12 @@ import com.callx.app.db.entity.*;
         OutboxOperationEntity.class,
         // v65: disk-backed Reel comments sheet cache — see
         // ReelCommentCacheEntity's class doc.
-        ReelCommentCacheEntity.class
+        ReelCommentCacheEntity.class,
+        // v69: disk-persisted L2 cache for ThumbHashPlaceholder — see
+        // ThumbHashCacheEntity's class doc.
+        ThumbHashCacheEntity.class
     },
-    version = 68,
+    version = 70,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -138,6 +141,9 @@ public abstract class AppDatabase extends RoomDatabase {
 
     // Reel comments sheet offline cache (v65)
     public abstract ReelCommentCacheDao        reelCommentCacheDao();
+
+    // v69: ThumbHashPlaceholder disk-persisted L2 cache
+    public abstract ThumbHashCacheDao          thumbHashCacheDao();
 
     // ─── Migrations ───────────────────────────────────────────────────────────
 
@@ -1033,6 +1039,33 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** v69: disk-persisted L2 cache for ThumbHashPlaceholder — see
+     *  ThumbHashCacheEntity's class doc. Stores raw ARGB_8888 pixel bytes
+     *  (not a PNG) so restoring a Bitmap on warm-up is a plain buffer copy,
+     *  no image decode needed. */
+    static final Migration MIGRATION_68_69 = new Migration(68, 69) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS thumbhash_cache ("
+                    + "cacheKey TEXT NOT NULL PRIMARY KEY, "
+                    + "width INTEGER NOT NULL DEFAULT 0, height INTEGER NOT NULL DEFAULT 0, "
+                    + "pixels BLOB, cachedAt INTEGER NOT NULL DEFAULT 0)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_thumbhash_cache_cachedAt "
+                    + "ON thumbhash_cache (cachedAt)");
+        }
+    };
+
+    /** v70: ThumbHashPlaceholder advance #2 — RGB_565 decode for opaque
+     *  hashes (half the memory of ARGB_8888, faster blur pass). The disk L2
+     *  cache needs to remember which config each stored row was captured in
+     *  so warm-up reconstructs it correctly instead of assuming ARGB_8888. */
+    static final Migration MIGRATION_69_70 = new Migration(69, 70) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE thumbhash_cache ADD COLUMN configName TEXT DEFAULT 'ARGB_8888'");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -1099,7 +1132,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_60_61, MIGRATION_61_62,
                                     MIGRATION_62_63, MIGRATION_63_64,
                                     MIGRATION_64_65, MIGRATION_65_66,
-                                    MIGRATION_66_67, MIGRATION_67_68)
+                                    MIGRATION_66_67, MIGRATION_67_68,
+                                    MIGRATION_68_69, MIGRATION_69_70)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

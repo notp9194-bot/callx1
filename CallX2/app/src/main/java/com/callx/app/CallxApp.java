@@ -93,6 +93,14 @@ public class CallxApp extends Application {
         // CameraX itself, doesn't block this onCreate().
         com.callx.app.cache.CameraProviderCache.warmUp(this);
 
+        // PERF (advance #1): ThumbHashPlaceholder disk-persist. Reloads the
+        // most-recently-used decoded chat-media placeholders from the new
+        // Room-backed L2 cache straight into ThumbHashPlaceholder's L1
+        // LruCache(50), on a background thread, so this cold app start
+        // doesn't need to re-run ThumbHash.decode() once ChatActivity's
+        // RecyclerView starts binding rows.
+        com.callx.app.utils.ThumbHashPlaceholder.warmUpFromDisk(this);
+
         // ── CRASH CAPTURE: on-device crash trace (no adb/logcat needed) ────
         // Registered first so it wraps every subsequent line in onCreate too.
         // On any uncaught exception anywhere in the app: saves the full

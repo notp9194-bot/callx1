@@ -88,13 +88,23 @@ public class CloudinaryUploader {
      *
      * No-op (returns the original URL unchanged) for a non-Cloudinary URL,
      * or a URL that doesn't contain "/upload/".
+     *
+     * BUG FIX: was hardcoded to `f_jpg`, which forces every full-image
+     * download through JPEG — a format with no alpha channel. Any
+     * transparent PNG (stickers, transparent screenshots) sent as a plain
+     * image lost its transparency (flattened to a solid background) the
+     * moment auto-download kicked in. Switched to `f_auto` — Cloudinary
+     * picks JPEG for opaque sources (so `fl_progressive` still applies,
+     * same sharpen-while-downloading effect as before) but keeps a
+     * transparency-capable format (WebP/PNG) when the source actually has
+     * an alpha channel, instead of silently destroying it.
      */
     public static String deriveProgressiveFullUrl(String secureUrl) {
         if (secureUrl == null || secureUrl.isEmpty()) return secureUrl;
         String marker = "/upload/";
         int idx = secureUrl.indexOf(marker);
         if (idx < 0) return secureUrl;
-        String transform = "fl_progressive,f_jpg,q_auto/";
+        String transform = "fl_progressive,f_auto,q_auto/";
         return secureUrl.substring(0, idx + marker.length())
                 + transform
                 + secureUrl.substring(idx + marker.length());
