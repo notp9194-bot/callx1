@@ -211,6 +211,7 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
             } catch (Exception ignored) {
                 // The database may already be closing during Activity teardown.
             }
+            return kotlin.Unit.INSTANCE;
         });
     }
 
