@@ -93,6 +93,42 @@ nothing extra). The **video** path (`vr.thumbFile`, a real 300–480px
 extracted frame) was never affected by the THUMB_SIZE shrink and still
 correctly uses `inSampleSize=4` — left untouched.
 
+## Bonus bug fix #2: image bubble stuck square (center-cropped) after real image loads
+
+**Symptom:** a portrait/landscape image would show its ThumbHash
+placeholder as a perfect **square**, then even after the real image
+finished downloading it stayed cropped into that same square bubble —
+correct shape only appeared after leaving and reopening the chat.
+
+**Root cause:** `setMediaBitmap(bitmap, isLowResPlaceholder)` derived
+`mediaAspectRatio` from **any** non-null bitmap it was given, placeholder
+included. But `ThumbHashPlaceholder.get(hash, 32, 32)` always decodes a
+fixed 32×32 **square** bitmap — regardless of the real photo/video's
+actual shape. So:
+1. Placeholder arrives → its fake 1:1 shape gets treated as the real
+   aspect ratio → bubble relayouts to a square (`mediaAspectRatio` goes
+   from unknown to `1f`, `hadKnownRatio` flips true).
+2. Real image finishes decoding with its correct (e.g. portrait) ratio,
+   but since `hadKnownRatio` is now already `true` (thanks to the
+   placeholder), the `if (!hadKnownRatio) requestLayoutIfSizeChanged();`
+   guard skips the relayout — the real image just gets center-cropped
+   into the already-square `mediaRect`.
+3. Reopening the chat forces a fresh `bindMedia()`, which restores the
+   correct ratio from `MEDIA_ASPECT_CACHE` (populated by the real
+   decode's own `setMediaBitmap` call) before any placeholder gets a
+   chance to overwrite it — hence "looks right only after reopening".
+
+**Fix:** the aspect-ratio/`MEDIA_ASPECT_CACHE`/relayout block in
+`setMediaBitmap()` now only runs when `isLowResPlaceholder` is `false`.
+A placeholder's own (always-square) dimensions never touch
+`mediaAspectRatio`, the cache, or trigger a relayout anymore — only a
+real decoded bitmap does. The placeholder still draws correctly inside
+whatever the bubble's real size already is (from `Message.mediaWidth`/
+`mediaHeight` metadata via `bindMedia()`'s `knownAspectRatio`, or the
+4:3 fallback for very old messages) via `MediaRenderer`'s existing
+centerCrop-style `BitmapShader` — this fix only stops it from
+overriding that shape.
+
 ## Net result of steps 4 + 5
 
 - Small image/video bubbles: same as before (no extra blur, ThumbHash →

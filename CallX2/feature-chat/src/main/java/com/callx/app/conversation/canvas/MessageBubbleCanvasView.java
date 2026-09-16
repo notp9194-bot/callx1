@@ -3183,7 +3183,22 @@ public class MessageBubbleCanvasView extends View {
         this.mediaBitmap = bitmap;
         this.mediaBitmapIsPlaceholder = bitmap != null && isLowResPlaceholder;
         this.staticPictureDirty = true;
-        if (bitmap != null && bitmap.getHeight() > 0) {
+        // BUG FIX: a ThumbHash placeholder is ALWAYS decoded at a fixed
+        // square size (ThumbHashPlaceholder.get(hash, 32, 32)), no matter
+        // what the real photo/video's actual aspect ratio is — it's a 32x32
+        // square bitmap even for a tall portrait or wide landscape source.
+        // The block below used to run for every non-null bitmap, placeholder
+        // included, so a placeholder's fake 1:1 shape would get treated as
+        // the message's real aspect ratio: the bubble would relayout to a
+        // square, then — because mediaAspectRatio was now ">0f" (hadKnownRatio
+        // already true) — the REAL decode arriving right after would skip its
+        // own relayout and just get center-cropped into that already-square
+        // bubble. Only a rebind on a fresh screen open (which restores the
+        // correct ratio from MEDIA_ASPECT_CACHE/knownAspectRatio before any
+        // placeholder can stomp on it) showed the right shape. Fix: a
+        // placeholder must never influence mediaAspectRatio, the aspect
+        // cache, or trigger a relayout — only a real bitmap does.
+        if (!isLowResPlaceholder && bitmap != null && bitmap.getHeight() > 0) {
             boolean hadKnownRatio = mediaAspectRatio > 0f;
             mediaAspectRatio = (float) bitmap.getWidth() / bitmap.getHeight();
             // Remember it for next time (scroll-back, or another cell that
