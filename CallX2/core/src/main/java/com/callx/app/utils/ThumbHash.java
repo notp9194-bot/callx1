@@ -99,8 +99,25 @@ public final class ThumbHash {
             Bitmap.Config cfg = img.hasAlpha ? Bitmap.Config.ARGB_8888 : Bitmap.Config.RGB_565;
             Bitmap raw = Bitmap.createBitmap(img.width, img.height, cfg);
             raw.setPixels(pixels, 0, img.width, 0, 0, img.width, img.height);
-            if (img.width == width && img.height == height) return raw;
-            Bitmap scaled = Bitmap.createScaledBitmap(raw, width, height, true);
+            // BUG FIX (all-aspect-ratio placeholder): img.width/img.height
+            // above already carry the image's REAL aspect ratio — decoded
+            // straight from the ratio bits ThumbHash stores in its header
+            // (see thumbHashToRGBA()). Every call site here always passes a
+            // fixed square (width=height=32), so blindly stretching raw to
+            // that exact box with Bitmap.createScaledBitmap(raw, width,
+            // height, ...) squashed every non-1:1 photo into a square,
+            // throwing away the very aspect-ratio data ThumbHash exists to
+            // preserve (see this class's javadoc). Fit the aspect-correct
+            // raw bitmap inside the requested box instead — scale both
+            // dimensions by the same factor so the ratio survives; the
+            // caller (MediaRenderer) already center-crops whatever this
+            // returns into the bubble's real, non-square mediaRect, so an
+            // exact width x height match was never actually required.
+            float fitScale = Math.min((float) width / img.width, (float) height / img.height);
+            int outW = Math.max(1, Math.round(img.width * fitScale));
+            int outH = Math.max(1, Math.round(img.height * fitScale));
+            if (outW == img.width && outH == img.height) return raw;
+            Bitmap scaled = Bitmap.createScaledBitmap(raw, outW, outH, true);
             raw.recycle();
             return scaled;
         } catch (Exception e) {
