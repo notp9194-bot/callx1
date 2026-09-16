@@ -434,9 +434,26 @@ public class ChatRepository {
             Query query = mFirebase.getReference("messages")
                     .child(chatId)
                     .orderByChild("timestamp")
-                    // Inclusive timestamp + client-side id filtering gives
-                    // Firebase the same compound boundary as Room paging.
-                    .endAt((double) beforeCursor.timestamp)
+                    // BUG FIX (scroll-up shows only a few messages at a time,
+                    // repeats forever): endAt(timestamp) alone is INCLUSIVE, so
+                    // whenever the boundary row's timestamp is shared by other
+                    // messages (a Firebase sync burst, an offline-queue flush,
+                    // simultaneous senders — not rare), this re-fetched rows
+                    // already sitting in Room. The old isBefore(...) filter below
+                    // then threw those overlap rows away, so insertedCount came
+                    // back smaller than pageSize even though plenty of older
+                    // history was still on the server. MessageRemoteMediator took
+                    // that shrunken count as "end of history" and permanently
+                    // stopped PREPEND for the rest of that Pager's life — hence
+                    // "a few new messages, then nothing" on every reopen.
+                    //
+                    // endBefore(value, key) asks Firebase for the same compound
+                    // (timestamp, key) ordering isBefore() uses client-side, but
+                    // EXCLUSIVE of the boundary pair itself — matching the keyset
+                    // cursor semantics exactly, so the query never re-returns
+                    // anything already loaded and insertedCount reflects real
+                    // remaining history again.
+                    .endBefore((double) beforeCursor.timestamp, beforeCursor.id)
                     .limitToLast(pageSize);
 
             query.addListenerForSingleValueEvent(new ValueEventListener() {
