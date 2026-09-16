@@ -55,7 +55,24 @@ public final class ThumbHashPlaceholder {
 
     private static final ExecutorService IO = Executors.newSingleThreadExecutor();
 
+    // Advance #4: dedicated decode pool for getAsync() — separate from IO
+    // (disk persist/warm-up) so a burst of fast-scroll cache-misses never
+    // queues behind, or blocks, disk writes. Sized to half the cores (min
+    // 2): ThumbHash.decode() on a 32x32 target is cheap CPU work, so a
+    // small pool avoids over-subscribing during a heavy fling while still
+    // parallelizing enough that N misses in one frame don't serialize.
+    private static final ExecutorService DECODE_POOL = Executors.newFixedThreadPool(
+            Math.max(2, Runtime.getRuntime().availableProcessors() / 2));
+
+    private static final android.os.Handler MAIN_HANDLER =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+
     private static volatile Context sAppContext;
+
+    /** Callback for {@link #getAsync}. Always invoked on the main thread. */
+    public interface Callback {
+        void onReady(Bitmap bitmap);
+    }
 
     /**
      * Call once, early (e.g. CallxApp.onCreate()), to enable the disk L2
@@ -115,6 +132,50 @@ public final class ThumbHashPlaceholder {
             persistAsync(key, width, height, decoded);
         }
         return decoded;
+    }
+
+    /**
+     * Advance #4 — non-blocking counterpart of {@link #get}. Call this from
+     * bind() instead of get() so a cold ThumbHash.decode() (cache miss)
+     * never runs on the main thread and cannot contribute to a
+     * RecyclerView scroll jank/frame-drop, exactly like the existing
+     * resolveVideoBlurHashAsync/resolveFullMediaKeyAsync pattern elsewhere
+     * in the adapter — check the holder's bind token inside the callback
+     * before applying the result, since a fast fling can recycle/rebind
+     * the row before the decode finishes.
+     *
+     * L1 cache hit (the overwhelming common case once warmUpFromDisk() has
+     * run and/or the row has been bound before) is still resolved
+     * synchronously and callback.onReady() is invoked immediately, inline,
+     * on the calling thread — no executor hop, no extra frame of latency,
+     * identical behavior to get() for a hit. Only a genuine miss is pushed
+     * onto DECODE_POOL, with the result posted back via MAIN_HANDLER.
+     */
+    public static void getAsync(String hash, int width, int height, Callback callback) {
+        if (hash == null || hash.isEmpty()) {
+            callback.onReady(null);
+            return;
+        }
+        String key = hash + "_" + width + "_" + height;
+        Bitmap cached = sCache.get(key);
+        if (cached != null && !cached.isRecycled()) {
+            callback.onReady(cached);
+            return;
+        }
+        final String hashF = hash;
+        DECODE_POOL.execute(() -> {
+            // Re-check: another in-flight decode for the same key (e.g. two
+            // rows sharing a hash) may have already populated L1 while this
+            // task waited in the pool queue — avoids a redundant decode.
+            Bitmap already = sCache.get(key);
+            final Bitmap decoded = (already != null && !already.isRecycled())
+                    ? already : ThumbHash.decode(hashF, width, height);
+            if (decoded != null && (already == null || already.isRecycled())) {
+                sCache.put(key, decoded);
+                persistAsync(key, width, height, decoded);
+            }
+            MAIN_HANDLER.post(() -> callback.onReady(decoded));
+        });
     }
 
     /** Fire-and-forget write-through to the L2 disk cache. No-op until

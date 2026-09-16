@@ -83,7 +83,7 @@ import com.callx.app.db.entity.*;
         // ThumbHashCacheEntity's class doc.
         ThumbHashCacheEntity.class
     },
-    version = 70,
+    version = 71,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -1066,6 +1066,27 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /** v71: ThumbHash Advance #6 — precompute mediaAspectRatio at insert
+     *  time instead of every caller re-deriving (float) mediaWidth /
+     *  mediaHeight on every bind (MessagePagingAdapter's knownRatio /
+     *  vKnownRatio). MessageEntityMapper.fromModel() — the single choke
+     *  point every send/receive/sync path already routes through before a
+     *  Room write (see that class's doc) — now computes and stores this
+     *  column, so it's guaranteed consistently populated everywhere a
+     *  message gets persisted, not just on some paths.
+     *  Backfill: existing rows that already carry mediaWidth/mediaHeight
+     *  (v43+) get their ratio computed right here too, so old chat history
+     *  benefits immediately after the app updates — not only messages sent
+     *  or received after this migration runs. */
+    static final Migration MIGRATION_70_71 = new Migration(70, 71) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN mediaAspectRatio REAL");
+            db.execSQL("UPDATE messages SET mediaAspectRatio = CAST(mediaWidth AS REAL) / mediaHeight "
+                    + "WHERE mediaWidth IS NOT NULL AND mediaHeight IS NOT NULL AND mediaHeight > 0");
+        }
+    };
+
     // ─── Singleton ────────────────────────────────────────────────────────────
 
     private static final String DB_NAME = "callx_database";
@@ -1133,7 +1154,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     MIGRATION_62_63, MIGRATION_63_64,
                                     MIGRATION_64_65, MIGRATION_65_66,
                                     MIGRATION_66_67, MIGRATION_67_68,
-                                    MIGRATION_68_69, MIGRATION_69_70)
+                                    MIGRATION_68_69, MIGRATION_69_70,
+                                    MIGRATION_70_71)
                             .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8,
                                     9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                                     21, 22, 23, 24, 25, 26, 27, 28, 29)

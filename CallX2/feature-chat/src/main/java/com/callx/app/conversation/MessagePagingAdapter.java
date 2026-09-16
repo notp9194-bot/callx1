@@ -3418,6 +3418,20 @@ public class MessagePagingAdapter
                 final String tapFetchUrl = (tapDlKey == null)
                         ? com.callx.app.utils.CloudinaryUploader.deriveProgressiveFullUrl(fullUrl)
                         : fullUrl;
+                // Advance #5: race a tiny HTTP Range preview (first ~28KB)
+                // against the real download below — plaintext images only
+                // (tapDlKey == null), same gating as the progressive-JPEG
+                // transform itself. fullyLoaded flags once onReady (or a
+                // later, sharper 20/45/70% partial) has already applied a
+                // better frame, so a slow-to-decode early preview can never
+                // clobber something sharper that already landed.
+                final boolean[] tapFullyLoaded = {false};
+                if (tapDlKey == null) {
+                    com.callx.app.utils.MediaCache.fetchEarlyPreview(tapFetchUrl, partial -> {
+                        if (h.canvasBindToken != myToken || tapFullyLoaded[0]) return;
+                        cv.setMediaBitmap(partial);
+                    });
+                }
                 com.callx.app.utils.MediaCache.getWithProgress(ctx, fullUrl, tapFetchUrl, tapDlKey, tapDlDigest,
                         new com.callx.app.utils.MediaCache.ProgressCallback() {
                     @Override public void onProgress(int percent) {
@@ -3426,6 +3440,7 @@ public class MessagePagingAdapter
                     }
                     @Override public void onPartialBitmap(android.graphics.Bitmap partial) {
                         if (h.canvasBindToken != myToken) return;
+                        tapFullyLoaded[0] = true;
                         // Coarse-to-sharp in-place preview while still
                         // downloading — the gate/percentage overlay stays up
                         // (cleared only in onReady below) on top of it.
@@ -3433,6 +3448,7 @@ public class MessagePagingAdapter
                     }
                     @Override public void onReady(java.io.File file) {
                         downloadingMediaUrls.remove(fullUrl);
+                        tapFullyLoaded[0] = true;
                         if (h.canvasBindToken != myToken) return;
                         cv.clearMediaDownloadGate();
                         // PERF #4 + #1: density-aware size, store in pool on decode
@@ -4239,8 +4255,16 @@ public class MessagePagingAdapter
             // Known width/height captured at send time (see ChatMediaController)
             // beats waiting for Glide to decode — sizes the bubble correctly on
             // the very first layout pass even for images never seen before.
-            float knownRatio = (m.mediaWidth != null && m.mediaHeight != null
-                    && m.mediaWidth > 0 && m.mediaHeight > 0)
+            // Advance #6: prefer the precomputed m.mediaAspectRatio (set once
+            // at Room-insert time by MessageEntityMapper.fromModel — see that
+            // field's javadoc) over re-deriving the division on every single
+            // bind/rebind; fall back to computing it here only for a Message
+            // that hasn't round-tripped through Room yet (e.g. this session's
+            // own optimistic local-send object).
+            float knownRatio = (m.mediaAspectRatio != null && m.mediaAspectRatio > 0f)
+                    ? m.mediaAspectRatio
+                    : (m.mediaWidth != null && m.mediaHeight != null
+                            && m.mediaWidth > 0 && m.mediaHeight > 0)
                     ? (float) m.mediaWidth / m.mediaHeight : 0f;
             cv.bindMedia(null, m.caption, timeStr, sent, isRead, isDelivered, fullUrl, knownRatio);
             cv.setDeletedStyle(false); // clears any italic/dim state a recycled view carried from a deleted message
@@ -4399,11 +4423,17 @@ public class MessagePagingAdapter
                     // Migrated from BlurHash → ThumbHash; ThumbHashPlaceholder
                     // returns null (falls through, no crash) for any leftover
                     // BlurHash-format strings on old in-flight/history messages.
-                    android.graphics.Bitmap placeholder = ThumbHashPlaceholder.get(blurHash, 32, 32);
-                    // isLowResPlaceholder=true — lets MediaRenderer apply its adaptive
-                    // extra-blur pass scaled to this bubble's actual size (see
-                    // MediaRenderer#blurPlaceholderForBubble).
-                    if (placeholder != null) cv.setMediaBitmap(placeholder, true);
+                    // PERF #4: getAsync — an L1 hit still applies inline/instant
+                    // (same as before), a miss decodes off-main and posts back;
+                    // canvasBindToken guard skips a stale result if this row
+                    // got recycled/rebound before the decode finished.
+                    ThumbHashPlaceholder.getAsync(blurHash, 32, 32, placeholder -> {
+                        if (h.canvasBindToken != myToken) return;
+                        // isLowResPlaceholder=true — lets MediaRenderer apply its adaptive
+                        // extra-blur pass scaled to this bubble's actual size (see
+                        // MediaRenderer#blurPlaceholderForBubble).
+                        if (placeholder != null) cv.setMediaBitmap(placeholder, true);
+                    });
                 }
 
                 // ── WebP thumb stage removed (v419) ────────────────────────
@@ -4449,6 +4479,17 @@ public class MessagePagingAdapter
                         final String autoFetchUrl = (autoDlKey == null)
                                 ? com.callx.app.utils.CloudinaryUploader.deriveProgressiveFullUrl(capturedUrl)
                                 : capturedUrl;
+                        // Advance #5: same Range-preview race as the manual
+                        // tap-to-download path above — plaintext only, and
+                        // guarded against clobbering a sharper frame that
+                        // already landed.
+                        final boolean[] autoFullyLoaded = {false};
+                        if (autoDlKey == null) {
+                            com.callx.app.utils.MediaCache.fetchEarlyPreview(autoFetchUrl, partial -> {
+                                if (h.canvasBindToken != myToken || autoFullyLoaded[0]) return;
+                                cv.setMediaBitmap(partial);
+                            });
+                        }
                         com.callx.app.utils.MediaCache.getWithProgress(ctx, capturedUrl, autoFetchUrl, autoDlKey, autoDlDigest,
                                 new com.callx.app.utils.MediaCache.ProgressCallback() {
                             @Override public void onProgress(int percent) {
@@ -4457,11 +4498,13 @@ public class MessagePagingAdapter
                             }
                             @Override public void onPartialBitmap(android.graphics.Bitmap partial) {
                                 if (h.canvasBindToken != myToken) return;
+                                autoFullyLoaded[0] = true;
                                 cv.setMediaBitmap(partial);
                             }
                             @Override public void onReady(java.io.File file) {
                                 MediaDownloadQueue.getInstance(ctx).markComplete(capturedUrl);
                                 downloadingMediaUrls.remove(capturedUrl);
+                                autoFullyLoaded[0] = true;
                                 if (h.canvasBindToken != myToken) return;
                                 cv.clearMediaDownloadGate();
                                 android.graphics.Bitmap poolHit =
@@ -4703,8 +4746,12 @@ public class MessagePagingAdapter
                 long secs = m.duration / 1000;
                 durText = String.format(java.util.Locale.US, "%d:%02d", secs / 60, secs % 60);
             }
-            float vKnownRatio = (m.mediaWidth != null && m.mediaHeight != null
-                    && m.mediaWidth > 0 && m.mediaHeight > 0)
+            // Advance #6: same precomputed-ratio preference as the image
+            // block above.
+            float vKnownRatio = (m.mediaAspectRatio != null && m.mediaAspectRatio > 0f)
+                    ? m.mediaAspectRatio
+                    : (m.mediaWidth != null && m.mediaHeight != null
+                            && m.mediaWidth > 0 && m.mediaHeight > 0)
                     ? (float) m.mediaWidth / m.mediaHeight : 0f;
             cv.bindVideo(null, m.caption, durText, timeStr, sent, isRead, isDelivered, vThumbUrl, vKnownRatio);
             cv.setDeletedStyle(false);
@@ -4713,23 +4760,31 @@ public class MessagePagingAdapter
             // BlurHash placeholder: show blurred color preview before the video thumb loads.
             // If thumbnailUrl is present we load from server (no full download needed for preview).
             // ULTRA-FAST THUMBNAIL FIX: plaintext videos keep BlurHash in m.blurHash
-            // (apply instantly, synchronously — that's the whole point of BlurHash,
-            // ~1 ms local decode, zero network). E2E videos carry it inside the
+            // (apply instantly — zero network, and PERF #4 below keeps even a
+            // cold decode off the main thread). E2E videos carry it inside the
             // encrypted envelope instead (see ChatMediaController), so it needs the
             // async ratchet-decrypt path — same pattern as the thumb key resolve
             // right below, just for the hash string instead of the key bytes.
             // Migrated from BlurHash → ThumbHash (see image block above for why);
             // ThumbHashPlaceholder returns null for old BlurHash-format strings.
             final String vBlurHash = m.blurHash;
+            // PERF #4: getAsync for both branches below — an L1 hit still
+            // applies inline/instant, a miss decodes off the main thread
+            // and posts back; canvasBindToken guard skips a stale result
+            // if the row got recycled/rebound before the decode finished.
             if (vBlurHash != null && !vBlurHash.isEmpty()) {
-                android.graphics.Bitmap vBlurhashBmp = ThumbHashPlaceholder.get(vBlurHash, 32, 32);
-                // isLowResPlaceholder=true — same adaptive-blur reasoning as the image block above.
-                if (vBlurhashBmp != null) cv.setMediaBitmap(vBlurhashBmp, true);
+                ThumbHashPlaceholder.getAsync(vBlurHash, 32, 32, vBlurhashBmp -> {
+                    if (h.canvasBindToken != myToken) return;
+                    // isLowResPlaceholder=true — same adaptive-blur reasoning as the image block above.
+                    if (vBlurhashBmp != null) cv.setMediaBitmap(vBlurhashBmp, true);
+                });
             } else if (!sent && m.mediaKeyEnc != null) {
                 resolveVideoBlurHashAsync(ctx, m, sent, h, myToken, decryptedHash -> {
                     if (decryptedHash == null || decryptedHash.isEmpty()) return;
-                    android.graphics.Bitmap vBlurhashBmp = ThumbHashPlaceholder.get(decryptedHash, 32, 32);
-                    if (vBlurhashBmp != null) cv.setMediaBitmap(vBlurhashBmp, true);
+                    ThumbHashPlaceholder.getAsync(decryptedHash, 32, 32, vBlurhashBmp -> {
+                        if (h.canvasBindToken != myToken) return;
+                        if (vBlurhashBmp != null) cv.setMediaBitmap(vBlurhashBmp, true);
+                    });
                 });
             }
 

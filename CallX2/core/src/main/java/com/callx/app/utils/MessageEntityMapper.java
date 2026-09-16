@@ -63,6 +63,10 @@ public final class MessageEntityMapper {
         // BUG FIX (v43): these were being dropped on every Room round-trip —
         // see AppDatabase.MIGRATION_42_43 / MessageEntity#mediaWidth.
         m.mediaWidth = e.mediaWidth; m.mediaHeight = e.mediaHeight;
+        // Advance #6 — precomputed at insert time (see fromModel below /
+        // MessageEntity#mediaAspectRatio); just pass it through here, never
+        // recompute on read.
+        m.mediaAspectRatio = e.mediaAspectRatio;
         // BUG FIX (v44): blurHash — see AppDatabase.MIGRATION_43_44.
         m.blurHash = e.blurHash;
         // v46: Media E2E (image) — see AppDatabase.MIGRATION_45_46.
@@ -175,6 +179,14 @@ public final class MessageEntityMapper {
         e.voiceDuration = m.voiceDuration;
         e.mediaWidth = m.mediaWidth;
         e.mediaHeight = m.mediaHeight;
+        // Advance #6 — precompute once, here, at the single choke point every
+        // send/receive/sync path already routes through before a Room write
+        // (see class doc + MessageEntity#mediaAspectRatio) — every message
+        // gets this consistently populated (or left null) no matter which
+        // caller built the Message, instead of relying on each caller to
+        // remember to set it themselves.
+        e.mediaAspectRatio = (m.mediaWidth != null && m.mediaHeight != null && m.mediaHeight > 0)
+                ? (float) m.mediaWidth / m.mediaHeight : null;
         e.blurHash = m.blurHash;
         e.mediaKeyEnc = m.mediaKeyEnc;
         e.topicId = m.topicId;

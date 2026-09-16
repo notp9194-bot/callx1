@@ -63,6 +63,86 @@ public class MediaCache {
         void onError(String reason);
     }
 
+    /** Advance #5 — callback for {@link #fetchEarlyPreview}. Always invoked
+     *  on the main thread, and only ever called when a bitmap actually
+     *  decoded (never fired with null — a failed/empty attempt just never
+     *  calls back at all, so callers don't need a null check). */
+    public interface EarlyPreviewCallback {
+        void onPreview(android.graphics.Bitmap bitmap);
+    }
+
+    // Advance #5: how much of the progressive-JPEG full image to pull for
+    // the early Range preview. A progressive JPEG's first scans (DC/low-
+    // frequency AC) land in the first several KB of the file — enough for a
+    // genuinely sharper-than-ThumbHash preview frame — long before the real
+    // download (below) reaches its own first partial-decode milestone (see
+    // downloadWithProgress's 20/45/70% ladder). Deliberately small: this is
+    // a throwaway parallel fetch, not the real download.
+    private static final int EARLY_PREVIEW_RANGE_BYTES = 28 * 1024;
+
+    /**
+     * Advance #5 — fires a tiny HTTP Range request (first
+     * {@link #EARLY_PREVIEW_RANGE_BYTES} bytes only) against a
+     * progressive-JPEG full-image URL (see
+     * {@link CloudinaryUploader#deriveProgressiveFullUrl}) and, if enough
+     * scan data landed inside that range to decode anything, hands back an
+     * early sharp(er) preview — runs fully in parallel with, and
+     * independently of, the real {@link #getWithProgress} download below;
+     * the bytes read here are never written to the on-disk cache file, this
+     * is a decode-and-discard preview read only.
+     *
+     * Best-effort by construction, matching the milestone partial-decode in
+     * {@link #downloadWithProgress}: a CDN that ignores the Range header
+     * (serves 200 with the full body — still fine, this just stops reading
+     * once the cap is hit) or scan data that's truncated mid-frame and
+     * fails to decode simply means the callback never fires; the caller's
+     * existing ThumbHash placeholder / download-progress partials cover
+     * that case exactly as before this method existed. Never call this for
+     * a Media-E2E URL — same restriction as deriveProgressiveFullUrl
+     * (ciphertext isn't decodable Cloudinary-side or client-side before the
+     * full GCM tag verifies).
+     */
+    public static void fetchEarlyPreview(String url, EarlyPreviewCallback cb) {
+        if (url == null || url.isEmpty() || cb == null) return;
+        sPool.execute(() -> {
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setRequestProperty("Range", "bytes=0-" + (EARLY_PREVIEW_RANGE_BYTES - 1));
+                conn.setConnectTimeout(8_000);
+                conn.setReadTimeout(8_000);
+                conn.setInstanceFollowRedirects(true);
+                conn.connect();
+                int code = conn.getResponseCode();
+                // 206 = server honored Range (Cloudinary does); 200 = server
+                // ignored it and is sending the whole file from the start —
+                // either way just read up to the cap below and stop there.
+                if (code != HttpURLConnection.HTTP_PARTIAL && code != HttpURLConnection.HTTP_OK) return;
+                byte[] buf = new byte[EARLY_PREVIEW_RANGE_BYTES];
+                int total = 0;
+                try (InputStream in = conn.getInputStream()) {
+                    int n;
+                    while (total < buf.length && (n = in.read(buf, total, buf.length - total)) != -1) {
+                        total += n;
+                    }
+                }
+                if (total <= 0) return;
+                android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+                opts.inSampleSize = 4; // cheap decode — transient preview, not the final render
+                android.graphics.Bitmap partial =
+                        android.graphics.BitmapFactory.decodeByteArray(buf, 0, total, opts);
+                if (partial != null) {
+                    sMain.post(() -> cb.onPreview(partial));
+                }
+            } catch (Exception ignored) {
+                // Best-effort — see javadoc above. The real download's own
+                // progress/partial/onReady path is completely unaffected.
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        });
+    }
+
     // In-memory only — avoids a HEAD request every time a bubble rebinds
     // during scroll. Cleared naturally on process death.
     private static final java.util.concurrent.ConcurrentHashMap<String, Long> sRemoteSizeCache =

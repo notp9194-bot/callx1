@@ -313,5 +313,21 @@ public class MessageEntity {
     public Integer mediaWidth;
     public Integer mediaHeight;
 
+    /**
+     * Advance #6 — precomputed {@code mediaWidth / mediaHeight}, stored so
+     * every reader (MessagePagingAdapter's knownRatio/vKnownRatio) gets an
+     * already-divided float straight off the Room row instead of
+     * recomputing the same division on every single bind/rebind during
+     * scroll. Written exactly once, in MessageEntityMapper.fromModel() —
+     * the single choke point every send/receive/sync path already routes
+     * a Message through before it reaches Room — so this is guaranteed to
+     * be populated (or correctly left null) consistently no matter which
+     * path inserted the row. Null exactly when mediaWidth/mediaHeight are
+     * (no dimensions known, or a message from before v43). See
+     * AppDatabase.MIGRATION_70_71, which also backfills this for existing
+     * rows that already had mediaWidth/mediaHeight.
+     */
+    public Float mediaAspectRatio;
+
     public MessageEntity() {}
 }

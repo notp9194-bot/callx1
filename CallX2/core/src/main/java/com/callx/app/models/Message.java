@@ -81,6 +81,19 @@ public class Message {
     // MEDIA_ASPECT_CACHE path) for backward compatibility.
     public Integer mediaWidth;
     public Integer mediaHeight;
+    /**
+     * Advance #6 — precomputed {@code mediaWidth / mediaHeight}. Populated
+     * from Room by {@link com.callx.app.utils.MessageEntityMapper#toModel}
+     * (the value was computed once, at insert time, by that class's
+     * {@code fromModel} — see MessageEntity#mediaAspectRatio for the full
+     * rationale). Null under the exact same conditions mediaWidth/
+     * mediaHeight are null. Callers that need a ratio right now (e.g. a
+     * bind before this Message has ever round-tripped through Room —
+     * ChatMediaController's own optimistic local-send object) should fall
+     * back to computing it from mediaWidth/mediaHeight directly rather
+     * than assume this is always set.
+     */
+    public Float mediaAspectRatio;
 
     // ── WhatsApp-style GIF delivery ─────────────────────────────────────────
     /**
