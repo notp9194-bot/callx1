@@ -16,6 +16,15 @@ from Room, so scrolling upward can show each older page in the same open chat.
 The observer removes itself when the PagingSource is invalidated to avoid
 leaking old chat screens.
 
+## Viewport jump fix
+
+The history request now captures the real message and pixel offset currently
+at the top of the RecyclerView before the Firebase PREPEND starts. The new
+Paging generation is explicitly anchored to that message, and the adapter
+restores the same message offset after the diff is applied. This prevents an
+older-page insert from being interpreted as a bottom refresh and pulling the
+screen back down.
+
 ## Firebase rules
 
 Both the active `messages/{chatId}` path and the legacy

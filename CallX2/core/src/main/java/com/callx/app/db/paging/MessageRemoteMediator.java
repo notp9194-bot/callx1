@@ -41,14 +41,42 @@ import io.reactivex.rxjava3.core.Single;
  */
 public class MessageRemoteMediator extends RxRemoteMediator<MessageCursor, MessageEntity> {
 
+    public interface PrependFinishedCallback {
+        void onPrependFinished(int insertedCount);
+    }
+
     private final ChatRepository repository;
     private final String chatId;
     private final int pageSize;
+    /*
+     * Optional UI-side hook. It is called before a Firebase PREPEND starts so
+     * the chat screen can freeze the current viewport anchor before Room is
+     * invalidated by the incoming older page.
+     */
+    private final Runnable onPrependStarted;
+    private final PrependFinishedCallback onPrependFinished;
 
     public MessageRemoteMediator(ChatRepository repository, String chatId, int pageSize) {
+        this(repository, chatId, pageSize, null, null);
+    }
+
+    public MessageRemoteMediator(ChatRepository repository,
+                                 String chatId,
+                                 int pageSize,
+                                 Runnable onPrependStarted) {
+        this(repository, chatId, pageSize, onPrependStarted, null);
+    }
+
+    public MessageRemoteMediator(ChatRepository repository,
+                                 String chatId,
+                                 int pageSize,
+                                 Runnable onPrependStarted,
+                                 PrependFinishedCallback onPrependFinished) {
         this.repository = repository;
         this.chatId = chatId;
         this.pageSize = pageSize;
+        this.onPrependStarted = onPrependStarted;
+        this.onPrependFinished = onPrependFinished;
     }
 
     @NonNull
@@ -64,6 +92,13 @@ public class MessageRemoteMediator extends RxRemoteMediator<MessageCursor, Messa
         if (loadType == LoadType.APPEND) {
             // No forward network history for this screen — see class doc.
             return Single.just(new MediatorResult.Success(true));
+        }
+
+        if (onPrependStarted != null) {
+            // This callback only updates thread-safe viewport state in the
+            // Activity; it must happen before the Firebase/Room write can
+            // invalidate the current PagingSource.
+            onPrependStarted.run();
         }
 
         // PREPEND — find the oldest message currently loaded in Room/Paging
@@ -84,8 +119,16 @@ public class MessageRemoteMediator extends RxRemoteMediator<MessageCursor, Messa
             // always resolves against real server data rather than an empty
             // local table that just hasn't caught up.
             return repository.fetchInitialMessagesFromFirebase(chatId, pageSize)
-                    .map(insertedCount -> (MediatorResult) new MediatorResult.Success(insertedCount == 0))
-                    .onErrorReturn(MediatorResult.Error::new);
+                    .map(insertedCount -> {
+                        if (onPrependFinished != null && insertedCount == 0) {
+                            onPrependFinished.onPrependFinished(0);
+                        }
+                        return (MediatorResult) new MediatorResult.Success(insertedCount == 0);
+                    })
+                    .onErrorReturn(error -> {
+                        if (onPrependFinished != null) onPrependFinished.onPrependFinished(-1);
+                        return new MediatorResult.Error(error);
+                    });
         }
 
         return repository.fetchOlderMessagesFromFirebase(
@@ -94,8 +137,14 @@ public class MessageRemoteMediator extends RxRemoteMediator<MessageCursor, Messa
                         pageSize)
                 .map(insertedCount -> {
                     boolean endReached = insertedCount < pageSize;
+                    if (onPrependFinished != null && insertedCount == 0) {
+                        onPrependFinished.onPrependFinished(0);
+                    }
                     return (MediatorResult) new MediatorResult.Success(endReached);
                 })
-                .onErrorReturn(MediatorResult.Error::new);
+                .onErrorReturn(error -> {
+                    if (onPrependFinished != null) onPrependFinished.onPrependFinished(-1);
+                    return new MediatorResult.Error(error);
+                });
     }
 }

@@ -72,6 +72,14 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
      */
     private final InvalidationTracker invalidationTracker;
     private final InvalidationTracker.Observer messagesInvalidationObserver;
+    private final Runnable onMessagesInvalidated;
+    /*
+     * When an older Firebase page is inserted, Paging may refresh before it
+     * has a reliable anchorPosition. ChatActivity supplies the exact visible
+     * message cursor so the refresh is centered on that message instead of
+     * falling back to the newest/tail window.
+     */
+    private volatile MessageCursor explicitRefreshAnchor;
 
     // A bottom-anchored write should refresh the latest window. A reader who
     // is in history should instead refresh around the viewport anchor.
@@ -191,13 +199,25 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
                                      MessageDao dao,
                                      String chatId,
                                      int pageSize) {
+        this(invalidationTracker, dao, chatId, pageSize, null);
+    }
+
+    public MessageKeysetPagingSource(InvalidationTracker invalidationTracker,
+                                     MessageDao dao,
+                                     String chatId,
+                                     int pageSize,
+                                     @Nullable Runnable onMessagesInvalidated) {
         this.dao = dao;
         this.chatId = chatId;
         this.pageSize = pageSize;
         this.invalidationTracker = invalidationTracker;
+        this.onMessagesInvalidated = onMessagesInvalidated;
         this.messagesInvalidationObserver = new InvalidationTracker.Observer("messages") {
             @Override
             public void onInvalidated(@NonNull Set<String> tables) {
+                if (MessageKeysetPagingSource.this.onMessagesInvalidated != null) {
+                    MessageKeysetPagingSource.this.onMessagesInvalidated.run();
+                }
                 // invalidate() is idempotent. Paging will create a new
                 // generation and re-read the keyset window from Room, which
                 // now includes the page the mediator just downloaded.
@@ -236,6 +256,10 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
      */
     public void seedLastKnownBeforeCount(int count) {
         if (count > this.lastKnownBeforeCount) this.lastKnownBeforeCount = count;
+    }
+
+    public void setExplicitRefreshAnchor(@Nullable MessageCursor anchor) {
+        this.explicitRefreshAnchor = anchor;
     }
 
     /** @return the real "before" context size this instance last resolved. */
@@ -430,6 +454,16 @@ public class MessageKeysetPagingSource extends RxPagingSource<MessageCursor, Mes
         // and the cursor itself is (timestamp, id) rather than a bare
         // timestamp, so this anchor can't collide with a same-timestamp
         // sibling of the closest item either.
+        MessageCursor forcedAnchor = explicitRefreshAnchor;
+        if (forcedAnchor != null) {
+            explicitRefreshAnchor = null;
+            lastKnownAnchor = forcedAnchor;
+            com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",
+                    "getRefreshKey: using explicit history viewport anchor="
+                            + forcedAnchor.timestamp + "/" + forcedAnchor.id);
+            return forcedAnchor;
+        }
+
         Integer anchorPosition = state.getAnchorPosition();
         MessageEntity anchor = (anchorPosition != null) ? state.closestItemToPosition(anchorPosition) : null;
         com.callx.app.debug.DebugLogBuffer.d("ChatPagingDebug",

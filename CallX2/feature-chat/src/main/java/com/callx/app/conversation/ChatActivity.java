@@ -391,7 +391,19 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     //       call scrollToPosition(total-1) and produce the visible top→bottom
     //       scroll every time the chat opened.
     // Used to decide whether to auto-scroll on new inserts.
-    private boolean isUserAtBottom             = false;
+    private volatile boolean isUserAtBottom    = false;
+    /*
+     * Older-page loads must never make the list re-anchor at the tail. The
+     * mediator arms this state before Firebase/Room work starts; the source
+     * factory then uses the exact visible message as its refresh anchor.
+     */
+    private volatile boolean historyPrependInProgress = false;
+    private volatile boolean historyViewportRestoreRequested = false;
+    private volatile boolean historyRoomInvalidated = false;
+    private volatile String historyViewportAnchorId = null;
+    private volatile long historyViewportAnchorTimestamp = 0L;
+    private volatile int historyViewportTopOffset = 0;
+    private int historyViewportRestoreAttempts = 0;
     // FLICKER FIX: true only while the user's FINGER is actually down on
     // rvMessages (ACTION_DOWN..ACTION_UP/CANCEL). Needed to gate the
     // fling-only hardware-layer toggle below — see that listener for why.
@@ -3112,6 +3124,16 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 binding.rvMessages.postDelayed(
                         () -> pagingAdapter.asyncTextEnabled = true, 400L);
             }
+            if (historyPrependInProgress && historyRoomInvalidated) {
+                if (historyViewportRestoreRequested) {
+                    // Let Paging finish its adapter diff/layout before
+                    // applying the saved message offset.
+                    binding.rvMessages.post(this::restoreHistoryViewport);
+                } else {
+                    historyPrependInProgress = false;
+                    historyRoomInvalidated = false;
+                }
+            }
             // addOnPagesUpdatedListener() takes a Kotlin Function0<Unit>, not a
             // java.lang.Runnable — from Java that lambda must explicitly hand
             // back Unit.INSTANCE or javac rejects it as "missing return value".
@@ -3298,11 +3320,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         Pager<com.callx.app.db.paging.MessageCursor, MessageEntity> pager = new Pager<>(
                 new PagingConfig(PAGE_SIZE, PREFETCH_DIST, false, INITIAL_LOAD),
                 initialKey,
-                new com.callx.app.db.paging.MessageRemoteMediator(chatRepository, chatId, PAGE_SIZE),
+                new com.callx.app.db.paging.MessageRemoteMediator(
+                        chatRepository, chatId, PAGE_SIZE,
+                        this::onHistoryPrependStarted,
+                        this::onHistoryPrependFinished),
                 () -> {
                     com.callx.app.db.paging.MessageKeysetPagingSource src =
                             new com.callx.app.db.paging.MessageKeysetPagingSource(
-                                    db.getInvalidationTracker(), db.messageDao(), chatId, PAGE_SIZE);
+                                    db.getInvalidationTracker(), db.messageDao(), chatId, PAGE_SIZE,
+                                    this::onHistoryMessagesInvalidated);
                     // FIX: carry the previous generation's last-known anchor
                     // forward — see MessageKeysetPagingSource#lastKnownAnchor's
                     // doc. Without this, back-to-back sends (e.g. an image
@@ -3338,7 +3364,18 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                     // which is exactly the flicker/junk. Seed it here, on every new
                     // instance, from the live isUserAtBottom field — same pattern
                     // already used for lastKnownAnchor/lastKnownBeforeCount above.
-                    src.setRefreshAtLatest(isUserAtBottom);
+                    // A history PREPEND is never a bottom refresh. Use the
+                    // exact message/offset captured before Firebase started
+                    // so an invalidation cannot rebuild the list at the tail.
+                    if (historyPrependInProgress
+                            && historyViewportRestoreRequested
+                            && historyViewportAnchorId != null) {
+                        src.setExplicitRefreshAnchor(new com.callx.app.db.paging.MessageCursor(
+                                historyViewportAnchorTimestamp, historyViewportAnchorId));
+                        src.setRefreshAtLatest(false);
+                    } else {
+                        src.setRefreshAtLatest(isUserAtBottom);
+                    }
                     // Paging3 calls this factory again on its own every time
                     // the previous source is invalidated (manually via
                     // reanchorPagingToBottom() below, or from any other
@@ -6261,6 +6298,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             @Override public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
                 handleStickyDateScrolled(dy);
                 handleBottomTrackingScrolled(rv, dy);
+                captureHistoryViewportAnchor(rv);
             }
 
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int newState) {
@@ -6269,6 +6307,118 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 handleGlideAndPresenceStateChanged(rv, newState);
             }
         });
+    }
+
+    /**
+     * Remembers the real message currently at the top of the viewport while
+     * the user is reading history. This is deliberately captured continuously
+     * rather than only when the mediator starts: the mediator runs off the UI
+     * thread and the Room insert can invalidate Paging very quickly.
+     */
+    private void captureHistoryViewportAnchor(@NonNull RecyclerView rv) {
+        if (pagingAdapter == null || isUserAtBottom || historyViewportRestoreRequested) return;
+        RecyclerView.LayoutManager raw = rv.getLayoutManager();
+        if (!(raw instanceof LinearLayoutManager)) return;
+        LinearLayoutManager lm = (LinearLayoutManager) raw;
+        int first = lm.findFirstVisibleItemPosition();
+        int last = lm.findLastVisibleItemPosition();
+        if (first == RecyclerView.NO_POSITION || last == RecyclerView.NO_POSITION) return;
+
+        for (int position = first; position <= last; position++) {
+            Message message = pagingAdapter.peek(position);
+            if (message == null || message.timestamp == null
+                    || "date_separator".equals(message.type)) {
+                continue;
+            }
+            String id = message.id != null ? message.id : message.messageId;
+            View itemView = lm.findViewByPosition(position);
+            if (id == null || itemView == null) continue;
+
+            historyViewportAnchorId = id;
+            historyViewportAnchorTimestamp = message.timestamp;
+            historyViewportTopOffset = lm.getDecoratedTop(itemView);
+            return;
+        }
+    }
+
+    /**
+     * Called by MessageRemoteMediator before the older Firebase page starts.
+     * It only touches volatile state, so it is safe even though the mediator
+     * invokes it from its Rx/IO chain.
+     */
+    private void onHistoryPrependStarted() {
+        historyPrependInProgress = true;
+        historyRoomInvalidated = false;
+        if (historyViewportAnchorId != null && !isUserAtBottom) {
+            historyViewportRestoreRequested = true;
+            historyViewportRestoreAttempts = 0;
+        }
+    }
+
+    private void onHistoryMessagesInvalidated() {
+        // This callback comes from Room's invalidation executor, after the
+        // older Firebase page has actually been inserted. It prevents an
+        // unrelated onPagesUpdated event from restoring the viewport too
+        // early, while the mediator request is still in flight.
+        if (historyPrependInProgress) historyRoomInvalidated = true;
+    }
+
+    private void onHistoryPrependFinished(int insertedCount) {
+        // If Firebase had no more rows (or returned an error) there may be no
+        // Room invalidation to complete the normal restore path. Clear the
+        // guard so a later ordinary message write is not treated as history.
+        // For insertedCount > 0 we intentionally wait for Room's actual
+        // invalidation callback; it can be dispatched slightly after the
+        // repository Single emits.
+        if (insertedCount <= 0 && !historyRoomInvalidated) {
+            historyPrependInProgress = false;
+            historyViewportRestoreRequested = false;
+            historyViewportRestoreAttempts = 0;
+        }
+    }
+
+    /**
+     * Paging's diff normally preserves an item's position, but a custom
+     * keyset source can refresh before Paging has an anchorPosition. Restore
+     * the exact message/offset once the new generation is applied so a
+     * history prepend never falls through to the bottom of the chat.
+     */
+    private void restoreHistoryViewport() {
+        if (!historyViewportRestoreRequested || binding == null || pagingAdapter == null) return;
+        LinearLayoutManager lm = (LinearLayoutManager) binding.rvMessages.getLayoutManager();
+        if (lm == null) return;
+
+        int target = RecyclerView.NO_POSITION;
+        for (int i = 0; i < pagingAdapter.getItemCount(); i++) {
+            Message message = pagingAdapter.peek(i);
+            if (message == null || "date_separator".equals(message.type)) continue;
+            String id = message.id != null ? message.id : message.messageId;
+            if (historyViewportAnchorId.equals(id)) {
+                target = i;
+                break;
+            }
+        }
+
+        if (target != RecyclerView.NO_POSITION) {
+            lm.scrollToPositionWithOffset(target, historyViewportTopOffset);
+            historyViewportRestoreRequested = false;
+            historyPrependInProgress = false;
+            historyRoomInvalidated = false;
+            historyViewportRestoreAttempts = 0;
+            return;
+        }
+
+        // The transform/differ can take one extra frame to expose the mapped
+        // item. Retry briefly rather than snapping to the tail or abandoning
+        // the user's position.
+        if (++historyViewportRestoreAttempts < 4) {
+            binding.rvMessages.postDelayed(this::restoreHistoryViewport, 32L);
+        } else {
+            historyViewportRestoreRequested = false;
+            historyPrependInProgress = false;
+            historyRoomInvalidated = false;
+            historyViewportRestoreAttempts = 0;
+        }
     }
 
     private void handleLayerTypeStateChanged(@NonNull RecyclerView rv, int newState) {
@@ -6471,6 +6621,11 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         boolean atBottom = (lastVis >= total - 3);
         isUserAtBottom = atBottom;
         if (atBottom) {
+            if (!historyPrependInProgress) {
+                historyViewportAnchorId = null;
+                historyViewportRestoreRequested = false;
+                historyViewportRestoreAttempts = 0;
+            }
             // User reached (or is at) the bottom:
             //   • reset pending counter
             //   • hide the "new messages" indicator
