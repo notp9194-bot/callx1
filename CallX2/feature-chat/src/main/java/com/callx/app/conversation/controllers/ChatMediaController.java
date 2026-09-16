@@ -1602,6 +1602,41 @@ public class ChatMediaController {
                         thumb.recycle();
                     }
                 } catch (Exception ignored) {}
+                // SAFETY NET: extreme-aspect-ratio images (tall screenshots,
+                // panoramas) can still occasionally leave the micro-thumb
+                // decode/encode above empty despite ImageCompressor's
+                // MIN_THUMB_SHORT_SIDE floor (e.g. a corrupt/edge-case WebP
+                // round-trip on that few-px file) — rather than silently
+                // shipping a null blurHash (receiver gets no placeholder at
+                // all), fall back to a fresh, bounds-limited decode straight
+                // from the already-compressed full-res file. Only runs when
+                // the primary path above actually failed, so normal images
+                // never pay this extra decode. inSampleSize is computed from
+                // the file's real dimensions (header-only read, no full
+                // decode) so the fallback bitmap stays small (~64px longest
+                // side) regardless of the source's aspect ratio.
+                if (blurHash == null) {
+                    try {
+                        android.graphics.BitmapFactory.Options boundsOpts =
+                                new android.graphics.BitmapFactory.Options();
+                        boundsOpts.inJustDecodeBounds = true;
+                        android.graphics.BitmapFactory.decodeFile(
+                                result.fullFile.getAbsolutePath(), boundsOpts);
+                        int longSide = Math.max(boundsOpts.outWidth, boundsOpts.outHeight);
+                        android.graphics.BitmapFactory.Options fallbackOpts =
+                                new android.graphics.BitmapFactory.Options();
+                        fallbackOpts.inSampleSize = longSide > 0
+                                ? Math.max(1, Integer.highestOneBit(longSide / 64)) : 1;
+                        android.graphics.Bitmap fallbackThumb = android.graphics.BitmapFactory
+                                .decodeFile(result.fullFile.getAbsolutePath(), fallbackOpts);
+                        if (fallbackThumb != null) {
+                            blurHash = com.callx.app.utils.ThumbHash.encode(fallbackThumb);
+                            fallbackThumb.recycle();
+                            android.util.Log.w("ChatMediaController",
+                                    "ThumbHash micro-thumb path failed — used full-res fallback");
+                        }
+                    } catch (Exception ignored) {}
+                }
 
                 // ── Media E2E (image) ──────────────────────────────────────
                 // WhatsApp-parity design: a fresh random 256-bit MASTER key
