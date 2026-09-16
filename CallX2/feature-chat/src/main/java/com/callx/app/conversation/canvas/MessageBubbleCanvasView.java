@@ -1666,6 +1666,14 @@ public class MessageBubbleCanvasView extends View {
     boolean isMedia = false;
     boolean mediaHasCaption = false;
     Bitmap mediaBitmap;
+    // True only while mediaBitmap is the small (32x32) ThumbHash-decoded
+    // placeholder, never for a real decoded photo/video-frame — see
+    // MediaRenderer's adaptive-blur block, which is the only reader of this
+    // flag. Set via setMediaBitmap(bitmap, true); the plain
+    // setMediaBitmap(bitmap) single-arg overload always clears it back to
+    // false, so a real bitmap arriving right after a placeholder correctly
+    // turns adaptive blur off again without a separate reset call.
+    boolean mediaBitmapIsPlaceholder = false;
     // Feature: Voice Caption on Photo (Canvas). An image bubble (isMedia)
     // can also carry a short attached voice note — set via
     // setVoiceCaption() right after bindMedia(). null/empty voiceUrl means
@@ -2905,6 +2913,7 @@ public class MessageBubbleCanvasView extends View {
         this.isViewOnce = false;
         this.isSeenBubble = false;
         this.mediaBitmap = null;
+        this.mediaBitmapIsPlaceholder = false;
         this.messageText = text != null ? text : "";
         this.messageTextSpanned = MarkdownFormatter.format(this.messageText);
         this.footerTimeText = timeText != null ? timeText : "";
@@ -2997,6 +3006,7 @@ public class MessageBubbleCanvasView extends View {
         this.voiceSpeedRect.setEmpty();
         this.voiceDownloading = false;
         this.mediaBitmap = bitmap;
+        this.mediaBitmapIsPlaceholder = false; // caller always passes null/a real bitmap here, never the placeholder
         this.mediaAspectKey = aspectKey;
         // A recycled view must never keep the previous message's aspect
         // ratio — reset every bind, then immediately try to restore it
@@ -3157,7 +3167,21 @@ public class MessageBubbleCanvasView extends View {
      * new load for the same rebind is still in flight.
      */
     public void setMediaBitmap(@Nullable Bitmap bitmap) {
+        setMediaBitmap(bitmap, false);
+    }
+
+    /**
+     * Same as {@link #setMediaBitmap(Bitmap)}, but lets the caller mark the
+     * bitmap as a low-res (32x32 ThumbHash-decoded) placeholder rather than
+     * a real decoded photo/video-frame. MediaRenderer reads this flag to
+     * decide whether to run its adaptive extra-blur pass before upscaling
+     * into mediaRect — a real bitmap must never be blurred here, so every
+     * other call site (real Glide/pool-cache decodes) should keep using the
+     * single-arg overload, which always passes false.
+     */
+    public void setMediaBitmap(@Nullable Bitmap bitmap, boolean isLowResPlaceholder) {
         this.mediaBitmap = bitmap;
+        this.mediaBitmapIsPlaceholder = bitmap != null && isLowResPlaceholder;
         this.staticPictureDirty = true;
         if (bitmap != null && bitmap.getHeight() > 0) {
             boolean hadKnownRatio = mediaAspectRatio > 0f;
@@ -3226,6 +3250,7 @@ public class MessageBubbleCanvasView extends View {
         this.isSeenBubble = false;
         this.videoDuration = null;
         this.mediaBitmap = null;
+        this.mediaBitmapIsPlaceholder = false;
         this.hasLinkPreview = false; // link-preview card is text-mode-only; a stale flag from a recycled view must not leak in here
         this.messageText = "";
         this.messageTextSpanned = "";
@@ -4378,6 +4403,7 @@ public class MessageBubbleCanvasView extends View {
         this.isSeenBubble  = false;
         this.hasLinkPreview = false;
         this.mediaBitmap   = null;
+        this.mediaBitmapIsPlaceholder = false;
         this.messageText   = "";
         this.messageTextSpanned = "";
         this.footerTimeText = timeText != null ? timeText : "";

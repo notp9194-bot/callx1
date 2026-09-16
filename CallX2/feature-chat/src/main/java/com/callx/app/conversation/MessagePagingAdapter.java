@@ -25,7 +25,7 @@ import com.callx.app.utils.FileUtils;
 import com.callx.app.utils.MediaCache;
 import com.callx.app.utils.MediaAutoDownloadPolicy;
 import com.callx.app.utils.MediaSaveHelper;
-import com.callx.app.utils.BlurHashPlaceholder;
+import com.callx.app.utils.ThumbHashPlaceholder;
 import com.callx.app.conversation.controllers.MediaDownloadQueue;
 
 import java.text.SimpleDateFormat;
@@ -584,6 +584,23 @@ public class MessagePagingAdapter
     private static final java.util.concurrent.ExecutorService B64_DECODE_EXECUTOR =
             java.util.concurrent.Executors.newSingleThreadExecutor();
     private static final android.os.Handler B64_DECODE_MAIN_HANDLER =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+
+    // ── Lazy video first-frame load ──────────────────────────────────────
+    // The ThumbHash placeholder (m.blurHash, ~1ms local decode) shows the
+    // instant the bubble binds. The real poster frame (vThumbUrl, a
+    // 300-480px extracted video frame — see VideoCompressor.makeThumbnail)
+    // used to start fetching in the very same bind pass, right on top of
+    // the placeholder. Delaying that fetch by a short beat gives the
+    // placeholder a moment to actually be the thing the user sees first
+    // during a fast scroll, instead of the network/decrypt fetch firing for
+    // every video bubble that merely flies past — same "small thing now,
+    // real thing lazily after" shape as the image path's ThumbHash-before-
+    // full-image flow. A DECODED_BITMAP_CACHE pool-hit (already-decoded,
+    // zero network cost) is intentionally NOT delayed — only the genuine
+    // fetch-miss path below is.
+    private static final long VIDEO_FRAME_LAZY_DELAY_MS = 220L;
+    private static final android.os.Handler VIDEO_FRAME_LAZY_HANDLER =
             new android.os.Handler(android.os.Looper.getMainLooper());
 
     /** Callback for {@link #decodeB64ThumbAsync}; bitmap is null on decode failure. */
@@ -3389,11 +3406,30 @@ public class MessagePagingAdapter
                         : null;
                 final byte[] tapDlKey    = (tapDlEnv != null) ? tapDlEnv.fullKey() : null;
                 final byte[] tapDlDigest = (tapDlEnv != null) ? tapDlEnv.fullDigest : null;
-                com.callx.app.utils.MediaCache.getWithProgress(ctx, fullUrl, tapDlKey, tapDlDigest,
+                // Progressive-JPEG sharpen-while-downloading (see
+                // CloudinaryUploader#deriveProgressiveFullUrl): only for
+                // plaintext images (tapDlKey null) — a Media-E2E fullUrl is
+                // ciphertext, not something Cloudinary can re-transform.
+                // fullUrl itself stays untouched as the cache/dedupe key
+                // (see MediaCache#getWithProgress's cacheKeyUrl/fetchUrl doc)
+                // so nothing else in the file that looks this image up by
+                // fullUrl (pool, MediaCache.getCached, the viewer intent...)
+                // ever sees a mismatch.
+                final String tapFetchUrl = (tapDlKey == null)
+                        ? com.callx.app.utils.CloudinaryUploader.deriveProgressiveFullUrl(fullUrl)
+                        : fullUrl;
+                com.callx.app.utils.MediaCache.getWithProgress(ctx, fullUrl, tapFetchUrl, tapDlKey, tapDlDigest,
                         new com.callx.app.utils.MediaCache.ProgressCallback() {
                     @Override public void onProgress(int percent) {
                         if (h.canvasBindToken != myToken) return;
                         cv.setMediaDownloadProgress(percent);
+                    }
+                    @Override public void onPartialBitmap(android.graphics.Bitmap partial) {
+                        if (h.canvasBindToken != myToken) return;
+                        // Coarse-to-sharp in-place preview while still
+                        // downloading — the gate/percentage overlay stays up
+                        // (cleared only in onReady below) on top of it.
+                        cv.setMediaBitmap(partial);
                     }
                     @Override public void onReady(java.io.File file) {
                         downloadingMediaUrls.remove(fullUrl);
@@ -4353,165 +4389,33 @@ public class MessagePagingAdapter
                 // — the placeholder string instead travels inside the encrypted
                 // key envelope, so decrypt it here rather than reading m.blurHash.
                 String blurHash = m.blurHash;
-                byte[] iMediaKey = null;
-                byte[] iInlineThumbPlain = null; // decrypted inline-thumb bytes, if this envelope embeds one
                 if (!sent && m.mediaKeyEnc != null) {
                     com.callx.app.utils.MediaE2ECrypto.KeyEnvelope env =
                             com.callx.app.utils.MediaE2ECrypto.decryptEnvelopeForMessage(ctx, m.mediaKeyEnc,
                                     m.senderId, (m.messageId != null ? m.messageId : m.id));
                     blurHash = (env != null) ? env.blurHash : null;
-                    // Media E2E v2: the thumbnail ciphertext is encrypted with
-                    // an HKDF-derived subkey distinct from the full-res key
-                    // (see MediaE2ECrypto) — env.thumbKey() picks that subkey
-                    // for v2 envelopes, or falls back to the raw key for
-                    // legacy v1 messages that predate this derivation.
-                    iMediaKey = (env != null) ? env.thumbKey() : null;
-                    // WhatsApp-style inline thumbnail: if the sender embedded
-                    // the thumb directly in the envelope (see
-                    // ChatMediaController / MediaE2ECrypto#shouldInlineThumb),
-                    // decrypt it right here in memory — no network round trip,
-                    // no separate Cloudinary thumb blob at all.
-                    if (env != null && env.inlineThumbCipher != null) {
-                        iInlineThumbPlain = env.decryptInlineThumb();
-                    }
                 }
                 if (blurHash != null && !blurHash.isEmpty()) {
-                    android.graphics.Bitmap placeholder = BlurHashPlaceholder.get(blurHash, 32, 32);
-                    if (placeholder != null) cv.setMediaBitmap(placeholder);
+                    // Migrated from BlurHash → ThumbHash; ThumbHashPlaceholder
+                    // returns null (falls through, no crash) for any leftover
+                    // BlurHash-format strings on old in-flight/history messages.
+                    android.graphics.Bitmap placeholder = ThumbHashPlaceholder.get(blurHash, 32, 32);
+                    // isLowResPlaceholder=true — lets MediaRenderer apply its adaptive
+                    // extra-blur pass scaled to this bubble's actual size (see
+                    // MediaRenderer#blurPlaceholderForBubble).
+                    if (placeholder != null) cv.setMediaBitmap(placeholder, true);
                 }
 
-                // ── WhatsApp-style low-quality thumbnail (receiver side) ───────────
-                // Load thumbnailUrl from Cloudinary immediately so the receiver sees a
-                // real (compressed) preview the instant the bubble appears — before the
-                // full-res download auto-starts or the user taps to download.
-                // Mirrors the isVideo block exactly: BlurHash shows first (~1 ms,
-                // synchronous), then this Glide load upgrades it to the real low-res
-                // frame as soon as the network responds. When the full download
-                // completes, onReady() calls setMediaBitmap() again with the hi-res
-                // bitmap, so the user always gets the best available quality.
-                final String iThumbUrl = (m.thumbnailUrl != null && !m.thumbnailUrl.isEmpty())
-                        ? m.thumbnailUrl : null;
-                if (iInlineThumbPlain != null && iInlineThumbPlain.length > 0) {
-                    // Inline thumb: source bytes are already the decrypted
-                    // in-memory plaintext — no MediaCache/network call needed
-                    // either way.
-                    final String iInlinePoolKey = "inline:" + (m.messageId != null ? m.messageId : m.id);
-                    android.graphics.Bitmap iInlinePoolHit = DECODED_BITMAP_CACHE.get(iInlinePoolKey);
-                    if (iInlinePoolHit != null && !iInlinePoolHit.isRecycled()) {
-                        if (iInlinePoolHit.getHeight() > 0) {
-                            com.callx.app.conversation.canvas.MessageBubbleCanvasView.cacheAspectRatio(
-                                    iInlinePoolKey, (float) iInlinePoolHit.getWidth() / iInlinePoolHit.getHeight());
-                        }
-                        cv.setMediaBitmap(iInlinePoolHit);
-                    } else {
-                        // ULTRA-OPT: this used to be a bare
-                        // BitmapFactory.decodeByteArray(bytes, 0, len) — no
-                        // Options, no inSampleSize — run SYNCHRONOUSLY right
-                        // here, i.e. on the main thread, inside
-                        // onBindViewHolder, on every cache-miss bubble during
-                        // a fling. Routed through MessageDecodeUtils' byte[]
-                        // overload instead: decodes on its background pool,
-                        // downsampled to thumbPx(ctx) (same target size the
-                        // Cloudinary-thumb/Glide branches below already use),
-                        // and only touches the main thread once, to hand back
-                        // the already-small result. h.canvasBindToken guards
-                        // against a holder that got recycled/rebound to a
-                        // different message while the decode was in flight —
-                        // same pattern as every other async load in this method.
-                        final int iInlineTargetPx = thumbPx(ctx);
-                        MessageDecodeUtils.decodeAsync(iInlineThumbPlain, iInlineTargetPx, iInlineTargetPx,
-                                decoded -> {
-                                    if (h.canvasBindToken != myToken) return; // recycled/rebound meanwhile
-                                    if (decoded != null) {
-                                        if (decoded.getHeight() > 0) {
-                                            com.callx.app.conversation.canvas.MessageBubbleCanvasView.cacheAspectRatio(
-                                                    iInlinePoolKey, (float) decoded.getWidth() / decoded.getHeight());
-                                        }
-                                        DECODED_BITMAP_CACHE.put(iInlinePoolKey, decoded);
-                                        cv.setMediaBitmap(decoded);
-                                    }
-                                    // decode failure (corrupted/tampered inline thumb) — BlurHash placeholder stays up
-                                });
-                    }
-                } else if (iThumbUrl != null) {
-                    final String iThumbPoolKey = iThumbUrl;
-                    android.graphics.Bitmap iThumbPoolHit = DECODED_BITMAP_CACHE.get(iThumbPoolKey);
-                    if (iThumbPoolHit != null && !iThumbPoolHit.isRecycled()) {
-                        // Cache hit — show instantly with no Glide overhead.
-                        if (iThumbPoolHit.getHeight() > 0) {
-                            com.callx.app.conversation.canvas.MessageBubbleCanvasView
-                                    .cacheAspectRatio(iThumbUrl, (float) iThumbPoolHit.getWidth() / iThumbPoolHit.getHeight());
-                        }
-                        cv.setMediaBitmap(iThumbPoolHit);
-                    } else if (iMediaKey != null) {
-                        // Media E2E (image): m.thumbnailUrl is ciphertext for
-                        // these messages (uploaded as resource_type=raw) —
-                        // Glide can't decode it directly. Go through the same
-                        // decrypting MediaCache path as the full image so the
-                        // low-res preview still works instead of silently
-                        // failing to load.
-                        final String iThumbUrlF = iThumbUrl;
-                        com.callx.app.utils.MediaCache.get(ctx, iThumbUrl, iMediaKey,
-                                new com.callx.app.utils.MediaCache.Callback() {
-                            @Override public void onReady(java.io.File file) {
-                                if (h.canvasBindToken != myToken) return;
-                                glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
-                                        .override(thumbPx(ctx), thumbPx(ctx))
-                                        .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
-                                            @Override public void onResourceReady(@NonNull android.graphics.Bitmap resource,
-                                                    @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> t) {
-                                                if (resource.getHeight() > 0) {
-                                                    com.callx.app.conversation.canvas.MessageBubbleCanvasView
-                                                            .cacheAspectRatio(iThumbUrlF, (float) resource.getWidth() / resource.getHeight());
-                                                }
-                                                DECODED_BITMAP_CACHE.put(iThumbUrlF, resource);
-                                                if (h.canvasBindToken != myToken) return;
-                                                cv.setMediaBitmap(resource);
-                                            }
-                                            @Override public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) { }
-                                        });
-                            }
-                            @Override public void onError(String reason) { /* blurHash placeholder stays up */ }
-                        });
-                    } else {
-                        // Cache miss — fire a lightweight Glide decode of the Cloudinary
-                        // thumbnail URL. thumbnail(0.1f) lets Glide show a placeholder at
-                        // 10 % of the requested size almost instantly while the full thumb
-                        // loads, so there’s zero blank-frame window.
-                        glide(ctx).asBitmap()
-                                .load(iThumbUrl)
-                                .apply(THUMB_RGB565)
-                                .thumbnail(0.1f)
-                                .override(thumbPx(ctx), thumbPx(ctx))
-                                .into(new com.bumptech.glide.request.target.CustomTarget<android.graphics.Bitmap>() {
-                                    @Override
-                                    public void onResourceReady(@NonNull android.graphics.Bitmap resource,
-                                            @Nullable com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
-                                        if (resource.getHeight() > 0) {
-                                            com.callx.app.conversation.canvas.MessageBubbleCanvasView
-                                                    .cacheAspectRatio(iThumbUrl, (float) resource.getWidth() / resource.getHeight());
-                                        }
-                                        // Cache so scroll-back is instant.
-                                        DECODED_BITMAP_CACHE.put(iThumbPoolKey, resource);
-                                        if (h.canvasBindToken != myToken) return;
-                                        // Only replace the bitmap if the full-res hasn’t
-                                        // already loaded (full download calls setMediaBitmap
-                                        // and clearMediaDownloadGate; checking the gate state
-                                        // would race, so we unconditionally set here — the
-                                        // full-res load always fires after this callback and
-                                        // will overwrite with higher quality).
-                                        cv.setMediaBitmap(resource);
-                                    }
-                                    @Override
-                                    public void onLoadCleared(@Nullable android.graphics.drawable.Drawable p) {
-                                        // Intentional no-op: clearing here would cause a flash
-                                        // back to the BlurHash while the full download is still
-                                        // in progress. The full-res onReady() handles the final
-                                        // bitmap transition.
-                                    }
-                                });
-                    }
-                }
+                // ── WebP thumb stage removed (v419) ────────────────────────
+                // Used to Glide-load m.thumbnailUrl (or decrypt an inline
+                // envelope thumb) here as a low-res upgrade over the
+                // ThumbHash placeholder above. New sends never populate
+                // either one anymore (see ChatMediaController), so there is
+                // nothing to load — the ThumbHash placeholder stays up until
+                // the full-res image finishes downloading (auto or on tap)
+                // below. Old messages that still carry a thumbnailUrl/inline
+                // thumb from before this migration just skip straight to the
+                // same placeholder-then-full-image behavior.
 
                 boolean isDownloading = downloadingMediaUrls.contains(fullUrl);
                 if (isDownloading) {
@@ -4535,11 +4439,25 @@ public class MessagePagingAdapter
                     // check, same as before.
                     resolveFullMediaKeyAsync(ctx, m, sent, h, myToken, (autoDlKey, autoDlDigest) -> {
                     MediaDownloadQueue.getInstance(ctx).enqueue(capturedUrl, null, () -> {
-                        com.callx.app.utils.MediaCache.getWithProgress(ctx, capturedUrl, autoDlKey, autoDlDigest,
+                        // Progressive-JPEG sharpen-while-downloading — see the
+                        // matching comment on the manual-tap path
+                        // (onMediaDownloadClick) above. autoDlKey null means
+                        // this image is plaintext (or a legacy pre-E2E
+                        // message), so the Cloudinary progressive-delivery
+                        // transform is safe to request; capturedUrl itself
+                        // stays the cache/dedupe key either way.
+                        final String autoFetchUrl = (autoDlKey == null)
+                                ? com.callx.app.utils.CloudinaryUploader.deriveProgressiveFullUrl(capturedUrl)
+                                : capturedUrl;
+                        com.callx.app.utils.MediaCache.getWithProgress(ctx, capturedUrl, autoFetchUrl, autoDlKey, autoDlDigest,
                                 new com.callx.app.utils.MediaCache.ProgressCallback() {
                             @Override public void onProgress(int percent) {
                                 if (h.canvasBindToken != myToken) return;
                                 cv.setMediaDownloadGate(true, percent, null);
+                            }
+                            @Override public void onPartialBitmap(android.graphics.Bitmap partial) {
+                                if (h.canvasBindToken != myToken) return;
+                                cv.setMediaBitmap(partial);
                             }
                             @Override public void onReady(java.io.File file) {
                                 MediaDownloadQueue.getInstance(ctx).markComplete(capturedUrl);
@@ -4800,15 +4718,18 @@ public class MessagePagingAdapter
             // encrypted envelope instead (see ChatMediaController), so it needs the
             // async ratchet-decrypt path — same pattern as the thumb key resolve
             // right below, just for the hash string instead of the key bytes.
+            // Migrated from BlurHash → ThumbHash (see image block above for why);
+            // ThumbHashPlaceholder returns null for old BlurHash-format strings.
             final String vBlurHash = m.blurHash;
             if (vBlurHash != null && !vBlurHash.isEmpty()) {
-                android.graphics.Bitmap vBlurhashBmp = BlurHashPlaceholder.get(vBlurHash, 32, 32);
-                if (vBlurhashBmp != null) cv.setMediaBitmap(vBlurhashBmp);
+                android.graphics.Bitmap vBlurhashBmp = ThumbHashPlaceholder.get(vBlurHash, 32, 32);
+                // isLowResPlaceholder=true — same adaptive-blur reasoning as the image block above.
+                if (vBlurhashBmp != null) cv.setMediaBitmap(vBlurhashBmp, true);
             } else if (!sent && m.mediaKeyEnc != null) {
                 resolveVideoBlurHashAsync(ctx, m, sent, h, myToken, decryptedHash -> {
                     if (decryptedHash == null || decryptedHash.isEmpty()) return;
-                    android.graphics.Bitmap vBlurhashBmp = BlurHashPlaceholder.get(decryptedHash, 32, 32);
-                    if (vBlurhashBmp != null) cv.setMediaBitmap(vBlurhashBmp);
+                    android.graphics.Bitmap vBlurhashBmp = ThumbHashPlaceholder.get(decryptedHash, 32, 32);
+                    if (vBlurhashBmp != null) cv.setMediaBitmap(vBlurhashBmp, true);
                 });
             }
 
@@ -4831,6 +4752,15 @@ public class MessagePagingAdapter
                     dashboardRecordHit(ctx, vPoolKey);
                     cv.setMediaBitmap(vPoolHit);
                 } else {
+                // LAZY VIDEO FRAME LOAD (see VIDEO_FRAME_LAZY_HANDLER doc):
+                // hold off starting the real-frame fetch for a short beat so
+                // the ThumbHash placeholder is what's actually on screen
+                // first. Re-checks the bind token once the delay elapses —
+                // a rebind/recycle in the meantime just skips this fetch,
+                // exactly like every other h.canvasBindToken guard below.
+                final long lazyBindToken = myToken;
+                VIDEO_FRAME_LAZY_HANDLER.postDelayed(() -> {
+                if (h.canvasBindToken != lazyBindToken) return;
                 // v375: thumb-key decrypt moved off the main thread (see
                 // resolveThumbMediaKeyAsync's javadoc) AND moved to only
                 // happen on this pool-MISS path — previously it ran
@@ -4844,6 +4774,10 @@ public class MessagePagingAdapter
                             new com.callx.app.utils.MediaCache.Callback() {
                         @Override public void onReady(java.io.File file) {
                             if (h.canvasBindToken != myToken) return;
+                            // NOTE: no TinyThumbBlurTransformation here — vr.thumbFile is a
+                            // real 300-480px extracted video frame (see VideoCompressor
+                            // .makeThumbnail), not a blocky ImageCompressor micro-thumb, so
+                            // it's already sharp; blurring it would only throw away quality.
                             glide(ctx).asBitmap().load(file).apply(THUMB_RGB565)
                                     .override(thumbPx(ctx), thumbPx(ctx))
                                     .into(new com.bumptech.glide.request.target.CustomTarget<Bitmap>() {
@@ -4864,6 +4798,9 @@ public class MessagePagingAdapter
                     });
                 } else {
                 // PERF #4: density-aware override size
+                // NOTE: no TinyThumbBlurTransformation here — same reasoning as the
+                // E2E branch above, this is a real extracted video frame, not a
+                // micro-thumb.
                 glide(ctx).asBitmap()
                         .load(vThumbUrl)
                         .apply(THUMB_RGB565)
@@ -4896,6 +4833,7 @@ public class MessagePagingAdapter
                         });
                 }
                 }); // end resolveThumbMediaKeyAsync
+                }, VIDEO_FRAME_LAZY_DELAY_MS); // end VIDEO_FRAME_LAZY_HANDLER.postDelayed
                 }
             }
 
@@ -7643,7 +7581,16 @@ public class MessagePagingAdapter
             downloadingMediaUrls.add(fullUrl);
             setDownloadPillState(h, true, 0, null);
 
-            com.callx.app.utils.MediaCache.getWithProgress(ctx, fullUrl, dlMediaKey,
+            // Progressive-JPEG sharpen-while-downloading — see the matching
+            // comment in the canvas path's onMediaDownloadClick. This legacy
+            // View-based bubble has no live media ImageView to update mid-
+            // download (only the pill shows progress; the ImageView swaps in
+            // once at onReady), so there's no onPartialBitmap hookup here —
+            // just the safe fetch-URL swap for plaintext images.
+            final String legacyFetchUrl = (dlMediaKey == null)
+                    ? com.callx.app.utils.CloudinaryUploader.deriveProgressiveFullUrl(fullUrl)
+                    : fullUrl;
+            com.callx.app.utils.MediaCache.getWithProgress(ctx, fullUrl, legacyFetchUrl, dlMediaKey, null,
                     new com.callx.app.utils.MediaCache.ProgressCallback() {
                 @Override public void onProgress(int percent) {
                     if (!fullUrl.equals(h.fl_download_overlay.getTag())) return;

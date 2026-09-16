@@ -38,6 +38,13 @@ public class Message {
     /** text | image | video | audio | file */
     public String type;
     public String mediaUrl;
+    /** Cloudinary URL for a low-res preview. Populated for video messages
+     *  (VideoCompressor's extracted poster frame — needed since a video
+     *  can't itself serve as an instant thumbnail) and for legacy image
+     *  messages sent before the WebP-thumb stage was removed. New image
+     *  sends leave this null — {@link #blurHash} (now a ThumbHash string)
+     *  is the receiver's only pre-download preview for photos; see
+     *  ChatMediaController#doStartImageUpload / MessagePagingAdapter. */
     public String thumbnailUrl;
     public String fileName;
     public Long   fileSize;
@@ -93,14 +100,22 @@ public class Message {
      */
     public Boolean gifIsVideo;
 
-    // ── BlurHash placeholder ──────────────────────────────────────────────────
+    // ── ThumbHash placeholder (migrated from BlurHash) ──────────────────────
     /**
-     * BlurHash string (~20-30 chars) encoding a tiny color-accurate blur of the
-     * image/video thumbnail. Set by the sender's ChatMediaController right after
-     * the thumb upload succeeds so the receiver sees a blurred color preview the
-     * instant the message bubble appears — with zero network round-trips — while
-     * the real image downloads in background. Null on messages sent before this
-     * field existed (those fall back to a grey placeholder). @see BlurHashPlaceholder
+     * ThumbHash string (base64, ~30-45 chars) encoding a tiny color-accurate,
+     * aspect-ratio-aware preview of the image/video thumbnail. Set by the
+     * sender's ChatMediaController from the locally-decoded compressed thumb
+     * bitmap — no network round-trip needed either to generate or to show it —
+     * so the receiver sees a color preview the instant the message bubble
+     * appears while the real image/video downloads in background. Field name
+     * kept as "blurHash" (not renamed to "thumbHash") to avoid a Room/Firebase
+     * schema migration; the VALUE is a ThumbHash string as of this migration.
+     * Null on messages sent before either placeholder scheme existed (those
+     * fall back to a grey placeholder). Old messages sent before the
+     * ThumbHash migration may still carry a BlurHash-format string here —
+     * {@link ThumbHashPlaceholder#get} returns null for those instead of
+     * crashing, same graceful-fallback contract BlurHashPlaceholder had.
+     * @see ThumbHashPlaceholder
      */
     public String blurHash;
 
@@ -108,13 +123,16 @@ public class Message {
     /**
      * Present only on 1:1 IMAGE messages sent through the media-E2E path
      * (see ChatMediaController#doStartImageUpload / uploadFullImage). When
-     * non-null, mediaUrl/thumbnailUrl point to an AES-256-GCM ciphertext
-     * blob (uploaded to Cloudinary as resource_type=raw — the server only
-     * ever stores/serves random bytes, never a decodable image).
+     * non-null, mediaUrl points to an AES-256-GCM ciphertext blob (uploaded
+     * to Cloudinary as resource_type=raw — the server only ever stores/
+     * serves random bytes, never a decodable image). thumbnailUrl is null
+     * on these messages as of the WebP-thumb-stage removal — the preview is
+     * the ThumbHash placeholder alone (see {@link #blurHash}), not a
+     * separately-uploaded/inlined ciphertext thumb.
      *
      * This field itself is an E2EEncryptionManager-encrypted envelope (same
      * Double Ratchet session used for 1:1 text) carrying the random
-     * per-message AES key plus the BlurHash placeholder string — see
+     * per-message AES key plus the ThumbHash placeholder string — see
      * MediaE2ECrypto#buildKeyEnvelopeJson/parseKeyEnvelopeJson. blurHash is
      * intentionally left null on these messages (see field above) so no
      * plaintext content preview travels outside the encrypted envelope.

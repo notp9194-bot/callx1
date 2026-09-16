@@ -17,10 +17,11 @@ import java.security.MessageDigest;
 /**
  * TinyThumbBlurTransformation — smooths the pre-download chat thumbnail.
  *
- * Since 24-Sep-2026 ImageCompressor emits a 24×24px thumbnail (was 200×200)
- * to cut thumbUrl size ~99% (see ImageCompressor THUMB_SIZE/THUMB_QUALITY/
- * THUMB_TARGET_BYTES). Displayed at bubble size (~200dp) that source is
- * blown up ~8x, so raw nearest/bilinear upscaling shows hard, blocky pixels.
+ * Since 16-Sep-2026 ImageCompressor emits an 8×8px thumbnail (was 24×24,
+ * before that 200×200) to cut thumbUrl size ~99.99% off the original
+ * baseline (see ImageCompressor THUMB_SIZE/THUMB_QUALITY/THUMB_TARGET_BYTES).
+ * Displayed at bubble size (~200dp) that source is blown up ~25x, so raw
+ * nearest/bilinear upscaling shows hard, blocky pixels.
  * This transformation blurs the bubble so it reads as a soft color/mood
  * preview instead — matching the blurred-preview look apps like WhatsApp
  * show before a media download completes.

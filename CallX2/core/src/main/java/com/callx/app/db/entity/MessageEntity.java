@@ -75,6 +75,8 @@ public class MessageEntity {
     // field in MessageEntity — so it was silently dropped on every
     // Firebase → Room round-trip. Receivers never saw BlurHash placeholders.
     // See AppDatabase.MIGRATION_43_44 for the matching column migration.
+    // (Column name kept as "blurHash" post-ThumbHash-migration — see
+    // Message#blurHash — no schema change needed since it's just a string.)
     public String blurHash;
 
     // v46: Media E2E (image) — passthrough copy of Message#mediaKeyEnc.

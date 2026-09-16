@@ -24,9 +24,9 @@ import java.util.concurrent.Executors;
  * ImageCompressor — WhatsApp-level image compression
  *
  * FLOW: Original → EXIF fix → Resize → WebP compress
- *   ├── Thumbnail  (~300-500B, 24×24px)   ← chat bubble pre-download preview
- *   │                                        (rendered blurred — see
- *   │                                        TinyThumbBlurTransformation)
+ *   ├── Thumbnail  (~80-180B, 8×8px)   ← chat bubble pre-download preview
+ *   │                                     (rendered blurred — see
+ *   │                                     TinyThumbBlurTransformation)
  *   └── Full image (~400KB, max 1280px)   ← full view (default/"Standard")
  *
  * Two quality tiers, same as WhatsApp's attach-sheet HD toggle — neither
@@ -54,11 +54,21 @@ public class ImageCompressor {
     // so shrunk further to cut thumbUrl size ~99% — 200px producing ~30-50KB
     // was already the mobile-data cost of a whole small image just for the
     // pre-download placeholder.
-    private static final int  THUMB_SIZE       = 24;      // longest-side thumbnail px (aspect preserved, not square)
+    // 16-Sep-2026: was 24px/q25/500B. TinyThumbBlurTransformation always
+    // downscales its input to a 32px working size before blurring (see that
+    // class's DOWNSCALE_PX) and upscales again with a filtered draw — so a
+    // sharper-than-32px source buys zero extra fidelity in the rendered
+    // result, only extra bytes on the wire. Shrunk once more (~99.99% below
+    // the original 200px baseline, ~65% below the 24px/500B step) to the
+    // smallest size that still gives the box-blur a real pixel neighborhood
+    // to average (8px ≈ same color/mood signal a BlurHash 4x3 encode keeps
+    // anyway — see BlurHash.encode). Quality/target dropped to match since
+    // an 8px WebP has near-zero payload left to compress.
+    private static final int  THUMB_SIZE       = 8;       // longest-side thumbnail px (aspect preserved, not square)
     private static final int  FULL_QUALITY     = 80;      // WebP quality
-    private static final int  THUMB_QUALITY    = 25;
+    private static final int  THUMB_QUALITY    = 20;
     private static final long FULL_TARGET_BYTES  = 800_000L; // 800 KB max
-    private static final long THUMB_TARGET_BYTES =     500L; // 500 bytes max
+    private static final long THUMB_TARGET_BYTES =     180L; // 180 bytes max
 
     // ── Config: HD tier (HD toggle ON) ───────────────────────────────────────
     // Still resized + re-encoded (never the raw original) — just capped much
@@ -97,7 +107,7 @@ public class ImageCompressor {
     }
 
     public static class Result {
-        /** ~30KB thumbnail — used in chat list and as placeholder */
+        /** ~80-180B thumbnail — used in chat list and as placeholder */
         public final File thumbFile;
         /** ~400KB full image — uploaded to Cloudinary */
         public final File fullFile;

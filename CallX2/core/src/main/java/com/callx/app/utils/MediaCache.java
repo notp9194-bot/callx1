@@ -44,6 +44,16 @@ public class MediaCache {
     /** Used by the WhatsApp-style manual-download pill (image bubbles). */
     public interface ProgressCallback {
         void onProgress(int percent);
+        /**
+         * Optional: a coarse-to-sharp preview decoded from the file WHILE it
+         * is still downloading (progressive-JPEG full images only — see
+         * {@link CloudinaryUploader#deriveProgressiveFullUrl}). Fires zero or
+         * more times, always before {@link #onReady}, each call sharper than
+         * the last. Default no-op so every existing plain/video/audio/file
+         * caller (which never gets this — see {@link #downloadWithProgress}
+         * for exactly which path fires it) needs no changes.
+         */
+        default void onPartialBitmap(android.graphics.Bitmap partial) {}
         void onReady(File file);
         void onError(String reason);
     }
@@ -133,18 +143,45 @@ public class MediaCache {
      */
     public static void getWithProgress(Context ctx, String url, byte[] decryptKey,
                                         byte[] expectedDigest, ProgressCallback cb) {
-        if (ctx == null || url == null || url.isEmpty()) {
+        getWithProgress(ctx, url, url, decryptKey, expectedDigest, cb);
+    }
+
+    /**
+     * Same as {@link #getWithProgress(Context, String, byte[], byte[], ProgressCallback)}
+     * but downloads from a DIFFERENT url ({@code fetchUrl}) than the one used
+     * to key the on-disk cache / dedupe ({@code cacheKeyUrl}) — lets a caller
+     * request a Cloudinary delivery-transform variant (e.g.
+     * {@link CloudinaryUploader#deriveProgressiveFullUrl}) for the actual
+     * network bytes while every other lookup in the app (MediaCache.getCached,
+     * the in-memory bitmap pool, downloadingMediaUrls dedupe, the
+     * tap-to-view/MediaViewerActivity intent, etc.) keeps using the message's
+     * real, stable {@code mediaUrl} as the key — so switching the delivery
+     * transform never causes a cache miss/re-download loop against code that
+     * still looks things up by the original URL. Pass {@code cacheKeyUrl}
+     * for both if there's no separate delivery variant (that's what every
+     * other overload above does).
+     */
+    public static void getWithProgress(Context ctx, String cacheKeyUrl, String fetchUrl,
+                                        byte[] decryptKey, byte[] expectedDigest, ProgressCallback cb) {
+        if (ctx == null || cacheKeyUrl == null || cacheKeyUrl.isEmpty()) {
             if (cb != null) cb.onError("Invalid URL");
             return;
         }
-        File cached = cacheFileFor(ctx, url);
+        File cached = cacheFileFor(ctx, cacheKeyUrl);
         if (cached != null && cached.exists() && cached.length() > 0) {
             if (cb != null) cb.onReady(cached);
             return;
         }
+        String actualFetchUrl = (fetchUrl == null || fetchUrl.isEmpty()) ? cacheKeyUrl : fetchUrl;
         sPool.execute(() -> {
-            File result = downloadWithProgress(ctx, url, decryptKey, expectedDigest, percent -> {
-                if (cb != null) sMain.post(() -> cb.onProgress(percent));
+            File result = downloadWithProgress(ctx, cacheKeyUrl, actualFetchUrl, decryptKey, expectedDigest,
+                    new ProgressTick() {
+                @Override public void onTick(int percent) {
+                    if (cb != null) sMain.post(() -> cb.onProgress(percent));
+                }
+                @Override public void onPartial(android.graphics.Bitmap partial) {
+                    if (cb != null) sMain.post(() -> cb.onPartialBitmap(partial));
+                }
             });
             if (result != null && result.exists()) {
                 sMain.post(() -> { if (cb != null) cb.onReady(result); });
@@ -154,7 +191,12 @@ public class MediaCache {
         });
     }
 
-    private interface ProgressTick { void onTick(int percent); }
+    private interface ProgressTick {
+        void onTick(int percent);
+        /** Default no-op — only the plaintext image path (see
+         *  {@link #downloadWithProgress}) ever calls this. */
+        default void onPartial(android.graphics.Bitmap partial) {}
+    }
 
     // PERF: ~30fps ceiling on progress ticks. The percent-changed dedupe
     // below already caps this at ~100 calls per download total, but on a
@@ -419,23 +461,31 @@ public class MediaCache {
         }
     }
 
-    private static File downloadWithProgress(Context ctx, String urlStr, ProgressTick tick) {
-        return downloadWithProgress(ctx, urlStr, null, null, tick);
+    private static File downloadWithProgress(Context ctx, String cacheKeyUrl, String fetchUrl, ProgressTick tick) {
+        return downloadWithProgress(ctx, cacheKeyUrl, fetchUrl, null, null, tick);
     }
 
-    private static File downloadWithProgress(Context ctx, String urlStr, byte[] decryptKey, ProgressTick tick) {
-        return downloadWithProgress(ctx, urlStr, decryptKey, null, tick);
+    private static File downloadWithProgress(Context ctx, String cacheKeyUrl, String fetchUrl,
+                                              byte[] decryptKey, ProgressTick tick) {
+        return downloadWithProgress(ctx, cacheKeyUrl, fetchUrl, decryptKey, null, tick);
     }
 
-    /** @param expectedDigest see {@link #download(Context, String, byte[], byte[])} —
+    /** @param cacheKeyUrl determines the on-disk cache filename (via
+     *  {@link #cacheFileFor}) — always the message's real, stable URL.
+     *  @param fetchUrl the URL actually opened over the network — normally
+     *  the same as {@code cacheKeyUrl}, but callers can pass a Cloudinary
+     *  delivery-transform variant instead (see the
+     *  {@link #getWithProgress(Context, String, String, byte[], byte[], ProgressCallback)}
+     *  overload's doc).
+     *  @param expectedDigest see {@link #download(Context, String, byte[], byte[])} —
      *  same WhatsApp-style ciphertext SHA-256 check, applied here too. */
-    private static File downloadWithProgress(Context ctx, String urlStr, byte[] decryptKey,
+    private static File downloadWithProgress(Context ctx, String cacheKeyUrl, String fetchUrl, byte[] decryptKey,
                                               byte[] expectedDigest, ProgressTick tick) {
         HttpURLConnection conn = null;
         try {
             evictIfNeeded(ctx);
 
-            URL url = new URL(urlStr);
+            URL url = new URL(fetchUrl);
             conn = (HttpURLConnection) url.openConnection();
             conn.setConnectTimeout(15_000);
             conn.setReadTimeout(60_000);
@@ -444,14 +494,14 @@ public class MediaCache {
 
             int code = conn.getResponseCode();
             if (code != HttpURLConnection.HTTP_OK) {
-                Log.w(TAG, "HTTP " + code + " for " + urlStr);
+                Log.w(TAG, "HTTP " + code + " for " + fetchUrl);
                 return null;
             }
 
             long total = conn.getContentLengthLong(); // -1 if unknown
-            if (total > 0) sRemoteSizeCache.put(urlStr, total);
+            if (total > 0) sRemoteSizeCache.put(cacheKeyUrl, total);
 
-            File out = cacheFileFor(ctx, urlStr);
+            File out = cacheFileFor(ctx, cacheKeyUrl);
             if (out == null) return null;
             if (out.exists()) out.delete();
 
@@ -509,6 +559,24 @@ public class MediaCache {
                     long downloaded = 0;
                     int lastPercent = -1;
                     long lastTickAt = 0L;
+                    // Progressive-JPEG partial-decode preview: only reachable
+                    // on this plaintext (non-E2E) path — an E2E download runs
+                    // through the decryptKey branch above instead, and never
+                    // gets partial previews (see deriveProgressiveFullUrl's
+                    // doc: partially-decrypted ciphertext can't be trusted or
+                    // even correctly decoded before the GCM auth tag at the
+                    // very end verifies — this is a security boundary, not
+                    // just a missing feature). A handful of fixed percentage
+                    // milestones is enough to feel "progressively sharpening"
+                    // without spending a decode on every single progress
+                    // tick; each attempt is wrapped in try/catch because a
+                    // progressive JPEG cut off mid-scan is a normal, expected
+                    // failure mode (not every milestone will successfully
+                    // decode, especially the earliest one) — just skip that
+                    // preview and let the next milestone (or the final
+                    // onReady decode) take over.
+                    int nextPartialIdx = 0;
+                    final int[] partialMilestones = {20, 45, 70};
                     byte[] buf = new byte[8192];
                     int n;
                     while ((n = rawIn.read(buf)) != -1) {
@@ -524,6 +592,21 @@ public class MediaCache {
                                     lastTickAt = now;
                                     tick.onTick(percent);
                                 }
+                                if (nextPartialIdx < partialMilestones.length
+                                        && percent >= partialMilestones[nextPartialIdx]) {
+                                    nextPartialIdx++;
+                                    try {
+                                        fos.flush();
+                                        android.graphics.BitmapFactory.Options opts =
+                                                new android.graphics.BitmapFactory.Options();
+                                        opts.inSampleSize = 4; // cheap decode — transient preview, not the final render
+                                        android.graphics.Bitmap partial =
+                                                android.graphics.BitmapFactory.decodeFile(tmp.getAbsolutePath(), opts);
+                                        if (partial != null) tick.onPartial(partial);
+                                    } catch (Exception ignored) {
+                                        // Truncated progressive JPEG mid-scan — expected, just skip this milestone
+                                    }
+                                }
                             }
                         }
                     }
@@ -535,7 +618,7 @@ public class MediaCache {
             if (digestIn != null) {
                 byte[] actual = digestIn.getMessageDigest().digest();
                 if (!MediaE2ECrypto.digestsEqual(actual, expectedDigest)) {
-                    Log.w(TAG, "Digest mismatch for " + urlStr + " — corrupted or tampered download, discarding");
+                    Log.w(TAG, "Digest mismatch for " + cacheKeyUrl + " — corrupted or tampered download, discarding");
                     if (tmp.exists()) tmp.delete();
                     return null;
                 }

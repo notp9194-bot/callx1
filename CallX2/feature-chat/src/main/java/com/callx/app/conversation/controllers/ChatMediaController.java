@@ -1140,21 +1140,6 @@ public class ChatMediaController {
     // Quality.ORIGINAL, which VideoCompressor already special-cases as a
     // pure passthrough (metadata read + thumbnail only, no transcode) —
     // see VideoCompressor.compressSync()'s ORIGINAL branch.
-    /** Reads a small file fully into a byte array — used for embedding an
-     *  encrypted thumbnail inline in the E2E envelope (see
-     *  MediaE2ECrypto#shouldInlineThumb). Deliberately plain java.io (not
-     *  java.nio.file.Files, which needs API 26+ / desugaring) to match the
-     *  rest of this file's I/O style and avoid any minSdk risk — only ever
-     *  called on files already capped at INLINE_THUMB_MAX_BYTES anyway. */
-    private static byte[] readAllBytesCompat(java.io.File f) throws java.io.IOException {
-        byte[] buf = new byte[(int) f.length()];
-        try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
-            int off = 0, n;
-            while (off < buf.length && (n = in.read(buf, off, buf.length - off)) != -1) off += n;
-        }
-        return buf;
-    }
-
     private static boolean isBakedOverlayVideo(Uri uri) {
         String s = uri.toString();
         return s.contains("media_edit_video_out");
@@ -1580,26 +1565,27 @@ public class ChatMediaController {
         ImageCompressor.compress(activity, uri, isHD, new ImageCompressor.Callback() {
             @Override public void onSuccess(ImageCompressor.Result result) {
                 Uri fullUri  = Uri.fromFile(result.fullFile);
-                Uri thumbUri = Uri.fromFile(result.thumbFile);
                 // Compressed dimensions are the ones actually uploaded —
                 // prefer them over the raw local decode from uploadAndSend.
                 pending.mediaWidth  = result.fullWidth;
                 pending.mediaHeight = result.fullHeight;
 
-                // Generate BlurHash from the already-decoded thumbnail bitmap so
-                // the receiver can show a blurred color placeholder while the
+                // Generate a ThumbHash from the already-decoded thumbnail bitmap so
+                // the receiver can show a color-accurate placeholder while the
                 // real image downloads — no extra network round-trip needed.
                 // Computed up-front (before any encryption below) since it just
                 // reads the still-plaintext-on-disk compressed thumb file.
+                // (Migrated from BlurHash — smaller string, sharper decode, and
+                // ThumbHash also encodes aspect ratio + alpha.)
                 String blurHash = null;
                 try {
                     android.graphics.BitmapFactory.Options opts =
                             new android.graphics.BitmapFactory.Options();
-                    opts.inSampleSize = 4; // decode at 1/4 res — enough for a blurHash
+                    opts.inSampleSize = 4; // decode at 1/4 res — enough for a thumbHash
                     android.graphics.Bitmap thumb = android.graphics.BitmapFactory
                             .decodeFile(result.thumbFile.getAbsolutePath(), opts);
                     if (thumb != null) {
-                        blurHash = com.callx.app.utils.BlurHash.encode(thumb, 4, 3);
+                        blurHash = com.callx.app.utils.ThumbHash.encode(thumb);
                         thumb.recycle();
                     }
                 } catch (Exception ignored) {}
@@ -1626,77 +1612,54 @@ public class ChatMediaController {
                 // to the old plaintext upload — mirrors
                 // ChatActivity#doSendTextMessage's own graceful fallback, so
                 // a photo is never silently dropped.
+                // ── WebP thumb stage removed (v419) ─────────────────────────
+                // ThumbHash (computed above) already gives the receiver an
+                // instant, color-accurate placeholder with zero network I/O,
+                // so the separate 8px WebP thumbnail — previously either
+                // uploaded to Cloudinary as its own asset or inline-embedded
+                // in the E2E envelope — was a redundant extra upload/request.
+                // Only the full-res image is sent now; pending.thumbnailUrl
+                // stays null for new sends, and the receiver goes straight
+                // from the ThumbHash placeholder to the full image (see
+                // MessagePagingAdapter's image block / on-demand download).
                 byte[] mediaKey = null;
-                Uri uploadThumbUri = thumbUri;
-                Uri uploadFullUri  = fullUri;
-                java.io.File encThumbFile = null;
-                java.io.File encFullFile  = null;
-                boolean thumbInlined = false;
+                Uri uploadFullUri = fullUri;
+                java.io.File encFullFile = null;
 
                 String partnerUid = delegate.getPartnerUid();
                 if (partnerUid != null && !partnerUid.isEmpty()) {
                     try {
                         byte[] masterKey = com.callx.app.utils.MediaE2ECrypto.generateKey();
-                        byte[] fullSubKey  = com.callx.app.utils.MediaE2ECrypto
+                        byte[] fullSubKey = com.callx.app.utils.MediaE2ECrypto
                                 .deriveKey(masterKey, com.callx.app.utils.MediaE2ECrypto.PURPOSE_FULL);
-                        byte[] thumbSubKey = com.callx.app.utils.MediaE2ECrypto
-                                .deriveKey(masterKey, com.callx.app.utils.MediaE2ECrypto.PURPOSE_THUMB);
-                        java.io.File thumbEnc = new java.io.File(
-                                result.thumbFile.getParentFile(), result.thumbFile.getName() + ".enc");
                         java.io.File fullEnc = new java.io.File(
                                 result.fullFile.getParentFile(), result.fullFile.getName() + ".enc");
-                        com.callx.app.utils.MediaE2ECrypto.encryptFile(result.thumbFile, thumbEnc, thumbSubKey);
                         com.callx.app.utils.MediaE2ECrypto.encryptFile(result.fullFile, fullEnc, fullSubKey);
 
                         // File-hash check (WhatsApp-style): let the receiver
                         // confirm the downloaded ciphertext bytes are exactly
                         // what we encrypted, before it even tries to decrypt.
-                        byte[] fullDigest  = com.callx.app.utils.MediaE2ECrypto.sha256File(fullEnc);
+                        byte[] fullDigest = com.callx.app.utils.MediaE2ECrypto.sha256File(fullEnc);
 
-                        // WhatsApp-style inline thumbnail: fold the (small)
-                        // thumb ciphertext directly into the E2E envelope so
-                        // Cloudinary/the CDN only ever sees ONE upload (the
-                        // full-res file) instead of two correlatable blobs.
-                        // See MediaE2ECrypto's inline-thumb section for why.
-                        thumbInlined = com.callx.app.utils.MediaE2ECrypto.shouldInlineThumb(thumbEnc);
-                        String envelopeJson;
-                        if (thumbInlined) {
-                            byte[] thumbCipherBytes = readAllBytesCompat(thumbEnc);
-                            envelopeJson = com.callx.app.utils.MediaE2ECrypto.buildKeyEnvelopeJson(
-                                    masterKey, blurHash, fullDigest, thumbCipherBytes, true);
-                            thumbEnc.delete(); // embedded in envelope now — never uploaded
-                        } else {
-                            // Thumb too big to inline (rare — a heavily
-                            // detailed compressed thumbnail) — fall back to
-                            // uploading it separately, same as before, just
-                            // still with its own digest for verification.
-                            byte[] thumbDigest = com.callx.app.utils.MediaE2ECrypto.sha256File(thumbEnc);
-                            envelopeJson = com.callx.app.utils.MediaE2ECrypto
-                                    .buildKeyEnvelopeJson(masterKey, blurHash, fullDigest, thumbDigest);
-                        }
+                        String envelopeJson = com.callx.app.utils.MediaE2ECrypto
+                                .buildKeyEnvelopeJson(masterKey, blurHash, fullDigest, null);
                         pending.mediaKeyEnc = com.callx.app.utils.E2EEncryptionManager
                                 .getInstance(activity).encrypt(envelopeJson, partnerUid);
 
-                        // BlurHash now travels ONLY inside the encrypted envelope —
+                        // ThumbHash now travels ONLY inside the encrypted envelope —
                         // never set it in the clear on a media-E2E message.
                         pending.blurHash = null;
 
                         mediaKey = masterKey;
-                        encThumbFile = thumbInlined ? null : thumbEnc;
-                        encFullFile  = fullEnc;
-                        uploadThumbUri = thumbInlined ? null : Uri.fromFile(thumbEnc);
-                        uploadFullUri  = Uri.fromFile(fullEnc);
+                        encFullFile = fullEnc;
+                        uploadFullUri = Uri.fromFile(fullEnc);
                     } catch (Exception e) {
                         android.util.Log.w("ChatMediaController",
                                 "Media E2E encrypt failed, falling back to plaintext upload: " + e.getMessage());
-                        if (encThumbFile != null) encThumbFile.delete();
-                        if (encFullFile  != null) encFullFile.delete();
+                        if (encFullFile != null) encFullFile.delete();
                         mediaKey = null;
-                        thumbInlined = false;
-                        encThumbFile = null;
-                        encFullFile  = null;
-                        uploadThumbUri = thumbUri;
-                        uploadFullUri  = fullUri;
+                        encFullFile = null;
+                        uploadFullUri = fullUri;
                         pending.mediaKeyEnc = null;
                         pending.blurHash = blurHash;
                     }
@@ -1705,134 +1668,12 @@ public class ChatMediaController {
                     pending.blurHash = blurHash;
                 }
 
-                final byte[] finalMediaKey        = mediaKey;
-                final java.io.File finalEncThumb  = encThumbFile;
-                final java.io.File finalEncFull   = encFullFile;
-                // uploadFullUri is reassigned above (plaintext vs E2E-encrypted path),
-                // so it isn't effectively final — capture a final copy for the
-                // anonymous UploadCallback below, which needs it in onSuccess/onError.
-                final Uri finalUploadFullUri      = uploadFullUri;
-                final boolean isEncrypted         = (finalMediaKey != null);
-                final String thumbFolder          = isEncrypted ? "callx/e2e_thumb" : "callx/thumb";
-                final String thumbResourceType    = isEncrypted ? "raw" : "image";
+                final byte[] finalMediaKey      = mediaKey;
+                final java.io.File finalEncFull = encFullFile;
+                final Uri finalUploadFullUri    = uploadFullUri;
 
-                if (thumbInlined) {
-                    // Thumb already embedded in pending.mediaKeyEnc above —
-                    // nothing to upload for it, go straight to the full-res
-                    // image. thumbUrl stays null; the receiver decrypts the
-                    // preview from the envelope instead (see MessagePagingAdapter).
-                    reportUploadProgress(pending, 20); // thumb "phase" is instant
-                    uploadFullImage(finalUploadFullUri, null, result, pending, finalMediaKey, finalEncFull);
-                } else if (isEncrypted) {
-                    // E2E fallback case only: the encrypted thumb was too big to
-                    // inline (see MediaE2ECrypto#shouldInlineThumb) — still ciphertext
-                    // either way, so the parallel-race trade-off here is acceptable
-                    // (rare path, and a lost race just drops the low-res preview,
-                    // same as before).
-                    String thumbHint = result != null && result.thumbFile != null
-                            ? result.thumbFile.getName() : null;
-
-                    final java.util.concurrent.atomic.AtomicInteger remaining =
-                            new java.util.concurrent.atomic.AtomicInteger(2); // thumb + full
-                    final java.util.concurrent.atomic.AtomicReference<String> joinedThumbUrl =
-                            new java.util.concurrent.atomic.AtomicReference<>(null);
-                    final java.util.concurrent.atomic.AtomicBoolean settled =
-                            new java.util.concurrent.atomic.AtomicBoolean(false); // guards against double-finalize
-
-                    // Full-res upload — starts NOW, doesn't wait on the thumb.
-                    CloudinaryUploader.upload(activity, finalUploadFullUri,
-                            "callx/e2e_image", "raw",
-                            result != null && result.fullFile != null ? result.fullFile.getName() : null,
-                            new CloudinaryUploader.UploadCallback() {
-                                @Override public void onProgress(int percent) {
-                                    reportUploadProgress(pending, 20 + percent * 4 / 5); // full = remaining 80%
-                                }
-                                @Override public void onSuccess(CloudinaryUploader.Result fullResult) {
-                                    if (finalEncFull != null) finalEncFull.delete();
-                                    if (remaining.decrementAndGet() == 0 && settled.compareAndSet(false, true)) {
-                                        if (result != null) { result.thumbFile.delete(); result.fullFile.delete(); }
-                                        pending.mediaUrl     = fullResult.secureUrl;
-                                        pending.imageUrl     = fullResult.secureUrl;
-                                        pending.thumbnailUrl = joinedThumbUrl.get();
-                                        pending.fileSize     = fullResult.bytes;
-                                        finishImageUploadSuccess(pending);
-                                    } else {
-                                        // Full succeeded but thumb is still in flight — stash the
-                                        // result on the message now; the thumb callback (arriving
-                                        // right after) will find remaining==0 and finalize.
-                                        pending.mediaUrl = fullResult.secureUrl;
-                                        pending.imageUrl = fullResult.secureUrl;
-                                        pending.fileSize = fullResult.bytes;
-                                    }
-                                }
-                                @Override public void onError(String err) {
-                                    // Full-res failing is fatal regardless of the thumb's state.
-                                    if (finalEncFull != null) finalEncFull.delete();
-                                    if (settled.compareAndSet(false, true)) {
-                                        if (result != null) { result.thumbFile.delete(); result.fullFile.delete(); }
-                                        finishImageUploadFailure(pending, err);
-                                    }
-                                }
-                            });
-
-                    // Thumbnail upload — runs concurrently with the full-res one above.
-                    CloudinaryUploader.upload(activity, uploadThumbUri, "callx/e2e_thumb", "raw", thumbHint,
-                            new CloudinaryUploader.UploadCallback() {
-                                @Override public void onProgress(int percent) {
-                                    reportUploadProgress(pending, percent / 5); // thumb = first 20%
-                                }
-                                @Override public void onSuccess(CloudinaryUploader.Result thumbResult) {
-                                    if (finalEncThumb != null) finalEncThumb.delete();
-                                    joinedThumbUrl.set(thumbResult.secureUrl);
-                                    if (remaining.decrementAndGet() == 0 && settled.compareAndSet(false, true)) {
-                                        pending.thumbnailUrl = joinedThumbUrl.get();
-                                        if (result != null) { result.thumbFile.delete(); result.fullFile.delete(); }
-                                        finishImageUploadSuccess(pending);
-                                    }
-                                }
-                                @Override public void onError(String err) {
-                                    // Thumb upload failed — the message still sends with the
-                                    // full-res image, just no low-res preview (matches the old
-                                    // sequential fallback's behavior).
-                                    if (finalEncThumb != null) finalEncThumb.delete();
-                                    if (remaining.decrementAndGet() == 0 && settled.compareAndSet(false, true)) {
-                                        pending.thumbnailUrl = null;
-                                        if (result != null) { result.thumbFile.delete(); result.fullFile.delete(); }
-                                        finishImageUploadSuccess(pending);
-                                    }
-                                }
-                            });
-                } else {
-                    // PLAINTEXT (non-E2E) path — SEQUENTIAL, not parallel:
-                    // upload the small thumb to Cloudinary FIRST, and only start
-                    // the (much bigger) full-res upload once it's done. This is
-                    // the fix for the parallel-upload bandwidth-race bug: a slow
-                    // network could previously time out the tiny thumb while it
-                    // competed with the full-res upload, sending the message with
-                    // no thumbnailUrl even though the photo itself arrived fine.
-                    // Sequential removes the race entirely — the thumb is tiny,
-                    // so this costs one small extra round-trip, not a real delay
-                    // — while keeping storage exactly as before: thumb + full
-                    // both stay plaintext Cloudinary uploads, Firebase only ever
-                    // stores the resulting URLs (thumbnailUrl / mediaUrl), same
-                    // as the old architecture. No inline base64, no encryption.
-                    CloudinaryUploader.upload(activity, uploadThumbUri, thumbFolder, thumbResourceType, null,
-                            new CloudinaryUploader.UploadCallback() {
-                                @Override public void onProgress(int percent) {
-                                    reportUploadProgress(pending, percent / 5); // thumb = first 20%
-                                }
-                                @Override public void onSuccess(CloudinaryUploader.Result thumbResult) {
-                                    uploadFullImage(finalUploadFullUri, thumbResult.secureUrl, result, pending,
-                                            finalMediaKey, finalEncFull);
-                                }
-                                @Override public void onError(String err) {
-                                    // Thumb upload failed — send the message anyway with just
-                                    // the full-res image, same graceful fallback as before.
-                                    uploadFullImage(finalUploadFullUri, null, result, pending,
-                                            finalMediaKey, finalEncFull);
-                                }
-                            });
-                }
+                reportUploadProgress(pending, 20); // thumb "phase" is now instant — nothing to upload
+                uploadFullImage(finalUploadFullUri, null, result, pending, finalMediaKey, finalEncFull);
             }
             @Override public void onError(Exception e) {
                 android.util.Log.w("ChatMediaController", "Compression failed, uploading original", e);
@@ -2101,35 +1942,34 @@ public class ChatMediaController {
             }
             @Override public void onSuccess(VideoCompressor.Result vr) {
                 // ── ULTRA-FAST THUMBNAIL OPTIMIZATION ───────────────────────
-                // BlurHash for videos (parity fix): images already generate a
-                // BlurHash from the compressed thumb bitmap (see the image
-                // upload path above / reels' BlurHashBackfillWorker), but
-                // video previously sent NO BlurHash at all — the receiver's
-                // MessagePagingAdapter#vBlurHash code path existed and was
-                // ready to render it, it just always got null. So every
-                // video bubble sat on a flat grey placeholder until the
-                // Cloudinary thumbnail frame finished downloading.
+                // ThumbHash for videos (parity fix): images already generate a
+                // ThumbHash from the compressed thumb bitmap (see the image
+                // upload path above), but video previously sent NO placeholder
+                // hash at all — the receiver's MessagePagingAdapter#vBlurHash
+                // code path existed and was ready to render it, it just always
+                // got null. So every video bubble sat on a flat grey placeholder
+                // until the Cloudinary thumbnail frame finished downloading.
                 //
                 // Fix: decode the already-on-disk video thumb frame
                 // (vr.thumbFile — the same still-frame VideoCompressor pulls
                 // for the Cloudinary thumb upload, no extra decode/frame
                 // extraction cost) at a heavily downsampled size and encode
-                // it into the exact same BlurHash string format reels use.
-                // Cost: one inSampleSize=4 decode + ~1-2 ms of cosine-basis
-                // math, done once on a background thread already running
+                // it into a ThumbHash string (migrated from BlurHash — smaller
+                // + sharper). Cost: one inSampleSize=4 decode + a few ms of
+                // DCT math, done once on a background thread already running
                 // here — zero network calls, zero extra bytes beyond the
-                // ~20-30 char string already piggy-backing on the message
-                // doc/envelope like it does for images.
+                // ~30-45 char base64 string already piggy-backing on the
+                // message doc/envelope like it does for images.
                 String blurHash = null;
                 if (vr.thumbFile != null && vr.thumbFile.exists()) {
                     try {
                         android.graphics.BitmapFactory.Options opts =
                                 new android.graphics.BitmapFactory.Options();
-                        opts.inSampleSize = 4; // 1/4 res — plenty for a BlurHash
+                        opts.inSampleSize = 4; // 1/4 res — plenty for a thumbHash
                         android.graphics.Bitmap thumb = android.graphics.BitmapFactory
                                 .decodeFile(vr.thumbFile.getAbsolutePath(), opts);
                         if (thumb != null) {
-                            blurHash = com.callx.app.utils.BlurHash.encode(thumb, 4, 3);
+                            blurHash = com.callx.app.utils.ThumbHash.encode(thumb);
                             thumb.recycle();
                         }
                     } catch (Exception ignored) {}

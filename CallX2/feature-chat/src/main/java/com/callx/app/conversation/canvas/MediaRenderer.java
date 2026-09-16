@@ -115,19 +115,40 @@ final class MediaRenderer {
             if (cachedShader != null && cachedShaderBitmap == host.mediaBitmap && rectMatches) {
                 host.mediaBitmapPaint.setShader(cachedShader);
             } else {
-                float scale = Math.max(host.mediaRect.width() / host.mediaBitmap.getWidth(),
-                        host.mediaRect.height() / host.mediaBitmap.getHeight());
-                float dx = host.mediaRect.left - (host.mediaBitmap.getWidth() * scale - host.mediaRect.width()) / 2f;
-                float dy = host.mediaRect.top - (host.mediaBitmap.getHeight() * scale - host.mediaRect.height()) / 2f;
+                // Adaptive blur (only for the 32x32 ThumbHash placeholder,
+                // never a real decoded photo/video-frame): the bigger the
+                // bubble, the more this tiny bitmap has to be upscaled to
+                // fill mediaRect, and a fixed bilinear upscale alone starts
+                // looking soft-blocky rather than genuinely blurred once
+                // the bubble grows toward MEDIA_MAX_*_DP. Blurring a bit
+                // more at the source size before the upscale keeps small
+                // bubbles crisp-ish and makes big bubbles read as a proper
+                // soft preview instead. See blurPlaceholderForBubble() —
+                // this only runs on a genuine cache miss (bitmap or rect
+                // changed), same as the shader build itself, so it costs
+                // nothing on the 30-60fps redraw path.
+                android.graphics.Bitmap shaderSourceBitmap = host.mediaBitmapIsPlaceholder
+                        ? blurPlaceholderForBubble(host.mediaBitmap, host.mediaRect.width(), host.mediaRect.height())
+                        : host.mediaBitmap;
+
+                float scale = Math.max(host.mediaRect.width() / shaderSourceBitmap.getWidth(),
+                        host.mediaRect.height() / shaderSourceBitmap.getHeight());
+                float dx = host.mediaRect.left - (shaderSourceBitmap.getWidth() * scale - host.mediaRect.width()) / 2f;
+                float dy = host.mediaRect.top - (shaderSourceBitmap.getHeight() * scale - host.mediaRect.height()) / 2f;
                 host.mediaShaderMatrix.reset();
                 host.mediaShaderMatrix.setScale(scale, scale);
                 host.mediaShaderMatrix.postTranslate(dx, dy);
 
                 android.graphics.BitmapShader shader = new android.graphics.BitmapShader(
-                        host.mediaBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+                        shaderSourceBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
                 shader.setLocalMatrix(host.mediaShaderMatrix);
                 host.mediaBitmapPaint.setShader(shader);
 
+                // Identity check stays on the ORIGINAL bitmap (not the
+                // blurred copy) — that's the object ThumbHashPlaceholder's
+                // LruCache hands back for a given hash, so this is still
+                // the correct thing to compare against on the next draw()
+                // to decide whether a rebuild is needed at all.
                 cachedShader = shader;
                 cachedShaderBitmap = host.mediaBitmap;
                 cachedRectLeft = host.mediaRect.left;
@@ -579,6 +600,123 @@ final class MediaRenderer {
      * means this method can never draw a stray ring over content it
      * doesn't belong on.
      */
+    // ── Adaptive blur for the ThumbHash placeholder ──────────────────────
+    // Radius is interpolated by how much mediaRect upscales the 32x32
+    // placeholder: below MIN_UPSCALE (a small bubble, near
+    // MessageBubbleCanvasView.MEDIA_MIN_WIDTH_DP/MEDIA_MIN_HEIGHT_DP) no
+    // extra blur is added — plain bilinear upscale already looks fine at
+    // that scale. At/above MAX_UPSCALE (a big bubble, near
+    // MEDIA_MAX_WIDTH_DP/MEDIA_MAX_HEIGHT_DP) the radius caps at
+    // PLACEHOLDER_MAX_BLUR_RADIUS. Values tuned by feel, not measurement —
+    // same as TinyThumbBlurTransformation's radius=3 "correct" constant.
+    private static final int PLACEHOLDER_MIN_BLUR_RADIUS = 1;
+    private static final int PLACEHOLDER_MAX_BLUR_RADIUS = 5;
+    private static final float PLACEHOLDER_MIN_UPSCALE = 6f;
+    private static final float PLACEHOLDER_MAX_UPSCALE = 20f;
+
+    private static int adaptiveBlurRadiusFor(float bubbleWidthPx, float bubbleHeightPx, int sourceSize) {
+        if (sourceSize <= 0) return PLACEHOLDER_MIN_BLUR_RADIUS;
+        float upscale = Math.max(bubbleWidthPx, bubbleHeightPx) / (float) sourceSize;
+        float t = (upscale - PLACEHOLDER_MIN_UPSCALE) / (PLACEHOLDER_MAX_UPSCALE - PLACEHOLDER_MIN_UPSCALE);
+        t = Math.max(0f, Math.min(1f, t));
+        return Math.round(PLACEHOLDER_MIN_BLUR_RADIUS + t * (PLACEHOLDER_MAX_BLUR_RADIUS - PLACEHOLDER_MIN_BLUR_RADIUS));
+    }
+
+    /**
+     * Returns a blurred COPY of the small ThumbHash placeholder bitmap,
+     * radius scaled to how far mediaRect upscales it — never mutates `src`,
+     * since ThumbHashPlaceholder's LruCache hands out the very same decoded
+     * Bitmap instance to every bubble sharing that hash string; blurring in
+     * place would corrupt every other bubble currently showing it. Returns
+     * `src` unchanged when the bubble is small enough that the computed
+     * radius wouldn't do anything (the common case for a compact bubble).
+     */
+    private static android.graphics.Bitmap blurPlaceholderForBubble(android.graphics.Bitmap src,
+            float bubbleWidthPx, float bubbleHeightPx) {
+        int w = src.getWidth(), h = src.getHeight();
+        if (w <= 0 || h <= 0) return src;
+        int radius = adaptiveBlurRadiusFor(bubbleWidthPx, bubbleHeightPx, Math.max(w, h));
+        if (radius <= PLACEHOLDER_MIN_BLUR_RADIUS) return src;
+
+        android.graphics.Bitmap copy = src.copy(
+                src.getConfig() != null ? src.getConfig() : android.graphics.Bitmap.Config.ARGB_8888, true);
+        int[] pixels = new int[w * h];
+        copy.getPixels(pixels, 0, w, 0, 0, w, h);
+        int[] tmp = new int[Math.max(w, h)];
+        // 3-pass box blur ≈ Gaussian — same shape as TinyThumbBlurTransformation's,
+        // just inlined here since it operates directly on the already-32x32
+        // placeholder (no separate downscale step needed).
+        for (int pass = 0; pass < 3; pass++) {
+            placeholderBoxBlurHorizontal(pixels, tmp, w, h, radius);
+            placeholderBoxBlurVertical(pixels, tmp, w, h, radius);
+        }
+        copy.setPixels(pixels, 0, w, 0, 0, w, h);
+        return copy;
+    }
+
+    private static void placeholderBoxBlurHorizontal(int[] pixels, int[] tmp, int w, int h, int radius) {
+        for (int y = 0; y < h; y++) {
+            int rowStart = y * w;
+            long sumA = 0, sumR = 0, sumG = 0, sumB = 0;
+            for (int x = -radius; x <= radius; x++) {
+                int px = clampPx(x, 0, w - 1);
+                int c = pixels[rowStart + px];
+                sumA += (c >>> 24) & 0xFF;
+                sumR += (c >>> 16) & 0xFF;
+                sumG += (c >>> 8) & 0xFF;
+                sumB += c & 0xFF;
+            }
+            int count = radius * 2 + 1;
+            for (int x = 0; x < w; x++) {
+                tmp[x] = ((int) (sumA / count) << 24) | ((int) (sumR / count) << 16)
+                        | ((int) (sumG / count) << 8) | (int) (sumB / count);
+                int addX = clampPx(x + radius + 1, 0, w - 1);
+                int subX = clampPx(x - radius, 0, w - 1);
+                if (x + radius + 1 < w && x - radius >= 0) {
+                    int add = pixels[rowStart + addX];
+                    int sub = pixels[rowStart + subX];
+                    sumA += ((add >>> 24) & 0xFF) - ((sub >>> 24) & 0xFF);
+                    sumR += ((add >>> 16) & 0xFF) - ((sub >>> 16) & 0xFF);
+                    sumG += ((add >>> 8) & 0xFF) - ((sub >>> 8) & 0xFF);
+                    sumB += (add & 0xFF) - (sub & 0xFF);
+                }
+            }
+            System.arraycopy(tmp, 0, pixels, rowStart, w);
+        }
+    }
+
+    private static void placeholderBoxBlurVertical(int[] pixels, int[] tmp, int w, int h, int radius) {
+        for (int x = 0; x < w; x++) {
+            long sumA = 0, sumR = 0, sumG = 0, sumB = 0;
+            for (int y = -radius; y <= radius; y++) {
+                int py = clampPx(y, 0, h - 1);
+                int c = pixels[py * w + x];
+                sumA += (c >>> 24) & 0xFF;
+                sumR += (c >>> 16) & 0xFF;
+                sumG += (c >>> 8) & 0xFF;
+                sumB += c & 0xFF;
+            }
+            int count = radius * 2 + 1;
+            for (int y = 0; y < h; y++) {
+                tmp[y] = ((int) (sumA / count) << 24) | ((int) (sumR / count) << 16)
+                        | ((int) (sumG / count) << 8) | (int) (sumB / count);
+                if (y + radius + 1 < h && y - radius >= 0) {
+                    int add = pixels[clampPx(y + radius + 1, 0, h - 1) * w + x];
+                    int sub = pixels[clampPx(y - radius, 0, h - 1) * w + x];
+                    sumA += ((add >>> 24) & 0xFF) - ((sub >>> 24) & 0xFF);
+                    sumR += ((add >>> 16) & 0xFF) - ((sub >>> 16) & 0xFF);
+                    sumG += ((add >>> 8) & 0xFF) - ((sub >>> 8) & 0xFF);
+                    sumB += (add & 0xFF) - (sub & 0xFF);
+                }
+            }
+            for (int y = 0; y < h; y++) pixels[y * w + x] = tmp[y];
+        }
+    }
+
+    private static int clampPx(int v, int lo, int hi) {
+        return v < lo ? lo : (v > hi ? hi : v);
+    }
+
     void drawIndeterminateSpinnerOnly(Canvas canvas) {
         if (!host.mediaGated || !host.mediaDownloading || host.mediaDownloadProgress >= 0) return;
         float iconSize = MessageBubbleCanvasView.GROUP_GATE_PILL_ICON_DP * host.density;

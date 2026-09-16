@@ -60,6 +60,47 @@ public class CloudinaryUploader {
     }
 
     /**
+     * UX FIX (blur→crisp smoothness): derives a progressive-JPEG delivery
+     * URL for the FULL-resolution chat image (no resize/crop) — Cloudinary's
+     * {@code fl_progressive} flag re-encodes the JPEG with progressive scans
+     * on the CDN edge (generated once, then cached like any other on-the-fly
+     * transform). A progressive JPEG's first scans already paint the WHOLE
+     * frame at low detail, then each subsequent scan sharpens it further —
+     * so a partial download already has something coherent to decode instead
+     * of a half-drawn strip of pixels, which is what {@code MediaCache}'s
+     * partial-decode preview (see {@code downloadWithProgress}) relies on to
+     * go ThumbHash-blur → progressively sharper → full crisp image as the
+     * bytes arrive, instead of a single blur→crisp pop at 100%.
+     *
+     * Forces {@code f_jpg} (not {@code f_auto}/webp) because only JPEG has
+     * this scan-based progressive structure — WebP's (lossy) bitstream is
+     * single-pass, so a partial WebP file just fails to decode at all until
+     * the whole thing arrives. The trade-off is losing f_auto's WebP/AVIF
+     * bandwidth saving for this one delivery variant; only use this for the
+     * actual full-image download (where the sharpening-while-loading effect
+     * is visible and worth the extra bytes) — keep {@link #deriveThumbUrl}
+     * (f_auto/webp) for anything that loads near-instantly and would never
+     * show a visible partial-decode step anyway.
+     *
+     * Only meaningful for a PLAINTEXT image — never call this for a
+     * Media-E2E message's URL (that's encrypted raw bytes on Cloudinary,
+     * not a decodable image Cloudinary could re-transform).
+     *
+     * No-op (returns the original URL unchanged) for a non-Cloudinary URL,
+     * or a URL that doesn't contain "/upload/".
+     */
+    public static String deriveProgressiveFullUrl(String secureUrl) {
+        if (secureUrl == null || secureUrl.isEmpty()) return secureUrl;
+        String marker = "/upload/";
+        int idx = secureUrl.indexOf(marker);
+        if (idx < 0) return secureUrl;
+        String transform = "fl_progressive,f_jpg,q_auto/";
+        return secureUrl.substring(0, idx + marker.length())
+                + transform
+                + secureUrl.substring(idx + marker.length());
+    }
+
+    /**
      * PERF FIX (reels player — codec forcing): derives a video delivery URL
      * that pins Cloudinary's video codec transformation (vc_<codec>) so the
      * player pulls an AV1/HEVC-encoded stream instead of whatever default
