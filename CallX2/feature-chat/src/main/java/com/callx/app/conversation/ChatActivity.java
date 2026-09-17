@@ -270,7 +270,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     // pruneOldMessages/preloadRecentChats/controller inits for a screen the
     // user already left — so this Handler + the removeCallbacksAndMessages()
     // call in onDestroy() stay.
-    private final android.os.Handler deferredTaskHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    // OPTIMIZATION (isolation / regression-risk reduction): all "not needed
+    // on the very first frame" controller inits and background cleanup
+    // tasks now go through this shared scheduler instead of each being its
+    // own hand-rolled deferredTaskHandler.postDelayed(...) block with a
+    // copy-pasted isFinishing()/isDestroyed() guard. See
+    // ChatDeferredTaskScheduler's class doc for why. Adding a new deferred
+    // controller going forward = one deferredTasks.schedule(delayMs, ...)
+    // call, not a new postDelayed block.
+    private final com.callx.app.conversation.controllers.ChatDeferredTaskScheduler deferredTasks =
+            new com.callx.app.conversation.controllers.ChatDeferredTaskScheduler(
+                    () -> isFinishing() || isDestroyed());
 
     // NOTE (history): originally a last-line-of-defense against
     // RejectedExecutionException from a shut-down ioExecutor. ioExecutor is
@@ -937,7 +947,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // blockController, pinController, scheduledSendController,
         // recordingPreviewController, playbackPresenceController,
         // liveTypingController, screenshotNotifier: allocation moved into the
-        // existing 300ms/600ms deferredTaskHandler posts below (WhatsApp-style
+        // existing 300ms/600ms deferredTasks.schedule() calls below (WhatsApp-style
         // aggressive lazy init — was previously `new`'d here unconditionally
         // on every chat open even though their real work already waited).
         // reactionController, editHistoryController, pollController,
@@ -1070,17 +1080,15 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         });
 
         // Non-critical 300ms baad
-        deferredTaskHandler.postDelayed(() -> {
-            if (isFinishing() || isDestroyed()) return;
+        deferredTasks.schedule(300, () -> {
             getPlaybackPresenceController().init();
             getRecordingPreviewController().init();
             getLiveTypingController().init();
             getScreenshotNotifier().init();
-        }, 300);
+        });
 
         // Low-priority 600ms baad
-        deferredTaskHandler.postDelayed(() -> {
-            if (isFinishing() || isDestroyed()) return;
+        deferredTasks.schedule(600, () -> {
             getPinController().init();
             getScheduledSendController().init();
             // PERF: this used to be its own independent
@@ -1090,7 +1098,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             // becomes a no-op here if the avatar-fallback branch already
             // fetched (and populated) the exact same node earlier.
             fetchPartnerProfileOnce();
-        }, 600);
+        });
 
         // Background cleanup (10s baad — load se compete na kare)
         //
@@ -1110,8 +1118,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // used for this hand-written PagingSource: a DELETE in any other chat
         // would otherwise refresh this screen too. Current-chat writes now
         // trigger an explicit refresh through the Activity instead.
-        deferredTaskHandler.postDelayed(() -> {
-            if (isFinishing() || isDestroyed()) return;
+        deferredTasks.schedule(10_000L, () -> {
             com.callx.app.repository.ChatRepository repo =
                     com.callx.app.repository.ChatRepository.getInstance(getApplicationContext());
             repo.pruneOldMessagesIfLowStorage(getApplicationContext(), chatId, 2000);
@@ -1122,15 +1129,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             // vast majority of chats that never come close to the cap.
             repo.pruneOldMessagesIfOverHardCap(chatId,
                     com.callx.app.repository.ChatRepository.LOCAL_MESSAGE_HARD_CAP);
-        }, 10_000L);
-        deferredTaskHandler.postDelayed(() -> {
-            if (isFinishing() || isDestroyed()) return;
-            scheduleExpiryCleanup();
-        }, 10_000L);
-        deferredTaskHandler.postDelayed(() -> {
-            if (isFinishing() || isDestroyed()) return;
-            ChatRepository.getInstance(this).preloadRecentChats(chatId);
-        }, 3_000L);
+        });
+        deferredTasks.schedule(10_000L, this::scheduleExpiryCleanup);
+        deferredTasks.schedule(3_000L, () ->
+                ChatRepository.getInstance(this).preloadRecentChats(chatId));
     }
 
     @Override
@@ -1207,8 +1209,17 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      *      applies at window creation, which no longer happens here.
      *   3. Every already-bound message bubble — MessageBubbleCanvasView
      *      resolves bubble/text/tick colors from resources inside its own
-     *      bind path, so a plain notifyDataSetChanged() is enough to redraw
-     *      the whole visible chat with the new theme; no per-view API needed.
+     *      bind path, so re-running that bind path is enough to redraw the
+     *      chat with the new theme; no per-view API needed.
+     *
+     *      PERF: this used to call pagingAdapter.notifyDataSetChanged(),
+     *      which forces a full rebind of the ENTIRE message list on every
+     *      theme toggle — expensive and pointless on a long chat, since
+     *      only the rows currently on screen are visible to the user.
+     *      notifyThemeChanged() reuses the same visible-range-only payload
+     *      path already used for multi-select, so a theme flip repaints
+     *      just the on-screen bubbles (+ a small prefetch buffer) instead
+     *      of the whole conversation.
      */
     private void handlePossibleNightModeChange(android.content.res.Configuration newConfig) {
         int newNightMode = newConfig.uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
@@ -1226,7 +1237,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
             insetsController.setAppearanceLightNavigationBars(!isNight);
         }
 
-        if (pagingAdapter != null) pagingAdapter.notifyDataSetChanged();
+        if (pagingAdapter != null) pagingAdapter.notifyThemeChanged();
     }
 
     @Override
@@ -1710,7 +1721,7 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // and is never shut down here, so a late callback can no longer
         // crash with RejectedExecutionException the way it used to — this
         // cleanup is purely about not wasting cycles on a dead screen.
-        deferredTaskHandler.removeCallbacksAndMessages(null);
+        deferredTasks.cancelAll();
         writeFlushHandler.removeCallbacksAndMessages(null);
 
         // WHATSAPP-STYLE FIX: ioExecutor.shutdown() removed. It used to live

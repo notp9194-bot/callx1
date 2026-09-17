@@ -106,6 +106,10 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
 
     private static final int REELS_PAGE_SIZE = 12;
     private static final int REQUEST_TRIM_SOUND = 702;
+    // "Use in Video" flow: after the picked video comes back, it's routed through
+    // ReelPhotoMusicTrimActivity (same trim-with-live-preview screen the main
+    // upload wizard uses) instead of finishing straight to the editor.
+    private static final int REQUEST_PHOTO_MUSIC_TRIM = 703;
 
     /**
      * ULTRA optimization: buildStaticWaveform() used to re-run
@@ -189,6 +193,7 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
     private int     durationMs, bpm;
     private int     trimStartMs = 0, trimEndMs = 0;   // ✂ user-picked range from ReelMusicTrimActivity
     private int     pendingUseTarget = -1;             // -1=none  0=camera  1=gallery  (set by dialog before trim)
+    private android.net.Uri pendingVideoUri = null;     // ✅ NEW: video picked in "Use in Video", held while it goes through trim+mixer
     private boolean isSheet       = false;
     private boolean isSaved       = false;
     private boolean isPlaying     = false;
@@ -688,24 +693,77 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
                 && data != null && !isGone()) {
             android.net.Uri videoUri = data.getData();
             if (videoUri == null) return;
+            // ✅ CONNECT SCREEN #1: instead of jumping straight to the editor, send the
+            // video into ReelPhotoMusicTrimActivity — the same trim-with-live-preview
+            // screen the upload wizard's Add Music step uses — so the user trims against
+            // the actual picked clip, not blind. Result is picked up below (request
+            // REQUEST_PHOTO_MUSIC_TRIM) and only then does the editor open.
+            pendingVideoUri = videoUri;
+            ArrayList<String> noPhotos = new ArrayList<>();
+            Intent i = new Intent(requireContext(), com.callx.app.editor.ReelPhotoMusicTrimActivity.class);
+            i.putStringArrayListExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.EXTRA_PHOTO_URIS, noPhotos);
+            i.putExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.EXTRA_SOUND_ID,     soundId);
+            i.putExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.EXTRA_SOUND_TITLE,  soundTitle);
+            i.putExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.EXTRA_SOUND_ARTIST, artist);
+            i.putExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.EXTRA_SOUND_URL,    soundUrl);
+            i.putExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.EXTRA_SOUND_COVER,  coverUrl);
+            i.putExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.EXTRA_DURATION_MS,  durationMs);
+            if (trimEndMs > trimStartMs) {
+                i.putExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.EXTRA_INITIAL_START_MS, trimStartMs);
+                i.putExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.EXTRA_INITIAL_END_MS,   trimEndMs);
+            }
+            // Gallery always hands back a content:// URI here, never a file path.
+            i.putExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.EXTRA_VIDEO_URI, videoUri.toString());
+            i.putExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.EXTRA_VIDEO_IS_FILE_PATH, false);
+            startActivityForResult(i, REQUEST_PHOTO_MUSIC_TRIM);
+            return;
+        }
+
+        // ── Trim confirmed on the picked video (request REQUEST_PHOTO_MUSIC_TRIM) ──
+        if (requestCode == REQUEST_PHOTO_MUSIC_TRIM && resultCode == android.app.Activity.RESULT_OK
+                && data != null && !isGone()) {
+            if (pendingVideoUri == null) return;
+            android.net.Uri videoUri = pendingVideoUri;
+            pendingVideoUri = null;
+
+            int    rStart  = data.getIntExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.RESULT_START_MS, trimStartMs);
+            int    rEnd    = data.getIntExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.RESULT_END_MS,   trimEndMs);
+            String rId     = data.getStringExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.RESULT_SOUND_ID);
+            String rTitle  = data.getStringExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.RESULT_SOUND_TITLE);
+            String rArtist = data.getStringExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.RESULT_SOUND_ARTIST);
+            String rUrl    = data.getStringExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.RESULT_SOUND_URL);
+            String rCover  = data.getStringExtra(com.callx.app.editor.ReelPhotoMusicTrimActivity.RESULT_SOUND_COVER);
+
             Intent i = new Intent(requireContext(), com.callx.app.editor.ReelEditorActivity.class);
             i.putExtra(com.callx.app.editor.ReelEditorActivity.EXTRA_VIDEO_URI, videoUri.toString());
-            // ✅ FIX: gallery gives a content:// URI, not a file path. Without this,
+            // ✅ FIX (kept): gallery gives a content:// URI, not a file path. Without this,
             // ReelEditorActivity defaults EXTRA_IS_FILE_PATH to true and tries
             // new File("content://...") — invalid, so the player never loads
             // and the video shows blank in the edit screen.
             i.putExtra(com.callx.app.editor.ReelEditorActivity.EXTRA_IS_FILE_PATH, false);
-            if (!soundId.isEmpty())    i.putExtra("selected_sound_id",    soundId);
-            if (!soundTitle.isEmpty()) i.putExtra("selected_sound_title", soundTitle);
-            if (!soundUrl.isEmpty())   i.putExtra("selected_sound_url",   soundUrl);
-            if (!coverUrl.isEmpty())   i.putExtra("selected_sound_cover", coverUrl);
-            if (!artist.isEmpty())     i.putExtra("selected_sound_artist", artist);
-            if (trimEndMs > trimStartMs) {
-                i.putExtra("music_start_ms", trimStartMs);
-                i.putExtra("music_end_ms",   trimEndMs);
+            String fSoundId    = (rId     != null && !rId.isEmpty())     ? rId     : soundId;
+            String fSoundTitle = (rTitle  != null && !rTitle.isEmpty())  ? rTitle  : soundTitle;
+            String fSoundUrl   = (rUrl    != null && !rUrl.isEmpty())    ? rUrl    : soundUrl;
+            String fSoundCover = (rCover  != null && !rCover.isEmpty())  ? rCover  : coverUrl;
+            String fArtist     = (rArtist != null && !rArtist.isEmpty()) ? rArtist : artist;
+            if (fSoundId    != null && !fSoundId.isEmpty())    i.putExtra("selected_sound_id",     fSoundId);
+            if (fSoundTitle != null && !fSoundTitle.isEmpty()) i.putExtra("selected_sound_title",  fSoundTitle);
+            if (fSoundUrl   != null && !fSoundUrl.isEmpty())   i.putExtra("selected_sound_url",    fSoundUrl);
+            if (fSoundCover != null && !fSoundCover.isEmpty()) i.putExtra("selected_sound_cover",  fSoundCover);
+            if (fArtist     != null && !fArtist.isEmpty())     i.putExtra("selected_sound_artist", fArtist);
+            if (rEnd > rStart) {
+                i.putExtra("music_start_ms", rStart);
+                i.putExtra("music_end_ms",   rEnd);
             }
+            // ✅ CONNECT SCREEN #2: ReelEditorActivity already has an
+            // EXTRA_OPEN_AUDIO_MIXER flag that auto-opens ReelAudioMixerActivity once
+            // the player is ready ("Use in Video" gallery flow — see its onCreate /
+            // STATE_READY listener) but nothing was ever setting it. Setting it here
+            // is what actually wires the mixer screen into this flow.
+            i.putExtra(com.callx.app.editor.ReelEditorActivity.EXTRA_OPEN_AUDIO_MIXER, true);
             startActivity(i);
             if (onCloseListener != null) onCloseListener.run();
+            return;
         }
     }
 
@@ -2715,8 +2773,15 @@ public class SoundDetailFragment extends Fragment implements Player.Listener {
         AlertDialogStyler.showRounded(new androidx.appcompat.app.AlertDialog.Builder(requireContext())
             .setTitle(soundTitle.isEmpty() ? "Use this sound" : soundTitle)
             .setItems(new String[]{"🎥  Use in Camera", "🎬  Use in Video"}, (d, which) -> {
-                if (which == 0) showUseTypeDialog(0);
-                else            showUseTypeDialog(1);
+                if (which == 0) {
+                    showUseTypeDialog(0);
+                } else {
+                    // ✅ Video path: pick the video first, then the trim screen (with a
+                    // live preview of THIS video, not the old cover-art-only trimmer)
+                    // and the audio mixer run in sequence — same two "adjust music"
+                    // screens the reel-upload wizard's Add Music step already uses.
+                    openGalleryForVideo();
+                }
             }).setNegativeButton("Cancel", null).create());
     }
 

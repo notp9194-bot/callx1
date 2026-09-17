@@ -874,7 +874,13 @@ public class GroupChatActivity extends AppCompatActivity
             insetsController.setAppearanceLightNavigationBars(!isNight);
         }
 
-        if (pagingAdapter != null) pagingAdapter.notifyDataSetChanged();
+        // PERF: was notifyDataSetChanged() — forces a full rebind of the
+        // entire message list on every theme toggle. notifyThemeChanged()
+        // (added to MessagePagingAdapter alongside the same fix in
+        // ChatActivity) reuses the visible-range-only payload path already
+        // used for multi-select, so only on-screen bubbles (+ small
+        // prefetch buffer) get re-bound.
+        if (pagingAdapter != null) pagingAdapter.notifyThemeChanged();
     }
 
     @Override

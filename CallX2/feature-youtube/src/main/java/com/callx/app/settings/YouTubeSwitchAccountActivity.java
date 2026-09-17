@@ -92,7 +92,9 @@ public class YouTubeSwitchAccountActivity extends AppCompatActivity {
         }
 
         // Add account placeholder
-        Button btnAddAccount = findViewById(R.id.btn_yt_add_account);
+        // FIX (ClassCastException): btn_yt_add_account is a <LinearLayout> row
+        // in the XML, not a Button.
+        View btnAddAccount = findViewById(R.id.btn_yt_add_account);
         if (btnAddAccount != null) {
             btnAddAccount.setOnClickListener(v ->
                 Toast.makeText(this,

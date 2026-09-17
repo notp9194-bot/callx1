@@ -182,7 +182,11 @@ public class MusicTrackAdapter
         ImageView   ivCover;
         TextView    tvName, tvArtist, tvGenre, tvDuration, tvUsageCount,
                     tvTrendingBadge, tvOriginalBadge;
-        ImageButton btnPreview, btnSelect, btnSave;
+        // FIX (ClassCastException): btn_music_select is a <TextView> ("Use" pill)
+        // in item_music_track.xml, not an ImageButton — casting it to ImageButton
+        // crashed onCreateViewHolder every time this row was inflated.
+        TextView    btnSelect;
+        ImageButton btnPreview, btnSave;
 
         TrackVH(View v) {
             super(v);

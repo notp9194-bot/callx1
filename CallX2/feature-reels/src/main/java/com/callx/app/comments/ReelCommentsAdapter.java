@@ -274,6 +274,13 @@ public class ReelCommentsAdapter extends RecyclerView.Adapter<ReelCommentsAdapte
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View v = LayoutInflater.from(parent.getContext())
             .inflate(R.layout.item_reel_comment, parent, false);
+        // FIX (TransactionTooLargeException): each recycled comment row has its
+        // own view IDs (avatar, text, reaction chips), and RecyclerView will
+        // otherwise fold every distinct row's state into the parent's saved
+        // state as the list is scrolled. Rows never need to survive a config
+        // change/process death on their own — same pattern as chat's message
+        // row view holders.
+        v.setSaveEnabled(false);
         return new VH(v, this);
     }
 

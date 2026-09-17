@@ -608,6 +608,14 @@ public class ReelCommentFragment extends Fragment {
     private void bindViews(View root) {
         fragmentRoot    = root;
         rvComments      = root.findViewById(R.id.rv_comments);
+        // FIX (TransactionTooLargeException on backgrounding a reel with many
+        // comments loaded): rvComments never opted out of the default view
+        // hierarchy state save, so its whole subtree got frozen into the
+        // fragment's savedInstanceState bundle — the same class of bug already
+        // fixed for chat's rvMessages via setSaveEnabled(false). Comment scroll
+        // position isn't something we need restored across process death, so
+        // disable it here too.
+        if (rvComments != null) rvComments.setSaveEnabled(false);
         skeletonComments = root.findViewById(R.id.skeleton_comments);
         etComment       = root.findViewById(R.id.et_comment);
         btnSend         = root.findViewById(R.id.btn_send);

@@ -1835,6 +1835,19 @@ public class MessagePagingAdapter
         notifyItemRangeChanged(0, getItemCount());
     }
 
+    /**
+     * PERF: theme (night-mode) toggle — every bubble's colors need to be
+     * re-resolved (they're picked up automatically via
+     * ContextCompat.getColor()/theme attrs during a normal bind), but that
+     * only has to happen for rows actually on screen. Reuses the same
+     * visible-range-only path as multi-select instead of
+     * notifyDataSetChanged(), which would force a full-list rebind burst on
+     * every theme switch regardless of chat length.
+     */
+    public void notifyThemeChanged() {
+        notifyVisibleRangeChanged();
+    }
+
     public boolean isInMultiSelectMode() { return multiSelectMode; }
 
     public java.util.List<Message> getSelectedMessages() {

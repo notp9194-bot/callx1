@@ -2,6 +2,7 @@ package com.callx.app.conversation.controllers;
 
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.view.View;
 
 import com.callx.app.chat.databinding.ActivityChatBinding;
@@ -24,7 +25,17 @@ import com.google.firebase.database.ValueEventListener;
  */
 public class ChatLiveTypingController {
 
-    private static final long WRITE_DEBOUNCE_MS = 150;
+    // PERF: 150ms was a pure trailing debounce — it only skips a write while
+    // the gap between keystrokes is UNDER 150ms. Real typing cadence is
+    // usually slower than that (150-400ms/char is normal, more with
+    // thinking pauses), so in practice almost every keystroke still landed
+    // its own Firebase write once the timer caught up — no other feature in
+    // the app pushes on every keystroke like this. TRAILING_DEBOUNCE_MS
+    // keeps the same "feels live" responsiveness once typing pauses;
+    // MIN_WRITE_INTERVAL_MS adds a floor so a fast, uninterrupted typing
+    // burst can't write more often than that, regardless of per-char gaps.
+    private static final long TRAILING_DEBOUNCE_MS = 150;
+    private static final long MIN_WRITE_INTERVAL_MS = 400;
     private static final String NODE = "typingContent";
 
     private final ChatActivityDelegate delegate;
@@ -32,6 +43,8 @@ public class ChatLiveTypingController {
 
     private ValueEventListener partnerPreviewListener;
     private String lastWrittenValue = null;
+    private String latestText = null;
+    private long lastWriteAtMs = 0L;
     private Runnable pendingWrite;
 
     public ChatLiveTypingController(ChatActivityDelegate delegate) {
@@ -63,11 +76,19 @@ public class ChatLiveTypingController {
     /** Call this from the input bar's TextWatcher.onTextChanged, alongside
      *  the existing presenceController.setOurTypingStatus() call. */
     public void onOurTextChanged(String currentText) {
+        latestText = currentText;
         if (pendingWrite != null) handler.removeCallbacks(pendingWrite);
-        pendingWrite = () -> writeOurPreview(currentText);
-        // Small debounce so we don't spam Firebase on every keystroke
-        // while still feeling instant/live to the partner.
-        handler.postDelayed(pendingWrite, WRITE_DEBOUNCE_MS);
+        // PERF: throttle + trailing debounce. If we're already inside the
+        // MIN_WRITE_INTERVAL_MS floor since the last actual write, push the
+        // next attempt out to when that floor expires (capped so it's never
+        // shorter than the normal trailing debounce) instead of firing
+        // right on the 150ms mark like before. A continuous fast-typing
+        // burst now writes at most once every ~400ms; a normal pause still
+        // reflects the latest text within 150ms, same as before.
+        long sinceLastWrite = SystemClock.elapsedRealtime() - lastWriteAtMs;
+        long delay = Math.max(TRAILING_DEBOUNCE_MS, MIN_WRITE_INTERVAL_MS - sinceLastWrite);
+        pendingWrite = () -> writeOurPreview(latestText);
+        handler.postDelayed(pendingWrite, delay);
     }
 
     /** Call on send / clear-input so the partner's box empties immediately
@@ -77,14 +98,21 @@ public class ChatLiveTypingController {
             handler.removeCallbacks(pendingWrite);
             pendingWrite = null;
         }
-        writeOurPreview("");
+        // Deliberately bypasses the throttle floor — clearing should always
+        // be instant, never delayed behind MIN_WRITE_INTERVAL_MS.
+        writeOurPreviewNow("");
     }
 
     private void writeOurPreview(String text) {
+        writeOurPreviewNow(text);
+    }
+
+    private void writeOurPreviewNow(String text) {
         if (delegate.getChatId() == null || delegate.getCurrentUid() == null) return;
         // Avoid redundant writes (e.g. repeated empty-string clears).
         if (text != null && text.equals(lastWrittenValue)) return;
         lastWrittenValue = text;
+        lastWriteAtMs = SystemClock.elapsedRealtime();
         contentRef().setValue(text == null ? "" : text);
     }
 

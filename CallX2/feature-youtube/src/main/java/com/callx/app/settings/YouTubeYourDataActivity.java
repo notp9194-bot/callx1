@@ -44,7 +44,9 @@ public class YouTubeYourDataActivity extends AppCompatActivity {
         loadStats();
 
         // Request data download
-        Button btnRequestData = findViewById(R.id.btn_yt_request_data);
+        // FIX (ClassCastException): btn_yt_request_data is a <LinearLayout> row
+        // in the XML, not a Button.
+        View btnRequestData = findViewById(R.id.btn_yt_request_data);
         if (btnRequestData != null) {
             btnRequestData.setOnClickListener(v -> {
                 new AlertDialog.Builder(this)
