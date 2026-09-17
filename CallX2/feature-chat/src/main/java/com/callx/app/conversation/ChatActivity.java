@@ -130,7 +130,7 @@ import java.util.concurrent.Executor;
  *   • ChatMessageSender      — local-first send, Firebase push, pending retry
  *
  * Architecture:
- *   Firebase RT DB ──ChildEventListener──► Room DB (auto-invalidates PagingSource)
+ *   Firebase RT DB ──ChildEventListener──► Room DB ──explicit current-chat refresh──► PagingSource
  *   Pager<MessageCursor, MessageEntity> (keyset) ──LiveData──► PagingAdapter ──► RecyclerView
  */
 public class ChatActivity extends AppCompatActivity implements ChatActivityDelegate,
@@ -1106,14 +1106,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         // floor (see keepCountWhenLow below) when it does trigger.
         //
         // BUG FIX: pruneOldMessages() pehle turant (no delay) chal raha tha
-        // har chat open pe. Yeh `messages` table pe ek DELETE query hai —
-        // Room ka invalidation tracker DELETE dekh ke active PagingSource
-        // (jo isi table ko observe karta hai) ko invalidate kar deta tha,
-        // jisse Paging3 dobara query + re-render karta tha. Result: chat
-        // already Room me cached hone ke bawajood, HAR baar khulne pe
-        // messages visibly "reload" hote dikhte the. Ab yeh bhi 10s baad
-        // chalega — jab tak user chat padh raha hota hai, list ko disturb
-        // nahi karega.
+        // har chat open pe. A table-wide Room observer is deliberately not
+        // used for this hand-written PagingSource: a DELETE in any other chat
+        // would otherwise refresh this screen too. Current-chat writes now
+        // trigger an explicit refresh through the Activity instead.
         deferredTaskHandler.postDelayed(() -> {
             if (isFinishing() || isDestroyed()) return;
             com.callx.app.repository.ChatRepository repo =
@@ -3323,12 +3319,12 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
                 new com.callx.app.db.paging.MessageRemoteMediator(
                         chatRepository, chatId, PAGE_SIZE,
                         this::onHistoryPrependStarted,
+                        this::onHistoryPageInserted,
                         this::onHistoryPrependFinished),
                 () -> {
                     com.callx.app.db.paging.MessageKeysetPagingSource src =
                             new com.callx.app.db.paging.MessageKeysetPagingSource(
-                                    db.getInvalidationTracker(), db.messageDao(), chatId, PAGE_SIZE,
-                                    this::onHistoryMessagesInvalidated);
+                                    db.messageDao(), chatId, PAGE_SIZE);
                     // FIX: carry the previous generation's last-known anchor
                     // forward — see MessageKeysetPagingSource#lastKnownAnchor's
                     // doc. Without this, back-to-back sends (e.g. an image
@@ -3421,13 +3417,10 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      * insertMessage("pending"), updateStatus("sent"), and every incoming
      * flushPendingRoomWrites()), which is what made the whole chat look
      * like it was rebuilding on every send/receive. A bare no-op fixed
-     * that but silently broke live updates entirely, since
-     * MessageKeysetPagingSource is a hand-written RxPagingSource (not a
-     * Room-generated one) — Room's InvalidationTracker never automatically
-     * refreshes it, so NOTHING was telling Paging3 to reload after a write
-     * once the manual teardown was removed. New messages only appeared
-     * after leaving and reopening the chat, which rebuilds the whole
-     * pipeline fresh in onCreate().
+     * that but silently broke live updates entirely. The hand-written
+     * MessageKeysetPagingSource is now refreshed explicitly by this Activity
+     * for current-chat writes and by MessageRemoteMediator for older-page
+     * inserts.
      *
      * The actual fix: call invalidate() on the specific PagingSource
      * instance that's currently live (see reanchorPagingToBottom() below)
@@ -3443,10 +3436,9 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
      */
     @Override
     public boolean severPagingIfAtBottom() {
-        // The hand-written keyset source does not observe Room invalidations by
-        // itself. Return true whenever a live source exists so writes received
-        // while the user is reading history also become visible; the refresh
-        // below preserves the current anchor instead of forcing the tail.
+        // Return true whenever a live source exists so current-chat writes
+        // receive one explicit, debounced refresh; unrelated Room writes
+        // never reach this source.
         return currentKeysetSource != null;
     }
 
@@ -4450,6 +4442,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
     }
 
     static Message entityToModel(MessageEntity e) {
+        // PERF (item 3): skip the full field-copy + JSON re-parse + Canvas
+        // precompute below entirely when this exact message hasn't actually
+        // changed since it was last mapped — see MessageModelCache's class
+        // doc for why this matters on every anchor-REFRESH, not just once.
+        return com.callx.app.utils.MessageModelCache.getOrMap(e, ChatActivity::buildModelUncached);
+    }
+
+    private static Message buildModelUncached(MessageEntity e) {
         Message m = com.callx.app.utils.MessageEntityMapper.toModel(e);
         // PERF: kick off background StaticLayout precompute here — this
         // method already runs on ioExecutor (see PagingDataTransforms.map
@@ -6355,12 +6355,14 @@ public class ChatActivity extends AppCompatActivity implements ChatActivityDeleg
         }
     }
 
-    private void onHistoryMessagesInvalidated() {
-        // This callback comes from Room's invalidation executor, after the
-        // older Firebase page has actually been inserted. It prevents an
-        // unrelated onPagesUpdated event from restoring the viewport too
-        // early, while the mediator request is still in flight.
-        if (historyPrependInProgress) historyRoomInvalidated = true;
+    private void onHistoryPageInserted() {
+        // Room's table-wide invalidation observer was intentionally removed:
+        // it refreshed this chat for writes belonging to every other chat.
+        // The mediator knows this page belongs to this chat, so invalidate
+        // only the currently visible chat source explicitly.
+        historyRoomInvalidated = true;
+        com.callx.app.db.paging.MessageKeysetPagingSource src = currentKeysetSource;
+        if (src != null) src.invalidate();
     }
 
     private void onHistoryPrependFinished(int insertedCount) {

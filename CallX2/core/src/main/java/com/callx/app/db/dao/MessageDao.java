@@ -384,11 +384,16 @@ public interface MessageDao {
      * a locally deleted row, roll back a newer edit, or move a read/delivered
      * tick backwards. This is the conflict boundary used by every buffered
      * realtime write and by delta sync.
+     *
+     * The conflict resolution still happens per row, but the final writes are
+     * sent to Room as one bulk insert. That keeps the merge semantics intact
+     * while avoiding one generated INSERT statement per Firebase callback.
      */
     @WorkerThread
     @Transaction
     default void mergeIncomingMessages(List<MessageEntity> messages) {
         if (messages == null) return;
+        java.util.ArrayList<MessageEntity> resolved = new java.util.ArrayList<>(messages.size());
         for (MessageEntity incoming : messages) {
             if (incoming == null || incoming.id == null) continue;
             MessageEntity local = getMessageById(incoming.id);
@@ -438,7 +443,10 @@ public interface MessageDao {
                 incoming.nextRetryAt = Math.max(local.nextRetryAt, incoming.nextRetryAt);
                 if (incoming.lastError == null) incoming.lastError = local.lastError;
             }
-            insertMessage(incoming);
+            resolved.add(incoming);
+        }
+        if (!resolved.isEmpty()) {
+            insertMessages(resolved);
         }
     }
 
@@ -511,7 +519,7 @@ public interface MessageDao {
     @WorkerThread
     @Transaction
     default void applyBufferedChanges(List<MessageEntity> upserts, List<String> removedIds, List<String> readIds) {
-         if (upserts != null && !upserts.isEmpty()) mergeIncomingMessages(upserts);
+        if (upserts != null && !upserts.isEmpty()) mergeIncomingMessages(upserts);
         if (removedIds != null && !removedIds.isEmpty()) softDeleteAll(removedIds);
         if (readIds != null && !readIds.isEmpty()) markReadBulk(readIds);
     }

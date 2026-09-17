@@ -9,12 +9,12 @@ could succeed while the currently open screen kept the old paging window. The
 new page only became visible after reopening the chat, which caused the
 "40 messages, then a few more after every reopen" behaviour after reinstall.
 
-`MessageKeysetPagingSource` now registers a Room `InvalidationTracker` observer
-for the `messages` table and invalidates its current Paging 3 generation after
-the mediator inserts an older page. Paging immediately creates a new generation
-from Room, so scrolling upward can show each older page in the same open chat.
-The observer removes itself when the PagingSource is invalidated to avoid
-leaking old chat screens.
+`MessageKeysetPagingSource` is refreshed explicitly for the active chat instead
+of registering a broad Room `InvalidationTracker` observer for the entire
+`messages` table. Current-chat writes use the existing debounced Activity
+refresh path, while `MessageRemoteMediator` invalidates the source only after
+it inserts an older page for this chat. Unrelated chats can therefore update
+without rebuilding the visible chat's Paging generation.
 
 ## Viewport jump fix
 
@@ -30,5 +30,14 @@ screen back down.
 Both the active `messages/{chatId}` path and the legacy
 `chats/{chatId}/messages` path include the `seq` index alongside `timestamp`.
 The pagination fix does not loosen read or write permissions.
+
+## Firebase → Room batch sync
+
+Realtime Firebase add/change/remove callbacks are buffered briefly and applied
+in one Room transaction. Conflict resolution still runs per message, but the
+resolved rows now use one bulk `insertMessages()` call instead of one
+`insertMessage()` SQL write per callback. Bulk soft-deletes and mark-read
+updates remain in the same transaction, reducing invalidations and RecyclerView
+diff/layout passes during an initial message burst.
 
 No Gradle build or app test was run, as requested.

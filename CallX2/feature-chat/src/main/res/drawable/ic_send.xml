@@ -1,16 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- iOS-style send arrow (iMessage-style upward arrow) — a single filled,
-     optically-centered path instead of a stroked paper-plane, so it stays
-     crisp and unmistakable at the small size it renders inside the filled
-     accent circle. Solid fill is also cheaper to rasterize into the shared
-     IconTintCache bitmap than a multi-path stroke outline. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="@color/white">
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M12,3.2 L19.3,12.2 L14.6,12.2 L14.6,20.4 L9.4,20.4 L9.4,12.2 L4.7,12.2 Z"/>
+<path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M22,2L11,13"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+<path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M22,2l-7,20l-4,-9l-9,-4z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
 </vector>

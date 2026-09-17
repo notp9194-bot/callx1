@@ -28,8 +28,8 @@ import io.reactivex.rxjava3.core.Single;
  *   2. We read the oldest timestamp currently loaded (state's first item)
  *   3. We ask ChatRepository to pull one more page OLDER than that timestamp
  *      straight from Firebase and insert it into Room
- *   4. Room's invalidation tracker fires → MessageKeysetPagingSource
- *      automatically re-queries → Paging3 delivers the new page to the UI
+ *   4. The mediator explicitly invalidates this chat's current source
+ *      → Paging3 re-queries → the new page reaches the UI
  *
  * REFRESH and APPEND are no-ops here on purpose:
  *   - REFRESH: syncMessagesDelta() already keeps the newest page fresh via
@@ -54,28 +54,31 @@ public class MessageRemoteMediator extends RxRemoteMediator<MessageCursor, Messa
      * invalidated by the incoming older page.
      */
     private final Runnable onPrependStarted;
+    private final Runnable onPageInserted;
     private final PrependFinishedCallback onPrependFinished;
 
     public MessageRemoteMediator(ChatRepository repository, String chatId, int pageSize) {
-        this(repository, chatId, pageSize, null, null);
+        this(repository, chatId, pageSize, null, null, null);
     }
 
     public MessageRemoteMediator(ChatRepository repository,
                                  String chatId,
                                  int pageSize,
                                  Runnable onPrependStarted) {
-        this(repository, chatId, pageSize, onPrependStarted, null);
+        this(repository, chatId, pageSize, onPrependStarted, null, null);
     }
 
     public MessageRemoteMediator(ChatRepository repository,
                                  String chatId,
                                  int pageSize,
                                  Runnable onPrependStarted,
+                                 Runnable onPageInserted,
                                  PrependFinishedCallback onPrependFinished) {
         this.repository = repository;
         this.chatId = chatId;
         this.pageSize = pageSize;
         this.onPrependStarted = onPrependStarted;
+        this.onPageInserted = onPageInserted;
         this.onPrependFinished = onPrependFinished;
     }
 
@@ -120,6 +123,9 @@ public class MessageRemoteMediator extends RxRemoteMediator<MessageCursor, Messa
             // local table that just hasn't caught up.
             return repository.fetchInitialMessagesFromFirebase(chatId, pageSize)
                     .map(insertedCount -> {
+                        if (onPageInserted != null && insertedCount > 0) {
+                            onPageInserted.run();
+                        }
                         if (onPrependFinished != null && insertedCount == 0) {
                             onPrependFinished.onPrependFinished(0);
                         }
@@ -137,6 +143,9 @@ public class MessageRemoteMediator extends RxRemoteMediator<MessageCursor, Messa
                         pageSize)
                 .map(insertedCount -> {
                     boolean endReached = insertedCount < pageSize;
+                    if (onPageInserted != null && insertedCount > 0) {
+                        onPageInserted.run();
+                    }
                     if (onPrependFinished != null && insertedCount == 0) {
                         onPrependFinished.onPrependFinished(0);
                     }

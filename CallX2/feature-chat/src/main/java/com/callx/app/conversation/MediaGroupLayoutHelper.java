@@ -79,8 +79,25 @@ public class MediaGroupLayoutHelper {
     public static void populate(Context ctx, LinearLayout container,
                                 List<Map<String, Object>> items, String caption,
                                 String chatId, String messageId) {
+        if (items == null || items.isEmpty()) { container.removeAllViews(); return; }
+
+        // PERF: populate() used to rebuild this ENTIRE subtree — every
+        // ImageView/FrameLayout/TextView/GradientDrawable and every click
+        // listener closure — from scratch on EVERY RecyclerView bind of a
+        // multi-image message, even a plain scroll-recycle rebind of the
+        // exact same still-unchanged message (e.g. this ViewHolder simply
+        // re-entering the viewport, or a full onBindViewHolder triggered by
+        // something unrelated to this grid). A multi_media message's items
+        // and caption never change after send (edits/reactions/ticks/
+        // deletion are handled by other paths/view types, never by
+        // rebuilding this grid) — so if this exact container is already
+        // showing exactly this content, skip the rebuild entirely instead
+        // of tearing it down and reconstructing it identically.
+        String fp = fingerprintOf(messageId, items, caption);
+        if (fp.equals(container.getTag())) return;
+        container.setTag(fp);
+
         container.removeAllViews();
-        if (items == null || items.isEmpty()) return;
 
         float d   = ctx.getResources().getDisplayMetrics().density;
         int gapPx = dp(GAP, d);
@@ -731,5 +748,23 @@ public class MediaGroupLayoutHelper {
 
     private static String safeStr(Object o) {
         return (o instanceof String) ? (String) o : "";
+    }
+
+    // PERF: cheap "does this container already show exactly this content"
+    // check for populate()'s rebuild-skip above. Built only from what
+    // actually determines the grid's visual content (message id, item
+    // count, each item's url/thumbUrl/mediaType, caption) — deliberately
+    // NOT from anything that changes independently of this grid (ticks,
+    // reactions), so those genuinely-unrelated rebinds correctly still hit
+    // the skip path instead of forcing a rebuild.
+    private static String fingerprintOf(String messageId, List<Map<String, Object>> items, String caption) {
+        StringBuilder sb = new StringBuilder(64 + items.size() * 24);
+        sb.append(messageId).append('\u0001').append(items.size()).append('\u0001').append(caption);
+        for (Map<String, Object> item : items) {
+            sb.append('\u0001').append(safeStr(item.get("url")))
+              .append('\u0002').append(safeStr(item.get("thumbUrl")))
+              .append('\u0002').append(safeStr(item.get("mediaType")));
+        }
+        return sb.toString();
     }
 }

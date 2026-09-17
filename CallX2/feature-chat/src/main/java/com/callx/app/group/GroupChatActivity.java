@@ -1933,6 +1933,14 @@ public class GroupChatActivity extends AppCompatActivity
     // ─────────────────────────────────────────────────────────────────────
 
     static Message entityToModel(MessageEntity e) {
+        // PERF (item 3): skip the full field-copy + JSON re-parse + Canvas
+        // precompute below entirely when this exact message hasn't actually
+        // changed since it was last mapped — shared cache, same reasoning
+        // as 1:1 ChatActivity — see MessageModelCache's class doc.
+        return com.callx.app.utils.MessageModelCache.getOrMap(e, GroupChatActivity::buildModelUncached);
+    }
+
+    private static Message buildModelUncached(MessageEntity e) {
         Message m           = new Message();
         m.id                = e.id;
         m.messageId         = e.id;
