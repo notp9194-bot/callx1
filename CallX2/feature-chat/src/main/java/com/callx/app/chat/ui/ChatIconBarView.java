@@ -72,6 +72,7 @@ public class ChatIconBarView extends View {
     private Paint circlePaint;
     private Paint pressPaint;
     private Paint iconPaint;
+    private Paint glossPaint;
     private final Rect iconDestRect = new Rect(); // reused every drawIcon() call — no per-frame alloc
 
     // Expand/collapse (attach+camera) state
@@ -124,6 +125,17 @@ public class ChatIconBarView extends View {
         pressPaint.setColor(Color.WHITE);
         pressPaint.setAlpha(40);
         iconPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+
+        // iOS-style glass sheen on the mic/send circle — a single static
+        // Shader built once here (slotSizePx is fixed for the view's whole
+        // lifetime), so painting it in onDraw is just one drawOval() call
+        // with no blur, no per-frame allocation, and no measurable cost.
+        glossPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        float r = slotSizePx / 2f;
+        glossPaint.setShader(new android.graphics.LinearGradient(
+                -r * 0.55f, -r * 0.85f, -r * 0.05f, -r * 0.1f,
+                0x40FFFFFF, 0x00FFFFFF,
+                android.graphics.Shader.TileMode.CLAMP));
     }
 
     // ── PERF (v_jank4): icon caching ──────────────────────────────────────
@@ -201,6 +213,14 @@ public class ChatIconBarView extends View {
         int cy = micSendRect.centerY();
         circlePaint.setAlpha(255);
         canvas.drawCircle(cx, cy, slotSizePx / 2f, circlePaint);
+
+        // Extremely subtle top-left highlight for a soft glass look —
+        // static shader, one cheap oval draw, no blur.
+        canvas.save();
+        canvas.translate(cx, cy);
+        canvas.drawOval(-slotSizePx * 0.32f, -slotSizePx * 0.40f,
+                slotSizePx * 0.10f, -slotSizePx * 0.02f, glossPaint);
+        canvas.restore();
 
         if (sendFraction < 0.995f) {
             int alpha = Math.round((1f - sendFraction) * 255);
