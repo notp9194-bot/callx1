@@ -56,19 +56,19 @@ public final class MessageModelCache {
     // unbounded history for a session that visits many chats.
     private static final int MAX_ENTRIES = 1500;
 
-    private static final class Entry {
+    private static final class CacheEntry {
         final String fingerprint;
         final Message message;
-        Entry(String fingerprint, Message message) {
+        CacheEntry(String fingerprint, Message message) {
             this.fingerprint = fingerprint;
             this.message = message;
         }
     }
 
-    private static final LinkedHashMap<String, Entry> CACHE =
-            new LinkedHashMap<String, Entry>(256, 0.75f, true) {
+    private static final LinkedHashMap<String, CacheEntry> CACHE =
+            new LinkedHashMap<String, CacheEntry>(256, 0.75f, true) {
                 @Override
-                protected boolean removeEldestEntry(Map.Entry<String, Entry> eldest) {
+                protected boolean removeEldestEntry(Map.Entry<String, CacheEntry> eldest) {
                     return size() > MAX_ENTRIES;
                 }
             };
@@ -113,14 +113,14 @@ public final class MessageModelCache {
         if (e == null || e.id == null) return mapper.apply(e);
         String fp = fingerprintOf(e);
         synchronized (CACHE) {
-            Entry cached = CACHE.get(e.id);
+            CacheEntry cached = CACHE.get(e.id);
             if (cached != null && cached.fingerprint.equals(fp)) {
                 return cached.message;
             }
         }
         Message m = mapper.apply(e);
         synchronized (CACHE) {
-            CACHE.put(e.id, new Entry(fp, m));
+            CACHE.put(e.id, new CacheEntry(fp, m));
         }
         return m;
     }
