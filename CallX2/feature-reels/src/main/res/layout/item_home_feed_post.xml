@@ -55,6 +55,20 @@
             android:scaleType="centerCrop"
             android:background="#111111"/>
 
+        <!-- 🐛 FIX: header text (username/audio, hardcoded #FFFFFF) had no
+             scrim behind it — on a bright/white video the white text became
+             unreadable. gradient_top_to_trans already existed in drawable/
+             ("used as overlay on video headers") but was never actually
+             wired in here. Added as a plain View, BEFORE overlay_post_header
+             in this FrameLayout so it paints behind it (draw order), sized
+             to cover the avatar+text block regardless of video content. -->
+        <View
+            android:id="@+id/v_post_header_scrim"
+            android:layout_width="match_parent"
+            android:layout_height="140dp"
+            android:layout_gravity="top"
+            android:background="@drawable/gradient_top_to_trans"/>
+
         <!-- ── Overlaid header strip at top of video ── -->
         <!-- PERF: was a horizontal LinearLayout with THREE layout_weight="1"
              siblings (ll_post_owner_row, stub_home_collab_row, and — one
