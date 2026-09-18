@@ -1,10 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Dark gradient at top fading to transparent — used as overlay on video headers -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <gradient
-        android:type="linear"
-        android:angle="270"
-        android:startColor="#CC000000"
-        android:endColor="#00000000"/>
-</shape>
+<!-- Flat 20% black scrim behind the home-feed reel header, fading to
+     transparent only in the last 5dp (bottom) so the cut isn't abrupt.
+     Used as background of v_post_header_scrim (85dp: 80dp header + 5dp fade). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Flat 20% black — covers everything except the bottom 5dp -->
+    <item android:bottom="5dp">
+        <shape android:shape="rectangle">
+            <solid android:color="#33000000"/>
+        </shape>
+    </item>
+
+    <!-- Bottom 5dp only — fades 20% black to fully transparent -->
+    <item android:top="80dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="linear"
+                android:angle="270"
+                android:startColor="#33000000"
+                android:endColor="#00000000"/>
+        </shape>
+    </item>
+
+</layer-list>
